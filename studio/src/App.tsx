@@ -3,7 +3,7 @@ import { Component, type ComponentType, lazy, type ReactNode, Suspense, useEffec
 import { DashboardView } from './dashboard/DashboardView.tsx';
 import { Logo } from './Logo.tsx';
 import { Link } from './Providers.tsx';
-import { navigateAtom, type Route, routeAtom, routes } from './state.ts';
+import { labAtom, navigateAtom, type Route, routeAtom, routes } from './state.ts';
 import { StudioView } from './studio/StudioView.tsx';
 import { cx, Muted } from './ui.tsx';
 
@@ -13,6 +13,7 @@ const LazyDocs = lazy(() => loadDocs().then(() => ({ default: Docs! })));
 if (typeof requestIdleCallback === 'function') requestIdleCallback(() => void loadDocs());
 else setTimeout(() => void loadDocs(), 1);
 const DocsView = () => (Docs ? <Docs /> : <LazyDocs />);
+const LabView = lazy(() => import('./lab/LabView.tsx'));
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   override state: { error?: Error } = {};
@@ -86,6 +87,7 @@ const Header = ({ route }: { route: Route | undefined }) => (
 
 export const App = () => {
   const route = useAtomValue(routeAtom);
+  const lab = useAtomValue(labAtom);
   const navigate = useSetAtom(navigateAtom);
   useEffect(() => {
     if (!route) navigate({ path: '/studio', replace: true });
@@ -96,7 +98,7 @@ export const App = () => {
       <main className={route === 'docs' ? undefined : 'h-[calc(100dvh-3rem)] min-h-0'}>
         <Boundary key={route}>
           <Suspense fallback={<Muted>Loading.</Muted>}>
-            {route === 'studio' && <StudioView />}
+            {route === 'studio' && (lab ? <LabView /> : <StudioView />)}
             {route === 'dashboard' && <DashboardView />}
             {route === 'docs' && <DocsView />}
           </Suspense>

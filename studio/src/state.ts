@@ -46,6 +46,8 @@ export const studioTabs = ['graph', 'setup'] as const;
 export type StudioTab = (typeof studioTabs)[number];
 export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segments)[1]) ?? 'graph');
 
+export const labAtom = atom(get => get(segments)[1] === 'lab');
+
 export const docsSlugAtom = atom(get => get(segments).slice(1));
 
 const queryParam =(key: string) =>
