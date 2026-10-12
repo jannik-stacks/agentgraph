@@ -66,5 +66,23 @@ Some things look like notes but are not.
 - A **plan** is an issue labelled `plan` with sub-issues for each step.
 - A **spec** is an issue labelled `spec`.
 
-Memory from one run, like what a bot tried and why it failed, lives in the run store and not in
-notes. Notes are for what stays true across runs.
+## Memory
+
+Memory is not one thing in bothub, and most of it sits outside the hub on purpose. Only notes are
+reviewed and only notes are shared as rules.
+
+| What               | Kept where                 | Who reads it                         |
+| ------------------ | -------------------------- | ------------------------------------ |
+| **note**           | `notes/` in the repository | every run it is relevant to, by rule |
+| **run memory**     | `runs/<id>/memory.md`      | humans                               |
+| **transcript**     | `runs/<id>/home/`          | humans only, for now                 |
+| **harness memory** | the harness's own files    | nobody, it is wiped with the sandbox |
+
+Run memory is a short record the runner writes after each run: tools used, checks that failed and
+why, what was proposed and what landed. A retry does not read it; it gets the failing check findings
+directly. A transcript is the full conversation of a run; bots cannot search or resume earlier
+transcripts yet. Harnesses like opencode keep their own memory files; bothub starts every run from
+a clean home, so nothing carries over that way.
+
+When something a run learned should outlast it, the bot proposes a note and a human accepts it.
+That is the only path from memory to what the hub knows.
