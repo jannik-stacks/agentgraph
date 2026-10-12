@@ -25,7 +25,7 @@ export type Mode = z.infer<typeof Mode>;
 export const SafeOutputKind = z.enum(['reply', 'label', 'push-branch', 'open-pr', 'propose-rule', 'ask-human']);
 export type SafeOutputKind = z.infer<typeof SafeOutputKind>;
 
-export const Executor = z.enum(['claude-code', 'codex']);
+export const Executor = z.enum(['claude-code', 'codex', 'opencode', 'pi']);
 export type Executor = z.infer<typeof Executor>;
 
 const list = <T extends z.ZodType>(item: T) =>
