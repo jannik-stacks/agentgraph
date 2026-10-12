@@ -1,50 +1,25 @@
 ---
-title: API and serve
-description: The CLI, the long-running local hub and the read-only API behind BHM.
+title: Events and serving
+description: Where events come from, the long-running hubs, and running whole workflows without a model.
 ---
 
-`cli.ts` is the `bothub` command. `serve.ts` is the long-running local hub that `bothub serve`
-starts, `api.ts` the read-only HTTP API that BHM reads, and `graph.ts` the node and edge model the
-Studio draws.
+Everything starts from a <Sym name="BotEvent" />. A GitHub delivery is checked by
+<Sym name="webhook" /> and normalised by <Sym name="toEvent" />; a change to a local issue file is
+turned into the same event by <Sym name="changeEvent" />.
 
-## The CLI
+<Fields name="BotEvent" />
 
-<Source file="src/cli.ts" symbol="commands" />
+## Serving
 
-<Source file="src/cli.ts" symbol="main" />
+<Sym name="serveHub" /> is the local hub: it watches `issues/`, runs each change through the
+[pipeline](/docs/reference/pipeline) one event at a time, plays GitHub's part with a local bare
+repository and serves the read-only <Sym name="api" /> that BHM reads. <Sym name="serveGitHub" />
+is the same for a GitHub App, with short-lived installation tokens that no bot ever holds.
 
-## A local hub
+## Sim
 
-<Sym name="serveHub" /> watches the hub's `issues/` directory, runs the jobs each change starts
-through the [pipeline](/docs/reference/pipeline) one event at a time, and serves the API. GitHub's
-part is played by a local bare repository: <Sym name="localPulls" /> answers the few pull request
-calls the pipeline makes and records opened pull requests in `pulls.jsonl`.
+`bothub sim <scenario>` runs a hub against a scripted human action. Bots are replaced by a scripted
+harness and checks by scripts that pass or fail as told; dispatch, the pipeline, the MCP server,
+validation and apply are real. <Sym name="simulate" /> runs one.
 
-<Source file="src/serve.ts" symbol="serveHub" />
-
-<Source file="src/serve.ts" symbol="localPulls" />
-
-<Source file="src/serve.ts" symbol="localOrigin" />
-
-## The API
-
-<Sym name="api" /> is a Web `Request` handler, so the same code can run behind `node:http` or a
-Worker. It only reads: the hub's files, runs, their events (also as a live stream), outcomes, raw
-harness files and the runs that need a human.
-
-<Source file="src/api.ts" symbol="api" />
-
-<Source file="src/api.ts" symbol="readFiles" />
-
-<Source file="src/api.ts" symbol="needsHuman" />
-
-<Source file="src/api.ts" symbol="serve" />
-
-## The graph
-
-<Fields name="HubGraph" />
-
-<Source file="src/graph.ts" symbol="hubGraph" />
-
-The GitHub counterpart of `serveHub` is <Sym name="serveGitHub" />, on
-[Webhook and GitHub](/docs/reference/github).
+<Fields name="Scenario" />

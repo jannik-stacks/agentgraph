@@ -10,7 +10,7 @@ trigger → bot runs a skill on a branch → checks → findings go back to the 
 ## Until
 
 A job with `until` runs its bot, then each listed check against the worktree. <Sym name="runPlanned" /> starts
-the job, and the loop itself is on [Dispatch and pipeline](/docs/reference/pipeline#the-until-loop). If a gating check
+the job, and the loop itself is on [Pipeline and checks](/docs/reference/pipeline#the-until-loop). If a gating check
 fails, its findings go back to the same bot as a follow-up message in the same worktree, and the
 bot tries again.
 
@@ -53,7 +53,7 @@ function; the chunker is not built yet, so for now it behaves like `file`.
 A check with `run:` is a script: exit 0 passes, anything else fails and its output is the finding.
 A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by <Sym name="verdictOf" />.
 A check with `decide:` asks the local decision model one yes or no question instead; see
-[Decide and memory](/docs/reference/decide).
+[Pipeline and checks](/docs/reference/pipeline#verdicts).
 
 ## The correction ladder
 

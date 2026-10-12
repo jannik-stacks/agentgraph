@@ -10,7 +10,7 @@ const getJson = async <T>(path: string): Promise<T> => {
   return response.json() as Promise<T>;
 };
 
-export const routes = ['studio', 'dashboard', 'docs', 'source'] as const;
+export const routes = ['studio', 'dashboard', 'docs'] as const;
 export type Route = (typeof routes)[number];
 
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });

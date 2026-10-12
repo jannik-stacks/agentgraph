@@ -1,0 +1,21 @@
+---
+title: Issues and context
+description: Where the work lives and what a run gets to read.
+---
+
+Issues hold the work: the task a `/bothub` comment starts from, plans, specs and every question a
+bot could not answer alone. One interface has two backends, <Sym name="githubIssues" /> and
+<Sym name="localIssues" /> (Markdown files in the hub), and `hub.yaml` picks one.
+
+<Fields name="Issues" />
+
+## Context
+
+A run reads in two ways, and neither writes. Preload is rendered into the prompt before the run:
+the notes that match its kinds and paths, and the triggering issue (<Sym name="issueContext" />).
+
+<Source file="src/preload.ts" symbol="relevantNotes" />
+
+Tools are served on demand by the bothub MCP server, <Sym name="serveMcp" />, which opencode starts
+as an MCP entry. pi has no MCP client, so a pi bot only gets preload. The concepts are on
+[Context](/docs/context).

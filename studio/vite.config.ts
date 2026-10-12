@@ -11,6 +11,6 @@ const server = { port: 5182, strictPort: true, proxy: { '/api': `http://127.0.0.
 export default defineConfig({
   appType: 'spa',
   plugins: [bothubCode({ root: '..', content: 'content/docs' }), fumadocsMdx({ index: false, macro: { include: 'src/docs/**' } }), react(), tailwindcss()],
-  server,
+  server: { ...server, warmup: { clientFiles: ['./src/main.tsx', './src/docs/DocsView.tsx'] } },
   preview: server,
 });

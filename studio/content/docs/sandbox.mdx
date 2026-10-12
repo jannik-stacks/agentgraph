@@ -21,9 +21,8 @@ address. Pushes happen on the host, after checks.
 
 Script jobs and script checks run in the same kind of container. Without the setting, the runner
 spawns the harness on the host with a private home and an allowlisted environment
-(<Sym name="agentEnv" />). The image and a standalone [run.sh](/source/infra/local/sandbox/run.sh)
-with the same flags live in `infra/local/sandbox`; the code is on
-[Runner and sandbox](/docs/reference/runner).
+(<Sym name="agentEnv" />). The image and a standalone `run.sh` with the same flags live in
+`infra/local/sandbox`; the code is on [Runs](/docs/reference/runs).
 
 ## Harnesses
 

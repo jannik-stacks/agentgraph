@@ -1,4 +1,7 @@
 declare module 'virtual:bothub-code' {
-  export const files: import('./model.ts').Files;
-  export const loaders: Record<string, () => Promise<{ default: import('./model.ts').FileText }>>;
+  /** Absolute path of the bothub package, for editor links. */
+  export const root: string;
+  /** The highlight classes the snippets use. */
+  export const css: string;
+  export const refs: Record<string, import('./model.ts').Ref>;
 }

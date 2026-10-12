@@ -1,27 +1,22 @@
 ---
 title: Reference
-description: The bothub codebase, one area at a time.
+description: The types and functions that define each part of bothub.
 ---
 
-These pages walk through `src/` area by area. Every type table and code block on them is read from
-the source when the docs are built, so they always match the code. Each block's header links to
-those exact lines in the [source viewer](/source), and a chip like <Sym name="runPlan" /> jumps
-to a definition.
+Each page shows the few types and functions an area is built around, read from the source when the
+docs are built. A block's header names the file and lines and opens them in VS Code; a chip like
+<Sym name="runPlan" /> shows its summary on hover. The conventions all of them follow are on
+[Patterns](/docs/patterns).
 
-| Page | Modules |
+| Page | Defined by |
 | --- | --- |
-| [Schema and config](/docs/reference/config) | `schema.ts`, `config.ts`, `load.ts`, `markdown.ts` |
-| [Dispatch and pipeline](/docs/reference/pipeline) | `dispatch.ts`, `pipeline.ts` |
-| [Proposals and apply](/docs/reference/proposals) | `outputs.ts`, `apply.ts` |
-| [Runs and store](/docs/reference/store) | `store.ts`, `workspace.ts` |
-| [Runner and sandbox](/docs/reference/runner) | `runner.ts`, `sandbox.ts` |
-| [Harnesses](/docs/reference/harnesses) | `types.ts` and the two adapters |
-| [Issues](/docs/reference/issues) | `issues.ts`, `issues-local.ts`, `issues-github.ts` |
-| [Preload and tools](/docs/reference/tools) | `preload.ts`, `mcp.ts`, `mcp-config.ts` |
-| [Decide and memory](/docs/reference/decide) | `decide.ts`, `memory.ts` |
-| [Sim](/docs/reference/sim) | `sim.ts`, `sim-harness.ts` |
-| [API and serve](/docs/reference/serve) | `api.ts`, `serve.ts`, `cli.ts`, `graph.ts` |
-| [Webhook and GitHub](/docs/reference/github) | `webhook.ts`, `github.ts`, `github-app.ts`, `serve-github.ts` |
+| [Hub config](/docs/reference/config) | <Sym name="Bot" />, <Sym name="Job" />, <Sym name="Config" /> |
+| [Pipeline and checks](/docs/reference/pipeline) | <Sym name="PlannedJob" />, <Sym name="Verdict" />, <Sym name="failingChecks" /> |
+| [Proposals](/docs/reference/proposals) | <Sym name="Proposal" />, <Sym name="validate" />, <Sym name="ApplyResult" /> |
+| [Runs](/docs/reference/runs) | <Sym name="Run" />, <Sym name="runJob" />, <Sym name="reconcile" /> |
+| [Harnesses](/docs/reference/harnesses) | <Sym name="RunSpec" />, <Sym name="AgentEvent" />, <Sym name="ExecutorAdapter" /> |
+| [Issues and context](/docs/reference/context) | <Sym name="Issues" />, <Sym name="relevantNotes" />, <Sym name="serveMcp" /> |
+| [Events and serving](/docs/reference/serve) | <Sym name="BotEvent" />, <Sym name="serveHub" />, <Sym name="Scenario" /> |
 
 ## How one event flows
 
@@ -33,4 +28,4 @@ An event comes from a webhook, a watched issue file or the CLI and is normalised
 <Sym name="BotEvent" />. <Sym name="dispatch" /> plans the jobs it starts, <Sym name="runPlan" />
 runs them in dependency order, and each bot job loops through attempts until its checks pass.
 Proposals from the final attempt are validated and applied, and everything lands in the
-[run store](/docs/reference/store).
+[run store](/docs/reference/runs).

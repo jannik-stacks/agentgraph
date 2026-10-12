@@ -3,10 +3,11 @@ import { join, relative, resolve as resolvePath, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHighlighter, type Highlighter } from 'shiki';
 import { parseSync, type Plugin, type ViteDevServer } from 'vite';
-import { type Decl, type Field, type FileMeta, type Files, type FileText, type Region, resolve } from './model.ts';
+import { type Decl, type Field, type FileMeta, type Files, type Ref, refKey, type Region, resolve, summary, type Tag } from './model.ts';
 
-/** Directories under the bothub root that the docs may show. Anything that looks like a secret is skipped. */
+/** What under the bothub root the docs may show. Anything that looks like a secret is skipped. */
 const roots = ['src', 'infra'];
+const rootFiles = ['package.json', 'tsconfig.json'];
 const secret = /(^|\/)\.|\.env\b|secret|\.pem$|\.key$/i;
 const skipDirs = new Set(['node_modules', 'dist', '.git']);
 
@@ -31,12 +32,14 @@ const highlight = async (code: string, lang: string) => {
     themes: ['github-light', 'github-dark'],
     langs: [...new Set(langs.map(([, l]) => l))],
   });
-  const { tokens } = (await highlighter).codeToTokens(code, {
+  const h = await highlighter;
+  const { tokens } = h.codeToTokens(code, {
     lang: lang as 'text',
     themes: { light: 'github-light', dark: 'github-dark' },
     defaultColor: false,
   });
-  return tokens;
+  const plain = `--shiki-light:${h.getTheme('github-light').fg};--shiki-dark:${h.getTheme('github-dark').fg}`;
+  return { tokens, plain: plain.toLowerCase() };
 };
 
 type Node = { type: string; start: number; end: number } & Record<string, any>;
@@ -133,18 +136,6 @@ const analyzeTs = async (abs: string, text: string, version: number) => {
   };
 
   const body = program.body as Node[];
-  const first = body[0];
-  const head = docs[0];
-  const moduleDoc =
-    head &&
-    /^\s*$/.test(text.slice(0, head.start)) &&
-    (!first ||
-      first.type === 'ImportDeclaration' ||
-      /@module\b/.test(head.value) ||
-      /\n\s*\n/.test(text.slice(head.end, first.start)))
-      ? cleanDoc(head.value)
-      : undefined;
-
   const decls: Decl[] = [];
   const reexported = new Set(
     body.flatMap(s => (s.type === 'ExportNamedDeclaration' && !s.declaration && !s.source ? s.specifiers : []))
@@ -253,20 +244,7 @@ const analyzeTs = async (abs: string, text: string, version: number) => {
       return [field];
     });
   }
-  return { doc: moduleDoc, decls, tables };
-};
-
-/** Leading `#` comment lines, after a shebang, as the doc of a script or config file. */
-const hashDoc = (text: string) => {
-  const lines = text.split('\n');
-  if (lines[0]?.startsWith('#!')) lines.shift();
-  const doc: string[] = [];
-  for (const l of lines) {
-    const m = /^#\s?(.*)$/.exec(l);
-    if (!m || /^#\s*(syntax=|#region|#endregion)/.test(l)) break;
-    doc.push(m[1]!);
-  }
-  return doc.join(' ').trim() || undefined;
+  return { decls, tables };
 };
 
 const regionsOf = (text: string): Region[] => {
@@ -283,21 +261,34 @@ const regionsOf = (text: string): Region[] => {
   return out;
 };
 
-type Entry = { mtime: number; meta: FileMeta; text: FileText };
+const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const declarations = (style: Record<string, string> | undefined) =>
+  style ? Object.entries(style).map(([k, v]) => `${k}:${v}`).join(';') : '';
+
+type Entry = { mtime: number; meta: FileMeta; raw: string; lines?: Promise<string[]> };
+type Found = { at: string; tag: Tag; target: { file?: string; symbol?: string; region?: string } };
 
 /**
- * Serves bothub's own source to the docs as virtual modules: `virtual:bothub-code` holds what every file declares,
- * and `virtual:bothub-code/file/<path>` its highlighted text. A build fails when the docs name a symbol, region or
- * file the source does not have.
+ * Resolves every `<Source>`, `<Sym>` and `<Fields>` in the docs against bothub's own source and serves the results,
+ * already highlighted, as `virtual:bothub-code`. A build fails when the docs name a symbol, region or file the source
+ * does not have.
  */
 export const bothubCode = (options: { root: string; content: string }): Plugin => {
   const root = resolvePath(options.root);
   const content = resolvePath(options.content);
   const cache = new Map<string, Entry>();
   let server: ViteDevServer | undefined;
+  let served: string | undefined;
+  const palette = new Map<string, number>();
+  const classOf = (style: Record<string, string> | undefined) => {
+    const key = declarations(style);
+    let i = palette.get(key);
+    if (i === undefined) palette.set(key, (i = palette.size));
+    return `bc${i}`;
+  };
 
   const list = async () => {
-    const out: string[] = [];
+    const out = [...rootFiles];
     for (const dir of roots) {
       const entries = await readdir(join(root, dir), { recursive: true, withFileTypes: true }).catch(() => []);
       for (const e of entries) {
@@ -310,7 +301,8 @@ export const bothubCode = (options: { root: string; content: string }): Plugin =
     return out.sort();
   };
 
-  const allowed = (rel: string) => roots.includes(rel.split('/')[0]!) && !secret.test(rel) && !rel.includes('..');
+  const allowed = (rel: string) =>
+    (rootFiles.includes(rel) || roots.includes(rel.split('/')[0]!)) && !secret.test(rel) && !rel.includes('..');
 
   const analyze = async (rel: string): Promise<Entry> => {
     if (!allowed(rel)) throw new Error(`[bothub-code] refusing to read ${rel}`);
@@ -321,65 +313,109 @@ export const bothubCode = (options: { root: string; content: string }): Plugin =
     const raw = await readFile(abs, 'utf8');
     const lang = langOf(rel);
     const ts = lang === 'typescript' || lang === 'tsx' ? await analyzeTs(abs, raw, mtimeMs) : undefined;
-    const doc = ts ? ts.doc : lang === 'markdown' ? /^#\s+(.*)$/m.exec(raw)?.[1] : hashDoc(raw);
-    const lines = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
-    const tokens = await highlight(lines, lang);
-    const styles: Record<string, string>[] = [];
-    const seen = new Map<string, number>();
-    const styleIndex = (style: Record<string, string> | undefined) => {
-      const key = JSON.stringify(style ?? {});
-      let i = seen.get(key);
-      if (i === undefined) seen.set(key, (i = styles.push(style ?? {}) - 1));
-      return i;
-    };
     const entry: Entry = {
       mtime: mtimeMs,
+      raw,
       meta: {
         path: rel,
-        lang,
-        lineCount: tokens.length,
+        lines: raw.replace(/\n$/, '').split('\n').length,
         decls: ts?.decls ?? [],
         regions: regionsOf(raw),
         tables: ts?.tables ?? {},
-        ...(doc && { doc }),
-      },
-      text: {
-        path: rel,
-        styles,
-        lines: tokens.map(line => line.map((t): [string, number] => [t.content, styleIndex(t.htmlStyle)])),
       },
     };
     cache.set(rel, entry);
     return entry;
   };
 
-  const allFiles = async (): Promise<Files> => {
-    const metas = await Promise.all((await list()).map(async rel => (await analyze(rel)).meta));
-    return Object.fromEntries(metas.map(m => [m.path, m]));
-  };
+  /** The file's lines as highlighted HTML, one string per line. Text in the default color is left bare. */
+  const htmlLines = (entry: Entry) =>
+    (entry.lines ??= highlight(entry.raw.replace(/\n$/, ''), langOf(entry.meta.path)).then(({ tokens, plain }) =>
+      tokens.map(line =>
+        line
+          .map(t =>
+            declarations(t.htmlStyle).toLowerCase() === plain
+              ? escape(t.content)
+              : `<span class="${classOf(t.htmlStyle)}">${escape(t.content)}</span>`
+          )
+          .join('')
+      )
+    ));
 
-  /** Every `<Source>`, `<Sym>` and `<Fields>` in the docs, checked against the source. */
-  const check = async () => {
-    const files = await allFiles();
-    const problems: string[] = [];
-    const pages = (await readdir(content, { recursive: true })).filter(p => p.endsWith('.mdx'));
+  const references = async () => {
+    const pages = (await readdir(content, { recursive: true })).filter(p => p.endsWith('.mdx')).sort();
+    const out: Found[] = [];
     for (const page of pages) {
       const text = await readFile(join(content, page), 'utf8');
       for (const m of text.matchAll(/<(Source|Sym|Fields)\s([^>]*?)\/?>/gs)) {
         const attrs = Object.fromEntries([...m[2]!.matchAll(/(\w+)="([^"]*)"/g)].map(a => [a[1]!, a[2]!]));
-        const r = resolve(files, { file: attrs.file, symbol: attrs.symbol ?? attrs.name, region: attrs.region });
-        const line = text.slice(0, m.index).split('\n').length;
-        if ('error' in r) problems.push(`${page}:${line} <${m[1]}>: ${r.error}`);
-        else if (m[1] === 'Fields' && !r.file.tables[r.name])
-          problems.push(`${page}:${line} <Fields>: ${r.name} in ${r.file.path} is not an object type or zod object`);
+        const symbol = attrs.symbol ?? attrs.name;
+        out.push({
+          at: `${page}:${text.slice(0, m.index).split('\n').length}`,
+          tag: m[1] as Tag,
+          target: {
+            ...(attrs.file && { file: attrs.file }),
+            ...(symbol && { symbol }),
+            ...(attrs.region && { region: attrs.region }),
+          },
+        });
       }
     }
-    return problems;
+    return out;
   };
 
-  const isSource = (file: string) => {
+  const render = async (tag: Tag, target: Found['target'], files: Files): Promise<Ref> => {
+    const r = resolve(files, target);
+    if ('error' in r) return r;
+    const fields = r.file.tables[r.name];
+    if (tag === 'Fields' && !fields) return { error: `${r.name} in ${r.file.path} is not an object type or zod object` };
+    const doc = summary(r.doc);
+    const lines = tag === 'Source' ? (await htmlLines(cache.get(r.file.path)!)).slice(r.start - 1, r.end) : [];
+    return {
+      path: r.file.path,
+      name: r.name,
+      start: r.start,
+      end: r.end,
+      ...(doc && { summary: doc }),
+      ...(tag === 'Source' && { html: lines.map(l => `<span class="line">${l}</span>`).join('\n') }),
+      ...(tag === 'Fields' && fields && { fields }),
+    };
+  };
+
+  /** Every reference in the docs, resolved, plus one line per reference that does not resolve. */
+  const collect = async () => {
+    const entries = await Promise.all((await list()).map(analyze));
+    const files: Files = Object.fromEntries(entries.map(e => [e.meta.path, e.meta]));
+    const refs: Record<string, Ref> = {};
+    const problems: string[] = [];
+    for (const { at, tag, target } of await references()) {
+      const key = refKey(tag, target);
+      refs[key] ??= await render(tag, target, files);
+      const ref = refs[key];
+      if ('error' in ref) problems.push(`${at} <${tag}>: ${ref.error}`);
+    }
+    return { refs, problems };
+  };
+
+  const moduleCode = async () => {
+    const { refs, problems } = await collect();
+    const css = [...palette].map(([style, i]) => `.bc${i}{${style}}`).join('');
+    const code = [
+      `export const root = ${JSON.stringify(root)};`,
+      `export const css = ${JSON.stringify(css)};`,
+      `export const refs = ${JSON.stringify(refs)};`,
+    ].join('\n');
+    return { code, problems };
+  };
+
+  const fail = (problems: string[]) => `docs reference source that does not exist:\n  ${problems.join('\n  ')}`;
+
+  const isWatched = (file: string) => {
+    if (file.startsWith(content) && file.endsWith('.mdx')) return true;
     const rel = relative(root, file).split(sep).join('/');
-    return allowed(rel) ? rel : undefined;
+    if (!allowed(rel)) return false;
+    cache.delete(rel);
+    return true;
   };
 
   return {
@@ -387,56 +423,37 @@ export const bothubCode = (options: { root: string; content: string }): Plugin =
     enforce: 'pre',
     resolveId(id) {
       if (id === 'virtual:bothub-code') return '\0bothub-code';
-      if (id.startsWith('virtual:bothub-code/file/')) return `\0bothub-code/file/${id.slice(25)}.js`;
     },
     async load(id) {
-      if (id === '\0bothub-code') {
-        const files = await allFiles();
-        const loaders = Object.keys(files).map(
-          p => `${JSON.stringify(p)}: () => import(${JSON.stringify(`virtual:bothub-code/file/${encodeURIComponent(p)}`)})`
-        );
-        return {
-          code: `export const files = ${JSON.stringify(files)};\nexport const loaders = {${loaders.join(',\n')}};\n`,
-          moduleType: 'js',
-        };
-      }
-      if (id.startsWith('\0bothub-code/file/')) {
-        const rel = decodeURIComponent(id.slice(18, -3));
-        const { text } = await analyze(rel);
-        return { code: `export default ${JSON.stringify(text)};\n`, moduleType: 'js' };
-      }
+      if (id !== '\0bothub-code') return;
+      const { code, problems } = await moduleCode();
+      if (!server && problems.length) this.error(fail(problems));
+      for (const p of problems) server?.config.logger.warn(`[bothub-code] ${p}`);
+      served = code;
+      return { code, moduleType: 'js' };
     },
     async buildStart() {
       if (server) return;
-      const problems = await check();
-      if (problems.length) this.error(`docs reference source that does not exist:\n  ${problems.join('\n  ')}`);
+      const { problems } = await collect();
+      if (problems.length) this.error(fail(problems));
     },
     configureServer(dev) {
       server = dev;
-      dev.watcher.add(roots.map(r => join(root, r)));
-      void check().then(problems => {
-        for (const p of problems) dev.config.logger.warn(`[bothub-code] ${p}`);
-      });
+      dev.watcher.add([...roots, ...rootFiles].map(r => join(root, r)));
     },
-    hotUpdate({ file }) {
-      if (this.environment.name !== 'client') return;
-      if (file.startsWith(content) && file.endsWith('.mdx')) {
-        void check().then(problems => {
-          for (const p of problems) this.environment.logger.warn(`[bothub-code] ${p}`);
-        });
-        return;
-      }
-      const rel = isSource(file);
-      if (!rel) return;
-      cache.delete(rel);
+    async hotUpdate({ file }) {
+      if (this.environment.name !== 'client' || !isWatched(file)) return;
       const graph = this.environment.moduleGraph;
-      const mods = ['\0bothub-code', `\0bothub-code/file/${encodeURIComponent(rel)}.js`]
-        .map(id => graph.getModuleById(id))
-        .filter(m => m !== undefined);
-      if (!mods.length) return;
-      for (const m of mods) graph.invalidateModule(m);
+      const mod = graph.getModuleById('\0bothub-code');
+      if (!mod || served === undefined) return;
+      const { code, problems } = await moduleCode();
+      for (const p of problems) this.environment.logger.warn(`[bothub-code] ${p}`);
+      if (code === served) return;
+      served = code;
+      graph.invalidateModule(mod);
       this.environment.hot.send({ type: 'full-reload' });
       return [];
     },
   };
 };
+

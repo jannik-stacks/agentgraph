@@ -10,21 +10,26 @@ export type Field = { name: string; type: string; full?: string; required: boole
 /** What the docs know about one source file without its text. */
 export type FileMeta = {
   path: string;
-  lang: string;
-  lineCount: number;
-  doc?: string;
+  lines: number;
   decls: Decl[];
   regions: Region[];
   tables: Record<string, Field[]>;
 };
 
-/** Highlighted lines as `[text, style index]` tokens, with the style palette they index into. */
-export type FileText = { path: string; styles: Record<string, string>[]; lines: [string, number][][] };
-
 export type Files = Record<string, FileMeta>;
 
 export type Target = { file?: string | undefined; symbol?: string | undefined; region?: string | undefined };
 export type Resolved = { file: FileMeta; name: string; start: number; end: number; doc?: string | undefined };
+
+/** One docs reference, resolved and rendered ahead of time. `html` is the highlighted lines of a `<Source>`. */
+export type Ref =
+  | { path: string; name: string; start: number; end: number; summary?: string; html?: string; fields?: Field[] }
+  | { error: string };
+
+export type Tag = 'Source' | 'Sym' | 'Fields';
+
+/** The key a reference is stored under, the same in the plugin and in the components. */
+export const refKey = (tag: Tag, t: Target) => [tag, t.file ?? '', t.symbol ?? '', t.region ?? ''].join('|');
 
 const where = (t: Target) => (t.file ? ` in ${t.file}` : '');
 
@@ -36,11 +41,15 @@ const span = (decls: Decl[]): Decl => {
   return { ...first, end };
 };
 
-/** Finds a symbol or region. Without `file`, the name must be exported by exactly one file. */
+/**
+ * Finds a symbol, a region, or with only `file` the whole file. Without `file`, the name must be exported by exactly
+ * one file.
+ */
 export const resolve = (files: Files, t: Target): Resolved | { error: string } => {
   const name = t.symbol ?? t.region;
-  if (!name || (t.symbol && t.region)) return { error: 'name exactly one of symbol or region' };
   if (t.file && !files[t.file]) return { error: `no source file ${t.file}` };
+  if (!name && t.file) return { file: files[t.file]!, name: t.file, start: 1, end: files[t.file]!.lines };
+  if (!name || (t.symbol && t.region)) return { error: 'name exactly one of symbol or region' };
   const candidates = t.file ? [files[t.file]!] : Object.values(files);
   if (t.region) {
     const hits = candidates.flatMap(f => f.regions.filter(r => r.name === t.region).map(r => ({ f, r })));
@@ -58,10 +67,6 @@ export const resolve = (files: Files, t: Target): Resolved | { error: string } =
   const d = span(decls);
   return { file: f, name, start: d.start, end: d.end, doc: decls.find(x => x.doc)?.doc };
 };
-
-export const lineHash = (start: number, end: number) => (start === end ? `#L${start}` : `#L${start}-L${end}`);
-export const sourceHref = (path: string, start?: number, end?: number) =>
-  `/source/${path}${start ? lineHash(start, end ?? start) : ''}`;
 
 /** The first sentence of a doc comment. */
 export const summary = (doc: string | undefined) => doc?.split(/(?<=\.)\s|\n\n/)[0];
