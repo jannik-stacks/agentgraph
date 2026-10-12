@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "bothub": "./src/cli.ts"
+    "bothub": "./bin/bothub.mjs"
   },
   "exports": {
     ".": "./src/index.ts"
