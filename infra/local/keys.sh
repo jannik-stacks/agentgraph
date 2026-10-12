@@ -23,7 +23,7 @@ BOTS=(
   "reviewer     review,smart,fast,local          5  20  300000"
   "fact-checker review,fast,local          2  20  150000"
   "gardener     writer,fast,local          2  10  100000"
-  "triager      fast,local                 1  20  100000"
+  "triager      smart,fast,local           1  20  100000"
 )
 
 api() { # method path [json]
