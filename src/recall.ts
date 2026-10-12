@@ -21,8 +21,8 @@ export type Doc = {
 
 const stop = new Set(
   'a an and are as at be but by do does for from has have if in into is it its not of on or so than that the then there these this to was were will with'.split(
-    ' ',
-  ),
+    ' '
+  )
 );
 
 /** A light stemmer: strips the common English inflections so `tests`, `testing` and `tested` meet. */
@@ -128,7 +128,13 @@ export type Index = ReturnType<typeof index>;
 
 /** Accepted and proposed hub notes as documents. */
 export const noteDocs = (notes: Config['notes']): Doc[] =>
-  notes.map(n => ({ id: `note:${n.kind}/${n.name}`, kind: 'note', title: n.title, text: `${n.kind}\n${n.body}`, pointer: `notes/${n.kind}/${n.name}.md` }));
+  notes.map(n => ({
+    id: `note:${n.kind}/${n.name}`,
+    kind: 'note',
+    title: n.title,
+    text: `${n.kind}\n${n.body}`,
+    pointer: `notes/${n.kind}/${n.name}.md`,
+  }));
 
 /** Issues with their comments as documents. */
 export const issueDocs = (issues: Issue[]): Doc[] =>
@@ -208,7 +214,7 @@ export const recall = async ({
             type: 'noul' as const,
             instructions: `Would this ${doc.kind} help an agent doing the task?\n${doc.title}\n${doc.text.slice(0, maxCandidate)}`,
           },
-        ]),
+        ])
       ),
     });
     ranked = candidates

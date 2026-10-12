@@ -7,7 +7,7 @@
 //   generate  one /api/generate call to a completion model (num_ctx set per request), answer parsed from text
 //
 // Usage: node infra/local/bench/tev-context.mjs --mode single --model tev1-262k:0.8b --sizes 10000,17000 --runs 3
-//   [--parallel 1] [--url http://127.0.0.1:11434] [--corpus dir,dir] [--out results.json]
+//   [--warm 3] [--parallel 1] [--url http://127.0.0.1:11434] [--corpus dir,dir] [--out results.json]
 // /v1/systemone uses the model's num_ctx and ignores request options; tev-262k.Modelfile raises it.
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -28,6 +28,7 @@ const mode = args.mode ?? 'single';
 const model = args.model ?? (mode === 'generate' ? 'qwen3.5:4b' : 'tev1-262k:0.8b');
 const sizes = (args.sizes ?? '10000,17000').split(',').map(Number);
 const runs = Number(args.runs ?? 3);
+const warmRuns = Number(args.warm ?? runs);
 const parallel = Number(args.parallel ?? 1);
 const chunkBytes = 60 * 1024;
 const corpusDirs = (
@@ -212,12 +213,12 @@ for (const size of sizes) {
       row.cold.push({ ...r, correct: correct(r.p), p: round(r.p) });
     }
     let state;
-    for (let i = 0; i < runs; i++) {
+    for (let i = 0; i < warmRuns; i++) {
       state = build(size, ratio, nonce());
       const r = await measured(() => ask(state, keys));
       row.warm.push({ ...r, correct: correct(r.p), p: round(r.p) });
     }
-    for (const key of ['middle_yes', 'end_no', 'end_yes']) {
+    for (const key of state ? ['middle_yes', 'end_no', 'end_yes'] : []) {
       const r = await measured(() => ask(state, [key]));
       row.cached.push({ key, ms: r.ms, cached: r.cached, promptEvalMs: r.promptEvalMs, p: round(r.p) });
     }

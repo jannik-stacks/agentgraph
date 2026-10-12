@@ -66,7 +66,15 @@ const doc = (id: string, title: string, text: string, extra: Partial<Doc> = {}):
 
 describe('terms', () => {
   it('splits names into parts and folds inflections together', () => {
-    expect(terms('cvToJson handles max_bytes')).toEqual(['cvtojson', 'cv', 'json', 'handle', 'max_byte', 'max', 'byte']);
+    expect(terms('cvToJson handles max_bytes')).toEqual([
+      'cvtojson',
+      'cv',
+      'json',
+      'handle',
+      'max_byte',
+      'max',
+      'byte',
+    ]);
     expect(['tests', 'testing', 'tested', 'test'].map(stem)).toEqual(['test', 'test', 'test', 'test']);
     expect(stem('policies')).toBe('policy');
     expect(stem('class')).toBe('class');
@@ -88,7 +96,10 @@ describe('index', () => {
   it('finds documents through synonyms, below documents with the exact word', () => {
     const words = synonyms([['pull request', 'pr', 'merge request']]);
     const idx = index(
-      [doc('exact', 'Opening a PR', 'Open the PR after checks pass.'), doc('synonym', 'Merge flow', 'The merge request waits for review.')],
+      [
+        doc('exact', 'Opening a PR', 'Open the PR after checks pass.'),
+        doc('synonym', 'Merge flow', 'The merge request waits for review.'),
+      ],
       words
     );
     expect(idx.search('pr').map(h => h.doc.id)).toEqual(['exact', 'synonym']);
@@ -139,9 +150,7 @@ describe('summaries', () => {
 afterEach(() => vi.unstubAllGlobals());
 
 const chat = (...answers: string[]) => {
-  const fetch = vi.fn(async () =>
-    Response.json({ choices: [{ message: { content: answers.shift() ?? '' } }] })
-  );
+  const fetch = vi.fn(async () => Response.json({ choices: [{ message: { content: answers.shift() ?? '' } }] }));
   vi.stubGlobal('fetch', fetch);
   return fetch;
 };
@@ -182,7 +191,10 @@ const runDir = async (runs: { id: string; bot: string }[]) => {
   const dir = await mkdtemp(join(tmpdir(), 'recall-'));
   for (const { id, bot } of runs) {
     await mkdir(join(dir, 'runs', id), { recursive: true });
-    await writeFile(join(dir, 'runs', id, 'run.json'), JSON.stringify({ id, bot, workflow: 'w', job: 'j', status: 'succeeded' }));
+    await writeFile(
+      join(dir, 'runs', id, 'run.json'),
+      JSON.stringify({ id, bot, workflow: 'w', job: 'j', status: 'succeeded' })
+    );
     await writeFile(join(dir, 'runs', id, 'events.jsonl'), await readFile(fixture, 'utf8'));
     await summarizeRun(dir, id, Summarizer.parse('extractive'));
   }
@@ -201,7 +213,11 @@ describe('share', () => {
     expect(new Set(records.map(r => r.run))).toEqual(new Set(['a', 'b']));
     const idx = index(summaryDocs(records));
     const runsFor = async (bot: string) =>
-      new Set((await recall({ index: idx, task: 'bothub_issues_get', bot, top: 50, budget: 1e6, decide: none })).map(h => h.doc.pointer.split('#')[0]));
+      new Set(
+        (await recall({ index: idx, task: 'bothub_issues_get', bot, top: 50, budget: 1e6, decide: none })).map(
+          h => h.doc.pointer.split('#')[0]
+        )
+      );
     expect(await runsFor('implementor')).toEqual(new Set(['a', 'b']));
     expect(await runsFor('checker')).toEqual(new Set(['b']));
     const h = history(dir, 'checker', shareOf);

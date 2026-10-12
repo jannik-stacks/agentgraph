@@ -27,7 +27,7 @@ export const Summarizer = z.preprocess(
       : typeof value === 'string'
         ? { mode: 'model', model: value }
         : value,
-  Settings.refine(s => s.mode !== 'model' || s.model, 'mode model needs a model'),
+  Settings.refine(s => s.mode !== 'model' || s.model, 'mode model needs a model')
 );
 export type Summarizer = z.output<typeof Settings>;
 
@@ -62,7 +62,8 @@ export const fit = (text: string, max: number) => {
 const clip = (text: string, head = 15_000, tail = 15_000) =>
   text.length > head + tail ? `${text.slice(0, head)}\n[…]\n${text.slice(-tail)}` : text;
 
-const salient = /`[^`\n]{2,80}`|(?:[\w.-]+\/)+[\w.-]+|#\d+|\b[a-z]+[A-Z]\w*\b|\b[A-Z][A-Z0-9_]{2,}\b|\b\w*(?:Error|Exception)\b/g;
+const salient =
+  /`[^`\n]{2,80}`|(?:[\w.-]+\/)+[\w.-]+|#\d+|\b[a-z]+[A-Z]\w*\b|\b[A-Z][A-Z0-9_]{2,}\b|\b\w*(?:Error|Exception)\b/g;
 
 const firstSentence = (text: string) => text.trim().split(/(?<=[.!?])\s|\n/)[0] ?? '';
 
@@ -149,7 +150,7 @@ const units = (run: string, records: EventRecord[], settings: Summarizer) => {
         line: fit(u.line, settings['max-bytes']),
         by: 'extractive',
       } satisfies SummaryRecord,
-    })),
+    }))
   );
 };
 
@@ -169,7 +170,13 @@ const hash = (text: string) => createHash('sha256').update(text).digest('hex').s
 /** An OpenAI-compatible chat endpoint: LiteLLM, or Ollama's `/v1`. */
 export type Endpoint = { url: string; apiKey?: string; timeoutMs?: number };
 
-const complete = async ({ url, apiKey, timeoutMs = 60_000 }: Endpoint, model: string, system: string, user: string, maxTokens: number) => {
+const complete = async (
+  { url, apiKey, timeoutMs = 60_000 }: Endpoint,
+  model: string,
+  system: string,
+  user: string,
+  maxTokens: number
+) => {
   const response = await fetch(`${url.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(apiKey && { authorization: `Bearer ${apiKey}` }) },
@@ -201,21 +208,31 @@ export const modelLine = async (settings: Summarizer, endpoint: Endpoint, source
   const user = `Limit: ${max} bytes.\n<input>\n${clip(source)}\n</input>`;
   let line = await complete(endpoint, settings.model, system, user, Math.ceil(max / 2));
   if (bytes(line) > max)
-    line = await complete(endpoint, settings.model, system, `${user}\n\nYour line was ${bytes(line)} bytes. Write it again within ${max} bytes, dropping the least valuable items.`, Math.ceil(max / 2));
+    line = await complete(
+      endpoint,
+      settings.model,
+      system,
+      `${user}\n\nYour line was ${bytes(line)} bytes. Write it again within ${max} bytes, dropping the least valuable items.`,
+      Math.ceil(max / 2)
+    );
   return fit(line, max);
 };
 
 const pool = async <T>(items: T[], n: number, fn: (item: T) => Promise<void>) => {
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (next < items.length) await fn(items[next++]!);
-  }));
+  await Promise.all(
+    Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (next < items.length) await fn(items[next++]!);
+    })
+  );
 };
 
 const summariesFile = (dir: string, run: string) => join(dir, 'runs', run, 'summaries.jsonl');
 
 const append = (dir: string, run: string, records: SummaryRecord[]) =>
-  records.length ? appendFile(summariesFile(dir, run), records.map(r => JSON.stringify(r)).join('\n') + '\n') : Promise.resolve();
+  records.length
+    ? appendFile(summariesFile(dir, run), records.map(r => JSON.stringify(r)).join('\n') + '\n')
+    : Promise.resolve();
 
 const readJsonl = async <T>(file: string): Promise<T[]> => {
   try {
@@ -238,7 +255,7 @@ export const summarizeRun = async (
   dir: string,
   run: string,
   settings: Summarizer,
-  { endpoint, concurrency = 4 }: { endpoint?: Endpoint; concurrency?: number } = {},
+  { endpoint, concurrency = 4 }: { endpoint?: Endpoint; concurrency?: number } = {}
 ) => {
   const records = await readJsonl<EventRecord>(join(dir, 'runs', run, 'events.jsonl'));
   const all = units(run, records, settings);
@@ -304,7 +321,14 @@ export const history = (dir: string, asker: string, shareOf: ShareOf = () => 'bo
         if (out.length >= limit) break;
         const run = await readRun(dir, id);
         if (allowed(run))
-          out.push({ id, workflow: run.workflow, job: run.job, status: run.status, ...(run.bot && { bot: run.bot }), ...(run.startedAt && { startedAt: run.startedAt }) });
+          out.push({
+            id,
+            workflow: run.workflow,
+            job: run.job,
+            status: run.status,
+            ...(run.bot && { bot: run.bot }),
+            ...(run.startedAt && { startedAt: run.startedAt }),
+          });
       }
       return out;
     },
@@ -324,7 +348,8 @@ export const loadSummaries = async (dir: string, shareOf: ShareOf = () => 'bot')
     const run = await readRun(dir, id);
     const share = shareOf(run?.bot);
     if (share === 'none') continue;
-    for (const record of await readSummaries(dir, id)) out.push({ ...record, ...(run?.bot && { bot: run.bot }), share });
+    for (const record of await readSummaries(dir, id))
+      out.push({ ...record, ...(run?.bot && { bot: run.bot }), share });
   }
   return out;
 };
