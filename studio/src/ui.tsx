@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Closure } from '../../src/schema.ts';
 import type { RunStatus } from '../../src/store.ts';
 import type { Tone } from './graph-model.ts';
 
@@ -14,6 +15,14 @@ const tones: Record<Tone, string> = {
 
 const statusTones: Partial<Record<RunStatus, Tone>> = { queued: 'neutral', running: 'info', succeeded: 'ok' };
 export const statusTone = (status: RunStatus): Tone => statusTones[status] ?? 'danger';
+
+export const closureTones: Record<Closure, Tone> = {
+  done: 'ok',
+  'handed-off': 'info',
+  blocked: 'warn',
+  deferred: 'warn',
+  'no-op': 'neutral',
+};
 
 export const Badge = ({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) => (
   <span

@@ -51,7 +51,7 @@ export const sampleModel: GraphModel = {
       detail: { summary: 'can: reply, push, open-pr' },
     }),
     node('b:reviewer', 'bot', 'reviewer', {
-      badges: [{ text: 'codex', tone: 'info' }],
+      badges: [{ text: 'pi', tone: 'info' }],
       detail: { summary: 'can: reply' },
     }),
     node('s:implement', 'skill', 'implement', { detail: { summary: 'forced' } }),

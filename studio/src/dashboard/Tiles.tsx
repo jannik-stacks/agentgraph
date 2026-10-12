@@ -14,7 +14,7 @@ export const summarize = (runs: Run[], now = new Date()) => {
     costToday: today.reduce((sum, run) => sum + (run.costUsd ?? 0), 0),
     failures: runs.filter(
       run =>
-        (run.status === 'failed' || run.status === 'timed-out') &&
+        (run.status === 'failed' || run.status === 'timed-out' || run.status === 'interrupted') &&
         time(run.endedAt ?? run.startedAt ?? run.event.ts) >= now.getTime() - day
     ).length,
   };

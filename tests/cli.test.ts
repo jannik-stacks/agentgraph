@@ -21,7 +21,7 @@ const ts = '2026-10-12T09:30:15.000Z';
 const seeded = async () => {
   const data = temp('cli');
   const store = openStore(data);
-  const run = await store.create({ workflow: 'issue-command', job: 'implement', harness: 'claude-code', event });
+  const run = await store.create({ workflow: 'issue-command', job: 'implement', harness: 'opencode', event });
   await store.update(run.id, { status: 'succeeded', costUsd: 0.1234, startedAt: ts });
   await store.append(run.id, { ts, seq: 0, event: { type: 'start', model: 'sonnet' } });
   await store.append(run.id, {
@@ -49,10 +49,18 @@ describe('cli', () => {
     const io = capture();
     expect(await main(['check', '--dir', join(examples, 'hub'), '--json'])).toBe(0);
     expect(await main(['check', '--dir', join(examples, 'payloads')])).toBe(2);
-    expect(io.out[0]).toBe('{"ok":true}\n');
+    expect(io.out[0]).toBe('{"ok":true,"warnings":[]}\n');
     expect(JSON.parse(io.out[1] ?? '').errors[0].message).toBe('no bots, skills, checks, workflows or notes found');
     expect(await main(['check', '--dir', join(examples, 'hub'), '--no-json'])).toBe(0);
     expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 1 workflow (2 jobs), 3 notes\n');
+  });
+
+  it('check prints the warnings of a hub that compiles', async () => {
+    const io = capture();
+    expect(await main(['check', '--dir', join(examples, 'acme-app'), '--no-json'])).toBe(0);
+    expect(io.err.length).toBeGreaterThan(0);
+    expect(io.err.every(line => line.startsWith('warning: '))).toBe(true);
+    expect(io.out[0]).toMatch(new RegExp(`, ${io.err.length} warnings?\\n$`));
   });
 
   it('schema prints a JSON Schema for each file kind', async () => {
@@ -91,7 +99,7 @@ describe('cli', () => {
     expect(job).toMatchObject({
       workflow: 'issue',
       job: 'implement',
-      harness: 'claude-code',
+      harness: 'opencode',
       timeoutMinutes: 45,
       branch: 'bothub/7-add-a-health-endpoint-with-a-test',
       until: { checks: ['types', 'review'], max: 2 },
@@ -100,14 +108,14 @@ describe('cli', () => {
     expect(job.spec.system).toContain('"kind": "open-pr"');
     expect(job.spec.system).toContain('#### The project typechecks with no errors');
     expect(job.spec.prompt).toContain('```text\nadd a /health endpoint with a test\n```');
-    expect(job.command.slice(0, 2)).toEqual(['claude', '-p']);
+    expect(job.command.slice(0, 2)).toEqual(['opencode', 'run']);
 
     io.out.length = 0;
     expect(await main([...args, '--dry-run', '--no-json'])).toBe(0);
     const text = io.out.join('');
-    expect(text).toContain('issue/implement (implementor, claude-code, 45 min)\n');
+    expect(text).toContain('issue/implement (implementor, opencode, 45 min)\n');
     expect(text).toContain('until: types, review pass, at most 2 more attempts\n');
-    expect(text).toContain('--append-system-prompt <system>');
+    expect(text).toContain('--agent bothub --model bothub/writer -- <prompt>');
     expect(text).toMatch(/ -- <prompt>\n/);
     expect(existsSync(data)).toBe(false);
   });

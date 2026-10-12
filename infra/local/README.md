@@ -12,8 +12,7 @@ throwaway container per agent run. Every port binds to 127.0.0.1. Commands run f
    prefixed with `docker compose exec ollama` on Linux. Ollama must be 0.35 or later for
    `/v1/systemone`.
 3. `docker compose up -d` (LiteLLM and Postgres), then `docker compose --profile sandbox up -d`.
-4. `docker build -t bothub-sandbox:local sandbox` (add `--build-arg CLAUDE_CODE_VERSION=...` or
-   `CODEX_VERSION=...` for those harnesses).
+4. `docker build -t bothub-sandbox:local sandbox` (opencode and pi).
 
 ## ChatGPT login for smart and writer
 
@@ -41,10 +40,28 @@ Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `docker com
 ## Point bothub at it and dry-run
 
 ```sh
-export BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000 BOTHUB_DATA=/tmp/bothub-sim
+export BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000/v1 BOTHUB_DATA=/tmp/bothub-sim
 ../../bin/bothub.mjs run --event issue_comment ../../examples/payloads/issue-comment.json --dir ../../examples/hub --dry-run
 sandbox/run.sh implementor <worktree> <run-home> -- opencode run "say hi"   # one sandboxed run
 ```
+
+## A full local run
+
+`e2e.sh` prepares a data directory with a copy of `examples/acme-app`, a bare clone of the source
+repository as origin and the bots' keys. `bothub serve` then watches the hub's local issues, runs
+every job in a sandbox container (`--sandbox docker`, or `BOTHUB_SANDBOX=docker`) and pushes to
+that origin only; pull requests are recorded in `<data>/pulls.jsonl`.
+
+```sh
+./e2e.sh /tmp/bothub-e2e
+../../bin/bothub.mjs serve --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e --repo /tmp/bothub-e2e/origin.git --name acme/app --sandbox docker
+./comment.sh /tmp/bothub-e2e/hub 6 '/bothub add kit/tests/smoke.test.ts with one test'
+```
+
+The studio API is served on 5181 (`--port` to change it). To watch the runs in the studio
+dashboard instead, give serve another port and point the studio at the same data directory:
+`cd ../../studio && npm run dev -- --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e` (API on 5181,
+UI on 5182).
 
 ## Compute profile
 

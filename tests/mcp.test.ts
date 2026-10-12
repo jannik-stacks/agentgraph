@@ -4,14 +4,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../src/config.ts';
 import { localIssues } from '../src/issues-local.ts';
-import {
-  bothubServer,
-  claudeMcpArgs,
-  codexMcpArgs,
-  mcpToolNames,
-  opencodeMcpConfig,
-  type McpServer,
-} from '../src/mcp-config.ts';
+import { bothubServer, mcpToolNames, opencodeMcpConfig, type McpServer } from '../src/mcp-config.ts';
 import { serveMcp } from '../src/mcp.ts';
 import { openStore } from '../src/store.ts';
 import { temp } from './git.ts';
@@ -159,11 +152,7 @@ describe('harness MCP config', () => {
     });
   });
 
-  it('renders the mount for claude-code, opencode and codex', () => {
-    expect(claudeMcpArgs(server)).toEqual([
-      '--mcp-config',
-      '{"mcpServers":{"bothub":{"type":"stdio","command":"/bin/node","args":["bothub.mjs","mcp","--tools","issues_get"],"env":{"A":"b"}}}}',
-    ]);
+  it('renders the mount for opencode', () => {
     expect(opencodeMcpConfig(server)).toEqual({
       mcp: {
         bothub: {
@@ -174,21 +163,10 @@ describe('harness MCP config', () => {
         },
       },
     });
-    expect(codexMcpArgs(server)).toEqual([
-      '-c',
-      'mcp_servers.bothub.command="/bin/node"',
-      '-c',
-      'mcp_servers.bothub.args=["bothub.mjs","mcp","--tools","issues_get"]',
-      '-c',
-      'mcp_servers.bothub.env={"A" = "b"}',
-    ]);
-    expect(codexMcpArgs({ ...server, env: {} })).toHaveLength(4);
   });
 
   it('names the tools the way each harness allowlists them', () => {
-    expect(mcpToolNames('claude-code', ['issues_get'])).toEqual(['mcp__bothub__issues_get']);
     expect(mcpToolNames('opencode', ['issues_get'])).toEqual(['bothub_issues_get']);
-    expect(mcpToolNames('codex', ['issues_get'])).toEqual([]);
     expect(mcpToolNames('pi', ['issues_get'])).toEqual([]);
   });
 });

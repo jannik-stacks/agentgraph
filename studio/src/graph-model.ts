@@ -1,4 +1,4 @@
-import type { Config } from '../../src/config.ts';
+import { hubFile, type Config } from '../../src/config.ts';
 import { hubGraph, type HubGraph } from '../../src/graph.ts';
 import { Executor, Mode } from '../../src/schema.ts';
 
@@ -64,6 +64,10 @@ const summary = (node: HubNode): string | undefined => {
       return first(d.run);
     case 'note':
       return Array.isArray(d.notes) ? `${d.notes.length} notes` : undefined;
+    case 'issues':
+      return typeof d.issues === 'string' ? `${d.issues} issue tracker` : undefined;
+    case 'tool':
+      return 'read-only hub tool, served over MCP';
   }
 };
 
@@ -81,6 +85,10 @@ const sourcePath = (node: HubNode, config: Config): string | undefined => {
     case 'script':
       return config.workflows[String(node.detail?.workflow)]?.path;
     case 'note':
+      return;
+    case 'issues':
+      return hubFile;
+    case 'tool':
       return;
   }
 };

@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs, styleText } from 'node:util';
 import { compile, effectiveCan } from '../src/config.ts';
-import { claude } from '../src/executors/claude.ts';
+import { pi } from '../src/executors/pi.ts';
 import { readHub } from '../src/load.ts';
 import { extractProposals, validate } from '../src/outputs.ts';
 import { openStore, runId, type EventRecord } from '../src/store.ts';
@@ -44,9 +44,9 @@ const message = [
   '```',
 ].join('\n');
 
-const parsed = readFileSync(join(root, 'tests', 'fixtures', 'claude-stream.jsonl'), 'utf8')
+const parsed = readFileSync(join(root, 'tests', 'fixtures', 'pi-run.jsonl'), 'utf8')
   .split('\n')
-  .flatMap(line => (line.trim() ? claude.parseLine(line) : []));
+  .flatMap(line => (line.trim() ? pi.parseLine(line) : []));
 const events = parsed.flatMap<AgentEvent>(event =>
   event.type === 'end'
     ? [

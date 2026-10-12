@@ -433,7 +433,7 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
 
     if (script) {
       const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
-      const { ok, output } = yield* Effect.promise(() => runScript(script, a.cwd, timeout));
+      const { ok, output } = yield* Effect.promise(() => runScript(script, a.cwd, timeout, handoffEnv(a.handoff)));
       return done({ pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) });
     }
 
@@ -821,12 +821,6 @@ const attempts = (
     }
   });
 
-const quote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
-
-/** A script with the handoff exported before it runs. */
-const withEnv = (script: string, env: Record<string, string>) =>
-  [...Object.entries(env).map(([key, value]) => `export ${key}=${quote(value)}`), script].join('\n');
-
 const scriptJob = (planned: PlannedJob, script: string, job: Job, handoff: Handoff, p: Pipeline) =>
   Effect.gen(function* () {
     const { store, event } = p;
@@ -835,7 +829,7 @@ const scriptJob = (planned: PlannedJob, script: string, job: Job, handoff: Hando
     const execute = ({ cwd }: { cwd: string }) =>
       Effect.promise(async (): Promise<JobResult> => {
         await store.update(created.id, { status: 'running', startedAt: new Date().toISOString() });
-        const { ok, output } = await runScript(withEnv(script, handoffEnv(handoff)), cwd, timeout);
+        const { ok, output } = await runScript(script, cwd, timeout, handoffEnv(handoff));
         const ts = new Date().toISOString();
         if (output) await store.append(created.id, { ts, seq: 0, event: { type: 'text', text: output } });
         await store.append(created.id, { ts, seq: output ? 1 : 0, event: { type: 'end', ok } });

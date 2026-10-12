@@ -1,44 +1,49 @@
 # Model aliases bots ask for. Upstream model IDs come from the environment (see .env.example).
 # For a fully offline run, switch to litellm.offline.yaml (LITELLM_CONFIG in .env).
 #
-# Clients:
-#   OpenAI style (opencode, pi, codex)  BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000  (http://litellm:4000 in a sandbox)
-#   Anthropic style (claude-code)       ANTHROPIC_BASE_URL=<same>, ANTHROPIC_AUTH_TOKEN=<virtual key>, no ANTHROPIC_API_KEY
+# Clients (opencode, pi): BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000/v1 (http://litellm:4000/v1 in a sandbox)
 
 model_list:
   # ChatGPT subscription through the chatgpt/ provider. Tokens come from the device login
   # (README) and live in $CHATGPT_TOKEN_DIR. Spend is reported as $0, so key budgets do not
-  # apply here; per-key rpm/tpm and bothub's runs-per-day budget are the limits.
+  # apply here; per-key rpm/tpm and bothub's runs-per-day budget are the limits. Parallel tool
+  # calls come back from this provider with empty arguments, so they are turned off.
   - model_name: smart
     model_info: { mode: responses }
     litellm_params:
       model: os.environ/BOTHUB_MODEL_SMART
+      parallel_tool_calls: false
 
   - model_name: writer
     model_info: { mode: responses }
     litellm_params:
       model: os.environ/BOTHUB_MODEL_WRITER
+      parallel_tool_calls: false
 
-  # A different model family, so review does not share the author's blind spots.
+  # A different model family, so review does not share the author's blind spots. Without an
+  # Anthropic key the call fails and the fallback below routes it to smart.
   - model_name: review
     litellm_params:
       model: os.environ/BOTHUB_MODEL_REVIEW
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  # Local models through Ollama.
+  # Local models through Ollama. qwen3.5 thinks by default; think: false keeps replies short.
   - model_name: fast
     litellm_params:
       model: os.environ/BOTHUB_MODEL_LOCAL
       api_base: os.environ/OLLAMA_API_BASE
+      think: false
 
   - model_name: local
     litellm_params:
       model: os.environ/BOTHUB_MODEL_LOCAL
       api_base: os.environ/OLLAMA_API_BASE
+      think: false
 
 litellm_settings:
   drop_params: true
   request_timeout: 600
+  fallbacks: [{ review: [smart] }]
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

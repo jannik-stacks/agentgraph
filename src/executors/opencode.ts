@@ -1,3 +1,4 @@
+import { opencodeMcpConfig } from '../mcp-config.ts';
 import type { AgentEvent, ExecutorAdapter, RunSpec } from '../types.ts';
 
 type ToolState =
@@ -47,11 +48,22 @@ const config = (spec: RunSpec) => ({
       npm: '@ai-sdk/openai-compatible',
       name: provider,
       options: { baseURL: '{env:BOTHUB_LLM_BASE_URL}', apiKey: '{env:BOTHUB_LLM_API_KEY}' },
-      models: { [spec.model ?? 'default']: {} },
+      models: { [spec.model ?? 'default']: { options: { parallelToolCalls: false } } },
     },
   },
   agent: { [provider]: { mode: 'primary', prompt: spec.system, steps: spec.maxTurns } },
+  ...(spec.mcp && opencodeMcpConfig(spec.mcp)),
 });
+
+const numeric = /^(?:-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+)$/i;
+
+/** Space-free words; a number is glued to the word before it with a tab, because the CLI would read it as a number. */
+const words = (prompt: string) =>
+  prompt.split(' ').reduce<string[]>((out, word) => {
+    if (!numeric.test(word)) return [...out, word];
+    const last = out.pop();
+    return [...out, last === undefined ? `${word}\t` : `${last}\t${word}`];
+  }, []);
 
 /** The prompt goes in space-free words after `--` so the CLI neither parses nor re-quotes it. */
 const command = (spec: RunSpec) => ({
@@ -68,7 +80,7 @@ const command = (spec: RunSpec) => ({
     '--model',
     `${provider}/${spec.model ?? 'default'}`,
     '--',
-    ...spec.prompt.split(' '),
+    ...words(spec.prompt),
   ],
   env: {
     OPENCODE_CONFIG_CONTENT: JSON.stringify(config(spec)),

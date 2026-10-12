@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -7,7 +8,7 @@ import { defineCommand, runCommand, showUsage, type CommandDef } from 'citty';
 import { Effect } from 'effect';
 import { z } from 'zod';
 import { compile, type Compiled, type Config } from './config.ts';
-import { plan } from './dispatch.ts';
+import { dispatch, plan } from './dispatch.ts';
 import { executors } from './executors/index.ts';
 import { githubApp } from './github-app.ts';
 import { toEvent } from './github.ts';
@@ -15,12 +16,15 @@ import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { serveMcp } from './mcp.ts';
-import { buildSpec, runPlan, type JobResult } from './pipeline.ts';
+import { buildSpec, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
 import { Bot, Check, Hub, HubTool, Note, Skill, Workflow } from './schema.ts';
+import { localOrigin, runEvent, serveHub } from './serve.ts';
+import { serveGitHub } from './serve-github.ts';
 import { simulate } from './sim.ts';
 import { openStore, runId, type Run } from './store.ts';
 import type { AgentEvent } from './types.ts';
+import { replay } from './webhook.ts';
 import { workspaces, worktreePath } from './workspace.ts';
 
 const json = { type: 'boolean', description: 'Print JSON (default when stdout is not a terminal)' } as const;
@@ -47,7 +51,7 @@ const loadPlan = async (args: { dir: string; event: string; payload: string }) =
     for (const e of result.errors) fail(`${e.path}: ${e.message}`);
     return;
   }
-  const event = toEvent(args.event, 'cli', JSON.parse(await readFile(args.payload, 'utf8')));
+  const event = toEvent(args.event, `cli-${randomUUID()}`, JSON.parse(await readFile(args.payload, 'utf8')));
   return { config: result.config, event, jobs: event ? plan(event, result.config) : [] };
 };
 
@@ -149,8 +153,9 @@ const check = defineCommand({
     }
     const { bots, skills, checks, workflows, notes } = result.config;
     const jobs = Object.values(workflows).reduce((n, w) => n + Object.keys(w.jobs).length, 0);
-    if (asJson(args.json)) print(JSON.stringify({ ok: true }));
-    else
+    if (asJson(args.json)) print(JSON.stringify({ ok: true, warnings: result.warnings }));
+    else {
+      for (const w of result.warnings) process.stderr.write(`warning: ${w.path}: ${w.message}\n`);
       print(
         `ok: ${[
           count(Object.keys(bots).length, 'bot'),
@@ -159,8 +164,10 @@ const check = defineCommand({
           `${count(Object.keys(workflows).length, 'workflow')} (${count(jobs, 'job')})`,
           count(notes.length, 'note'),
           ...(issues ? [count(issues.length, 'local issue')] : []),
+          ...(result.warnings.length ? [count(result.warnings.length, 'warning')] : []),
         ].join(', ')}`
       );
+    }
     return 0;
   },
 });
@@ -242,7 +249,12 @@ const run = defineCommand({
           print(`${s.workflow}/${s.job} (${s.bot}, ${s.harness}, ${s.timeoutMinutes} min)`);
           if (s.until) print(`until: ${s.until.checks.join(', ')} pass, at most ${s.until.max} more attempts`);
           print(`cwd: ${s.spec.cwd}`);
-          print(`$ ${s.command.map(shown).join(' ')}\n\n`);
+          const split = s.command.indexOf('--');
+          const command =
+            split >= 0 && s.command.length - split > 2 && s.command.slice(split + 1).join(' ') === s.spec.prompt
+              ? [...s.command.slice(0, split + 1), s.spec.prompt]
+              : s.command;
+          print(`$ ${command.map(shown).join(' ')}\n\n`);
           print(`--- system\n${s.spec.system}\n\n`);
           print(`--- prompt\n${s.spec.prompt}\n\n`);
         }
@@ -256,22 +268,19 @@ const run = defineCommand({
         'no GitHub App credentials (BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE, BOTHUB_INSTALLATION_ID): shadow mode, nothing is applied'
       );
     const issues = hubIssues(config, args.dir, event.repo);
-    const results = await Effect.runPromise(
-      Effect.flatMap(limiter(1), limit =>
-        runPlan(jobs, {
-          config,
-          event,
-          store: openStore(root),
-          workspaces: workspaces({ dataDir: root, ...(app && { token: app.token }) }),
-          limit,
-          env,
-          ...(app && { gh: app.gh }),
-          ...(issues && { issues }),
-          mcp: tools => bothubServer({ dir: resolve(args.dir), tools, repo: event.repo, data: resolve(root) }),
-          onEvent: (r, record) => process.stderr.write(`${r.workflow}/${r.job} ${describe(record.event)}\n`),
-        })
-      )
-    );
+    const store = openStore(root);
+    const results = await runEvent(await dispatch(event, config, store), {
+      config,
+      event,
+      store,
+      workspaces: workspaces({ dataDir: root, ...(app && { token: app.token }) }),
+      limit: await Effect.runPromise(limiter(1)),
+      env,
+      ...(app && { gh: app.gh }),
+      ...(issues && { issues }),
+      mcp: tools => bothubServer({ dir: resolve(args.dir), tools, repo: event.repo, data: resolve(root) }),
+      onEvent: (r, record) => process.stderr.write(`${r.workflow}/${r.job} ${describe(record.event)}\n`),
+    });
     if (asJson(args.json)) print(JSON.stringify(results));
     else for (const r of results) print(summary(r));
     return results.some(r => 'run' in r && r.run.status !== 'succeeded') ? 1 : 0;
@@ -369,6 +378,128 @@ const sim = defineCommand({
   },
 });
 
+const serveCmd = defineCommand({
+  meta: {
+    name: 'serve',
+    description: 'Watch a local hub, run the jobs its issue changes start, and serve the studio API',
+  },
+  args: {
+    hub: { type: 'string', description: 'Hub directory with `issues: local`', required: true },
+    data,
+    repo: { type: 'string', description: 'Local bare repository used as origin', required: true },
+    name: { type: 'string', description: 'Repository name events carry (default: local/<repo>)' },
+    port: { type: 'string', description: 'Studio API port', default: '5181' },
+    sandbox: { type: 'string', description: 'Where harnesses run: host or docker (default: $BOTHUB_SANDBOX)' },
+  },
+  async run({ args }) {
+    if (args.sandbox && args.sandbox !== 'host' && args.sandbox !== 'docker') {
+      fail(`--sandbox must be host or docker, not "${args.sandbox}"`);
+      return 2;
+    }
+    if (args.sandbox) process.env.BOTHUB_SANDBOX = args.sandbox;
+    const root = dataDir(args.data);
+    const result = await loadConfig(args.hub);
+    if (!result.ok) {
+      for (const e of result.errors) fail(`${e.path}: ${e.message}`);
+      return 2;
+    }
+    if (result.config.hub.issues !== 'local') {
+      fail('serve needs a hub with `issues: local` in hub.yaml');
+      return 2;
+    }
+    const origin = await localOrigin(args.repo);
+    const { stop } = await serveHub({
+      hub: args.hub,
+      data: root,
+      origin,
+      ...(args.name && { repo: args.name }),
+      env: await loadEnv(root),
+      port: Number(args.port),
+    });
+    process.stderr.write(`sandbox ${process.env.BOTHUB_SANDBOX === 'docker' ? 'docker' : 'host'}, data ${root}\n`);
+    await new Promise<void>(done => {
+      process.once('SIGINT', done);
+      process.once('SIGTERM', done);
+    });
+    await stop();
+    return 0;
+  },
+});
+
+const webhookServe = defineCommand({
+  meta: { name: 'serve', description: 'Receive GitHub App webhooks and run the jobs they start' },
+  args: {
+    hub: { ...dir, required: true },
+    data,
+    repo: { type: 'string', description: 'Comma-separated owner/repo allowlist (default: every installed repository)' },
+    port: { type: 'string', description: 'Studio API port', default: '5181' },
+    'webhook-port': { type: 'string', description: 'Webhook port, the only one to expose', default: '5183' },
+  },
+  async run({ args }) {
+    const root = dataDir(args.data);
+    const env = await loadEnv(root);
+    const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
+    if (!appId || !keyFile || !secret) {
+      fail('webhook serve needs BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE and BOTHUB_WEBHOOK_SECRET');
+      return 2;
+    }
+    const result = await loadConfig(args.hub);
+    if (!result.ok) {
+      for (const e of result.errors) fail(`${e.path}: ${e.message}`);
+      return 2;
+    }
+    const { stop } = await serveGitHub({
+      hub: args.hub,
+      data: root,
+      app: githubApp({ appId, privateKey: await readFile(keyFile, 'utf8') }),
+      secret,
+      env,
+      ...(args.repo && { repos: args.repo.split(',').map(r => r.trim()) }),
+      port: Number(args.port),
+      webhookPort: Number(args['webhook-port']),
+    });
+    await new Promise<void>(done => {
+      process.once('SIGINT', done);
+      process.once('SIGTERM', done);
+    });
+    await stop();
+    return 0;
+  },
+});
+
+const webhookReplay = defineCommand({
+  meta: { name: 'replay', description: 'Sign a saved webhook payload and POST it to a local receiver' },
+  args: {
+    event: eventName,
+    payload,
+    data,
+    url: { type: 'string', description: 'Receiver URL', default: 'http://127.0.0.1:5183/' },
+    delivery: { type: 'string', description: 'Delivery id (default: a random UUID)' },
+  },
+  async run({ args }) {
+    const { BOTHUB_WEBHOOK_SECRET: secret } = await loadEnv(dataDir(args.data));
+    if (!secret) {
+      fail('replay needs BOTHUB_WEBHOOK_SECRET');
+      return 2;
+    }
+    const res = await replay({
+      url: args.url,
+      secret,
+      event: args.event,
+      payload: await readFile(args.payload),
+      ...(args.delivery && { deliveryId: args.delivery }),
+    });
+    const body = await res.text();
+    print(`${res.status}${body ? ` ${oneLine(body)}` : ''}`);
+    return res.ok ? 0 : 1;
+  },
+});
+
+const webhookCmd = defineCommand({
+  meta: { name: 'webhook', description: 'Receive GitHub App webhooks, or replay a saved one locally' },
+  subCommands: { serve: webhookServe, replay: webhookReplay },
+});
+
 const schema = defineCommand({
   meta: { name: 'schema', description: 'Print a JSON Schema for the frontmatter of each hub file kind' },
   run() {
@@ -379,7 +510,18 @@ const schema = defineCommand({
   },
 });
 
-const commands: Record<string, CommandDef<any>> = { check, plan: planCmd, run, runs, logs, mcp, sim, schema };
+const commands: Record<string, CommandDef<any>> = {
+  check,
+  plan: planCmd,
+  run,
+  runs,
+  logs,
+  mcp,
+  serve: serveCmd,
+  webhook: webhookCmd,
+  sim,
+  schema,
+};
 
 export const cli = defineCommand({
   meta: { name: 'bothub', description: 'GitHub-driven agent runner' },

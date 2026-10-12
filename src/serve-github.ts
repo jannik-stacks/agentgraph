@@ -7,8 +7,9 @@ import type { githubApp } from './github-app.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
-import { runPlan, type JobResult } from './pipeline.ts';
+import type { JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
+import { runEvent } from './serve.ts';
 import { openStore } from './store.ts';
 import type { BotEvent } from './types.ts';
 import { webhook } from './webhook.ts';
@@ -28,7 +29,7 @@ export const serveGitHub = async ({
   env,
   repos,
   port = 5181,
-  webhookPort = 5182,
+  webhookPort = 5183,
   log = line => process.stderr.write(`${line}\n`),
   onResults,
 }: {
@@ -62,28 +63,25 @@ export const serveGitHub = async ({
     log(
       `event ${event.trigger}${event.action ? ` (${event.action})` : ''} on ${on} by @${event.actor.login}: ${jobs.length} jobs`
     );
-    if (!jobs.length) return;
     const issues = config.hub.issues === 'local' ? localIssues(join(dir, 'issues'), { repo: event.repo }) : undefined;
-    const results = await Effect.runPromise(
-      runPlan(jobs, {
-        config,
-        event,
-        store,
-        workspaces: spaces,
-        limit,
-        env,
-        gh: installation !== undefined ? app.client(installation) : app.repoClient(event.repo),
-        ...(issues && { issues }),
-        mcp: tools => bothubServer({ dir, tools, repo: event.repo, data: root }),
-        onEvent: (run, { event: e }) => {
-          if (e.type === 'start' || e.type === 'end' || e.type === 'error')
-            log(`${run.workflow}/${run.job} ${run.id} ${e.type}${'message' in e ? ` ${e.message}` : ''}`);
-        },
-      })
-    );
+    const results = await runEvent(jobs, {
+      config,
+      event,
+      store,
+      workspaces: spaces,
+      limit,
+      env,
+      gh: installation !== undefined ? app.client(installation) : app.repoClient(event.repo),
+      ...(issues && { issues }),
+      mcp: tools => bothubServer({ dir, tools, repo: event.repo, data: root }),
+      onEvent: (run, { event: e }) => {
+        if (e.type === 'start' || e.type === 'end' || e.type === 'error')
+          log(`${run.workflow}/${run.job} ${run.id} ${e.type}${'message' in e ? ` ${e.message}` : ''}`);
+      },
+    });
     for (const r of results)
       log(`${r.workflow}/${r.job}: ${'skipped' in r ? `skipped, ${r.skipped}` : `${r.run.status} ${r.run.id}`}`);
-    onResults?.(event, results);
+    if (results.length) onResults?.(event, results);
   };
 
   let queue = Promise.resolve();

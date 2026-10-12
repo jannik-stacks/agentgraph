@@ -12,6 +12,7 @@ type Message =
       usage?: Usage;
       stopReason?: string;
       errorMessage?: string;
+      responseModel?: string;
     }
   | { role: string };
 
@@ -80,6 +81,7 @@ const reply = (m: Assistant): AgentEvent[] => {
   const t = text(m.content);
   const u = m.usage;
   return [
+    ...(m.responseModel ? [{ type: 'start' as const, model: m.responseModel }] : []),
     ...(t ? [{ type: 'text' as const, text: t }] : []),
     ...(u && (u.input || u.output)
       ? [

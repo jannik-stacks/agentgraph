@@ -6,6 +6,7 @@ model_list:
     litellm_params: &local
       model: os.environ/BOTHUB_MODEL_LOCAL
       api_base: os.environ/OLLAMA_API_BASE
+      think: false
   - { model_name: fast, litellm_params: *local }
   - { model_name: smart, litellm_params: *local }
   - { model_name: writer, litellm_params: *local }

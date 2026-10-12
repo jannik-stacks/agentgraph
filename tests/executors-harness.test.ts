@@ -44,6 +44,27 @@ describe('opencode', () => {
     expect(args.slice(0, split).join(' ')).not.toMatch(/--auto|--yolo|dangerously/);
   });
 
+  it('glues numbers to the word before them so the CLI keeps every word a string', () => {
+    const { args } = command({ ...spec, prompt: '3 tries, attempt 2 of 0x10 then -1.5e3 done' });
+    expect(args.slice(args.indexOf('--') + 1)).toEqual([
+      '3\t',
+      'tries,',
+      'attempt\t2',
+      'of\t0x10',
+      'then\t-1.5e3',
+      'done',
+    ]);
+  });
+
+  it('adds the bothub MCP server to the inline config', () => {
+    const mcp = { command: 'node', args: ['bothub.mjs', 'mcp'], env: {} };
+    const config = JSON.parse(command({ ...spec, mcp }).env.OPENCODE_CONFIG_CONTENT ?? '');
+    expect(config.mcp).toEqual({
+      bothub: { type: 'local', command: ['node', 'bothub.mjs', 'mcp'], environment: {}, enabled: true },
+    });
+    expect(JSON.parse(command(spec).env.OPENCODE_CONFIG_CONTENT ?? '{}').mcp).toBeUndefined();
+  });
+
   it('passes the proxy, agent and allowlist inline and ignores project config', () => {
     const { env } = command(spec);
     expect(JSON.parse(env.OPENCODE_PERMISSION ?? '')).toEqual({
@@ -57,7 +78,7 @@ describe('opencode', () => {
       baseURL: '{env:BOTHUB_LLM_BASE_URL}',
       apiKey: '{env:BOTHUB_LLM_API_KEY}',
     });
-    expect(config.provider.bothub.models).toEqual({ coder: {} });
+    expect(config.provider.bothub.models).toEqual({ coder: { options: { parallelToolCalls: false } } });
     expect(config.agent.bothub).toEqual({ mode: 'primary', prompt: spec.system, steps: 5 });
     expect(env).toMatchObject({ OPENCODE_DISABLE_PROJECT_CONFIG: '1', OPENCODE_DISABLE_CLAUDE_CODE: '1' });
     expect(JSON.stringify(env)).not.toMatch(/sk-|vk-/);
@@ -169,6 +190,17 @@ describe('pi', () => {
     });
     expect(events[4]).toEqual({ type: 'tool_result', id: 'call_mock1', ok: true, output: 'hi\n' });
     expect(events[7]).toEqual({ type: 'end', ok: true, turns: 2, result: 'done' });
+  });
+
+  it('reports the model the proxy answered with as a start', () => {
+    const line = JSON.stringify({
+      type: 'message_end',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }], model: 'review', responseModel: 'smart' },
+    });
+    expect(parseLine(line)).toEqual([
+      { type: 'start', model: 'smart' },
+      { type: 'text', text: 'ok' },
+    ]);
   });
 
   it('reports one failure after retries are exhausted', () => {

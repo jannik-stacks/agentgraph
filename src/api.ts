@@ -4,12 +4,15 @@ import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { compile } from './config.ts';
 import { readHub } from './load.ts';
-import type { RunStatus, Store } from './store.ts';
+import { alive, type Run, type RunStatus, type Store } from './store.ts';
 
 export type Handler = (req: Request) => Promise<Response>;
 
 const live: RunStatus[] = ['queued', 'running'];
-const failed: RunStatus[] = ['failed', 'timed-out'];
+const failed: RunStatus[] = ['failed', 'timed-out', 'interrupted'];
+
+/** Queued or running, and owned by a process that may still be running it. */
+export const isLive = (run: Run) => live.includes(run.status) && (!run.owner || alive(run.owner));
 const notFound = () => Response.json({ error: 'not found' }, { status: 404 });
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -29,14 +32,19 @@ const offset = (value: string | null) => {
   return Number.isSafeInteger(n) && n >= 0 ? n : undefined;
 };
 
-/** Runs waiting on a human, newest first: those that asked a question and those that failed. */
+/**
+ * Runs waiting on a human, newest first: those that asked a question, those blocked on an approval or deferred,
+ * and those that failed, were interrupted, or were left running by a process that is gone.
+ */
 export const needsHuman = async (store: Store) => {
   const items = await Promise.all(
     (await store.list()).map(async run => {
       const proposals = (await store.outcome(run.id))?.proposals ?? [];
       const questions = proposals.flatMap(p => (p.kind === 'ask' ? [p.question] : []));
       if (questions.length) return { run, reason: 'asked' as const, questions };
-      if (failed.includes(run.status)) return { run, reason: 'failed' as const, questions };
+      if (run.closure === 'blocked' || run.closure === 'deferred') return { run, reason: run.closure, questions };
+      if (failed.includes(run.status) || (live.includes(run.status) && !isLive(run)))
+        return { run, reason: 'failed' as const, questions };
     })
   );
   return items.filter(item => item !== undefined);
@@ -124,7 +132,7 @@ export const api = ({
               send(`id: ${record.seq}\ndata: ${JSON.stringify(record)}\n\n`);
               next = record.seq + 1;
             }
-            if (!run || !live.includes(run.status)) {
+            if (!run || !isLive(run)) {
               send(`event: end\ndata: ${JSON.stringify({ status: run?.status ?? null })}\n\n`);
               break;
             }
@@ -236,7 +244,7 @@ const send = async (response: Response, res: ServerResponse) => {
   res.end();
 };
 
-/** Serves a Web `Request` handler on `port` with `node:http`. Resolves once listening. */
+/** Serves a Web `Request` handler on 127.0.0.1:`port` with `node:http`. Resolves once listening. */
 export const serve = (handler: Handler, port: number) => {
   const server = createServer((req, res) => {
     const abort = new AbortController();
@@ -249,5 +257,5 @@ export const serve = (handler: Handler, port: number) => {
         res.end(JSON.stringify({ error: e.message }));
       });
   });
-  return new Promise<typeof server>(resolve => server.listen(port, () => resolve(server)));
+  return new Promise<typeof server>(resolve => server.listen(port, '127.0.0.1', () => resolve(server)));
 };

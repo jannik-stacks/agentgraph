@@ -21,7 +21,7 @@ const fields = {
   workflow: 'issue',
   job: 'implement',
   bot: 'implementor',
-  harness: 'claude-code' as const,
+  harness: 'opencode' as const,
   event,
 };
 const record = (seq: number, text: string): EventRecord => ({
@@ -31,10 +31,11 @@ const record = (seq: number, text: string): EventRecord => ({
 });
 
 const setup = () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'bothub-api-')));
+  const dir = mkdtempSync(join(tmpdir(), 'bothub-api-'));
+  const store = openStore(dir);
   const handle = api({ hubDir, store, pollMs: 10 });
   const get = (path: string, init?: RequestInit) => handle(new Request(`http://studio${path}`, init));
-  return { store, get };
+  return { dir, store, get };
 };
 
 const readSse = async (response: Response) => {
@@ -77,7 +78,7 @@ describe('api', () => {
   });
 
   it('lists runs that need a human', async () => {
-    const { store, get } = setup();
+    const { dir, store, get } = setup();
     const asked = await store.create(fields);
     await store.saveOutcome(asked.id, {
       proposals: [{ kind: 'ask', question: 'Which port?' }],
@@ -90,11 +91,20 @@ describe('api', () => {
     const broken = await store.create(fields);
     await store.update(broken.id, { status: 'failed', error: 'boom' });
     await store.create(fields);
+    const blocked = await store.create(fields);
+    await store.update(blocked.id, { status: 'skipped', closure: 'blocked', approval: 9 });
+    const interrupted = await store.create(fields);
+    await store.update(interrupted.id, { status: 'interrupted' });
+    const orphan = await openStore(dir, { pid: 2 ** 22 + 1, token: 'gone' }).create(fields);
+    await store.update(orphan.id, { status: 'running' });
     const body = await (await get('/api/needs-human')).json();
     expect(body.map((item: { run: { id: string }; reason: string }) => [item.run.id, item.reason]).sort()).toEqual(
       [
         [asked.id, 'asked'],
         [broken.id, 'failed'],
+        [blocked.id, 'blocked'],
+        [interrupted.id, 'failed'],
+        [orphan.id, 'failed'],
       ].sort()
     );
     expect(body.find((item: { reason: string }) => item.reason === 'asked').questions).toEqual(['Which port?']);

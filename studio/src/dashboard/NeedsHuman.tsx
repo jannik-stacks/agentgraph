@@ -18,7 +18,7 @@ export const NeedsHuman = () => {
                 className="w-full rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900"
               >
                 <div className="flex items-center gap-2">
-                  <Badge tone={reason === 'asked' ? 'warn' : 'danger'}>{reason}</Badge>
+                  <Badge tone={reason === 'failed' ? 'danger' : 'warn'}>{reason}</Badge>
                   <span className="truncate">
                     {run.workflow} / {run.job}
                   </span>

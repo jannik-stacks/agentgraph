@@ -1,9 +1,0 @@
-{"type":"thread.started","thread_id":"01a12ffb-c315-7fa3-a19f-ce68825b9e5b"}
-{"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll list the files and create `done.txt`.\n"}}
-{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'ls -la'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
-{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'ls -la'","aggregated_output":"total 8\ndrwxr-xr-x@  3 user  wheel   96 Oct 12 19:59 .\ndrwx------@ 13 user  wheel  416 Oct 12 19:59 ..\n-rw-r--r--@  1 user  wheel    3 Oct 12 19:59 a.txt\n","exit_code":0,"status":"completed"}}
-{"type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"printf 'done' > done.txt\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
-{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"printf 'done' > done.txt\"","aggregated_output":"","exit_code":0,"status":"completed"}}
-{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"done"}}
-{"type":"turn.completed","usage":{"input_tokens":33090,"cached_input_tokens":28544,"cache_write_input_tokens":0,"output_tokens":75,"reasoning_output_tokens":0}}

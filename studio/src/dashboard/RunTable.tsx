@@ -1,5 +1,5 @@
 import type { Run } from '../../../src/store.ts';
-import { Badge, cx, statusTone } from '../ui.tsx';
+import { Badge, closureTones, cx, statusTone } from '../ui.tsx';
 
 const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'narrow' });
 const steps: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -50,6 +50,11 @@ export const RunTable = ({
         >
           <td className="px-3 py-1.5">
             <Badge tone={statusTone(run.status)}>{run.status}</Badge>
+            {run.closure && (
+              <div>
+                <Badge tone={closureTones[run.closure]}>{run.closure}</Badge>
+              </div>
+            )}
           </td>
           <td className="px-3 py-1.5">
             <div>

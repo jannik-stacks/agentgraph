@@ -14,7 +14,12 @@ const ProposalView = ({ proposal }: { proposal: Proposal }) => {
   );
 };
 
-const resultTone: Record<ApplyResult['status'], Tone> = { applied: 'ok', skipped: 'neutral', failed: 'danger' };
+const resultTone: Record<ApplyResult['status'], Tone> = {
+  applied: 'ok',
+  pending: 'warn',
+  skipped: 'neutral',
+  failed: 'danger',
+};
 
 export const OutcomePanel = ({ outcome }: { outcome: Outcome }) => (
   <div className="space-y-4">

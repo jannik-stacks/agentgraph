@@ -5,13 +5,13 @@
 #   run.sh implementor ~/.bothub/work/r-123 ~/.bothub/runs/r-123/home -- opencode run "fix the typo"
 #
 # <home> is the run's persistent home ($BOTHUB_DATA/runs/<id>/home), mounted read-write as $HOME
-# with the same XDG and CODEX_HOME layout as the runner's homeEnv, so harness transcripts survive.
+# with the same XDG layout as the runner's homeEnv, so harness transcripts survive.
 #
 # Needs: the compose `sandbox` profile up (network bothub-sandbox, litellm, egress, ollama-relay), the image
 # bothub-sandbox:local, and BOTHUB_LLM_API_KEY_<BOT> in the environment.
 #
 # Knobs: TIMEOUT_MIN (30), MEMORY (2g), CPUS (1.5), PIDS (512), IMAGE, LLM_URL,
-# HARNESS=claude-code (also maps the key to ANTHROPIC_*), CACHE_RW=1 (trusted build-cache warm-up only).
+# CACHE_RW=1 (trusted build-cache warm-up only).
 # The npm cache is shared read-write: npm must write to it, entries are content-addressed and
 # checked against the lockfile integrity on read, so a tampered entry fails verification.
 set -euo pipefail
@@ -20,7 +20,7 @@ bot="${1:?usage: run.sh <bot> <worktree> <home> -- <command...>}"
 worktree="$(cd "${2:?worktree path}" && pwd -P)"
 mkdir -p "${3:?run home path}"
 home="$(cd "$3" && pwd -P)"
-(cd "$home" && mkdir -p .config .local/share .local/state .cache .codex)
+(cd "$home" && mkdir -p .config .local/share .local/state .cache)
 shift 3
 [[ "${1:-}" == "--" ]] && shift
 (($#)) || { echo "no command given" >&2; exit 2; }
@@ -30,7 +30,7 @@ key="${!var:-}"
 [[ -n "$key" ]] || { echo "$var is not set" >&2; exit 2; }
 
 IMAGE="${IMAGE:-bothub-sandbox:local}"
-LLM_URL="${LLM_URL:-http://litellm:4000}"
+LLM_URL="${LLM_URL:-http://litellm:4000/v1}"
 name="bothub-run-$bot-$(openssl rand -hex 4)"
 uid="$(id -u)" gid="$(id -g)"
 cache_ro=",readonly"; [[ "${CACHE_RW:-}" == 1 ]] && cache_ro=""
@@ -50,8 +50,6 @@ if [[ -f "$worktree/.git" ]]; then
   )
 fi
 
-harness_env=()
-[[ "${HARNESS:-}" == claude-code ]] && harness_env=(-e "ANTHROPIC_BASE_URL=$LLM_URL" -e "ANTHROPIC_AUTH_TOKEN=$key")
 
 for vol in bothub-npm-cache bothub-build-cache; do
   docker volume inspect "$vol" >/dev/null 2>&1 && continue
@@ -83,12 +81,10 @@ docker run --rm --init --name "$name" \
   -e HOME=/home/agent -e TMPDIR=/tmp \
   -e XDG_CONFIG_HOME=/home/agent/.config -e XDG_DATA_HOME=/home/agent/.local/share \
   -e XDG_STATE_HOME=/home/agent/.local/state -e XDG_CACHE_HOME=/home/agent/.cache \
-  -e CODEX_HOME=/home/agent/.codex \
   -e BOTHUB_LLM_BASE_URL="$LLM_URL" \
   -e BOTHUB_LLM_API_KEY="$key" \
   -e BOTHUB_DECIDE_URL=http://ollama-relay:11434 \
   -e BOTHUB_DECIDE_MODEL="${BOTHUB_DECIDE_MODEL:-tev1:0.8b}" \
-  ${harness_env[@]+"${harness_env[@]}"} \
   -e HTTPS_PROXY=http://egress:8888 -e HTTP_PROXY=http://egress:8888 \
   -e https_proxy=http://egress:8888 -e http_proxy=http://egress:8888 \
   -e NO_PROXY=litellm,ollama-relay,localhost,127.0.0.1 -e no_proxy=litellm,ollama-relay,localhost,127.0.0.1 \

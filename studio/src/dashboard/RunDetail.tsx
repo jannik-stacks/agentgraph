@@ -1,7 +1,7 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import type { Run } from '../../../src/store.ts';
 import { needsHumanQueryAtom, runDetailAtom, runDetailQueryAtom, runsQueryAtom } from '../state.ts';
-import { Badge, Field, Fields, Section, statusTone } from '../ui.tsx';
+import { Badge, closureTones, Field, Fields, Section, statusTone } from '../ui.tsx';
 import { EventLog } from './EventLog.tsx';
 import { OutcomePanel } from './OutcomePanel.tsx';
 import { cost } from './RunTable.tsx';
@@ -12,6 +12,12 @@ const RunSummary = ({ run }: { run: Run }) => (
     <Field name="status">
       <Badge tone={statusTone(run.status)}>{run.status}</Badge>
     </Field>
+    {run.closure && (
+      <Field name="closure">
+        <Badge tone={closureTones[run.closure]}>{run.closure}</Badge>
+        {run.approval !== undefined && ` waiting for approval in #${run.approval}`}
+      </Field>
+    )}
     <Field name="job">
       {run.workflow} / {run.job}
     </Field>
