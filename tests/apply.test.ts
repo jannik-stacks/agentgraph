@@ -1,0 +1,166 @@
+import { describe, expect, it } from 'vitest';
+import { apply } from '../src/apply.ts';
+import { appJwt, gh, githubApp, type Fetch } from '../src/github-app.ts';
+import type { Proposal } from '../src/outputs.ts';
+import type { BotEvent } from '../src/types.ts';
+
+type Call = { method: string; url: string; headers: Record<string, string>; body?: unknown };
+
+const fakeFetch = (respond: (call: Call) => { status?: number; json?: unknown } = () => ({ json: {} })) => {
+  const calls: Call[] = [];
+  const fetch: Fetch = async (url, init = {}) => {
+    const call: Call = {
+      method: init.method ?? 'GET',
+      url,
+      headers: init.headers as Record<string, string>,
+      ...(init.body !== undefined && { body: JSON.parse(init.body as string) }),
+    };
+    calls.push(call);
+    const { status = 200, json } = respond(call);
+    return new Response(json === undefined ? null : JSON.stringify(json), { status });
+  };
+  return { calls, fetch };
+};
+
+const toPem = (der: ArrayBuffer) =>
+  `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(der)))
+    .match(/.{1,64}/g)
+    ?.join('\n')}\n-----END PRIVATE KEY-----\n`;
+
+const fromBase64url = (s: string) =>
+  Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+const keys = await crypto.subtle.generateKey(
+  { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+  true,
+  ['sign', 'verify']
+);
+const privateKey = toPem(await crypto.subtle.exportKey('pkcs8', keys.privateKey));
+
+describe('appJwt', () => {
+  it('signs an RS256 JWT that verifies with the public key', async () => {
+    const now = Date.parse('2026-10-12T00:00:00Z');
+    const jwt = await appJwt({ appId: 123, privateKey }, now);
+    const [header, claims, signature] = jwt.split('.') as [string, string, string];
+    const decode = (part: string) => JSON.parse(new TextDecoder().decode(fromBase64url(part)));
+    expect(decode(header)).toEqual({ alg: 'RS256', typ: 'JWT' });
+    expect(decode(claims)).toEqual({ iat: now / 1000 - 60, exp: now / 1000 + 540, iss: '123' });
+    const valid = await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      keys.publicKey,
+      fromBase64url(signature),
+      new TextEncoder().encode(`${header}.${claims}`)
+    );
+    expect(valid).toBe(true);
+  });
+
+  it('explains how to convert a PKCS#1 key', async () => {
+    const pkcs1 = '-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----';
+    await expect(appJwt({ appId: 1, privateKey: pkcs1 })).rejects.toThrow(/openssl pkcs8 -topk8 -nocrypt/);
+    await expect(appJwt({ appId: 1, privateKey: 'nope' })).rejects.toThrow(/BEGIN PRIVATE KEY/);
+  });
+});
+
+describe('githubApp', () => {
+  it('exchanges a JWT for an installation token and caches it until a minute before expiry', async () => {
+    let now = Date.parse('2026-10-12T00:00:00Z');
+    const { calls, fetch } = fakeFetch(() => ({
+      status: 201,
+      json: { token: `ghs_${calls.length}`, expires_at: new Date(now + 3600_000).toISOString() },
+    }));
+    const app = githubApp({ appId: 1, privateKey }, { fetch, now: () => now });
+    expect(await app.installationToken(42)).toBe('ghs_1');
+    now += 3500_000;
+    expect(await app.installationToken(42)).toBe('ghs_1');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      method: 'POST',
+      url: 'https://api.github.com/app/installations/42/access_tokens',
+    });
+    expect(calls[0]?.headers.Authorization).toMatch(/^Bearer ey/);
+    now += 60_000;
+    expect(await app.installationToken(42)).toBe('ghs_2');
+  });
+});
+
+describe('gh', () => {
+  it('sends the GitHub headers and throws with the status on failure', async () => {
+    const { calls, fetch } = fakeFetch(() => ({ status: 404, json: { message: 'Not Found' } }));
+    const error = await gh('t', fetch)('GET', '/repos/a/b').catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 404, message: expect.stringMatching(/GET \/repos\/a\/b failed with 404/) });
+    expect(calls[0]?.headers).toEqual({
+      Accept: 'application/vnd.github+json',
+      Authorization: 'Bearer t',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'bothub',
+    });
+  });
+});
+
+describe('apply', () => {
+  const event: BotEvent = {
+    id: 'd1',
+    ts: '2026-10-12T00:00:00.000Z',
+    source: 'github',
+    trigger: 'issue_comment',
+    repo: 'acme/app',
+    number: 7,
+    actor: { login: 'morgan', association: 'OWNER' },
+  };
+
+  it('applies each kind and reports skipped ones', async () => {
+    const { calls, fetch } = fakeFetch(({ url }) => ({
+      json: url.endsWith('/repos/acme/app') ? { default_branch: 'main' } : { html_url: `${url}#created` },
+    }));
+    const proposals: Proposal[] = [
+      { kind: 'reply', body: 'done' },
+      { kind: 'label', add: ['bot'], remove: ['needs triage'] },
+      { kind: 'open-pr', title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true },
+      { kind: 'ask-human', question: 'Which database?' },
+      { kind: 'push-branch', branch: 'bothub/7', files: ['a.ts'] },
+      { kind: 'propose-rule', path: 'rules/x.md', content: '' },
+    ];
+    const results = await apply(proposals, { event, gh: gh('t', fetch) });
+    expect(results.map(r => r.status)).toEqual(['applied', 'applied', 'applied', 'applied', 'skipped', 'skipped']);
+    expect(results[0]?.url).toBe('https://api.github.com/repos/acme/app/issues/7/comments#created');
+    expect(results[4]?.reason).toBe('the runner pushes bothub/7');
+    expect(calls.map(c => [c.method, c.url.replace('https://api.github.com', ''), c.body])).toEqual([
+      ['POST', '/repos/acme/app/issues/7/comments', { body: 'done' }],
+      ['POST', '/repos/acme/app/issues/7/labels', { labels: ['bot'] }],
+      ['DELETE', '/repos/acme/app/issues/7/labels/needs%20triage', undefined],
+      ['GET', '/repos/acme/app', undefined],
+      [
+        'POST',
+        '/repos/acme/app/pulls',
+        { title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true, base: 'main' },
+      ],
+      ['POST', '/repos/acme/app/issues/7/comments', { body: '@morgan Which database?' }],
+    ]);
+  });
+
+  it('keeps going after a failure', async () => {
+    const { fetch } = fakeFetch(({ url }) =>
+      url.endsWith('/pulls') ? { status: 422, json: { message: 'No commits' } } : { json: { html_url: 'u' } }
+    );
+    const results = await apply(
+      [
+        { kind: 'open-pr', title: 't', body: '', head: 'bothub/x', base: 'dev' },
+        { kind: 'reply', body: 'still here' },
+      ],
+      { event, gh: gh('t', fetch) }
+    );
+    expect(results[0]).toMatchObject({ kind: 'open-pr', status: 'failed', reason: expect.stringMatching(/422/) });
+    expect(results[1]).toEqual({ kind: 'reply', status: 'applied', url: 'u' });
+  });
+
+  it('fails comments without an issue number and ignores removing an absent label', async () => {
+    const { fetch } = fakeFetch(({ method }) => (method === 'DELETE' ? { status: 404 } : { json: {} }));
+    const { number: _, ...noNumber } = event;
+    expect(await apply([{ kind: 'reply', body: 'x' }], { event: noNumber, gh: gh('t', fetch) })).toEqual([
+      { kind: 'reply', status: 'failed', reason: 'the event has no issue or pull request to write to' },
+    ]);
+    expect(await apply([{ kind: 'label', remove: ['gone'] }], { event, gh: gh('t', fetch) })).toEqual([
+      { kind: 'label', status: 'applied' },
+    ]);
+  });
+});
