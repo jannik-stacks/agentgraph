@@ -23,7 +23,11 @@ export const compile = (files: SourceFile[]): Compiled => {
   const workflows: Record<string, Workflow> = {};
 
   for (const file of files) {
-    const kind = file.path.includes('personas/') ? 'persona' : file.path.includes('workflows/') ? 'workflow' : undefined;
+    const kind = file.path.includes('personas/')
+      ? 'persona'
+      : file.path.includes('workflows/')
+        ? 'workflow'
+        : undefined;
     if (!kind) continue;
     const fail = (message: string) => errors.push({ path: file.path, message });
     let doc;
@@ -64,14 +68,16 @@ const checkWorkflow = (workflow: Workflow, personas: Record<string, Persona>): C
   for (const [id, job] of Object.entries(jobs)) {
     for (const need of job.needs) if (!(need in jobs)) errors.push(`job "${id}" needs unknown job "${need}"`);
     for (const trigger of Object.keys(job.on ?? {}))
-      if (!(trigger in workflow.on)) errors.push(`job "${id}" triggers on "${trigger}", which the workflow does not listen to`);
+      if (!(trigger in workflow.on))
+        errors.push(`job "${id}" triggers on "${trigger}", which the workflow does not listen to`);
     if (!job.persona) continue;
     const persona = personas[job.persona];
     if (!persona) {
       errors.push(`job "${id}" uses unknown persona "${job.persona}"`);
       continue;
     }
-    if (!(id in workflow.prompts)) errors.push(`job "${id}" runs persona "${job.persona}" but has no "## ${id}" section`);
+    if (!(id in workflow.prompts))
+      errors.push(`job "${id}" runs persona "${job.persona}" but has no "## ${id}" section`);
     for (const kind of Object.keys(job['safe-outputs']))
       if (!persona['can-write'].includes(kind as never))
         errors.push(`job "${id}" allows "${kind}", which persona "${persona.name}" cannot write`);
@@ -82,7 +88,7 @@ const checkWorkflow = (workflow: Workflow, personas: Record<string, Persona>): C
   const cycle = findCycle(jobs);
   if (cycle) errors.push(`needs cycle: ${cycle.join(' -> ')}`);
 
-  return errors.map((message) => ({ path: workflow.path, message }));
+  return errors.map(message => ({ path: workflow.path, message }));
 };
 
 const findCycle = (jobs: Record<string, { needs: string[] }>): string[] | undefined => {

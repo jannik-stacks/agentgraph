@@ -31,7 +31,8 @@ const check = defineCommand({
       return 2;
     }
     const { personas, workflows } = result.config;
-    if (!asJson(args.json)) print(`ok: ${Object.keys(personas).length} personas, ${Object.keys(workflows).length} workflows`);
+    if (!asJson(args.json))
+      print(`ok: ${Object.keys(personas).length} personas, ${Object.keys(workflows).length} workflows`);
     return 0;
   },
 });
@@ -54,7 +55,9 @@ const planCmd = defineCommand({
     const jobs = event ? plan(event, result.config) : [];
     if (asJson(args.json)) print(JSON.stringify({ event, jobs }));
     else if (!jobs.length) print('no jobs');
-    else for (const j of jobs) print(`${j.workflow}/${j.job}${j.persona ? ` (${j.persona})` : ''}${j.args ? `: ${j.args}` : ''}`);
+    else
+      for (const j of jobs)
+        print(`${j.workflow}/${j.job}${j.persona ? ` (${j.persona})` : ''}${j.args ? `: ${j.args}` : ''}`);
     return 0;
   },
 });

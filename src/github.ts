@@ -7,9 +7,11 @@ const encoder = new TextEncoder();
 /** Checks a GitHub `X-Hub-Signature-256` header against the raw request body. Uses Web Crypto, so it runs on Node and Workers. */
 export const verifySignature = async (secret: string, body: string, header: string | null): Promise<boolean> => {
   if (!header?.startsWith('sha256=')) return false;
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
   const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(body)));
-  const expected = 'sha256=' + Array.from(mac, (b) => b.toString(16).padStart(2, '0')).join('');
+  const expected = 'sha256=' + Array.from(mac, b => b.toString(16).padStart(2, '0')).join('');
   return timingSafeEqual(expected, header);
 };
 
@@ -35,7 +37,15 @@ const Payload = z.object({
   ref: z.string().optional(),
 });
 
-const mapped = new Set<string>(['issue_comment', 'issues', 'pull_request', 'pull_request_review', 'pull_request_review_comment', 'push', 'workflow_dispatch']);
+const mapped = new Set<string>([
+  'issue_comment',
+  'issues',
+  'pull_request',
+  'pull_request_review',
+  'pull_request_review_comment',
+  'push',
+  'workflow_dispatch',
+]);
 
 /** Normalises a webhook delivery into a `BotEvent`, or `undefined` for events bothub does not handle. */
 export const toEvent = (name: string, deliveryId: string, payload: unknown, now = new Date()): BotEvent | undefined => {

@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "singleQuote": true,
+  "trailingComma": "es5",
+  "arrowParens": "avoid",
+  "printWidth": 120,
+  "ignorePatterns": ["studio-lab/**", "research/**", "examples/**"]
+}

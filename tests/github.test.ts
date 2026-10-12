@@ -9,8 +9,11 @@ import type { BotEvent } from '../src/types.ts';
 
 const hub = join(import.meta.dirname, '../examples/hub');
 const config = ((): Config => {
-  const files = ['personas', 'workflows'].flatMap((dir) =>
-    readdirSync(join(hub, dir)).map((name) => ({ path: `${dir}/${name}`, source: readFileSync(join(hub, dir, name), 'utf8') })),
+  const files = ['personas', 'workflows'].flatMap(dir =>
+    readdirSync(join(hub, dir)).map(name => ({
+      path: `${dir}/${name}`,
+      source: readFileSync(join(hub, dir, name), 'utf8'),
+    }))
   );
   const result = compile(files);
   if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -22,7 +25,13 @@ const commentPayload = (body: string, association = 'OWNER') => ({
   action: 'created',
   repository: { full_name: 'acme/app' },
   sender: { login: 'morgan' },
-  issue: { number: 7, html_url: 'https://github.com/acme/app/issues/7', body: 'issue text', user: { login: 'x' }, author_association: 'NONE' },
+  issue: {
+    number: 7,
+    html_url: 'https://github.com/acme/app/issues/7',
+    body: 'issue text',
+    user: { login: 'x' },
+    author_association: 'NONE',
+  },
   comment: { body, html_url: 'https://github.com/acme/app/issues/7#c1', author_association: association },
 });
 
@@ -59,9 +68,21 @@ describe('toEvent', () => {
       action: 'opened',
       repository: { full_name: 'acme/app' },
       sender: { login: 'bot' },
-      pull_request: { number: 9, html_url: 'u', body: null, user: { login: 'bot' }, author_association: 'MEMBER', head: { ref: 'bothub/7' } },
+      pull_request: {
+        number: 9,
+        html_url: 'u',
+        body: null,
+        user: { login: 'bot' },
+        author_association: 'MEMBER',
+        head: { ref: 'bothub/7' },
+      },
     });
-    expect(event).toMatchObject({ trigger: 'pull_request', number: 9, ref: 'bothub/7', actor: { association: 'MEMBER' } });
+    expect(event).toMatchObject({
+      trigger: 'pull_request',
+      number: 9,
+      ref: 'bothub/7',
+      actor: { association: 'MEMBER' },
+    });
     expect(event).not.toHaveProperty('body');
   });
 
@@ -72,7 +93,8 @@ describe('toEvent', () => {
 });
 
 describe('plan', () => {
-  const event = (body: string, association = 'OWNER') => toEvent('issue_comment', 'd', commentPayload(body, association)) as BotEvent;
+  const event = (body: string, association = 'OWNER') =>
+    toEvent('issue_comment', 'd', commentPayload(body, association)) as BotEvent;
 
   it('starts the implementor for a trusted command', () => {
     expect(plan(event('/bothub add a health check\nwith tests'), config)).toEqual([
@@ -87,7 +109,12 @@ describe('plan', () => {
   });
 
   it('starts the reviewer on an opened pull request', () => {
-    const pr: BotEvent = { ...event(''), trigger: 'pull_request', action: 'opened', actor: { login: 'b', association: 'MEMBER' } };
+    const pr: BotEvent = {
+      ...event(''),
+      trigger: 'pull_request',
+      action: 'opened',
+      actor: { login: 'b', association: 'MEMBER' },
+    };
     expect(plan(pr, config)).toEqual([{ workflow: 'issue-command', job: 'review', persona: 'reviewer' }]);
     expect(plan({ ...pr, action: 'closed' }, config)).toEqual([]);
   });

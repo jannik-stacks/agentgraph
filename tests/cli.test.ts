@@ -7,8 +7,8 @@ const examples = join(import.meta.dirname, '../examples');
 const capture = () => {
   const out: string[] = [];
   const err: string[] = [];
-  vi.spyOn(process.stdout, 'write').mockImplementation((s) => (out.push(String(s)), true));
-  vi.spyOn(process.stderr, 'write').mockImplementation((s) => (err.push(String(s)), true));
+  vi.spyOn(process.stdout, 'write').mockImplementation(s => (out.push(String(s)), true));
+  vi.spyOn(process.stderr, 'write').mockImplementation(s => (err.push(String(s)), true));
   return { out, err };
 };
 
@@ -25,10 +25,23 @@ describe('cli', () => {
 
   it('plan prints the jobs a payload starts', async () => {
     const io = capture();
-    const code = await main(['plan', '--event', 'issue_comment', join(examples, 'payloads/issue-comment.json'), '--dir', join(examples, 'hub'), '--json']);
+    const code = await main([
+      'plan',
+      '--event',
+      'issue_comment',
+      join(examples, 'payloads/issue-comment.json'),
+      '--dir',
+      join(examples, 'hub'),
+      '--json',
+    ]);
     expect(code).toBe(0);
     expect(JSON.parse(io.out.join('')).jobs).toEqual([
-      { workflow: 'issue-command', job: 'implement', persona: 'implementor', args: 'add a /health endpoint with a test' },
+      {
+        workflow: 'issue-command',
+        job: 'implement',
+        persona: 'implementor',
+        args: 'add a /health endpoint with a test',
+      },
     ]);
   });
 });

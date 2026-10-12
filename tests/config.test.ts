@@ -6,18 +6,24 @@ import { parseMarkdown } from '../src/markdown.ts';
 
 const hub = join(import.meta.dirname, '../examples/hub');
 const exampleFiles = (): SourceFile[] =>
-  ['personas', 'workflows'].flatMap((dir) =>
-    readdirSync(join(hub, dir)).map((name) => ({ path: `${dir}/${name}`, source: readFileSync(join(hub, dir, name), 'utf8') })),
+  ['personas', 'workflows'].flatMap(dir =>
+    readdirSync(join(hub, dir)).map(name => ({
+      path: `${dir}/${name}`,
+      source: readFileSync(join(hub, dir, name), 'utf8'),
+    }))
   );
 
 const persona = (name: string, canWrite = '[reply]') => ({
   path: `personas/${name}.md`,
   source: `---\nexecutor: claude-code\ncan-write: ${canWrite}\n---\nrole`,
 });
-const workflow = (frontmatter: string, body = '') => ({ path: 'workflows/w.md', source: `---\n${frontmatter}\n---\n${body}` });
+const workflow = (frontmatter: string, body = '') => ({
+  path: 'workflows/w.md',
+  source: `---\n${frontmatter}\n---\n${body}`,
+});
 const errorsOf = (files: SourceFile[]) => {
   const result = compile(files);
-  return result.ok ? [] : result.errors.map((e) => e.message);
+  return result.ok ? [] : result.errors.map(e => e.message);
 };
 
 describe('parseMarkdown', () => {
@@ -63,7 +69,7 @@ describe('compile', () => {
           '  b: { persona: ghost }',
           '  c: { on: { issue_comment: {} } }',
         ].join('\n'),
-        '## stray\ntext',
+        '## stray\ntext'
       ),
     ]);
     expect(errors).toEqual(
@@ -74,7 +80,7 @@ describe('compile', () => {
         'job "b" uses unknown persona "ghost"',
         'job "c" triggers on "issue_comment", which the workflow does not listen to',
         'section "## stray" has no job',
-      ]),
+      ])
     );
   });
 
@@ -86,7 +92,12 @@ describe('compile', () => {
 
 describe('jobOrder', () => {
   it('puts every job after the jobs it needs', () => {
-    const jobs = { ship: { needs: ['lint', 'test'] }, lint: { needs: ['changed'] }, test: { needs: ['changed'] }, changed: { needs: [] } };
+    const jobs = {
+      ship: { needs: ['lint', 'test'] },
+      lint: { needs: ['changed'] },
+      test: { needs: ['changed'] },
+      changed: { needs: [] },
+    };
     expect(jobOrder({ jobs } as never)).toEqual(['changed', 'lint', 'test', 'ship']);
   });
 });

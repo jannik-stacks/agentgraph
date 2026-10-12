@@ -28,7 +28,8 @@ export type SafeOutputKind = z.infer<typeof SafeOutputKind>;
 export const Executor = z.enum(['claude-code', 'codex']);
 export type Executor = z.infer<typeof Executor>;
 
-const list = <T extends z.ZodType>(item: T) => z.union([item, z.array(item)]).transform((v) => (Array.isArray(v) ? v : [v]));
+const list = <T extends z.ZodType>(item: T) =>
+  z.union([item, z.array(item)]).transform(v => (Array.isArray(v) ? v : [v]));
 
 export const Budget = z.strictObject({
   'runs-per-day': z.int().positive().optional(),
@@ -42,10 +43,12 @@ export const TriggerFilter = z
     tools: z.array(z.string()).optional(),
     branches: z.array(z.string()).optional(),
     cron: z.string().optional(),
-    guard: z.strictObject({ associations: z.array(Association).default(['OWNER', 'MEMBER', 'COLLABORATOR']) }).optional(),
+    guard: z
+      .strictObject({ associations: z.array(Association).default(['OWNER', 'MEMBER', 'COLLABORATOR']) })
+      .optional(),
   })
   .nullable()
-  .transform((v) => v ?? {});
+  .transform(v => v ?? {});
 
 export const On = z.partialRecord(Trigger, TriggerFilter);
 
