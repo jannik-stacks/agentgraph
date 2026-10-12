@@ -1,6 +1,7 @@
+import { parse } from 'yaml';
 import { z } from 'zod';
 import { parseMarkdown } from './markdown.ts';
-import { Bot, Check, Note, NoteKind, Skill, Workflow, type Job } from './schema.ts';
+import { Bot, Check, Hub, HubTool, Note, NoteKind, Skill, Workflow, type Job, type Preload } from './schema.ts';
 
 export type SourceFile = { path: string; source: string };
 
@@ -8,6 +9,7 @@ export type SourceFile = { path: string; source: string };
 export type Defined<T> = T & { name: string; path: string; body: string };
 
 export type Config = {
+  hub: Hub;
   bots: Record<string, Defined<Bot>>;
   skills: Record<string, Defined<Skill>>;
   checks: Record<string, Defined<Check>>;
@@ -21,20 +23,32 @@ export type Compiled = { ok: true; config: Config } | { ok: false; errors: Confi
 const schemas = { bots: Bot, skills: Skill, checks: Check, workflows: Workflow } as const;
 const definition = /(?:^|\/)(bots|skills|checks|workflows)\/([^/]+)\.md$/;
 const noteFile = /(?:^|\/)notes\/([^/]+)\/([^/]+)\.md$/;
+export const hubFile = 'hub.yaml';
 const placeholders = new Set(['issue', 'slug', 'job', 'workflow']);
 
 const quoted = (names: string[]) => names.map(n => `"${n}"`).join(', ');
 
 /**
  * Validates a hub's Markdown files into one config. Fails closed: any error rejects the whole set.
- * Files are routed by directory: `bots/`, `skills/`, `checks/`, `workflows/` and `notes/<kind>/`.
+ * Files are routed by directory: `bots/`, `skills/`, `checks/`, `workflows/` and `notes/<kind>/`, plus an optional
+ * top-level `hub.yaml`.
  */
 export const compile = (files: SourceFile[]): Compiled => {
   const errors: ConfigError[] = [];
-  const config: Config = { bots: {}, skills: {}, checks: {}, workflows: {}, notes: [] };
+  const config: Config = { hub: Hub.parse({}), bots: {}, skills: {}, checks: {}, workflows: {}, notes: [] };
 
   for (const file of files) {
     const fail = (message: string) => errors.push({ path: file.path, message });
+    if (file.path === hubFile) {
+      try {
+        const parsed = Hub.safeParse(parse(file.source) ?? {});
+        if (parsed.success) config.hub = parsed.data;
+        else fail(z.prettifyError(parsed.error));
+      } catch (e) {
+        fail((e as Error).message);
+      }
+      continue;
+    }
     const def = definition.exec(file.path);
     const note = def ? undefined : noteFile.exec(file.path);
     if (!def && !note) continue;
@@ -125,12 +139,17 @@ const checkJob = (id: string, job: Job, workflow: Workflow, { bots, skills, chec
     for (const [, key = ''] of job.branch.matchAll(/\{([^}]*)\}/g))
       if (!placeholders.has(key)) fail(`branch uses unknown placeholder "{${key}}"`);
   }
+  if (!job.bot && (job.preload || job.tools)) fail('has "preload" or "tools" but no bot');
   if (!job.bot) return errors;
   const bot = bots[job.bot];
-  if (!bot) fail(`uses unknown bot "${job.bot}"`);
-  else
-    for (const kind of job.can ?? [])
-      if (!bot.can.includes(kind)) fail(`allows "${kind}", which bot "${bot.name}" cannot do`);
+  if (!bot) {
+    fail(`uses unknown bot "${job.bot}"`);
+    return errors;
+  }
+  for (const kind of job.can ?? [])
+    if (!bot.can.includes(kind)) fail(`allows "${kind}", which bot "${bot.name}" cannot do`);
+  for (const tool of job.tools ?? [])
+    if (!hubTools(bot).includes(tool)) fail(`grants tool "${tool}", which bot "${bot.name}" does not have`);
   return errors;
 };
 
@@ -169,3 +188,17 @@ export const jobOrder = (workflow: Pick<Workflow, 'jobs'>): string[] => {
 /** What a bot may propose in a job: the bot's `can`, narrowed by the job's `can` when it has one. */
 export const effectiveCan = (bot: Pick<Bot, 'can'>, job: Pick<Job, 'can'>) =>
   job.can ? bot.can.filter(kind => job.can?.includes(kind)) : bot.can;
+
+/** The bothub read tools among a bot's `tools`. */
+export const hubTools = (bot: Pick<Bot, 'tools'>): HubTool[] =>
+  bot.tools.filter((tool): tool is HubTool => HubTool.safeParse(tool).success);
+
+/** A bot's harness tools, without the bothub read tools. */
+export const harnessTools = (bot: Pick<Bot, 'tools'>) => bot.tools.filter(tool => !HubTool.safeParse(tool).success);
+
+/** The read tools a run gets: the job's `tools` when it has them, otherwise the bot's. */
+export const effectiveTools = (bot: Pick<Bot, 'tools'>, job: Pick<Job, 'tools'>) => job.tools ?? hubTools(bot);
+
+/** What is rendered into a run before it starts: the job's `preload`, then the bot's, then the notes alone. */
+export const effectivePreload = (bot: Pick<Bot, 'preload'>, job: Pick<Job, 'preload'>): Preload[] =>
+  job.preload ?? bot.preload ?? ['notes'];

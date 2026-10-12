@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { SourceFile } from './config.ts';
+import { hubFile, type SourceFile } from './config.ts';
 
 const markdown = async (dir: string, sub: string): Promise<SourceFile[]> => {
   const names = await readdir(join(dir, sub)).catch(() => []);
@@ -12,8 +12,12 @@ const markdown = async (dir: string, sub: string): Promise<SourceFile[]> => {
   );
 };
 
-/** Reads a hub directory's definition files and `notes/<kind>/*.md`. Missing directories count as empty. */
+/** Reads a hub directory's `hub.yaml`, definition files and `notes/<kind>/*.md`. Missing ones count as empty. */
 export const readHub = async (dir: string): Promise<SourceFile[]> => {
+  const hub = await readFile(join(dir, hubFile), 'utf8').then(
+    source => [{ path: hubFile, source }],
+    () => []
+  );
   const kinds = await readdir(join(dir, 'notes'), { withFileTypes: true }).catch(() => []);
   const subs = [
     'bots',
@@ -25,5 +29,5 @@ export const readHub = async (dir: string): Promise<SourceFile[]> => {
       .map(entry => `notes/${entry.name}`)
       .sort(),
   ];
-  return (await Promise.all(subs.map(sub => markdown(dir, sub)))).flat();
+  return [...hub, ...(await Promise.all(subs.map(sub => markdown(dir, sub)))).flat()];
 };

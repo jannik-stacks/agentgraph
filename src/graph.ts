@@ -1,11 +1,11 @@
-import type { Config } from './config.ts';
-import { NoteKind } from './schema.ts';
+import { hubTools, type Config } from './config.ts';
+import { NoteKind, ruleKinds, type HubTool, type Preload } from './schema.ts';
 
 /** A node and edge model of a hub, for rendering. Ids are prefixed by kind, like `job:issue/implement`. */
 export type HubGraph = {
   nodes: {
     id: string;
-    kind: 'trigger' | 'job' | 'bot' | 'skill' | 'check' | 'note' | 'script';
+    kind: 'trigger' | 'job' | 'bot' | 'skill' | 'check' | 'note' | 'script' | 'issues' | 'tool';
     label: string;
     badges?: string[];
     detail?: Record<string, unknown>;
@@ -13,7 +13,17 @@ export type HubGraph = {
   edges: {
     from: string;
     to: string;
-    kind: 'triggers' | 'needs' | 'runs-as' | 'uses-skill' | 'gates' | 'loops-back' | 'fans-out' | 'reads-notes';
+    kind:
+      | 'triggers'
+      | 'needs'
+      | 'runs-as'
+      | 'uses-skill'
+      | 'gates'
+      | 'loops-back'
+      | 'fans-out'
+      | 'reads-notes'
+      | 'preloads'
+      | 'calls';
     label?: string;
   }[];
 };
@@ -22,17 +32,35 @@ const badges = (...items: (string | false | undefined)[]) => items.filter((item)
 
 /**
  * Builds the hub graph: triggers start jobs, jobs (or scripts) need jobs, run as bots with skills and loop back
- * from their `until` checks; bots and skills read notes, one node per note kind.
+ * from their `until` checks; bots and skills read notes, one node per note kind. Context reaches a run two ways,
+ * both drawn from where they are declared: `preload` edges into the issue tracker and the rule notes, and `calls`
+ * edges to the read tools a run may call.
  */
 export const hubGraph = (config: Config): HubGraph => {
   const graph: HubGraph = { nodes: [], edges: [] };
   const node = (n: HubGraph['nodes'][number]) => graph.nodes.push(n);
   const edge = (e: HubGraph['edges'][number]) => graph.edges.push(e);
   const reads = new Set<NoteKind>();
-  const readNotes = (from: string, kinds: NoteKind[] = []) =>
-    kinds.forEach(kind => {
-      reads.add(kind);
-      edge({ from, to: `note:${kind}`, kind: 'reads-notes' });
+  const readNotes = (from: string, kinds: NoteKind[] = [], kind: 'reads-notes' | 'preloads' = 'reads-notes') =>
+    kinds.forEach(note => {
+      reads.add(note);
+      edge({ from, to: `note:${note}`, kind });
+    });
+  const tools = new Set<HubTool>();
+  let tracker = false;
+  const preloads = (from: string, preload: Preload[] | undefined) => {
+    const items = preload?.filter(item => item !== 'notes') ?? [];
+    if (items.length) {
+      tracker = true;
+      edge({ from, to: 'issues:issues', kind: 'preloads', label: items.join(', ') });
+    }
+    if (preload?.includes('notes')) readNotes(from, [...ruleKinds], 'preloads');
+  };
+  const calls = (from: string, granted: HubTool[]) =>
+    granted.forEach(tool => {
+      tools.add(tool);
+      if (tool.startsWith('issues_')) tracker = true;
+      edge({ from, to: `tool:${tool}`, kind: 'calls' });
     });
   const runsAs = (from: string, bot: string, forEach: string | undefined) =>
     edge({
@@ -67,6 +95,8 @@ export const hubGraph = (config: Config): HubGraph => {
       for (const need of needs) edge({ from: jobId(need), to: self, kind: 'needs' });
       if (job.bot) runsAs(self, job.bot, job['for-each']);
       if (job.skill) edge({ from: self, to: `skill:${job.skill}`, kind: 'uses-skill' });
+      preloads(self, job.preload);
+      calls(self, job.tools ?? []);
       for (const check of job.until?.checks ?? []) {
         edge({ from: `check:${check}`, to: self, kind: 'gates' });
         edge({ from: `check:${check}`, to: self, kind: 'loops-back', label: `max ${job.until?.max}` });
@@ -84,6 +114,8 @@ export const hubGraph = (config: Config): HubGraph => {
       detail: { ...rest, role: body },
     });
     readNotes(`bot:${name}`, bot.notes);
+    preloads(`bot:${name}`, bot.preload);
+    calls(`bot:${name}`, hubTools(bot));
   }
 
   for (const skill of Object.values(config.skills)) {
@@ -116,5 +148,15 @@ export const hubGraph = (config: Config): HubGraph => {
       detail: { notes: notes.map(({ name, title, status, check }) => ({ slug: name, title, status, check })) },
     });
   }
+
+  if (tracker)
+    node({
+      id: 'issues:issues',
+      kind: 'issues',
+      label: 'issues',
+      badges: [config.hub.issues],
+      detail: { ...config.hub },
+    });
+  for (const tool of tools) node({ id: `tool:${tool}`, kind: 'tool', label: tool, badges: ['read'] });
   return graph;
 };

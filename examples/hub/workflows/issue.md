@@ -14,11 +14,13 @@ jobs:
     branch: bothub/{issue}-{slug}
     until: { checks: [types, review], max: 2 }
     can: [reply, push, open-pr, ask]
+    tools: [issues_get, notes_search]
     mode: warn
   review:
     on: { pull_request: {} }
     bot: reviewer
     skill: review
+    preload: [issue, notes]
     can: [reply]
 ---
 

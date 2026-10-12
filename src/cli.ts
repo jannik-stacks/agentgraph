@@ -1,20 +1,24 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseEnv } from 'node:util';
 import { defineCommand, runCommand, showUsage, type CommandDef } from 'citty';
 import { Effect } from 'effect';
 import { z } from 'zod';
-import { compile, type Compiled } from './config.ts';
+import { compile, type Compiled, type Config } from './config.ts';
 import { plan } from './dispatch.ts';
 import { executors } from './executors/index.ts';
 import { githubApp } from './github-app.ts';
 import { toEvent } from './github.ts';
+import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
+import { bothubServer } from './mcp-config.ts';
+import { serveMcp } from './mcp.ts';
 import { buildSpec, runPlan, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
-import { Bot, Check, Note, Skill, Workflow } from './schema.ts';
+import { Bot, Check, Hub, HubTool, Note, Skill, Workflow } from './schema.ts';
+import { simulate } from './sim.ts';
 import { openStore, runId, type Run } from './store.ts';
 import type { AgentEvent } from './types.ts';
 import { workspaces, worktreePath } from './workspace.ts';
@@ -46,6 +50,10 @@ const loadPlan = async (args: { dir: string; event: string; payload: string }) =
   const event = toEvent(args.event, 'cli', JSON.parse(await readFile(args.payload, 'utf8')));
   return { config: result.config, event, jobs: event ? plan(event, result.config) : [] };
 };
+
+/** The hub's local issue tracker, when `hub.yaml` selects one; GitHub issues come from the app client instead. */
+const hubIssues = (config: Config, dir: string, repo: string) =>
+  config.hub.issues === 'local' ? localIssues(join(dir, 'issues'), { repo }) : undefined;
 
 const dataDir = (flag: string | undefined) => flag ?? process.env.BOTHUB_DATA ?? join(homedir(), '.bothub');
 
@@ -125,14 +133,24 @@ const check = defineCommand({
   args: { dir, json },
   async run({ args }) {
     const result = await loadConfig(args.dir);
-    if (asJson(args.json)) print(JSON.stringify(result.ok ? { ok: true } : result));
+    if (asJson(args.json) && !result.ok) print(JSON.stringify(result));
     if (!result.ok) {
       if (!asJson(args.json)) for (const e of result.errors) fail(`${e.path}: ${e.message}`);
       return 2;
     }
+    const issues = await hubIssues(result.config, args.dir, 'hub/issues')
+      ?.list({ state: 'all' })
+      .catch((e: Error) => e);
+    if (issues instanceof Error) {
+      if (asJson(args.json))
+        print(JSON.stringify({ ok: false, errors: [{ path: 'issues', message: issues.message }] }));
+      else fail(issues.message);
+      return 2;
+    }
     const { bots, skills, checks, workflows, notes } = result.config;
     const jobs = Object.values(workflows).reduce((n, w) => n + Object.keys(w.jobs).length, 0);
-    if (!asJson(args.json))
+    if (asJson(args.json)) print(JSON.stringify({ ok: true }));
+    else
       print(
         `ok: ${[
           count(Object.keys(bots).length, 'bot'),
@@ -140,6 +158,7 @@ const check = defineCommand({
           count(Object.keys(checks).length, 'check'),
           `${count(Object.keys(workflows).length, 'workflow')} (${count(jobs, 'job')})`,
           count(notes.length, 'note'),
+          ...(issues ? [count(issues.length, 'local issue')] : []),
         ].join(', ')}`
       );
     return 0;
@@ -236,6 +255,7 @@ const run = defineCommand({
       fail(
         'no GitHub App credentials (BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE, BOTHUB_INSTALLATION_ID): shadow mode, nothing is applied'
       );
+    const issues = hubIssues(config, args.dir, event.repo);
     const results = await Effect.runPromise(
       Effect.flatMap(limiter(1), limit =>
         runPlan(jobs, {
@@ -246,6 +266,8 @@ const run = defineCommand({
           limit,
           env,
           ...(app && { gh: app.gh }),
+          ...(issues && { issues }),
+          mcp: tools => bothubServer({ dir: resolve(args.dir), tools, repo: event.repo, data: resolve(root) }),
           onEvent: (r, record) => process.stderr.write(`${r.workflow}/${r.job} ${describe(record.event)}\n`),
         })
       )
@@ -309,17 +331,55 @@ const logs = defineCommand({
   },
 });
 
+const mcp = defineCommand({
+  meta: { name: 'mcp', description: "Serve a hub's read-only tools over MCP on stdio" },
+  args: {
+    dir,
+    data,
+    repo: { type: 'string', description: 'Repository the issues belong to', default: 'hub/issues' },
+    tools: { type: 'string', description: 'Comma-separated tools to serve', default: HubTool.options.join(',') },
+  },
+  async run({ args }) {
+    const result = await loadConfig(args.dir);
+    if (!result.ok) {
+      for (const e of result.errors) fail(`${e.path}: ${e.message}`);
+      return 2;
+    }
+    const tools = z.array(HubTool).safeParse(args.tools.split(',').filter(Boolean));
+    if (!tools.success) {
+      fail(`unknown tool in "${args.tools}", expected ${HubTool.options.join(', ')}`);
+      return 2;
+    }
+    const issues = hubIssues(result.config, args.dir, args.repo);
+    await serveMcp(tools.data, {
+      config: result.config,
+      ...(issues && { issues }),
+      ...(args.data && { store: openStore(args.data) }),
+    });
+    return 0;
+  },
+});
+
+const sim = defineCommand({
+  meta: { name: 'sim', description: 'Simulate a scenario end to end on a temporary copy of its hub' },
+  args: { scenario: { type: 'positional', description: 'Scenario YAML file', required: true } },
+  async run({ args }) {
+    await simulate(args.scenario, print);
+    return 0;
+  },
+});
+
 const schema = defineCommand({
   meta: { name: 'schema', description: 'Print a JSON Schema for the frontmatter of each hub file kind' },
   run() {
     const toSchema = (s: z.ZodType) => z.toJSONSchema(s, { io: 'input', unrepresentable: 'any' });
-    const kinds = { bot: Bot, skill: Skill, check: Check, workflow: Workflow, note: Note };
+    const kinds = { hub: Hub, bot: Bot, skill: Skill, check: Check, workflow: Workflow, note: Note };
     print(JSON.stringify(Object.fromEntries(Object.entries(kinds).map(([k, s]) => [k, toSchema(s)])), null, 2));
     return 0;
   },
 });
 
-const commands: Record<string, CommandDef<any>> = { check, plan: planCmd, run, runs, logs, schema };
+const commands: Record<string, CommandDef<any>> = { check, plan: planCmd, run, runs, logs, mcp, sim, schema };
 
 export const cli = defineCommand({
   meta: { name: 'bothub', description: 'GitHub-driven agent runner' },

@@ -1,10 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { compile, type Config } from '../src/config.ts';
 import { claude } from '../src/executors/claude.ts';
 import type { GitHub } from '../src/github-app.ts';
+import { localIssues } from '../src/issues-local.ts';
 import { buildSpec, renderBranch, runPlan, runPlanned, secretsFor, type Pipeline } from '../src/pipeline.ts';
 import { limiter } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
@@ -135,6 +136,13 @@ const fakeGitHub = () => {
   return { calls, gh };
 };
 
+/** A local tracker holding the event's issue #7. */
+const trackedIssues = () => {
+  const dir = temp('issues');
+  writeFileSync(join(dir, '7-task.md'), '---\ntitle: Task\n---\n\nDo it.\n');
+  return localIssues(dir, { repo: 'acme/app' });
+};
+
 const pipeline = async (
   overrides: Partial<Pipeline> & { config: Config },
   origin = sourceRepo()
@@ -170,7 +178,10 @@ describe('buildSpec', () => {
     expect(spec.system).toContain(
       '### convention\n\n#### Small changes\n\nKeep changes small.\n\n### caveat\n\n#### Limits\n\nCodex has no turn limit.\n\n## Proposing changes'
     );
-    expect(spec.system).not.toMatch(/Old rule|Bigint/);
+    expect(spec.system).toContain(
+      '## Notes\n\nWhat this hub knows. Read-only; follow them.\n\n### decision\n\n#### Bigint'
+    );
+    expect(spec.system).not.toContain('Old rule');
     expect(spec.system).toContain(
       '```bothub\n[\n  { "kind": "reply", "body": "Markdown comment on the issue or pull request" }\n]\n```'
     );
@@ -243,6 +254,46 @@ describe('secretsFor', () => {
       BOTHUB_LLM_API_KEY: 'shared',
     });
     expect(secretsFor({ name: 'implementor', harness: 'pi' }, {})).toEqual({});
+  });
+});
+
+describe('context', () => {
+  it('mounts granted hub tools and appends the preloaded issue context to the prompt', () => {
+    const result = compile([
+      md(
+        'bots/b.md',
+        'harness: claude-code\ntools: [Read, issues_get, notes_search]\ncan: [reply]\npreload: [issue]\nmax-turns: 3',
+        'Role.'
+      ),
+      md('skills/s.md', 'description: Do it.', 'Do it.'),
+      md('workflows/w.md', 'on: { issue_comment: {} }\njobs:\n  a: { bot: b, skill: s, tools: [issues_get] }'),
+    ]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    const config = result.config;
+    const workflow = config.workflows.w!;
+    const mcp = (tools: string[]) => ({ command: 'node', args: tools, env: {} });
+    const { spec } = buildSpec({ config, workflow, job: 'a', event, cwd: '/w', preloaded: '## Issue #7: Task', mcp });
+    expect(spec.tools).toEqual(['Read', 'mcp__bothub__issues_get']);
+    expect(spec.mcp).toEqual({ command: 'node', args: ['issues_get'], env: {} });
+    expect(spec.system).toContain(
+      '## Hub tools\n\nRead-only tools from the `bothub` server. Writes still go through proposals.\n\n- issues_get:'
+    );
+    expect(spec.prompt.endsWith('## Issue #7: Task')).toBe(true);
+
+    const bare = buildSpec({ config, workflow, job: 'a', event, cwd: '/w' }).spec;
+    expect(bare.tools).toEqual(['Read']);
+    expect(bare.mcp).toBeUndefined();
+    expect(bare.system).not.toContain('## Hub tools');
+  });
+
+  it('preloads the issue from the tracker before the run', async () => {
+    const issues = trackedIssues();
+    const { seen, adapters } = fake();
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, preload: ['issue', 'notes'] };
+    const p = await pipeline({ config, issues, adapters });
+    await Effect.runPromise(runPlanned(triage, p));
+    expect(seen[0]!.prompt).toContain('## Issue #7: Task\n\nState: open\n\nDo it.');
   });
 });
 
@@ -361,12 +412,12 @@ describe('until', () => {
   ]);
 
   it('sends failing findings back to the same bot in the same worktree until the checks pass', async () => {
-    const { calls, gh } = fakeGitHub();
+    const issues = trackedIssues();
     const { seen, adapters } = fake((_spec, call) => ({
       message: replyAndAsk,
       work: call === 2 ? "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')" : '',
     }));
-    const p = await pipeline({ config: configFor(), gh, adapters });
+    const p = await pipeline({ config: configFor(), issues, adapters });
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
     if (!('run' in result)) throw new Error('skipped');
     expect(seen).toHaveLength(2);
@@ -388,13 +439,16 @@ describe('until', () => {
       { check: 'shadowed', gating: false, pass: false, findings: 'never mind' },
     ]);
     expect(result.outcome?.applied).toBe(true);
-    expect(calls.map(c => c.body)).toEqual([{ body: 'Done.' }, { body: '@octocat Is the name right?' }]);
+    expect((await issues.get(7))?.comments.map(c => c.body)).toEqual(['Done.', '@octocat needs a human: #8']);
+    expect(await issues.list({ label: 'unsure' })).toMatchObject([
+      { number: 8, title: 'Is the name right?', parent: 7 },
+    ]);
   });
 
   it('turns checks that still fail after max follow-ups into an ask and applies nothing else', async () => {
-    const { calls, gh } = fakeGitHub();
+    const issues = trackedIssues();
     const { seen, adapters } = fake({ message: replyAndAsk });
-    const p = await pipeline({ config: configFor(), gh, adapters });
+    const p = await pipeline({ config: configFor(), issues, adapters });
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
     if (!('run' in result)) throw new Error('skipped');
     expect(seen).toHaveLength(2);
@@ -410,7 +464,14 @@ describe('until', () => {
       applied: true,
     });
     expect(result.outcome?.proposals.at(-1)).toEqual({ kind: 'ask', question });
-    expect(calls.map(c => c.body)).toEqual([{ body: '@octocat Is the name right?' }, { body: `@octocat ${question}` }]);
+    expect((await issues.list({ label: 'unsure' })).map(i => [i.number, i.parent, i.title])).toEqual([
+      [8, 7, 'Is the name right?'],
+      [9, 7, question.length > 80 ? `${question.slice(0, 79)}…` : question],
+    ]);
+    expect((await issues.get(7))?.comments.map(c => c.body)).toEqual([
+      '@octocat needs a human: #8',
+      '@octocat needs a human: #9',
+    ]);
   });
 
   it('fans a bot check out over changed files and reads PASS or FAIL from its reply', async () => {

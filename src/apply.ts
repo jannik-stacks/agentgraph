@@ -1,5 +1,7 @@
 import { stringify } from 'yaml';
-import type { GitHub, GitHubError } from './github-app.ts';
+import type { GitHub } from './github-app.ts';
+import { githubIssues } from './issues-github.ts';
+import { roles, type Issues } from './issues.ts';
 import type { Proposal } from './outputs.ts';
 import type { BotEvent } from './types.ts';
 
@@ -13,33 +15,64 @@ export type ApplyResult = {
 type Outcome = Omit<ApplyResult, 'kind'>;
 type Context = {
   event: BotEvent;
-  gh: GitHub;
+  issues?: Issues;
+  gh?: GitHub;
   push: (proposal: Extract<Proposal, { kind: 'push' }>) => Promise<string>;
   hubPr?: (pr: { path: string; content: string; title: string; body: string }) => Promise<string>;
 };
 type Created = { html_url: string };
 
-const issuePath = ({ repo, number }: BotEvent) => {
+const tracker = ({ issues, gh, event }: Context) => {
+  if (issues) return issues;
+  if (gh) return githubIssues(gh, event.repo);
+  throw new Error('no issue tracker to write to');
+};
+
+const target = ({ number }: BotEvent) => {
   if (number === undefined) throw new Error('the event has no issue or pull request to write to');
-  return `/repos/${repo}/issues/${number}`;
+  return number;
 };
 
-const comment = async ({ event, gh }: Context, body: string): Promise<Outcome> => {
-  const { html_url } = await gh<Created>('POST', `${issuePath(event)}/comments`, { body });
-  return { status: 'applied', url: html_url };
+const comment = async (ctx: Context, body: string): Promise<Outcome> => {
+  const { url } = await tracker(ctx).comment(target(ctx.event), body);
+  return { status: 'applied', ...(url && { url }) };
 };
 
-const label = async ({ event, gh }: Context, { add = [], remove = [] }: Extract<Proposal, { kind: 'label' }>) => {
-  const path = issuePath(event);
-  if (add.length) await gh('POST', `${path}/labels`, { labels: add });
-  for (const name of remove)
-    await gh('DELETE', `${path}/labels/${encodeURIComponent(name)}`).catch((e: GitHubError) => {
-      if (e.status !== 404) throw e;
-    });
+const label = async (ctx: Context, { kind: _, ...change }: Extract<Proposal, { kind: 'label' }>) => {
+  await tracker(ctx).label(target(ctx.event), change);
   return { status: 'applied' } as const;
 };
 
+const title = (question: string) => {
+  const line = question.trim().split('\n')[0] ?? question;
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+};
+
+/**
+ * Opens an `unsure` issue for the question, as a sub-issue of the triggering one, and points the actor at it. The
+ * same open question asked again becomes a comment on the existing issue.
+ */
+const ask = async (ctx: Context, question: string): Promise<Outcome> => {
+  const issues = tracker(ctx);
+  const { number: parent, actor } = ctx.event;
+  const open = await issues.list({ label: roles.unsure, ...(parent !== undefined && { parent }) });
+  const same = open.find(issue => issue.title === title(question));
+  if (same) {
+    const { url } = await issues.comment(same.number, question);
+    return { status: 'applied', ...(url && { url }) };
+  }
+  const created = await issues.create({
+    title: title(question),
+    body: question,
+    labels: [roles.unsure],
+    ...(parent !== undefined && { parent }),
+  });
+  if (parent !== undefined) await issues.comment(parent, `@${actor.login} needs a human: #${created.number}`);
+  return { status: 'applied', ...(created.url && { url: created.url }) };
+};
+
 const openPr = async ({ event, gh }: Context, { kind: _, ...pr }: Extract<Proposal, { kind: 'open-pr' }>) => {
+  if (!gh) return { status: 'skipped', reason: 'no GitHub client to open a pull request with' } as const;
   const base = pr.base ?? (await gh<{ default_branch: string }>('GET', `/repos/${event.repo}`)).default_branch;
   const { html_url } = await gh<Created>('POST', `/repos/${event.repo}/pulls`, { ...pr, base });
   return { status: 'applied', url: html_url } as const;
@@ -63,7 +96,7 @@ const applyOne = async (proposal: Proposal, ctx: Context): Promise<Outcome> => {
     case 'reply':
       return comment(ctx, proposal.body);
     case 'ask':
-      return comment(ctx, `@${ctx.event.actor.login} ${proposal.question}`);
+      return ask(ctx, proposal.question);
     case 'label':
       return label(ctx, proposal);
     case 'open-pr':
@@ -81,8 +114,9 @@ const pushesFirst = (proposals: Proposal[]) => [
 ];
 
 /**
- * Applies accepted proposals as the GitHub App: pushes first, then the rest in order. A failure is reported and
- * does not stop the rest, but a pull request whose head failed to push is skipped.
+ * Applies accepted proposals: pushes first, then the rest in order. Replies, labels and questions go through
+ * `issues` (or GitHub's issues when only `gh` is given); pushes and pull requests stay on git and GitHub. A failure is
+ * reported and does not stop the rest, but a pull request whose head failed to push is skipped.
  */
 export const apply = async (accepted: Proposal[], ctx: Context): Promise<ApplyResult[]> => {
   const results: ApplyResult[] = [];

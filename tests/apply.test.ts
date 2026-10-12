@@ -125,8 +125,14 @@ describe('apply', () => {
   const push = async ({ branch }: { branch: string }) => `https://github.com/acme/app/tree/${branch}`;
 
   it('pushes first, applies each kind and reports skipped ones', async () => {
-    const { calls, fetch } = fakeFetch(({ url }) => ({
-      json: url.endsWith('/repos/acme/app') ? { default_branch: 'main' } : { html_url: `${url}#created` },
+    const { calls, fetch } = fakeFetch(({ method, url }) => ({
+      json: url.endsWith('/repos/acme/app')
+        ? { default_branch: 'main' }
+        : url.includes('/sub_issues?')
+          ? []
+          : method === 'POST' && url.endsWith('/issues')
+            ? { id: 99, number: 12, title: 'Which database?', state: 'open', labels: ['unsure'], html_url: 'i12' }
+            : { html_url: `${url}#created` },
     }));
     const proposals: Proposal[] = [
       { kind: 'reply', body: 'done' },
@@ -157,20 +163,23 @@ describe('apply', () => {
         '/repos/acme/app/pulls',
         { title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true, base: 'main' },
       ],
-      ['POST', '/repos/acme/app/issues/7/comments', { body: '@morgan Which database?' }],
+      ['GET', '/repos/acme/app/issues/7/sub_issues?per_page=100', undefined],
+      ['POST', '/repos/acme/app/issues', { title: 'Which database?', body: 'Which database?', labels: ['unsure'] }],
+      ['POST', '/repos/acme/app/issues/7/sub_issues', { sub_issue_id: 99 }],
+      ['POST', '/repos/acme/app/issues/7/comments', { body: '@morgan needs a human: #12' }],
     ]);
   });
 
   it('opens a hub pull request for a note when it can', async () => {
     const note: Proposal = {
       kind: 'note',
-      note: 'unsure',
+      note: 'caveat',
       slug: 'fork-prs',
       title: 'Fork PRs?',
       body: 'Which repo?\n',
     };
     expect(noteFile(note as Extract<Proposal, { kind: 'note' }>)).toEqual({
-      path: 'notes/unsure/fork-prs.md',
+      path: 'notes/caveat/fork-prs.md',
       content: '---\ntitle: Fork PRs?\nstatus: proposed\n---\n\nWhich repo?\n',
     });
     const opened: unknown[] = [];
@@ -179,7 +188,7 @@ describe('apply', () => {
     expect(await apply([note], { event, gh: gh('t', fetch), push, hubPr })).toEqual([
       { kind: 'note', status: 'applied', url: 'https://github.com/acme/hub/pull/1' },
     ]);
-    expect(opened).toEqual([expect.objectContaining({ path: 'notes/unsure/fork-prs.md', title: 'note: Fork PRs?' })]);
+    expect(opened).toEqual([expect.objectContaining({ path: 'notes/caveat/fork-prs.md', title: 'note: Fork PRs?' })]);
     expect(await apply([note], { event, gh: gh('t', fetch), push })).toEqual([
       { kind: 'note', status: 'skipped', reason: 'no hub repository to open a note pull request in' },
     ]);

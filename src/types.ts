@@ -1,10 +1,11 @@
+import type { McpServer } from './mcp-config.ts';
 import type { Association, Executor, Trigger } from './schema.ts';
 
-/** A trigger from GitHub or the CLI, normalised so workflows never see raw payloads. */
+/** A trigger from GitHub, a local issue tracker or the CLI, normalised so workflows never see raw payloads. */
 export type BotEvent = {
   id: string;
   ts: string;
-  source: 'github' | 'cli';
+  source: 'github' | 'local' | 'cli';
   trigger: Trigger;
   action?: string;
   repo: string;
@@ -24,6 +25,8 @@ export type RunSpec = {
   model?: string;
   tools: string[];
   maxTurns: number;
+  /** The bothub MCP server serving the run's read tools, when it has any. */
+  mcp?: McpServer;
 };
 
 /** Agent output, normalised across executors. */

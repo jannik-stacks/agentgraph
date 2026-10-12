@@ -73,7 +73,7 @@ describe('validate', () => {
       { kind: 'reply', body: 'a' },
       { kind: 'push', branch: 'bothub/7-fix', files: ['src/a.ts', 'README.md'] },
       { kind: 'open-pr', title: 't', body: 'b', head: 'bothub/7-fix' },
-      { kind: 'note', note: 'unsure', slug: 'fork-prs', title: 'Fork PRs?', body: 'Which repo?' },
+      { kind: 'note', note: 'caveat', slug: 'fork-prs', title: 'Fork PRs?', body: 'Which repo?' },
     ];
     expect(validate(proposals, allowed, 'warn')).toEqual({ accepted: proposals, rejected: [], apply: true });
     expect(validate(proposals, allowed, 'shadow')).toEqual({ accepted: proposals, rejected: [], apply: false });

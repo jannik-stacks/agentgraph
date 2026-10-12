@@ -9,7 +9,7 @@ if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
 const graph = hubGraph(compiled.config);
 
 describe('hubGraph', () => {
-  it('has one node per trigger, job, bot, skill, check and read note kind', () => {
+  it('has one node per trigger, job, bot, skill, check, read note kind, issue tracker and read tool', () => {
     expect(graph.nodes.map(n => `${n.id} ${n.badges?.join(',') ?? ''}`.trim())).toEqual([
       'trigger:issue/issue_comment /bothub,created',
       'trigger:issue/pull_request opened,synchronize',
@@ -24,17 +24,22 @@ describe('hubGraph', () => {
       'check:types block,script',
       'note:decision 0',
       'note:convention 1',
-      'note:caveat 1',
-      'note:pitfall 1',
+      'note:caveat 2',
+      'issues:issues github',
+      'tool:issues_get read',
+      'tool:notes_search read',
+      'tool:notes_get read',
     ]);
     expect(graph.nodes.every(n => n.id.startsWith(`${n.kind}:`))).toBe(true);
   });
 
-  it('links triggers, bots, skills, the until loop, fan-out and notes', () => {
+  it('links triggers, bots, skills, the until loop, fan-out, notes, preloads and tool calls', () => {
     expect(graph.edges.map(e => `${e.kind} ${e.from} -> ${e.to}${e.label ? ` (${e.label})` : ''}`)).toEqual([
       'triggers trigger:issue/issue_comment -> job:issue/implement',
       'runs-as job:issue/implement -> bot:implementor',
       'uses-skill job:issue/implement -> skill:implement',
+      'calls job:issue/implement -> tool:issues_get',
+      'calls job:issue/implement -> tool:notes_search',
       'gates check:types -> job:issue/implement',
       'loops-back check:types -> job:issue/implement (max 2)',
       'gates check:review -> job:issue/implement',
@@ -42,12 +47,18 @@ describe('hubGraph', () => {
       'triggers trigger:issue/pull_request -> job:issue/review',
       'runs-as job:issue/review -> bot:reviewer',
       'uses-skill job:issue/review -> skill:review',
-      'reads-notes bot:implementor -> note:decision',
-      'reads-notes bot:implementor -> note:convention',
+      'preloads job:issue/review -> issues:issues (issue)',
+      'preloads job:issue/review -> note:decision',
+      'preloads job:issue/review -> note:convention',
       'reads-notes bot:implementor -> note:caveat',
-      'reads-notes bot:implementor -> note:pitfall',
-      'reads-notes bot:reviewer -> note:convention',
-      'reads-notes bot:reviewer -> note:pitfall',
+      'preloads bot:implementor -> issues:issues (issue, links)',
+      'preloads bot:implementor -> note:decision',
+      'preloads bot:implementor -> note:convention',
+      'calls bot:implementor -> tool:issues_get',
+      'calls bot:implementor -> tool:notes_search',
+      'calls bot:implementor -> tool:notes_get',
+      'reads-notes bot:reviewer -> note:caveat',
+      'calls bot:reviewer -> tool:notes_search',
       'reads-notes skill:review-file -> note:convention',
       'fans-out check:review -> bot:reviewer (for each file)',
       'uses-skill check:review -> skill:review-file',

@@ -1,16 +1,30 @@
 import { Effect } from 'effect';
 import { apply } from './apply.ts';
-import { effectiveCan, jobOrder, type Config, type Defined } from './config.ts';
+import {
+  effectiveCan,
+  effectivePreload,
+  effectiveTools,
+  harnessTools,
+  jobOrder,
+  type Config,
+  type Defined,
+} from './config.ts';
 import type { PlannedJob } from './dispatch.ts';
 import { executors } from './executors/index.ts';
 import type { GitHub } from './github-app.ts';
+import { githubIssues } from './issues-github.ts';
+import type { Issues } from './issues.ts';
+import { mcpToolNames, type McpServer } from './mcp-config.ts';
 import { extractProposals, matchGlob, validate, type Proposal, type Validated } from './outputs.ts';
+import { issueContext, relevantNotes, renderNotes } from './preload.ts';
 import { runJob, runScript, type limiter } from './runner.ts';
 import {
   NoteKind,
+  type Preload,
   type Bot,
   type Check,
   type Executor,
+  type HubTool,
   type Job,
   type ProposalKind,
   type Skill,
@@ -28,7 +42,7 @@ const examples: Record<ProposalKind, string> = {
   push: '{ "kind": "push", "branch": "<branch>", "files": ["src/changed.ts"] }',
   'open-pr':
     '{ "kind": "open-pr", "title": "…", "body": "Closes #<issue>", "head": "<branch>", "base": "main", "draft": true }',
-  note: '{ "kind": "note", "note": "unsure", "slug": "short-kebab-name", "title": "…", "body": "The note, in Markdown" }',
+  note: '{ "kind": "note", "note": "pattern", "slug": "short-kebab-name", "title": "…", "body": "The note, in Markdown" }',
   ask: '{ "kind": "ask", "question": "What should happen when …?" }',
 };
 
@@ -40,6 +54,7 @@ const proposing = (kinds: ProposalKind[], branch: string | undefined) => {
     has('push') && '`files` lists every file you changed, as repository-relative paths.',
     has('open-pr') && 'Leave out `base` to target the default branch.',
     has('note') && `A note's kind is one of ${NoteKind.options.join(', ')}.`,
+    has('ask') && 'An `ask` opens an issue labelled `unsure` for a human; stop after asking.',
     'Include only the proposals you need.',
   ].filter(Boolean);
   const example = (kind: ProposalKind) => examples[kind].replaceAll('<branch>', branch ?? 'bothub/<issue>-<slug>');
@@ -94,19 +109,27 @@ const offered = (config: Config, bot: Defined<Bot>) =>
       ].join('\n\n')
     : undefined;
 
-const loadedNotes = (config: Config, kinds: NoteKind[]) => {
-  const groups = NoteKind.options
-    .filter(kind => kinds.includes(kind))
-    .flatMap(kind => {
-      const notes = config.notes.filter(n => n.kind === kind && n.status !== 'superseded' && n.status !== 'retired');
-      return notes.length ? [[`### ${kind}`, ...notes.map(n => `#### ${n.title}\n\n${n.body}`)].join('\n\n')] : [];
-    });
-  return groups.length
-    ? ['## Notes', 'What this hub knows. Read-only; follow them.', ...groups].join('\n\n')
-    : undefined;
+const toolDescriptions: Record<HubTool, string> = {
+  issues_list: 'list issues, filtered by label (plan, spec, unsure), state or parent',
+  issues_get: 'read one issue with its comments',
+  notes_search: 'search the hub notes, including patterns and caveats not loaded here',
+  notes_get: 'read one note',
+  runs_read: 'list past runs or read one run transcript',
 };
 
-/** A bot's session for a skill: role, offered skills, loaded notes and the proposal format for `can` as the system prompt. */
+const offeredTools = (tools: HubTool[]) =>
+  tools.length
+    ? [
+        '## Hub tools',
+        'Read-only tools from the `bothub` server. Writes still go through proposals.',
+        tools.map(tool => `- ${tool}: ${toolDescriptions[tool]}`).join('\n'),
+      ].join('\n\n')
+    : undefined;
+
+/**
+ * A bot's session for a skill. The system prompt holds the role, offered skills, the relevant notes (when `notes` is
+ * preloaded), the hub tools and the proposal format for `can`. Hub tools are served by `mcp` when one is given.
+ */
 const session = ({
   config,
   bot,
@@ -115,6 +138,10 @@ const session = ({
   branch,
   prompt,
   cwd,
+  paths,
+  preload = ['notes'],
+  tools = [],
+  mcp,
 }: {
   config: Config;
   bot: Defined<Bot>;
@@ -123,21 +150,32 @@ const session = ({
   branch: string | undefined;
   prompt: string;
   cwd: string;
-}): RunSpec => ({
-  prompt,
-  system: [
-    bot.body,
-    offered(config, bot),
-    loadedNotes(config, [...(bot.notes ?? []), ...(skill.notes ?? [])]),
-    can.length ? proposing(can, branch) : undefined,
-  ]
-    .filter(Boolean)
-    .join('\n\n'),
-  cwd,
-  ...(bot.model && { model: bot.model }),
-  tools: bot.tools,
-  maxTurns: bot['max-turns'],
-});
+  paths?: string[] | undefined;
+  preload?: Preload[];
+  tools?: HubTool[];
+  mcp?: ((tools: HubTool[]) => McpServer) | undefined;
+}): RunSpec => {
+  const kinds = [...(bot.notes ?? []), ...(skill.notes ?? [])];
+  const notes = preload.includes('notes') ? renderNotes(relevantNotes(config.notes, { kinds, paths })) : undefined;
+  const served = mcp && tools.length ? tools : [];
+  return {
+    prompt,
+    system: [
+      bot.body,
+      offered(config, bot),
+      notes,
+      offeredTools(served),
+      can.length ? proposing(can, branch) : undefined,
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    cwd,
+    ...(bot.model && { model: bot.model }),
+    tools: [...harnessTools(bot), ...mcpToolNames(bot.harness, served)],
+    maxTurns: bot['max-turns'],
+    ...(mcp && served.length && { mcp: mcp(served) }),
+  };
+};
 
 const slugify = (text: string) =>
   text
@@ -160,7 +198,10 @@ export const renderBranch = (
   return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
 };
 
-/** The agent session for a planned job: the bot's system prompt and the forced skill's body plus the event. */
+/**
+ * The agent session for a planned job: the bot's system prompt, and the forced skill's body plus the event and any
+ * `preloaded` issue context as the prompt.
+ */
 export const buildSpec = ({
   config,
   workflow,
@@ -168,12 +209,16 @@ export const buildSpec = ({
   args,
   event,
   cwd,
-}: Pick<PlannedJob, 'job' | 'args'> & {
-  config: Config;
-  workflow: Defined<Workflow>;
-  event: BotEvent;
-  cwd: string;
-}) => {
+  preloaded,
+  mcp,
+}: Pick<PlannedJob, 'job' | 'args'> &
+  Pick<Pipeline, 'mcp'> & {
+    config: Config;
+    workflow: Defined<Workflow>;
+    event: BotEvent;
+    cwd: string;
+    preloaded?: string | undefined;
+  }) => {
   const job = workflow.jobs[id];
   if (!job) throw new Error(`workflow "${workflow.name}" has no job "${id}"`);
   const bot = job.bot ? config.bots[job.bot] : undefined;
@@ -181,9 +226,11 @@ export const buildSpec = ({
   if (!bot || !skill) throw new Error(`job "${id}" has no bot and skill`);
   const can = effectiveCan(bot, job);
   const branch = job.branch ? renderBranch(job.branch, { event, args, job: id, workflow: workflow.name }) : undefined;
-  const prompt = [skill.body, eventContext(event, args, branch)].filter(Boolean).join('\n\n');
+  const prompt = [skill.body, eventContext(event, args, branch), preloaded].filter(Boolean).join('\n\n');
+  const preload = effectivePreload(bot, job);
+  const tools = effectiveTools(bot, job);
   return {
-    spec: session({ config, bot, skill, can, branch, prompt, cwd }),
+    spec: session({ config, bot, skill, can, branch, prompt, cwd, paths: job.paths, preload, tools, mcp }),
     bot,
     job,
     can,
@@ -217,7 +264,11 @@ export const secretsFor = (
   return present(byHarness[harness]);
 };
 
-/** Everything a planned job needs to run. Without `gh`, nothing is applied; without `hubPr`, notes are skipped. */
+/**
+ * Everything a planned job needs to run. Without `gh` or `issues`, nothing is applied; without `gh`, pull requests
+ * are skipped; without `hubPr`, notes are skipped. `issues` defaults to GitHub's when `gh` is given and also feeds
+ * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it.
+ */
 export type Pipeline = {
   config: Config;
   event: BotEvent;
@@ -226,6 +277,8 @@ export type Pipeline = {
   limit: Effect.Effect.Success<ReturnType<typeof limiter>>;
   env: Record<string, string | undefined>;
   gh?: GitHub;
+  issues?: Issues;
+  mcp?: (tools: HubTool[]) => McpServer;
   hubPr?: Parameters<typeof apply>[1]['hubPr'];
   adapters?: Record<Executor, ExecutorAdapter>;
   onEvent?: (run: Run, record: EventRecord) => void;
@@ -332,7 +385,18 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
           check: check.name,
         })
       );
-      const spec = session({ config: p.config, bot, skill, can: ['reply'], branch: undefined, prompt, cwd: a.cwd });
+      const spec = session({
+        config: p.config,
+        bot,
+        skill,
+        can: ['reply'],
+        branch: undefined,
+        prompt,
+        cwd: a.cwd,
+        paths: check.paths,
+        tools: effectiveTools(bot, {}),
+        mcp: p.mcp,
+      });
       const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p);
       runs.push(run.id);
       const verdict = verdictOf(run, final);
@@ -360,21 +424,40 @@ const settle = async (
   p: Pipeline,
   checks?: Verdict[]
 ): Promise<Outcome> => {
-  const { gh, event, workspaces, hubPr } = p;
-  const applied = toApply !== undefined && allowed && gh !== undefined;
+  const { gh, issues, event, workspaces, hubPr } = p;
+  const applied = toApply !== undefined && allowed && (gh !== undefined || issues !== undefined);
   const { paths } = a.job;
   const push = ({ kind: _, ...proposal }: Extract<Proposal, { kind: 'push' }>) =>
     workspaces.publish(event.repo, a.worktree, { ...proposal, ...(paths && { paths }), message: `bothub: ${run.job}` });
-  const results = applied ? await apply(toApply, { event, gh, push, ...(hubPr && { hubPr }) }) : [];
+  const results = applied
+    ? await apply(toApply, { event, push, ...(gh && { gh }), ...(issues && { issues }), ...(hubPr && { hubPr }) })
+    : [];
   const outcome: Outcome = { proposals, errors, accepted, rejected, results, applied, ...(checks && { checks }) };
   await p.store.saveOutcome(run.id, outcome);
   return outcome;
 };
 
+/** The issue context a planned job preloads, read from `issues`, or GitHub's issues when only `gh` is given. */
+const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: Pipeline) => {
+  const job = workflow.jobs[planned.job];
+  const bot = job?.bot ? p.config.bots[job.bot] : undefined;
+  if (!job || !bot) return;
+  return issueContext(p.issues ?? (p.gh && githubIssues(p.gh, p.event.repo)), p.event, effectivePreload(bot, job));
+};
+
 /** Runs the job's bot, then its `until` checks, sending failing findings back as new attempts in the same worktree. */
 const attempts = (planned: PlannedJob, workflow: Defined<Workflow>, first: Run, cwd: string, p: Pipeline) =>
   Effect.gen(function* () {
-    const built = buildSpec({ ...planned, config: p.config, workflow, event: p.event, cwd });
+    const preloaded = yield* Effect.promise(() => preloadFor(planned, workflow, p));
+    const built = buildSpec({
+      ...planned,
+      config: p.config,
+      workflow,
+      event: p.event,
+      cwd,
+      preloaded,
+      ...(p.mcp && { mcp: p.mcp }),
+    });
     const { bot, job, can, branch, timeoutMinutes } = built;
     const max = job.until?.max ?? 0;
     let parent = first;

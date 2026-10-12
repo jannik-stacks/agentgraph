@@ -1,9 +1,9 @@
 ---
 harness: codex
-tools: [Read, Grep, Glob]
+tools: [Read, Grep, Glob, notes_search]
 can: [reply]
 skills: [review, review-file]
-notes: [convention, pitfall]
+notes: [caveat]
 max-turns: 15
 budget: { minutes: 20 }
 ---

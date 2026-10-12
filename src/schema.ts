@@ -25,8 +25,22 @@ export type Mode = z.infer<typeof Mode>;
 export const ProposalKind = z.enum(['reply', 'label', 'push', 'open-pr', 'note', 'ask']);
 export type ProposalKind = z.infer<typeof ProposalKind>;
 
-export const NoteKind = z.enum(['decision', 'convention', 'pattern', 'caveat', 'pitfall', 'unsure']);
+export const NoteKind = z.enum(['decision', 'convention', 'pattern', 'caveat']);
 export type NoteKind = z.infer<typeof NoteKind>;
+
+/** Rules load whenever their `paths` match; knowledge loads only when relevant. */
+export const ruleKinds: readonly NoteKind[] = ['decision', 'convention'];
+
+/** Context rendered into a run before it starts: the triggering issue, its linked issues, the matching notes. */
+export const Preload = z.enum(['issue', 'links', 'notes']);
+export type Preload = z.infer<typeof Preload>;
+
+/** Read-only tools the bothub MCP server offers a run. */
+export const HubTool = z.enum(['issues_list', 'issues_get', 'notes_search', 'notes_get', 'runs_read']);
+export type HubTool = z.infer<typeof HubTool>;
+
+export const IssuesBackend = z.enum(['github', 'local']);
+export type IssuesBackend = z.infer<typeof IssuesBackend>;
 
 export const Executor = z.enum(['claude-code', 'codex', 'opencode', 'pi']);
 export type Executor = z.infer<typeof Executor>;
@@ -54,7 +68,10 @@ export const TriggerFilter = z
 
 export const On = z.partialRecord(Trigger, TriggerFilter);
 
-/** `bots/<name>.md`: who acts. The body is the bot's role. */
+/**
+ * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any bothub read tools
+ * (see `HubTool`) the bot may call during a run.
+ */
 export const Bot = z.strictObject({
   harness: Executor,
   model: z.string().optional(),
@@ -62,6 +79,7 @@ export const Bot = z.strictObject({
   can: z.array(ProposalKind),
   skills: z.array(name).optional(),
   notes: z.array(NoteKind).optional(),
+  preload: z.array(Preload).optional(),
   'max-turns': z.int().positive(),
   budget: z
     .strictObject({
@@ -102,6 +120,8 @@ export const Job = z.strictObject({
   branch: z.string().optional(),
   until: z.strictObject({ checks: z.array(name).min(1), max: z.int().positive().default(2) }).optional(),
   can: z.array(ProposalKind).optional(),
+  preload: z.array(Preload).optional(),
+  tools: z.array(HubTool).optional(),
   paths: z.array(z.string()).optional(),
   mode: Mode.default('shadow'),
   environment: z.string().optional(),
@@ -125,5 +145,10 @@ export const Note = z.strictObject({
   source: z.string().optional(),
   evidence: z.array(z.string()).optional(),
   check: name.optional(),
+  paths: z.array(z.string()).optional(),
 });
 export type Note = z.infer<typeof Note>;
+
+/** `hub.yaml`: hub-wide settings. `issues` picks where issues, plans, specs and open questions live. */
+export const Hub = z.strictObject({ issues: IssuesBackend.default('github') });
+export type Hub = z.infer<typeof Hub>;
