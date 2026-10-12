@@ -1,41 +1,58 @@
 import { Background, Controls, type Edge, ReactFlow, useNodesInitialized, useReactFlow, useStoreApi } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useEffect, useMemo } from 'react';
-import type { GraphModel } from '../graph-model.ts';
-import { layout, nodeSize } from './layout.ts';
-import { LoopEdge } from './LoopEdge.tsx';
+import { type GraphEdge, type GraphModel, retryLoops } from '../graph-model.ts';
+import { edgeId, layout, nodeSize } from './layout.ts';
+import { type LoopFlowEdge, LoopEdge, type RoutedFlowEdge, RoutedEdge } from './LoopEdge.tsx';
 import { type FlowNode, NodeCard } from './NodeCard.tsx';
 import { defaultEdgeLabel, edgeStyle } from './styles.ts';
 
 const nodeTypes = { graph: NodeCard };
-const edgeTypes = { loop: LoopEdge };
+const edgeTypes = { routed: RoutedEdge, loop: LoopEdge };
 
-const toFlow = (model: GraphModel) => {
-  const positions = layout(model);
-  const nodes: FlowNode[] = model.nodes.map(node => ({
-    id: node.id,
-    type: 'graph',
-    position: positions.get(node.id) ?? { x: 0, y: 0 },
-    data: { node },
-  }));
-  const below = (from: string, to: string) => {
-    const [a, b] = [positions.get(from), positions.get(to)];
-    if (!a || !b) return 0;
-    const [left, right] = [Math.min(a.x, b.x), Math.max(a.x, b.x) + nodeSize.width];
-    const spanned = [...positions.values()].filter(p => p.x + nodeSize.width >= left && p.x <= right);
-    return Math.max(...spanned.map(p => p.y + nodeSize.height));
-  };
-  const edges: Edge[] = model.edges.map(edge => {
-    const label = edge.label ?? defaultEdgeLabel[edge.kind];
-    return {
-      ...(edge.kind === 'loops-back' && { data: { below: below(edge.from, edge.to) } }),
-      id: `${edge.kind}:${edge.from}->${edge.to}`,
+const label = (edge: GraphEdge) => edge.label ?? defaultEdgeLabel[edge.kind];
+
+const strokeOf = (edge: GraphEdge) => String(edgeStyle[edge.kind].style?.stroke ?? '#71717a');
+
+type FlowEdge = RoutedFlowEdge | LoopFlowEdge;
+
+const toFlow = (source: GraphModel) => {
+  const model = retryLoops(source);
+  const { boxes, routes } = layout(model, label);
+  const nodes: FlowNode[] = model.nodes.map(node => {
+    const box = boxes.get(node.id);
+    return { id: node.id, type: 'graph', position: box ?? { x: 0, y: 0 }, data: { node } };
+  });
+  const edges: FlowEdge[] = model.edges.flatMap((edge): FlowEdge[] => {
+    const { style, markerEnd } = edgeStyle[edge.kind];
+    const text = label(edge);
+    const common = {
+      id: edgeId(edge),
       source: edge.from,
       target: edge.to,
       focusable: false,
-      ...edgeStyle[edge.kind],
-      ...(label && { label }),
-    };
+      ...(style && { style: edge.kind === 'fans-out' ? { ...style, strokeWidth: 2 } : style }),
+      ...(markerEnd && { markerEnd }),
+    } satisfies Partial<Edge>;
+    if (edge.from === edge.to) {
+      const box = boxes.get(edge.from);
+      if (!box) return [];
+      return [{ ...common, type: 'loop', data: { box, color: strokeOf(edge), ...(text && { label: text }) } }];
+    }
+    const route = routes.get(edgeId(edge));
+    if (!route) return [];
+    return [
+      {
+        ...common,
+        type: 'routed',
+        data: {
+          points: route.points,
+          color: strokeOf(edge),
+          ...(text && { label: text }),
+          ...(route.label && { labelAt: route.label }),
+        },
+      },
+    ];
   });
   return { nodes, edges };
 };
@@ -93,12 +110,7 @@ export const GraphCanvas = ({
         ? flow.edges.map(e =>
             e.source === selected || e.target === selected
               ? e
-              : {
-                  ...e,
-                  style: { ...e.style, opacity: 0.2 },
-                  labelStyle: { ...e.labelStyle, opacity: 0.3 },
-                  labelBgStyle: { ...e.labelBgStyle, opacity: 0.3 },
-                }
+              : ({ ...e, data: { ...e.data!, dim: true } } as FlowEdge)
           )
         : flow.edges,
     [flow, selected, near]
@@ -115,6 +127,7 @@ export const GraphCanvas = ({
       onPaneClick={() => onSelect(null)}
       colorMode="system"
       fitView
+      fitViewOptions={{ padding: 0.06 }}
       minZoom={0.2}
     >
       <Background />

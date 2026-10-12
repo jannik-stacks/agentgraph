@@ -94,6 +94,30 @@ const sourcePath = (node: HubNode, config: Config): string | undefined => {
   }
 };
 
+/** Folds the per-check `loops-back` edges into one self-loop per job, labelled with the checks that send it back. */
+export const retryLoops = (model: GraphModel): GraphModel => {
+  const loops = new Map<string, { checks: string[]; label?: string | undefined }>();
+  for (const edge of model.edges) {
+    if (edge.kind !== 'loops-back') continue;
+    const loop = loops.get(edge.to) ?? { checks: [], label: edge.label };
+    loop.checks.push(model.nodes.find(n => n.id === edge.from)?.label ?? edge.from);
+    loops.set(edge.to, loop);
+  }
+  if (!loops.size) return model;
+  return {
+    nodes: model.nodes,
+    edges: [
+      ...model.edges.filter(edge => edge.kind !== 'loops-back'),
+      ...[...loops].map(([job, { checks, label }]) => ({
+        from: job,
+        to: job,
+        kind: 'loops-back' as const,
+        label: [`${checks.join(', ')} fail${label ? ',' : ''}`, label].filter(Boolean).join(' '),
+      })),
+    ],
+  };
+};
+
 /** The core hub graph with display details: toned badges, summaries, fields, long text as sections, source files and the raw detail as `data`. */
 export const graphModel = (config: Config): GraphModel => {
   const { nodes, edges } = hubGraph(config);
