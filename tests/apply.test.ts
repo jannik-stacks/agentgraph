@@ -124,16 +124,38 @@ describe('apply', () => {
   };
   const push = async ({ branch }: { branch: string }) => `https://github.com/acme/app/tree/${branch}`;
 
-  it('pushes first, applies each kind and reports skipped ones', async () => {
-    const { calls, fetch } = fakeFetch(({ method, url }) => ({
-      json: url.endsWith('/repos/acme/app')
-        ? { default_branch: 'main' }
-        : url.includes('/sub_issues?')
-          ? []
-          : method === 'POST' && url.endsWith('/issues')
+  /** GitHub as seen by `apply`: issue #7 with `comments`, open pull requests `pulls`, and `rest` for writes. */
+  const github =
+    (
+      { comments = [], pulls = [] }: { comments?: unknown[]; pulls?: unknown[] } = {},
+      rest: (call: Call) => { status?: number; json?: unknown } = ({ url }) => ({
+        json: { html_url: `${url}#created` },
+      })
+    ) =>
+    (call: Call): { status?: number; json?: unknown } => {
+      const { method, url } = call;
+      if (method !== 'GET') return rest(call);
+      if (url.endsWith('/issues/7'))
+        return { json: { number: 7, title: 'Task', state: 'open', labels: [], html_url: 'i7' } };
+      if (url.endsWith('/parent')) return { status: 404, json: { message: 'Not Found' } };
+      if (url.includes('/comments?')) return { json: comments };
+      if (url.includes('/pulls?')) return { json: pulls };
+      if (url.includes('/sub_issues?')) return { json: [] };
+      if (url.endsWith('/repos/acme/app')) return { json: { default_branch: 'main' } };
+      return { json: {} };
+    };
+  const writes = (calls: Call[]) =>
+    calls.filter(c => c.method !== 'GET').map(c => [c.method, c.url.replace('https://api.github.com', ''), c.body]);
+
+  it('pushes first, applies each kind with its key and reports skipped ones', async () => {
+    const { calls, fetch } = fakeFetch(
+      github({}, ({ method, url }) => ({
+        json:
+          method === 'POST' && url.endsWith('/issues')
             ? { id: 99, number: 12, title: 'Which database?', state: 'open', labels: ['unsure'], html_url: 'i12' }
             : { html_url: `${url}#created` },
-    }));
+      }))
+    );
     const proposals: Proposal[] = [
       { kind: 'reply', body: 'done' },
       { kind: 'label', add: ['bot'], remove: ['needs triage'] },
@@ -142,32 +164,100 @@ describe('apply', () => {
       { kind: 'push', branch: 'bothub/7', files: ['a.ts'] },
       { kind: 'note', note: 'pattern', slug: 'x', title: 'X', body: 'Do x.' },
     ];
-    const results = await apply(proposals, { event, gh: gh('t', fetch), push });
-    expect(results.map(r => [r.kind, r.status])).toEqual([
-      ['push', 'applied'],
-      ['reply', 'applied'],
-      ['label', 'applied'],
-      ['open-pr', 'applied'],
-      ['ask', 'applied'],
-      ['note', 'skipped'],
+    const journal: string[][] = [];
+    const results = await apply(proposals, {
+      event,
+      gh: gh('t', fetch),
+      push,
+      record: async results => journal.push(results.map(r => r.status)),
+    });
+    expect(results.map(r => [r.kind, r.key, r.status])).toEqual([
+      ['push', 'd1/push-1', 'applied'],
+      ['reply', 'd1/reply-1', 'applied'],
+      ['label', 'd1/label-1', 'applied'],
+      ['open-pr', 'd1/open-pr-1', 'applied'],
+      ['ask', 'd1/ask-1', 'applied'],
+      ['note', 'd1/note-1', 'skipped'],
     ]);
+    expect(journal[0]).toEqual(Array(6).fill('pending'));
+    expect(journal.at(-1)).toEqual(results.map(r => r.status));
     expect(results[0]?.url).toBe('https://github.com/acme/app/tree/bothub/7');
     expect(results[1]?.url).toBe('https://api.github.com/repos/acme/app/issues/7/comments#created');
-    expect(calls.map(c => [c.method, c.url.replace('https://api.github.com', ''), c.body])).toEqual([
-      ['POST', '/repos/acme/app/issues/7/comments', { body: 'done' }],
+    expect(writes(calls)).toEqual([
+      ['POST', '/repos/acme/app/issues/7/comments', { body: 'done\n\n<!-- bothub:d1/reply-1 -->' }],
       ['POST', '/repos/acme/app/issues/7/labels', { labels: ['bot'] }],
       ['DELETE', '/repos/acme/app/issues/7/labels/needs%20triage', undefined],
-      ['GET', '/repos/acme/app', undefined],
       [
         'POST',
         '/repos/acme/app/pulls',
         { title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true, base: 'main' },
       ],
-      ['GET', '/repos/acme/app/issues/7/sub_issues?per_page=100', undefined],
-      ['POST', '/repos/acme/app/issues', { title: 'Which database?', body: 'Which database?', labels: ['unsure'] }],
+      [
+        'POST',
+        '/repos/acme/app/issues',
+        { title: 'Which database?', body: 'Which database?\n\n<!-- bothub:d1/ask-1 -->', labels: ['unsure'] },
+      ],
       ['POST', '/repos/acme/app/issues/7/sub_issues', { sub_issue_id: 99 }],
       ['POST', '/repos/acme/app/issues/7/comments', { body: '@morgan needs a human: #12' }],
     ]);
+    expect(calls.some(c => c.url.endsWith('/pulls?head=acme%3Abothub%2F7&state=open'))).toBe(true);
+  });
+
+  it('finds what an earlier attempt already wrote instead of writing it again', async () => {
+    const posted = {
+      id: 1,
+      body: 'done\n\n<!-- bothub:d1/reply-1 -->',
+      html_url: 'c1',
+      issue_url: '',
+      author_association: 'NONE',
+      created_at: event.ts,
+    };
+    const { calls, fetch } = fakeFetch(github({ comments: [posted], pulls: [{ html_url: 'pr1' }] }));
+    const results = await apply(
+      [
+        { kind: 'reply', body: 'done' },
+        { kind: 'open-pr', title: 'Fix', body: '', head: 'bothub/7' },
+      ],
+      { event, gh: gh('t', fetch), push }
+    );
+    expect(results).toEqual([
+      { kind: 'reply', key: 'd1/reply-1', status: 'applied', url: 'c1', reason: 'already posted' },
+      { kind: 'open-pr', key: 'd1/open-pr-1', status: 'applied', url: 'pr1', reason: 'already open' },
+    ]);
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it('skips effects an earlier run recorded and pushes only when the remote is behind', async () => {
+    const { calls, fetch } = fakeFetch(github());
+    const seen: { expected?: string }[] = [];
+    const pushing = async ({ branch }: { branch: string }, journal: { expected?: string }) => {
+      seen.push(journal);
+      return `https://github.com/acme/app/tree/${branch}`;
+    };
+    const results = await apply(
+      [
+        { kind: 'push', branch: 'bothub/7', files: ['a.ts'] },
+        { kind: 'reply', body: 'done' },
+      ],
+      {
+        event,
+        gh: gh('t', fetch),
+        push: pushing,
+        prior: [
+          { kind: 'push', key: 'd1/push-1', status: 'pending', sha: 'abc' },
+          { kind: 'reply', key: 'd1/reply-1', status: 'applied', url: 'c1' },
+        ],
+      }
+    );
+    expect(seen).toEqual([expect.objectContaining({ expected: 'abc' })]);
+    expect(results[1]).toEqual({
+      kind: 'reply',
+      key: 'd1/reply-1',
+      status: 'applied',
+      url: 'c1',
+      reason: 'applied by an earlier run',
+    });
+    expect(writes(calls)).toEqual([]);
   });
 
   it('opens a hub pull request for a note when it can', async () => {
@@ -186,17 +276,19 @@ describe('apply', () => {
     const hubPr = async (pr: unknown) => (opened.push(pr), 'https://github.com/acme/hub/pull/1');
     const { fetch } = fakeFetch();
     expect(await apply([note], { event, gh: gh('t', fetch), push, hubPr })).toEqual([
-      { kind: 'note', status: 'applied', url: 'https://github.com/acme/hub/pull/1' },
+      { kind: 'note', key: 'd1/note-1', status: 'applied', url: 'https://github.com/acme/hub/pull/1' },
     ]);
     expect(opened).toEqual([expect.objectContaining({ path: 'notes/caveat/fork-prs.md', title: 'note: Fork PRs?' })]);
     expect(await apply([note], { event, gh: gh('t', fetch), push })).toEqual([
-      { kind: 'note', status: 'skipped', reason: 'no hub repository to open a note pull request in' },
+      { kind: 'note', key: 'd1/note-1', status: 'skipped', reason: 'no hub repository to open a note pull request in' },
     ]);
   });
 
   it('keeps going after a failure', async () => {
-    const { fetch } = fakeFetch(({ url }) =>
-      url.endsWith('/pulls') ? { status: 422, json: { message: 'No commits' } } : { json: { html_url: 'u' } }
+    const { fetch } = fakeFetch(
+      github({}, ({ url }) =>
+        url.endsWith('/pulls') ? { status: 422, json: { message: 'No commits' } } : { json: { html_url: 'u' } }
+      )
     );
     const results = await apply(
       [
@@ -206,7 +298,7 @@ describe('apply', () => {
       { event, gh: gh('t', fetch), push }
     );
     expect(results[0]).toMatchObject({ kind: 'open-pr', status: 'failed', reason: expect.stringMatching(/422/) });
-    expect(results[1]).toEqual({ kind: 'reply', status: 'applied', url: 'u' });
+    expect(results[1]).toEqual({ kind: 'reply', key: 'd1/reply-1', status: 'applied', url: 'u' });
   });
 
   it('skips a pull request whose head failed to push', async () => {
@@ -222,20 +314,30 @@ describe('apply', () => {
       { event, gh: gh('t', fetch), push: refuse }
     );
     expect(results).toEqual([
-      { kind: 'push', status: 'failed', reason: '"x.ts" changed but is not listed in the proposal' },
-      { kind: 'open-pr', status: 'skipped', reason: 'pushing bothub/x failed' },
+      {
+        kind: 'push',
+        key: 'd1/push-1',
+        status: 'failed',
+        reason: '"x.ts" changed but is not listed in the proposal',
+      },
+      { kind: 'open-pr', key: 'd1/open-pr-1', status: 'skipped', reason: 'pushing bothub/x failed' },
     ]);
     expect(calls).toEqual([]);
   });
 
   it('fails comments without an issue number and ignores removing an absent label', async () => {
-    const { fetch } = fakeFetch(({ method }) => (method === 'DELETE' ? { status: 404 } : { json: {} }));
+    const { fetch } = fakeFetch(github({}, ({ method }) => (method === 'DELETE' ? { status: 404 } : { json: {} })));
     const { number: _, ...noNumber } = event;
     expect(await apply([{ kind: 'reply', body: 'x' }], { event: noNumber, gh: gh('t', fetch), push })).toEqual([
-      { kind: 'reply', status: 'failed', reason: 'the event has no issue or pull request to write to' },
+      {
+        kind: 'reply',
+        key: 'd1/reply-1',
+        status: 'failed',
+        reason: 'the event has no issue or pull request to write to',
+      },
     ]);
     expect(await apply([{ kind: 'label', remove: ['gone'] }], { event, gh: gh('t', fetch), push })).toEqual([
-      { kind: 'label', status: 'applied' },
+      { kind: 'label', key: 'd1/label-1', status: 'applied' },
     ]);
   });
 });

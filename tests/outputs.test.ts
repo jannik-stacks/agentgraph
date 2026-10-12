@@ -6,7 +6,7 @@ const fence = (body: string, info = 'bothub') => `\`\`\`${info}\n${body}\n\`\`\`
 
 describe('Proposal', () => {
   it('covers every proposal kind', () => {
-    expect(Proposal.options.map(o => o.shape.kind.value).sort()).toEqual([...ProposalKind.options].sort());
+    expect(Proposal.options.map(o => o.shape.kind.value).sort()).toEqual([...ProposalKind.options, 'close'].sort());
   });
 });
 
@@ -102,6 +102,20 @@ describe('validate', () => {
     expect(reason(['src/a.ts', 'package.json'])).toBe('path "package.json" is outside the allowed paths');
     expect(reason(['src/../package.json'])).toBe('path "src/../package.json" escapes the repository');
     expect(reason(['/etc/passwd'])).toBe('path "/etc/passwd" escapes the repository');
+    const anywhere = (files: string[], paths?: string[]) =>
+      validate([push(files)], { can: ['push'], ...(paths && { paths }) }, 'warn').rejected[0]?.reason;
+    expect(anywhere(['.github/workflows/ci.yml'])).toMatch(/is a GitHub workflow/);
+    expect(anywhere(['.github/workflows/ci.yml'], ['**'])).toMatch(/is a GitHub workflow/);
+    expect(anywhere(['.github/workflows/ci.yml'], ['.github/workflows/**'])).toBeUndefined();
+  });
+
+  it('always allows a close and keeps the approved label for humans', () => {
+    const close: Proposal = { kind: 'close', as: 'no-op', reason: 'already done' };
+    expect(validate([close], { can: [] }, 'warn').accepted).toEqual([close]);
+    const label: Proposal = { kind: 'label', add: ['approved'] };
+    expect(validate([label], { can: ['label'] }, 'warn').rejected[0]?.reason).toBe(
+      'only a human adds the "approved" label'
+    );
   });
 
   it('rejects branches outside bothub/ or other than the job branch', () => {

@@ -1,7 +1,19 @@
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { parseMarkdown } from './markdown.ts';
-import { Bot, Check, Hub, HubTool, Note, NoteKind, Skill, Workflow, type Job, type Preload } from './schema.ts';
+import {
+  Bot,
+  Check,
+  Hub,
+  HubTool,
+  Note,
+  NoteKind,
+  Skill,
+  Workflow,
+  type Harness,
+  type Job,
+  type Preload,
+} from './schema.ts';
 
 export type SourceFile = { path: string; source: string };
 
@@ -18,7 +30,7 @@ export type Config = {
 };
 
 export type ConfigError = { path: string; message: string };
-export type Compiled = { ok: true; config: Config } | { ok: false; errors: ConfigError[] };
+export type Compiled = { ok: true; config: Config; warnings: ConfigError[] } | { ok: false; errors: ConfigError[] };
 
 const schemas = { bots: Bot, skills: Skill, checks: Check, workflows: Workflow } as const;
 const definition = /(?:^|\/)(bots|skills|checks|workflows)\/([^/]+)\.md$/;
@@ -87,7 +99,7 @@ export const compile = (files: SourceFile[]): Compiled => {
   }
 
   if (!errors.length) errors.push(...references(config));
-  return errors.length ? { ok: false, errors } : { ok: true, config };
+  return errors.length ? { ok: false, errors } : { ok: true, config, warnings: warnings(config) };
 };
 
 const references = (config: Config): ConfigError[] => {
@@ -102,7 +114,8 @@ const references = (config: Config): ConfigError[] => {
 
   for (const check of Object.values(checks)) {
     const fail = at(check.path);
-    if (!check.run === !check.bot) fail('needs either "run" or "bot"');
+    if ([check.run, check.bot, check.decide].filter(Boolean).length !== 1)
+      fail('needs one of "run", "bot" or "decide"');
     if (check.bot && !(check.bot in bots)) fail(`uses unknown bot "${check.bot}"`);
     if (check.bot && !check.skill) fail(`runs bot "${check.bot}" but has no skill`);
     if (check.skill && !check.bot) fail('has a skill but no bot');
@@ -120,6 +133,34 @@ const references = (config: Config): ConfigError[] => {
     if (cycle) fail(`needs cycle: ${cycle.join(' -> ')}`);
   }
   return errors;
+};
+
+/** Harnesses that report what a run cost; `usd-per-run` is enforced only on these. */
+const costReporting: readonly Harness[] = [];
+
+/** Fields that compile but that the runner does not act on, or that make a job do nothing it asked for. */
+const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
+  const found: ConfigError[] = [];
+  for (const bot of Object.values(bots))
+    if (bot.budget?.['usd-per-run'] !== undefined && !costReporting.includes(bot.harness))
+      found.push({
+        path: bot.path,
+        message: `"usd-per-run" is declared, not enforced: harness "${bot.harness}" reports no cost`,
+      });
+  for (const check of Object.values(checks))
+    if (check.decide && check.mode !== 'shadow' && check.decide.threshold === undefined)
+      found.push({
+        path: check.path,
+        message: `decides in ${check.mode} mode without a "threshold"; tune one in shadow mode first`,
+      });
+  for (const workflow of Object.values(workflows))
+    for (const [id, job] of Object.entries(workflow.jobs)) {
+      const warn = (message: string) => found.push({ path: workflow.path, message: `job "${id}" ${message}` });
+      if (job['for-each']) warn('has "for-each", declared, not enforced: the job runs once over all its changes');
+      if (job.until && job.until.checks.every(name => checks[name]?.mode === 'shadow'))
+        warn('loops until checks that are all in shadow mode, so it never repeats');
+    }
+  return found;
 };
 
 const checkJob = (id: string, job: Job, workflow: Workflow, { bots, skills, checks }: Config): string[] => {

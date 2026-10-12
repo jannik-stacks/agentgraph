@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { watch as watchDir } from 'node:fs';
 import { mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -26,6 +27,22 @@ const slugify = (text: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .slice(0, 50)
     .replace(/^-+|-+$/g, '') || 'issue';
+
+const digest = (...parts: unknown[]) => createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 12);
+
+/**
+ * A delivery id for a local change that is the same every time the same change is seen: the issue, what changed and
+ * a digest of the comment or of the issue's state after the change.
+ */
+export const localId = (change: Parameters<typeof changeEvent>[0]) => {
+  const { issue } = change;
+  if (change.kind === 'issue_comment') {
+    const index = issue.comments.indexOf(change.comment) + 1;
+    return `local-${issue.number}-comment-${index}-${digest(change.comment.author, change.comment.ts, change.comment.body)}`;
+  }
+  if (change.action === 'opened') return `local-${issue.number}-opened`;
+  return `local-${issue.number}-${change.action}-${digest(issue.state, issue.labels, issue.comments.length)}`;
+};
 
 /** Parses one `<n>-<slug>.md` issue file. Comments are `## @<author> at <ISO time>` sections after the body. */
 export const parseIssue = (file: string, source: string): Issue => {
@@ -113,7 +130,6 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
   const watch: Issues['watch'] = (onEvent, { interval } = {}) => {
     let seen: Map<number, Issue> | undefined;
     let scanning = Promise.resolve();
-    let count = 0;
     const emit = (event: BotEvent | undefined) => event && onEvent(event);
     const scan = () =>
       (scanning = scanning.then(async () => {
@@ -122,7 +138,7 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
         seen = current;
         if (!before) return;
         const event = (change: Parameters<typeof changeEvent>[0]) =>
-          emit(changeEvent(change, { repo, id: `local-${++count}`, association, source: 'local' }));
+          emit(changeEvent(change, { repo, id: localId(change), association, source: 'local' }));
         for (const issue of current.values()) {
           const old = before.get(issue.number);
           const sender = issue.author ?? as;

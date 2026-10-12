@@ -2,7 +2,10 @@ import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { openStore, runId } from '../src/store.ts';
+import { compile } from '../src/config.ts';
+import { dispatch } from '../src/dispatch.ts';
+import { readHub } from '../src/load.ts';
+import { alive, openStore, reconcile, runId } from '../src/store.ts';
 import type { BotEvent } from '../src/types.ts';
 
 const event: BotEvent = {
@@ -13,7 +16,7 @@ const event: BotEvent = {
   repo: 'acme/app',
   actor: { login: 'morgan', association: 'OWNER' },
 };
-const fields = { workflow: 'review', job: 'review', bot: 'reviewer', harness: 'claude-code' as const, event };
+const fields = { workflow: 'review', job: 'review', bot: 'reviewer', harness: 'opencode' as const, event };
 const temp = () => mkdtempSync(join(tmpdir(), 'bothub-store-'));
 
 describe('runId', () => {
@@ -99,5 +102,92 @@ describe('openStore', () => {
     expect(await store.file(id, '.claude/projects/-work/s1.jsonl')).toBe('{"a":1}\n');
     for (const path of ['../run.json', '/etc/passwd', '.codex/auth.json', 'link.jsonl', 'escape/secret.jsonl'])
       expect(await store.file(id, path)).toBeUndefined();
+  });
+});
+
+describe('delivery ledger and branch locks', () => {
+  it('sees each delivery once, across store handles', async () => {
+    const dir = temp();
+    expect(await openStore(dir).deliver('gh-1')).toBe(true);
+    expect(await openStore(dir).deliver('gh-1')).toBe(false);
+    expect(await openStore(dir).deliver('gh-2')).toBe(true);
+  });
+
+  it('holds a lock for a live owner and takes over one a stopped process left', async () => {
+    const dir = temp();
+    const store = openStore(dir);
+    const held = await store.lock('acme/app:bothub/7', 'r1');
+    expect(await store.lock('acme/app:bothub/7', 'r2')).toEqual({ holder: 'r1' });
+    if ('release' in held) await held.release();
+    expect('release' in (await store.lock('acme/app:bothub/7', 'r2'))).toBe(true);
+
+    const stopped = openStore(dir, { pid: process.pid, token: 'gone' });
+    expect('release' in (await stopped.lock('acme/app:bothub/8', 'r3'))).toBe(true);
+    expect('release' in (await store.lock('acme/app:bothub/8', 'r4'))).toBe(true);
+  });
+
+  it('plans an event once per delivery id', async () => {
+    const compiled = compile(await readHub(join(import.meta.dirname, '../examples/hub')));
+    if (!compiled.ok) throw new Error('example hub');
+    const store = openStore(temp());
+    const comment: BotEvent = { ...event, id: 'gh-9', number: 3, action: 'created', body: '/bothub fix it' };
+    expect((await dispatch(comment, compiled.config, store)).map(j => j.job)).toEqual(['implement']);
+    expect(await dispatch(comment, compiled.config, store)).toEqual([]);
+  });
+});
+
+describe('alive', () => {
+  it('trusts the token for this process and the pid for others', () => {
+    const me = { pid: process.pid, token: 'me' };
+    expect(alive({ pid: process.pid, token: 'me' }, me)).toBe(true);
+    expect(alive({ pid: process.pid, token: 'before' }, me)).toBe(false);
+    expect(alive({ pid: 2 ** 22 + 12345, token: 'x' }, me)).toBe(false);
+    expect(alive(undefined, me)).toBe(false);
+  });
+});
+
+describe('reconcile', () => {
+  it('marks runs a stopped process left running or applying as interrupted and removes their worktrees', async () => {
+    const dir = temp();
+    const before = openStore(dir, { pid: process.pid, token: 'before' });
+    const running = await before.create({ ...fields, status: 'running' });
+    const applying = await before.create(fields);
+    await before.update(applying.id, { status: 'succeeded' });
+    await before.saveOutcome(applying.id, {
+      proposals: [],
+      errors: [],
+      accepted: [],
+      rejected: [],
+      applied: true,
+      results: [{ kind: 'reply', key: 'e1/review/review/reply-1', status: 'pending' }],
+    });
+    const done = await before.create(fields);
+    await before.update(done.id, { status: 'succeeded' });
+    const me = { pid: process.pid, token: 'now' };
+    const now = openStore(dir, me);
+    const mine = await now.create({ ...fields, status: 'running' });
+
+    const removed: string[] = [];
+    const marked = await reconcile(now, { remove: async (_, id) => void removed.push(id) }, me);
+    expect(marked.map(r => r.id).sort()).toEqual([running.id, applying.id].sort());
+    expect(await now.read(running.id)).toMatchObject({
+      status: 'interrupted',
+      error: 'the process running it stopped while it was running',
+    });
+    expect(await now.read(applying.id)).toMatchObject({
+      status: 'interrupted',
+      error: expect.stringMatching(/while applying/),
+    });
+    expect((await now.read(done.id))?.status).toBe('succeeded');
+    expect((await now.read(mine.id))?.status).toBe('running');
+    expect(removed.sort()).toEqual([running.id, applying.id].sort());
+  });
+
+  it('keeps run memory next to the run', async () => {
+    const store = openStore(temp());
+    const run = await store.create(fields);
+    expect(await store.memory(run.id)).toBeUndefined();
+    await store.saveMemory(run.id, '# memory\n');
+    expect(await store.memory(run.id)).toBe('# memory\n');
   });
 });

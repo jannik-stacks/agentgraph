@@ -3,13 +3,27 @@ import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { compile, type Config } from '../src/config.ts';
-import { claude } from '../src/executors/claude.ts';
 import type { GitHub } from '../src/github-app.ts';
 import { localIssues } from '../src/issues-local.ts';
-import { buildSpec, renderBranch, runPlan, runPlanned, secretsFor, type Pipeline } from '../src/pipeline.ts';
+import type { ApplyResult } from '../src/apply.ts';
+import type { Proposal } from '../src/outputs.ts';
+import {
+  approvals,
+  buildSpec,
+  closureOf as closure,
+  failingChecks,
+  handoffEnv,
+  renderBranch,
+  runPlan,
+  runPlanned,
+  secretsFor,
+  verdictOf,
+  type JobResult,
+  type Pipeline,
+} from '../src/pipeline.ts';
 import { limiter } from '../src/runner.ts';
-import { openStore } from '../src/store.ts';
-import type { BotEvent, ExecutorAdapter, RunSpec } from '../src/types.ts';
+import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
+import type { AgentEvent, BotEvent, ExecutorAdapter, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
 import { git, sourceRepo, temp } from './git.ts';
 
@@ -19,10 +33,10 @@ const configFor = (mode = 'shadow'): Config => {
   const result = compile([
     md(
       'bots/bot.md',
-      'harness: claude-code\nmodel: sonnet\ntools: [Read, Grep]\ncan: [reply, label, push, open-pr, ask]\nskills: [triage, notify]\nnotes: [convention]\nmax-turns: 7\nbudget: { minutes: 30 }',
+      'harness: opencode\nmodel: sonnet\ntools: [Read, Grep]\ncan: [reply, label, push, open-pr, ask]\nskills: [triage, notify]\nnotes: [convention]\nmax-turns: 7\nbudget: { minutes: 30 }',
       'You are a careful bot.'
     ),
-    md('bots/judge.md', 'harness: claude-code\ntools: [Read]\ncan: [reply]\nmax-turns: 3', 'You judge.'),
+    md('bots/judge.md', 'harness: opencode\ntools: [Read]\ncan: [reply]\nmax-turns: 3', 'You judge.'),
     md('skills/triage.md', 'description: Sort an issue.\nnotes: [caveat]', 'Triage the issue.'),
     md('skills/summarize.md', 'description: Summarize a thread.', 'Summarize the thread.'),
     md('skills/notify.md', 'description: Tell someone.', 'Notify someone.'),
@@ -90,28 +104,23 @@ const finalMessage = bothub([
 ]);
 
 const lines = (ok: boolean, message: string) =>
-  [
-    { type: 'system', subtype: 'init', session_id: 's1', model: 'sonnet' },
-    { type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } },
-    {
-      type: 'result',
-      subtype: ok ? 'success' : 'error',
-      is_error: !ok,
-      num_turns: 2,
-      result: message,
-      total_cost_usd: 0.5,
-    },
-  ]
+  (
+    [
+      { type: 'start', session: 's1', model: 'resolved/sonnet' },
+      { type: 'text', text: 'working' },
+      { type: 'end', ok, turns: 2, result: message, costUsd: 0.5 },
+    ] satisfies AgentEvent[]
+  )
     .map(line => JSON.stringify(line))
     .join('\n');
 
 type Behaviour = { ok?: boolean; message?: string; work?: string };
 
-/** A claude-shaped adapter that runs `node -e` in the worktree, checks its secrets and records each spec. */
+/** An adapter that runs `node -e` in the worktree, checks its secrets, prints agent events and records each spec. */
 const fake = (behave: Behaviour | ((spec: RunSpec, call: number) => Behaviour) = {}) => {
   const seen: RunSpec[] = [];
   const adapter: ExecutorAdapter = {
-    name: 'claude-code',
+    name: 'opencode',
     command: spec => {
       seen.push(spec);
       const {
@@ -119,22 +128,31 @@ const fake = (behave: Behaviour | ((spec: RunSpec, call: number) => Behaviour) =
         message = finalMessage,
         work = '',
       } = typeof behave === 'function' ? behave(spec, seen.length) : behave;
-      const script = `const fs = require('fs'); fs.accessSync('README.md'); ${work}; if (process.env.CLAUDE_CODE_OAUTH_TOKEN !== 'oauth' || process.env.OTHER) process.exit(9); console.log(${JSON.stringify(lines(ok, message))}); process.exit(${ok ? 0 : 1})`;
+      const script = `const fs = require('fs'); fs.accessSync('README.md'); ${work}; if (process.env.BOTHUB_LLM_API_KEY !== 'key' || process.env.OTHER) process.exit(9); console.log(${JSON.stringify(lines(ok, message))}); process.exit(${ok ? 0 : 1})`;
       return { cmd: 'node', args: ['-e', script], env: {} };
     },
-    parseLine: claude.parseLine,
+    parseLine: line => (line.trim() ? [JSON.parse(line) as AgentEvent] : []),
   };
-  return { seen, adapters: { 'claude-code': adapter, codex: adapter, opencode: adapter, pi: adapter } };
+  return { seen, adapters: { opencode: adapter, pi: { ...adapter, name: 'pi' as const } } };
 };
 
+/** GitHub with nothing written yet; `calls` holds the writes. */
 const fakeGitHub = () => {
   const calls: { method: string; path: string; body?: unknown }[] = [];
   const gh = (async (method: string, path: string, body?: unknown) => {
+    if (method === 'GET') {
+      if (path.includes('?')) return [];
+      if (path === '/repos/acme/app') return { default_branch: 'main' };
+      throw Object.assign(new Error('Not Found'), { status: 404 });
+    }
     calls.push({ method, path, body });
+    if (path.endsWith('/pulls')) return { html_url: `https://github.com/acme/app/pull/${calls.length}` };
     return { html_url: `https://github.com/acme/app/issues/7#c${calls.length}` };
   }) as GitHub;
   return { calls, gh };
 };
+
+const unmarked = (body: string) => body.replace(/\n\n<!-- bothub:\S+ -->$/, '');
 
 /** A local tracker holding the event's issue #7. */
 const trackedIssues = () => {
@@ -153,7 +171,7 @@ const pipeline = async (
     store: openStore(dataDir),
     workspaces: workspaces({ dataDir, cloneUrl: () => origin.dir }),
     limit: await Effect.runPromise(limiter(1)),
-    env: { CLAUDE_CODE_OAUTH_TOKEN: 'oauth', OTHER: 'nope' },
+    env: { BOTHUB_LLM_API_KEY: 'key', OTHER: 'nope' },
     adapters: fake().adapters,
     ...overrides,
   };
@@ -186,7 +204,9 @@ describe('buildSpec', () => {
       '```bothub\n[\n  { "kind": "reply", "body": "Markdown comment on the issue or pull request" }\n]\n```'
     );
     expect(spec.system).not.toMatch(/"kind": "(label|open-pr)"/);
-    expect(spec.system.endsWith('\n\nInclude only the proposals you need.')).toBe(true);
+    expect(spec.system).toMatch(
+      /\n\nWhen you stop without finishing, add .*no-op\. Include only the proposals you need\.$/
+    );
     expect(spec.prompt).toBe(
       [
         'Triage the issue.',
@@ -232,28 +252,22 @@ describe('renderBranch', () => {
 });
 
 describe('secretsFor', () => {
-  it('picks the OAuth token for claude-code and nothing for codex', () => {
-    const env = { CLAUDE_CODE_OAUTH_TOKEN: 't', OPENAI_API_KEY: 'k' };
-    expect(secretsFor({ name: 'b', harness: 'claude-code' }, env)).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 't' });
-    expect(secretsFor({ name: 'b', harness: 'codex' }, env)).toEqual({});
-  });
-
-  it('gives proxy harnesses the base URL and a per-bot key, falling back to the shared key', () => {
+  it('gives every harness the proxy base URL and a per-bot key, falling back to the shared key', () => {
     const env = {
       BOTHUB_LLM_BASE_URL: 'http://proxy',
       BOTHUB_LLM_API_KEY: 'shared',
       BOTHUB_LLM_API_KEY_CODE_REVIEWER: 'mine',
       CLAUDE_CODE_OAUTH_TOKEN: 't',
     };
-    expect(secretsFor({ name: 'code-reviewer', harness: 'opencode' }, env)).toEqual({
+    expect(secretsFor({ name: 'code-reviewer' }, env)).toEqual({
       BOTHUB_LLM_BASE_URL: 'http://proxy',
       BOTHUB_LLM_API_KEY: 'mine',
     });
-    expect(secretsFor({ name: 'implementor', harness: 'pi' }, env)).toEqual({
+    expect(secretsFor({ name: 'implementor' }, env)).toEqual({
       BOTHUB_LLM_BASE_URL: 'http://proxy',
       BOTHUB_LLM_API_KEY: 'shared',
     });
-    expect(secretsFor({ name: 'implementor', harness: 'pi' }, {})).toEqual({});
+    expect(secretsFor({ name: 'implementor' }, {})).toEqual({});
   });
 });
 
@@ -262,7 +276,7 @@ describe('context', () => {
     const result = compile([
       md(
         'bots/b.md',
-        'harness: claude-code\ntools: [Read, issues_get, notes_search]\ncan: [reply]\npreload: [issue]\nmax-turns: 3',
+        'harness: opencode\ntools: [Read, issues_get, notes_search]\ncan: [reply]\npreload: [issue]\nmax-turns: 3',
         'Role.'
       ),
       md('skills/s.md', 'description: Do it.', 'Do it.'),
@@ -273,7 +287,7 @@ describe('context', () => {
     const workflow = config.workflows.w!;
     const mcp = (tools: string[]) => ({ command: 'node', args: tools, env: {} });
     const { spec } = buildSpec({ config, workflow, job: 'a', event, cwd: '/w', preloaded: '## Issue #7: Task', mcp });
-    expect(spec.tools).toEqual(['Read', 'mcp__bothub__issues_get']);
+    expect(spec.tools).toEqual(['Read', 'bothub_issues_get']);
     expect(spec.mcp).toEqual({ command: 'node', args: ['issues_get'], env: {} });
     expect(spec.system).toContain(
       '## Hub tools\n\nRead-only tools from the `bothub` server. Writes still go through proposals.\n\n- issues_get:'
@@ -309,7 +323,9 @@ describe('runPlanned', () => {
       costUsd: 0.5,
       turns: 2,
       bot: 'bot',
-      harness: 'claude-code',
+      harness: 'opencode',
+      model: 'resolved/sonnet',
+      closure: 'done',
     });
     expect(result.outcome).toMatchObject({
       errors: [],
@@ -335,11 +351,24 @@ describe('runPlanned', () => {
     expect('run' in result && result.outcome).toMatchObject({
       applied: true,
       results: [
-        { kind: 'reply', status: 'applied', url: 'https://github.com/acme/app/issues/7#c1' },
-        { kind: 'reply', status: 'applied', url: 'https://github.com/acme/app/issues/7#c2' },
+        {
+          kind: 'reply',
+          key: 'd1/triage/triage/reply-1',
+          status: 'applied',
+          url: 'https://github.com/acme/app/issues/7#c1',
+        },
+        {
+          kind: 'reply',
+          key: 'd1/triage/triage/reply-2',
+          status: 'applied',
+          url: 'https://github.com/acme/app/issues/7#c2',
+        },
       ],
     });
-    expect(calls.map(c => c.body)).toEqual([{ body: 'Looks like a bug.' }, { body: 'Second reply.' }]);
+    expect(calls.map(c => c.body)).toEqual([
+      { body: 'Looks like a bug.\n\n<!-- bothub:d1/triage/triage/reply-1 -->' },
+      { body: 'Second reply.\n\n<!-- bothub:d1/triage/triage/reply-2 -->' },
+    ]);
   });
 
   it('never applies without a client or after a failed run', async () => {
@@ -381,9 +410,22 @@ describe('runPlanned', () => {
     const p = await pipeline({ config: configFor(), gh, adapters: fake({ message, work }).adapters }, origin);
     const result = await Effect.runPromise(runPlanned(planned('implement'), p));
     expect('run' in result && result.outcome?.results).toEqual([
-      { kind: 'push', status: 'applied', url: `https://github.com/acme/app/tree/${branch}` },
-      { kind: 'open-pr', status: 'applied', url: 'https://github.com/acme/app/issues/7#c1' },
+      {
+        kind: 'push',
+        key: 'd1/triage/implement/push-1',
+        status: 'applied',
+        url: `${origin.dir}#${branch}`,
+        sha: git(origin.dir, 'rev-parse', branch),
+      },
+      {
+        kind: 'open-pr',
+        key: 'd1/triage/implement/open-pr-1',
+        status: 'applied',
+        url: 'https://github.com/acme/app/pull/1',
+      },
     ]);
+    expect('run' in result && result.run).toMatchObject({ closure: 'handed-off' });
+    expect('run' in result && result.outcome).toMatchObject({ branch, pr: 1 });
     expect('run' in result && result.outcome?.rejected[0]?.reason).toBe(
       `branch "bothub/other" is not the job's branch "${branch}"`
     );
@@ -439,7 +481,7 @@ describe('until', () => {
       { check: 'shadowed', gating: false, pass: false, findings: 'never mind' },
     ]);
     expect(result.outcome?.applied).toBe(true);
-    expect((await issues.get(7))?.comments.map(c => c.body)).toEqual(['Done.', '@octocat needs a human: #8']);
+    expect((await issues.get(7))?.comments.map(c => unmarked(c.body))).toEqual(['Done.', '@octocat needs a human: #8']);
     expect(await issues.list({ label: 'unsure' })).toMatchObject([
       { number: 8, title: 'Is the name right?', parent: 7 },
     ]);
@@ -468,7 +510,7 @@ describe('until', () => {
       [8, 7, 'Is the name right?'],
       [9, 7, question.length > 80 ? `${question.slice(0, 79)}…` : question],
     ]);
-    expect((await issues.get(7))?.comments.map(c => c.body)).toEqual([
+    expect((await issues.get(7))?.comments.map(c => unmarked(c.body))).toEqual([
       '@octocat needs a human: #8',
       '@octocat needs a human: #9',
     ]);
@@ -507,21 +549,23 @@ describe('until', () => {
   });
 });
 
+const closureOf = (r: JobResult) => ('skipped' in r ? r.closure : r.run.closure);
+
 describe('runPlan', () => {
   const jobs = [planned('notify'), planned('plain'), planned('summarize'), triage];
 
   it('runs jobs in needs order and skips dependents of jobs that did not succeed', async () => {
     const p = await pipeline({ config: configFor() });
     const results = await Effect.runPromise(runPlan(jobs, p));
-    expect(results.map(r => [r.job, 'skipped' in r ? r.skipped : r.run.status])).toEqual([
-      ['triage', 'succeeded'],
-      ['summarize', 'succeeded'],
-      ['plain', 'failed'],
-      ['notify', 'needs "plain", which did not succeed'],
+    expect(results.map(r => [r.job, 'skipped' in r ? r.skipped : r.run.status, closureOf(r)])).toEqual([
+      ['triage', 'succeeded', 'done'],
+      ['summarize', 'succeeded', 'no-op'],
+      ['plain', 'failed', 'blocked'],
+      ['notify', 'needs "plain" (blocked) to be done', 'deferred'],
     ]);
     const stored = await p.store.list();
     expect(stored.filter(r => r.status === 'skipped').map(r => [r.job, r.reason])).toEqual([
-      ['notify', 'needs "plain", which did not succeed'],
+      ['notify', 'needs "plain" (blocked) to be done'],
     ]);
     expect(stored).toHaveLength(4);
   });
@@ -531,7 +575,252 @@ describe('runPlan', () => {
     const results = await Effect.runPromise(runPlan([triage, planned('summarize')], p));
     expect(results.map(r => [r.job, 'skipped' in r ? r.skipped : r.run.status])).toEqual([
       ['triage', 'failed'],
-      ['summarize', 'needs "triage", which did not succeed'],
+      ['summarize', 'needs "triage" (blocked) to be done'],
     ]);
+  });
+});
+
+describe('closure', () => {
+  const run = (fields: Partial<Run> = {}): Run => ({
+    id: 'r',
+    workflow: 'w',
+    job: 'j',
+    event,
+    status: 'succeeded',
+    ...fields,
+  });
+  const outcome = (accepted: Proposal[], results: ApplyResult[] = []): Outcome => ({
+    proposals: accepted,
+    errors: [],
+    accepted,
+    rejected: [],
+    results,
+    applied: results.length > 0,
+  });
+  const push: Proposal = { kind: 'push', branch: 'bothub/x', files: ['a.ts'] };
+  const pr: Proposal = { kind: 'open-pr', title: 't', body: '', head: 'bothub/x' };
+
+  it('says what happened to the work, not how the process ended', () => {
+    expect(closure(run({ status: 'skipped', reason: 'later' }), undefined, [])).toEqual({
+      closure: 'deferred',
+      reason: 'later',
+    });
+    expect(closure(run({ status: 'failed', error: 'HTTP 429: rate limit' }), undefined, []).closure).toBe('deferred');
+    expect(closure(run({ status: 'failed', error: 'boom' }), undefined, [])).toEqual({
+      closure: 'blocked',
+      reason: 'boom',
+    });
+    expect(closure(run(), outcome([{ kind: 'close', as: 'no-op', reason: 'already done' }]), ['reply'])).toEqual({
+      closure: 'no-op',
+      reason: 'already done',
+    });
+    expect(closure(run(), outcome([{ kind: 'ask', question: 'q' }]), ['ask']).closure).toBe('blocked');
+    expect(closure(run(), outcome([{ kind: 'reply', body: 'b' }]), ['reply']).closure).toBe('done');
+    expect(closure(run(), outcome([{ kind: 'reply', body: 'b' }]), ['reply', 'push'])).toEqual({
+      closure: 'no-op',
+      reason: 'proposed no change',
+    });
+    expect(closure(run(), outcome([push, pr]), ['push', 'open-pr']).closure).toBe('handed-off');
+  });
+
+  it('hands off a pushed branch without a pull request only to a job that takes it', () => {
+    expect(closure(run(), outcome([push]), ['push'], true).closure).toBe('handed-off');
+    expect(closure(run(), outcome([push]), ['push'])).toEqual({
+      closure: 'blocked',
+      reason: 'pushed a branch without opening a pull request',
+    });
+    const failed = outcome([push], [{ kind: 'push', status: 'failed', reason: 'rejected' }]);
+    expect(closure(run(), failed, ['push'], true)).toEqual({ closure: 'blocked', reason: 'push failed: rejected' });
+  });
+});
+
+describe('checks fail closed', () => {
+  const ok = (fields: Partial<Run>): Run => ({
+    id: 'r',
+    workflow: 'w',
+    job: 'j',
+    event,
+    status: 'succeeded',
+    ...fields,
+  });
+
+  it('fails a check that cannot decide', () => {
+    expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').findings).toBe('run r failed: model error');
+    expect(verdictOf(ok({}), 'All good.')).toEqual({ pass: false, findings: 'run r gave no verdict' });
+    expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: 'Looks fine\nPASS' }])).findings).toMatch(
+      /neither PASS nor FAIL/
+    );
+    expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: 'pass' }]))).toEqual({ pass: true });
+  });
+
+  it('lets a skipped check pass a gate only when it allows skipping', () => {
+    const config = configFor();
+    const checks = {
+      ...config.checks,
+      exists: { ...config.checks.exists!, 'allow-skip': true },
+    };
+    const skipped = (check: string): Verdict => ({ check, gating: true, pass: false, skipped: true });
+    expect(failingChecks([skipped('exists')], checks)).toEqual([]);
+    expect(failingChecks([skipped('judged')], checks)).toEqual([skipped('judged')]);
+    expect(failingChecks([{ ...skipped('shadowed'), gating: false }], checks)).toEqual([]);
+  });
+});
+
+describe('proposals', () => {
+  it('sends a reply without usable proposals back as a failed attempt, then blocks', async () => {
+    const { seen, adapters } = fake({ message: 'I looked around and everything seems fine.' });
+    const p = await pipeline({ config: configFor('warn'), adapters });
+    const result = await Effect.runPromise(runPlanned(triage, p));
+    if (!('run' in result)) throw new Error('skipped');
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.prompt).toContain('## Proposal errors\n\nAttempt 2 of 2.');
+    expect(seen[1]!.prompt).toContain('- the reply has no bothub block');
+    expect(result.run).toMatchObject({
+      status: 'failed',
+      closure: 'blocked',
+      error: expect.stringMatching(/^no usable proposals after 2 attempts: the reply has no bothub block/),
+    });
+    const runs = (await p.store.list()).reverse();
+    expect(runs.map(r => [r.attempt, r.status])).toEqual([
+      [undefined, 'failed'],
+      [2, 'failed'],
+    ]);
+  });
+
+  it('retries with the parse errors and goes on once the block parses', async () => {
+    const { seen, adapters } = fake((_spec, call) => ({
+      message: call === 1 ? 'Done.\n```bothub\n[{ "kind": "reply" }]\n```' : finalMessage,
+    }));
+    const p = await pipeline({ config: configFor('warn'), adapters });
+    const result = await Effect.runPromise(runPlanned(triage, p));
+    expect(seen[1]!.prompt).toMatch(/## Proposal errors[\s\S]*- proposal 1:/);
+    expect('run' in result && result.run).toMatchObject({ status: 'succeeded', closure: 'done', attempt: 2 });
+  });
+});
+
+describe('budgets', () => {
+  it('defers a bot that used its runs for the day', async () => {
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, budget: { 'runs-per-day': 1 } };
+    const { seen, adapters } = fake();
+    const p = await pipeline({ config, adapters });
+    await Effect.runPromise(runPlanned(triage, p));
+    const second = await Effect.runPromise(runPlanned(triage, p));
+    expect(seen).toHaveLength(1);
+    expect('run' in second && second.run).toMatchObject({
+      status: 'skipped',
+      closure: 'deferred',
+      reason: 'bot "bot" used its 1 runs for the last 24 hours',
+    });
+  });
+
+  it('stops looping once the attempts spent the run budget', async () => {
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };
+    const { seen, adapters } = fake({ message: bothub([{ kind: 'reply', body: 'Done.' }]) });
+    const p = await pipeline({ config, issues: trackedIssues(), adapters });
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(seen).toHaveLength(1);
+    expect('run' in result && result.run).toMatchObject({
+      status: 'failed',
+      closure: 'blocked',
+      error: 'spent $0.50 of the $0.5 budget in 1 attempts with checks still failing',
+    });
+  });
+});
+
+describe('handoff', () => {
+  const flow = () => {
+    const result = compile([
+      md(
+        'bots/bot.md',
+        'harness: opencode\ntools: [read]\ncan: [reply, push, open-pr]\nmax-turns: 5',
+        'You are a careful bot.'
+      ),
+      md('skills/implement.md', 'description: Change code.', 'Implement it.'),
+      md('skills/deploy.md', 'description: Ship it.', 'Deploy it.'),
+      md(
+        'workflows/flow.md',
+        `on: { issue_comment: {} }
+jobs:
+  implement: { mode: warn, bot: bot, skill: implement, branch: 'bothub/{issue}-{slug}', paths: ['src/**'], can: [push, open-pr] }
+  verify:
+    needs: implement
+    run: test "$BOTHUB_BRANCH" = bothub/7-please-look-at-this && test "$BOTHUB_PR" = 1 && test -f src/a.ts
+  deploy: { needs: verify, mode: warn, bot: bot, skill: deploy, environment: production, can: [reply] }`
+      ),
+    ]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    return result.config;
+  };
+  const branch = 'bothub/7-please-look-at-this';
+  const jobs = ['implement', 'verify', 'deploy'].map(job => ({
+    workflow: 'flow',
+    job,
+    ...(job !== 'verify' && { bot: 'bot' }),
+  }));
+  const behave = (spec: RunSpec) =>
+    spec.prompt.startsWith('Implement it.')
+      ? {
+          message: bothub([
+            { kind: 'push', branch, files: ['src/a.ts'] },
+            { kind: 'open-pr', title: 'Add a', body: 'Closes #7', head: branch },
+          ]),
+          work: "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')",
+        }
+      : { message: bothub([{ kind: 'reply', body: 'Shipped.' }]) };
+
+  it('passes the branch and pull request down, waits for approval, then resumes without redoing work', async () => {
+    const { seen, adapters } = fake(behave);
+    const issues = trackedIssues();
+    const { gh } = fakeGitHub();
+    const p = await pipeline({ config: flow(), adapters, issues, gh });
+
+    const first = await Effect.runPromise(runPlan(jobs, p));
+    expect(first.map(r => [r.job, closureOf(r)])).toEqual([
+      ['implement', 'handed-off'],
+      ['verify', 'done'],
+      ['deploy', 'blocked'],
+    ]);
+    expect(first[2]).toMatchObject({ skipped: 'waiting for approval in #8' });
+    expect(await issues.get(8)).toMatchObject({ title: 'Approve flow/deploy for #7 in production', parent: 7 });
+    expect(seen).toHaveLength(1);
+
+    const labeled: BotEvent = { ...event, id: 'd2', trigger: 'issues', action: 'labeled', number: 8 };
+    expect(await approvals(labeled, p.store, issues)).toEqual([]);
+    await issues.label(8, { add: ['approved'] });
+    expect(await approvals(labeled, p.store, issues)).toEqual([event]);
+    expect(await approvals({ ...labeled, actor: { login: 'x', association: 'NONE' } }, p.store, issues)).toEqual([]);
+
+    const second = await Effect.runPromise(runPlan(jobs, p));
+    expect(second.map(r => [r.job, closureOf(r)])).toEqual([
+      ['implement', 'handed-off'],
+      ['verify', 'done'],
+      ['deploy', 'done'],
+    ]);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.prompt).toContain(`Branch: ${branch}`);
+    expect(seen[1]!.prompt).toContain('Pull request: #1');
+    const waited = (await p.store.list()).find(r => r.approval === 8);
+    expect(waited).toMatchObject({ closure: 'done', reason: 'approved in #8' });
+  });
+
+  it('exports the handoff to scripts', () => {
+    expect(handoffEnv({ branch, pr: 4 })).toEqual({ BOTHUB_BRANCH: branch, BOTHUB_PR: '4' });
+    expect(handoffEnv()).toEqual({});
+  });
+
+  it('defers a job whose branch another live run holds', async () => {
+    const { seen, adapters } = fake(behave);
+    const p = await pipeline({ config: flow(), adapters });
+    const held = await p.store.lock(`acme/app:${branch}`, 'other');
+    expect('release' in held).toBe(true);
+    const result = await Effect.runPromise(runPlanned(jobs[0]!, p));
+    expect(seen).toHaveLength(0);
+    expect('run' in result && result.run).toMatchObject({
+      status: 'skipped',
+      closure: 'deferred',
+      reason: `branch "${branch}" is in use by run other`,
+    });
   });
 });

@@ -15,7 +15,7 @@ const setup = () => {
 describe('workspaces', () => {
   it('mirrors once and checks out the default branch for a run', async () => {
     const { origin, ws, mirror } = setup();
-    const path = await ws.create({ repo: 'acme/app' }, 'run-1');
+    const { path } = await ws.create({ repo: 'acme/app' }, 'run-1');
     expect(git(path, 'rev-parse', 'HEAD')).toBe(origin.main);
     expect(readFileSync(join(path, 'README.md'), 'utf8')).toBe('main\n');
     expect(git(mirror, 'config', '--get', 'remote.origin.mirror')).toBe('true');
@@ -27,37 +27,39 @@ describe('workspaces', () => {
     await ws.create({ repo: 'acme/app' }, 'run-1');
     git(origin.dir, 'checkout', '-q', 'feature');
     const head = commit(origin.dir, { 'more.txt': 'more\n' });
-    const path = await ws.create({ repo: 'acme/app', ref: 'feature' }, 'run-2');
+    const { path } = await ws.create({ repo: 'acme/app', ref: 'feature' }, 'run-2');
     expect(git(path, 'rev-parse', 'HEAD')).toBe(head);
     expect(existsSync(join(path, 'feature.txt'))).toBe(true);
-    const tagged = await ws.create({ repo: 'acme/app', ref: 'refs/heads/main' }, 'run-3');
+    const { path: tagged } = await ws.create({ repo: 'acme/app', ref: 'refs/heads/main' }, 'run-3');
     expect(git(tagged, 'rev-parse', 'HEAD')).toBe(origin.main);
   });
 
   it('checks out a pull request head ref', async () => {
     const { origin, ws } = setup();
     git(origin.dir, 'update-ref', 'refs/pull/1/head', origin.feature);
-    const path = await ws.create({ repo: 'acme/app', ref: 'refs/pull/1/head' }, 'run-1');
+    const { path } = await ws.create({ repo: 'acme/app', ref: 'refs/pull/1/head' }, 'run-1');
     expect(git(path, 'rev-parse', 'HEAD')).toBe(origin.feature);
   });
 
   it('lists committed, modified and untracked changes without touching the index', async () => {
     const { ws } = setup();
-    const path = await ws.create({ repo: 'acme/app' }, 'run-1');
+    const { path, base } = await ws.create({ repo: 'acme/app' }, 'run-1');
     commit(path, { 'kept.txt': 'kept\n' });
     writeFileSync(join(path, 'README.md'), 'changed\n');
     writeFileSync(join(path, 'new.txt'), 'new\n');
-    const { files, diff } = await ws.changes('run-1');
+    const { files, diff } = await ws.changes('run-1', base);
     expect(files.sort()).toEqual(['README.md', 'kept.txt', 'new.txt']);
     expect(diff).toContain('+changed');
-    expect((await ws.changes('run-1', ['new.txt'])).diff).toMatch(/^diff --git a\/new.txt b\/new.txt\n[\s\S]*\+new$/);
+    expect((await ws.changes('run-1', base, ['new.txt'])).diff).toMatch(
+      /^diff --git a\/new.txt b\/new.txt\n[\s\S]*\+new$/
+    );
     expect(git(path, 'status', '--porcelain')).toBe('M README.md\n?? new.txt');
-    await expect(ws.changes('run-9')).rejects.toThrow('no worktree for run "run-9"');
+    await expect(ws.changes('run-9', base)).rejects.toThrow('no worktree for run "run-9"');
   });
 
   it('removes the worktree and prunes it from the mirror', async () => {
     const { ws, mirror } = setup();
-    const path = await ws.create({ repo: 'acme/app' }, 'run-1');
+    const { path } = await ws.create({ repo: 'acme/app' }, 'run-1');
     await ws.remove('acme/app', 'run-1');
     expect(existsSync(path)).toBe(false);
     expect(git(mirror, 'worktree', 'list')).not.toContain('run-1');
@@ -86,11 +88,11 @@ describe('workspaces', () => {
     process.env.PATH = `${bin}:${path}`;
     try {
       const { ws, origin } = setup();
-      const dir = await ws.create({ repo: 'acme/app' }, 'run-1');
+      const { path: dir, base } = await ws.create({ repo: 'acme/app' }, 'run-1');
       await ws.create({ repo: 'acme/app' }, 'run-2');
       git(dir, 'checkout', '-qb', 'bothub/1');
       const head = commit(dir, { 'a.ts': 'a\n' });
-      await ws.publish('acme/app', 'run-1', { branch: 'bothub/1', files: ['a.ts'], message: 'bothub: x' });
+      await ws.publish('acme/app', 'run-1', { branch: 'bothub/1', files: ['a.ts'], message: 'bothub: x', base });
       expect(git(origin.dir, 'rev-parse', 'bothub/1')).toBe(head);
     } finally {
       process.env.PATH = path;
@@ -108,10 +110,16 @@ describe('workspaces', () => {
 describe('workspaces.publish', () => {
   const started = async () => {
     const { origin, ws } = setup();
-    const path = await ws.create({ repo: 'acme/app' }, 'run-1');
+    const { path, base } = await ws.create({ repo: 'acme/app' }, 'run-1');
     const publish = (files: string[], paths?: string[]) =>
-      ws.publish('acme/app', 'run-1', { branch: 'bothub/7', files, ...(paths && { paths }), message: 'bothub: fix' });
-    return { origin, ws, path, publish };
+      ws.publish('acme/app', 'run-1', {
+        branch: 'bothub/7',
+        files,
+        ...(paths && { paths }),
+        message: 'bothub: fix',
+        base,
+      });
+    return { origin, ws, path, base, publish };
   };
 
   it('pushes the agent branch with its uncommitted listed files', async () => {
@@ -119,7 +127,7 @@ describe('workspaces.publish', () => {
     git(path, 'checkout', '-qb', 'bothub/7');
     const committed = commit(path, { 'a.ts': 'a\n' });
     writeFileSync(join(path, 'b.ts'), 'b\n');
-    expect(await publish(['a.ts', 'b.ts'], ['*.ts'])).toBe('https://github.com/acme/app/tree/bothub/7');
+    expect(await publish(['a.ts', 'b.ts'], ['*.ts'])).toBe(`${origin.dir}#bothub/7`);
     expect(git(origin.dir, 'ls-tree', '--name-only', 'bothub/7').split('\n')).toEqual(['README.md', 'a.ts', 'b.ts']);
     expect(git(origin.dir, 'log', '-1', '--format=%an <%ae> %cn %s', 'bothub/7')).toBe(
       'bothub[bot] <bothub[bot]@users.noreply.github.com> bothub[bot] bothub: fix'
@@ -159,9 +167,9 @@ describe('workspaces.publish', () => {
     await expect(publish([])).rejects.toThrow('branch "bothub/7" has no changes');
 
     git(origin.dir, 'branch', 'bothub/8', origin.feature);
-    const other = await ws.create({ repo: 'acme/app' }, 'run-2');
+    const { path: other, base } = await ws.create({ repo: 'acme/app' }, 'run-2');
     const push = () =>
-      ws.publish('acme/app', 'run-2', { branch: 'bothub/8', files: ['c.ts', 'feature.txt'], message: 'm' });
+      ws.publish('acme/app', 'run-2', { branch: 'bothub/8', files: ['c.ts', 'feature.txt'], message: 'm', base });
     commit(other, { 'c.ts': 'c\n' });
     await expect(push()).rejects.toThrow('branch "bothub/8" exists but is not checked out');
 
@@ -172,5 +180,36 @@ describe('workspaces.publish', () => {
     git(origin.dir, 'checkout', '-q', 'main');
     await expect(push()).rejects.toThrow(/git .*push/);
     expect(git(origin.dir, 'rev-parse', 'bothub/8')).toBe(moved);
+  });
+
+  it('reports the commit before pushing and skips a push the remote already has', async () => {
+    const { origin, ws, path, base } = await started();
+    git(path, 'checkout', '-qb', 'bothub/7');
+    const head = commit(path, { 'a.ts': 'a\n' });
+    const seen: string[] = [];
+    const options = { branch: 'bothub/7', files: ['a.ts'], message: 'm', base };
+    await ws.publish('acme/app', 'run-1', { ...options, committed: async sha => seen.push(sha) });
+    expect(seen).toEqual([head]);
+    expect(git(origin.dir, 'rev-parse', 'bothub/7')).toBe(head);
+
+    commit(path, { 'a.ts': 'changed\n' });
+    expect(await ws.publish('acme/app', 'run-1', { ...options, expected: head })).toBe(`${origin.dir}#bothub/7`);
+    expect(git(origin.dir, 'rev-parse', 'bothub/7')).toBe(head);
+  });
+
+  it('starts a worktree on a handed-off branch and records its base', async () => {
+    const { origin, ws } = setup();
+    const { path, base } = await ws.create({ repo: 'acme/app', ref: 'feature' }, 'run-1');
+    expect(base).toBe(origin.feature);
+    expect(git(path, 'rev-parse', 'HEAD')).toBe(origin.feature);
+  });
+
+  it('refuses GitHub workflow changes unless the job names them', async () => {
+    const { path, publish } = await started();
+    git(path, 'checkout', '-qb', 'bothub/7');
+    execFileSync('mkdir', ['-p', join(path, '.github/workflows')]);
+    commit(path, { '.github/workflows/ci.yml': 'on: push\n' });
+    await expect(publish(['.github/workflows/ci.yml'])).rejects.toThrow('is a GitHub workflow');
+    await expect(publish(['.github/workflows/ci.yml'], ['.github/workflows/*.yml'])).resolves.toContain('bothub/7');
   });
 });

@@ -136,7 +136,7 @@ describe('plan', () => {
 describe('plan with a branches filter', () => {
   const filtered = ((): Config => {
     const result = compile([
-      { path: 'bots/bot.md', source: '---\nharness: claude-code\ntools: []\ncan: []\nmax-turns: 5\n---\n\nBot.' },
+      { path: 'bots/bot.md', source: '---\nharness: opencode\ntools: []\ncan: []\nmax-turns: 5\n---\n\nBot.' },
       { path: 'skills/go.md', source: '---\ndescription: Go.\n---\n\nGo.' },
       {
         path: 'workflows/release.md',

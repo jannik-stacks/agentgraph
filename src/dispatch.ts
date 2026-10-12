@@ -20,6 +20,19 @@ const humanText = new Set([
 export const plan = (event: BotEvent, config: Config): PlannedJob[] =>
   Object.values(config.workflows).flatMap(workflow => planWorkflow(event, workflow));
 
+/**
+ * Plans an event once: a delivery id already in the ledger plans nothing, so a redelivered webhook or a repeated
+ * local change never starts the same jobs twice.
+ */
+export const dispatch = async (
+  event: BotEvent,
+  config: Config,
+  ledger: { deliver: (id: string) => Promise<boolean> }
+): Promise<PlannedJob[]> => ((await ledger.deliver(event.id)) ? plan(event, config) : []);
+
+/** Whether an association may start jobs from text it wrote, unless a trigger's `guard` says otherwise. */
+export const isTrusted = (association: Association) => trusted.includes(association);
+
 const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[] => {
   const filter = workflow.on[event.trigger];
   if (!filter) return [];

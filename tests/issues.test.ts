@@ -121,6 +121,20 @@ describe('localIssues', () => {
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
     expect(events.slice(0, 2).map(e => plan(e, result.config).length)).toEqual([1, 0]);
+
+    expect(events.map(e => e.id)).toEqual([
+      expect.stringMatching(/^local-1-comment-1-[0-9a-f]{12}$/),
+      expect.stringMatching(/^local-1-comment-2-[0-9a-f]{12}$/),
+      'local-2-opened',
+    ]);
+    const again: BotEvent[] = [];
+    const watcher = localIssues(dir, { repo: 'acme/app' }).watch(e => again.push(e), { interval: 5 });
+    await watcher.ready;
+    await localIssues(dir, { repo: 'acme/app' }).label(2, { add: ['ready'] });
+    await until(() => again.length >= 1);
+    watcher.stop();
+    expect(again[0]?.id).toMatch(/^local-2-labeled-[0-9a-f]{12}$/);
+    expect(new Set([...events, ...again].map(e => e.id)).size).toBe(4);
   });
 
   it('reports the file of an issue it cannot read', async () => {

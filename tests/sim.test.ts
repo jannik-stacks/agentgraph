@@ -48,6 +48,41 @@ describe('simulate', () => {
     );
     expect(trace).toContain('    | labels: [unsure]\n    | author: bothub[bot]\n    | parent: 7');
     expect(trace).toContain('    + @morgan needs a human: #8');
-    expect(trace).toContain('issue/review: skipped, needs "implement", which did not succeed');
+    expect(trace).toContain('issue/review: skipped, deferred (needs "implement" (blocked) to be done)');
+  });
+
+  it('finishes a job the process stopped while applying, without repeating what landed', async () => {
+    const { results, trace } = await run('crash-mid-apply.yaml');
+    expect(trace).toContain('reconcile issue/implement: interrupted, the process running it stopped while applying');
+    expect(trace.match(/git push bothub\/6-add-cvtojson/g)).toHaveLength(1);
+    expect(trace.match(/github POST \/repos\/stacks\/acme-app\/pulls /g)).toHaveLength(1);
+    expect(trace.match(/^job {4}issue\/triage/gm)).toHaveLength(1);
+    expect(trace).toContain(
+      'applied  push: applied sim://acme/app/tree/bothub/6-add-cvtojson (applied by an earlier run)'
+    );
+    expect(results.map(r => [r.job, 'skipped' in r ? r.closure : r.run.closure])).toEqual([
+      ['triage', 'done'],
+      ['implement', 'handed-off'],
+      ['review', 'done'],
+    ]);
+  });
+
+  it('drops a second delivery of the same event', async () => {
+    const { results, trace } = await run('redelivery.yaml');
+    expect(trace).toMatch(/redeliver local-6-comment-1-\w+: dropped, already delivered/);
+    expect(results).toHaveLength(3);
+  });
+
+  it('blocks a job whose pull request failed to open and holds back the job that needs it', async () => {
+    const { trace } = await run('pull-request-fails.yaml');
+    expect(trace).toContain('issue/implement: succeeded, blocked (open-pr failed: open-pr failed in this scenario)');
+    expect(trace).toContain('issue/review: skipped, deferred (needs "implement" (blocked) to be done)');
+  });
+
+  it('defers a job the provider refused without asking a human', async () => {
+    const { trace } = await run('provider-limit.yaml');
+    expect(trace).toContain('issue/implement: failed, deferred (429 Too Many Requests: usage limit reached');
+    expect(trace).toContain('issue/review: skipped, deferred (needs "implement" (deferred) to be done)');
+    expect(trace).not.toContain('labels: [unsure]\n    | author: bothub[bot]');
   });
 });

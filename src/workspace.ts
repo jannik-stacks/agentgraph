@@ -50,7 +50,6 @@ export const workspaces = ({
   token?: (repo: string) => Promise<string | undefined>;
 }) => {
   const queues = new Map<string, Promise<unknown>>();
-  const bases = new Map<string, string>();
   const serial = <T>(repo: string, task: () => Promise<T>) => {
     const next = (queues.get(repo) ?? Promise.resolve()).catch(() => {}).then(task);
     queues.set(repo, next);
@@ -85,19 +84,22 @@ export const workspaces = ({
       return path;
     });
 
-  /** Refreshes the mirror and checks out the event's ref (or the default branch) for a run. Resolves to its path. */
+  /**
+   * Refreshes the mirror and checks out the event's ref (or the default branch) for a run. Resolves to its path and
+   * the commit it starts from, which `publish` and `changes` take back as `base`.
+   */
   const create = async ({ repo, ref }: Pick<BotEvent, 'repo' | 'ref'>, runId: string) => {
     const mirror = await sync(repo);
     const path = worktreePath(dataDir, runId);
     const rev = !ref ? 'HEAD' : ref.startsWith('refs/') ? ref : `refs/heads/${ref}`;
     await serial(repo, () => git(['-C', mirror, 'worktree', 'add', '--detach', path, `${rev}^{commit}`]));
-    bases.set(runId, await git(['-C', path, 'rev-parse', 'HEAD']));
-    return path;
+    return { path, base: await git(['-C', path, 'rev-parse', 'HEAD']) };
   };
 
   /**
-   * Pushes a run's `branch` without forcing, after checking that every file it changes since the run started is
-   * listed in `files` and allowed by `paths`. Resolves to the branch URL; throws with the reason it refused.
+   * Pushes a run's `branch` without forcing, after checking that every file it changes since `base` is listed in
+   * `files` and allowed by `paths`. Reports the commit to `committed` before pushing it; when the remote branch is
+   * already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it refused.
    */
   const publish = async (
     repo: string,
@@ -107,13 +109,29 @@ export const workspaces = ({
       files = [],
       paths,
       message,
-    }: Omit<Extract<Proposal, { kind: 'push' }>, 'kind'> & { paths?: string[]; message: string }
+      base,
+      expected,
+      committed,
+    }: Omit<Extract<Proposal, { kind: 'push' }>, 'kind'> & {
+      paths?: string[];
+      message: string;
+      base: string;
+      expected?: string;
+      committed?: (sha: string) => Promise<unknown>;
+    }
   ) => {
-    const base = bases.get(runId);
-    if (!base) throw new Error(`no worktree for run "${runId}"`);
     const path = worktreePath(dataDir, runId);
+    if (!(await exists(path))) throw new Error(`no worktree for run "${runId}"`);
     const run = (args: string[], env?: Record<string, string>) => git(['-C', path, ...args], env);
     const ref = `refs/heads/${branch}`;
+    const origin = cloneUrl(repo);
+    const url = origin.startsWith('https://github.com/')
+      ? `https://github.com/${repo}/tree/${branch}`
+      : `${origin}#${branch}`;
+    if (expected) {
+      const [remote] = (await run(['ls-remote', origin, ref], await auth(repo))).split(/\s/);
+      if (remote === expected) return url;
+    }
 
     const head = await run(['symbolic-ref', '-q', 'HEAD']).catch(() => '');
     if (head !== ref) {
@@ -151,18 +169,18 @@ export const workspaces = ({
     const outside = checkPaths(changed, paths);
     if (outside) throw new Error(outside);
 
-    await run(['push', '-q', cloneUrl(repo), `${ref}:${ref}`], await auth(repo));
-    return `https://github.com/${repo}/tree/${branch}`;
+    await committed?.(await run(['rev-parse', ref]));
+    await run(['push', '-q', origin, `${ref}:${ref}`], await auth(repo));
+    return url;
   };
 
   /**
-   * Files a run changed since it started, committed or not, and their diff (limited to `only` when given). Reads
-   * through a copy of the index, so the worktree's own index is untouched.
+   * Files a run changed since `base`, committed or not, and their diff (limited to `only` when given). Reads through a
+   * copy of the index, so the worktree's own index is untouched.
    */
-  const changes = async (runId: string, only: string[] = []) => {
-    const base = bases.get(runId);
-    if (!base) throw new Error(`no worktree for run "${runId}"`);
+  const changes = async (runId: string, base: string, only: string[] = []) => {
     const path = worktreePath(dataDir, runId);
+    if (!(await exists(path))) throw new Error(`no worktree for run "${runId}"`);
     const index = await git(['-C', path, 'rev-parse', '--path-format=absolute', '--git-path', 'index']);
     const scratch = `${index}.bothub-${randomBytes(4).toString('hex')}`;
     await copyFile(index, scratch).catch(() => {});
@@ -180,7 +198,6 @@ export const workspaces = ({
 
   /** Deletes a run's worktree and prunes it from the mirror. Never throws. */
   const remove = async (repo: string, runId: string) => {
-    bases.delete(runId);
     await rm(worktreePath(dataDir, runId), { recursive: true, force: true });
     await serial(repo, () => git(['-C', mirrorPath(repo), 'worktree', 'prune'])).catch(() => {});
   };

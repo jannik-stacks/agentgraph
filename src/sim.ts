@@ -2,19 +2,20 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Effect } from 'effect';
+import { Cause, Effect, Exit } from 'effect';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { compile, type Config } from './config.ts';
-import { plan } from './dispatch.ts';
+import { dispatch, plan, type PlannedJob } from './dispatch.ts';
 import type { GitHub } from './github-app.ts';
+import type { Issues } from './issues.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { runPlan, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
-import { HubTool, type Executor } from './schema.ts';
-import { openStore } from './store.ts';
+import { Harness, HubTool } from './schema.ts';
+import { openStore, reconcile, type Owner, type Store } from './store.ts';
 import type { AgentEvent, BotEvent, ExecutorAdapter, RunSpec } from './types.ts';
 import type { Workspaces } from './workspace.ts';
 
@@ -23,12 +24,25 @@ const Step = z.union([
   z.strictObject({ call: HubTool, with: z.record(z.string(), z.unknown()).optional() }),
   z.strictObject({ propose: z.array(z.unknown()) }),
   z.strictObject({ fail: z.string() }),
+  z.strictObject({ limit: z.string() }),
 ]);
 export type SimStep = z.infer<typeof Step>;
 
 /**
- * A simulation: a human action on a local issue, the verdict of each check, and the scripted steps of each job's
- * bot, keyed `<workflow>/<job>`. A job without steps ends at once with no proposals.
+ * Faults to seed. `crash` stops the process once `after` effects of the job have landed (0: before any), then the sim
+ * restarts, reconciles and retries the event. `redeliver` delivers the event a second time at the end.
+ * `apply-fails` makes the first push, pull request or reply fail to apply.
+ */
+const Faults = z.strictObject({
+  crash: z.strictObject({ job: z.string(), after: z.int().nonnegative().default(0) }).optional(),
+  redeliver: z.boolean().optional(),
+  'apply-fails': z.array(z.enum(['push', 'open-pr', 'reply'])).optional(),
+});
+
+/**
+ * A simulation: a human action on a local issue, the verdict of each check, the scripted steps of each job's bot,
+ * keyed `<workflow>/<job>`, and the faults to seed. A job without steps ends at once with no proposals; a `limit`
+ * step ends it the way a provider usage limit does.
  */
 export const Scenario = z.strictObject({
   title: z.string(),
@@ -39,6 +53,7 @@ export const Scenario = z.strictObject({
   }),
   checks: z.record(z.string(), z.enum(['pass', 'fail'])).default({}),
   jobs: z.record(z.string(), z.array(Step)).default({}),
+  faults: Faults.default({}),
 });
 export type Scenario = z.infer<typeof Scenario>;
 
@@ -46,7 +61,7 @@ const harness = fileURLToPath(new URL('./sim-harness.ts', import.meta.url));
 const stepsFile = '.bothub-sim.json';
 
 /** Runs every harness as the scripted sim harness; the run's MCP server is handed over in the environment. */
-export const simAdapter = (name: Executor, seen: (spec: RunSpec) => void): ExecutorAdapter => ({
+export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): ExecutorAdapter => ({
   name,
   command: spec => {
     seen(spec);
@@ -158,73 +173,149 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
     const [event] = events as [BotEvent];
     print(`\nevent  ${event.trigger} (${event.action}) on #${event.number} by @${event.actor.login}: ${event.body}`);
 
-    const jobs = plan(event, config);
-    print(`plan   ${jobs.map(j => `${j.workflow}/${j.job}`).join(', ') || 'no jobs'}`);
+    const { faults } = scenario;
+    const crashed = new Error('the sim stopped the process');
+    let crash = faults.crash;
+    const failing = new Set(faults['apply-fails'] ?? []);
+    const failOnce = (kind: 'push' | 'open-pr' | 'reply') => {
+      if (!failing.delete(kind)) return;
+      print(`      fault  ${kind} fails to apply`);
+      throw new Error(`${kind} failed in this scenario`);
+    };
 
-    const store = openStore(data);
+    /** The store as one process sees it. A seeded crash throws once the job's journal holds `after` landed effects. */
+    const storeFor = (owner?: Owner): Store => {
+      const opened = openStore(data, owner);
+      return {
+        ...opened,
+        saveOutcome: async (id, outcome) => {
+          const saved = await opened.saveOutcome(id, outcome);
+          const run = await opened.read(id);
+          const landed = outcome.results.filter(result => result.status === 'applied').length;
+          if (
+            crash &&
+            outcome.results.length &&
+            `${run?.workflow}/${run?.job}` === crash.job &&
+            landed >= crash.after
+          ) {
+            crash = undefined;
+            throw crashed;
+          }
+          return saved;
+        },
+      };
+    };
+    let store = storeFor();
+
     let spec: RunSpec | undefined;
     const adapters = Object.fromEntries(
-      (['claude-code', 'codex', 'opencode', 'pi'] as const).map(name => [name, simAdapter(name, s => (spec = s))])
-    ) as Record<Executor, ExecutorAdapter>;
+      Harness.options.map(name => [name, simAdapter(name, s => (spec = s))])
+    ) as Record<Harness, ExecutorAdapter>;
     const workspaces: Workspaces = {
       create: async (_, runId) => {
         const cwd = join(data, 'work', runId);
         const run = await store.read(runId);
         await mkdir(cwd, { recursive: true });
         await writeFile(join(cwd, stepsFile), JSON.stringify(scenario.jobs[`${run?.workflow}/${run?.job}`] ?? []));
-        return cwd;
+        return { path: cwd, base: 'sim' };
       },
-      publish: async (target, _, { branch }) => `sim://${target}/tree/${branch}`,
+      publish: async (target, _, { branch, committed }) => {
+        failOnce('push');
+        await committed?.('sim');
+        print(`      git push ${branch} (simulated)`);
+        return `sim://${target}/tree/${branch}`;
+      },
       changes: async () => ({ files: [], diff: '' }),
       remove: async (_, runId) => rm(join(data, 'work', runId), { recursive: true, force: true }),
     };
+    const opened: string[] = [];
     const gh: GitHub = async <T>(method: string, path: string) => {
       print(`      github ${method} ${path} (simulated)`);
-      return (path === `/repos/${repo}` ? { default_branch: 'main' } : { html_url: `sim://github${path}/1` }) as T;
+      if (path === `/repos/${repo}`) return { default_branch: 'main' } as T;
+      if (method === 'GET' && path.includes('/pulls?')) return opened.map(html_url => ({ html_url })) as T;
+      if (method === 'POST' && path.endsWith('/pulls')) failOnce('open-pr');
+      const url = `sim://github${path}/${opened.length + 1}`;
+      if (method === 'POST' && path.endsWith('/pulls')) opened.push(url);
+      return { html_url: url } as T;
+    };
+    const tracker: Issues = {
+      ...issues,
+      comment: async (number, body) => {
+        if (body.includes('/reply-')) failOnce('reply');
+        return issues.comment(number, body);
+      },
     };
 
     let current = '';
-    const results = await Effect.runPromise(
-      Effect.flatMap(limiter(1), limit =>
-        runPlan(jobs, {
-          config,
-          event,
-          store,
-          workspaces,
-          limit,
-          env: {},
-          gh,
-          issues,
-          adapters,
-          mcp: tools => bothubServer({ dir: hub, tools, repo, data }),
-          onEvent: (run, { event: e }) => {
-            if (e.type === 'start' && spec) {
-              const name = `${run.workflow}/${run.job}${run.attempt ? ` attempt ${run.attempt}` : ''}`;
-              if (name !== current) {
-                current = name;
-                const tools = spec.mcp ? (spec.mcp.args[spec.mcp.args.indexOf('--tools') + 1] ?? '') : 'none';
-                print(`\njob    ${name} (${run.bot})`);
-                print(`       preload ${preloaded(spec)} (session ${kb(spec.system + spec.prompt)})`);
-                print(`       tools   ${tools}`);
+    const runOnce = async (jobs: PlannedJob[]) => {
+      const exit = await Effect.runPromiseExit(
+        Effect.flatMap(limiter(1), limit =>
+          runPlan(jobs, {
+            config,
+            event,
+            store,
+            workspaces,
+            limit,
+            env: {},
+            gh,
+            issues: tracker,
+            adapters,
+            mcp: tools => bothubServer({ dir: hub, tools, repo, data }),
+            onEvent: (run, { event: e }) => {
+              if (e.type === 'start' && spec) {
+                const name = `${run.workflow}/${run.job}${run.attempt ? ` attempt ${run.attempt}` : ''}`;
+                if (name !== current) {
+                  current = name;
+                  const tools = spec.mcp ? (spec.mcp.args[spec.mcp.args.indexOf('--tools') + 1] ?? '') : 'none';
+                  print(`\njob    ${name} (${run.bot})`);
+                  print(`       preload ${preloaded(spec)} (session ${kb(spec.system + spec.prompt)})`);
+                  print(`       tools   ${tools}`);
+                }
               }
-            }
-            const line = describe(e);
-            if (line) print(`       ${line}`);
-          },
-        })
-      )
-    );
+              const line = describe(e);
+              if (line) print(`       ${line}`);
+            },
+          })
+        )
+      );
+      if (Exit.isSuccess(exit)) return exit.value;
+      const error = Cause.squash(exit.cause);
+      if (error !== crashed) throw error;
+    };
+
+    const jobs = await dispatch(event, config, store);
+    print(`plan   ${jobs.map(j => `${j.workflow}/${j.job}`).join(', ') || 'no jobs'}`);
+    let results = await runOnce(jobs);
+    if (!results) {
+      print(`\ncrash  the process stopped during ${faults.crash?.job}`);
+      const restarted = { pid: process.pid, token: 'restarted' };
+      store = storeFor(restarted);
+      for (const run of await reconcile(store, workspaces, restarted))
+        print(`reconcile ${run.workflow}/${run.job}: ${run.status}, ${run.error}`);
+      print(`retry  ${event.id}`);
+      current = '';
+      results = (await runOnce(plan(event, config))) ?? [];
+    }
+    if (faults.redeliver) {
+      const again = await dispatch(event, config, store);
+      print(`\nredeliver ${event.id}: ${again.length ? 'planned again' : 'dropped, already delivered'}`);
+      if (again.length) results.push(...((await runOnce(again)) ?? []));
+    }
 
     print('\nresults');
     for (const r of results) {
       const name = `${r.workflow}/${r.job}`;
       if ('skipped' in r) {
-        print(`  ${name}: skipped, ${r.skipped}`);
+        print(`  ${name}: skipped, ${r.closure} (${r.skipped})`);
         continue;
       }
-      print(`  ${name}: ${r.run.status}${r.run.error ? ` (${oneLine(r.run.error, 80)})` : ''}`);
+      const why = r.run.error ?? r.run.reason;
+      print(`  ${name}: ${r.run.status}, ${r.run.closure}${why ? ` (${oneLine(why, 80)})` : ''}`);
       const checks = r.outcome?.checks ?? [];
-      if (checks.length) print(`    checks   ${checks.map(v => `${v.check} ${v.pass ? 'pass' : 'fail'}`).join(', ')}`);
+      if (checks.length)
+        print(
+          `    checks   ${checks.map(v => `${v.check} ${v.skipped ? 'skipped' : v.pass ? 'pass' : 'fail'}`).join(', ')}`
+        );
       for (const p of r.outcome?.accepted ?? []) print(`    proposal ${p.kind}: ${oneLine(JSON.stringify(p))}`);
       for (const { proposal, reason } of r.outcome?.rejected ?? []) print(`    rejected ${proposal.kind}: ${reason}`);
       for (const result of r.outcome?.results ?? [])

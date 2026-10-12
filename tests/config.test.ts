@@ -16,7 +16,7 @@ const hub = join(import.meta.dirname, '../examples/hub');
 
 const file = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n${body}` });
 const bot = (name: string, can = '[reply]') =>
-  file(`bots/${name}.md`, `harness: claude-code\ntools: []\ncan: ${can}\nmax-turns: 5`, 'role');
+  file(`bots/${name}.md`, `harness: opencode\ntools: []\ncan: ${can}\nmax-turns: 5`, 'role');
 const skill = (name: string) => file(`skills/${name}.md`, 'description: does it', 'prompt');
 const workflow = (frontmatter: string) => file('workflows/w.md', frontmatter);
 const errorsOf = (files: SourceFile[]) => {
@@ -115,7 +115,7 @@ describe('compile', () => {
     ]);
     expect(errors).toEqual([
       'offers unknown skill "gone"',
-      'needs either "run" or "bot"',
+      'needs one of "run", "bot" or "decide"',
       'uses unknown skill "gone"',
       'runs bot "p" but has no skill',
       'refers to unknown check "nope"',
@@ -141,6 +141,32 @@ describe('compile', () => {
       'job "a" grants tool "runs_read", which bot "t" does not have',
       'job "b" has "preload" or "tools" but no bot',
     ]);
+  });
+
+  it('warns about fields it does not enforce and loops that never repeat', async () => {
+    const result = compile([
+      { ...bot('b'), source: bot('b').source.replace('max-turns', 'budget: { usd-per-run: 2 }\nmax-turns') },
+      skill('s'),
+      file('checks/quiet.md', 'run: x'),
+      file('checks/judge.md', "decide: { question: 'Is it fine?' }\nmode: block"),
+      file('checks/tuned.md', "decide: { question: 'Is it fine?', threshold: 0.7 }\nmode: block"),
+      workflow(
+        [
+          'on: { issues: {} }',
+          'jobs:',
+          '  a: { bot: b, skill: s, for-each: file, until: { checks: [quiet] } }',
+          '  c: { bot: b, skill: s, until: { checks: [quiet, judge] } }',
+        ].join('\n')
+      ),
+    ]);
+    expect(result.ok && result.warnings.map(w => `${w.path}: ${w.message}`)).toEqual([
+      'bots/b.md: "usd-per-run" is declared, not enforced: harness "opencode" reports no cost',
+      'checks/judge.md: decides in block mode without a "threshold"; tune one in shadow mode first',
+      'workflows/w.md: job "a" has "for-each", declared, not enforced: the job runs once over all its changes',
+      'workflows/w.md: job "a" loops until checks that are all in shadow mode, so it never repeats',
+    ]);
+    const examples = compile(await readHub(hub));
+    expect(examples.ok && examples.warnings).toEqual([]);
   });
 
   it('rejects needs cycles', () => {

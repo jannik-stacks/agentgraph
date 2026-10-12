@@ -1,6 +1,6 @@
 ---
-harness: claude-code
-model: sonnet
+harness: opencode
+model: writer
 tools: [Read, Edit, Write, Bash, Grep, Glob, issues_get, notes_search, notes_get]
 can: [reply, push, open-pr, note, ask]
 skills: [implement]

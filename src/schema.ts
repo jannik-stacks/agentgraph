@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Decide } from './decide.ts';
 
 export const githubTriggers = [
   'issue_comment',
@@ -42,8 +43,18 @@ export type HubTool = z.infer<typeof HubTool>;
 export const IssuesBackend = z.enum(['github', 'local']);
 export type IssuesBackend = z.infer<typeof IssuesBackend>;
 
-export const Executor = z.enum(['claude-code', 'codex', 'opencode', 'pi']);
-export type Executor = z.infer<typeof Executor>;
+export const Harness = z.enum(['opencode', 'pi']);
+export type Harness = z.infer<typeof Harness>;
+export const Executor = Harness;
+export type Executor = Harness;
+
+/**
+ * What happened to a job's work: `done`, `handed-off` to the jobs that need it, `blocked` on a human, `deferred` until
+ * something outside the run changes, or `no-op` when it changed nothing. Only `done` and `handed-off` let dependent
+ * jobs start.
+ */
+export const Closure = z.enum(['done', 'handed-off', 'blocked', 'deferred', 'no-op']);
+export type Closure = z.infer<typeof Closure>;
 
 export const ForEach = z.enum(['file', 'chunk']);
 
@@ -73,7 +84,7 @@ export const On = z.partialRecord(Trigger, TriggerFilter);
  * (see `HubTool`) the bot may call during a run.
  */
 export const Bot = z.strictObject({
-  harness: Executor,
+  harness: Harness,
   model: z.string().optional(),
   tools: z.array(z.string()),
   can: z.array(ProposalKind),
@@ -98,13 +109,18 @@ export const Skill = z.strictObject({
 });
 export type Skill = z.infer<typeof Skill>;
 
-/** `checks/<name>.md`: a script or a bot that returns a verdict. The body is optional extra prompt text. */
+/**
+ * `checks/<name>.md`: a script, a bot, or a `decide` question to the local decision model, returning a verdict. The body is optional extra prompt text. A check whose
+ * `paths` match no changed file is skipped, which fails a gate unless `allow-skip` is set.
+ */
 export const Check = z.strictObject({
   run: z.string().min(1).optional(),
   bot: name.optional(),
   skill: name.optional(),
   'for-each': ForEach.optional(),
   paths: z.array(z.string()).optional(),
+  'allow-skip': z.boolean().optional(),
+  decide: Decide.optional(),
   mode: Mode.default('shadow'),
   description: z.string().optional(),
 });

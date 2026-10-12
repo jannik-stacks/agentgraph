@@ -1,5 +1,6 @@
 ---
-harness: codex
+harness: pi
+model: review
 tools: [Read, Grep, Glob, notes_search]
 can: [reply]
 skills: [review, review-file]

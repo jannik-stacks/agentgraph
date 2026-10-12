@@ -69,7 +69,9 @@ const run = async () => {
       emit({ type: 'text', text: final });
     } else {
       mcp?.close();
-      emit({ type: 'end', ok: false, turns, result: step.fail });
+      const message = 'fail' in step ? step.fail : step.limit;
+      if ('limit' in step) emit({ type: 'error', message });
+      emit({ type: 'end', ok: false, turns, result: message });
       return;
     }
   }

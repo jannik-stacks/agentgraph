@@ -202,7 +202,7 @@ describe('decideCheck', () => {
   });
 
   it('parses the check field with defaults', () => {
-    expect(Decide.parse({ question: 'q' })).toEqual({ question: 'q', 'pass-on': 'yes', threshold: 0.5, over: 'added' });
+    expect(Decide.parse({ question: 'q' })).toEqual({ question: 'q', 'pass-on': 'yes', over: 'added' });
     expect(() => Decide.parse({ question: 'q', threshold: 2 })).toThrow();
   });
 });

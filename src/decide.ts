@@ -52,6 +52,7 @@ const DecideResponse = z.object({
 
 export const defaultDecideUrl = 'http://127.0.0.1:11434';
 export const defaultDecideModel = 'tev1:0.8b';
+export const defaultThreshold = 0.5;
 
 type Answers<Q extends Record<string, Question>> = { [K in keyof Q]: Extract<Answer, { type: Q[K]['type'] }> };
 
@@ -111,12 +112,12 @@ export const decide = async <Q extends Record<string, Question>>({
 
 /**
  * The `decide` field of a check: one yes-or-no question about the changes. The check passes when the probability of
- * the `pass-on` answer is at or above `threshold`.
+ * the `pass-on` answer is at or above `threshold`, 0.5 unless set.
  */
 export const Decide = z.strictObject({
   question: z.string().min(1),
   'pass-on': z.enum(['yes', 'no']).default('yes'),
-  threshold: z.number().min(0).max(1).default(0.5),
+  threshold: z.number().min(0).max(1).optional(),
   over: z.enum(['added', 'diff', 'files', 'event']).default('added'),
 });
 export type Decide = z.infer<typeof Decide>;
@@ -175,9 +176,10 @@ export const decideCheck = async (
       questions: { answer: { type: 'noul', instructions: spec.question } },
     });
     const probability = spec['pass-on'] === 'yes' ? answer.noul : 1 - answer.noul;
+    const threshold = spec.threshold ?? defaultThreshold;
     return done({
-      pass: probability >= spec.threshold,
-      findings: `${spec.question} Probability of ${spec['pass-on']} ${probability.toFixed(3)}, threshold ${spec.threshold}.`,
+      pass: probability >= threshold,
+      findings: `${spec.question} Probability of ${spec['pass-on']} ${probability.toFixed(3)}, threshold ${threshold}.`,
     });
   } catch (e) {
     return done({ pass: false, findings: e instanceof Error ? e.message : String(e) });
