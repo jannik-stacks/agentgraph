@@ -13,9 +13,10 @@ on [Runs and storage](/docs/runs).
 ## Running a session
 
 <Sym name="runJob" /> starts the harness, streams its events into the store and never fails: a
-timeout, a loop or a container that never started all become a run status. With
-`BOTHUB_SANDBOX=docker` the session runs in a container built by <Sym name="dockerRun" />;
-otherwise on the host with a private home. The setup is on [Sandbox and models](/docs/sandbox).
+timeout, a loop or a container that never started all become a run status. The session always
+runs in a container built by <Sym name="dockerRun" />; when the sandbox is unavailable the run
+fails as `sandbox-failed` instead of running on the host. The setup is on
+[Sandbox and models](/docs/sandbox).
 
 ## After a crash
 

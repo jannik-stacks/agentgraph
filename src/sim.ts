@@ -13,7 +13,7 @@ import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { runPlan, type JobResult } from './pipeline.ts';
-import { limiter } from './runner.ts';
+import { limiter, unsandboxed } from './runner.ts';
 import { Harness, HubTool } from './schema.ts';
 import { openStore, reconcile, type Owner, type Store } from './store.ts';
 import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from './types.ts';
@@ -260,6 +260,7 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
             gh,
             issues: tracker,
             adapters,
+            launch: unsandboxed,
             mcp: tools => bothubServer({ dir: hub, tools, repo, data }),
             onEvent: (run, { event: e }) => {
               if (e.type === 'start' && spec) {

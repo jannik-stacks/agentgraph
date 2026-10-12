@@ -18,6 +18,7 @@ import { bothubServer } from './mcp-config.ts';
 import { serveMcp } from './mcp.ts';
 import { buildSpec, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
+import { sandboxConfig, sandboxNetwork } from './sandbox.ts';
 import { Bot, Check, Hub, HubTool, Note, Skill, Workflow } from './schema.ts';
 import { localOrigin, runEvent, serveHub } from './serve.ts';
 import { serveGitHub } from './serve-github.ts';
@@ -37,6 +38,16 @@ const followInterval = 500;
 const asJson = (flag: boolean | undefined) => flag ?? !process.stdout.isTTY;
 const print = (text: string) => process.stdout.write(text.endsWith('\n') ? text : text + '\n');
 const fail = (text: string) => process.stderr.write(`bothub: ${text}\n`);
+
+/** The sandbox settings, or undefined after reporting why they are rejected. */
+const sandbox = () => {
+  try {
+    return sandboxConfig();
+  } catch (error) {
+    fail((error as Error).message);
+    return undefined;
+  }
+};
 
 const loadConfig = async (path: string): Promise<Compiled> => {
   const files = await readHub(path);
@@ -261,6 +272,7 @@ const run = defineCommand({
       return 0;
     }
 
+    if (!sandbox()) return 2;
     const env = await loadEnv(root);
     const app = await appFrom(env);
     if (!app)
@@ -389,14 +401,10 @@ const serveCmd = defineCommand({
     repo: { type: 'string', description: 'Local bare repository used as origin', required: true },
     name: { type: 'string', description: 'Repository name events carry (default: local/<repo>)' },
     port: { type: 'string', description: 'Studio API port', default: '5181' },
-    sandbox: { type: 'string', description: 'Where harnesses run: host or docker (default: $BOTHUB_SANDBOX)' },
   },
   async run({ args }) {
-    if (args.sandbox && args.sandbox !== 'host' && args.sandbox !== 'docker') {
-      fail(`--sandbox must be host or docker, not "${args.sandbox}"`);
-      return 2;
-    }
-    if (args.sandbox) process.env.BOTHUB_SANDBOX = args.sandbox;
+    const config = sandbox();
+    if (!config) return 2;
     const root = dataDir(args.data);
     const result = await loadConfig(args.hub);
     if (!result.ok) {
@@ -416,7 +424,7 @@ const serveCmd = defineCommand({
       env: await loadEnv(root),
       port: Number(args.port),
     });
-    process.stderr.write(`sandbox ${process.env.BOTHUB_SANDBOX === 'docker' ? 'docker' : 'host'}, data ${root}\n`);
+    process.stderr.write(`sandbox ${config.image} on ${sandboxNetwork}, data ${root}\n`);
     await new Promise<void>(done => {
       process.once('SIGINT', done);
       process.once('SIGTERM', done);
@@ -436,6 +444,7 @@ const webhookServe = defineCommand({
     'webhook-port': { type: 'string', description: 'Webhook port, the only one to expose', default: '5183' },
   },
   async run({ args }) {
+    if (!sandbox()) return 2;
     const root = dataDir(args.data);
     const env = await loadEnv(root);
     const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;

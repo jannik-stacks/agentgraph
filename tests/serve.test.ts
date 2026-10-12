@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
 import { localOrigin, localPulls, serveHub } from '../src/serve.ts';
+import { unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import type { JobResult } from '../src/pipeline.ts';
 import type { BotEvent } from '../src/types.ts';
@@ -88,6 +89,7 @@ describe('serveHub', () => {
       interval: 20,
       log: () => {},
       adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      launch: unsandboxed,
       onResults: (event, results) => done.push([event, results]),
     });
     try {
@@ -138,6 +140,7 @@ describe('serveHub', () => {
       interval: 20,
       log: () => {},
       adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      launch: unsandboxed,
       onResults: (_, results) => done.push(results),
     });
     try {

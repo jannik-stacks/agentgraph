@@ -49,6 +49,6 @@ ready: $data
   hub     $hub
   origin  $data/origin.git (bare clone of $source)
 
-start:   node $bothub/bin/bothub.mjs serve --hub $hub --data $data --repo $data/origin.git --name acme/app --sandbox docker
+start:   node $bothub/bin/bothub.mjs serve --hub $hub --data $data --repo $data/origin.git --name acme/app
 comment: $here/comment.sh $hub 6 '/bothub add kit/tests/smoke.test.ts with one test that the public index exports something'
 EOF

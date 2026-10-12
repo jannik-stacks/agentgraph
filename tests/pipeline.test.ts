@@ -21,7 +21,7 @@ import {
   type JobResult,
   type Pipeline,
 } from '../src/pipeline.ts';
-import { limiter } from '../src/runner.ts';
+import { limiter, unsandboxed } from '../src/runner.ts';
 import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
 import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
@@ -173,6 +173,7 @@ const pipeline = async (
     limit: await Effect.runPromise(limiter(1)),
     env: { BOTHUB_LLM_API_KEY: 'key', OTHER: 'nope' },
     adapters: fake().adapters,
+    launch: unsandboxed,
     ...overrides,
   };
 };

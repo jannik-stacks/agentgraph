@@ -11,7 +11,8 @@
 # bothub-sandbox:local, and BOTHUB_LLM_API_KEY_<BOT> in the environment.
 #
 # Knobs: TIMEOUT_MIN (30), MEMORY (2g), CPUS (1.5), PIDS (512), IMAGE, LLM_URL,
-# CACHE_RW=1 (trusted build-cache warm-up only).
+# CACHE_RW=1 (trusted build-cache warm-up only). The network, user and isolation flags are fixed;
+# the script refuses to start when the network is missing or not internal, the image is absent, or it runs as root.
 # The npm cache is shared read-write: npm must write to it, entries are content-addressed and
 # checked against the lockfile integrity on read, so a tampered entry fails verification.
 set -euo pipefail
@@ -31,8 +32,19 @@ key="${!var:-}"
 
 IMAGE="${IMAGE:-bothub-sandbox:local}"
 LLM_URL="${LLM_URL:-http://litellm:4000/v1}"
+MEMORY="${MEMORY:-2g}" CPUS="${CPUS:-1.5}" PIDS="${PIDS:-512}"
 name="bothub-run-$bot-$(openssl rand -hex 4)"
 uid="$(id -u)" gid="$(id -g)"
+
+refuse() { echo "sandbox-failed: $*" >&2; exit 2; }
+((uid != 0)) || refuse "refusing to run a container as root"
+[[ "$IMAGE" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$ ]] || refuse "IMAGE=$IMAGE is not an image reference"
+[[ "$MEMORY" =~ ^[1-9][0-9]*[kmgKMG]?$ ]] || refuse "MEMORY=$MEMORY is not a positive size"
+[[ "$CPUS" =~ ^([1-9][0-9]*(\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)$ ]] || refuse "CPUS=$CPUS is not a positive number"
+[[ "$PIDS" =~ ^[1-9][0-9]*$ ]] || refuse "PIDS=$PIDS is not a positive integer"
+[[ "$(docker network inspect --format '{{.Internal}}' bothub-sandbox 2>/dev/null)" == true ]] \
+  || refuse "the bothub-sandbox network is missing or not internal"
+docker image inspect "$IMAGE" >/dev/null 2>&1 || refuse "the image $IMAGE is not present"
 cache_ro=",readonly"; [[ "${CACHE_RW:-}" == 1 ]] && cache_ro=""
 
 # A git worktree's .git file points at its admin dir inside the bare mirror on the host.
@@ -62,7 +74,7 @@ done
 watchdog=$!
 trap 'kill "$watchdog" 2>/dev/null || true' EXIT
 
-docker run --rm --init --name "$name" \
+docker run --rm --init --pull never --name "$name" \
   --network bothub-sandbox \
   --read-only \
   --tmpfs /tmp:rw,nosuid,nodev,size=1g \
@@ -70,9 +82,9 @@ docker run --rm --init --name "$name" \
   --user "$uid:$gid" \
   --cap-drop=ALL \
   --security-opt no-new-privileges=true \
-  --memory "${MEMORY:-2g}" --memory-swap "${MEMORY:-2g}" \
-  --cpus "${CPUS:-1.5}" \
-  --pids-limit "${PIDS:-512}" \
+  --memory "$MEMORY" --memory-swap "$MEMORY" \
+  --cpus "$CPUS" \
+  --pids-limit "$PIDS" \
   --mount "type=bind,src=$worktree,dst=/work" \
   ${git_mounts[@]+"${git_mounts[@]}"} \
   --mount "type=volume,src=bothub-npm-cache,dst=/cache/npm" \

@@ -8,8 +8,8 @@ import {
   gitMounts,
   inside,
   mcpInside,
-  sandboxDefaults,
-  sandboxFrom,
+  SandboxError,
+  sandboxConfig,
   specInside,
 } from '../src/sandbox.ts';
 import type { RunSpec } from '../src/types.ts';
@@ -17,11 +17,30 @@ import { temp } from './git.ts';
 
 const root = join(import.meta.dirname, '..');
 
-describe('sandboxFrom', () => {
-  it('runs on the host unless BOTHUB_SANDBOX is docker', () => {
-    expect(sandboxFrom({})).toBe('host');
-    expect(sandboxFrom({ BOTHUB_SANDBOX: 'yes' })).toBe('host');
-    expect(sandboxFrom({ BOTHUB_SANDBOX: 'docker' })).toBe('docker');
+describe('sandboxConfig', () => {
+  it('accepts no settings or BOTHUB_SANDBOX=docker', () => {
+    expect(sandboxConfig({})).toMatchObject({ image: 'bothub-sandbox:local', memory: '2g', cpus: '1.5', pids: '512' });
+    expect(sandboxConfig({ BOTHUB_SANDBOX: 'docker', BOTHUB_SANDBOX_NETWORK: 'bothub-sandbox' })).toBeDefined();
+  });
+
+  it.each(['host', 'none', 'off', '', 'Docker', 'false', '0'])('rejects BOTHUB_SANDBOX=%j', value => {
+    expect(() => sandboxConfig({ BOTHUB_SANDBOX: value })).toThrow(SandboxError);
+  });
+
+  it.each(['host', 'bridge', 'none', 'default', '', 'other-internal'])('rejects BOTHUB_SANDBOX_NETWORK=%j', value => {
+    expect(() => sandboxConfig({ BOTHUB_SANDBOX_NETWORK: value })).toThrow(SandboxError);
+  });
+
+  it.each([
+    ['BOTHUB_SANDBOX_IMAGE', '--privileged'],
+    ['BOTHUB_SANDBOX_IMAGE', ''],
+    ['BOTHUB_SANDBOX_MEMORY', '0'],
+    ['BOTHUB_SANDBOX_MEMORY', '-1'],
+    ['BOTHUB_SANDBOX_CPUS', '0'],
+    ['BOTHUB_SANDBOX_PIDS', '-1'],
+    ['BOTHUB_SANDBOX_PIDS', '0'],
+  ])('rejects %s=%j', (key, value) => {
+    expect(() => sandboxConfig({ [key]: value })).toThrow(SandboxError);
   });
 });
 
@@ -35,7 +54,7 @@ describe('dockerRun', () => {
     secrets: { BOTHUB_LLM_API_KEY: 'sk-secret' },
     cmd: 'opencode',
     args: ['run', '--', 'hi'],
-    defaults: sandboxDefaults({}),
+    config: sandboxConfig({}),
     user: '501:20',
   });
 
@@ -49,6 +68,24 @@ describe('dockerRun', () => {
       'bothub-sandbox',
     ]);
     expect(run.args).toContain('501:20');
+    expect(run.args.slice(run.args.indexOf('--pull'), run.args.indexOf('--pull') + 2)).toEqual(['--pull', 'never']);
+  });
+
+  const base = { name: 'n', worktree: '/w', env: {}, cmd: 'sh', args: [], config: sandboxConfig({}) };
+
+  it.each(['0:0', '0:20', 'root', '', '501'])('refuses to run as user %j', user => {
+    expect(() => dockerRun({ ...base, user })).toThrow(SandboxError);
+  });
+
+  it.each([
+    { src: '/var/run/docker.sock', dst: '/var/run/docker.sock' },
+    { src: '/Users/me/.docker/run/docker.sock', dst: '/s' },
+    { src: '/var/run', dst: '/x' },
+    { src: '/', dst: '/host' },
+    { src: '/a', dst: '/' },
+    { src: '/a,dst=/etc', dst: '/b' },
+  ])('refuses the mount %o', mount => {
+    expect(() => dockerRun({ ...base, user: '501:20', mounts: [mount] })).toThrow(SandboxError);
   });
 
   it('mounts the worktree as /work, the run home and extra mounts', () => {

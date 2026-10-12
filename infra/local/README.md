@@ -49,12 +49,13 @@ sandbox/run.sh implementor <worktree> <run-home> -- opencode run "say hi"   # on
 
 `e2e.sh` prepares a data directory with a copy of `examples/acme-app`, a bare clone of the source
 repository as origin and the bots' keys. `bothub serve` then watches the hub's local issues, runs
-every job in a sandbox container (`--sandbox docker`, or `BOTHUB_SANDBOX=docker`) and pushes to
-that origin only; pull requests are recorded in `<data>/pulls.jsonl`.
+every job in a sandbox container and pushes to that origin only; pull requests are recorded in
+`<data>/pulls.jsonl`. Without the `sandbox` profile up and the image built, runs fail as
+`sandbox-failed`; nothing falls back to the host.
 
 ```sh
 ./e2e.sh /tmp/bothub-e2e
-../../bin/bothub.mjs serve --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e --repo /tmp/bothub-e2e/origin.git --name acme/app --sandbox docker
+../../bin/bothub.mjs serve --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e --repo /tmp/bothub-e2e/origin.git --name acme/app
 ./comment.sh /tmp/bothub-e2e/hub 6 '/bothub add kit/tests/smoke.test.ts with one test'
 ```
 

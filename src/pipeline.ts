@@ -27,7 +27,7 @@ import {
   type Validated,
 } from './outputs.ts';
 import { issueContext, relevantNotes, renderNotes } from './preload.ts';
-import { runJob, runScript, type limiter } from './runner.ts';
+import { runJob, runScript, type Launcher, type limiter } from './runner.ts';
 import {
   NoteKind,
   type Preload,
@@ -286,7 +286,8 @@ export const secretsFor = ({ name }: Pick<Defined<Bot>, 'name'>, env: Record<str
 /**
  * Everything a planned job needs to run. Without `gh` or `issues`, nothing is applied; without `gh`, pull requests
  * are skipped; without `hubPr`, notes are skipped. `issues` defaults to GitHub's when `gh` is given and also feeds
- * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it.
+ * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it. Harnesses and scripts
+ * run in the sandbox; `launch` replaces it only in tests and the simulator.
  */
 export type Pipeline = {
   config: Config;
@@ -300,6 +301,7 @@ export type Pipeline = {
   mcp?: (tools: HubTool[]) => McpServer;
   hubPr?: Parameters<typeof apply>[1]['hubPr'];
   adapters?: Record<Harness, HarnessAdapter>;
+  launch?: Launcher;
   onEvent?: (run: Run, record: EventRecord) => void;
 };
 
@@ -368,6 +370,7 @@ const agent = (
         store: p.store,
         runId: run.id,
         secrets: { ...secretsFor(bot, p.env), ...env },
+        ...(p.launch && { launch: p.launch }),
         onEvent: record => {
           if (record.event.type === 'start') model ??= record.event.model;
           if (record.event.type === 'text') lastText = record.event.text;
@@ -433,7 +436,9 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
 
     if (script) {
       const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
-      const { ok, output } = yield* Effect.promise(() => runScript(script, a.cwd, timeout, handoffEnv(a.handoff)));
+      const { ok, output } = yield* Effect.promise(() =>
+        runScript(script, a.cwd, timeout, handoffEnv(a.handoff), p.launch)
+      );
       return done({ pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) });
     }
 
@@ -829,15 +834,14 @@ const scriptJob = (planned: PlannedJob, script: string, job: Job, handoff: Hando
     const execute = ({ cwd }: { cwd: string }) =>
       Effect.promise(async (): Promise<JobResult> => {
         await store.update(created.id, { status: 'running', startedAt: new Date().toISOString() });
-        const { ok, output } = await runScript(script, cwd, timeout, handoffEnv(handoff));
+        const { ok, output } = await runScript(script, cwd, timeout, handoffEnv(handoff), p.launch);
         const ts = new Date().toISOString();
         if (output) await store.append(created.id, { ts, seq: 0, event: { type: 'text', text: output } });
         await store.append(created.id, { ts, seq: output ? 1 : 0, event: { type: 'end', ok } });
+        const why = output.startsWith('sandbox-failed: ') ? output : 'the script exited non-zero';
         const run = await store.update(created.id, {
           status: ok ? 'succeeded' : 'failed',
-          ...(ok
-            ? closed('done')
-            : { error: 'the script exited non-zero', ...closed('blocked', 'the script exited non-zero') }),
+          ...(ok ? closed('done') : { error: why, ...closed('blocked', why) }),
           endedAt: ts,
         });
         await remember(run, undefined, p);

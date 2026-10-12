@@ -80,6 +80,7 @@ export const serveHub = async ({
   interval = 1000,
   log = line => process.stderr.write(`${line}\n`),
   adapters,
+  launch,
   onResults,
 }: {
   hub: string;
@@ -91,6 +92,7 @@ export const serveHub = async ({
   interval?: number;
   log?: (line: string) => void;
   adapters?: Pipeline['adapters'];
+  launch?: Pipeline['launch'];
   onResults?: (event: BotEvent, results: JobResult[]) => void;
 }) => {
   const dir = resolve(hub);
@@ -121,6 +123,7 @@ export const serveHub = async ({
       issues,
       mcp: tools => bothubServer({ dir, tools, repo, data: root }),
       ...(adapters && { adapters }),
+      ...(launch && { launch }),
       onEvent: (run, { event: e }) => {
         if (e.type === 'start' || e.type === 'end' || e.type === 'error')
           log(`${run.workflow}/${run.job} ${run.id} ${e.type}${'message' in e ? ` ${e.message}` : ''}`);

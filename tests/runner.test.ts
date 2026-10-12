@@ -4,7 +4,19 @@ import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { pi } from '../src/harnesses/pi.ts';
-import { agentEnv, agentEvents, homeEnv, limiter, masker, runJob, runScript, stuckWatch } from '../src/runner.ts';
+import {
+  agentEnv,
+  agentEvents,
+  homeEnv,
+  limiter,
+  masker,
+  runJob,
+  runScript,
+  sandboxed,
+  stuckWatch,
+  unsandboxed,
+  type Launcher,
+} from '../src/runner.ts';
 import { openStore, type Store } from '../src/store.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
 
@@ -85,13 +97,17 @@ describe('agentEnv', () => {
 describe('agentEvents', () => {
   it('parses chunked stdout line by line', async () => {
     const expected = readFileSync(fixturePath, 'utf8').split('\n').flatMap(pi.parseLine);
-    const events = await Effect.runPromise(Stream.runCollect(agentEvents(node(replay, pi.parseLine), spec)));
+    const events = await Effect.runPromise(
+      Stream.runCollect(agentEvents(node(replay, pi.parseLine), spec, undefined, undefined, unsandboxed))
+    );
     expect(Chunk.toArray(events)).toEqual(expected);
   });
 
   it('emits a final line without a trailing newline', async () => {
     const events = await Effect.runPromise(
-      Stream.runCollect(agentEvents(node(`process.stdout.write('a\\nb')`, asText), spec))
+      Stream.runCollect(
+        agentEvents(node(`process.stdout.write('a\\nb')`, asText), spec, undefined, undefined, unsandboxed)
+      )
     );
     expect(Chunk.toArray(events)).toEqual([
       { type: 'text', text: 'a' },
@@ -101,7 +117,9 @@ describe('agentEvents', () => {
 
   it('closes stdin and does not inherit the host env', async () => {
     const script = `process.stdin.on('end', () => console.log(Object.keys(process.env).sort().join(','))).resume();`;
-    const events = await Effect.runPromise(Stream.runCollect(agentEvents(node(script, asText), spec, { S: 'x' })));
+    const events = await Effect.runPromise(
+      Stream.runCollect(agentEvents(node(script, asText), spec, { S: 'x' }, undefined, unsandboxed))
+    );
     const keys = Chunk.toArray(events)[0];
     expect(keys).toMatchObject({ type: 'text' });
     expect((keys as { text: string }).text.split(',').filter(k => !k.startsWith('__CF'))).toEqual(
@@ -111,7 +129,11 @@ describe('agentEvents', () => {
 
   it('fails with the stderr tail on a non-zero exit', async () => {
     const result = await Effect.runPromise(
-      Effect.either(Stream.runDrain(agentEvents(node(`console.error('boom'); process.exit(3)`), spec)))
+      Effect.either(
+        Stream.runDrain(
+          agentEvents(node(`console.error('boom'); process.exit(3)`), spec, undefined, undefined, unsandboxed)
+        )
+      )
     );
     expect(result._tag === 'Left' && result.left.message).toBe('boom');
   });
@@ -128,6 +150,7 @@ describe('runJob', () => {
         timeoutMinutes: 1,
         store,
         runId,
+        launch: unsandboxed,
         onEvent: r => seen.push(r.seq),
       })
     );
@@ -148,7 +171,14 @@ describe('runJob', () => {
   it('fails when the agent reports failure', async () => {
     const { store, runId } = await setup();
     const run = await Effect.runPromise(
-      runJob({ adapter: node(`console.log(${JSON.stringify(end(false))})`), spec, timeoutMinutes: 1, store, runId })
+      runJob({
+        adapter: node(`console.log(${JSON.stringify(end(false))})`),
+        spec,
+        timeoutMinutes: 1,
+        store,
+        runId,
+        launch: unsandboxed,
+      })
     );
     expect(run).toMatchObject({ status: 'failed', error: 'agent reported failure' });
   });
@@ -156,14 +186,18 @@ describe('runJob', () => {
   it('fails on a non-zero exit even after a successful result', async () => {
     const { store, runId } = await setup();
     const script = `console.log(${JSON.stringify(end(true))}); console.error('crashed'); process.exit(1)`;
-    const run = await Effect.runPromise(runJob({ adapter: node(script), spec, timeoutMinutes: 1, store, runId }));
+    const run = await Effect.runPromise(
+      runJob({ adapter: node(script), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
+    );
     expect(run).toMatchObject({ status: 'failed', error: 'crashed' });
   });
 
   it('fails when the command cannot start', async () => {
     const { store, runId } = await setup();
     const adapter = { ...node(''), command: () => ({ cmd: 'bothub-no-such-binary', args: [], env: {} }) };
-    const run = await Effect.runPromise(runJob({ adapter, spec, timeoutMinutes: 1, store, runId }));
+    const run = await Effect.runPromise(
+      runJob({ adapter, spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
+    );
     expect(run.status).toBe('failed');
     expect(run.error).toContain('ENOENT');
   });
@@ -171,7 +205,7 @@ describe('runJob', () => {
   it('times out and kills the process', async () => {
     const { store, runId } = await setup();
     const run = await Effect.runPromise(
-      runJob({ adapter: node(hang, asText), spec, timeoutMinutes: 0.005, store, runId })
+      runJob({ adapter: node(hang, asText), spec, timeoutMinutes: 0.005, store, runId, launch: unsandboxed })
     );
     expect(run.status).toBe('timed-out');
     expect(alive(await pidOf(store, runId))).toBe(false);
@@ -179,7 +213,9 @@ describe('runJob', () => {
 
   it('records cancelled and kills the process on interrupt', async () => {
     const { store, runId } = await setup();
-    const fiber = Effect.runFork(runJob({ adapter: node(hang, asText), spec, timeoutMinutes: 1, store, runId }));
+    const fiber = Effect.runFork(
+      runJob({ adapter: node(hang, asText), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
+    );
     await waitFor(async () => (await store.events(runId)).length > 0);
     await Effect.runPromise(Fiber.interrupt(fiber));
     const run = await store.read(runId);
@@ -195,7 +231,7 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'log.txt'), 'key ' + e.
 console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTHUB_LLM_API_KEY); process.exit(1);`;
     const secrets = { BOTHUB_LLM_API_KEY: 'sk-secret-value-123' };
     const run = await Effect.runPromise(
-      runJob({ adapter: node(script, asText), spec, timeoutMinutes: 1, store, runId, secrets })
+      runJob({ adapter: node(script, asText), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed, secrets })
     );
     expect(run).toMatchObject({ status: 'failed', error: 'bad ***' });
     expect((await store.events(runId)).map(r => r.event)).toEqual([{ type: 'text', text: 'the key is ***' }]);
@@ -212,24 +248,76 @@ console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTH
           ]
         : [];
     const script = `let i = 0; setInterval(() => console.log(i++), 1);`;
-    const run = await Effect.runPromise(runJob({ adapter: node(script, loop), spec, timeoutMinutes: 1, store, runId }));
+    const run = await Effect.runPromise(
+      runJob({ adapter: node(script, loop), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
+    );
     expect(run).toMatchObject({ status: 'failed', error: 'stuck: the same tool call and result 4 times in a row' });
     expect(await store.events(runId)).toHaveLength(8);
   });
+});
 
-  it('reports a container that never started as sandbox-failed', async () => {
-    const { store, runId } = await setup();
-    const path = process.env.PATH;
-    process.env.PATH = mkdtempSync(join(tmpdir(), 'bothub-empty-path-'));
+describe('the sandbox', () => {
+  const withEnv = async <T>(env: Record<string, string>, body: () => Promise<T>) => {
+    const saved = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+    Object.assign(process.env, env);
     try {
-      const run = await Effect.runPromise(
-        runJob({ adapter: node(''), spec, timeoutMinutes: 1, store, runId, sandbox: 'docker' })
-      );
-      expect(run.status).toBe('failed');
-      expect(run.error).toMatch(/^sandbox-failed: .*ENOENT/);
+      return await body();
     } finally {
-      process.env.PATH = path;
+      for (const [key, value] of Object.entries(saved))
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
     }
+  };
+  const marker = () => join(mkdtempSync(join(tmpdir(), 'bothub-marker-')), 'ran');
+  const touching = (file: string) => node(`require('fs').writeFileSync(${JSON.stringify(file)}, 'x')`);
+  const noDocker = () => ({ PATH: mkdtempSync(join(tmpdir(), 'bothub-empty-path-')) });
+
+  it('counts docker exit 125 before any output as the sandbox failing', () => {
+    expect(sandboxed.startFailed(Object.assign(new Error('x'), { exitCode: 125 }))).toBe(true);
+    expect(unsandboxed.startFailed(Object.assign(new Error('x'), { exitCode: 125 }))).toBe(false);
+  });
+
+  it('fails a run as sandbox-failed when docker is unavailable, and nothing runs on the host', async () => {
+    const { store, runId } = await setup();
+    const file = marker();
+    const run = await withEnv(noDocker(), () =>
+      Effect.runPromise(runJob({ adapter: touching(file), spec, timeoutMinutes: 1, store, runId }))
+    );
+    expect(run.status).toBe('failed');
+    expect(run.error).toMatch(/^sandbox-failed: .*ENOENT/);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it.each([
+    { BOTHUB_SANDBOX: 'host' },
+    { BOTHUB_SANDBOX: 'none' },
+    { BOTHUB_SANDBOX_NETWORK: 'host' },
+    { BOTHUB_SANDBOX_NETWORK: 'bridge' },
+  ])('fails a run as sandbox-failed with %o, and nothing runs on the host', async env => {
+    const { store, runId } = await setup();
+    const file = marker();
+    const run = await withEnv(env, () =>
+      Effect.runPromise(runJob({ adapter: touching(file), spec, timeoutMinutes: 1, store, runId }))
+    );
+    expect(run).toMatchObject({ status: 'failed', error: expect.stringMatching(/^sandbox-failed: BOTHUB_SANDBOX/) });
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('fails a script as sandbox-failed when docker is unavailable, and nothing runs on the host', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
+    const file = marker();
+    const result = await withEnv(noDocker(), () => runScript(`touch ${file}`, cwd, 1));
+    expect(result).toEqual({ ok: false, output: expect.stringMatching(/^sandbox-failed: .*ENOENT/) });
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('passes a launcher failure through as sandbox-failed', async () => {
+    const { store, runId } = await setup();
+    const broken: Launcher = { ...sandboxed, agent: () => Promise.reject(new Error('no daemon')) };
+    const run = await Effect.runPromise(
+      runJob({ adapter: node(''), spec, timeoutMinutes: 1, store, runId, launch: broken })
+    );
+    expect(run).toMatchObject({ status: 'failed', error: 'sandbox-failed: no daemon' });
   });
 });
 
@@ -273,7 +361,9 @@ put(path.join(e.HOME, '.pi', 'agent', 'sessions', 'session-1.jsonl'), '{"type":"
 put(path.join(e.XDG_DATA_HOME, 'opencode', 'storage', 'session', 'ses_1.json'), '{}');
 put(path.join(e.TMPDIR, 'scratch.txt'), 'gone');
 console.log(${JSON.stringify(end(true))});`;
-    const run = await Effect.runPromise(runJob({ adapter: node(script), spec, timeoutMinutes: 1, store, runId }));
+    const run = await Effect.runPromise(
+      runJob({ adapter: node(script), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
+    );
     expect(run.status).toBe('succeeded');
     const dir = join(store.home(runId), '..');
     expect(existsSync(store.tmp(runId))).toBe(false);
@@ -293,7 +383,7 @@ console.log(${JSON.stringify(end(true))});`;
   it('removes tmp after a failed run too', async () => {
     const { store, runId } = await setup();
     const run = await Effect.runPromise(
-      runJob({ adapter: node(`process.exit(2)`), spec, timeoutMinutes: 1, store, runId })
+      runJob({ adapter: node(`process.exit(2)`), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
     );
     expect(run.status).toBe('failed');
     expect(existsSync(store.home(runId))).toBe(true);
@@ -305,20 +395,20 @@ describe('runScript', () => {
   it('passes on exit 0 with a minimal env and reports the output tail otherwise', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
     process.env.BOTHUB_SECRET_PROBE = 'leak';
-    expect(await runScript('echo "$BOTHUB_SECRET_PROBE" ok; pwd', cwd, 1)).toEqual({
+    expect(await runScript('echo "$BOTHUB_SECRET_PROBE" ok; pwd', cwd, 1, {}, unsandboxed)).toEqual({
       ok: true,
       output: expect.stringMatching(/^ok\n.*bothub-script-/),
     });
     delete process.env.BOTHUB_SECRET_PROBE;
-    expect(await runScript('echo broke >&2; exit 2', cwd, 1)).toEqual({ ok: false, output: 'broke' });
-    expect(await runScript('echo "$BOTHUB_BRANCH"', cwd, 1, { BOTHUB_BRANCH: 'bothub/7-x' })).toEqual({
+    expect(await runScript('echo broke >&2; exit 2', cwd, 1, {}, unsandboxed)).toEqual({ ok: false, output: 'broke' });
+    expect(await runScript('echo "$BOTHUB_BRANCH"', cwd, 1, { BOTHUB_BRANCH: 'bothub/7-x' }, unsandboxed)).toEqual({
       ok: true,
       output: 'bothub/7-x',
     });
   });
 
   it('kills the script after the timeout', async () => {
-    const result = await runScript('sleep 5', mkdtempSync(join(tmpdir(), 'bothub-script-')), 0.002);
+    const result = await runScript('sleep 5', mkdtempSync(join(tmpdir(), 'bothub-script-')), 0.002, {}, unsandboxed);
     expect(result).toEqual({ ok: false, output: 'timed out after 0.002 minutes' });
   });
 });
@@ -328,7 +418,8 @@ describe('limiter', () => {
     const a = await setup();
     const b = { store: a.store, runId: (await a.store.create((await a.store.read(a.runId))!)).id };
     const script = `console.log(${JSON.stringify(end(true))}); setTimeout(() => {}, 300);`;
-    const job = (ids: typeof a) => runJob({ adapter: node(script), spec, timeoutMinutes: 1, ...ids });
+    const job = (ids: typeof a) =>
+      runJob({ adapter: node(script), spec, timeoutMinutes: 1, ...ids, launch: unsandboxed });
 
     const fiber = Effect.runFork(
       Effect.flatMap(limiter(1), limit => Effect.all([limit(job(a)), limit(job(b))], { concurrency: 'unbounded' }))

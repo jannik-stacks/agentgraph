@@ -5,24 +5,46 @@ description: How a run is isolated and which models it can reach.
 
 ## The sandbox
 
-With `BOTHUB_SANDBOX=docker` (or `bothub serve --sandbox docker`), each run is one hardened
-`docker run --rm`, built by <Sym name="dockerRun" />:
+Every harness run, script job and script check is one hardened `docker run --rm`, built by
+<Sym name="dockerRun" />. There is no setting that turns it off or runs anything on the host
+instead:
 
-- read-only root filesystem, `/tmp` as tmpfs, a non-root user, all capabilities dropped,
-  `no-new-privileges`, memory, CPU and pid limits, and a watchdog that kills it at the timeout,
+- read-only root filesystem, `/tmp` as tmpfs, the operator's own non-root user, all capabilities
+  dropped, `no-new-privileges`, memory, CPU and pid limits, no image pulls, and a watchdog that
+  kills it at the timeout,
 - the run's `home/` mounted read-write, so transcripts survive the container,
 - the worktree at `/work`, with the bare mirror mounted read-only so refs and objects cannot be
   touched,
-- an internal network with no route out. The run can reach the model proxy, an egress proxy that
-  only allows GitHub and the npm registry, and a relay to the host's Ollama.
+- the internal `bothub-sandbox` network with no route out. The run can reach the model proxy, an
+  egress proxy that only allows GitHub and the npm registry, and a relay to the host's Ollama.
+
+Besides the worktree, its git admin directory and the run home, the only mounts are read-only:
+the bare mirror, bothub's own code for the MCP server, the hub and the run store. The docker
+socket is never mounted.
 
 No GitHub token goes inside. The run gets the proxy URL, its bot's own key and the decision API
 address. Pushes happen on the host, after checks.
 
-Script jobs and script checks run in the same kind of container. Without the setting, the runner
-spawns the harness on the host with a private home and an allowlisted environment
-(<Sym name="agentEnv" />). The image and a standalone `run.sh` with the same flags live in
-`infra/local/sandbox`; the code is on [Runs](/docs/reference/runs).
+## When the sandbox is unavailable
+
+Before each container starts, bothub checks that docker answers, that the `bothub-sandbox`
+network exists and is internal, and that the image is present. If any of that fails, or docker
+cannot start the container, the run ends with status `failed` and an error starting with
+`sandbox-failed:`, and nothing runs on the host. A script check that cannot start fails the same
+way, so a gate never passes without its check running.
+
+The environment can set the image (`BOTHUB_SANDBOX_IMAGE`), the resource limits
+(`BOTHUB_SANDBOX_MEMORY`, `BOTHUB_SANDBOX_CPUS`, `BOTHUB_SANDBOX_PIDS`) and the model proxy URL
+(`BOTHUB_SANDBOX_LLM_URL`). Limits must be positive. The network, the user and the isolation flags
+are fixed. `BOTHUB_SANDBOX` and `BOTHUB_SANDBOX_NETWORK` only exist to catch old settings: any value
+other than `docker` and `bothub-sandbox` stops `bothub serve` at startup and fails every run. Hub
+files have no field that changes the sandbox.
+
+`bothub sim` is the one exception. Its harness is a script that replays a scenario, so it runs
+without docker and never starts an agent.
+
+The image and a standalone `run.sh` with the same flags and checks live in `infra/local/sandbox`;
+the code is on [Runs](/docs/reference/runs).
 
 ## Harnesses
 

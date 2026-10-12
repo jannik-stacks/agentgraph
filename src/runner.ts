@@ -9,10 +9,10 @@ import {
   dockerRun,
   gitMounts,
   inside,
-  sandboxDefaults,
-  sandboxFrom,
+  sandboxConfig,
+  SandboxError,
+  sandboxReady,
   specInside,
-  type Sandbox,
 } from './sandbox.ts';
 import type { EventRecord, Run, Store } from './store.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from './types.ts';
@@ -121,8 +121,11 @@ const contained = async ({
   cmd: string;
   args: string[];
 }): Promise<Command> => {
+  const config = sandboxConfig();
+  await sandboxReady(config);
   const container = containerName(name);
   const run = dockerRun({
+    config,
     name: container,
     worktree,
     home,
@@ -153,28 +156,62 @@ export const containedCommand = (
     home,
     mounts,
     env,
-    secrets: { ...secrets, BOTHUB_LLM_BASE_URL: sandboxDefaults().llmUrl },
+    secrets: { ...secrets, BOTHUB_LLM_BASE_URL: sandboxConfig().llmUrl },
     cmd,
     args: args.map(bothubArg),
   });
 };
 
 /**
- * Spawns the adapter's command, on the host or in a run container, and streams its parsed output. Fails when the
- * process cannot start or exits non-zero; interrupting the stream kills the process group and the container.
+ * How commands are started. Every real run uses `sandboxed`; `startFailed` tells whether an error before any output
+ * means the launcher itself failed.
+ */
+export type Launcher = {
+  agent: (
+    adapter: HarnessAdapter,
+    spec: RunSpec,
+    secrets?: Record<string, string>,
+    home?: ReturnType<typeof homeEnv>
+  ) => Promise<Command>;
+  script: (script: string, cwd: string, env: Record<string, string>) => Promise<Command>;
+  startFailed: (error: Error & { exitCode?: number; code?: unknown }) => boolean;
+};
+
+/** Starts every command in a hardened run container; fails when the sandbox is unavailable. */
+export const sandboxed: Launcher = {
+  agent: (adapter, spec, secrets, home) => containedCommand(adapter, spec, secrets, home?.HOME),
+  script: (script, cwd, env) => contained({ name: 'script', worktree: cwd, env, cmd: 'sh', args: ['-c', script] }),
+  startFailed: error => error.exitCode === 125 || typeof error.code === 'string',
+};
+
+/**
+ * Starts commands directly on this machine with a private home and an allowlisted env, without isolation. Only for
+ * tests and the simulator, whose harnesses are scripted and run no agent.
+ */
+export const unsandboxed: Launcher = {
+  agent: async (adapter, spec, secrets, home) => {
+    const { cmd, args, env } = adapter.command(spec);
+    return { cmd, args, cwd: spec.cwd, env: agentEnv(env, secrets, home) };
+  },
+  script: async (script, cwd, env) => ({ cmd: 'sh', args: ['-c', script], cwd, env: agentEnv(env) }),
+  startFailed: () => false,
+};
+
+/**
+ * Starts the adapter's command through `launch` and streams its parsed output. Fails when the process cannot start
+ * or exits non-zero; interrupting the stream kills the process group and the container.
  */
 export const agentEvents = (
   adapter: HarnessAdapter,
   spec: RunSpec,
   secrets?: Record<string, string>,
   home?: ReturnType<typeof homeEnv>,
-  sandbox: Sandbox = 'host'
+  launch: Launcher = sandboxed
 ): Stream.Stream<AgentEvent, Error> =>
   Stream.unwrap(
-    Effect.promise(async (): Promise<Command> => {
-      if (sandbox === 'docker') return containedCommand(adapter, spec, secrets, home?.HOME);
-      const { cmd, args, env } = adapter.command(spec);
-      return { cmd, args, cwd: spec.cwd, env: agentEnv(env, secrets, home) };
+    Effect.tryPromise({
+      try: () => launch.agent(adapter, spec, secrets, home),
+      catch: e => (e instanceof SandboxError ? e : new SandboxError((e as Error).message)),
     }).pipe(
       Effect.map(command =>
         output(command).pipe(Stream.decodeText(), Stream.splitLines, Stream.mapConcat(adapter.parseLine))
@@ -234,9 +271,10 @@ export const stuckWatch = () => {
 
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
- * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards. `sandbox` defaults to
- * `BOTHUB_SANDBOX`. Secret values are masked in stored events, errors and the home's files. A run caught in a loop
- * (see `stuckWatch`) is stopped with `stuck: …`; a container that never started fails with `sandbox-failed: …`.
+ * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
+ * Secret values are masked in stored events, errors and the home's files. A run caught in a loop
+ * (see `stuckWatch`) is stopped with `stuck: …`; a sandbox that is unavailable or a container that never started fails with
+ * `sandbox-failed: …`, and nothing runs on the host.
  * Never fails; interruption records `cancelled` after the process group is killed.
  */
 export const runJob = (options: {
@@ -247,10 +285,10 @@ export const runJob = (options: {
   runId: string;
   secrets?: Record<string, string>;
   onEvent?: (record: EventRecord) => void;
-  sandbox?: Sandbox;
+  launch?: Launcher;
 }): Effect.Effect<Run> =>
   Effect.suspend(() => {
-    const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, sandbox = sandboxFrom() } = options;
+    const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed } = options;
     const save = (patch: Partial<Omit<Run, 'id'>>) => Effect.promise(() => store.update(runId, patch));
     const finish = (patch: Partial<Omit<Run, 'id'>>) => save({ ...patch, endedAt: new Date().toISOString() });
 
@@ -272,7 +310,7 @@ export const runJob = (options: {
       );
     };
     const sandboxFailed = (e: Error & { exitCode?: number; code?: unknown }) =>
-      sandbox === 'docker' && seq === 0 && (e.exitCode === 125 || typeof e.code === 'string');
+      e instanceof SandboxError || (seq === 0 && launch.startFailed(e));
 
     const reason = () => firstError ?? (end && !end.ok ? end.result : undefined);
     const usage = () => ({
@@ -284,7 +322,7 @@ export const runJob = (options: {
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
       Effect.zipRight(Effect.tryPromise({ try: () => makeHome(home), catch: e => e as Error })),
       Effect.zipRight(
-        agentEvents(adapter, spec, secrets, home, sandbox).pipe(
+        agentEvents(adapter, spec, secrets, home, launch).pipe(
           Stream.runForEach(record),
           Effect.timeout(Duration.minutes(timeoutMinutes))
         )
@@ -316,21 +354,20 @@ export const runJob = (options: {
 const scriptOutputLimit = 8192;
 
 /**
- * Runs `script` with `sh -c` in `cwd` with the minimal agent env plus `env`, in a run container when `sandbox` (default
- * `BOTHUB_SANDBOX`) is `docker`. Resolves to whether it exited 0 within the timeout, with the tail of its combined
- * output; never rejects.
+ * Runs `script` with `sh -c` in a run container with `cwd` as its worktree and the minimal agent env plus `env`.
+ * Resolves to whether it exited 0 within the timeout, with the tail of its combined output; a sandbox that is
+ * unavailable resolves to `sandbox-failed: …` without running anything. Never rejects.
  */
 export const runScript = async (
   script: string,
   cwd: string,
   timeoutMinutes: number,
   env: Record<string, string> = {},
-  sandbox = sandboxFrom()
+  launch: Launcher = sandboxed
 ) => {
-  const command: Command =
-    sandbox === 'docker'
-      ? await contained({ name: 'script', worktree: cwd, env, cmd: 'sh', args: ['-c', script] })
-      : { cmd: 'sh', args: ['-c', script], cwd, env: agentEnv(env) };
+  const failed = (message: string) => ({ ok: false, output: `sandbox-failed: ${message}` });
+  const command = await launch.script(script, cwd, env).catch((error: Error) => error);
+  if (command instanceof Error) return failed(command.message);
   return new Promise<{ ok: boolean; output: string }>(resolve => {
     const child = spawn(command.cmd, command.args, {
       cwd: command.cwd,
@@ -352,10 +389,12 @@ export const runScript = async (
     }, timeoutMinutes * 60_000);
     child.once('error', error => {
       clearTimeout(timer);
-      resolve({ ok: false, output: error.message });
+      resolve(launch.startFailed(error) ? failed(error.message) : { ok: false, output: error.message });
     });
     child.once('close', code => {
       clearTimeout(timer);
+      if (code === 125 && launch.startFailed({ name: 'exit', message: '', exitCode: 125 }))
+        return resolve(failed(output.trim() || 'the container did not start'));
       const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
       resolve({ ok: code === 0 && !timedOut, output: (output + tail).trim() });
     });
