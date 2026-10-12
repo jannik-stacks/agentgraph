@@ -81,6 +81,21 @@ describe('githubApp', () => {
     now += 60_000;
     expect(await app.installationToken(42)).toBe('ghs_2');
   });
+
+  it('gives a long-lived client a fresh token once the cached one expires', async () => {
+    let now = Date.parse('2026-10-12T00:00:00Z');
+    const { calls, fetch } = fakeFetch(({ url }) =>
+      url.endsWith('/access_tokens')
+        ? { status: 201, json: { token: `ghs_${calls.length}`, expires_at: new Date(now + 3600_000).toISOString() } }
+        : { json: {} }
+    );
+    const client = githubApp({ appId: 1, privateKey }, { fetch, now: () => now }).client(42);
+    await client('GET', '/repos/a/b');
+    now += 3600_000;
+    await client('GET', '/repos/a/b');
+    const auth = calls.filter(c => c.url.endsWith('/repos/a/b')).map(c => c.headers.Authorization);
+    expect(auth).toEqual(['Bearer ghs_1', 'Bearer ghs_3']);
+  });
 });
 
 describe('gh', () => {

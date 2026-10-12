@@ -80,7 +80,10 @@ export const githubApp = (
   };
   return {
     installationToken,
-    /** A REST client acting as the given installation. */
-    client: async (installationId: number): Promise<GitHub> => gh(await installationToken(installationId), fetcher),
+    /** A REST client acting as the given installation, with a valid token on every request. */
+    client:
+      (installationId: number): GitHub =>
+      async (method, path, body) =>
+        gh(await installationToken(installationId), fetcher)(method, path, body),
   };
 };
