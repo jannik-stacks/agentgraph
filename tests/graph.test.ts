@@ -1,0 +1,87 @@
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { compile } from '../src/config.ts';
+import { hubGraph } from '../src/graph.ts';
+import { readHub } from '../src/load.ts';
+
+const compiled = compile(await readHub(join(import.meta.dirname, '../examples/hub')));
+if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
+const graph = hubGraph(compiled.config);
+
+describe('hubGraph', () => {
+  it('has one node per trigger, job, bot, skill, check and read note kind', () => {
+    expect(graph.nodes.map(n => `${n.id} ${n.badges?.join(',') ?? ''}`.trim())).toEqual([
+      'trigger:issue/issue_comment /bothub,created',
+      'trigger:issue/pull_request opened,synchronize',
+      'job:issue/implement warn,bothub/{issue}-{slug}',
+      'job:issue/review shadow',
+      'bot:implementor claude-code,sonnet',
+      'bot:reviewer codex',
+      'skill:implement',
+      'skill:review-file',
+      'skill:review',
+      'check:review warn,reviewer',
+      'check:types block,script',
+      'note:decision 0',
+      'note:convention 1',
+      'note:caveat 1',
+      'note:pitfall 1',
+    ]);
+    expect(graph.nodes.every(n => n.id.startsWith(`${n.kind}:`))).toBe(true);
+  });
+
+  it('links triggers, bots, skills, the until loop, fan-out and notes', () => {
+    expect(graph.edges.map(e => `${e.kind} ${e.from} -> ${e.to}${e.label ? ` (${e.label})` : ''}`)).toEqual([
+      'triggers trigger:issue/issue_comment -> job:issue/implement',
+      'runs-as job:issue/implement -> bot:implementor',
+      'uses-skill job:issue/implement -> skill:implement',
+      'gates check:types -> job:issue/implement',
+      'loops-back check:types -> job:issue/implement (max 2)',
+      'gates check:review -> job:issue/implement',
+      'loops-back check:review -> job:issue/implement (max 2)',
+      'triggers trigger:issue/pull_request -> job:issue/review',
+      'runs-as job:issue/review -> bot:reviewer',
+      'uses-skill job:issue/review -> skill:review',
+      'reads-notes bot:implementor -> note:decision',
+      'reads-notes bot:implementor -> note:convention',
+      'reads-notes bot:implementor -> note:caveat',
+      'reads-notes bot:implementor -> note:pitfall',
+      'reads-notes bot:reviewer -> note:convention',
+      'reads-notes bot:reviewer -> note:pitfall',
+      'reads-notes skill:review-file -> note:convention',
+      'fans-out check:review -> bot:reviewer (for each file)',
+      'uses-skill check:review -> skill:review-file',
+    ]);
+    const ids = new Set(graph.nodes.map(n => n.id));
+    expect(graph.edges.filter(e => !ids.has(e.from) || !ids.has(e.to))).toEqual([]);
+  });
+
+  it('carries details for the studio', () => {
+    const job = graph.nodes.find(n => n.id === 'job:issue/implement');
+    expect(job?.detail).toMatchObject({
+      workflow: 'issue',
+      bot: 'implementor',
+      until: { checks: ['types', 'review'] },
+    });
+    const convention = graph.nodes.find(n => n.id === 'note:convention');
+    expect(convention?.detail).toEqual({
+      notes: [
+        { slug: 'typecheck-clean', title: 'The project typechecks with no errors', status: 'accepted', check: 'types' },
+      ],
+    });
+  });
+
+  it('draws needs between jobs and scripts', () => {
+    const result = compile([
+      {
+        path: 'workflows/w.md',
+        source: '---\non: { push: {} }\njobs:\n  a: { run: echo }\n  b: { needs: a, run: echo }\n---\n',
+      },
+    ]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    expect(hubGraph(result.config).edges).toEqual([
+      { from: 'trigger:w/push', to: 'script:w/a', kind: 'triggers' },
+      { from: 'script:w/a', to: 'script:w/b', kind: 'needs' },
+    ]);
+  });
+});

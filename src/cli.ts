@@ -14,7 +14,7 @@ import { toEvent } from './github.ts';
 import { readHub } from './load.ts';
 import { buildSpec, runPlan, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
-import { PersonaFrontmatter, WorkflowFrontmatter } from './schema.ts';
+import { Bot, Check, Note, Skill, Workflow } from './schema.ts';
 import { openStore, runId, type Run } from './store.ts';
 import type { AgentEvent } from './types.ts';
 import { workspaces, worktreePath } from './workspace.ts';
@@ -32,7 +32,8 @@ const fail = (text: string) => process.stderr.write(`bothub: ${text}\n`);
 
 const loadConfig = async (path: string): Promise<Compiled> => {
   const files = await readHub(path);
-  if (!files.length) return { ok: false, errors: [{ path, message: 'no personas/*.md or workflows/*.md found' }] };
+  if (!files.length)
+    return { ok: false, errors: [{ path, message: 'no bots, skills, checks, workflows or notes found' }] };
   return compile(files);
 };
 
@@ -117,8 +118,10 @@ const ago = (ts: string, now = Date.now()) => {
 
 const active = (run: Run | undefined) => run?.status === 'queued' || run?.status === 'running';
 
+const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
 const check = defineCommand({
-  meta: { name: 'check', description: 'Validate personas and workflows (fails closed)' },
+  meta: { name: 'check', description: 'Validate a hub: bots, skills, checks, workflows and notes (fails closed)' },
   args: { dir, json },
   async run({ args }) {
     const result = await loadConfig(args.dir);
@@ -127,9 +130,18 @@ const check = defineCommand({
       if (!asJson(args.json)) for (const e of result.errors) fail(`${e.path}: ${e.message}`);
       return 2;
     }
-    const { personas, workflows } = result.config;
+    const { bots, skills, checks, workflows, notes } = result.config;
+    const jobs = Object.values(workflows).reduce((n, w) => n + Object.keys(w.jobs).length, 0);
     if (!asJson(args.json))
-      print(`ok: ${Object.keys(personas).length} personas, ${Object.keys(workflows).length} workflows`);
+      print(
+        `ok: ${[
+          count(Object.keys(bots).length, 'bot'),
+          count(Object.keys(skills).length, 'skill'),
+          count(Object.keys(checks).length, 'check'),
+          `${count(Object.keys(workflows).length, 'workflow')} (${count(jobs, 'job')})`,
+          count(notes.length, 'note'),
+        ].join(', ')}`
+      );
     return 0;
   },
 });
@@ -145,7 +157,7 @@ const planCmd = defineCommand({
     else if (!jobs.length) print('no jobs');
     else
       for (const j of jobs)
-        print(`${j.workflow}/${j.job}${j.persona ? ` (${j.persona})` : ''}${j.args ? `: ${j.args}` : ''}`);
+        print(`${j.workflow}/${j.job}${j.bot ? ` (${j.bot})` : ' (run)'}${j.args ? `: ${j.args}` : ''}`);
     return 0;
   },
 });
@@ -173,28 +185,43 @@ const run = defineCommand({
     if (args['dry-run']) {
       const sessions = jobs.map(job => {
         const workflow = config.workflows[job.workflow];
-        const persona = job.persona ? config.personas[job.persona] : undefined;
-        if (!workflow || !persona) return { ...job, skipped: 'the job has no persona' };
-        const { spec, timeoutMinutes } = buildSpec({
+        const script = workflow?.jobs[job.job]?.run;
+        if (!workflow || script) return { ...job, script: script ?? '' };
+        const {
+          spec,
+          bot,
+          timeoutMinutes,
+          branch,
+          job: definition,
+        } = buildSpec({
           ...job,
-          persona,
+          config,
           workflow,
           event,
           cwd: worktreePath(root, runId()),
         });
-        const { cmd, args: argv } = executors[persona.executor].command(spec);
-        return { ...job, executor: persona.executor, timeoutMinutes, spec, command: [cmd, ...argv] };
+        const { cmd, args: argv } = executors[bot.harness].command(spec);
+        return {
+          ...job,
+          harness: bot.harness,
+          timeoutMinutes,
+          ...(branch && { branch }),
+          ...(definition.until && { until: definition.until }),
+          spec,
+          command: [cmd, ...argv],
+        };
       });
       if (asJson(args.json)) print(JSON.stringify({ event, jobs: sessions }));
       else
         for (const s of sessions) {
-          if ('skipped' in s) {
-            print(`${s.workflow}/${s.job}: skipped, ${s.skipped}\n\n`);
+          if ('script' in s) {
+            print(`${s.workflow}/${s.job} (run)\n$ sh -c ${shellQuote(s.script)}\n\n`);
             continue;
           }
           const shown = (arg: string) =>
             arg === s.spec.system ? '<system>' : arg === s.spec.prompt ? '<prompt>' : shellQuote(arg);
-          print(`${s.workflow}/${s.job} (${s.persona}, ${s.executor}, ${s.timeoutMinutes} min)`);
+          print(`${s.workflow}/${s.job} (${s.bot}, ${s.harness}, ${s.timeoutMinutes} min)`);
+          if (s.until) print(`until: ${s.until.checks.join(', ')} pass, at most ${s.until.max} more attempts`);
           print(`cwd: ${s.spec.cwd}`);
           print(`$ ${s.command.map(shown).join(' ')}\n\n`);
           print(`--- system\n${s.spec.system}\n\n`);
@@ -283,10 +310,11 @@ const logs = defineCommand({
 });
 
 const schema = defineCommand({
-  meta: { name: 'schema', description: 'Print JSON Schemas for persona and workflow frontmatter' },
+  meta: { name: 'schema', description: 'Print a JSON Schema for the frontmatter of each hub file kind' },
   run() {
     const toSchema = (s: z.ZodType) => z.toJSONSchema(s, { io: 'input', unrepresentable: 'any' });
-    print(JSON.stringify({ persona: toSchema(PersonaFrontmatter), workflow: toSchema(WorkflowFrontmatter) }, null, 2));
+    const kinds = { bot: Bot, skill: Skill, check: Check, workflow: Workflow, note: Note };
+    print(JSON.stringify(Object.fromEntries(Object.entries(kinds).map(([k, s]) => [k, toSchema(s)])), null, 2));
     return 0;
   },
 });

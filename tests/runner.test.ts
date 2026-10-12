@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { claude } from '../src/executors/claude.ts';
-import { agentEnv, agentEvents, limiter, runJob } from '../src/runner.ts';
+import { agentEnv, agentEvents, limiter, runJob, runScript } from '../src/runner.ts';
 import { openStore, type Store } from '../src/store.ts';
 import type { AgentEvent, ExecutorAdapter, RunSpec } from '../src/types.ts';
 
@@ -29,7 +29,7 @@ const setup = async () => {
   const run = await store.create({
     workflow: 'w',
     job: 'j',
-    executor: 'claude-code',
+    harness: 'claude-code',
     event: {
       id: 'e',
       ts: '2026-10-12T00:00:00.000Z',
@@ -166,6 +166,24 @@ describe('runJob', () => {
     expect(run?.status).toBe('cancelled');
     expect(run?.endedAt).toBeDefined();
     expect(alive(await pidOf(store, runId))).toBe(false);
+  });
+});
+
+describe('runScript', () => {
+  it('passes on exit 0 with a minimal env and reports the output tail otherwise', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
+    process.env.BOTHUB_SECRET_PROBE = 'leak';
+    expect(await runScript('echo "$BOTHUB_SECRET_PROBE" ok; pwd', cwd, 1)).toEqual({
+      ok: true,
+      output: expect.stringMatching(/^ok\n.*bothub-script-/),
+    });
+    delete process.env.BOTHUB_SECRET_PROBE;
+    expect(await runScript('echo broke >&2; exit 2', cwd, 1)).toEqual({ ok: false, output: 'broke' });
+  });
+
+  it('kills the script after the timeout', async () => {
+    const result = await runScript('sleep 5', mkdtempSync(join(tmpdir(), 'bothub-script-')), 0.002);
+    expect(result).toEqual({ ok: false, output: 'timed out after 0.002 minutes' });
   });
 });
 

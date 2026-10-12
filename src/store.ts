@@ -10,10 +10,13 @@ import type { AgentEvent, BotEvent } from './types.ts';
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed-out' | 'skipped';
 
 /** One job execution, or a skipped job with its `reason`, persisted as `runs/<id>/run.json`. */
-export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'persona'> &
+export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
   Pick<Extract<AgentEvent, { type: 'end' }>, 'costUsd' | 'turns'> & {
     id: string;
-    executor?: Executor;
+    harness?: Executor;
+    parent?: string;
+    attempt?: number;
+    check?: string;
     event: BotEvent;
     status: RunStatus;
     startedAt?: string;
@@ -22,9 +25,12 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'persona'> &
     reason?: string;
   };
 
-/** What a run proposed and what reached GitHub, persisted as `runs/<id>/outcome.json`. */
+/** One check's result after an attempt. Only gating checks (not in `shadow` mode) can fail the attempt. */
+export type Verdict = { check: string; pass: boolean; gating: boolean; findings?: string; runs?: string[] };
+
+/** What a run proposed, how its checks went and what reached GitHub, persisted as `runs/<id>/outcome.json`. */
 export type Outcome = ReturnType<typeof extractProposals> &
-  Omit<Validated, 'apply'> & { results: ApplyResult[]; applied: boolean };
+  Omit<Validated, 'apply'> & { results: ApplyResult[]; applied: boolean; checks?: Verdict[] };
 
 /** One line of `runs/<id>/events.jsonl`. */
 export type EventRecord = { ts: string; seq: number; event: AgentEvent };

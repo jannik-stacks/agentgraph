@@ -1,35 +1,43 @@
 import { z } from 'zod';
 import { parseMarkdown } from './markdown.ts';
-import { PersonaFrontmatter, WorkflowFrontmatter } from './schema.ts';
+import { Bot, Check, Note, NoteKind, Skill, Workflow, type Job } from './schema.ts';
 
 export type SourceFile = { path: string; source: string };
 
-export type Persona = PersonaFrontmatter & { name: string; prompt: string; path: string };
-export type Workflow = WorkflowFrontmatter & { path: string; prompts: Record<string, string> };
-export type Config = { personas: Record<string, Persona>; workflows: Record<string, Workflow> };
+/** A validated definition file: its frontmatter plus the name it is referenced by, its path and its body. */
+export type Defined<T> = T & { name: string; path: string; body: string };
+
+export type Config = {
+  bots: Record<string, Defined<Bot>>;
+  skills: Record<string, Defined<Skill>>;
+  checks: Record<string, Defined<Check>>;
+  workflows: Record<string, Defined<Workflow>>;
+  notes: (Defined<Note> & { kind: NoteKind })[];
+};
 
 export type ConfigError = { path: string; message: string };
 export type Compiled = { ok: true; config: Config } | { ok: false; errors: ConfigError[] };
 
-const stem = (path: string) => path.split('/').pop()?.replace(/\.md$/, '') ?? path;
+const schemas = { bots: Bot, skills: Skill, checks: Check, workflows: Workflow } as const;
+const definition = /(?:^|\/)(bots|skills|checks|workflows)\/([^/]+)\.md$/;
+const noteFile = /(?:^|\/)notes\/([^/]+)\/([^/]+)\.md$/;
+const placeholders = new Set(['issue', 'slug', 'job', 'workflow']);
+
+const quoted = (names: string[]) => names.map(n => `"${n}"`).join(', ');
 
 /**
- * Validates persona and workflow Markdown files into one config. Fails closed: any error rejects the whole set.
- * Files are routed by directory: `personas/` and `workflows/`.
+ * Validates a hub's Markdown files into one config. Fails closed: any error rejects the whole set.
+ * Files are routed by directory: `bots/`, `skills/`, `checks/`, `workflows/` and `notes/<kind>/`.
  */
 export const compile = (files: SourceFile[]): Compiled => {
   const errors: ConfigError[] = [];
-  const personas: Record<string, Persona> = {};
-  const workflows: Record<string, Workflow> = {};
+  const config: Config = { bots: {}, skills: {}, checks: {}, workflows: {}, notes: [] };
 
   for (const file of files) {
-    const kind = file.path.includes('personas/')
-      ? 'persona'
-      : file.path.includes('workflows/')
-        ? 'workflow'
-        : undefined;
-    if (!kind) continue;
     const fail = (message: string) => errors.push({ path: file.path, message });
+    const def = definition.exec(file.path);
+    const note = def ? undefined : noteFile.exec(file.path);
+    if (!def && !note) continue;
     let doc;
     try {
       doc = parseMarkdown(file.source);
@@ -37,58 +45,93 @@ export const compile = (files: SourceFile[]): Compiled => {
       fail((e as Error).message);
       continue;
     }
-    if (kind === 'persona') {
-      const parsed = PersonaFrontmatter.safeParse(doc.data);
-      if (!parsed.success) {
-        fail(z.prettifyError(parsed.error));
+
+    if (note) {
+      const [, kind = '', slug = ''] = note;
+      const parsedKind = NoteKind.safeParse(kind);
+      if (!parsedKind.success) {
+        fail(`unknown note kind "${kind}", expected one of ${quoted(NoteKind.options)}`);
         continue;
       }
-      const name = parsed.data.name ?? stem(file.path);
-      if (name in personas) fail(`duplicate persona "${name}"`);
-      personas[name] = { ...parsed.data, name, prompt: doc.body, path: file.path };
-    } else {
-      const parsed = WorkflowFrontmatter.safeParse(doc.data);
-      if (!parsed.success) {
-        fail(z.prettifyError(parsed.error));
-        continue;
-      }
-      if (parsed.data.name in workflows) fail(`duplicate workflow "${parsed.data.name}"`);
-      workflows[parsed.data.name] = { ...parsed.data, path: file.path, prompts: doc.sections };
-    }
-  }
-
-  for (const workflow of Object.values(workflows)) errors.push(...checkWorkflow(workflow, personas));
-  return errors.length ? { ok: false, errors } : { ok: true, config: { personas, workflows } };
-};
-
-const checkWorkflow = (workflow: Workflow, personas: Record<string, Persona>): ConfigError[] => {
-  const errors: string[] = [];
-  const { jobs } = workflow;
-
-  for (const [id, job] of Object.entries(jobs)) {
-    for (const need of job.needs) if (!(need in jobs)) errors.push(`job "${id}" needs unknown job "${need}"`);
-    for (const trigger of Object.keys(job.on ?? {}))
-      if (!(trigger in workflow.on))
-        errors.push(`job "${id}" triggers on "${trigger}", which the workflow does not listen to`);
-    if (!job.persona) continue;
-    const persona = personas[job.persona];
-    if (!persona) {
-      errors.push(`job "${id}" uses unknown persona "${job.persona}"`);
+      const parsed = Note.safeParse(doc.data);
+      if (!parsed.success) fail(z.prettifyError(parsed.error));
+      else config.notes.push({ ...parsed.data, kind: parsedKind.data, name: slug, path: file.path, body: doc.body });
       continue;
     }
-    if (!(id in workflow.prompts))
-      errors.push(`job "${id}" runs persona "${job.persona}" but has no "## ${id}" section`);
-    for (const kind of Object.keys(job['safe-outputs']))
-      if (!persona['can-write'].includes(kind as never))
-        errors.push(`job "${id}" allows "${kind}", which persona "${persona.name}" cannot write`);
+
+    const [, dir, stem = ''] = def as RegExpExecArray;
+    const group = dir as keyof typeof schemas;
+    const parsed = schemas[group].safeParse(doc.data);
+    if (!parsed.success) {
+      fail(z.prettifyError(parsed.error));
+      continue;
+    }
+    const name = ('name' in parsed.data && parsed.data.name) || stem;
+    const target = config[group] as Record<string, unknown>;
+    if (name in target) fail(`duplicate ${group.slice(0, -1)} "${name}"`);
+    target[name] = { ...parsed.data, name, path: file.path, body: doc.body };
   }
 
-  for (const id of Object.keys(workflow.prompts)) if (!(id in jobs)) errors.push(`section "## ${id}" has no job`);
+  if (!errors.length) errors.push(...references(config));
+  return errors.length ? { ok: false, errors } : { ok: true, config };
+};
 
-  const cycle = findCycle(jobs);
-  if (cycle) errors.push(`needs cycle: ${cycle.join(' -> ')}`);
+const references = (config: Config): ConfigError[] => {
+  const errors: ConfigError[] = [];
+  const at = (path: string) => (message: string) => errors.push({ path, message });
+  const { bots, skills, checks } = config;
 
-  return errors.map(message => ({ path: workflow.path, message }));
+  for (const bot of Object.values(bots)) {
+    const fail = at(bot.path);
+    for (const skill of bot.skills ?? []) if (!(skill in skills)) fail(`offers unknown skill "${skill}"`);
+  }
+
+  for (const check of Object.values(checks)) {
+    const fail = at(check.path);
+    if (!check.run === !check.bot) fail('needs either "run" or "bot"');
+    if (check.bot && !(check.bot in bots)) fail(`uses unknown bot "${check.bot}"`);
+    if (check.bot && !check.skill) fail(`runs bot "${check.bot}" but has no skill`);
+    if (check.skill && !check.bot) fail('has a skill but no bot');
+    if (check.skill && !(check.skill in skills)) fail(`uses unknown skill "${check.skill}"`);
+  }
+
+  for (const note of config.notes)
+    if (note.check && !(note.check in checks)) at(note.path)(`refers to unknown check "${note.check}"`);
+
+  for (const workflow of Object.values(config.workflows)) {
+    const fail = at(workflow.path);
+    for (const [id, job] of Object.entries(workflow.jobs))
+      for (const message of checkJob(id, job, workflow, config)) fail(message);
+    const cycle = findCycle(workflow.jobs);
+    if (cycle) fail(`needs cycle: ${cycle.join(' -> ')}`);
+  }
+  return errors;
+};
+
+const checkJob = (id: string, job: Job, workflow: Workflow, { bots, skills, checks }: Config): string[] => {
+  const errors: string[] = [];
+  const fail = (message: string) => errors.push(`job "${id}" ${message}`);
+  for (const need of job.needs) if (!(need in workflow.jobs)) fail(`needs unknown job "${need}"`);
+  for (const trigger of Object.keys(job.on ?? {}))
+    if (!(trigger in workflow.on)) fail(`triggers on "${trigger}", which the workflow does not listen to`);
+  if (!job.run === !job.bot) fail('needs either "bot" and "skill", or "run"');
+  if (job.bot && !job.skill) fail(`runs bot "${job.bot}" but has no skill`);
+  if (job.skill && !job.bot) fail('has a skill but no bot');
+  if (job.skill && !(job.skill in skills)) fail(`uses unknown skill "${job.skill}"`);
+  if (job.until && !job.bot) fail('loops "until" checks pass but has no bot');
+  for (const check of job.until?.checks ?? []) if (!(check in checks)) fail(`waits for unknown check "${check}"`);
+  if (job.branch) {
+    if (!job.branch.startsWith('bothub/')) fail(`branch "${job.branch}" must start with "bothub/"`);
+    for (const [, key = ''] of job.branch.matchAll(/\{([^}]*)\}/g))
+      if (!placeholders.has(key)) fail(`branch uses unknown placeholder "{${key}}"`);
+  }
+  if (!job.bot) return errors;
+  const bot = bots[job.bot];
+  if (!bot) fail(`uses unknown bot "${job.bot}"`);
+  else
+    for (const kind of job.can ?? [])
+      if (!bot.can.includes(kind)) fail(`allows "${kind}", which bot "${bot.name}" cannot do`);
+  return errors;
 };
 
 const findCycle = (jobs: Record<string, { needs: string[] }>): string[] | undefined => {
@@ -122,3 +165,7 @@ export const jobOrder = (workflow: Pick<Workflow, 'jobs'>): string[] => {
   Object.keys(workflow.jobs).forEach(visit);
   return order;
 };
+
+/** What a bot may propose in a job: the bot's `can`, narrowed by the job's `can` when it has one. */
+export const effectiveCan = (bot: Pick<Bot, 'can'>, job: Pick<Job, 'can'>) =>
+  job.can ? bot.can.filter(kind => job.can?.includes(kind)) : bot.can;

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Job, Mode } from './schema.ts';
+import { NoteKind, type Job, type Mode, type ProposalKind } from './schema.ts';
 
 const text = z.string().min(1);
 
@@ -7,7 +7,7 @@ const text = z.string().min(1);
 export const Proposal = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('reply'), body: text }),
   z.strictObject({ kind: z.literal('label'), add: z.array(text).optional(), remove: z.array(text).optional() }),
-  z.strictObject({ kind: z.literal('push-branch'), branch: text, files: z.array(text).optional() }),
+  z.strictObject({ kind: z.literal('push'), branch: text, files: z.array(text).optional() }),
   z.strictObject({
     kind: z.literal('open-pr'),
     title: text,
@@ -16,8 +16,14 @@ export const Proposal = z.discriminatedUnion('kind', [
     base: text.optional(),
     draft: z.boolean().optional(),
   }),
-  z.strictObject({ kind: z.literal('propose-rule'), path: text, content: z.string() }),
-  z.strictObject({ kind: z.literal('ask-human'), question: text }),
+  z.strictObject({
+    kind: z.literal('note'),
+    note: NoteKind,
+    slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'must be lowercase kebab-case'),
+    title: text,
+    body: text,
+  }),
+  z.strictObject({ kind: z.literal('ask'), question: text }),
 ]);
 export type Proposal = z.infer<typeof Proposal>;
 
@@ -89,32 +95,38 @@ export const checkPaths = (files: string[], globs: string[] | undefined) => {
   }
 };
 
-const check = (proposal: Proposal, globs: string[] | undefined): string | undefined => {
+const caps: Record<ProposalKind, number> = { reply: 3, label: 1, push: 1, 'open-pr': 1, note: 1, ask: 1 };
+
+const check = (proposal: Proposal, { paths, branch }: Pick<Job, 'paths' | 'branch'>): string | undefined => {
+  const pinned = (name: string) =>
+    branch && name !== branch ? `branch "${name}" is not the job's branch "${branch}"` : undefined;
   switch (proposal.kind) {
-    case 'push-branch':
-      return checkBranch(proposal.branch) ?? checkPaths(proposal.files ?? [], globs);
+    case 'push':
+      return checkBranch(proposal.branch) ?? pinned(proposal.branch) ?? checkPaths(proposal.files ?? [], paths);
     case 'open-pr':
-      return checkBranch(proposal.head);
-    case 'propose-rule':
-      return checkPaths([proposal.path], globs);
+      return checkBranch(proposal.head) ?? pinned(proposal.head);
   }
 };
 
 /**
- * Checks proposals against a job's `safe-outputs`. Fails closed: every proposal that is not explicitly
- * allowed is rejected with a reason. `apply` says whether the job's mode lets accepted proposals reach GitHub.
+ * Checks proposals against what a job allows: its effective `can`, its `paths` for pushed files and its rendered
+ * `branch`, at most 3 replies and 1 of every other kind. Fails closed: every proposal that is not explicitly allowed
+ * is rejected with a reason. `apply` says whether the job's mode lets accepted proposals reach GitHub.
  */
-export const validate = (proposals: Proposal[], outputs: Job['safe-outputs'], mode: Mode): Validated => {
+export const validate = (
+  proposals: Proposal[],
+  allowance: Pick<Job, 'paths' | 'branch'> & { can: ProposalKind[] },
+  mode: Mode
+): Validated => {
   const accepted: Proposal[] = [];
   const rejected: Rejection[] = [];
-  const counts = new Map<Proposal['kind'], number>();
+  const counts = new Map<ProposalKind, number>();
   for (const proposal of proposals) {
-    const allowed = outputs[proposal.kind];
     const count = counts.get(proposal.kind) ?? 0;
-    const reason = !allowed
+    const max = caps[proposal.kind];
+    const reason = !allowance.can.includes(proposal.kind)
       ? `"${proposal.kind}" is not allowed for this job`
-      : (check(proposal, allowed.paths) ??
-        (count >= allowed.max ? `more than ${allowed.max} "${proposal.kind}" proposals` : undefined));
+      : (check(proposal, allowance) ?? (count >= max ? `more than ${max} "${proposal.kind}" proposals` : undefined));
     if (reason) {
       rejected.push({ proposal, reason });
       continue;

@@ -13,7 +13,7 @@ const event: BotEvent = {
   repo: 'acme/app',
   actor: { login: 'morgan', association: 'OWNER' },
 };
-const fields = { workflow: 'review', job: 'review', persona: 'reviewer', executor: 'claude-code' as const, event };
+const fields = { workflow: 'review', job: 'review', bot: 'reviewer', harness: 'claude-code' as const, event };
 const temp = () => mkdtempSync(join(tmpdir(), 'bothub-store-'));
 
 describe('runId', () => {

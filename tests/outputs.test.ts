@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { extractProposals, matchGlob, Proposal, validate } from '../src/outputs.ts';
-import { Job, SafeOutputKind } from '../src/schema.ts';
+import { ProposalKind } from '../src/schema.ts';
 
 const fence = (body: string, info = 'bothub') => `\`\`\`${info}\n${body}\n\`\`\``;
-const outputs = (raw: unknown) => Job.parse({ 'safe-outputs': raw })['safe-outputs'];
 
 describe('Proposal', () => {
-  it('covers every safe output kind', () => {
-    expect(Proposal.options.map(o => o.shape.kind.value).sort()).toEqual([...SafeOutputKind.options].sort());
+  it('covers every proposal kind', () => {
+    expect(Proposal.options.map(o => o.shape.kind.value).sort()).toEqual([...ProposalKind.options].sort());
   });
 });
 
@@ -34,10 +33,10 @@ describe('extractProposals', () => {
     const text = [
       fence('[{"kind":"reply","body":"draft"}]'),
       'changed my mind',
-      fence('{"kind":"ask-human","question":"which db?"}\n\n{"kind":"reply","body":"final"}'),
+      fence('{"kind":"ask","question":"which db?"}\n\n{"kind":"reply","body":"final"}'),
     ].join('\n');
     expect(extractProposals(text).proposals).toEqual([
-      { kind: 'ask-human', question: 'which db?' },
+      { kind: 'ask', question: 'which db?' },
       { kind: 'reply', body: 'final' },
     ]);
   });
@@ -67,13 +66,14 @@ describe('matchGlob', () => {
 });
 
 describe('validate', () => {
-  const allowed = outputs({ reply: { max: 2 }, 'push-branch': { paths: ['src/**', 'README.md'] }, 'open-pr': {} });
+  const allowed = { can: ['reply', 'push', 'open-pr', 'note'] as ProposalKind[], paths: ['src/**', 'README.md'] };
 
   it('accepts allowed proposals and applies outside shadow mode', () => {
     const proposals: Proposal[] = [
       { kind: 'reply', body: 'a' },
-      { kind: 'push-branch', branch: 'bothub/7-fix', files: ['src/a.ts', 'README.md'] },
+      { kind: 'push', branch: 'bothub/7-fix', files: ['src/a.ts', 'README.md'] },
       { kind: 'open-pr', title: 't', body: 'b', head: 'bothub/7-fix' },
+      { kind: 'note', note: 'unsure', slug: 'fork-prs', title: 'Fork PRs?', body: 'Which repo?' },
     ];
     expect(validate(proposals, allowed, 'warn')).toEqual({ accepted: proposals, rejected: [], apply: true });
     expect(validate(proposals, allowed, 'shadow')).toEqual({ accepted: proposals, rejected: [], apply: false });
@@ -84,34 +84,41 @@ describe('validate', () => {
     expect(validate([proposal], allowed, 'block').rejected).toEqual([
       { proposal, reason: '"label" is not allowed for this job' },
     ]);
-    expect(validate([proposal], outputs({}), 'block').accepted).toEqual([]);
+    expect(validate([proposal], { can: [] }, 'block').accepted).toEqual([]);
   });
 
-  it('rejects proposals over max per kind', () => {
-    const replies: Proposal[] = ['a', 'b', 'c'].map(body => ({ kind: 'reply', body }));
+  it('caps replies at 3 and every other kind at 1', () => {
+    const replies: Proposal[] = ['a', 'b', 'c', 'd'].map(body => ({ kind: 'reply', body }));
     const { accepted, rejected } = validate(replies, allowed, 'warn');
-    expect(accepted).toHaveLength(2);
-    expect(rejected).toEqual([{ proposal: replies[2], reason: 'more than 2 "reply" proposals' }]);
-    expect(validate([replies[0]!, replies[1]!], outputs({ reply: {} }), 'warn').accepted).toHaveLength(1);
+    expect(accepted).toHaveLength(3);
+    expect(rejected).toEqual([{ proposal: replies[3], reason: 'more than 3 "reply" proposals' }]);
+    const pr: Proposal = { kind: 'open-pr', title: 't', body: '', head: 'bothub/x' };
+    expect(validate([pr, pr], allowed, 'warn').rejected[0]?.reason).toBe('more than 1 "open-pr" proposals');
   });
 
   it('rejects files outside paths or the repository', () => {
-    const push = (files: string[]): Proposal => ({ kind: 'push-branch', branch: 'bothub/x', files });
+    const push = (files: string[]): Proposal => ({ kind: 'push', branch: 'bothub/x', files });
     const reason = (files: string[]) => validate([push(files)], allowed, 'warn').rejected[0]?.reason;
     expect(reason(['src/a.ts', 'package.json'])).toBe('path "package.json" is outside the allowed paths');
     expect(reason(['src/../package.json'])).toBe('path "src/../package.json" escapes the repository');
     expect(reason(['/etc/passwd'])).toBe('path "/etc/passwd" escapes the repository');
-    const rule: Proposal = { kind: 'propose-rule', path: 'rules/x.md', content: '' };
-    expect(validate([rule], outputs({ 'propose-rule': { paths: ['rules/*.md'] } }), 'warn').accepted).toEqual([rule]);
   });
 
-  it('rejects branches outside bothub/', () => {
-    const reason = (branch: string) => validate([{ kind: 'push-branch', branch }], allowed, 'warn').rejected[0]?.reason;
+  it('rejects branches outside bothub/ or other than the job branch', () => {
+    const reason = (branch: string, branchOf?: string) =>
+      validate([{ kind: 'push', branch }], { ...allowed, branch: branchOf }, 'warn').rejected[0]?.reason;
     expect(reason('main')).toBe('branch "main" must be a plain name under "bothub/"');
     expect(reason('bothub/../main')).toMatch(/must be a plain name/);
     expect(reason('bothub/a b')).toMatch(/must be a plain name/);
     expect(reason('bothub/7/fix')).toBeUndefined();
+    expect(reason('bothub/7-a', 'bothub/7-a')).toBeUndefined();
+    expect(reason('bothub/8-b', 'bothub/7-a')).toBe('branch "bothub/8-b" is not the job\'s branch "bothub/7-a"');
     const pr: Proposal = { kind: 'open-pr', title: 't', body: '', head: 'feature' };
     expect(validate([pr], allowed, 'warn').rejected[0]?.reason).toMatch(/must be a plain name/);
+  });
+
+  it('rejects malformed notes when extracting', () => {
+    const { errors } = extractProposals(fence('{"kind":"note","note":"rumor","slug":"A b","title":"t","body":"b"}'));
+    expect(errors).toHaveLength(1);
   });
 });

@@ -120,5 +120,43 @@ export const runJob = (options: {
     );
   });
 
+const scriptOutputLimit = 8192;
+
+/**
+ * Runs `script` with `sh -c` in `cwd` and the minimal agent env. Resolves to whether it exited 0 within the timeout,
+ * with the tail of its combined output; never rejects.
+ */
+export const runScript = (script: string, cwd: string, timeoutMinutes: number) =>
+  new Promise<{ ok: boolean; output: string }>(resolve => {
+    const child = spawn('sh', ['-c', script], {
+      cwd,
+      env: agentEnv({}),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
+    let output = '';
+    let timedOut = false;
+    const add = (chunk: Buffer) => {
+      output = (output + chunk.toString()).slice(-scriptOutputLimit);
+    };
+    child.stdout.on('data', add);
+    child.stderr.on('data', add);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (child.pid) process.kill(-child.pid, 'SIGKILL');
+      } catch {}
+    }, timeoutMinutes * 60_000);
+    child.once('error', error => {
+      clearTimeout(timer);
+      resolve({ ok: false, output: error.message });
+    });
+    child.once('close', code => {
+      clearTimeout(timer);
+      const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
+      resolve({ ok: code === 0 && !timedOut, output: (output + tail).trim() });
+    });
+  });
+
 /** A limiter allowing at most `n` wrapped effects to run at once; waiting runs stay `queued`. */
 export const limiter = (n = 1) => Effect.map(Effect.makeSemaphore(n), semaphore => semaphore.withPermits(1));

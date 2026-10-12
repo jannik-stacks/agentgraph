@@ -1,21 +1,15 @@
 import { createHmac } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { compile, type Config } from '../src/config.ts';
 import { parseCommand, plan } from '../src/dispatch.ts';
 import { toEvent, verifySignature } from '../src/github.ts';
+import { readHub } from '../src/load.ts';
 import type { BotEvent } from '../src/types.ts';
 
 const hub = join(import.meta.dirname, '../examples/hub');
-const config = ((): Config => {
-  const files = ['personas', 'workflows'].flatMap(dir =>
-    readdirSync(join(hub, dir)).map(name => ({
-      path: `${dir}/${name}`,
-      source: readFileSync(join(hub, dir, name), 'utf8'),
-    }))
-  );
-  const result = compile(files);
+const config = await (async (): Promise<Config> => {
+  const result = compile(await readHub(hub));
   if (!result.ok) throw new Error(JSON.stringify(result.errors));
   return result.config;
 })();
@@ -117,7 +111,7 @@ describe('plan', () => {
 
   it('starts the implementor for a trusted command', () => {
     expect(plan(event('/bothub add a health check\nwith tests'), config)).toEqual([
-      { workflow: 'issue-command', job: 'implement', persona: 'implementor', args: 'add a health check\nwith tests' },
+      { workflow: 'issue', job: 'implement', bot: 'implementor', args: 'add a health check\nwith tests' },
     ]);
   });
 
@@ -134,7 +128,7 @@ describe('plan', () => {
       action: 'opened',
       actor: { login: 'b', association: 'MEMBER' },
     };
-    expect(plan(pr, config)).toEqual([{ workflow: 'issue-command', job: 'review', persona: 'reviewer' }]);
+    expect(plan(pr, config)).toEqual([{ workflow: 'issue', job: 'review', bot: 'reviewer' }]);
     expect(plan({ ...pr, action: 'closed' }, config)).toEqual([]);
   });
 });
@@ -142,7 +136,8 @@ describe('plan', () => {
 describe('plan with a branches filter', () => {
   const filtered = ((): Config => {
     const result = compile([
-      { path: 'personas/bot.md', source: '---\nexecutor: claude-code\n---\n\nBot.' },
+      { path: 'bots/bot.md', source: '---\nharness: claude-code\ntools: []\ncan: []\nmax-turns: 5\n---\n\nBot.' },
+      { path: 'skills/go.md', source: '---\ndescription: Go.\n---\n\nGo.' },
       {
         path: 'workflows/release.md',
         source: `---
@@ -151,12 +146,9 @@ on:
   push: { branches: [main] }
   pull_request: { branches: [main] }
 jobs:
-  go: { persona: bot }
+  go: { bot: bot, skill: go }
 ---
-
-## go
-
-Go.`,
+`,
       },
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -172,7 +164,7 @@ Go.`,
   };
 
   it('matches pushes and pull requests on their branch, not their ref', () => {
-    const go = [{ workflow: 'release', job: 'go', persona: 'bot' }];
+    const go = [{ workflow: 'release', job: 'go', bot: 'bot' }];
     expect(plan({ ...base, ref: 'refs/heads/main', branch: 'main' }, filtered)).toEqual(go);
     expect(plan({ ...base, ref: 'refs/heads/dev', branch: 'dev' }, filtered)).toEqual([]);
     expect(plan({ ...base, ref: 'refs/tags/v1' }, filtered)).toEqual([]);

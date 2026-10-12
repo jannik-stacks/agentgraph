@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apply } from '../src/apply.ts';
+import { apply, noteFile } from '../src/apply.ts';
 import { appJwt, gh, githubApp, type Fetch } from '../src/github-app.ts';
 import type { Proposal } from '../src/outputs.ts';
 import type { BotEvent } from '../src/types.ts';
@@ -132,18 +132,18 @@ describe('apply', () => {
       { kind: 'reply', body: 'done' },
       { kind: 'label', add: ['bot'], remove: ['needs triage'] },
       { kind: 'open-pr', title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true },
-      { kind: 'ask-human', question: 'Which database?' },
-      { kind: 'push-branch', branch: 'bothub/7', files: ['a.ts'] },
-      { kind: 'propose-rule', path: 'rules/x.md', content: '' },
+      { kind: 'ask', question: 'Which database?' },
+      { kind: 'push', branch: 'bothub/7', files: ['a.ts'] },
+      { kind: 'note', note: 'pattern', slug: 'x', title: 'X', body: 'Do x.' },
     ];
     const results = await apply(proposals, { event, gh: gh('t', fetch), push });
     expect(results.map(r => [r.kind, r.status])).toEqual([
-      ['push-branch', 'applied'],
+      ['push', 'applied'],
       ['reply', 'applied'],
       ['label', 'applied'],
       ['open-pr', 'applied'],
-      ['ask-human', 'applied'],
-      ['propose-rule', 'skipped'],
+      ['ask', 'applied'],
+      ['note', 'skipped'],
     ]);
     expect(results[0]?.url).toBe('https://github.com/acme/app/tree/bothub/7');
     expect(results[1]?.url).toBe('https://api.github.com/repos/acme/app/issues/7/comments#created');
@@ -158,6 +158,30 @@ describe('apply', () => {
         { title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true, base: 'main' },
       ],
       ['POST', '/repos/acme/app/issues/7/comments', { body: '@morgan Which database?' }],
+    ]);
+  });
+
+  it('opens a hub pull request for a note when it can', async () => {
+    const note: Proposal = {
+      kind: 'note',
+      note: 'unsure',
+      slug: 'fork-prs',
+      title: 'Fork PRs?',
+      body: 'Which repo?\n',
+    };
+    expect(noteFile(note as Extract<Proposal, { kind: 'note' }>)).toEqual({
+      path: 'notes/unsure/fork-prs.md',
+      content: '---\ntitle: Fork PRs?\nstatus: proposed\n---\n\nWhich repo?\n',
+    });
+    const opened: unknown[] = [];
+    const hubPr = async (pr: unknown) => (opened.push(pr), 'https://github.com/acme/hub/pull/1');
+    const { fetch } = fakeFetch();
+    expect(await apply([note], { event, gh: gh('t', fetch), push, hubPr })).toEqual([
+      { kind: 'note', status: 'applied', url: 'https://github.com/acme/hub/pull/1' },
+    ]);
+    expect(opened).toEqual([expect.objectContaining({ path: 'notes/unsure/fork-prs.md', title: 'note: Fork PRs?' })]);
+    expect(await apply([note], { event, gh: gh('t', fetch), push })).toEqual([
+      { kind: 'note', status: 'skipped', reason: 'no hub repository to open a note pull request in' },
     ]);
   });
 
@@ -184,12 +208,12 @@ describe('apply', () => {
     const results = await apply(
       [
         { kind: 'open-pr', title: 't', body: '', head: 'bothub/x', base: 'main' },
-        { kind: 'push-branch', branch: 'bothub/x', files: [] },
+        { kind: 'push', branch: 'bothub/x', files: [] },
       ],
       { event, gh: gh('t', fetch), push: refuse }
     );
     expect(results).toEqual([
-      { kind: 'push-branch', status: 'failed', reason: '"x.ts" changed but is not listed in the proposal' },
+      { kind: 'push', status: 'failed', reason: '"x.ts" changed but is not listed in the proposal' },
       { kind: 'open-pr', status: 'skipped', reason: 'pushing bothub/x failed' },
     ]);
     expect(calls).toEqual([]);

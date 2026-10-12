@@ -1,8 +1,8 @@
-import type { Config, Workflow } from './config.ts';
-import type { Association } from './schema.ts';
+import type { Config, Defined } from './config.ts';
+import type { Association, Workflow } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
-export type PlannedJob = { workflow: string; job: string; persona?: string; args?: string };
+export type PlannedJob = { workflow: string; job: string; bot?: string; args?: string };
 
 const trusted: Association[] = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 const humanText = new Set([
@@ -20,7 +20,7 @@ const humanText = new Set([
 export const plan = (event: BotEvent, config: Config): PlannedJob[] =>
   Object.values(config.workflows).flatMap(workflow => planWorkflow(event, workflow));
 
-const planWorkflow = (event: BotEvent, workflow: Workflow): PlannedJob[] => {
+const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[] => {
   const filter = workflow.on[event.trigger];
   if (!filter) return [];
   if (filter.types && !(event.action && filter.types.includes(event.action))) return [];
@@ -39,7 +39,7 @@ const planWorkflow = (event: BotEvent, workflow: Workflow): PlannedJob[] => {
     .map(([id, job]) => ({
       workflow: workflow.name,
       job: id,
-      ...(job.persona && { persona: job.persona }),
+      ...(job.bot && { bot: job.bot }),
       ...(args !== undefined && { args }),
     }));
 };

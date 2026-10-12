@@ -41,6 +41,20 @@ describe('workspaces', () => {
     expect(git(path, 'rev-parse', 'HEAD')).toBe(origin.feature);
   });
 
+  it('lists committed, modified and untracked changes without touching the index', async () => {
+    const { ws } = setup();
+    const path = await ws.create({ repo: 'acme/app' }, 'run-1');
+    commit(path, { 'kept.txt': 'kept\n' });
+    writeFileSync(join(path, 'README.md'), 'changed\n');
+    writeFileSync(join(path, 'new.txt'), 'new\n');
+    const { files, diff } = await ws.changes('run-1');
+    expect(files.sort()).toEqual(['README.md', 'kept.txt', 'new.txt']);
+    expect(diff).toContain('+changed');
+    expect((await ws.changes('run-1', ['new.txt'])).diff).toMatch(/^diff --git a\/new.txt b\/new.txt\n[\s\S]*\+new$/);
+    expect(git(path, 'status', '--porcelain')).toBe('M README.md\n?? new.txt');
+    await expect(ws.changes('run-9')).rejects.toThrow('no worktree for run "run-9"');
+  });
+
   it('removes the worktree and prunes it from the mirror', async () => {
     const { ws, mirror } = setup();
     const path = await ws.create({ repo: 'acme/app' }, 'run-1');

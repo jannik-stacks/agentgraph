@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { access, mkdir, rm } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { access, copyFile, mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { checkPaths, type Proposal } from './outputs.ts';
@@ -106,7 +107,7 @@ export const workspaces = ({
       files = [],
       paths,
       message,
-    }: Omit<Extract<Proposal, { kind: 'push-branch' }>, 'kind'> & { paths?: string[]; message: string }
+    }: Omit<Extract<Proposal, { kind: 'push' }>, 'kind'> & { paths?: string[]; message: string }
   ) => {
     const base = bases.get(runId);
     if (!base) throw new Error(`no worktree for run "${runId}"`);
@@ -154,6 +155,29 @@ export const workspaces = ({
     return `https://github.com/${repo}/tree/${branch}`;
   };
 
+  /**
+   * Files a run changed since it started, committed or not, and their diff (limited to `only` when given). Reads
+   * through a copy of the index, so the worktree's own index is untouched.
+   */
+  const changes = async (runId: string, only: string[] = []) => {
+    const base = bases.get(runId);
+    if (!base) throw new Error(`no worktree for run "${runId}"`);
+    const path = worktreePath(dataDir, runId);
+    const index = await git(['-C', path, 'rev-parse', '--path-format=absolute', '--git-path', 'index']);
+    const scratch = `${index}.bothub-${randomBytes(4).toString('hex')}`;
+    await copyFile(index, scratch).catch(() => {});
+    try {
+      const env = { GIT_INDEX_FILE: scratch };
+      const run = (args: string[]) => git(['-C', path, ...args], env);
+      await run(['add', '-A']);
+      const files = names(await run(['diff', '--cached', '--name-only', '--no-renames', '-z', base]));
+      const diff = await run(['diff', '--cached', '--no-renames', base, '--', ...only]);
+      return { files, diff };
+    } finally {
+      await rm(scratch, { force: true });
+    }
+  };
+
   /** Deletes a run's worktree and prunes it from the mirror. Never throws. */
   const remove = async (repo: string, runId: string) => {
     bases.delete(runId);
@@ -161,7 +185,7 @@ export const workspaces = ({
     await serial(repo, () => git(['-C', mirrorPath(repo), 'worktree', 'prune'])).catch(() => {});
   };
 
-  return { create, publish, remove };
+  return { create, publish, changes, remove };
 };
 
 export type Workspaces = ReturnType<typeof workspaces>;

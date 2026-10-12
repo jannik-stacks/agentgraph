@@ -21,7 +21,7 @@ const ts = '2026-10-12T09:30:15.000Z';
 const seeded = async () => {
   const data = temp('cli');
   const store = openStore(data);
-  const run = await store.create({ workflow: 'issue-command', job: 'implement', executor: 'claude-code', event });
+  const run = await store.create({ workflow: 'issue-command', job: 'implement', harness: 'claude-code', event });
   await store.update(run.id, { status: 'succeeded', costUsd: 0.1234, startedAt: ts });
   await store.append(run.id, { ts, seq: 0, event: { type: 'start', model: 'sonnet' } });
   await store.append(run.id, {
@@ -50,7 +50,18 @@ describe('cli', () => {
     expect(await main(['check', '--dir', join(examples, 'hub'), '--json'])).toBe(0);
     expect(await main(['check', '--dir', join(examples, 'payloads')])).toBe(2);
     expect(io.out[0]).toBe('{"ok":true}\n');
-    expect(JSON.parse(io.out[1] ?? '').errors[0].message).toBe('no personas/*.md or workflows/*.md found');
+    expect(JSON.parse(io.out[1] ?? '').errors[0].message).toBe('no bots, skills, checks, workflows or notes found');
+    expect(await main(['check', '--dir', join(examples, 'hub'), '--no-json'])).toBe(0);
+    expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 1 workflow (2 jobs), 3 notes\n');
+  });
+
+  it('schema prints a JSON Schema for each file kind', async () => {
+    const io = capture();
+    expect(await main(['schema'])).toBe(0);
+    const schemas = JSON.parse(io.out.join(''));
+    expect(Object.keys(schemas)).toEqual(['bot', 'skill', 'check', 'workflow', 'note']);
+    expect(schemas.bot.required).toEqual(['harness', 'tools', 'can', 'max-turns']);
+    expect(schemas.workflow.properties.jobs.additionalProperties.properties.until.properties.max.default).toBe(2);
   });
 
   it('plan prints the jobs a payload starts', async () => {
@@ -66,12 +77,7 @@ describe('cli', () => {
     ]);
     expect(code).toBe(0);
     expect(JSON.parse(io.out.join('')).jobs).toEqual([
-      {
-        workflow: 'issue-command',
-        job: 'implement',
-        persona: 'implementor',
-        args: 'add a /health endpoint with a test',
-      },
+      { workflow: 'issue', job: 'implement', bot: 'implementor', args: 'add a /health endpoint with a test' },
     ]);
   });
 
@@ -83,20 +89,24 @@ describe('cli', () => {
     expect(await main([...args, '--dry-run', '--json'])).toBe(0);
     const [job] = JSON.parse(io.out.join('')).jobs;
     expect(job).toMatchObject({
-      workflow: 'issue-command',
+      workflow: 'issue',
       job: 'implement',
-      executor: 'claude-code',
+      harness: 'claude-code',
       timeoutMinutes: 45,
+      branch: 'bothub/7-add-a-health-endpoint-with-a-test',
+      until: { checks: ['types', 'review'], max: 2 },
     });
     expect(job.spec.cwd.startsWith(join(data, 'work'))).toBe(true);
     expect(job.spec.system).toContain('"kind": "open-pr"');
+    expect(job.spec.system).toContain('#### The project typechecks with no errors');
     expect(job.spec.prompt).toContain('```text\nadd a /health endpoint with a test\n```');
     expect(job.command.slice(0, 2)).toEqual(['claude', '-p']);
 
     io.out.length = 0;
     expect(await main([...args, '--dry-run', '--no-json'])).toBe(0);
     const text = io.out.join('');
-    expect(text).toContain('issue-command/implement (implementor, claude-code, 45 min)\n');
+    expect(text).toContain('issue/implement (implementor, claude-code, 45 min)\n');
+    expect(text).toContain('until: types, review pass, at most 2 more attempts\n');
     expect(text).toContain('--append-system-prompt <system>');
     expect(text).toMatch(/ -- <prompt>\n/);
     expect(existsSync(data)).toBe(false);
