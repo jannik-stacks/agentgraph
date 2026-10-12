@@ -4,5 +4,5 @@
   "trailingComma": "es5",
   "arrowParens": "avoid",
   "printWidth": 120,
-  "ignorePatterns": ["studio-lab/**", "research/**", "examples/**"]
+  "ignorePatterns": ["studio-lab/**", "research/**", "examples/**", "tests/fixtures/**"]
 }
