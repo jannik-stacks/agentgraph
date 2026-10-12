@@ -21,6 +21,7 @@ const asText = (line: string): AgentEvent[] => (line ? [{ type: 'text', text: li
 const replay = `const s = require('fs').readFileSync(${JSON.stringify(fixturePath)}, 'utf8'); let i = 0;
 const t = setInterval(() => { process.stdout.write(s.slice(i, (i += 97))); if (i >= s.length) clearInterval(t); }, 1);`;
 const hang = `console.log(process.pid); setInterval(() => {}, 1e6);`;
+const host = ['HOME', 'LANG', 'PATH', 'TERM', 'TMPDIR', 'USER'].filter(k => process.env[k]);
 const end = (ok: boolean) => JSON.stringify({ type: 'result', subtype: ok ? 'success' : 'error', is_error: !ok });
 
 const setup = async () => {
@@ -64,9 +65,7 @@ describe('agentEnv', () => {
   it('passes only the allowlist, adapter env and explicit secrets', () => {
     process.env.ANTHROPIC_API_KEY ??= 'leak';
     const env = agentEnv({ A: '1' }, { CLAUDE_CODE_OAUTH_TOKEN: 't' });
-    expect(Object.keys(env).sort()).toEqual(
-      ['A', 'CLAUDE_CODE_OAUTH_TOKEN', ...['HOME', 'LANG', 'PATH'].filter(k => process.env[k])].sort()
-    );
+    expect(Object.keys(env).sort()).toEqual(['A', 'CLAUDE_CODE_OAUTH_TOKEN', ...host].sort());
   });
 });
 
@@ -93,7 +92,7 @@ describe('agentEvents', () => {
     const keys = Chunk.toArray(events)[0];
     expect(keys).toMatchObject({ type: 'text' });
     expect((keys as { text: string }).text.split(',').filter(k => !k.startsWith('__CF'))).toEqual(
-      ['FROM_ADAPTER', 'S', ...['HOME', 'LANG', 'PATH'].filter(k => process.env[k])].sort()
+      ['FROM_ADAPTER', 'S', ...host].sort()
     );
   });
 

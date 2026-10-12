@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { ApplyResult } from './apply.ts';
 import type { PlannedJob } from './dispatch.ts';
+import type { extractProposals, Validated } from './outputs.ts';
 import type { Executor } from './schema.ts';
 import type { AgentEvent, BotEvent } from './types.ts';
 
@@ -19,6 +21,10 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'persona'> &
     error?: string;
   };
 
+/** What a run proposed and what reached GitHub, persisted as `runs/<id>/outcome.json`. */
+export type Outcome = ReturnType<typeof extractProposals> &
+  Omit<Validated, 'apply'> & { results: ApplyResult[]; applied: boolean };
+
 /** One line of `runs/<id>/events.jsonl`. */
 export type EventRecord = { ts: string; seq: number; event: AgentEvent };
 
@@ -32,22 +38,26 @@ const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 export const openStore = (dir: string) => {
   const runDir = (id: string) => join(dir, 'runs', id);
   const runFile = (id: string) => join(runDir(id), 'run.json');
+  const outcomeFile = (id: string) => join(runDir(id), 'outcome.json');
 
-  const write = async (run: Run) => {
-    const tmp = `${runFile(run.id)}.${randomBytes(4).toString('hex')}.tmp`;
-    await writeFile(tmp, JSON.stringify(run, null, 2) + '\n');
-    await rename(tmp, runFile(run.id));
-    return run;
+  const writeJson = async <T>(file: string, value: T) => {
+    const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
+    await writeFile(tmp, JSON.stringify(value, null, 2) + '\n');
+    await rename(tmp, file);
+    return value;
   };
 
-  const read = async (id: string): Promise<Run | undefined> => {
+  const readJson = async <T>(file: string): Promise<T | undefined> => {
     try {
-      return JSON.parse(await readFile(runFile(id), 'utf8')) as Run;
+      return JSON.parse(await readFile(file, 'utf8')) as T;
     } catch (e) {
       if (missing(e)) return;
       throw e;
     }
   };
+
+  const write = (run: Run) => writeJson(runFile(run.id), run);
+  const read = (id: string) => readJson<Run>(runFile(id));
 
   const create = async (fields: Omit<Run, 'id' | 'status'>, id = runId()) => {
     await mkdir(runDir(id), { recursive: true });
@@ -92,7 +102,10 @@ export const openStore = (dir: string) => {
       .filter(record => record.seq >= from);
   };
 
-  return { create, update, append, read, list, events };
+  const saveOutcome = (id: string, outcome: Outcome) => writeJson(outcomeFile(id), outcome);
+  const outcome = (id: string) => readJson<Outcome>(outcomeFile(id));
+
+  return { create, update, append, read, list, events, saveOutcome, outcome };
 };
 
 export type Store = ReturnType<typeof openStore>;

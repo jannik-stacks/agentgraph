@@ -3,7 +3,7 @@ import { Cause, Duration, Effect, Stream } from 'effect';
 import type { EventRecord, Run, Store } from './store.ts';
 import type { AgentEvent, ExecutorAdapter, RunSpec } from './types.ts';
 
-const inherited = ['PATH', 'HOME', 'LANG'];
+const inherited = ['PATH', 'HOME', 'LANG', 'TMPDIR', 'USER', 'TERM'];
 const stderrLimit = 4096;
 
 /** The child's environment: an allowlist of the host env, then the adapter's env, then explicit secrets. */
