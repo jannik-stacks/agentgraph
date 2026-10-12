@@ -18,6 +18,32 @@ description: The few words that describe every hub.
 
 Each file kind has a schema; the fields are listed on [Schema and config](/docs/reference/config).
 
+## Hierarchy
+
+Everything sits under one of two roots. The repository is the top: whatever has to last is in
+git, reviewed through pull requests. The data dir holds what runs produce. It is never in git; it
+sits on local disk today and on S3-type object storage later.
+
+```
+repository (git)
+  hub              hub.yaml, bots/, skills/, workflows/, checks/
+    workflow       triggers and jobs
+      job          a bot running a skill, or a script, gated by checks
+  notes/           decisions, conventions, patterns, caveats
+  issues           issues/*.md locally, GitHub issues in GitHub mode
+  code             the default branch, bot branches, pull requests
+
+data dir (not in git, object storage later)
+  runs/<id>/       run.json, events.jsonl, outcome.json, memory.md
+    home/          the harness's own sessions and transcripts
+  queue, deliveries, locks
+  repos/, work/    mirrors and worktrees, rebuilt when missing
+```
+
+Runs point up: each run records its repository, workflow, job and bot. Nothing in the data dir is
+the source of truth. When something a run learned should last, it goes back into the repository
+as a proposal: a note, an issue or a commit.
+
 ## Notes
 
 There are four kinds of note, split into rules and knowledge.
