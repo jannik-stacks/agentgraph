@@ -1,0 +1,20 @@
+# Every alias on the local Ollama model, for fully offline simulation.
+# Use it with LITELLM_CONFIG=litellm.offline.yaml in .env, then `docker compose up -d litellm`.
+
+model_list:
+  - model_name: local
+    litellm_params: &local
+      model: os.environ/BOTHUB_MODEL_LOCAL
+      api_base: os.environ/OLLAMA_API_BASE
+  - { model_name: fast, litellm_params: *local }
+  - { model_name: smart, litellm_params: *local }
+  - { model_name: writer, litellm_params: *local }
+  - { model_name: review, litellm_params: *local }
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 600
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL

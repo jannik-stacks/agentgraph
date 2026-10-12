@@ -1,0 +1,122 @@
+# Local bothub stack. Every published port binds to 127.0.0.1.
+#
+#   default   litellm (model proxy, virtual keys, admin UI at /ui) + postgres (keys, spend, UI login)
+#   sandbox   egress allowlist proxy and Ollama relay on the internal network run containers join
+#   ollama    Ollama in a container (Linux; on macOS run Ollama natively for the GPU)
+#   compute   celld dev, a local Cloudflare Workers runtime for the control plane
+#
+# Images are pinned by digest; the tag is informational. Re-pin with
+#   docker buildx imagetools inspect <image>:<tag>
+
+name: bothub
+
+services:
+  litellm:
+    # The PyPI releases 1.82.7 and 1.82.8 were malicious (2026-03-24); the official image was
+    # reported unaffected. Only ever run the image, pinned by digest.
+    image: ghcr.io/berriai/litellm-database:v1.105.0@sha256:f99e4cc55ce8a1c6888504ac6eff147868979d37363a7246cf804bbabdc27e88
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports: ["127.0.0.1:4000:4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in infra/local/.env}
+      DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:-litellm-local}@postgres:5432/litellm
+      STORE_MODEL_IN_DB: "False"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      BOTHUB_MODEL_SMART: ${BOTHUB_MODEL_SMART:-chatgpt/gpt-5.4}
+      BOTHUB_MODEL_WRITER: ${BOTHUB_MODEL_WRITER:-chatgpt/gpt-5.4}
+      BOTHUB_MODEL_REVIEW: ${BOTHUB_MODEL_REVIEW:-anthropic/claude-opus-5-5}
+      BOTHUB_MODEL_LOCAL: ${BOTHUB_MODEL_LOCAL:-ollama_chat/qwen3.5:4b}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+      # ChatGPT device-login tokens. The refresh token is single-use: never point two LiteLLM
+      # instances at the same token store.
+      CHATGPT_TOKEN_DIR: /var/lib/litellm/chatgpt
+    volumes:
+      - ./${LITELLM_CONFIG:-litellm.config.yaml}:/app/config.yaml:ro
+      - chatgpt-auth:/var/lib/litellm/chatgpt
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [db, egress, sandbox]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_DB: litellm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litellm-local}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [db]
+    restart: unless-stopped
+
+  egress:
+    profiles: [sandbox]
+    build: ./egress
+    image: bothub-egress:local
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    pids_limit: 64
+    networks: [sandbox, egress]
+    restart: unless-stopped
+
+  # Gives run containers the Ollama decision API (/v1/systemone) on the host, port 11434 only.
+  ollama-relay:
+    profiles: [sandbox]
+    build: ./egress
+    image: bothub-egress:local
+    entrypoint: ["socat", "TCP-LISTEN:11434,fork,reuseaddr", "TCP:${OLLAMA_HOST_ADDR:-host.docker.internal:11434}"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 32m
+    pids_limit: 64
+    networks: [sandbox, egress]
+    restart: unless-stopped
+
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99
+    ports: ["127.0.0.1:11434:11434"]
+    volumes:
+      - ollama-models:/root/.ollama
+    networks: [egress]
+    restart: unless-stopped
+
+  celld:
+    profiles: [compute]
+    build: ./celld
+    image: bothub-celld:local
+    command: ["dev", "/app", "--host", "0.0.0.0"]
+    ports: ["127.0.0.1:9876:9876"]
+    volumes:
+      - ${BOTHUB_WORKER_DIR:-./celld/hello}:/app
+    networks: [egress]
+
+networks:
+  db:
+    internal: true
+  egress: {}
+  sandbox:
+    name: bothub-sandbox
+    internal: true
+
+volumes:
+  pgdata: {}
+  chatgpt-auth: {}
+  ollama-models: {}

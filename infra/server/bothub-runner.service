@@ -1,0 +1,43 @@
+# Not yet used. Sketch for the bothub runner on a small Linux server.
+#   useradd --system --home /var/lib/bothub --shell /usr/sbin/nologin bothub
+#   usermod -aG docker bothub     # the runner starts sandbox containers (docker group is root-equivalent)
+[Unit]
+Description=bothub runner
+After=network-online.target docker.service litellm.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=bothub
+Group=bothub
+WorkingDirectory=/opt/bothub
+EnvironmentFile=/var/lib/bothub/.env
+Environment=BOTHUB_DATA=/var/lib/bothub
+Environment=NODE_OPTIONS=
+# `serve` (a long-running webhook or queue consumer) does not exist yet; the CLI has `run` per payload.
+ExecStart=/usr/bin/node /opt/bothub/bin/bothub.mjs serve --dir /opt/bothub-hub
+Restart=on-failure
+RestartSec=5
+
+# Limits for the runner itself; each sandbox container has its own docker limits.
+MemoryMax=512M
+CPUQuota=50%
+TasksMax=256
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/bothub
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

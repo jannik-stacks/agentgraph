@@ -1,0 +1,24 @@
+// Not yet used. Sketch of the webhook Worker: GitHub webhooks in (HMAC checked), runs out to a
+// queue. The studio and CLI API sit on a separate hostname behind Access (access-policy.md);
+// GitHub cannot send Access headers, so the webhook hostname stays outside Access.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bothub-webhooks",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "hooks.bothub.example.com", "custom_domain": true }],
+  "queues": {
+    "producers": [{ "binding": "RUNS", "queue": "bothub-runs" }]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "RUN", "class_name": "Run" },
+      { "name": "BOT", "class_name": "Bot" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Run", "Bot"] }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "bothub-files" }],
+  "observability": { "enabled": true }
+  // Secrets (wrangler secret put): GITHUB_WEBHOOK_SECRET, GITHUB_APP_PRIVATE_KEY
+}
