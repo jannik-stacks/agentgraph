@@ -6,6 +6,8 @@ FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472
 
 ARG OPENCODE_VERSION=1.19.0
 ARG PI_VERSION=1.1.0
+ARG OXLINT_VERSION=1.87.0
+ARG OXFMT_VERSION=0.72.0
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git ripgrep \
@@ -14,6 +16,8 @@ RUN apt-get update \
 RUN npm install -g --no-fund --no-audit \
       opencode-ai@${OPENCODE_VERSION} \
       @earendil-works/pi-coding-agent@${PI_VERSION} \
+      oxlint@${OXLINT_VERSION} \
+      oxfmt@${OXFMT_VERSION} \
  && npm cache clean --force
 
 ENV DO_NOT_TRACK=1 \

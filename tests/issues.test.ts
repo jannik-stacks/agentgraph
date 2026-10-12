@@ -137,6 +137,30 @@ describe('localIssues', () => {
     expect(new Set([...events, ...again].map(e => e.id)).size).toBe(4);
   });
 
+  it('notices a hand edit through file system events, closing and reopening an issue', async () => {
+    const dir = temp('issues');
+    const file = join(dir, '1-task.md');
+    writeFileSync(file, '---\ntitle: Task\nauthor: morgan\n---\n\nDo it.\n');
+    const events: BotEvent[] = [];
+    const { ready, stop } = localIssues(dir, { repo: 'acme/app' }).watch(e => events.push(e));
+    await ready;
+    await new Promise(done => setTimeout(done, 20));
+    writeFileSync(file, '---\ntitle: Task\nstate: closed\nauthor: morgan\n---\n\nDo it.\n');
+    await until(() => events.length >= 1);
+    writeFileSync(file, '---\ntitle: Task\nstate: open\nauthor: morgan\n---\n\nDo it.\n');
+    await until(() => events.length >= 2);
+    stop();
+    expect(events.map(e => [e.trigger, e.action, e.number, e.actor.login])).toEqual([
+      ['issues', 'closed', 1, 'morgan'],
+      ['issues', 'reopened', 1, 'morgan'],
+    ]);
+    expect(events[0]?.id).toMatch(/^local-1-closed-[0-9a-f]{12}$/);
+
+    const early = localIssues(temp('issues'), { repo: 'acme/app' }).watch(() => {});
+    early.stop();
+    await early.ready;
+  });
+
   it('reports the file of an issue it cannot read', async () => {
     const dir = temp('issues');
     writeFileSync(join(dir, '1-bad.md'), '---\ntitle: Bad\nstate: maybe\n---\n');

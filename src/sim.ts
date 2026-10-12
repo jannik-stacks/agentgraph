@@ -262,6 +262,7 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
             adapters,
             launch: unsandboxed,
             mcp: tools => bothubServer({ dir: hub, tools, repo, data }),
+            hub,
             onEvent: (run, { event: e }) => {
               if (e.type === 'start' && spec) {
                 const name = `${run.workflow}/${run.job}${run.attempt ? ` attempt ${run.attempt}` : ''}`;

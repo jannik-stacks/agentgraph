@@ -140,8 +140,9 @@ const offeredTools = (tools: HubTool[]) =>
     : undefined;
 
 /**
- * A bot's session for a skill. The system prompt holds the role, offered skills, the relevant notes (when `notes` is
- * preloaded), the hub tools and the proposal format for `can`. Hub tools are served by `mcp` when one is given.
+ * A bot's session for a skill. The system prompt holds, in order, the role, the relevant notes (when `notes` is
+ * preloaded), the `pinned` sections (the forced skill and the task), the offered skills, the hub tools and the
+ * proposal format for `can`. Hub tools are served by `mcp` when one is given.
  */
 const session = ({
   config,
@@ -155,6 +156,7 @@ const session = ({
   preload = ['notes'],
   tools = [],
   mcp,
+  pinned = [],
 }: {
   config: Config;
   bot: Defined<Bot>;
@@ -167,6 +169,7 @@ const session = ({
   preload?: Preload[];
   tools?: HubTool[];
   mcp?: ((tools: HubTool[]) => McpServer) | undefined;
+  pinned?: (string | undefined)[];
 }): RunSpec => {
   const kinds = [...(bot.notes ?? []), ...(skill.notes ?? [])];
   const notes = preload.includes('notes') ? renderNotes(relevantNotes(config.notes, { kinds, paths })) : undefined;
@@ -175,8 +178,9 @@ const session = ({
     prompt,
     system: [
       bot.body,
-      offered(config, bot),
       notes,
+      ...pinned,
+      offered(config, bot),
       offeredTools(served),
       can.length ? proposing(can, branch) : undefined,
     ]
@@ -185,7 +189,7 @@ const session = ({
     cwd,
     ...(bot.model && { model: bot.model }),
     tools: [...harnessTools(bot), ...mcpToolNames(bot.harness, served)],
-    maxTurns: bot['max-turns'],
+    ...(bot['max-turns'] && { maxTurns: bot['max-turns'] }),
     ...(mcp && served.length && { mcp: mcp(served) }),
   };
 };
@@ -225,8 +229,8 @@ const branchFor = (job: Job, at: Parameters<typeof renderBranch>[1], from?: Hand
   job.branch ? renderBranch(job.branch, at) : from?.branch;
 
 /**
- * The agent session for a planned job: the bot's system prompt, and the forced skill's body plus the event, the
- * handed-off branch and pull request, and any `preloaded` issue context as the prompt.
+ * The agent session for a planned job. The forced skill and any `preloaded` issue context are pinned in the system
+ * prompt, so they hold for the whole run; the prompt is the event with the handed-off branch and pull request.
  */
 export const buildSpec = ({
   config,
@@ -254,11 +258,24 @@ export const buildSpec = ({
   if (!bot || !skill) throw new Error(`job "${id}" has no bot and skill`);
   const can = effectiveCan(bot, job);
   const branch = branchFor(job, { event, args, job: id, workflow: workflow.name }, handoff);
-  const prompt = [skill.body, eventContext(event, args, branch, handoff?.pr), preloaded].filter(Boolean).join('\n\n');
+  const prompt = eventContext(event, args, branch, handoff?.pr);
   const preload = effectivePreload(bot, job);
   const tools = effectiveTools(bot, job);
   return {
-    spec: session({ config, bot, skill, can, branch, prompt, cwd, paths: job.paths, preload, tools, mcp }),
+    spec: session({
+      config,
+      bot,
+      skill,
+      can,
+      branch,
+      prompt,
+      cwd,
+      paths: job.paths,
+      preload,
+      tools,
+      mcp,
+      pinned: [`## Skill: ${skill.name}\n\n${skill.body}`, preloaded],
+    }),
     bot,
     job,
     can,
@@ -285,7 +302,8 @@ export const secretsFor = ({ name }: Pick<Defined<Bot>, 'name'>, env: Record<str
 
 /**
  * Everything a planned job needs to run. Without `gh` or `issues`, nothing is applied; without `gh`, pull requests
- * are skipped; without `hubPr`, notes are skipped. `issues` defaults to GitHub's when `gh` is given and also feeds
+ * are skipped; without `hubPr`, notes are skipped. Scripts see the `hub` directory read-only as `BOTHUB_HUB` and the
+ * commit their worktree started from as `BOTHUB_BASE`. `issues` defaults to GitHub's when `gh` is given and also feeds
  * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it. Harnesses and scripts
  * run in the sandbox; `launch` replaces it only in tests and the simulator.
  */
@@ -299,6 +317,7 @@ export type Pipeline = {
   gh?: GitHub;
   issues?: Issues;
   mcp?: (tools: HubTool[]) => McpServer;
+  hub?: string;
   hubPr?: Parameters<typeof apply>[1]['hubPr'];
   adapters?: Record<Harness, HarnessAdapter>;
   launch?: Launcher;
@@ -331,12 +350,18 @@ const skip = async (
 
 const day = 24 * 60 * 60 * 1000;
 
-/** Why a bot may not start another run today, if it may not. Every run counts: attempts and checks too. */
+/** A run whose sandbox never started: no agent ran, so it costs no budget and waits for the sandbox. */
+const sandboxFailed = (run: Pick<Run, 'error'>) => run.error?.startsWith('sandbox-failed: ') ?? false;
+
+/**
+ * Why a bot may not start another run today, if it may not. Every run counts, attempts and checks too, except
+ * runs whose sandbox never started.
+ */
 const outOfRuns = async (bot: Defined<Bot>, store: Store, now = Date.now()) => {
   const cap = bot.budget?.['runs-per-day'];
   if (!cap) return;
   const used = (await store.list()).filter(
-    run => run.bot === bot.name && run.startedAt && now - Date.parse(run.startedAt) < day
+    run => run.bot === bot.name && run.startedAt && now - Date.parse(run.startedAt) < day && !sandboxFailed(run)
   ).length;
   return used >= cap ? `bot "${bot.name}" used its ${cap} runs for the last 24 hours` : undefined;
 };
@@ -437,7 +462,7 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
     if (script) {
       const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
       const { ok, output } = yield* Effect.promise(() =>
-        runScript(script, a.cwd, timeout, handoffEnv(a.handoff), p.launch)
+        runScript(script, a.cwd, timeout, { ...handoffEnv(a.handoff), BOTHUB_BASE: a.base }, p.launch, p.hub)
       );
       return done({ pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) });
     }
@@ -557,7 +582,8 @@ const closed = (closure: Closure, reason?: string): Pick<Run, 'closure' | 'reaso
  * What happened to a job's work, from its run and outcome. A closure the bot stated wins once the run succeeded. A
  * question is `blocked`, a pull request `handed-off`, any other write `done`. A push without a pull request is
  * `handed-off` when a later job needs this one, otherwise `blocked`. A job that may push but
- * changed nothing, or one that wrote nothing at all, is `no-op`. A skipped run or a provider limit is `deferred`;
+ * changed nothing, or one that wrote nothing at all, is `no-op`. A skipped run, a provider limit or a sandbox that
+ * never started is `deferred`;
  * any other failure, or an effect that failed to apply, is `blocked`.
  */
 export const closureOf = (run: Run, outcome: Outcome | undefined, can: ProposalKind[], taken = false) => {
@@ -565,6 +591,7 @@ export const closureOf = (run: Run, outcome: Outcome | undefined, can: ProposalK
   const asked = outcome && kindsOf(outcome).includes('ask');
   if (run.status !== 'succeeded') {
     if (providerLimit.test(run.error ?? '')) return closed('deferred', `the provider refused the run: ${run.error}`);
+    if (sandboxFailed(run)) return closed('deferred', run.error);
     return closed('blocked', asked ? 'asked a human' : (run.error ?? `the run ${run.status}`));
   }
   const stated = outcome?.accepted.find(proposal => proposal.kind === 'close');
@@ -831,10 +858,11 @@ const scriptJob = (planned: PlannedJob, script: string, job: Job, handoff: Hando
     const { store, event } = p;
     const created = yield* Effect.promise(() => store.create({ workflow: planned.workflow, job: planned.job, event }));
     const timeout = job['timeout-minutes'] ?? defaultMinutes;
-    const execute = ({ cwd }: { cwd: string }) =>
+    const execute = ({ cwd, base }: { cwd: string; base: string }) =>
       Effect.promise(async (): Promise<JobResult> => {
         await store.update(created.id, { status: 'running', startedAt: new Date().toISOString() });
-        const { ok, output } = await runScript(script, cwd, timeout, handoffEnv(handoff), p.launch);
+        const env = { ...handoffEnv(handoff), BOTHUB_BASE: base };
+        const { ok, output } = await runScript(script, cwd, timeout, env, p.launch, p.hub);
         const ts = new Date().toISOString();
         if (output) await store.append(created.id, { ts, seq: 0, event: { type: 'text', text: output } });
         await store.append(created.id, { ts, seq: output ? 1 : 0, event: { type: 'end', ok } });

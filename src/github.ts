@@ -45,6 +45,7 @@ const Payload = z.object({
   pull_request: Item.extend({ author_association: Associated, base: z.object({ ref: z.string() }) }).optional(),
   review: z.object({ body: z.string().nullish(), html_url: z.string(), author_association: Associated }).optional(),
   ref: z.string().optional(),
+  label: z.object({ name: z.string() }).optional(),
 });
 
 /** Webhook events `toEvent` maps; every other event name is ignored. */
@@ -84,5 +85,6 @@ export const toEvent = (name: string, deliveryId: string, payload: unknown, now 
     ...(url && { url }),
     ...(ref && { ref }),
     ...(branch && { branch }),
+    ...(p.label && { label: p.label.name }),
   };
 };

@@ -5,13 +5,14 @@ import { promisify } from 'node:util';
 import { Effect } from 'effect';
 import { api, serve } from './api.ts';
 import { compile } from './config.ts';
-import { dispatch, plan, type PlannedJob } from './dispatch.ts';
+import { plan, withdrawn, type PlannedJob } from './dispatch.ts';
 import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { approvals, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
+import { fileQueue, worker } from './queue.ts';
 import { limiter } from './runner.ts';
 import { openStore, reconcile } from './store.ts';
 import type { BotEvent } from './types.ts';
@@ -66,9 +67,9 @@ export const runEvent = async (jobs: PlannedJob[], p: Pipeline): Promise<JobResu
 /**
  * A long-running local hub: watches `<hub>/issues`, runs the jobs each change starts through the pipeline (local
  * issues, the bothub MCP server, worktrees of the local `origin`, pull requests recorded in `<data>/pulls.jsonl`)
- * and serves the studio API on `port` (0 picks a free one). Each event is planned once (by its id); runs a stopped
- * process left unfinished are marked interrupted at startup and their events run again. Events run one after
- * another; resolves once listening.
+ * and serves the studio API on `port` (0 picks a free one). Each new event id waits in `<data>/queue` and runs one
+ * after another; one whose label was removed before it ran is dropped. Runs a stopped process left unfinished are
+ * marked interrupted at startup and their events run again. Resolves once listening.
  */
 export const serveHub = async ({
   hub,
@@ -103,14 +104,15 @@ export const serveHub = async ({
   const spaces = workspaces({ dataDir: root, cloneUrl: () => origin });
   const limit = await Effect.runPromise(limiter(1));
 
-  const handle = async (event: BotEvent, replan = false) => {
+  const handle = async (event: BotEvent) => {
+    if (await withdrawn(event, issues)) return log(`event ${event.id} dropped, its label "${event.label}" was removed`);
     const compiled = compile(await readHub(dir));
     if (!compiled.ok) {
       for (const e of compiled.errors) log(`hub: ${e.path}: ${e.message}`);
       return;
     }
     const { config } = compiled;
-    const jobs = replan ? plan(event, config) : await dispatch(event, config, store);
+    const jobs = plan(event, config);
     log(`event ${event.trigger} (${event.action}) on #${event.number} by @${event.actor.login}: ${jobs.length} jobs`);
     const results = await runEvent(jobs, {
       config,
@@ -122,6 +124,7 @@ export const serveHub = async ({
       gh,
       issues,
       mcp: tools => bothubServer({ dir, tools, repo, data: root }),
+      hub: dir,
       ...(adapters && { adapters }),
       ...(launch && { launch }),
       onEvent: (run, { event: e }) => {
@@ -134,13 +137,21 @@ export const serveHub = async ({
     if (results.length) onResults?.(event, results);
   };
 
-  let queue = Promise.resolve();
-  const enqueue = (event: BotEvent, replan?: boolean) => {
-    queue = queue.then(() => handle(event, replan)).catch((e: Error) => log(`error: ${e.message}`));
+  const queue = fileQueue<BotEvent>(join(root, 'queue'));
+  const work = worker(queue, handle, e => log(`error: ${e.message}`));
+  let pushing = Promise.resolve();
+  const enqueue = (event: BotEvent, again = false) => {
+    pushing = pushing
+      .then(async () => {
+        if (again || (await store.deliver(event.id))) await queue.push(event.id, event);
+        void work.wake();
+      })
+      .catch((e: Error) => log(`error: ${e.message}`));
   };
   const interrupted = await reconcile(store, spaces);
   for (const run of interrupted) log(`${run.workflow}/${run.job} ${run.id} interrupted, running its event again`);
   for (const event of new Map(interrupted.map(run => [run.event.id, run.event])).values()) enqueue(event, true);
+  void work.wake();
   const watching = issues.watch(enqueue, { interval });
   await watching.ready;
   const server = await serve(api({ hubDir: dir, store }), port);
@@ -149,11 +160,15 @@ export const serveHub = async ({
   log(`serving ${dir} on http://127.0.0.1:${listening}, origin ${origin} as ${repo}`);
   return {
     port: listening,
-    idle: () => queue,
+    idle: async () => {
+      await pushing;
+      await work.idle();
+    },
     stop: async () => {
       watching.stop();
       await new Promise(done => server.close(done));
-      await queue;
+      await pushing;
+      await work.stop();
     },
   };
 };

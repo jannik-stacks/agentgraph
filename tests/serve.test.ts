@@ -108,6 +108,47 @@ describe('serveHub', () => {
     }
   });
 
+  it('keeps serving through a hub edit that does not compile, and runs again once it is fixed', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    const lines: string[] = [];
+    const done: JobResult[][] = [];
+    const served = await serveHub({
+      hub,
+      data: temp('serve-data'),
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 20,
+      log: line => lines.push(line),
+      adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      launch: unsandboxed,
+      onResults: (_, results) => done.push(results),
+    });
+    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
+    const settle = async (check: () => boolean) => {
+      while (!check()) await new Promise(r => setTimeout(r, 20));
+      await served.idle();
+    };
+    try {
+      writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!.replace('tools: [read]', 'tools: [Read]'));
+      await issues.comment(1, '/bothub why');
+      await settle(() => lines.some(line => line.startsWith('hub: bots/helper.md')));
+      expect(done).toEqual([]);
+
+      writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!);
+      await issues.comment(1, '/bothub why, again');
+      await settle(() => done.length > 0);
+      expect(done.flat().map(r => ('run' in r ? r.run.status : r.skipped))).toEqual(['succeeded']);
+    } finally {
+      await served.stop();
+    }
+  });
+
   it('marks runs a stopped process left unfinished as interrupted and runs their event again', async () => {
     const hub = temp('serve-hub');
     for (const [path, text] of Object.entries(files)) {

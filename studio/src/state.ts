@@ -42,11 +42,9 @@ export const navigateAtom = atom(
 const segments = atom(get => get(locationAtom).path.split('/').filter(Boolean));
 export const routeAtom = atom(get => routes.find(route => route === get(segments)[0]));
 
-export const studioTabs = ['graph', 'setup'] as const;
+export const studioTabs = ['graph', 'setup', 'lab'] as const;
 export type StudioTab = (typeof studioTabs)[number];
 export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segments)[1]) ?? 'graph');
-
-export const labAtom = atom(get => get(segments)[1] === 'lab');
 
 export const docsSlugAtom = atom(get => get(segments).slice(1));
 
@@ -61,6 +59,7 @@ export const runIdAtom = queryParam('run');
 export const statusFilterAtom = queryParam('status');
 export const botFilterAtom = queryParam('bot');
 export const selectedFileAtom = queryParam('file');
+export const editPathAtom = queryParam('edit');
 export const sampleAtom = atom(get => get(locationAtom).query.has('sample'));
 
 export const hubAtom = atomWithRefresh(() => getJson<{ config: Config } | { errors: ConfigError[] }>('/api/hub'));

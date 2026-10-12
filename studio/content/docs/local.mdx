@@ -40,7 +40,31 @@ npm run seed
 `npm run dev` starts the API on port 5181 and the app on http://localhost:5182, pointed at the
 acme-app example hub. Pass `-- --hub <dir> --data <dir>` to point it elsewhere. `npm run seed`
 writes a few sample runs into the data directory so the Dashboard has something to show; add
-`-- --live` to stream one slowly.
+`-- --live` to stream one slowly. The API restarts by itself when files under `src/` change.
+
+## Editing the hub
+
+Studio edits every kind of hub file: `hub.yaml`, bots, skills, checks, workflows, notes and local
+issues. With no node selected, the side panel lists the hub's items by kind, each with a button to
+add a new one. A selected node has an Edit button that opens the file behind it; for a job or a
+trigger that is its workflow, with that job opened.
+
+The form is built from the same schemas `bothub check` uses, so a field added to a file kind shows
+up in studio without a change to studio. Lists of names offer the hub's skills, bots, checks, job
+ids, tools and model aliases as chips, and a name that points at another item links to it. Each
+workflow job is its own section: give it a bot and a skill or a `run` command, its `needs`, and the
+checks it loops `until`. Renaming an item moves its file and updates every reference to it.
+
+Edits stay pending until you save them. The tray under the graph shows a diff per file and the
+whole hub is compiled again on every keystroke (<Sym name="validateHub" />); problems appear next to
+the field they are about, and Save stays disabled until the hub compiles. The graph previews the
+pending hub as you type.
+
+Save writes through <Sym name="writeHub" />, which compiles the hub once more on the server and
+writes nothing if it does not compile. It only writes item files inside the hub directory, refuses
+symlinks and any file that changed on disk since studio loaded it, keeps comments and formatting of
+fields that did not change, and answers only on localhost. When the hub directory is in a git work
+tree, Save and commit also commits exactly the saved files as `update`. It never pushes.
 
 ## The model stack
 

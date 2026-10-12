@@ -102,6 +102,22 @@ export const compile = (files: SourceFile[]): Compiled => {
   return errors.length ? { ok: false, errors } : { ok: true, config, warnings: warnings(config) };
 };
 
+/** The tool names each harness's allowlist understands, besides the bothub read tools. */
+export const harnessToolNames: Record<Harness, readonly string[]> = {
+  opencode: ['read', 'edit', 'write', 'bash', 'grep', 'glob', 'list', 'webfetch', 'websearch', 'todowrite', 'task'],
+  pi: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'],
+};
+
+/** Why a tool entry means nothing to the bot's harness: an unknown name, or a pattern pi cannot take. */
+const toolProblem = (harness: Harness, tool: string) => {
+  if (HubTool.safeParse(tool).success) return;
+  const [, name = tool, pattern] = /^([^(]+)\((.*)\)$/.exec(tool) ?? [];
+  const known = harnessToolNames[harness];
+  if (!known.includes(name))
+    return `lists tool "${tool}", which ${harness} does not have (one of ${known.join(', ')}, or a hub tool)`;
+  if (pattern !== undefined && harness !== 'opencode') return `lists tool "${tool}", but ${harness} takes no patterns`;
+};
+
 const references = (config: Config): ConfigError[] => {
   const errors: ConfigError[] = [];
   const at = (path: string) => (message: string) => errors.push({ path, message });
@@ -110,6 +126,10 @@ const references = (config: Config): ConfigError[] => {
   for (const bot of Object.values(bots)) {
     const fail = at(bot.path);
     for (const skill of bot.skills ?? []) if (!(skill in skills)) fail(`offers unknown skill "${skill}"`);
+    for (const tool of bot.tools) {
+      const problem = toolProblem(bot.harness, tool);
+      if (problem) fail(problem);
+    }
   }
 
   for (const check of Object.values(checks)) {
@@ -141,12 +161,17 @@ const costReporting: readonly Harness[] = [];
 /** Fields that compile but that the runner does not act on, or that make a job do nothing it asked for. */
 const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
   const found: ConfigError[] = [];
-  for (const bot of Object.values(bots))
+  for (const bot of Object.values(bots)) {
+    const warn = (message: string) => found.push({ path: bot.path, message });
     if (bot.budget?.['usd-per-run'] !== undefined && !costReporting.includes(bot.harness))
-      found.push({
-        path: bot.path,
-        message: `"usd-per-run" is declared, not enforced: harness "${bot.harness}" reports no cost`,
-      });
+      warn(`"usd-per-run" is declared, not enforced: harness "${bot.harness}" reports no cost`);
+    if (bot.harness === 'pi') {
+      if (bot['max-turns'] !== undefined)
+        warn('"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it');
+      const served = hubTools(bot);
+      if (served.length) warn(`lists hub tools (${served.join(', ')}) that pi runs do not get`);
+    }
+  }
   for (const check of Object.values(checks))
     if (check.decide && check.mode !== 'shadow' && check.decide.threshold === undefined)
       found.push({

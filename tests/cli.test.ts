@@ -68,7 +68,7 @@ describe('cli', () => {
     expect(await main(['schema'])).toBe(0);
     const schemas = JSON.parse(io.out.join(''));
     expect(Object.keys(schemas)).toEqual(['hub', 'bot', 'skill', 'check', 'workflow', 'note']);
-    expect(schemas.bot.required).toEqual(['harness', 'tools', 'can', 'max-turns']);
+    expect(schemas.bot.required).toEqual(['harness', 'tools', 'can']);
     expect(schemas.workflow.properties.jobs.additionalProperties.properties.until.properties.max.default).toBe(2);
   });
 

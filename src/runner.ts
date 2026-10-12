@@ -173,14 +173,22 @@ export type Launcher = {
     secrets?: Record<string, string>,
     home?: ReturnType<typeof homeEnv>
   ) => Promise<Command>;
-  script: (script: string, cwd: string, env: Record<string, string>) => Promise<Command>;
+  script: (script: string, cwd: string, env: Record<string, string>, hub?: string) => Promise<Command>;
   startFailed: (error: Error & { exitCode?: number; code?: unknown }) => boolean;
 };
 
 /** Starts every command in a hardened run container; fails when the sandbox is unavailable. */
 export const sandboxed: Launcher = {
   agent: (adapter, spec, secrets, home) => containedCommand(adapter, spec, secrets, home?.HOME),
-  script: (script, cwd, env) => contained({ name: 'script', worktree: cwd, env, cmd: 'sh', args: ['-c', script] }),
+  script: (script, cwd, env, hub) =>
+    contained({
+      name: 'script',
+      worktree: cwd,
+      mounts: hub ? [{ src: hub, dst: inside.hub, readonly: true }] : [],
+      env: { ...env, ...(hub && { BOTHUB_HUB: inside.hub }) },
+      cmd: 'sh',
+      args: ['-c', script],
+    }),
   startFailed: error => error.exitCode === 125 || typeof error.code === 'string',
 };
 
@@ -193,7 +201,12 @@ export const unsandboxed: Launcher = {
     const { cmd, args, env } = adapter.command(spec);
     return { cmd, args, cwd: spec.cwd, env: agentEnv(env, secrets, home) };
   },
-  script: async (script, cwd, env) => ({ cmd: 'sh', args: ['-c', script], cwd, env: agentEnv(env) }),
+  script: async (script, cwd, env, hub) => ({
+    cmd: 'sh',
+    args: ['-c', script],
+    cwd,
+    env: agentEnv({ ...env, ...(hub && { BOTHUB_HUB: hub }) }),
+  }),
   startFailed: () => false,
 };
 
@@ -354,7 +367,8 @@ export const runJob = (options: {
 const scriptOutputLimit = 8192;
 
 /**
- * Runs `script` with `sh -c` in a run container with `cwd` as its worktree and the minimal agent env plus `env`.
+ * Runs `script` with `sh -c` in a run container with `cwd` as its worktree and the minimal agent env plus `env`. A
+ * `hub` directory is mounted read-only and named by `BOTHUB_HUB`, so a script can run the hub's own scripts.
  * Resolves to whether it exited 0 within the timeout, with the tail of its combined output; a sandbox that is
  * unavailable resolves to `sandbox-failed: …` without running anything. Never rejects.
  */
@@ -363,10 +377,11 @@ export const runScript = async (
   cwd: string,
   timeoutMinutes: number,
   env: Record<string, string> = {},
-  launch: Launcher = sandboxed
+  launch: Launcher = sandboxed,
+  hub?: string
 ) => {
   const failed = (message: string) => ({ ok: false, output: `sandbox-failed: ${message}` });
-  const command = await launch.script(script, cwd, env).catch((error: Error) => error);
+  const command = await launch.script(script, cwd, env, hub).catch((error: Error) => error);
   if (command instanceof Error) return failed(command.message);
   return new Promise<{ ok: boolean; output: string }>(resolve => {
     const child = spawn(command.cmd, command.args, {

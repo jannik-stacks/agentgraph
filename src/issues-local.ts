@@ -6,17 +6,8 @@ import { Document, visit } from 'yaml';
 import { z } from 'zod';
 import { changeEvent, matches, type Comment, type Issue, type Issues } from './issues.ts';
 import { parseMarkdown } from './markdown.ts';
-import type { Association } from './schema.ts';
+import { IssueFile, type Association } from './schema.ts';
 import type { BotEvent } from './types.ts';
-
-const Frontmatter = z.strictObject({
-  title: z.string().min(1),
-  state: z.enum(['open', 'closed']).default('open'),
-  labels: z.array(z.string()).default([]),
-  author: z.string().exactOptional(),
-  parent: z.int().positive().exactOptional(),
-  links: z.array(z.int().positive()).exactOptional(),
-});
 
 const fileName = /^(\d+)-[a-z0-9-]*\.md$/;
 const commentHeading = /^## @(\S+) at (\d{4}-\d\d-\d\dT[\d:.]+Z)$/gm;
@@ -41,6 +32,8 @@ export const localId = (change: Parameters<typeof changeEvent>[0]) => {
     return `local-${issue.number}-comment-${index}-${digest(change.comment.author, change.comment.ts, change.comment.body)}`;
   }
   if (change.action === 'opened') return `local-${issue.number}-opened`;
+  if (change.action === 'labeled')
+    return `local-${issue.number}-labeled-${digest(change.label, issue.state, issue.labels, issue.comments.length)}`;
   return `local-${issue.number}-${change.action}-${digest(issue.state, issue.labels, issue.comments.length)}`;
 };
 
@@ -49,7 +42,7 @@ export const parseIssue = (file: string, source: string): Issue => {
   const number = Number(fileName.exec(file)?.[1]);
   if (!number) throw new Error(`${file}: issue files are named <number>-<slug>.md`);
   const { data, body } = parseMarkdown(source);
-  const parsed = Frontmatter.safeParse(data ?? {});
+  const parsed = IssueFile.safeParse(data ?? {});
   if (!parsed.success) throw new Error(`${file}: ${z.prettifyError(parsed.error)}`);
   const heads = [...body.matchAll(commentHeading)];
   const comments: Comment[] = heads.map((head, i) => ({
@@ -146,8 +139,8 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
           else {
             if (old.state !== issue.state)
               event({ kind: 'issues', action: issue.state === 'closed' ? 'closed' : 'reopened', issue, sender });
-            if (issue.labels.some(label => !old.labels.includes(label)))
-              event({ kind: 'issues', action: 'labeled', issue, sender });
+            for (const label of issue.labels.filter(label => !old.labels.includes(label)))
+              event({ kind: 'issues', action: 'labeled', issue, sender, label });
           }
           for (const comment of issue.comments.slice(old?.comments.length ?? 0))
             event({ kind: 'issue_comment', issue, comment });

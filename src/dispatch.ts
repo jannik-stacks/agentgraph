@@ -1,4 +1,5 @@
 import type { Config, Defined } from './config.ts';
+import type { Issues } from './issues.ts';
 import type { Association, Workflow } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
@@ -38,6 +39,7 @@ const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[
   if (!filter) return [];
   if (filter.types && !(event.action && filter.types.includes(event.action))) return [];
   if (filter.branches && !(event.branch && filter.branches.includes(event.branch))) return [];
+  if (filter.labels && !(event.label && filter.labels.includes(event.label))) return [];
   const allowed = filter.guard?.associations ?? (humanText.has(event.trigger) ? trusted : undefined);
   if (allowed && !allowed.includes(event.actor.association)) return [];
 
@@ -65,3 +67,10 @@ export const parseCommand = (body: string, command: string): string | undefined 
   if (rest && !/^\s/.test(rest)) return;
   return rest.trim();
 };
+
+/** Whether the label that started an event was removed before its jobs ran, which withdraws them. */
+export const withdrawn = async (event: BotEvent, issues: Pick<Issues, 'get'>) =>
+  event.action === 'labeled' &&
+  event.label !== undefined &&
+  event.number !== undefined &&
+  !(await issues.get(event.number))?.labels.includes(event.label);

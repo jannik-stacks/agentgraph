@@ -3,7 +3,7 @@ import { createContext, lazy, type ReactNode, Suspense, use, useMemo } from 'rea
 import { Mode } from '../../../src/schema.ts';
 import { type GraphModel, type GraphNode, modeTone } from '../graph-model.ts';
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
-import { filesAtom, navigateAtom } from '../state.ts';
+import { filesAtom, navigateAtom, sampleAtom } from '../state.ts';
 import { Badge, Chip, Chips, cx, Field, Fields, Pre, Section, useStoredFlag } from '../ui.tsx';
 import { kindDot } from './styles.ts';
 
@@ -217,11 +217,25 @@ const NoteList = ({ kind, notes }: { kind: string; notes: Note[] }) => {
             <span className="ml-auto flex items-center gap-1">
               {note.status && <Badge tone={note.status === 'accepted' ? 'ok' : 'neutral'}>{note.status}</Badge>}
               {note.check && <NodeChip id={`check:${note.check}`} />}
+              <EditButton path={`notes/${kind}/${note.slug}.md`} />
             </span>
           </li>
         );
       })}
     </ul>
+  );
+};
+
+const editButton =
+  'rounded border border-zinc-300 px-2 py-0.5 text-xs normal-case tracking-normal text-zinc-700 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-sky-600 dark:hover:text-sky-300';
+
+const EditButton = ({ path, label = 'Edit' }: { path: string; label?: string }) => {
+  const navigate = useSetAtom(navigateAtom);
+  if (useAtomValue(sampleAtom)) return null;
+  return (
+    <button type="button" className={editButton} onClick={() => navigate({ query: { edit: path } })}>
+      {label}
+    </button>
   );
 };
 
@@ -242,6 +256,11 @@ const Header = ({ node, data }: { node: GraphNode; data: Record<string, unknown>
               {badge.text}
             </Badge>
           ))}
+        {node.source?.root === 'hub' && (
+          <span className="ml-auto">
+            <EditButton path={node.source.path} label={node.kind === 'job' || node.kind === 'script' || node.kind === 'trigger' ? 'Edit workflow' : 'Edit'} />
+          </span>
+        )}
       </div>
       <h2 className="text-lg font-semibold leading-tight">{node.label}</h2>
       {summary && <p className="text-zinc-600 dark:text-zinc-400">{summary}</p>}

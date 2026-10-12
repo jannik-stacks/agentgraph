@@ -1,7 +1,10 @@
 import type { McpServer } from './mcp-config.ts';
 import type { Association, Harness, Trigger } from './schema.ts';
 
-/** A trigger from GitHub, a local issue tracker or the CLI, normalised so workflows never see raw payloads. */
+/**
+ * A trigger from GitHub, a local issue tracker or the CLI, normalised so workflows never see raw payloads. `label` is
+ * the label an `issues` `labeled` or `unlabeled` event is about.
+ */
 export type BotEvent = {
   id: string;
   ts: string;
@@ -15,6 +18,7 @@ export type BotEvent = {
   url?: string;
   ref?: string;
   branch?: string;
+  label?: string;
 };
 
 /** What a run needs to start an agent session. */
@@ -24,7 +28,7 @@ export type RunSpec = {
   cwd: string;
   model?: string;
   tools: string[];
-  maxTurns: number;
+  maxTurns?: number;
   /** The bothub MCP server serving the run's read tools, when it has any. */
   mcp?: McpServer;
 };

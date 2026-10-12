@@ -1,11 +1,10 @@
 ---
 harness: pi
 model: review
-tools: [Read, Grep, Glob, notes_search]
+tools: [read, grep, find]
 can: [reply]
 skills: [review, review-file]
 notes: [caveat]
-max-turns: 15
 budget: { minutes: 20 }
 ---
 

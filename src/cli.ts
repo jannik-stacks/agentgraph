@@ -291,6 +291,7 @@ const run = defineCommand({
       ...(app && { gh: app.gh }),
       ...(issues && { issues }),
       mcp: tools => bothubServer({ dir: resolve(args.dir), tools, repo: event.repo, data: resolve(root) }),
+      hub: resolve(args.dir),
       onEvent: (r, record) => process.stderr.write(`${r.workflow}/${r.job} ${describe(record.event)}\n`),
     });
     if (asJson(args.json)) print(JSON.stringify(results));

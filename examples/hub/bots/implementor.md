@@ -1,7 +1,7 @@
 ---
 harness: opencode
 model: writer
-tools: [Read, Edit, Write, Bash, Grep, Glob, issues_get, notes_search, notes_get]
+tools: [read, edit, write, bash, grep, glob, issues_get, notes_search, notes_get]
 can: [reply, push, open-pr, note, ask]
 skills: [implement]
 notes: [caveat]

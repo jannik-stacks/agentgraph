@@ -41,7 +41,7 @@ describe('simulate', () => {
     const { results, trace } = await run('stuck-run.yaml');
     const implement = results.find(r => r.job === 'implement');
     expect(implement && 'run' in implement && implement.run).toMatchObject({ status: 'failed', attempt: 4 });
-    expect(trace).toContain('checks   tests fail, types pass');
+    expect(trace).toContain('checks   safety pass, style pass, lint pass, types pass, tests fail');
     expect(trace).toContain('rejected push: checks still failing after 4 attempts');
     expect(trace).toMatch(
       /\+ 8-should-cvfromjson-reject-a-uint-passed-as-a-number\.md \(new\)\n.*\n {4}\| title: Should cvFromJson/

@@ -19,7 +19,7 @@ const root = join(import.meta.dirname, '..');
 
 describe('sandboxConfig', () => {
   it('accepts no settings or BOTHUB_SANDBOX=docker', () => {
-    expect(sandboxConfig({})).toMatchObject({ image: 'bothub-sandbox:local', memory: '2g', cpus: '1.5', pids: '512' });
+    expect(sandboxConfig({})).toMatchObject({ image: 'bothub-sandbox:local', memory: '4g', cpus: '1.5', pids: '512' });
     expect(sandboxConfig({ BOTHUB_SANDBOX: 'docker', BOTHUB_SANDBOX_NETWORK: 'bothub-sandbox' })).toBeDefined();
   });
 

@@ -89,6 +89,32 @@ describe('issueContext', () => {
     );
     expect(await issueContext(issues, event, ['notes'])).toBeUndefined();
     expect(await issueContext(undefined, event, ['issue'])).toBeUndefined();
+  });
+
+  it('carries a question a bot asked and the answer given on it into the next run of the issue', async () => {
+    const issues = localIssues(temp('issues'), { repo: 'a/b' });
+    const task = await issues.create({ title: 'Amount helpers', body: 'Add them.' });
+    const question = await issues.create({
+      title: 'Reject extra decimals?',
+      body: 'Should parsing reject more than six decimals?',
+      labels: ['unsure'],
+      parent: task.number,
+    });
+    await issues.create({ title: 'Unrelated step', body: 'Not a question.', parent: task.number });
+    await issues.comment(question.number, 'Reject them with an error.');
+    const context = await issueContext(issues, { ...event, number: task.number }, ['issue']);
+    expect(context).toContain('## Questions asked on this issue');
+    expect(context).toContain(`### #${question.number}: Reject extra decimals?`);
+    expect(context).toContain('Should parsing reject more than six decimals?');
+    expect(context).toMatch(/#### @\S+ at \S+\n\nReject them with an error\./);
+    expect(context).not.toContain('Unrelated step');
+  });
+
+  it('leaves the questions out when nothing was asked', async () => {
+    const dir = temp('issues');
+    writeFileSync(join(dir, '6-step.md'), '---\ntitle: Step\n---\n\nDo it.\n');
+    const issues = localIssues(dir, { repo: 'a/b' });
+    expect(await issueContext(issues, event, ['issue'])).toBe('## Issue #6: Step\n\nState: open\n\nDo it.');
     expect(await issueContext(issues, { ...event, number: 99 }, ['issue'])).toBeUndefined();
   });
 });

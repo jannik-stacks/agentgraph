@@ -15,7 +15,7 @@ export class SandboxError extends Error {
 
 const checks: Record<string, [RegExp, string]> = {
   BOTHUB_SANDBOX_IMAGE: [/^[a-z0-9][a-z0-9._/:@-]*$/i, 'an image reference'],
-  BOTHUB_SANDBOX_MEMORY: [/^[1-9][0-9]*[kmg]?$/i, 'a positive size such as 2g'],
+  BOTHUB_SANDBOX_MEMORY: [/^[1-9][0-9]*[kmg]?$/i, 'a positive size such as 4g'],
   BOTHUB_SANDBOX_CPUS: [/^(?:[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)$/, 'a positive number'],
   BOTHUB_SANDBOX_PIDS: [/^[1-9][0-9]*$/, 'a positive integer'],
 };
@@ -42,7 +42,7 @@ export const sandboxConfig = (env: Record<string, string | undefined> = process.
   return {
     image: env.BOTHUB_SANDBOX_IMAGE ?? 'bothub-sandbox:local',
     llmUrl: env.BOTHUB_SANDBOX_LLM_URL ?? 'http://litellm:4000/v1',
-    memory: env.BOTHUB_SANDBOX_MEMORY ?? '2g',
+    memory: env.BOTHUB_SANDBOX_MEMORY ?? '4g',
     cpus: env.BOTHUB_SANDBOX_CPUS ?? '1.5',
     pids: env.BOTHUB_SANDBOX_PIDS ?? '512',
   };

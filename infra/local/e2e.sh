@@ -4,9 +4,9 @@
 #
 #   e2e.sh <data-dir> [source-repo]     source-repo defaults to the acme-app checkout above bothub
 #
-# The copy runs triage on opencode with fast, implement on opencode with smart and review on opencode
+# The copy runs triage on opencode with smart, implement on opencode with smart and review on opencode
 # with review (which falls back to smart without an Anthropic key), with at most two attempts and
-# short timeouts. Checks install the kit's dependencies inside the sandbox when they are missing.
+# short timeouts. The hub's checks install the kit's dependencies inside the sandbox themselves.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 bothub="$(cd "$here/../.." && pwd -P)"
@@ -25,16 +25,13 @@ set_field() { # file key value
   sed -i.bak "s#^$2: .*#$2: $3#" "$1" && rm -f "$1.bak"
 }
 set_field "$hub/bots/triager.md" harness opencode
-set_field "$hub/bots/triager.md" model fast
+set_field "$hub/bots/triager.md" model smart
 set_field "$hub/bots/implementor.md" harness opencode
 set_field "$hub/bots/implementor.md" model smart
 set_field "$hub/bots/reviewer.md" harness opencode
 set_field "$hub/bots/reviewer.md" model review
 sed -i.bak 's/^      max: 3$/      max: 1/; s/timeout-minutes: 45/timeout-minutes: 15/; s/timeout-minutes: 20/timeout-minutes: 8/; s/timeout-minutes: 10/timeout-minutes: 6/' \
   "$hub/workflows/issue.md" && rm -f "$hub/workflows/issue.md.bak"
-install='(test -x node_modules/.bin/vitest -a -x node_modules/.bin/tsc || npm ci --include=dev --no-audit --no-fund --loglevel=error)'
-set_field "$hub/checks/tests.md" run "cd kit \&\& $install \&\& NODE_OPTIONS= node_modules/.bin/vitest run"
-set_field "$hub/checks/types.md" run "cd kit \&\& $install \&\& NODE_OPTIONS= node_modules/.bin/tsc --noEmit"
 
 git clone -q --bare "$source" "$data/origin.git"
 

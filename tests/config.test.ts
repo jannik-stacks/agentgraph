@@ -39,11 +39,8 @@ describe('compile', () => {
     expect(Object.keys(bots).sort()).toEqual(['implementor', 'reviewer']);
     expect(Object.keys(skills).sort()).toEqual(['implement', 'review', 'review-file']);
     expect(Object.keys(checks).sort()).toEqual(['review', 'types']);
-    expect(notes.map(n => `${n.kind}/${n.name}`)).toEqual([
-            'caveat/empty-allowlist',
-      'convention/typecheck-clean',
-    ]);
-    expect(bots.reviewer).toMatchObject({ 'max-turns': 15, body: expect.stringContaining('Try to break them') });
+    expect(notes.map(n => `${n.kind}/${n.name}`)).toEqual(['caveat/empty-allowlist', 'convention/typecheck-clean']);
+    expect(bots.reviewer).toMatchObject({ harness: 'pi', body: expect.stringContaining('Try to break them') });
     expect(checks.review).toMatchObject({ bot: 'reviewer', 'for-each': 'file', mode: 'warn' });
     const flow = workflows.issue;
     expect(flow?.name).toBe('issue');
@@ -55,9 +52,7 @@ describe('compile', () => {
 
   it('rejects unknown keys and old names', () => {
     expect(errorsOf([workflow('on: {}\njobs: {}\npermissions: {}')]).join()).toMatch(/permissions/);
-    expect(errorsOf([file('bots/b.md', 'harness: codex\ntools: []\ncan: []\nmax-turns: 1')]).join()).toMatch(
-      /harness/
-    );
+    expect(errorsOf([file('bots/b.md', 'harness: codex\ntools: []\ncan: []\nmax-turns: 1')]).join()).toMatch(/harness/);
     expect(errorsOf([bot('b', '[push-branch]')]).join()).toMatch(/can/);
   });
 
@@ -140,6 +135,28 @@ describe('compile', () => {
       'job "a" grants tool "runs_read", which bot "t" does not have',
       'job "b" has "preload" or "tools" but no bot',
     ]);
+  });
+
+  it('rejects tool names the harness does not have, so a bot never runs with a silently empty allowlist', () => {
+    const errors = errorsOf([
+      file('bots/caps.md', 'harness: opencode\ntools: [Read, bash(git diff*), issues_get]\ncan: [reply]'),
+      file('bots/pi.md', 'harness: pi\ntools: [glob, find, bash(git *)]\ncan: [reply]'),
+    ]);
+    expect(errors).toEqual([
+      expect.stringMatching(/^lists tool "Read", which opencode does not have \(one of read, /),
+      expect.stringMatching(/^lists tool "glob", which pi does not have/),
+      'lists tool "bash(git *)", but pi takes no patterns',
+    ]);
+  });
+
+  it('warns that pi ignores max-turns and gets no hub tools', () => {
+    const result = compile([file('bots/p.md', 'harness: pi\ntools: [read, notes_search]\ncan: [reply]\nmax-turns: 4')]);
+    expect(result.ok && result.warnings.map(w => w.message)).toEqual([
+      '"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it',
+      'lists hub tools (notes_search) that pi runs do not get',
+    ]);
+    const quiet = compile([file('bots/p.md', 'harness: pi\ntools: [read]\ncan: [reply]')]);
+    expect(quiet.ok && quiet.warnings).toEqual([]);
   });
 
   it('warns about fields it does not enforce and loops that never repeat', async () => {

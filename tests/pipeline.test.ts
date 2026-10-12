@@ -21,7 +21,8 @@ import {
   type JobResult,
   type Pipeline,
 } from '../src/pipeline.ts';
-import { limiter, unsandboxed } from '../src/runner.ts';
+import { limiter, unsandboxed, type Launcher } from '../src/runner.ts';
+import { SandboxError } from '../src/sandbox.ts';
 import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
 import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
@@ -33,10 +34,10 @@ const configFor = (mode = 'shadow'): Config => {
   const result = compile([
     md(
       'bots/bot.md',
-      'harness: opencode\nmodel: sonnet\ntools: [Read, Grep]\ncan: [reply, label, push, open-pr, ask]\nskills: [triage, notify]\nnotes: [convention]\nmax-turns: 7\nbudget: { minutes: 30 }',
+      'harness: opencode\nmodel: sonnet\ntools: [read, grep]\ncan: [reply, label, push, open-pr, ask]\nskills: [triage, notify]\nnotes: [convention]\nmax-turns: 7\nbudget: { minutes: 30 }',
       'You are a careful bot.'
     ),
-    md('bots/judge.md', 'harness: opencode\ntools: [Read]\ncan: [reply]\nmax-turns: 3', 'You judge.'),
+    md('bots/judge.md', 'harness: opencode\ntools: [read]\ncan: [reply]\nmax-turns: 3', 'You judge.'),
     md('skills/triage.md', 'description: Sort an issue.\nnotes: [caveat]', 'Triage the issue.'),
     md('skills/summarize.md', 'description: Summarize a thread.', 'Summarize the thread.'),
     md('skills/notify.md', 'description: Tell someone.', 'Notify someone.'),
@@ -185,17 +186,23 @@ describe('buildSpec', () => {
   const config = configFor();
   const workflow = config.workflows.triage!;
 
-  it('composes role, offered skills, notes and the allowed proposals, and prompts with the skill and the event', () => {
+  it('pins role, notes, the forced skill, offered skills and the allowed proposals in order, and prompts with the event', () => {
     const { spec, timeoutMinutes, can } = buildSpec({ config, workflow, job: 'triage', event, args: 'go', cwd: '/w' });
     expect(timeoutMinutes).toBe(5);
     expect(can).toEqual(['reply']);
-    expect(spec).toMatchObject({ cwd: '/w', model: 'sonnet', tools: ['Read', 'Grep'], maxTurns: 7 });
+    expect(spec).toMatchObject({ cwd: '/w', model: 'sonnet', tools: ['read', 'grep'], maxTurns: 7 });
     expect(spec.system.split('\n\n## ')[0]).toBe('You are a careful bot.');
+    expect(spec.system.match(/^## .+$/gm)).toEqual([
+      '## Notes',
+      '## Skill: triage',
+      '## Skills',
+      '## Proposing changes',
+    ]);
     expect(spec.system).toContain(
-      '## Skills\n\nUse one of these when it fits the task:\n\n- triage: Sort an issue.\n- notify: Tell someone.\n\n## Notes'
+      '### caveat\n\n#### Limits\n\nKeep job budgets short.\n\n## Skill: triage\n\nTriage the issue.\n\n## Skills'
     );
     expect(spec.system).toContain(
-      '### convention\n\n#### Small changes\n\nKeep changes small.\n\n### caveat\n\n#### Limits\n\nKeep job budgets short.\n\n## Proposing changes'
+      '## Skills\n\nUse one of these when it fits the task:\n\n- triage: Sort an issue.\n- notify: Tell someone.\n\n## Proposing changes'
     );
     expect(spec.system).toContain(
       '## Notes\n\nWhat this hub knows. Read-only; follow them.\n\n### decision\n\n#### Bigint'
@@ -210,7 +217,6 @@ describe('buildSpec', () => {
     );
     expect(spec.prompt).toBe(
       [
-        'Triage the issue.',
         '## Event',
         [
           'Repository: acme/app',
@@ -273,11 +279,11 @@ describe('secretsFor', () => {
 });
 
 describe('context', () => {
-  it('mounts granted hub tools and appends the preloaded issue context to the prompt', () => {
+  it('mounts granted hub tools and pins the preloaded issue context after the skill', () => {
     const result = compile([
       md(
         'bots/b.md',
-        'harness: opencode\ntools: [Read, issues_get, notes_search]\ncan: [reply]\npreload: [issue]\nmax-turns: 3',
+        'harness: opencode\ntools: [read, issues_get, notes_search]\ncan: [reply]\npreload: [issue]\nmax-turns: 3',
         'Role.'
       ),
       md('skills/s.md', 'description: Do it.', 'Do it.'),
@@ -288,15 +294,16 @@ describe('context', () => {
     const workflow = config.workflows.w!;
     const mcp = (tools: string[]) => ({ command: 'node', args: tools, env: {} });
     const { spec } = buildSpec({ config, workflow, job: 'a', event, cwd: '/w', preloaded: '## Issue #7: Task', mcp });
-    expect(spec.tools).toEqual(['Read', 'bothub_issues_get']);
+    expect(spec.tools).toEqual(['read', 'bothub_issues_get']);
     expect(spec.mcp).toEqual({ command: 'node', args: ['issues_get'], env: {} });
     expect(spec.system).toContain(
       '## Hub tools\n\nRead-only tools from the `bothub` server. Writes still go through proposals.\n\n- issues_get:'
     );
-    expect(spec.prompt.endsWith('## Issue #7: Task')).toBe(true);
+    expect(spec.system).toContain('## Skill: s\n\nDo it.\n\n## Issue #7: Task\n\n## Hub tools');
+    expect(spec.prompt).not.toContain('## Issue #7');
 
     const bare = buildSpec({ config, workflow, job: 'a', event, cwd: '/w' }).spec;
-    expect(bare.tools).toEqual(['Read']);
+    expect(bare.tools).toEqual(['read']);
     expect(bare.mcp).toBeUndefined();
     expect(bare.system).not.toContain('## Hub tools');
   });
@@ -308,7 +315,7 @@ describe('context', () => {
     config.bots.bot = { ...config.bots.bot!, preload: ['issue', 'notes'] };
     const p = await pipeline({ config, issues, adapters });
     await Effect.runPromise(runPlanned(triage, p));
-    expect(seen[0]!.prompt).toContain('## Issue #7: Task\n\nState: open\n\nDo it.');
+    expect(seen[0]!.system).toContain('## Issue #7: Task\n\nState: open\n\nDo it.');
   });
 });
 
@@ -715,6 +722,29 @@ describe('budgets', () => {
     });
   });
 
+  it('defers a run whose sandbox never started and does not count it against the day', async () => {
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, budget: { 'runs-per-day': 1 } };
+    const { seen, adapters } = fake();
+    const down: Launcher = {
+      ...unsandboxed,
+      agent: async () => {
+        throw new SandboxError('the bothub-sandbox network is missing');
+      },
+    };
+    const p = await pipeline({ config, adapters, launch: down });
+    const failed = await Effect.runPromise(runPlanned(triage, p));
+    expect('run' in failed && failed.run).toMatchObject({
+      status: 'failed',
+      closure: 'deferred',
+      error: 'sandbox-failed: the bothub-sandbox network is missing',
+    });
+    expect(seen).toHaveLength(0);
+    const retried = await Effect.runPromise(runPlanned(triage, { ...p, launch: unsandboxed }));
+    expect(seen).toHaveLength(1);
+    expect('run' in retried && retried.run).toMatchObject({ status: 'succeeded', closure: 'done' });
+  });
+
   it('stops looping once the attempts spent the run budget', async () => {
     const config = configFor();
     config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };
@@ -761,7 +791,7 @@ jobs:
     ...(job !== 'verify' && { bot: 'bot' }),
   }));
   const behave = (spec: RunSpec) =>
-    spec.prompt.startsWith('Implement it.')
+    spec.system.includes('## Skill: implement\n\nImplement it.')
       ? {
           message: bothub([
             { kind: 'push', branch, files: ['src/a.ts'] },

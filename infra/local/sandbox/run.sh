@@ -10,7 +10,7 @@
 # Needs: the compose `sandbox` profile up (network bothub-sandbox, litellm, egress, ollama-relay), the image
 # bothub-sandbox:local, and BOTHUB_LLM_API_KEY_<BOT> in the environment.
 #
-# Knobs: TIMEOUT_MIN (30), MEMORY (2g), CPUS (1.5), PIDS (512), IMAGE, LLM_URL,
+# Knobs: TIMEOUT_MIN (30), MEMORY (4g), CPUS (1.5), PIDS (512), IMAGE, LLM_URL,
 # CACHE_RW=1 (trusted build-cache warm-up only). The network, user and isolation flags are fixed;
 # the script refuses to start when the network is missing or not internal, the image is absent, or it runs as root.
 # The npm cache is shared read-write: npm must write to it, entries are content-addressed and
@@ -32,7 +32,7 @@ key="${!var:-}"
 
 IMAGE="${IMAGE:-bothub-sandbox:local}"
 LLM_URL="${LLM_URL:-http://litellm:4000/v1}"
-MEMORY="${MEMORY:-2g}" CPUS="${CPUS:-1.5}" PIDS="${PIDS:-512}"
+MEMORY="${MEMORY:-4g}" CPUS="${CPUS:-1.5}" PIDS="${PIDS:-512}"
 name="bothub-run-$bot-$(openssl rand -hex 4)"
 uid="$(id -u)" gid="$(id -g)"
 

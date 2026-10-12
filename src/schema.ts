@@ -67,6 +67,7 @@ export const TriggerFilter = z
     command: z.string().startsWith('/').optional(),
     tools: z.array(z.string()).optional(),
     branches: z.array(z.string()).optional(),
+    labels: z.array(z.string()).optional(),
     cron: z.string().optional(),
     guard: z
       .strictObject({ associations: z.array(Association).default(['OWNER', 'MEMBER', 'COLLABORATOR']) })
@@ -89,7 +90,7 @@ export const Bot = z.strictObject({
   skills: z.array(name).optional(),
   notes: z.array(NoteKind).optional(),
   preload: z.array(Preload).optional(),
-  'max-turns': z.int().positive(),
+  'max-turns': z.int().positive().optional(),
   budget: z
     .strictObject({
       'runs-per-day': z.int().positive().optional(),
@@ -162,6 +163,16 @@ export const Note = z.strictObject({
   paths: z.array(z.string()).optional(),
 });
 export type Note = z.infer<typeof Note>;
+
+/** `issues/<n>-<slug>.md` in a hub with local issues. The body is the issue, followed by its comments. */
+export const IssueFile = z.strictObject({
+  title: z.string().min(1),
+  state: z.enum(['open', 'closed']).default('open'),
+  labels: z.array(z.string()).default([]),
+  author: z.string().exactOptional(),
+  parent: z.int().positive().exactOptional(),
+  links: z.array(z.int().positive()).exactOptional(),
+});
 
 /** `hub.yaml`: hub-wide settings. `issues` picks where issues, plans, specs and open questions live. */
 export const Hub = z.strictObject({ issues: IssuesBackend.default('github') });

@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { compile } from './config.ts';
+import { hubWriteRoutes } from './hub-write.ts';
 import { readHub } from './load.ts';
 import { alive, type Run, type RunStatus, type Store } from './store.ts';
 
@@ -100,7 +101,8 @@ export const readFiles = async (roots: Root[]) => {
 };
 
 /**
- * Read-only studio API over a hub directory, extra file roots and a run store, as a Web `Request` handler.
+ * Studio API over a hub directory, extra file roots and a run store, as a Web `Request` handler. Only the hub
+ * editing routes under `/api/hub/` (see `hubWriteRoutes`) write; everything else is read-only.
  * `GET /api/files` lists the hub as root `hub` followed by `roots`.
  * `GET /api/runs/:id/files` lists a run's raw harness files and `GET /api/runs/:id/files/<path>` serves one.
  * `GET /api/runs/:id/stream` tails a run's events as Server-Sent Events and ends with an `end` event once the run
@@ -212,8 +214,12 @@ export const api = ({
     ],
   ];
 
+  const edit = hubWriteRoutes(hubDir);
+
   return async req => {
     const url = new URL(req.url);
+    const edited = await edit(req);
+    if (edited) return edited;
     if (req.method !== 'GET') return Response.json({ error: 'method not allowed' }, { status: 405 });
     for (const [pattern, route] of routes) {
       const match = pattern.exec(url.pathname);

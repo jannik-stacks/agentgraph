@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { apply, noteFile } from '../src/apply.ts';
 import { appJwt, gh, githubApp, type Fetch } from '../src/github-app.ts';
 import type { Proposal } from '../src/outputs.ts';
+import { localIssues } from '../src/issues-local.ts';
 import type { BotEvent } from '../src/types.ts';
+import { temp } from './git.ts';
 
 type Call = { method: string; url: string; headers: Record<string, string>; body?: unknown };
 
@@ -338,6 +340,34 @@ describe('apply', () => {
     ]);
     expect(await apply([{ kind: 'label', remove: ['gone'] }], { event, gh: gh('t', fetch), push })).toEqual([
       { kind: 'label', key: 'd1/label-1', status: 'applied' },
+    ]);
+  });
+
+  it('asks a question once per issue, adding a later run of it to the open question as a comment', async () => {
+    const issues = localIssues(temp('issues'), { repo: 'acme/app', as: 'morgan' });
+    await issues.create({ title: 'Task' });
+    const local = { ...event, number: 1, source: 'local' as const };
+    const ask = [{ kind: 'ask' as const, question: 'Which database?\nPostgres or SQLite.' }];
+
+    const first = await apply(ask, { event: local, issues, push });
+    const second = await apply(ask, { event: { ...local, id: 'd2' }, issues, push });
+    const replayed = await apply(ask, { event: { ...local, id: 'd2' }, issues, push });
+
+    expect([first, second, replayed].map(([r]) => [r?.status, r?.reason])).toEqual([
+      ['applied', undefined],
+      ['applied', undefined],
+      ['applied', 'already asked'],
+    ]);
+    const questions = await issues.list({ label: 'unsure', parent: 1 });
+    expect(questions.map(q => q.title)).toEqual(['Which database?']);
+    const question = await issues.get(questions[0]!.number);
+    expect(question?.comments.map(c => c.body)).toEqual([
+      'Which database?\nPostgres or SQLite.\n\n<!-- bothub:d2/ask-1 -->',
+    ]);
+    expect((await issues.get(1))?.comments.map(c => c.body)).toEqual(['@morgan needs a human: #2']);
+
+    expect(await apply(ask, { event: local, push })).toMatchObject([
+      { status: 'failed', reason: 'no issue tracker to write to' },
     ]);
   });
 });

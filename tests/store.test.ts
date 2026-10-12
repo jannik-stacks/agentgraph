@@ -50,6 +50,25 @@ describe('openStore', () => {
     await expect(store.update('nope', { status: 'failed' })).rejects.toThrow('unknown run');
   });
 
+  it('reports a damaged data directory instead of reading it as empty', async () => {
+    const dir = temp();
+    const store = openStore(dir);
+    const { id } = await store.create(fields);
+    writeFileSync(join(dir, 'runs', id, 'run.json'), '{"id":');
+    await expect(store.read(id)).rejects.toThrow(SyntaxError);
+    await expect(store.list()).rejects.toThrow(SyntaxError);
+    mkdirSync(join(dir, 'runs', id, 'events.jsonl'));
+    await expect(store.events(id)).rejects.toThrow('EISDIR');
+    mkdirSync(join(dir, 'runs', id, 'memory.md'));
+    await expect(store.memory(id)).rejects.toThrow('EISDIR');
+
+    const flat = temp();
+    writeFileSync(join(flat, 'runs'), '');
+    writeFileSync(join(flat, 'deliveries'), '');
+    await expect(openStore(flat).list()).rejects.toThrow('ENOTDIR');
+    await expect(openStore(flat).deliver('gh-1')).rejects.toThrow('EEXIST');
+  });
+
   it('lists runs newest first', async () => {
     const store = openStore(temp());
     const old = await store.create(fields, runId(new Date('2026-10-01T00:00:00Z')));

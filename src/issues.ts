@@ -51,7 +51,8 @@ export const matches = (issue: Issue, { label, state = 'open', parent }: IssueFi
   (parent === undefined || issue.parent === parent);
 
 type Change =
-  | { kind: 'issues'; action: 'opened' | 'closed' | 'reopened' | 'labeled'; issue: Issue; sender: string }
+  | { kind: 'issues'; action: 'opened' | 'closed' | 'reopened'; issue: Issue; sender: string }
+  | { kind: 'issues'; action: 'labeled'; issue: Issue; sender: string; label: string }
   | { kind: 'issue_comment'; issue: Issue; comment: Comment };
 
 /** Turns an issue change into a `BotEvent` through the webhook normaliser, so both backends emit the same shape. */
@@ -76,7 +77,13 @@ export const changeEvent = (
   const repository = { full_name: repo };
   const payload =
     change.kind === 'issues'
-      ? { action: change.action, repository, sender: { login: change.sender }, issue: item }
+      ? {
+          action: change.action,
+          repository,
+          sender: { login: change.sender },
+          issue: item,
+          ...('label' in change && { label: { name: change.label } }),
+        }
       : {
           action: 'created',
           repository,

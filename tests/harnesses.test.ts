@@ -78,7 +78,8 @@ describe('opencode', () => {
       baseURL: '{env:BOTHUB_LLM_BASE_URL}',
       apiKey: '{env:BOTHUB_LLM_API_KEY}',
     });
-    expect(config.provider.bothub.models).toEqual({ coder: { options: { parallelToolCalls: false } } });
+    expect(config.provider.bothub.npm).toBe('@ai-sdk/openai');
+    expect(config.provider.bothub.models).toEqual({ coder: {} });
     expect(config.agent.bothub).toEqual({ mode: 'primary', prompt: spec.system, steps: 5 });
     expect(env).toMatchObject({ OPENCODE_DISABLE_PROJECT_CONFIG: '1', OPENCODE_DISABLE_CLAUDE_CODE: '1' });
     expect(JSON.stringify(env)).not.toMatch(/sk-|vk-/);

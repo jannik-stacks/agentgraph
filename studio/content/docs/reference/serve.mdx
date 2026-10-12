@@ -16,6 +16,35 @@ turned into the same event by <Sym name="changeEvent" />.
 repository and serves the read-only <Sym name="api" /> that BHM reads. <Sym name="serveGitHub" />
 is the same for a GitHub App, with short-lived installation tokens that no bot ever holds.
 
+## Assignment and the queue
+
+Work is assigned with a label. Adding `bot:implementor` to an issue emits an `issues` event with
+action `labeled` and that label, one event per added label, the same shape a GitHub delivery
+has. A workflow picks it up with a `labels` filter next to `types`:
+
+```yaml
+on:
+  issues:
+    types: [labeled]
+    labels: [bot:implementor]
+```
+
+The `bot:` prefix is a convention, not a keyword: any label works, and the same workflow runs
+unchanged on GitHub.
+
+Each new event waits in a queue before it runs. <Sym name="fileQueue" /> keeps one JSON file per
+item under `<data>/queue/`, named so they sort in push order. Taking an item renames its file to
+carry the owning process, so two processes on one data directory never run the same item, and an
+item a stopped process had taken goes back to waiting when the queue is next opened.
+<Sym name="worker" /> runs items one after another.
+
+Removing the label withdraws the work. Before an item runs, <Sym name="withdrawn" /> checks that
+the label which started it is still on the issue and drops the item if not; a job already running
+finishes. bothub adds no status labels of its own: waiting work is in the queue's `list`, and
+once it starts, its runs carry their status and closure.
+
+<Source file="src/queue.ts" symbol="Queue" />
+
 ## Sim
 
 `bothub sim <scenario>` runs a hub against a scripted human action. Bots are replaced by a scripted

@@ -58,7 +58,6 @@ describe('hubGraph', () => {
       'calls bot:implementor -> tool:notes_search',
       'calls bot:implementor -> tool:notes_get',
       'reads-notes bot:reviewer -> note:caveat',
-      'calls bot:reviewer -> tool:notes_search',
       'reads-notes skill:review-file -> note:convention',
       'fans-out check:review -> bot:reviewer (for each file)',
       'uses-skill check:review -> skill:review-file',

@@ -1,5 +1,5 @@
 import type { Config } from './config.ts';
-import type { Issue, Issues } from './issues.ts';
+import { roles, type Issue, type Issues } from './issues.ts';
 import { NoteKind, ruleKinds, type Preload } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
@@ -69,6 +69,12 @@ export const issueContext = async (issues: Issues | undefined, event: BotEvent, 
   const issue = await issues.get(event.number);
   if (!issue) return;
   const sections = wantsIssue ? [renderIssue(issue, 2, 'Issue ')] : [];
+  if (wantsIssue) {
+    const asked = await issues.list({ parent: issue.number, label: roles.unsure, state: 'all' });
+    const questions = (await Promise.all(asked.map(q => issues.get(q.number)))).filter(q => q !== undefined);
+    if (questions.length)
+      sections.push(['## Questions asked on this issue', ...questions.map(q => renderIssue(q, 3))].join('\n\n'));
+  }
   if (wantsLinks) {
     const numbers = [...new Set([issue.parent, ...(issue.links ?? [])].filter(n => n !== undefined))];
     const [linked, steps] = await Promise.all([

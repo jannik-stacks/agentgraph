@@ -21,7 +21,7 @@ type Line =
   | { type: 'error'; error?: { name?: string; data?: { message?: string } } }
   | { type: string };
 
-/** The only provider: the model proxy, where bot models are aliases. */
+/** The only provider: the model proxy, where bot models are aliases, spoken to over its Responses API. */
 const provider = 'bothub';
 
 /** A permission per tool entry: `read` allows the tool, `bash(git diff*)` allows one pattern. */
@@ -45,13 +45,13 @@ const config = (spec: RunSpec) => ({
   enabled_providers: [provider],
   provider: {
     [provider]: {
-      npm: '@ai-sdk/openai-compatible',
+      npm: '@ai-sdk/openai',
       name: provider,
       options: { baseURL: '{env:BOTHUB_LLM_BASE_URL}', apiKey: '{env:BOTHUB_LLM_API_KEY}' },
-      models: { [spec.model ?? 'default']: { options: { parallelToolCalls: false } } },
+      models: { [spec.model ?? 'default']: {} },
     },
   },
-  agent: { [provider]: { mode: 'primary', prompt: spec.system, steps: spec.maxTurns } },
+  agent: { [provider]: { mode: 'primary', prompt: spec.system, ...(spec.maxTurns && { steps: spec.maxTurns }) } },
   ...(spec.mcp && opencodeMcpConfig(spec.mcp)),
 });
 

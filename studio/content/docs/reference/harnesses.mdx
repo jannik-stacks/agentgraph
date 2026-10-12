@@ -23,3 +23,14 @@ An adapter builds the command for a spec and parses one output line at a time; t
 opencode is the primary harness, with real tool allowlists and the bothub MCP server mounted. pi is
 light and fast, with all-or-nothing tools and no MCP client, so it suits read-only bots.
 `bothub sim` swaps both for a scripted adapter, see [Events and serving](/docs/reference/serve#sim).
+
+## Tool names
+
+A bot's `tools` are lowercase harness tool names plus hub tools like `issues_get`, and
+`bothub check` rejects any other name. For opencode they are read, edit, write, bash, grep, glob,
+list, webfetch, websearch, todowrite and task; for pi, read, bash, edit, write, grep, find and ls.
+
+opencode also takes a pattern, `bash(git diff*)`, which allows only matching commands. It checks
+every part of a compound command on its own, so `cd kit && npx vitest run` is denied under
+`bash(npx vitest*)` unless `bash(cd *)` is listed too. pi has no patterns, and `bothub check`
+rejects them on pi bots.
