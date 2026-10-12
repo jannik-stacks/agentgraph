@@ -1,7 +1,7 @@
-import { hubFile, type Config } from '../../src/config.ts';
+import { effectiveCan, hubFile, type Config } from '../../src/config.ts';
 import { hubGraph, type HubGraph } from '../../src/graph.ts';
 import { type NoteReason, runContext } from '../../src/preload.ts';
-import { Harness, type Job, Mode } from '../../src/schema.ts';
+import { Harness, Mode } from '../../src/schema.ts';
 
 type HubNode = HubGraph['nodes'][number];
 export type NodeKind = HubNode['kind'];
@@ -10,11 +10,15 @@ export type Tone = 'neutral' | 'info' | 'ok' | 'warn' | 'danger';
 
 type RunContext = ReturnType<typeof runContext>;
 
-/** What one step, a job or a check, hands the bot it casts: preload, tools, the notes with why, the tracker. */
+/**
+ * What one step, a job or a check, hands the bot it casts: preload, tools, what it may propose, the notes with why,
+ * the tracker.
+ */
 export type StepContext = Omit<RunContext, 'notes'> & {
   step: string;
   bot: string;
   skill?: string;
+  can: ReturnType<typeof effectiveCan>;
   notes: (RunContext['notes'][number] & { because: string })[];
   issues?: Config['hub']['issues'];
 };
@@ -150,7 +154,12 @@ const because = (
 const contexts = (config: Config) => {
   const found = new Map<string, StepContext[]>();
   const add = (id: string, context: StepContext) => found.set(id, [...(found.get(id) ?? []), context]);
-  const cast = (step: string, botName: string, skillName: string | undefined, run: Pick<Job, 'preload' | 'paths'>) => {
+  const cast = (
+    step: string,
+    botName: string,
+    skillName: string | undefined,
+    run: NonNullable<Parameters<typeof runContext>[1]['step']> & Parameters<typeof effectiveCan>[1]
+  ) => {
     const bot = config.bots[botName];
     if (!bot) return;
     const skill = skillName ? config.skills[skillName] : undefined;
@@ -162,6 +171,7 @@ const contexts = (config: Config) => {
       step,
       bot: `bot:${bot.name}`,
       ...(skill && { skill: `skill:${skill.name}` }),
+      can: effectiveCan(bot, run),
       notes: context.notes.map(loaded => ({ ...loaded, because: because(loaded.why, loaded.note, listed, run.paths) })),
       ...(tracker && { issues: config.hub.issues }),
     };
@@ -170,11 +180,12 @@ const contexts = (config: Config) => {
   };
   for (const workflow of Object.values(config.workflows))
     for (const [id, job] of Object.entries(workflow.jobs))
-      if (job.bot) cast(`job:${workflow.name}/${id}`, job.bot, job.skill, job);
+      if (job.type === 'bot') cast(`job:${workflow.name}/${id}`, job.bot, job.skill, job);
   for (const check of Object.values(config.checks))
-    if (check.bot)
+    if (check.type === 'bot')
       cast(`check:${check.name}`, check.bot, check.skill, {
         preload: ['notes'],
+        can: [],
         ...(check.paths && { paths: check.paths }),
       });
   return found;

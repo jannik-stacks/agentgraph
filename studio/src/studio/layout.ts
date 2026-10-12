@@ -15,7 +15,7 @@ export const edgeId = (edge: GraphEdge) => `${edge.kind}:${edge.from}->${edge.to
 
 /** Room kept under a node for its self-loop and the loop's label. */
 export const loopDepth = 18;
-const loopRoom = loopDepth + labelHeight + 12;
+export const loopRoom = loopDepth + labelHeight + 12;
 const stackGap = 12;
 const laneGap = 56;
 const laneCol = nodeSize.width + 28;
@@ -108,16 +108,22 @@ const lane = (ids: string[], near: (id: string) => number, left: number, top: nu
   return { boxes, bottom: top + Math.ceil(sorted.length / perRow) * laneRow };
 };
 
+/** The room a workflow frame keeps around its members, and the height of its title row. */
+export const frame = { pad: 14, title: 28 };
+const clusterGap = 24;
+
 /**
  * A left-to-right dagre layout of the pipeline: triggers, jobs and the checks they flow through, with the checks in
- * `groups` stacked right after their job and whatever follows the job placed after the stack. Underneath, each
- * step's bot and skill sit in its column, then loose checks with theirs, then bots and skills nothing casts. Routes
- * are kept for the pipeline edges dagre placed.
+ * `groups` stacked right after their job and whatever follows the job placed after the stack. The pipeline of each
+ * workflow `clusterOf` names is laid out on its own and the workflows are stacked top to bottom, leaving room for a
+ * frame around each. Underneath, each step's bot and skill sit in its column, then loose checks with theirs, then
+ * bots and skills nothing casts. Routes are kept for the pipeline edges dagre placed.
  */
 export const layout = (
   { nodes, edges }: GraphModel,
   label: (edge: GraphEdge) => string | undefined,
-  groups: Map<string, string[]>
+  groups: Map<string, string[]>,
+  clusterOf: (id: string) => string | undefined = () => undefined
 ) => {
   const grouped = new Map([...groups].flatMap(([job, checks]) => checks.map(check => [check, job] as const)));
   const kinds = new Map(nodes.map(node => [node.id, node.kind]));
@@ -132,59 +138,74 @@ export const layout = (
   const loops = new Map<string, string>();
   for (const edge of edges) if (edge.from === edge.to) loops.set(edge.from, label(edge) ?? '');
 
-  const g = new dagre.graphlib.Graph({ multigraph: true })
-    .setGraph({ rankdir: 'LR', nodesep: 30, ranksep: 64, edgesep: 14, marginx: 24, marginy: 24 })
-    .setDefaultEdgeLabel(() => ({}));
-  for (const node of spine) {
-    const loop = loops.get(node.id);
-    const room = loop !== undefined && !groups.has(node.id);
-    g.setNode(node.id, {
-      width: room ? Math.max(nodeSize.width, labelWidth(loop)) : nodeSize.width,
-      height: nodeSize.height + (room ? loopRoom : 0),
-    });
-  }
-  for (const [job, checks] of groups)
-    g.setNode(`group:${job}`, {
-      width: nodeSize.width,
-      height: checks.length * nodeSize.height + (checks.length - 1) * stackGap + (loops.has(job) ? loopRoom : 0),
-    });
-  for (const [job] of groups) g.setEdge(job, `group:${job}`, { weight: 4 }, `gate:${job}`);
+  const clusters = new Map<string, string[]>();
+  const cluster = (id: string) => clusterOf(grouped.get(id) ?? id) ?? '';
+  for (const id of [...inSpine, ...grouped.keys()])
+    clusters.set(cluster(id), [...(clusters.get(cluster(id)) ?? []), id]);
   const end = (id: string) => (grouped.has(id) ? `group:${grouped.get(id)}` : id);
-  for (const edge of edges) {
-    if (edge.from === edge.to || edge.kind === 'loops-back') continue;
-    if (!(inSpine.has(edge.from) || grouped.has(edge.from)) || !(inSpine.has(edge.to) || grouped.has(edge.to)))
-      continue;
-    const from = groups.has(edge.from) ? `group:${edge.from}` : end(edge.from);
-    const to = end(edge.to);
-    if (from === to || from === `group:${to}`) continue;
-    const text = label(edge);
-    g.setEdge(
-      from,
-      to,
-      { weight: 2, ...(text && { width: labelWidth(text), height: labelHeight, labelpos: 'c' }) },
-      edgeId(edge)
-    );
-  }
-  dagre.layout(g);
 
   const boxes = new Map<string, Box>();
-  for (const node of spine) {
-    const { x, y, height } = g.node(node.id);
-    boxes.set(node.id, { x: x - nodeSize.width / 2, y: y - height / 2, ...nodeSize });
-  }
-  for (const [job, checks] of groups) {
-    const { x, y, height } = g.node(`group:${job}`);
-    checks.forEach((check, i) =>
-      boxes.set(check, {
-        x: x - nodeSize.width / 2,
-        y: y - height / 2 + i * (nodeSize.height + stackGap),
-        ...nodeSize,
-      })
-    );
+  const laid: { g: InstanceType<typeof dagre.graphlib.Graph>; dx: number; dy: number }[] = [];
+  let top = 24;
+  let width = laneCol * 3;
+  for (const [name, members] of [...clusters].sort(([a], [b]) => Number(!a) - Number(!b))) {
+    const inside = new Set(members);
+    const g = new dagre.graphlib.Graph({ multigraph: true })
+      .setGraph({ rankdir: 'LR', nodesep: 30, ranksep: 64, edgesep: 14, marginx: 0, marginy: 0 })
+      .setDefaultEdgeLabel(() => ({}));
+    for (const id of members.filter(id => inSpine.has(id))) {
+      const loop = loops.get(id);
+      const room = loop !== undefined && !groups.has(id);
+      g.setNode(id, {
+        width: room ? Math.max(nodeSize.width, labelWidth(loop)) : nodeSize.width,
+        height: nodeSize.height + (room ? loopRoom : 0),
+      });
+    }
+    for (const [job, checks] of groups) {
+      if (!inside.has(job)) continue;
+      g.setNode(`group:${job}`, {
+        width: nodeSize.width,
+        height: checks.length * nodeSize.height + (checks.length - 1) * stackGap + (loops.has(job) ? loopRoom : 0),
+      });
+      g.setEdge(job, `group:${job}`, { weight: 4 }, `gate:${job}`);
+    }
+    for (const edge of edges) {
+      if (edge.from === edge.to || edge.kind === 'loops-back') continue;
+      if (!inside.has(edge.from) || !inside.has(edge.to)) continue;
+      const from = groups.has(edge.from) ? `group:${edge.from}` : end(edge.from);
+      const to = end(edge.to);
+      if (from === to || from === `group:${to}`) continue;
+      const text = label(edge);
+      g.setEdge(
+        from,
+        to,
+        { weight: 2, ...(text && { width: labelWidth(text), height: labelHeight, labelpos: 'c' }) },
+        edgeId(edge)
+      );
+    }
+    dagre.layout(g);
+    const [dx, dy] = name ? [24 + frame.pad, top + frame.title + frame.pad] : [24, top];
+    laid.push({ g, dx, dy });
+    for (const id of members.filter(id => inSpine.has(id))) {
+      const { x, y, height } = g.node(id);
+      boxes.set(id, { x: dx + x - nodeSize.width / 2, y: dy + y - height / 2, ...nodeSize });
+    }
+    for (const [job, checks] of groups) {
+      if (!inside.has(job)) continue;
+      const { x, y, height } = g.node(`group:${job}`);
+      checks.forEach((check, i) =>
+        boxes.set(check, {
+          x: dx + x - nodeSize.width / 2,
+          y: dy + y - height / 2 + i * (nodeSize.height + stackGap),
+          ...nodeSize,
+        })
+      );
+    }
+    const graph = g.graph() as { width?: number; height?: number };
+    width = Math.max(width, graph.width ?? 0);
+    top = dy + (graph.height ?? 0) + (name ? frame.pad : 0) + clusterGap;
   }
 
-  const graph = g.graph() as { width?: number; height?: number };
-  const width = Math.max((graph.width ?? 0) - 48, laneCol * 3);
   const neighbours = (id: string) =>
     edges.flatMap(e => (e.from === id ? [e.to] : e.to === id ? [e.from] : [])).filter(other => other !== id);
   const centre = (id: string) => {
@@ -196,7 +217,7 @@ export const layout = (
   };
   const rest = nodes.filter(node => !inSpine.has(node.id) && !grouped.has(node.id));
   const casts = rest.filter(node => castKinds.has(node.kind)).map(node => node.id);
-  const castTop = (graph.height ?? 0) + laneGap / 2 - 24;
+  const castTop = top - clusterGap + laneGap / 2;
   const underSpine = beneath(casts, edges, boxes, castTop);
   const loose = lane(
     rest.filter(node => !castKinds.has(node.kind)).map(node => node.id),
@@ -215,18 +236,23 @@ export const layout = (
 
   const routes = new Map<string, EdgeRoute>();
   const ports: Port[] = [];
-  for (const e of g.edges()) {
-    const { points = [], x, y, width: w } = g.edge(e) as { points?: Point[]; x?: number; y?: number; width?: number };
-    if (!boxes.has(e.v) || !boxes.has(e.w) || points.length < 2 || !e.name) continue;
-    const inner = points.slice(1, -1);
-    const out: Port = { node: e.v, toward: inner[0] ?? points.at(-1)!, at: { x: 0, y: 0 } };
-    const into: Port = { node: e.w, toward: inner.at(-1) ?? points[0]!, at: { x: 0, y: 0 } };
-    ports.push(out, into);
-    routes.set(e.name, {
-      points: [out.at, ...inner, into.at],
-      ...(x !== undefined && y !== undefined && w && { label: { x, y } }),
-    });
-  }
+  for (const { g, dx, dy } of laid)
+    for (const e of g.edges()) {
+      const edge = g.edge(e) as { points?: Point[]; x?: number; y?: number; width?: number };
+      const points = (edge.points ?? []).map(p => ({ x: p.x + dx, y: p.y + dy }));
+      if (!boxes.has(e.v) || !boxes.has(e.w) || points.length < 2 || !e.name) continue;
+      const inner = points.slice(1, -1);
+      const out: Port = { node: e.v, toward: inner[0] ?? points.at(-1)!, at: { x: 0, y: 0 } };
+      const into: Port = { node: e.w, toward: inner.at(-1) ?? points[0]!, at: { x: 0, y: 0 } };
+      ports.push(out, into);
+      routes.set(e.name, {
+        points: [out.at, ...inner, into.at],
+        ...(edge.x !== undefined &&
+          edge.y !== undefined &&
+          edge.width && { label: { x: edge.x + dx, y: edge.y + dy } }),
+      });
+    }
   spread(ports, boxes);
-  return { boxes, routes, main: new Set([...inSpine, ...grouped.keys()]) };
+  clusters.delete('');
+  return { boxes, routes, main: new Set([...inSpine, ...grouped.keys()]), clusters };
 };

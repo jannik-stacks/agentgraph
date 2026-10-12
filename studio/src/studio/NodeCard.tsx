@@ -1,9 +1,12 @@
 import { Handle, type Node, type NodeProps, Position } from '@xyflow/react';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { createContext, memo, type ReactNode, use } from 'react';
 import type { GraphNode } from '../graph-model.ts';
+import { editPathAtom, navigateAtom, sampleAtom } from '../state.ts';
 import { Badge, cx } from '../ui.tsx';
 import { castSize, nodeSize } from './layout.ts';
-import { kindDot, nodeStyle } from './styles.ts';
+import { KindIcon, kindTitle } from './icons.tsx';
+import { nodeStyle } from './styles.ts';
 
 export type FlowNode = Node<{ node: GraphNode }, 'graph' | 'cast'>;
 export type JobFlowNode = Node<{ node: GraphNode; bot?: GraphNode | undefined; skill?: GraphNode | undefined }, 'job'>;
@@ -46,19 +49,13 @@ const Card = ({
   </div>
 );
 
-const Kind = ({ node, children }: { node: GraphNode; children?: ReactNode }) => {
+const PerEach = ({ node }: { node: GraphNode }) => {
   const forEach = forEachOf(node);
-  return (
-    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden font-sans text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-      <span className="shrink-0">{node.kind}</span>
-      {forEach && (
-        <Badge tone="info">
-          <span className="whitespace-nowrap">per {forEach}</span>
-        </Badge>
-      )}
-      {children}
-    </div>
-  );
+  return forEach ? (
+    <Badge tone="info">
+      <span className="whitespace-nowrap">per {forEach}</span>
+    </Badge>
+  ) : null;
 };
 
 const Badges = ({ badges }: { badges: GraphNode['badges'] }) =>
@@ -68,34 +65,53 @@ const Badges = ({ badges }: { badges: GraphNode['badges'] }) =>
     </Badge>
   ));
 
-const Label = ({ node }: { node: GraphNode }) => <div className="truncate text-[13px] font-semibold">{node.label}</div>;
+const Meta = ({ children }: { children: ReactNode }) => (
+  <div className="flex min-w-0 items-center gap-1 overflow-hidden font-sans">{children}</div>
+);
+
+const Title = ({ node }: { node: GraphNode }) => (
+  <div className="flex min-w-0 items-center gap-1.5">
+    <KindIcon kind={node.kind} />
+    <span className="truncate text-[13px] font-semibold">{node.label}</span>
+  </div>
+);
 
 /** A trigger, script or check. */
 export const NodeCard = memo(({ data: { node }, selected }: NodeProps<FlowNode>) => (
   <Card node={node} selected={selected} size={nodeSize}>
-    <Kind node={node}>
+    <Title node={node} />
+    <Meta>
+      <PerEach node={node} />
       <Badges badges={node.badges} />
-    </Kind>
-    <Label node={node} />
+    </Meta>
     {node.detail?.summary && (
       <div className="truncate font-sans text-[11px] text-zinc-500 dark:text-zinc-400">{node.detail.summary}</div>
     )}
   </Card>
 ));
 
-const CastChip = ({ node }: { node: GraphNode }) => {
+const castChip = {
+  bot: 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-400 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-100 dark:hover:border-emerald-600',
+  skill:
+    'border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-400 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-100 dark:hover:border-amber-600',
+};
+
+const CastChip = ({ node, kind }: { node: GraphNode; kind: keyof typeof castChip }) => {
   const select = use(SelectNode);
   return (
     <button
       type="button"
-      title={`${node.kind} ${node.label}`}
+      title={`${kindTitle[kind]}\n${kind} ${node.label}`}
       onClick={e => {
         e.stopPropagation();
         select(node.id);
       }}
-      className="nodrag inline-flex min-w-0 items-center gap-1 rounded border border-zinc-200 px-1 font-sans text-[11px] leading-4 text-zinc-700 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-sky-600 dark:hover:text-sky-300"
+      className={cx(
+        'nodrag inline-flex min-w-0 items-center gap-1 rounded border px-1 font-sans text-[11px] leading-4',
+        castChip[kind]
+      )}
     >
-      <span className={cx('size-1.5 shrink-0 rounded-full', kindDot[node.kind])} />
+      <KindIcon kind={kind} className="size-3" title={kind} />
       <span className="truncate">{node.label}</span>
     </button>
   );
@@ -104,14 +120,15 @@ const CastChip = ({ node }: { node: GraphNode }) => {
 /** A job: one step, naming the bot it casts and the skill it hands that bot. */
 export const JobCard = memo(({ data: { node, bot, skill }, selected }: NodeProps<JobFlowNode>) => (
   <Card node={node} selected={selected} size={nodeSize}>
-    <Kind node={node}>
+    <Title node={node} />
+    <Meta>
+      <PerEach node={node} />
       <Badges badges={[...(node.badges?.filter(badge => badge.tone) ?? []), ...(bot?.badges ?? [])]} />
-    </Kind>
-    <Label node={node} />
+    </Meta>
     {(bot || skill) && (
       <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-        {bot && <CastChip node={bot} />}
-        {skill && <CastChip node={skill} />}
+        {bot && <CastChip node={bot} kind="bot" />}
+        {skill && <CastChip node={skill} kind="skill" />}
       </div>
     )}
   </Card>
@@ -120,10 +137,54 @@ export const JobCard = memo(({ data: { node, bot, skill }, selected }: NodeProps
 /** A bot or a skill, small, placed under the steps that cast it. */
 export const CastCard = memo(({ data: { node }, selected }: NodeProps<FlowNode>) => (
   <Card node={node} selected={selected} size={castSize}>
-    <div className="truncate font-sans text-[9px] uppercase leading-3 tracking-wide text-zinc-500 dark:text-zinc-400">
-      {node.kind}
-      {node.badges?.length ? ` ${node.badges.map(b => b.text).join(' ')}` : ''}
+    <div className="flex min-w-0 items-center gap-1">
+      <KindIcon kind={node.kind} className="size-3" />
+      <span className="truncate text-xs font-semibold leading-4">{node.label}</span>
     </div>
-    <div className="truncate text-xs font-semibold leading-4">{node.label}</div>
+    {node.badges?.length ? (
+      <div className="truncate font-sans text-[10px] leading-3 text-zinc-500 dark:text-zinc-400">
+        {node.badges.map(b => b.text).join(', ')}
+      </div>
+    ) : null}
   </Card>
 ));
+
+export type FrameFlowNode = Node<{ name: string; path?: string | undefined }, 'workflow'>;
+
+/** The frame drawn around one workflow's triggers, jobs and gating checks, titled with its name and file. */
+export const WorkflowFrame = memo(({ data: { name, path } }: NodeProps<FrameFlowNode>) => {
+  const navigate = useSetAtom(navigateAtom);
+  const editing = useAtomValue(editPathAtom) === path;
+  const sample = useAtomValue(sampleAtom);
+  const title = (
+    <>
+      <KindIcon kind="workflow" />
+      <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{name}</span>
+      {path && <span className="truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{path}</span>}
+    </>
+  );
+  return (
+    <div
+      className={cx(
+        'relative size-full rounded-xl border bg-violet-50/40 dark:bg-violet-950/15',
+        editing ? 'border-violet-400 dark:border-violet-500' : 'border-violet-200 dark:border-violet-900'
+      )}
+    >
+      {path && !sample ? (
+        <button
+          type="button"
+          title={`${kindTitle.workflow}\nEdit ${path}`}
+          onClick={e => {
+            e.stopPropagation();
+            navigate({ query: { edit: path, node: null } });
+          }}
+          className="nodrag pointer-events-auto absolute left-2 top-1.5 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50"
+        >
+          {title}
+        </button>
+      ) : (
+        <div className="absolute left-2 top-1.5 flex items-center gap-1.5 px-1.5 py-0.5">{title}</div>
+      )}
+    </div>
+  );
+});

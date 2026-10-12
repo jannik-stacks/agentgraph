@@ -1,5 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { useMemo } from 'react';
+import { accepted } from '../../../src/preload.ts';
 import { NoteKind } from '../../../src/schema.ts';
 import type { GraphModel } from '../graph-model.ts';
 import { editPathAtom, navigateAtom, sampleAtom } from '../state.ts';
@@ -9,7 +10,7 @@ import { createItemAtom } from './edit/hub-edits.ts';
 import { ItemEditor } from './edit/ItemEditor.tsx';
 import { useHubModel } from './hub-model.ts';
 import { StudioLayout } from './StudioLayout.tsx';
-import { kindDot } from './styles.ts';
+import { KindIcon } from './icons.tsx';
 
 /** For each note path, the steps and the bots that load it. */
 const loaders = (model: GraphModel) => {
@@ -26,6 +27,8 @@ const loaders = (model: GraphModel) => {
     }
   return found;
 };
+
+const kindOf = (id: string) => (id.startsWith('bot:') ? 'bot' : id.startsWith('check:') ? 'check' : 'job');
 
 const add =
   'rounded border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300';
@@ -49,8 +52,9 @@ const Notes = () => {
           <ItemEditor path={edit} model={model} />
         ) : (
           <p className="text-zinc-500">
-            Select a note to edit it. A step loads a decision or convention whenever its paths match, and a pattern or
-            caveat when its bot or skill lists the kind or its paths match the step.
+            Select a note to edit it; the change applies to every step that loads it. Notes are never set per job: a
+            step loads a decision or convention whenever its paths overlap the step's, or always when it names no paths,
+            and a pattern or caveat when its bot or skill lists the kind or its paths overlap the step's.
           </p>
         )
       }
@@ -62,7 +66,7 @@ const Notes = () => {
           return (
             <section key={kind} className="space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className={cx('size-2 rounded-full', kindDot.note)} />
+                <KindIcon kind="note" />
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{kind}</h2>
                 <span className="text-[11px] text-zinc-400">{notes.length}</span>
                 <button
@@ -107,15 +111,15 @@ const Notes = () => {
                               {[...by.steps, ...by.bots].map(id => (
                                 <Chip
                                   key={id}
-                                  dot={
-                                    kindDot[id.startsWith('bot:') ? 'bot' : id.startsWith('check:') ? 'check' : 'job']
-                                  }
+                                  icon={<KindIcon kind={kindOf(id)} className="size-3" title={kindOf(id)} />}
                                   {...open(id)}
                                 >
                                   {labelOf(id)}
                                 </Chip>
                               ))}
                             </>
+                          ) : !accepted(note) ? (
+                            `${note.status}, so no step loads it; notes_search finds it with that status`
                           ) : (
                             'loaded by no step; runs with notes_search can still find it'
                           )}

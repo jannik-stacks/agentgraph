@@ -52,7 +52,7 @@ describe('cli', () => {
     expect(io.out[0]).toBe('{"ok":true,"warnings":[]}\n');
     expect(JSON.parse(io.out[1] ?? '').errors[0].message).toBe('no bots, skills, checks, workflows or notes found');
     expect(await main(['check', '--dir', join(examples, 'hub'), '--no-json'])).toBe(0);
-    expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 1 workflow (2 jobs), 2 notes\n');
+    expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 1 workflow (2 jobs), 5 notes\n');
   });
 
   it('check prints the warnings of a hub that compiles', async () => {

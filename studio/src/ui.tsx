@@ -78,9 +78,13 @@ const chipIdle = 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700 da
 const chipLink =
   'cursor-pointer border-zinc-200 bg-white text-zinc-800 hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-sky-600 dark:hover:bg-sky-950 dark:hover:text-sky-200';
 
-/** A small pill for a name, a link when `onClick` is given. `dot` is a background class for a leading color dot. */
+/**
+ * A small pill for a name, a link when `onClick` is given. It leads with `icon`, or with a color dot when `dot` names a
+ * background class.
+ */
 export const Chip = ({
   children,
+  icon,
   dot,
   mono,
   title,
@@ -88,6 +92,7 @@ export const Chip = ({
   onClick,
 }: {
   children: ReactNode;
+  icon?: ReactNode;
   dot?: string | undefined;
   mono?: boolean | undefined;
   title?: string | undefined;
@@ -96,7 +101,7 @@ export const Chip = ({
 }) => {
   const body = (
     <>
-      {dot && <span className={cx('size-1.5 shrink-0 rounded-full', dot)} />}
+      {icon ?? (dot && <span className={cx('size-1.5 shrink-0 rounded-full', dot)} />)}
       <span className={cx('truncate', mono && 'font-mono text-[11px]')}>{children}</span>
     </>
   );

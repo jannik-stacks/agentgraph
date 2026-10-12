@@ -14,7 +14,7 @@ import { Harness, HubTool, NoteKind } from '../../../../src/schema.ts';
 import type { GraphModel, NodeKind } from '../../graph-model.ts';
 import { filesAtom, navigateAtom, selectedNodeAtom } from '../../state.ts';
 import { Button, cx, Segmented, useCommittedText } from '../../ui.tsx';
-import { kindDot } from '../styles.ts';
+import { type IconKind, KindIcon } from '../icons.tsx';
 import {
   bodyLabel,
   deleteItemAtom,
@@ -41,16 +41,8 @@ const refKinds: Record<string, NodeKind> = {
   subagents: 'bot',
 };
 
-const kindOfItem: Partial<Record<ItemKind, NodeKind>> = {
-  bot: 'bot',
-  skill: 'skill',
-  check: 'check',
-  workflow: 'trigger',
-  note: 'note',
-  issue: 'issues',
-  hub: 'issues',
-};
-export const itemDot = (kind: ItemKind) => kindDot[kindOfItem[kind] ?? 'job'];
+/** The icon kind of a hub file kind. */
+export const itemIcon = (kind: ItemKind): IconKind => (kind === 'issue' ? 'issues' : kind);
 
 const modelAliases = (sources: { path: string; source: string }[]) =>
   [
@@ -205,7 +197,7 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
         return {
           href: `/studio?node=${encodeURIComponent(id)}`,
           onClick: () => navigate({ path: '/studio', query: { node: id, edit: null } }),
-          dot: kindDot[k],
+          icon: <KindIcon kind={k} className="size-3" />,
         };
       },
       open: p =>
@@ -233,7 +225,7 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
     <div key={path} className="space-y-4">
       <header className="space-y-1.5">
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
-          <span className={cx('size-2 rounded-full', itemDot(kind))} />
+          <KindIcon kind={itemIcon(kind)} />
           editing {kindLabel(kind)}
           {status && (
             <span className="rounded bg-amber-100 px-1.5 normal-case tracking-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300">

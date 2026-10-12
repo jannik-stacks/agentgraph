@@ -60,11 +60,13 @@ Run `npm run verify` from the `bothub` directory. It stops at the first failure 
 
 ## Editing the hub
 
-The graph shows the flow: triggers, jobs and the checks that gate them. A job is one step that
-casts a bot and hands it a skill; both show on the job's card, and the Bots and skills layer draws
-them as their own nodes under the steps that cast them. Notes are not nodes. Selecting a job or a
-bot lists the notes its run loads and why, and the Notes tab lists every note with the steps that
-load it.
+The graph shows the flow. Each workflow file is a frame around its triggers, its jobs and the
+checks that gate them, and the frame's title opens the file. A job is one step that casts a bot and
+hands it a skill; both show on the job's card, and the Bots and skills layer draws them as their own
+nodes under the steps that cast them. Notes are not nodes. Selecting a job or a bot lists what its
+run starts with: the bot, the skill, what it sees up front, the tools it can use, what it may
+propose, and the notes it loads automatically with the rule behind each. The Notes tab lists every
+note with the steps that load it, and an edit there applies to all of them.
 
 Studio edits every kind of hub file: `hub.yaml`, bots, skills, checks, workflows, notes and local
 issues. With no node selected, the side panel lists the hub's items by kind, each with a button to

@@ -10,7 +10,7 @@ type Target = { href: string; onClick: () => void };
 export type FormContext = {
   issues: FieldIssue[];
   suggest: (path: Path) => string[] | undefined;
-  link: (path: Path, value: string) => (Target & { dot?: string }) | undefined;
+  link: (path: Path, value: string) => (Target & { icon?: ReactNode }) | undefined;
   open: (path: Path) => boolean;
 };
 
@@ -134,12 +134,7 @@ const RefChip = ({ path, value, onRemove }: { path: Path; value: string; onRemov
   const target = useForm().link(path, value);
   return (
     <span className="inline-flex items-center">
-      <Chip
-        dot={target?.dot}
-        mono={mono.has(String(lastKey(path)))}
-        title={target ? `open ${value}` : value}
-        {...target}
-      >
+      <Chip mono={mono.has(String(lastKey(path)))} title={target ? `open ${value}` : value} {...target}>
         {value}
       </Chip>
       {onRemove && (

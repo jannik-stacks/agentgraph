@@ -6,7 +6,7 @@ import { type GraphModel, type GraphNode, modeTone, type StepContext } from '../
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
 import { filesAtom, navigateAtom, sampleAtom } from '../state.ts';
 import { Badge, Chip, Chips, cx, Field, Fields, Pre, Section, useStoredFlag } from '../ui.tsx';
-import { kindDot } from './styles.ts';
+import { KindIcon, kindTitle } from './icons.tsx';
 
 const Markdown = lazy(() => import('./Markdown.tsx'));
 
@@ -66,7 +66,11 @@ const NodeChip = ({ id, label, title }: { id: string; label?: string | undefined
   const node = links.nodes.get(id);
   const kind = node?.kind ?? (id.split(':')[0] as GraphNode['kind']);
   return (
-    <Chip dot={kindDot[kind]} title={title ?? `${kind} ${node?.label ?? id}`} {...links.node(id)}>
+    <Chip
+      icon={<KindIcon kind={kind} className="size-3" title={kind} />}
+      title={title ?? `${kind} ${node?.label ?? id}`}
+      {...links.node(id)}
+    >
       {label ?? node?.label ?? id.replace(/^[a-z]+:/, '')}
     </Chip>
   );
@@ -83,7 +87,11 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
     const file = links.files.find(f => f.root === 'hub' && f.path.replace(/\.md$/, '') === `workflows/${value}`);
     if (file)
       return (
-        <Chip dot="bg-violet-500" title={`workflow ${value}, ${file.path}`} {...links.file(file)}>
+        <Chip
+          icon={<KindIcon kind="workflow" className="size-3" title="workflow" />}
+          title={`workflow ${value}, ${file.path}`}
+          {...links.file(file)}
+        >
           {value}
         </Chip>
       );
@@ -257,9 +265,9 @@ const Header = ({ node, data }: { node: GraphNode; data: Record<string, unknown>
   const summary = description ?? (Object.keys(data).length ? undefined : node.detail?.summary);
   return (
     <header className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
-        <span className={cx('size-2 rounded-full', kindDot[node.kind])} />
-        {node.kind}
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+        <KindIcon kind={node.kind} className="size-4" />
+        <span title={kindTitle[node.kind]}>{node.kind}</span>
         {node.badges
           ?.filter(badge => !values.has(badge.text))
           .map(badge => (
@@ -316,10 +324,10 @@ const NoteRow = ({ loaded }: { loaded: StepContext['notes'][number] }) => {
   return (
     <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5">
       <Chip
-        dot={kindDot.note}
-        title={`open ${note.path}`}
-        href={`?edit=${encodeURIComponent(note.path)}`}
-        onClick={() => navigate({ query: { edit: note.path } })}
+        icon={<KindIcon kind="note" className="size-3" title="note" />}
+        title={`Open ${note.path} in the Notes tab; an edit there changes it for every step that loads it`}
+        href={`/studio/notes?edit=${encodeURIComponent(note.path)}`}
+        onClick={() => navigate({ path: '/studio/notes', query: { edit: note.path } })}
       >
         {note.title}
       </Chip>
@@ -332,76 +340,123 @@ const NoteRow = ({ loaded }: { loaded: StepContext['notes'][number] }) => {
   );
 };
 
-const Labelled = ({ name, children }: { name: string; children: ReactNode }) => (
-  <Field name={name}>
-    <Chips>{children}</Chips>
-  </Field>
+const Labelled = ({ name, title, children }: { name: string; title?: string; children: ReactNode }) => (
+  <>
+    <dt className="text-zinc-500" title={title}>
+      {name}
+    </dt>
+    <dd className="min-w-0">
+      <Chips>{children}</Chips>
+    </dd>
+  </>
 );
 
-/** What one step hands its bot: the notes it loads and why, the preload, the tools and the issue tracker. */
-const StepContextView = ({ context, heading }: { context: StepContext; heading?: ReactNode }) => {
+const None = ({ children = 'none' }: { children?: ReactNode }) => <span className="text-zinc-400">{children}</span>;
+
+const preloadMeaning: Record<StepContext['preload'][number], string> = {
+  issue: 'the issue thread',
+  links: 'linked issues and PRs',
+  notes: 'notes below',
+};
+
+const Notes = ({ context }: { context: StepContext }) => (
+  <div className="space-y-1.5">
+    <p
+      className="flex items-center gap-1.5 text-xs text-zinc-500"
+      title="Never set per job. Decisions and conventions load when their paths overlap the step's, or always without paths; patterns and caveats load when the bot or skill lists their kind, or when their paths overlap."
+    >
+      <KindIcon kind="note" className="size-3" />
+      Notes loaded automatically by rule
+    </p>
+    {!context.preload.includes('notes') ? (
+      <p className="text-xs text-zinc-500">Notes are not preloaded for this step.</p>
+    ) : context.notes.length ? (
+      <ul className="divide-y divide-zinc-100 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        {context.notes.map(loaded => (
+          <NoteRow key={loaded.note.path} loaded={loaded} />
+        ))}
+      </ul>
+    ) : (
+      <p className="text-xs text-zinc-500">No note matches this step.</p>
+    )}
+  </div>
+);
+
+/**
+ * What one step hands its bot, in the order the run meets it: who acts, what it does, what it sees up front, what it
+ * can use while working, what it may propose afterwards, then the notes it loads and why.
+ */
+const StepContextView = ({ context, from, heading }: { context: StepContext; from: string; heading?: ReactNode }) => {
   const links = useLinksContext();
   const navigate = useSetAtom(navigateAtom);
   const docs = links.page('/docs/context');
   return (
-    <div className="space-y-2 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
+    <div className="space-y-3 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
       {heading}
-      {context.preload.includes('notes') ? (
-        context.notes.length ? (
-          <ul className="divide-y divide-zinc-100 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-            {context.notes.map(loaded => (
-              <NoteRow key={loaded.note.path} loaded={loaded} />
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-zinc-500">No notes match this step.</p>
-        )
-      ) : (
-        <p className="text-xs text-zinc-500">Notes are not preloaded for this step.</p>
-      )}
-      <Fields>
-        <Labelled name="preload">
+      <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5">
+        {context.bot !== from && (
+          <Labelled name="who" title="the bot the step casts">
+            <NodeChip id={context.bot} />
+          </Labelled>
+        )}
+        {context.skill !== from && (
+          <Labelled name="does" title="the skill the step hands the bot">
+            {context.skill ? <NodeChip id={context.skill} /> : <None>no skill</None>}
+          </Labelled>
+        )}
+        <Labelled name="sees first" title="preloaded into the prompt before the run starts">
           {context.preload.map(item => (
-            <Chip key={item} mono title="preloaded before the run starts" {...docs}>
+            <Chip key={item} mono title={`preloads ${preloadMeaning[item]}`} {...docs}>
               {item}
+              <span className="ml-1 font-sans text-zinc-500">{preloadMeaning[item]}</span>
             </Chip>
           ))}
-        </Labelled>
-        <Labelled name="tools">
-          {context.harnessTools.length ? (
-            context.harnessTools.map(tool => (
-              <Chip key={tool} mono title="harness tool" {...links.page('/docs/reference/harnesses')}>
-                {tool}
-              </Chip>
-            ))
-          ) : (
-            <span className="text-zinc-400">none</span>
-          )}
-        </Labelled>
-        <Labelled name="hub tools">
-          {context.hubTools.length ? (
-            context.hubTools.map(tool => (
-              <Chip key={tool} dot={kindDot.tool} mono title="read-only hub tool, served over MCP" {...docs}>
-                {tool}
-              </Chip>
-            ))
-          ) : (
-            <span className="text-zinc-400">none</span>
-          )}
-        </Labelled>
-        {context.issues && (
-          <Labelled name="issues">
+          {context.issues && (
             <Chip
-              dot={kindDot.issues}
+              icon={<KindIcon kind="issues" className="size-3" />}
               title={`${context.issues} issue tracker, set in ${hubFile}`}
               href={`?edit=${hubFile}`}
               onClick={() => navigate({ query: { edit: hubFile } })}
             >
               {context.issues}
             </Chip>
-          </Labelled>
-        )}
-      </Fields>
+          )}
+        </Labelled>
+        <Labelled name="can use" title="harness tools and read-only hub tools while it works">
+          {context.harnessTools.map(tool => (
+            <Chip key={tool} mono title="harness tool" {...links.page('/docs/reference/harnesses')}>
+              {tool}
+            </Chip>
+          ))}
+          {context.hubTools.map(tool => (
+            <Chip
+              key={tool}
+              icon={<KindIcon kind="tool" className="size-3" />}
+              mono
+              title="read-only hub tool, served over MCP"
+              {...docs}
+            >
+              {tool}
+            </Chip>
+          ))}
+          {!context.harnessTools.length && !context.hubTools.length && <None />}
+        </Labelled>
+        <Labelled
+          name="may propose"
+          title="the proposal kinds the run may return; nothing applies until a check passes"
+        >
+          {context.can.length ? (
+            context.can.map(kind => (
+              <Chip key={kind} mono>
+                {kind}
+              </Chip>
+            ))
+          ) : (
+            <None>nothing, it answers with a verdict</None>
+          )}
+        </Labelled>
+      </dl>
+      <Notes context={context} />
     </div>
   );
 };
@@ -412,7 +467,7 @@ const Context = ({ node }: { node: GraphNode }) => {
   if (node.kind !== 'bot')
     return (
       <Section title="context">
-        <StepContextView context={node.context[0]!} />
+        <StepContextView context={node.context[0]!} from={node.id} />
       </Section>
     );
   return (
@@ -421,6 +476,7 @@ const Context = ({ node }: { node: GraphNode }) => {
         <StepContextView
           key={context.step}
           context={context}
+          from={node.id}
           heading={
             <p className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
               cast by <NodeChip id={context.step} />

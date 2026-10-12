@@ -2,9 +2,10 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { hubFile } from '../../../../src/config.ts';
 import { type ItemKind, itemKind, itemName, noteKindOf } from '../../../../src/hub-files.ts';
 import { NoteKind } from '../../../../src/schema.ts';
-import { Button, cx } from '../../ui.tsx';
+import { Button } from '../../ui.tsx';
 import { createItemAtom, draftHubAtom, draftsAtom, editItemAtom, parseCached } from './hub-edits.ts';
-import { itemDot } from './ItemEditor.tsx';
+import { KindIcon } from '../icons.tsx';
+import { itemIcon } from './ItemEditor.tsx';
 
 const groups: { kind: ItemKind; title: string; hint: string }[] = [
   { kind: 'workflow', title: 'workflows', hint: 'triggers to jobs' },
@@ -39,7 +40,7 @@ export const HubItems = () => {
         onClick={() => (hasHub ? edit(hubFile) : create({ kind: 'hub' }))}
         className="flex w-full items-center gap-2 rounded border border-zinc-200 px-2 py-1 text-left text-xs hover:border-sky-400 dark:border-zinc-800 dark:hover:border-sky-700"
       >
-        <span className={cx('size-1.5 rounded-full', itemDot('hub'))} />
+        <KindIcon kind="hub" />
         <span className="font-mono">hub.yaml</span>
         <span className="text-zinc-500">{hasHub ? 'hub settings' : 'add hub settings'}</span>
       </button>
@@ -73,7 +74,7 @@ export const HubItems = () => {
                       onClick={() => edit(f.path)}
                       className="flex w-full items-center gap-2 px-2 py-1 text-left text-[13px] hover:bg-zinc-50 dark:hover:bg-zinc-900"
                     >
-                      <span className={cx('size-1.5 shrink-0 rounded-full', itemDot(group.kind))} />
+                      <KindIcon kind={itemIcon(group.kind)} />
                       <span className="truncate font-medium">{title(f.path, f.source) ?? itemName(f.path)}</span>
                       {group.kind === 'note' && <span className="text-[11px] text-zinc-500">{noteKindOf(f.path)}</span>}
                       {drafts[f.path] && (

@@ -39,7 +39,13 @@ describe('compile', () => {
     expect(Object.keys(bots).sort()).toEqual(['implementor', 'reviewer']);
     expect(Object.keys(skills).sort()).toEqual(['implement', 'review', 'review-file']);
     expect(Object.keys(checks).sort()).toEqual(['review', 'types']);
-    expect(notes.map(n => `${n.kind}/${n.name}`)).toEqual(['caveat/empty-allowlist', 'convention/typecheck-clean']);
+    expect(notes.map(n => `${n.kind}/${n.name}`)).toEqual([
+      'caveat/empty-allowlist',
+      'caveat/esm-only-bin',
+      'convention/typecheck-clean',
+      'decision/parse-at-the-boundary',
+      'pattern/small-pure-functions',
+    ]);
     expect(bots.reviewer).toMatchObject({ harness: 'pi', body: expect.stringContaining('Try to break them') });
     expect(checks.review).toMatchObject({ bot: 'reviewer', 'for-each': 'file', mode: 'warn' });
     const flow = workflows.issue;
