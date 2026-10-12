@@ -9,6 +9,8 @@ export const nodeStyle: Record<NodeKind, string> = {
   skill: 'rounded-sm border-l-amber-500',
   check: 'rounded-md border-l-rose-500',
   note: 'rounded-sm border-dashed border-l-stone-400',
+  issues: 'rounded-sm border-dashed border-l-indigo-500',
+  tool: 'rounded-full border-l-cyan-500',
 };
 
 const palette = {
@@ -21,6 +23,8 @@ const palette = {
   'teal-500': '#14b8a6',
   'teal-600': '#0d9488',
   'stone-400': '#a8a29e',
+  'indigo-500': '#6366f1',
+  'cyan-500': '#06b6d4',
 };
 const color = (name: keyof typeof palette) => palette[name];
 const arrow = (name: keyof typeof palette) => ({
@@ -49,6 +53,8 @@ export const edgeStyle: Record<EdgeKind, Partial<Edge>> = {
     labelBgBorderRadius: 8,
   },
   'reads-notes': { style: { stroke: color('stone-400'), strokeDasharray: '1 4', strokeLinecap: 'round' } },
+  preloads: { style: { stroke: color('indigo-500'), strokeDasharray: '4 3' }, markerEnd: arrow('indigo-500') },
+  calls: { style: { stroke: color('cyan-500'), strokeDasharray: '2 2' } },
 };
 
 export const defaultEdgeLabel: Partial<Record<EdgeKind, string>> = {

@@ -1,0 +1,42 @@
+---
+title: Vocabulary
+description: The few words that describe every hub.
+---
+
+| Word | What it is | Where it lives |
+| --- | --- | --- |
+| **trigger** | Something that happened: a GitHub event, a comment command, a schedule | `on:` in a workflow or job |
+| **bot** | Who acts. Harness, model alias, tools, what it may write (`can`). Only bots run a model | `bots/<name>.md`, body is the role |
+| **skill** | What to do. A prompt the job forces or the bot is offered | `skills/<name>.md`, body is the prompt |
+| **workflow** | A small graph from triggers to jobs | `workflows/<name>.md` |
+| **job** | One node in a workflow: a bot running a skill, or a plain script | inside a workflow |
+| **check** | A script or a bot that returns a verdict, pass or fail with findings | `checks/<name>.md` |
+| **branch** | Where work happens. One worktree per run, never the default branch | runtime |
+| **proposal** | The only way a bot changes anything on GitHub | runtime, see [Proposals](/docs/proposals) |
+| **run** | One bot or script executing one job attempt, with events, cost and an outcome | the run store |
+| **note** | What the hub knows | `notes/<kind>/<slug>.md` |
+
+## Notes
+
+There are four kinds of note, split into rules and knowledge.
+
+- **decision** and **convention** are rules. A rule note with `paths` is always loaded when a run
+  touches matching files. A decision changes only through a new decision that supersedes it.
+- **pattern** and **caveat** are knowledge. A pattern is a reusable solution worth copying, a
+  caveat is a known sharp edge in our own design. They load only when relevant.
+
+Bots and skills choose which kinds they read with `notes: [decision, convention]`. A note can name
+the `check` that enforces it, which is how a rule earns teeth (see the correction ladder in
+[The loop](/docs/loop)).
+
+## Issues as the work queue
+
+Some things look like notes but are not.
+
+- An **open question** is an issue labelled `unsure`. A bot that is unsure asks instead of
+  guessing, and a human answers in the thread, which is itself a trigger.
+- A **plan** is an issue labelled `plan` with sub-issues for each step.
+- A **spec** is an issue labelled `spec`.
+
+Memory from one run, like what a bot tried and why it failed, lives in the run store and not in
+notes. Notes are for what stays true across runs.

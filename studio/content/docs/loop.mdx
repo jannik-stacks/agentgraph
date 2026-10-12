@@ -1,0 +1,65 @@
+---
+title: The loop
+description: A job is done when its checks pass, not when the bot says so.
+---
+
+```
+trigger → bot runs a skill on a branch → checks → findings go back to the bot → proposals applied
+```
+
+## Until
+
+A job with `until` runs its bot, then each listed check against the worktree. If a gating check
+fails, its findings go back to the same bot as a follow-up message in the same worktree, and the
+bot tries again.
+
+```yaml
+jobs:
+  implement:
+    bot: implementor
+    skill: implement
+    branch: bothub/{issue}-{slug}
+    until:
+      checks: [types, tests, chunk-review]
+      max: 2
+    can: [push, open-pr, reply]
+```
+
+`max` counts retries after the first attempt and defaults to 2. When the checks still fail after
+the last one, the run is marked failed, every proposal except `ask` is held back, and bothub adds
+an `ask` that names the failing checks and the run that has the findings. Every attempt is stored
+as its own run, linked to the one before it.
+
+## Check modes
+
+| Mode | Effect |
+| --- | --- |
+| `shadow` | Runs and records its verdict, never fails the attempt. The default |
+| `warn` | Gating: a failure sends findings back and holds proposals |
+| `block` | Gating, and meant to stay that way once a check has earned it |
+
+Today `warn` and `block` gate the loop the same way. Jobs have a mode too: a job in `shadow`
+validates and stores its proposals but never applies them, which is how a new bot or skill starts
+out.
+
+## For each
+
+A check with a bot can fan out with `for-each`. With `file`, every changed file that matches the
+check's `paths` gets its own bot run and verdict. `chunk` is meant to split touched files by
+function; the chunker is not built yet, so for now it behaves like `file`.
+
+A check with `run:` is a script: exit 0 passes, anything else fails and its output is the finding.
+A bot check ends with a reply whose first line is `PASS` or `FAIL`.
+
+## The correction ladder
+
+Mistakes that repeat should get harder to make. A correction climbs one step at a time, each step
+a pull request:
+
+1. a **pattern** or **caveat** note, proposed by a bot,
+2. a **convention**, merged by a human,
+3. a **check** in `shadow`, then `warn`, then `block`,
+4. ideally a lint rule, so the mistake cannot be written at all.
+
+The `learn` workflow in the example hub reads review findings and proposes the next step once a
+correction has been seen twice.

@@ -20,6 +20,8 @@ console.log(`api    http://127.0.0.1:${apiPort}\nhub    ${hubDir}\ninfra  ${infr
 for (const dir of [hubDir, infraDir]) if (!existsSync(dir)) console.log(`${dir} does not exist yet; it lists nothing`);
 if (!(await store.list()).length) console.log(`no runs yet; add one with: npm run seed -- ${dataDir}`);
 
+process.env.VITE_BHM_HUB = hubDir;
+process.env.VITE_BHM_DATA = dataDir;
 const vite = await createServer({ root: import.meta.dirname });
 await vite.listen();
 vite.printUrls();

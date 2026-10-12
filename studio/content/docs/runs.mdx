@@ -1,0 +1,39 @@
+---
+title: Runs and storage
+description: Where repositories, worktrees and run records live.
+---
+
+Everything bothub keeps on disk sits in one data directory, `$BOTHUB_DATA` or `~/.bothub` by
+default.
+
+```
+$BOTHUB_DATA/
+  .env                        secrets, picked by name for each run
+  repos/<owner>/<repo>.git    one bare mirror per repository, refreshed before each run
+  work/<run id>/              one detached worktree per run, removed afterwards
+  runs/<run id>/
+    run.json                  status, bot, harness, attempt, parent, cost, turns, error
+    events.jsonl              one line per agent event
+    outcome.json              proposals, verdicts, what was applied
+    home/                     the harness's private home, kept
+    tmp/                      scratch space, removed when the run ends
+```
+
+Run ids start with a timestamp, so they sort in creation order. The store is append-only: a run
+is created `queued`, moves to `running`, and ends as `succeeded`, `failed`, `cancelled`,
+`timed-out` or `skipped`.
+
+## The harness home
+
+Each run gets its own `HOME`, XDG directories and `CODEX_HOME` under `home/`, so harness sessions
+never mix with yours or with other runs. The raw transcripts each harness writes stay there after
+the run, and the Dashboard can show the JSON and JSON Lines files in it. Credential files are
+never listed.
+
+## Files
+
+Run records will move behind a small `Files` interface: read, write, append, list, remove and
+scope, with paths always relative to a root. The local backend comes first, an R2 backend later,
+so the same code can keep runs in a bucket. Worktrees, mirrors and caches stay on a real
+filesystem because git needs one. The interface is designed but not wired in yet; the store
+writes to disk directly today.

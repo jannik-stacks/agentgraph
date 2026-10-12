@@ -10,12 +10,12 @@ const getJson = async <T>(path: string): Promise<T> => {
   return response.json() as Promise<T>;
 };
 
-export const routes = ['studio', 'dashboard'] as const;
+export const routes = ['studio', 'dashboard', 'docs'] as const;
 export type Route = (typeof routes)[number];
 
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
-const locationAtom = atom(readLocation());
+export const locationAtom = atom(readLocation());
 locationAtom.onMount = set => {
   const sync = () => set(readLocation());
   addEventListener('popstate', sync);
@@ -46,7 +46,9 @@ export const studioTabs = ['graph', 'setup'] as const;
 export type StudioTab = (typeof studioTabs)[number];
 export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segments)[1]) ?? 'graph');
 
-const queryParam = (key: string) =>
+export const docsSlugAtom = atom(get => get(segments).slice(1));
+
+const queryParam =(key: string) =>
   atom(
     get => get(locationAtom).query.get(key),
     (_get, set, value: string | null) => set(navigateAtom, { query: { [key]: value } })

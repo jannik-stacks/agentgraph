@@ -4,7 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cstyle%3Eg%7Bfill:%2318181b%7D%40media%20%28prefers-color-scheme:dark%29%7Bg%7Bfill:%23f4f4f5%7D%7D%3C/style%3E%3Cmask%20id='m'%3E%3Crect%20width='16'%20height='16'%20fill='white'/%3E%3Ccircle%20cx='5.5'%20cy='9.5'%20r='1.75'/%3E%3Ccircle%20cx='10.5'%20cy='9.5'%20r='1.75'/%3E%3C/mask%3E%3Cg%20mask='url%28%23m%29'%3E%3Crect%20x='1'%20y='4.5'%20width='14'%20height='10.5'%20rx='3'/%3E%3Crect%20x='7.25'%20y='1.5'%20width='1.5'%20height='3'/%3E%3Ccircle%20cx='8'%20cy='1.75'%20r='1.5'/%3E%3C/g%3E%3C/svg%3E"
+    />
     <title>BHM</title>
+    <script>
+      {
+        const scheme = matchMedia('(prefers-color-scheme: dark)');
+        const sync = () => document.documentElement.classList.toggle('dark', scheme.matches);
+        sync();
+        scheme.addEventListener('change', sync);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

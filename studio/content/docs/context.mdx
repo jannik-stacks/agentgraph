@@ -1,0 +1,51 @@
+---
+title: Context
+description: What a run knows before it starts, and what it can look up.
+---
+
+A run sees the bot's role, its offered skills, the notes it reads, the forced skill's prompt and
+the triggering event. Beyond that there are two ways to give it more.
+
+## Preload
+
+`preload` renders context into the prompt before the run starts. Use it for things every run of
+the job needs.
+
+| Value | What is rendered |
+| --- | --- |
+| `issue` | The triggering issue |
+| `links` | Issues linked from it |
+| `notes` | The notes that match the run |
+
+## Read-only tools
+
+`tools` on a job offers lookups through the bothub MCP server, for things a run might need. They
+read, they never write; writing is what [proposals](/docs/proposals) are for.
+
+| Tool | Reads |
+| --- | --- |
+| `issues_list`, `issues_get` | Issues, plans, specs and open questions |
+| `notes_search`, `notes_get` | Notes in the hub |
+| `runs_read` | Earlier runs from the run store |
+
+```yaml
+jobs:
+  triage:
+    bot: triager
+    preload: [issue, links]
+    tools: [issues_get, notes_search]
+```
+
+## Issues
+
+Issues go through one interface with two backends, picked in `hub.yaml`:
+
+```yaml
+issues: github   # or local
+```
+
+`github` reads and writes real issues in the target repo. `local` keeps them as files, which is
+handy for trying a hub without touching GitHub.
+
+The `preload` and `tools` keys are in the schema already; the Issues interface, the MCP server and
+the local backend are being built now.

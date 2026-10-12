@@ -1,9 +1,13 @@
 import { useAtomValue, useSetAtom } from 'jotai';
-import { Component, type ReactNode, Suspense, useEffect } from 'react';
+import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { DashboardView } from './dashboard/DashboardView.tsx';
+import { Logo } from './Logo.tsx';
+import { Link } from './Providers.tsx';
 import { navigateAtom, type Route, routeAtom, routes } from './state.ts';
 import { StudioView } from './studio/StudioView.tsx';
 import { cx, Muted } from './ui.tsx';
+
+const DocsView = lazy(() => import('./docs/DocsView.tsx'));
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   override state: { error?: Error } = {};
@@ -22,35 +26,58 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   }
 }
 
-const labels: Record<Route, string> = { studio: 'Studio', dashboard: 'Dashboard' };
+const labels: Record<Route, string> = { studio: 'Studio', dashboard: 'Dashboard', docs: 'Docs' };
 
-const Nav = ({ route }: { route: Route | undefined }) => {
-  const navigate = useSetAtom(navigateAtom);
-  return (
-    <nav className="flex gap-1">
-      {routes.map(r => (
-        <a
-          key={r}
-          href={`/${r}`}
-          aria-current={r === route ? 'page' : undefined}
-          onClick={e => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-            e.preventDefault();
-            navigate({ path: `/${r}` });
-          }}
-          className={cx(
-            'rounded px-2.5 py-1',
-            r === route
-              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-              : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
-          )}
-        >
-          {labels[r]}
-        </a>
-      ))}
-    </nav>
-  );
-};
+const Nav = ({ route }: { route: Route | undefined }) => (
+  <nav className="flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900">
+    {routes.map(r => (
+      <Link
+        key={r}
+        href={`/${r}`}
+        aria-current={r === route ? 'page' : undefined}
+        className={cx(
+          'rounded-md px-2.5 py-1 text-[13px] leading-5 transition-colors',
+          r === route
+            ? 'bg-white font-medium text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-white'
+            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+        )}
+      >
+        {labels[r]}
+      </Link>
+    ))}
+  </nav>
+);
+
+const hubDir: string | undefined = import.meta.env.VITE_BHM_HUB;
+const dataDir: string | undefined = import.meta.env.VITE_BHM_DATA;
+const base = (dir: string) => dir.split('/').filter(Boolean).at(-1) ?? dir;
+
+const Where = () =>
+  hubDir || dataDir ? (
+    <dl className="ml-auto hidden min-w-0 items-center gap-3 text-xs text-zinc-500 md:flex">
+      {[
+        ['hub', hubDir],
+        ['data', dataDir],
+      ].map(([name, dir]) =>
+        dir ? (
+          <div key={name} className="flex min-w-0 gap-1" title={dir}>
+            <dt>{name}</dt>
+            <dd className="truncate font-mono text-zinc-700 dark:text-zinc-300">{base(dir)}</dd>
+          </div>
+        ) : null
+      )}
+    </dl>
+  ) : null;
+
+const Header = ({ route }: { route: Route | undefined }) => (
+  <header className="sticky top-0 z-40 flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/90 px-3 backdrop-blur sm:gap-5 sm:px-4 dark:border-zinc-800 dark:bg-zinc-950/90">
+    <Link href="/studio" title="bothub manager" className="shrink-0 text-zinc-900 dark:text-zinc-100">
+      <Logo />
+    </Link>
+    <Nav route={route} />
+    <Where />
+  </header>
+);
 
 export const App = () => {
   const route = useAtomValue(routeAtom);
@@ -59,18 +86,14 @@ export const App = () => {
     if (!route) navigate({ path: '/studio', replace: true });
   }, [route, navigate]);
   return (
-    <div className="grid h-full grid-rows-[auto_1fr]">
-      <header className="flex items-center gap-4 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-        <h1 className="font-semibold" title="bothub manager">
-          BHM
-        </h1>
-        <Nav route={route} />
-      </header>
-      <main className="min-h-0">
+    <div className="min-h-full">
+      <Header route={route} />
+      <main className={route === 'docs' ? undefined : 'h-[calc(100dvh-3rem)] min-h-0'}>
         <Boundary key={route}>
           <Suspense fallback={<Muted>Loading.</Muted>}>
             {route === 'studio' && <StudioView />}
             {route === 'dashboard' && <DashboardView />}
+            {route === 'docs' && <DocsView />}
           </Suspense>
         </Boundary>
       </main>

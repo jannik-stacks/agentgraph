@@ -1,0 +1,53 @@
+---
+title: Sandbox and models
+description: How a run is isolated and which models it can reach.
+---
+
+## The sandbox
+
+Each run is one hardened `docker run --rm`:
+
+- read-only root filesystem, `/tmp` as tmpfs, a non-root user, all capabilities dropped,
+  `no-new-privileges`, memory, CPU and pid limits, and a watchdog that kills it at the timeout,
+- the run's `home/` mounted read-write, so transcripts survive the container,
+- the worktree at `/work`, with the bare mirror mounted read-only so refs and objects cannot be
+  touched,
+- an internal network with no route out. The run can reach the model proxy, an egress proxy that
+  only allows GitHub and the npm registry, and a relay to the host's Ollama.
+
+No GitHub token goes inside. The run gets the proxy URL, its bot's own key and the decision API
+address. Pushes happen on the host, after checks.
+
+The image and `run.sh` live in `infra/local/sandbox`. The runner does not start runs through it
+yet; today it spawns the harness on the host with a private home and an allowlisted environment.
+
+## Harnesses
+
+A bot's `harness` picks the agent program.
+
+| Harness | Notes |
+| --- | --- |
+| `opencode` | The primary choice. Real tool allowlists, including patterned bash, one process per run |
+| `pi` | Light and fast. Tools are all or nothing, so it suits read-only bots |
+| `claude-code` | Anthropic's agent, through an API key |
+| `codex` | OpenAI's agent. The acme-app reviewer uses it so reviews come from a different model family |
+
+## Models
+
+Bots name a model alias, never a vendor model. LiteLLM sits in front of every model, maps aliases
+to upstreams, and gives each bot its own virtual key with rate limits, so its logs show which bot
+spent what.
+
+| Alias | Route |
+| --- | --- |
+| `smart`, `writer` | A ChatGPT subscription through LiteLLM's `chatgpt` provider |
+| `review` | An Anthropic API key, a different family from the authors |
+| `fast` | Ollama running `qwen3.5:4b` locally |
+
+Ollama also serves `tev1:0.8b` through its decision API, for small yes, no and scoring questions
+that checks ask directly. An offline config points every alias at Ollama.
+
+Moving an alias from an API key to a subscription is a proxy config change; no bot file changes.
+
+Bot `budget` (runs per day, minutes, dollars per run) is in the schema but only the minutes limit
+is enforced today, as the run timeout. Environment gates for protected paths are not built yet.
