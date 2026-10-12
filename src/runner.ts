@@ -15,7 +15,7 @@ import {
   type Sandbox,
 } from './sandbox.ts';
 import type { EventRecord, Run, Store } from './store.ts';
-import type { AgentEvent, ExecutorAdapter, RunSpec } from './types.ts';
+import type { AgentEvent, HarnessAdapter, RunSpec } from './types.ts';
 
 const inherited = ['PATH', 'HOME', 'LANG', 'TMPDIR', 'USER', 'TERM'];
 const stderrLimit = 4096;
@@ -140,7 +140,7 @@ const contained = async ({
  * the sandbox's model proxy URL.
  */
 export const containedCommand = (
-  adapter: ExecutorAdapter,
+  adapter: HarnessAdapter,
   spec: RunSpec,
   secrets: Record<string, string> = {},
   home?: string
@@ -164,7 +164,7 @@ export const containedCommand = (
  * process cannot start or exits non-zero; interrupting the stream kills the process group and the container.
  */
 export const agentEvents = (
-  adapter: ExecutorAdapter,
+  adapter: HarnessAdapter,
   spec: RunSpec,
   secrets?: Record<string, string>,
   home?: ReturnType<typeof homeEnv>,
@@ -240,7 +240,7 @@ export const stuckWatch = () => {
  * Never fails; interruption records `cancelled` after the process group is killed.
  */
 export const runJob = (options: {
-  adapter: ExecutorAdapter;
+  adapter: HarnessAdapter;
   spec: RunSpec;
   timeoutMinutes: number;
   store: Store;

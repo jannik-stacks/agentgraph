@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { executors } from '../src/executors/index.ts';
+import { harnesses } from '../src/harnesses/index.ts';
 import type { AgentEvent, RunSpec } from '../src/types.ts';
 
 const spec: RunSpec = {
@@ -13,15 +13,15 @@ const spec: RunSpec = {
   maxTurns: 5,
 };
 
-const fixture = (executor: 'opencode' | 'pi', name: string) =>
+const fixture = (harness: 'opencode' | 'pi', name: string) =>
   readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8')
     .split('\n')
-    .flatMap(line => executors[executor].parseLine(line));
+    .flatMap(line => harnesses[harness].parseLine(line));
 
 const types = (events: AgentEvent[]) => events.map(e => e.type);
 
 describe('opencode', () => {
-  const { command, parseLine } = executors.opencode;
+  const { command, parseLine } = harnesses.opencode;
 
   it('builds a one-shot run whose prompt survives as words after --', () => {
     const { cmd, args } = command(spec);
@@ -145,7 +145,7 @@ describe('opencode', () => {
 });
 
 describe('pi', () => {
-  const { command, parseLine } = executors.pi;
+  const { command, parseLine } = harnesses.pi;
 
   it('builds an isolated print-mode argv with the prompt after --', () => {
     const { cmd, args, env } = command({ ...spec, tools: ['read', 'grep'] });

@@ -128,8 +128,8 @@ describe('mcpInside and specInside', () => {
   });
 
   it('maps paths into bothub code and leaves others alone', () => {
-    expect(bothubArg(join(root, 'src', 'executors', 'pi-provider.ts'))).toBe(
-      `${inside.bothub}/src/executors/pi-provider.ts`
+    expect(bothubArg(join(root, 'src', 'harnesses', 'pi-provider.ts'))).toBe(
+      `${inside.bothub}/src/harnesses/pi-provider.ts`
     );
     expect(bothubArg('/elsewhere/x.ts')).toBe('/elsewhere/x.ts');
   });

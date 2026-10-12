@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import type { AgentEvent, ExecutorAdapter, RunSpec } from '../types.ts';
+import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
 
 type Block = { type: 'text'; text: string } | { type: string };
 
@@ -118,4 +118,4 @@ const parseLine = (raw: string): AgentEvent[] => {
 };
 
 /** pi in print mode with JSON events, limited to the spec's tools and the bothub model proxy. */
-export const pi: ExecutorAdapter = { name: 'pi', command, parseLine };
+export const pi: HarnessAdapter = { name: 'pi', command, parseLine };

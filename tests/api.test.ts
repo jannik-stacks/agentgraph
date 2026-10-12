@@ -122,15 +122,15 @@ describe('api', () => {
     const { store, get } = setup();
     const { id } = await store.create(fields);
     expect(await (await get(`/api/runs/${id}/files`)).json()).toEqual([]);
-    mkdirSync(join(store.home(id), '.codex', 'sessions'), { recursive: true });
-    writeFileSync(join(store.home(id), '.codex', 'sessions', 'rollout-1.jsonl'), '{"a":1}\n');
-    writeFileSync(join(store.home(id), '.codex', 'auth.json'), '{"key":"x"}');
-    expect(await (await get(`/api/runs/${id}/files`)).json()).toEqual(['.codex/sessions/rollout-1.jsonl']);
+    mkdirSync(join(store.home(id), '.pi', 'sessions'), { recursive: true });
+    writeFileSync(join(store.home(id), '.pi', 'sessions', 'session-1.jsonl'), '{"a":1}\n');
+    writeFileSync(join(store.home(id), '.pi', 'auth.json'), '{"key":"x"}');
+    expect(await (await get(`/api/runs/${id}/files`)).json()).toEqual(['.pi/sessions/session-1.jsonl']);
 
-    const file = await get(`/api/runs/${id}/files/.codex/sessions/rollout-1.jsonl`);
+    const file = await get(`/api/runs/${id}/files/.pi/sessions/session-1.jsonl`);
     expect(file.headers.get('content-type')).toBe('application/x-ndjson; charset=utf-8');
     expect(await file.text()).toBe('{"a":1}\n');
-    for (const path of ['.codex/auth.json', '..%2Frun.json', '%2E%2E/%2E%2E/run.json', 'nope.jsonl'])
+    for (const path of ['.pi/auth.json', '..%2Frun.json', '%2E%2E/%2E%2E/run.json', 'nope.jsonl'])
       expect((await get(`/api/runs/${id}/files/${path}`)).status).toBe(404);
     expect((await get('/api/runs/nope/files')).status).toBe(404);
   });

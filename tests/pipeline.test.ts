@@ -23,7 +23,7 @@ import {
 } from '../src/pipeline.ts';
 import { limiter } from '../src/runner.ts';
 import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
-import type { AgentEvent, BotEvent, ExecutorAdapter, RunSpec } from '../src/types.ts';
+import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
 import { git, sourceRepo, temp } from './git.ts';
 
@@ -47,7 +47,7 @@ const configFor = (mode = 'shadow'): Config => {
     md('checks/judged.md', 'bot: judge\nskill: judge\nfor-each: file\nmode: block', 'Be strict.'),
     md('notes/convention/small.md', 'title: Small changes\nstatus: accepted', 'Keep changes small.'),
     md('notes/convention/old.md', 'title: Old rule\nstatus: retired', 'Forget this.'),
-    md('notes/caveat/limits.md', 'title: Limits', 'Codex has no turn limit.'),
+    md('notes/caveat/limits.md', 'title: Limits', 'Keep job budgets short.'),
     md('notes/decision/bigint.md', 'title: Bigint', 'Use bigint.'),
     md(
       'workflows/triage.md',
@@ -119,7 +119,7 @@ type Behaviour = { ok?: boolean; message?: string; work?: string };
 /** An adapter that runs `node -e` in the worktree, checks its secrets, prints agent events and records each spec. */
 const fake = (behave: Behaviour | ((spec: RunSpec, call: number) => Behaviour) = {}) => {
   const seen: RunSpec[] = [];
-  const adapter: ExecutorAdapter = {
+  const adapter: HarnessAdapter = {
     name: 'opencode',
     command: spec => {
       seen.push(spec);
@@ -194,7 +194,7 @@ describe('buildSpec', () => {
       '## Skills\n\nUse one of these when it fits the task:\n\n- triage: Sort an issue.\n- notify: Tell someone.\n\n## Notes'
     );
     expect(spec.system).toContain(
-      '### convention\n\n#### Small changes\n\nKeep changes small.\n\n### caveat\n\n#### Limits\n\nCodex has no turn limit.\n\n## Proposing changes'
+      '### convention\n\n#### Small changes\n\nKeep changes small.\n\n### caveat\n\n#### Limits\n\nKeep job budgets short.\n\n## Proposing changes'
     );
     expect(spec.system).toContain(
       '## Notes\n\nWhat this hub knows. Read-only; follow them.\n\n### decision\n\n#### Bigint'

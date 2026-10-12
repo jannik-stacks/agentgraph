@@ -83,10 +83,9 @@ describe('openStore', () => {
       mkdirSync(join(home, path, '..'), { recursive: true });
       writeFileSync(join(home, path), text);
     };
-    put('.claude/projects/-work/s1.jsonl', '{"a":1}\n');
-    put('.codex/sessions/2026/10/12/rollout-1.jsonl');
+    put('.pi/agent/sessions/--work--/s1.jsonl', '{"a":1}\n');
     put('.local/share/opencode/storage/session/ses_1.json');
-    put('.codex/auth.json');
+    put('.pi/auth.json');
     put('.local/share/opencode/auth.json');
     put('.cache/blob.bin');
     const outside = mkdtempSync(join(tmpdir(), 'bothub-outside-'));
@@ -95,12 +94,11 @@ describe('openStore', () => {
     symlinkSync(join(outside, 'secret.jsonl'), join(home, 'link.jsonl'));
 
     expect(await store.files(id)).toEqual([
-      '.claude/projects/-work/s1.jsonl',
-      '.codex/sessions/2026/10/12/rollout-1.jsonl',
       '.local/share/opencode/storage/session/ses_1.json',
+      '.pi/agent/sessions/--work--/s1.jsonl',
     ]);
-    expect(await store.file(id, '.claude/projects/-work/s1.jsonl')).toBe('{"a":1}\n');
-    for (const path of ['../run.json', '/etc/passwd', '.codex/auth.json', 'link.jsonl', 'escape/secret.jsonl'])
+    expect(await store.file(id, '.pi/agent/sessions/--work--/s1.jsonl')).toBe('{"a":1}\n');
+    for (const path of ['../run.json', '/etc/passwd', '.pi/auth.json', 'link.jsonl', 'escape/secret.jsonl'])
       expect(await store.file(id, path)).toBeUndefined();
   });
 });

@@ -24,7 +24,7 @@ describe('hubGraph', () => {
       'check:types block,script',
       'note:decision 0',
       'note:convention 1',
-      'note:caveat 2',
+      'note:caveat 1',
       'issues:issues github',
       'tool:issues_get read',
       'tool:notes_search read',

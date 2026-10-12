@@ -16,7 +16,7 @@ import { runPlan, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
 import { Harness, HubTool } from './schema.ts';
 import { openStore, reconcile, type Owner, type Store } from './store.ts';
-import type { AgentEvent, BotEvent, ExecutorAdapter, RunSpec } from './types.ts';
+import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from './types.ts';
 import type { Workspaces } from './workspace.ts';
 
 const Step = z.union([
@@ -61,7 +61,7 @@ const harness = fileURLToPath(new URL('./sim-harness.ts', import.meta.url));
 const stepsFile = '.bothub-sim.json';
 
 /** Runs every harness as the scripted sim harness; the run's MCP server is handed over in the environment. */
-export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): ExecutorAdapter => ({
+export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): HarnessAdapter => ({
   name,
   command: spec => {
     seen(spec);
@@ -210,7 +210,7 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
     let spec: RunSpec | undefined;
     const adapters = Object.fromEntries(
       Harness.options.map(name => [name, simAdapter(name, s => (spec = s))])
-    ) as Record<Harness, ExecutorAdapter>;
+    ) as Record<Harness, HarnessAdapter>;
     const workspaces: Workspaces = {
       create: async (_, runId) => {
         const cwd = join(data, 'work', runId);

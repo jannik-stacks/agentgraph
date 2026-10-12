@@ -1,5 +1,5 @@
 import type { McpServer } from './mcp-config.ts';
-import type { Association, Executor, Trigger } from './schema.ts';
+import type { Association, Harness, Trigger } from './schema.ts';
 
 /** A trigger from GitHub, a local issue tracker or the CLI, normalised so workflows never see raw payloads. */
 export type BotEvent = {
@@ -29,7 +29,7 @@ export type RunSpec = {
   mcp?: McpServer;
 };
 
-/** Agent output, normalised across executors. */
+/** Agent output, normalised across harnesses. */
 export type AgentEvent =
   | { type: 'start'; session?: string; model?: string }
   | { type: 'text'; text: string }
@@ -40,8 +40,8 @@ export type AgentEvent =
   | { type: 'error'; message: string };
 
 /** A harness adapter: pure argv construction plus line-by-line output parsing. */
-export type ExecutorAdapter = {
-  name: Executor;
+export type HarnessAdapter = {
+  name: Harness;
   command: (spec: RunSpec) => { cmd: string; args: string[]; env: Record<string, string> };
   parseLine: (line: string) => AgentEvent[];
 };

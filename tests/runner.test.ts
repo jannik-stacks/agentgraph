@@ -3,16 +3,16 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { pi } from '../src/executors/pi.ts';
+import { pi } from '../src/harnesses/pi.ts';
 import { agentEnv, agentEvents, homeEnv, limiter, masker, runJob, runScript, stuckWatch } from '../src/runner.ts';
 import { openStore, type Store } from '../src/store.ts';
-import type { AgentEvent, ExecutorAdapter, RunSpec } from '../src/types.ts';
+import type { AgentEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
 
 const fixturePath = join(import.meta.dirname, 'fixtures', 'pi-run.jsonl');
 const spec: RunSpec = { prompt: 'p', system: 's', cwd: tmpdir(), tools: [], maxTurns: 1 };
 
 const json = (line: string): AgentEvent[] => (line.trim() ? [JSON.parse(line)] : []);
-const node = (script: string, parseLine = json): ExecutorAdapter => ({
+const node = (script: string, parseLine = json): HarnessAdapter => ({
   name: 'opencode',
   command: () => ({ cmd: 'node', args: ['-e', script], env: { FROM_ADAPTER: '1' } }),
   parseLine,

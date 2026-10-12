@@ -9,7 +9,7 @@ import { Effect } from 'effect';
 import { z } from 'zod';
 import { compile, type Compiled, type Config } from './config.ts';
 import { dispatch, plan } from './dispatch.ts';
-import { executors } from './executors/index.ts';
+import { harnesses } from './harnesses/index.ts';
 import { githubApp } from './github-app.ts';
 import { toEvent } from './github.ts';
 import { localIssues } from './issues-local.ts';
@@ -226,7 +226,7 @@ const run = defineCommand({
           event,
           cwd: worktreePath(root, runId()),
         });
-        const { cmd, args: argv } = executors[bot.harness].command(spec);
+        const { cmd, args: argv } = harnesses[bot.harness].command(spec);
         return {
           ...job,
           harness: bot.harness,

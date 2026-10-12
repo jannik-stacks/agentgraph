@@ -11,7 +11,7 @@ import {
 } from './config.ts';
 import { isTrusted, type PlannedJob } from './dispatch.ts';
 import { decideCheck } from './decide.ts';
-import { executors } from './executors/index.ts';
+import { harnesses } from './harnesses/index.ts';
 import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
 import { roles, type Issues } from './issues.ts';
@@ -42,7 +42,7 @@ import {
   type Workflow,
 } from './schema.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from './store.ts';
-import type { BotEvent, ExecutorAdapter, RunSpec } from './types.ts';
+import type { BotEvent, HarnessAdapter, RunSpec } from './types.ts';
 import type { Workspaces } from './workspace.ts';
 
 const defaultMinutes = 30;
@@ -299,7 +299,7 @@ export type Pipeline = {
   issues?: Issues;
   mcp?: (tools: HubTool[]) => McpServer;
   hubPr?: Parameters<typeof apply>[1]['hubPr'];
-  adapters?: Record<Harness, ExecutorAdapter>;
+  adapters?: Record<Harness, HarnessAdapter>;
   onEvent?: (run: Run, record: EventRecord) => void;
 };
 
@@ -362,7 +362,7 @@ const agent = (
     let model: string | undefined;
     const finished = yield* p.limit(
       runJob({
-        adapter: (p.adapters ?? executors)[bot.harness],
+        adapter: (p.adapters ?? harnesses)[bot.harness],
         spec,
         timeoutMinutes,
         store: p.store,

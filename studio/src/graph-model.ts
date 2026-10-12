@@ -1,6 +1,6 @@
 import { hubFile, type Config } from '../../src/config.ts';
 import { hubGraph, type HubGraph } from '../../src/graph.ts';
-import { Executor, Mode } from '../../src/schema.ts';
+import { Harness, Mode } from '../../src/schema.ts';
 
 type HubNode = HubGraph['nodes'][number];
 export type NodeKind = HubNode['kind'];
@@ -24,7 +24,7 @@ const modeTone: Record<Mode, Tone> = { shadow: 'neutral', warn: 'warn', block: '
 const tone = (text: string): Tone | undefined => {
   const mode = Mode.safeParse(text);
   if (mode.success) return modeTone[mode.data];
-  if (Executor.safeParse(text).success) return 'info';
+  if (Harness.safeParse(text).success) return 'info';
 };
 
 const show = (value: unknown) =>

@@ -40,8 +40,7 @@ describe('compile', () => {
     expect(Object.keys(skills).sort()).toEqual(['implement', 'review', 'review-file']);
     expect(Object.keys(checks).sort()).toEqual(['review', 'types']);
     expect(notes.map(n => `${n.kind}/${n.name}`)).toEqual([
-      'caveat/codex-turn-limit',
-      'caveat/empty-allowlist',
+            'caveat/empty-allowlist',
       'convention/typecheck-clean',
     ]);
     expect(bots.reviewer).toMatchObject({ 'max-turns': 15, body: expect.stringContaining('Try to break them') });
@@ -56,8 +55,8 @@ describe('compile', () => {
 
   it('rejects unknown keys and old names', () => {
     expect(errorsOf([workflow('on: {}\njobs: {}\npermissions: {}')]).join()).toMatch(/permissions/);
-    expect(errorsOf([file('bots/b.md', 'executor: codex\ntools: []\ncan: []\nmax-turns: 1')]).join()).toMatch(
-      /executor/
+    expect(errorsOf([file('bots/b.md', 'harness: codex\ntools: []\ncan: []\nmax-turns: 1')]).join()).toMatch(
+      /harness/
     );
     expect(errorsOf([bot('b', '[push-branch]')]).join()).toMatch(/can/);
   });

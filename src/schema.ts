@@ -45,8 +45,6 @@ export type IssuesBackend = z.infer<typeof IssuesBackend>;
 
 export const Harness = z.enum(['opencode', 'pi']);
 export type Harness = z.infer<typeof Harness>;
-export const Executor = Harness;
-export type Executor = Harness;
 
 /**
  * What happened to a job's work: `done`, `handed-off` to the jobs that need it, `blocked` on a human, `deferred` until

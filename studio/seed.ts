@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs, styleText } from 'node:util';
 import { compile, effectiveCan } from '../src/config.ts';
-import { pi } from '../src/executors/pi.ts';
+import { pi } from '../src/harnesses/pi.ts';
 import { readHub } from '../src/load.ts';
 import { extractProposals, validate } from '../src/outputs.ts';
 import { openStore, runId, type EventRecord } from '../src/store.ts';

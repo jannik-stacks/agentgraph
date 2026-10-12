@@ -1,5 +1,5 @@
 import { opencodeMcpConfig } from '../mcp-config.ts';
-import type { AgentEvent, ExecutorAdapter, RunSpec } from '../types.ts';
+import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
 
 type ToolState =
   | { status: 'completed'; input?: unknown; output?: string }
@@ -143,4 +143,4 @@ const parseLine = (raw: string): AgentEvent[] => {
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's
  * tool allowlist and project config is ignored.
  */
-export const opencode: ExecutorAdapter = { name: 'opencode', command, parseLine };
+export const opencode: HarnessAdapter = { name: 'opencode', command, parseLine };

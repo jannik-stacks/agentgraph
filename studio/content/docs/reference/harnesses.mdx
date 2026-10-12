@@ -18,7 +18,7 @@ Every harness's output is normalised into the same events.
 An adapter builds the command for a spec and parses one output line at a time; the
 [runner](/docs/reference/runs) does the spawning.
 
-<Source file="src/types.ts" symbol="ExecutorAdapter" />
+<Source file="src/types.ts" symbol="HarnessAdapter" />
 
 opencode is the primary harness, with real tool allowlists and the bothub MCP server mounted. pi is
 light and fast, with all-or-nothing tools and no MCP client, so it suits read-only bots.
