@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { mkdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Cause, Duration, Effect, Stream } from 'effect';
 import type { EventRecord, Run, Store } from './store.ts';
 import type { AgentEvent, ExecutorAdapter, RunSpec } from './types.ts';
@@ -6,9 +8,35 @@ import type { AgentEvent, ExecutorAdapter, RunSpec } from './types.ts';
 const inherited = ['PATH', 'HOME', 'LANG', 'TMPDIR', 'USER', 'TERM'];
 const stderrLimit = 4096;
 
-/** The child's environment: an allowlist of the host env, then the adapter's env, then explicit secrets. */
-export const agentEnv = (adapterEnv: Record<string, string>, secrets: Record<string, string> = {}) => ({
+/**
+ * A private home for one run: `HOME`, the XDG base directories and `CODEX_HOME` all live under `home`, so harness
+ * sessions and transcripts stay out of the operator's home directory.
+ */
+export const homeEnv = (home: string, tmp: string) => ({
+  HOME: home,
+  XDG_CONFIG_HOME: join(home, '.config'),
+  XDG_DATA_HOME: join(home, '.local', 'share'),
+  XDG_STATE_HOME: join(home, '.local', 'state'),
+  XDG_CACHE_HOME: join(home, '.cache'),
+  CODEX_HOME: join(home, '.codex'),
+  TMPDIR: tmp,
+});
+
+/** Creates every directory `homeEnv` points at. */
+const makeHome = (env: ReturnType<typeof homeEnv>) =>
+  Promise.all(Object.values(env).map(dir => mkdir(dir, { recursive: true })));
+
+/**
+ * The child's environment: an allowlist of the host env, then the run's private home, then the adapter's env, then
+ * explicit secrets.
+ */
+export const agentEnv = (
+  adapterEnv: Record<string, string>,
+  secrets: Record<string, string> = {},
+  home: Record<string, string> = {}
+) => ({
   ...Object.fromEntries(inherited.flatMap(key => (process.env[key] ? [[key, process.env[key]]] : []))),
+  ...home,
   ...adapterEnv,
   ...secrets,
 });
@@ -49,11 +77,12 @@ const output = (cmd: string, args: string[], cwd: string, env: Record<string, st
 export const agentEvents = (
   adapter: ExecutorAdapter,
   spec: RunSpec,
-  secrets?: Record<string, string>
+  secrets?: Record<string, string>,
+  home?: Record<string, string>
 ): Stream.Stream<AgentEvent, Error> =>
   Stream.suspend(() => {
     const { cmd, args, env } = adapter.command(spec);
-    return output(cmd, args, spec.cwd, agentEnv(env, secrets)).pipe(
+    return output(cmd, args, spec.cwd, agentEnv(env, secrets, home)).pipe(
       Stream.decodeText(),
       Stream.splitLines,
       Stream.mapConcat(adapter.parseLine)
@@ -62,6 +91,7 @@ export const agentEvents = (
 
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
+ * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards.
  * Never fails; interruption records `cancelled` after the process group is killed.
  */
 export const runJob = (options: {
@@ -95,9 +125,11 @@ export const runJob = (options: {
       ...(end?.turns !== undefined && { turns: end.turns }),
     });
 
+    const home = homeEnv(store.home(runId), store.tmp(runId));
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
+      Effect.zipRight(Effect.tryPromise({ try: () => makeHome(home), catch: e => e as Error })),
       Effect.zipRight(
-        agentEvents(adapter, spec, secrets).pipe(
+        agentEvents(adapter, spec, secrets, home).pipe(
           Stream.runForEach(record),
           Effect.timeout(Duration.minutes(timeoutMinutes))
         )
@@ -116,7 +148,8 @@ export const runJob = (options: {
             ? finish({ status: 'timed-out', ...usage(), error: `timed out after ${timeoutMinutes} minutes` })
             : finish({ status: 'failed', ...usage(), error: reason() ?? e.message }),
       }),
-      Effect.onInterrupt(() => finish({ status: 'cancelled', ...usage() }))
+      Effect.onInterrupt(() => finish({ status: 'cancelled', ...usage() })),
+      Effect.ensuring(Effect.promise(() => rm(home.TMPDIR, { recursive: true, force: true })))
     );
   });
 

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdtempSync, readdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -69,5 +69,35 @@ describe('openStore', () => {
       { ts, seq: 1, event: { type: 'text', text: 'hi' } },
       { ts, seq: 2, event: { type: 'end', ok: true } },
     ]);
+  });
+
+  it('lists and reads harness files under home, without credentials or paths outside it', async () => {
+    const store = openStore(temp());
+    const { id } = await store.create(fields);
+    expect(await store.files(id)).toEqual([]);
+    const home = store.home(id);
+    const put = (path: string, text = '{}') => {
+      mkdirSync(join(home, path, '..'), { recursive: true });
+      writeFileSync(join(home, path), text);
+    };
+    put('.claude/projects/-work/s1.jsonl', '{"a":1}\n');
+    put('.codex/sessions/2026/10/12/rollout-1.jsonl');
+    put('.local/share/opencode/storage/session/ses_1.json');
+    put('.codex/auth.json');
+    put('.local/share/opencode/auth.json');
+    put('.cache/blob.bin');
+    const outside = mkdtempSync(join(tmpdir(), 'bothub-outside-'));
+    writeFileSync(join(outside, 'secret.jsonl'), 'nope');
+    symlinkSync(outside, join(home, 'escape'));
+    symlinkSync(join(outside, 'secret.jsonl'), join(home, 'link.jsonl'));
+
+    expect(await store.files(id)).toEqual([
+      '.claude/projects/-work/s1.jsonl',
+      '.codex/sessions/2026/10/12/rollout-1.jsonl',
+      '.local/share/opencode/storage/session/ses_1.json',
+    ]);
+    expect(await store.file(id, '.claude/projects/-work/s1.jsonl')).toBe('{"a":1}\n');
+    for (const path of ['../run.json', '/etc/passwd', '.codex/auth.json', 'link.jsonl', 'escape/secret.jsonl'])
+      expect(await store.file(id, path)).toBeUndefined();
   });
 });

@@ -55,7 +55,7 @@ export const RunTable = ({
             <div>
               {run.workflow} / {run.job}
             </div>
-            {run.persona && <div className="text-xs text-zinc-500">{run.persona}</div>}
+            {run.bot && <div className="text-xs text-zinc-500">{run.bot}</div>}
           </td>
           <td className="px-3 py-1.5 text-right tabular-nums">{cost(run.costUsd)}</td>
           <td className="px-3 py-1.5 text-right text-zinc-500" title={run.startedAt ?? run.event.ts}>

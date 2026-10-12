@@ -42,12 +42,12 @@ const Runs = ({ runs }: { runs: Run[] }) => {
   const [status, setStatus] = useAtom(statusFilterAtom);
   const [bot, setBot] = useAtom(botFilterAtom);
   const [selected, select] = useAtom(runIdAtom);
-  const shown = runs.filter(run => (!status || run.status === status) && (!bot || run.persona === bot));
+  const shown = runs.filter(run => (!status || run.status === status) && (!bot || run.bot === bot));
   return (
     <>
       <div className="flex gap-3 px-3 py-2">
         <Filter label="status" value={status} options={unique(runs.map(r => r.status))} onChange={setStatus} />
-        <Filter label="bot" value={bot} options={unique(runs.map(r => r.persona))} onChange={setBot} />
+        <Filter label="bot" value={bot} options={unique(runs.map(r => r.bot))} onChange={setBot} />
       </div>
       {shown.length ? <RunTable runs={shown} selected={selected} onSelect={select} /> : <Muted>No runs match.</Muted>}
     </>

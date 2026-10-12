@@ -18,10 +18,10 @@ const event: BotEvent = {
   actor: { login: 'octocat', association: 'OWNER' },
 };
 const fields = {
-  workflow: 'issue-command',
+  workflow: 'issue',
   job: 'implement',
-  persona: 'implementor',
-  executor: 'claude-code' as const,
+  bot: 'implementor',
+  harness: 'claude-code' as const,
   event,
 };
 const record = (seq: number, text: string): EventRecord => ({
@@ -53,17 +53,17 @@ describe('api', () => {
   it('serves the compiled example hub', async () => {
     const { get } = setup();
     const body = await (await get('/api/hub')).json();
-    expect(Object.keys(body.config.workflows)).toEqual(['issue-command']);
-    expect(Object.keys(body.config.personas).sort()).toEqual(['implementor', 'reviewer']);
+    expect(Object.keys(body.config.workflows)).toEqual(['issue']);
+    expect(Object.keys(body.config.bots).sort()).toEqual(['implementor', 'reviewer']);
   });
 
   it('serves config errors for a broken hub', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bothub-hub-'));
-    mkdirSync(join(dir, 'personas'));
-    writeFileSync(join(dir, 'personas', 'bad.md'), '---\nexecutor: nope\n---\nhi\n');
+    mkdirSync(join(dir, 'bots'));
+    writeFileSync(join(dir, 'bots', 'bad.md'), '---\nharness: nope\n---\nhi\n');
     const body = await (await api({ hubDir: dir, store: openStore(dir) })(new Request('http://studio/api/hub'))).json();
     expect(body.errors).toHaveLength(1);
-    expect(body.errors[0].path).toBe('personas/bad.md');
+    expect(body.errors[0].path).toBe('bots/bad.md');
   });
 
   it('lists runs and serves one with its outcome', async () => {
@@ -80,7 +80,7 @@ describe('api', () => {
     const { store, get } = setup();
     const asked = await store.create(fields);
     await store.saveOutcome(asked.id, {
-      proposals: [{ kind: 'ask-human', question: 'Which port?' }],
+      proposals: [{ kind: 'ask', question: 'Which port?' }],
       errors: [],
       accepted: [],
       rejected: [],
@@ -106,6 +106,23 @@ describe('api', () => {
     for (const [i, text] of ['a', 'b', 'c'].entries()) await store.append(id, record(i, text));
     expect((await (await get(`/api/runs/${id}/events?from=1`)).json()).map((r: EventRecord) => r.seq)).toEqual([1, 2]);
     expect((await get(`/api/runs/${id}/events?from=x`)).status).toBe(400);
+  });
+
+  it('lists and serves raw harness files, refusing anything else', async () => {
+    const { store, get } = setup();
+    const { id } = await store.create(fields);
+    expect(await (await get(`/api/runs/${id}/files`)).json()).toEqual([]);
+    mkdirSync(join(store.home(id), '.codex', 'sessions'), { recursive: true });
+    writeFileSync(join(store.home(id), '.codex', 'sessions', 'rollout-1.jsonl'), '{"a":1}\n');
+    writeFileSync(join(store.home(id), '.codex', 'auth.json'), '{"key":"x"}');
+    expect(await (await get(`/api/runs/${id}/files`)).json()).toEqual(['.codex/sessions/rollout-1.jsonl']);
+
+    const file = await get(`/api/runs/${id}/files/.codex/sessions/rollout-1.jsonl`);
+    expect(file.headers.get('content-type')).toBe('application/x-ndjson; charset=utf-8');
+    expect(await file.text()).toBe('{"a":1}\n');
+    for (const path of ['.codex/auth.json', '..%2Frun.json', '%2E%2E/%2E%2E/run.json', 'nope.jsonl'])
+      expect((await get(`/api/runs/${id}/files/${path}`)).status).toBe(404);
+    expect((await get('/api/runs/nope/files')).status).toBe(404);
   });
 
   it('answers 404 for unknown runs and routes, 405 for writes', async () => {

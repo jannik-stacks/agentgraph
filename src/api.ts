@@ -34,7 +34,7 @@ export const needsHuman = async (store: Store) => {
   const items = await Promise.all(
     (await store.list()).map(async run => {
       const proposals = (await store.outcome(run.id))?.proposals ?? [];
-      const questions = proposals.flatMap(p => (p.kind === 'ask-human' ? [p.question] : []));
+      const questions = proposals.flatMap(p => (p.kind === 'ask' ? [p.question] : []));
       if (questions.length) return { run, reason: 'asked' as const, questions };
       if (failed.includes(run.status)) return { run, reason: 'failed' as const, questions };
     })
@@ -94,6 +94,7 @@ export const readFiles = async (roots: Root[]) => {
 /**
  * Read-only studio API over a hub directory, extra file roots and a run store, as a Web `Request` handler.
  * `GET /api/files` lists the hub as root `hub` followed by `roots`.
+ * `GET /api/runs/:id/files` lists a run's raw harness files and `GET /api/runs/:id/files/<path>` serves one.
  * `GET /api/runs/:id/stream` tails a run's events as Server-Sent Events and ends with an `end` event once the run
  * is no longer queued or running.
  */
@@ -138,7 +139,7 @@ export const api = ({
     });
   };
 
-  const routes: [RegExp, (req: Request, url: URL, id: string) => Promise<Response>][] = [
+  const routes: [RegExp, (req: Request, url: URL, id: string, rest: string) => Promise<Response>][] = [
     [
       /^\/api\/hub$/,
       async () => {
@@ -172,6 +173,22 @@ export const api = ({
       },
     ],
     [
+      /^\/api\/runs\/([^/]+)\/files$/,
+      async (_req, _url, id) => {
+        if (!(await store.read(id))) return notFound();
+        return Response.json(await store.files(id));
+      },
+    ],
+    [
+      /^\/api\/runs\/([^/]+)\/files\/(.+)$/,
+      async (_req, _url, id, path) => {
+        const text = await store.file(id, path);
+        if (text === undefined) return notFound();
+        const type = path.endsWith('.jsonl') ? 'application/x-ndjson' : 'application/json';
+        return new Response(text, { headers: { 'content-type': `${type}; charset=utf-8` } });
+      },
+    ],
+    [
       /^\/api\/runs\/([^/]+)\/stream$/,
       async (req, url, id) => {
         const last = req.headers.get('last-event-id');
@@ -192,7 +209,7 @@ export const api = ({
     if (req.method !== 'GET') return Response.json({ error: 'method not allowed' }, { status: 405 });
     for (const [pattern, route] of routes) {
       const match = pattern.exec(url.pathname);
-      if (match) return route(req, url, decodeURIComponent(match[1] ?? ''));
+      if (match) return route(req, url, decodeURIComponent(match[1] ?? ''), decodeURIComponent(match[2] ?? ''));
     }
     return notFound();
   };

@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { claude } from '../src/executors/claude.ts';
-import { agentEnv, agentEvents, limiter, runJob, runScript } from '../src/runner.ts';
+import { agentEnv, agentEvents, homeEnv, limiter, runJob, runScript } from '../src/runner.ts';
 import { openStore, type Store } from '../src/store.ts';
 import type { AgentEvent, ExecutorAdapter, RunSpec } from '../src/types.ts';
 
@@ -66,6 +66,19 @@ describe('agentEnv', () => {
     process.env.ANTHROPIC_API_KEY ??= 'leak';
     const env = agentEnv({ A: '1' }, { CLAUDE_CODE_OAUTH_TOKEN: 't' });
     expect(Object.keys(env).sort()).toEqual(['A', 'CLAUDE_CODE_OAUTH_TOKEN', ...host].sort());
+  });
+
+  it('puts HOME, the XDG directories, CODEX_HOME and TMPDIR inside the run', () => {
+    const env = agentEnv({}, {}, homeEnv('/data/runs/r/home', '/data/runs/r/tmp'));
+    expect(env).toMatchObject({
+      HOME: '/data/runs/r/home',
+      XDG_CONFIG_HOME: '/data/runs/r/home/.config',
+      XDG_DATA_HOME: '/data/runs/r/home/.local/share',
+      XDG_STATE_HOME: '/data/runs/r/home/.local/state',
+      XDG_CACHE_HOME: '/data/runs/r/home/.cache',
+      CODEX_HOME: '/data/runs/r/home/.codex',
+      TMPDIR: '/data/runs/r/tmp',
+    });
   });
 });
 
@@ -166,6 +179,53 @@ describe('runJob', () => {
     expect(run?.status).toBe('cancelled');
     expect(run?.endedAt).toBeDefined();
     expect(alive(await pidOf(store, runId))).toBe(false);
+  });
+});
+
+describe('run directory', () => {
+  const tree = (dir: string): string[] =>
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter(entry => entry.isFile())
+      .map(entry => relative(dir, join(entry.parentPath, entry.name)))
+      .sort();
+
+  it('gives the harness a private home that is kept and a tmp dir that is removed', async () => {
+    const { store, runId } = await setup();
+    const script = `const fs = require('fs'), path = require('path'), e = process.env;
+const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+put(path.join(e.CODEX_HOME, 'sessions', '2026', '10', '12', 'rollout-1.jsonl'), '{"type":"session_meta"}\\n');
+put(path.join(e.HOME, '.claude', 'projects', '-work', 'session-1.jsonl'), '{"type":"user"}\\n');
+put(path.join(e.XDG_DATA_HOME, 'opencode', 'storage', 'session', 'ses_1.json'), '{}');
+put(path.join(e.TMPDIR, 'scratch.txt'), 'gone');
+console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's', model: 'm' }));
+console.log(${JSON.stringify(end(true))});`;
+    const run = await Effect.runPromise(runJob({ adapter: node(script), spec, timeoutMinutes: 1, store, runId }));
+    expect(run.status).toBe('succeeded');
+    const dir = join(store.home(runId), '..');
+    expect(existsSync(store.tmp(runId))).toBe(false);
+    expect(readdirSync(dir).sort()).toEqual(['events.jsonl', 'home', 'run.json']);
+    expect(tree(dir)).toEqual([
+      'events.jsonl',
+      'home/.claude/projects/-work/session-1.jsonl',
+      'home/.codex/sessions/2026/10/12/rollout-1.jsonl',
+      'home/.local/share/opencode/storage/session/ses_1.json',
+      'run.json',
+    ]);
+    expect(await store.files(runId)).toEqual([
+      '.claude/projects/-work/session-1.jsonl',
+      '.codex/sessions/2026/10/12/rollout-1.jsonl',
+      '.local/share/opencode/storage/session/ses_1.json',
+    ]);
+  });
+
+  it('removes tmp after a failed run too', async () => {
+    const { store, runId } = await setup();
+    const run = await Effect.runPromise(
+      runJob({ adapter: node(`process.exit(2)`), spec, timeoutMinutes: 1, store, runId })
+    );
+    expect(run.status).toBe('failed');
+    expect(existsSync(store.home(runId))).toBe(true);
+    expect(existsSync(store.tmp(runId))).toBe(false);
   });
 });
 

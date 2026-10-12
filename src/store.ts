@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { appendFile, mkdir, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { join, sep } from 'node:path';
 import type { ApplyResult } from './apply.ts';
 import type { PlannedJob } from './dispatch.ts';
 import type { extractProposals, Validated } from './outputs.ts';
@@ -41,9 +41,17 @@ export const runId = (now = new Date()) =>
 
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 
-/** An append-only run store rooted at `dir`. */
+const harnessFile = /\.jsonl?$/;
+const credentials = new Set(['auth.json', '.credentials.json']);
+
+/**
+ * An append-only run store rooted at `dir`. Each run lives in `runs/<id>/`: `run.json`, `events.jsonl`,
+ * `outcome.json`, the harness's private `home/` and, while it runs, `tmp/`.
+ */
 export const openStore = (dir: string) => {
   const runDir = (id: string) => join(dir, 'runs', id);
+  const home = (id: string) => join(runDir(id), 'home');
+  const tmp = (id: string) => join(runDir(id), 'tmp');
   const runFile = (id: string) => join(runDir(id), 'run.json');
   const outcomeFile = (id: string) => join(runDir(id), 'outcome.json');
 
@@ -113,7 +121,41 @@ export const openStore = (dir: string) => {
   const saveOutcome = (id: string, outcome: Outcome) => writeJson(outcomeFile(id), outcome);
   const outcome = (id: string) => readJson<Outcome>(outcomeFile(id));
 
-  return { create, update, append, read, list, events, saveOutcome, outcome };
+  /** The harness's own transcripts and session state under `home/`: JSON and JSON Lines files, minus credentials. */
+  const files = async (id: string) => {
+    const found: string[] = [];
+    const walk = async (rel: string) => {
+      let entries;
+      try {
+        entries = await readdir(join(home(id), rel), { withFileTypes: true });
+      } catch (e) {
+        if (missing(e)) return;
+        throw e;
+      }
+      for (const entry of entries) {
+        const path = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) await walk(path);
+        else if (entry.isFile() && harnessFile.test(entry.name) && !credentials.has(entry.name)) found.push(path);
+      }
+    };
+    await walk('');
+    return found.sort();
+  };
+
+  /** One of `files(id)`, or undefined for any other path. */
+  const file = async (id: string, path: string) => {
+    if (!(await files(id)).includes(path)) return;
+    try {
+      const base = await realpath(home(id));
+      const target = await realpath(join(base, path));
+      return target.startsWith(base + sep) ? await readFile(target, 'utf8') : undefined;
+    } catch (e) {
+      if (missing(e)) return;
+      throw e;
+    }
+  };
+
+  return { create, update, append, read, list, events, saveOutcome, outcome, home, tmp, files, file };
 };
 
 export type Store = ReturnType<typeof openStore>;

@@ -16,7 +16,8 @@ const RunSummary = ({ run }: { run: Run }) => (
       {run.workflow} / {run.job}
     </Field>
     <Field name="bot">
-      {run.persona ?? '-'} ({run.executor})
+      {run.bot ?? '-'}
+      {run.harness && ` (${run.harness})`}
     </Field>
     <Field name="event">
       {run.event.trigger}

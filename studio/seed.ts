@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs, styleText } from 'node:util';
-import { compile } from '../src/config.ts';
+import { compile, effectiveCan } from '../src/config.ts';
 import { claude } from '../src/executors/claude.ts';
 import { readHub } from '../src/load.ts';
 import { extractProposals, validate } from '../src/outputs.ts';
@@ -19,10 +19,10 @@ const delay = Number(values.delay);
 
 const compiled = compile(await readHub(join(root, 'examples', 'hub')));
 if (!compiled.ok) throw new Error(compiled.errors.map(e => `${e.path}: ${e.message}`).join('\n'));
-const workflow = compiled.config.workflows['issue-command'];
+const workflow = compiled.config.workflows.issue;
 const job = workflow?.jobs.implement;
-const persona = compiled.config.personas.implementor;
-if (!workflow || !job || !persona) throw new Error('the example hub has no issue-command/implement job');
+const bot = job?.bot ? compiled.config.bots[job.bot] : undefined;
+if (!workflow || !job || !bot) throw new Error('the example hub has no issue/implement job');
 
 const message = [
   'Added `GET /health` returning `{ ok: true }` with a test, and opened a pull request.',
@@ -30,11 +30,16 @@ const message = [
   '```bothub',
   JSON.stringify({ kind: 'reply', body: 'Added a /health endpoint with a test. See the linked pull request.' }),
   JSON.stringify({
-    kind: 'push-branch',
-    branch: 'bothub/health-endpoint',
+    kind: 'push',
+    branch: 'bothub/7-health-endpoint',
     files: ['src/health.ts', 'test/health.test.ts'],
   }),
-  JSON.stringify({ kind: 'open-pr', title: 'Add /health endpoint', body: 'Closes #7', head: 'bothub/health-endpoint' }),
+  JSON.stringify({
+    kind: 'open-pr',
+    title: 'Add /health endpoint',
+    body: 'Closes #7',
+    head: 'bothub/7-health-endpoint',
+  }),
   JSON.stringify({ kind: 'label', add: ['enhancement'] }),
   '```',
 ].join('\n');
@@ -68,7 +73,7 @@ const event: BotEvent = {
 
 const store = openStore(dataDir);
 const run = await store.create(
-  { workflow: workflow.name, job: 'implement', persona: persona.name, executor: persona.executor, event },
+  { workflow: workflow.name, job: 'implement', bot: bot.name, harness: bot.harness, event },
   runId(started)
 );
 await store.update(run.id, { status: 'running', startedAt: started.toISOString() });
@@ -81,7 +86,11 @@ for (const [seq, agentEvent] of events.entries()) {
 }
 
 const { proposals, errors } = extractProposals(message);
-const { accepted, rejected } = validate(proposals, job['safe-outputs'], job.mode);
+const { accepted, rejected } = validate(
+  proposals,
+  { can: effectiveCan(bot, job), paths: job.paths, branch: 'bothub/7-health-endpoint' },
+  job.mode
+);
 const urls: Partial<Record<string, string>> = {
   reply: 'https://github.com/acme/app/issues/7#issuecomment-2',
   'open-pr': 'https://github.com/acme/app/pull/8',

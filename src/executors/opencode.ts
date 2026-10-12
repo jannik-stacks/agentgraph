@@ -20,7 +20,7 @@ type Line =
   | { type: 'error'; error?: { name?: string; data?: { message?: string } } }
   | { type: string };
 
-/** The only provider: the model proxy, where persona models are aliases. */
+/** The only provider: the model proxy, where bot models are aliases. */
 const provider = 'bothub';
 
 /** A permission per tool entry: `read` allows the tool, `bash(git diff*)` allows one pattern. */
