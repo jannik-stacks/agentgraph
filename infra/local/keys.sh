@@ -20,7 +20,7 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 BOTS=(
   "implementor  smart,fast,local          10  30  400000"
   "docs-editor  writer,fast,local          3  20  200000"
-  "reviewer     review,fast,local          5  20  300000"
+  "reviewer     review,smart,fast,local          5  20  300000"
   "fact-checker review,fast,local          2  20  150000"
   "gardener     writer,fast,local          2  10  100000"
   "triager      fast,local                 1  20  100000"
