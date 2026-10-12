@@ -100,18 +100,28 @@ describe('workspaces.publish', () => {
     return { origin, ws, path, publish };
   };
 
-  it('pushes the agent branch with its uncommitted listed files and leaves the rest behind', async () => {
+  it('pushes the agent branch with its uncommitted listed files', async () => {
     const { origin, path, publish } = await started();
     git(path, 'checkout', '-qb', 'bothub/7');
     const committed = commit(path, { 'a.ts': 'a\n' });
     writeFileSync(join(path, 'b.ts'), 'b\n');
-    writeFileSync(join(path, 'notes.txt'), 'scratch\n');
     expect(await publish(['a.ts', 'b.ts'], ['*.ts'])).toBe('https://github.com/acme/app/tree/bothub/7');
     expect(git(origin.dir, 'ls-tree', '--name-only', 'bothub/7').split('\n')).toEqual(['README.md', 'a.ts', 'b.ts']);
     expect(git(origin.dir, 'log', '-1', '--format=%an <%ae> %cn %s', 'bothub/7')).toBe(
       'bothub[bot] <bothub[bot]@users.noreply.github.com> bothub[bot] bothub: fix'
     );
     expect(git(origin.dir, 'rev-parse', 'bothub/7~1')).toBe(committed);
+  });
+
+  it('refuses uncommitted changes the proposal does not list', async () => {
+    const { origin, path, publish } = await started();
+    commit(path, { 'a.ts': 'a\n' });
+    writeFileSync(join(path, 'b.ts'), 'b\n');
+    writeFileSync(join(path, 'notes.txt'), 'scratch\n');
+    await expect(publish(['a.ts', 'b.ts'])).rejects.toThrow(
+      'uncommitted changes not listed in the proposal: notes.txt'
+    );
+    expect(() => git(origin.dir, 'rev-parse', '--verify', '--quiet', 'refs/heads/bothub/7')).toThrow();
   });
 
   it('creates the branch at a detached head', async () => {

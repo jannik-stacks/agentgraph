@@ -32,7 +32,7 @@ const Payload = z.object({
   sender: User,
   comment: z.object({ body: z.string(), html_url: z.string(), author_association: Association }).optional(),
   issue: Item.extend({ author_association: Association, pull_request: z.object({}).nullish() }).optional(),
-  pull_request: Item.extend({ author_association: Association }).optional(),
+  pull_request: Item.extend({ author_association: Association, base: z.object({ ref: z.string() }) }).optional(),
   review: z.object({ body: z.string().nullish(), html_url: z.string(), author_association: Association }).optional(),
   ref: z.string().optional(),
 });
@@ -59,6 +59,7 @@ export const toEvent = (name: string, deliveryId: string, payload: unknown, now 
   const url = authored?.html_url ?? item?.html_url;
   const pr = p.pull_request ?? (p.issue?.pull_request ? p.issue : undefined);
   const ref = pr ? `refs/pull/${pr.number}/head` : p.ref;
+  const branch = p.pull_request?.base.ref ?? p.ref?.match(/^refs\/heads\/(.+)$/)?.[1];
   return {
     id: deliveryId,
     ts: now.toISOString(),
@@ -71,5 +72,6 @@ export const toEvent = (name: string, deliveryId: string, payload: unknown, now 
     ...(authored?.body != null && { body: authored.body }),
     ...(url && { url }),
     ...(ref && { ref }),
+    ...(branch && { branch }),
   };
 };

@@ -13,6 +13,7 @@ export type BotEvent = {
   body?: string;
   url?: string;
   ref?: string;
+  branch?: string;
 };
 
 /** What a run needs to start an agent session. */

@@ -124,15 +124,18 @@ export const workspaces = ({
       await run(['checkout', '-q', '-b', branch]);
     }
 
-    // Uncommitted changes are committed only for files the proposal lists; the rest are left behind.
-    const dirty = new Set([
-      ...names(await run(['ls-files', '-z', '--modified', '--deleted', '--others', '--exclude-standard'])),
-      ...names(await run(['diff', '--cached', '--name-only', '--no-renames', '-z'])),
-    ]);
-    const listed = files.filter(file => dirty.has(file));
-    if (listed.length) {
-      await run(['add', '-A', '--', ...listed]);
-      await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', message, '--', ...listed], {
+    // Uncommitted changes are committed when the proposal lists every one of them; otherwise nothing is pushed.
+    const dirty = [
+      ...new Set([
+        ...names(await run(['ls-files', '-z', '--modified', '--deleted', '--others', '--exclude-standard'])),
+        ...names(await run(['diff', '--cached', '--name-only', '--no-renames', '-z'])),
+      ]),
+    ];
+    const stray = dirty.filter(file => !files.includes(file));
+    if (stray.length) throw new Error(`uncommitted changes not listed in the proposal: ${stray.join(', ')}`);
+    if (dirty.length) {
+      await run(['add', '-A', '--', ...dirty]);
+      await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', message, '--', ...dirty], {
         GIT_AUTHOR_NAME: bot.name,
         GIT_AUTHOR_EMAIL: bot.email,
         GIT_COMMITTER_NAME: bot.name,

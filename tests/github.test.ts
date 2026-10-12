@@ -70,6 +70,14 @@ describe('toEvent', () => {
       issue: { ...payload.issue, pull_request: { url: 'u' } },
     });
     expect(event).toMatchObject({ number: 7, ref: 'refs/pull/7/head' });
+    expect(event).not.toHaveProperty('branch');
+  });
+
+  it('carries the pushed branch, and no branch for tags', () => {
+    const push = (ref: string) =>
+      toEvent('push', 'd6', { ref, repository: { full_name: 'acme/app' }, sender: { login: 'x' } });
+    expect(push('refs/heads/release/1')).toMatchObject({ ref: 'refs/heads/release/1', branch: 'release/1' });
+    expect(push('refs/tags/v1')).not.toHaveProperty('branch');
   });
 
   it('carries the pull ref of a pull request, which also exists for forks', () => {
@@ -84,12 +92,14 @@ describe('toEvent', () => {
         user: { login: 'bot' },
         author_association: 'MEMBER',
         head: { ref: 'patch-1' },
+        base: { ref: 'main' },
       },
     });
     expect(event).toMatchObject({
       trigger: 'pull_request',
       number: 9,
       ref: 'refs/pull/9/head',
+      branch: 'main',
       actor: { association: 'MEMBER' },
     });
     expect(event).not.toHaveProperty('body');
@@ -126,6 +136,49 @@ describe('plan', () => {
     };
     expect(plan(pr, config)).toEqual([{ workflow: 'issue-command', job: 'review', persona: 'reviewer' }]);
     expect(plan({ ...pr, action: 'closed' }, config)).toEqual([]);
+  });
+});
+
+describe('plan with a branches filter', () => {
+  const filtered = ((): Config => {
+    const result = compile([
+      { path: 'personas/bot.md', source: '---\nexecutor: claude-code\n---\n\nBot.' },
+      {
+        path: 'workflows/release.md',
+        source: `---
+name: release
+on:
+  push: { branches: [main] }
+  pull_request: { branches: [main] }
+jobs:
+  go: { persona: bot }
+---
+
+## go
+
+Go.`,
+      },
+    ]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    return result.config;
+  })();
+  const base: BotEvent = {
+    id: 'd',
+    ts: '2026-10-12T00:00:00.000Z',
+    source: 'github',
+    trigger: 'push',
+    repo: 'acme/app',
+    actor: { login: 'x', association: 'MEMBER' },
+  };
+
+  it('matches pushes and pull requests on their branch, not their ref', () => {
+    const go = [{ workflow: 'release', job: 'go', persona: 'bot' }];
+    expect(plan({ ...base, ref: 'refs/heads/main', branch: 'main' }, filtered)).toEqual(go);
+    expect(plan({ ...base, ref: 'refs/heads/dev', branch: 'dev' }, filtered)).toEqual([]);
+    expect(plan({ ...base, ref: 'refs/tags/v1' }, filtered)).toEqual([]);
+    const pr: BotEvent = { ...base, trigger: 'pull_request', number: 9, ref: 'refs/pull/9/head' };
+    expect(plan({ ...pr, branch: 'main' }, filtered)).toEqual(go);
+    expect(plan({ ...pr, branch: 'dev' }, filtered)).toEqual([]);
   });
 });
 
