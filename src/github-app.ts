@@ -78,12 +78,33 @@ export const githubApp = (
     cache.set(installationId, { token, expires: Date.parse(expires_at) });
     return token;
   };
+  const installations = new Map<string, Promise<number>>();
+  const installation = (repo: string): Promise<number> => {
+    const known = installations.get(repo);
+    if (known) return known;
+    const found = appJwt(credentials, now())
+      .then(jwt => gh(jwt, fetcher)<{ id: number }>('GET', `/repos/${repo}/installation`))
+      .then(({ id }) => id);
+    installations.set(repo, found);
+    found.catch(() => installations.delete(repo));
+    return found;
+  };
+  const client =
+    (installationId: number): GitHub =>
+    async (method, path, body) =>
+      gh(await installationToken(installationId), fetcher)(method, path, body);
   return {
     installationToken,
     /** A REST client acting as the given installation, with a valid token on every request. */
-    client:
-      (installationId: number): GitHub =>
+    client,
+    /** The id of the installation that covers `repo`, looked up once per repository. */
+    installation,
+    /** A REST client acting as whichever installation covers `repo`. */
+    repoClient:
+      (repo: string): GitHub =>
       async (method, path, body) =>
-        gh(await installationToken(installationId), fetcher)(method, path, body),
+        client(await installation(repo))(method, path, body),
+    /** An installation token for `repo`, for git over HTTPS. */
+    repoToken: async (repo: string) => installationToken(await installation(repo)),
   };
 };
