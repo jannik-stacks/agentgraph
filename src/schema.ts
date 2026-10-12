@@ -109,7 +109,7 @@ export const Skill = z.strictObject({
 export type Skill = z.infer<typeof Skill>;
 
 /**
- * `checks/<name>.md`: a script, a bot, or a `decide` question to the local decision model, returning a verdict. The body is optional extra prompt text. A check whose
+ * `checks/<name>.md`: a script, a bot, or a `decide` question to the local decision model, returning a verdict. The body is the prompt, added after the skill when there is one. A check whose
  * `paths` match no changed file is skipped, which fails a gate unless `allow-skip` is set.
  */
 export const Check = z.strictObject({

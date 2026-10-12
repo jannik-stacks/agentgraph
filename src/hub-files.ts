@@ -9,7 +9,7 @@ export const itemKinds = {
   hub: { schema: Hub, dir: '', body: undefined },
   bot: { schema: Bot, dir: 'bots', body: 'role' },
   skill: { schema: Skill, dir: 'skills', body: 'prompt' },
-  check: { schema: Check, dir: 'checks', body: 'extra prompt' },
+  check: { schema: Check, dir: 'checks', body: 'prompt' },
   workflow: { schema: Workflow, dir: 'workflows', body: 'description' },
   note: { schema: Note, dir: 'notes', body: 'note' },
   issue: { schema: IssueFile, dir: 'issues', body: 'issue and comments' },
