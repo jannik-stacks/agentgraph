@@ -3,18 +3,18 @@ title: Vocabulary
 description: The few words that describe every hub.
 ---
 
-| Word | What it is | Where it lives |
-| --- | --- | --- |
-| **trigger** | Something that happened: a GitHub event, a comment command, a schedule | `on:` in a workflow or job |
-| **bot** | Who acts. Harness, model alias, tools, what it may write (`can`). Only bots run a model | `bots/<name>.md`, body is the role |
-| **skill** | What to do. A prompt the job forces or the bot is offered | `skills/<name>.md`, body is the prompt |
-| **workflow** | A small graph from triggers to jobs | `workflows/<name>.md` |
-| **job** | One node in a workflow: a bot running a skill, or a plain script | inside a workflow |
-| **check** | A script or a bot that returns a verdict, pass or fail with findings | `checks/<name>.md` |
-| **branch** | Where work happens. One worktree per run, never the default branch | runtime |
-| **proposal** | The only way a bot changes anything on GitHub | runtime, see [Proposals](/docs/proposals) |
-| **run** | One bot or script executing one job attempt, with events, cost and an outcome | the run store |
-| **note** | What the hub knows | `notes/<kind>/<slug>.md` |
+| Word         | What it is                                                                              | Where it lives                            |
+| ------------ | --------------------------------------------------------------------------------------- | ----------------------------------------- |
+| **trigger**  | Something that happened: a GitHub event, a comment command, a schedule                  | `on:` in a workflow or job                |
+| **bot**      | Who acts. Harness, model alias, tools, what it may write (`can`). Only bots run a model | `bots/<name>.md`, body is the role        |
+| **skill**    | What to do. A prompt the job forces or the bot is offered                               | `skills/<name>.md`, body is the prompt    |
+| **workflow** | A small graph from triggers to jobs                                                     | `workflows/<name>.md`                     |
+| **job**      | One node in a workflow: a bot running a skill, or a plain script                        | inside a workflow                         |
+| **check**    | A script or a bot that returns a verdict, pass or fail with findings                    | `checks/<name>.md`                        |
+| **branch**   | Where work happens. One worktree per run, never the default branch                      | runtime                                   |
+| **proposal** | The only way a bot changes anything on GitHub                                           | runtime, see [Proposals](/docs/proposals) |
+| **run**      | One bot or script executing one job attempt, with events, cost and an outcome           | the run store                             |
+| **note**     | What the hub knows                                                                      | `notes/<kind>/<slug>.md`                  |
 
 Each file kind has a schema; the fields are listed on [Schema and config](/docs/reference/config).
 

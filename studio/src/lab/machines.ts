@@ -141,10 +141,7 @@ export const runMachine: AnyStateMachine = createMachine({
         checks: {
           on: {
             pass: { target: '#run.succeeded' },
-            fail: [
-              { target: 'agent', guard: 'attempts left', reenter: true },
-              { target: '#run.failed' },
-            ],
+            fail: [{ target: 'agent', guard: 'attempts left', reenter: true }, { target: '#run.failed' }],
           },
         },
       },

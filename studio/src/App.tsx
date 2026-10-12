@@ -3,6 +3,7 @@ import { Component, type ComponentType, lazy, type ReactNode, Suspense, useEffec
 import { DashboardView } from './dashboard/DashboardView.tsx';
 import { Logo } from './Logo.tsx';
 import { Link } from './Providers.tsx';
+import { StaleApi } from './StaleApi.tsx';
 import { navigateAtom, type Route, routeAtom, routes } from './state.ts';
 import { StudioView } from './studio/StudioView.tsx';
 import { cx, Muted } from './ui.tsx';
@@ -93,6 +94,7 @@ export const App = () => {
   return (
     <div className="min-h-full">
       <Header route={route} />
+      <StaleApi />
       <main className={route === 'docs' ? undefined : 'h-[calc(100dvh-3rem)] min-h-0'}>
         <Boundary key={route}>
           <Suspense fallback={<Muted>Loading.</Muted>}>

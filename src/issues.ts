@@ -23,7 +23,8 @@ export type IssueFilter = { label?: string; state?: Issue['state'] | 'all'; pare
 
 /**
  * Where issues live, behind one interface. `list` leaves out comments; `get` includes them. `watch` emits the same
- * `BotEvent`s a webhook would for changes after `ready` resolves, until `stop` is called.
+ * `BotEvent`s a webhook would for changes after `ready` resolves, until `stop` is called; with `replay`, a backend that
+ * can also emits what is already there while getting ready.
  */
 export type Issues = {
   backend: IssuesBackend;
@@ -38,7 +39,7 @@ export type Issues = {
   link: (parent: number, child: number) => Promise<void>;
   watch: (
     onEvent: (event: BotEvent) => void,
-    options?: { interval?: number }
+    options?: { interval?: number; replay?: boolean }
   ) => { ready: Promise<void>; stop: () => void };
 };
 

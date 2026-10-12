@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { pi } from '../src/harnesses/pi.ts';
 import {
   agentEnv,
@@ -33,9 +33,12 @@ const asText = (line: string): AgentEvent[] => (line ? [{ type: 'text', text: li
 
 const replay = `const s = require('fs').readFileSync(${JSON.stringify(fixturePath)}, 'utf8'); let i = 0;
 const t = setInterval(() => { process.stdout.write(s.slice(i, (i += 97))); if (i >= s.length) clearInterval(t); }, 1);`;
-const hang = `console.log(process.pid); setInterval(() => {}, 1e6);`;
+const orphanExit = `const parent = process.ppid; setInterval(() => process.ppid !== parent && process.exit(), 100);`;
+const hang = `console.log('pid ' + process.pid); ${orphanExit}`;
 const host = ['HOME', 'LANG', 'PATH', 'TERM', 'TMPDIR', 'USER'].filter(k => process.env[k]);
 const end = (ok: boolean) => JSON.stringify({ type: 'end', ok });
+
+const started: { store: Store; runId: string }[] = [];
 
 const setup = async () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'bothub-runner-')));
@@ -52,6 +55,7 @@ const setup = async () => {
       actor: { login: 'morgan', association: 'OWNER' },
     },
   });
+  started.push({ store, runId: run.id });
   return { store, runId: run.id };
 };
 
@@ -66,9 +70,17 @@ const alive = (pid: number) => {
 
 const pidOf = async (store: Store, runId: string) => {
   const [first] = await store.events(runId);
-  if (first?.event.type !== 'text') throw new Error('no pid recorded');
-  return Number(first.event.text);
+  const pid = first?.event.type === 'text' && /^pid (\d+)$/.exec(first.event.text)?.[1];
+  if (!pid) throw new Error('no pid recorded');
+  return Number(pid);
 };
+
+afterEach(async () => {
+  for (const { store, runId } of started.splice(0)) {
+    const pid = await pidOf(store, runId).catch(() => undefined);
+    if (pid && alive(pid)) process.kill(pid, 'SIGKILL');
+  }
+});
 
 const waitFor = async (check: () => Promise<boolean>) => {
   for (let i = 0; i < 200 && !(await check()); i++) await new Promise(r => setTimeout(r, 10));
@@ -247,7 +259,7 @@ console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTH
             { type: 'tool_result', id: line, ok: true, output: 'a.txt' },
           ]
         : [];
-    const script = `let i = 0; setInterval(() => console.log(i++), 1);`;
+    const script = `let i = 0; setInterval(() => console.log(i++), 1); ${orphanExit}`;
     const run = await Effect.runPromise(
       runJob({ adapter: node(script, loop), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
     );

@@ -40,7 +40,23 @@ npm run seed
 `npm run dev` starts the API on port 5181 and the app on http://localhost:5182, pointed at the
 acme-app example hub. Pass `-- --hub <dir> --data <dir>` to point it elsewhere. `npm run seed`
 writes a few sample runs into the data directory so the Dashboard has something to show; add
-`-- --live` to stream one slowly. The API restarts by itself when files under `src/` change.
+`-- --live` to stream one slowly. The API restarts by itself when files under `src/` change. If it
+runs code older than `src/` anyway, BHM shows a banner until the API catches up.
+
+## Before you commit
+
+Run `npm run verify` from the `bothub` directory. It stops at the first failure and runs, in order:
+
+- `oxfmt --check` over `src`, `tests`, `bin` and `studio`. Test fixtures are left alone, since
+  tests depend on their line numbers.
+- `oxlint`, then `tsc --noEmit` for bothub and for studio.
+- `vitest run --coverage` with the coverage thresholds. Besides the unit tests this checks that
+  every API path studio fetches is served, every docs reference and docs link resolves, every
+  route and studio tab has a nav entry, every example hub compiles, and every acme-app bot's
+  model is served by LiteLLM and allowed by its key in `keys.sh`. The run fails if a test leaves
+  a process running.
+- The studio build, which fails on a docs reference to source that does not exist.
+- `bothub check` on every hub under `examples/`.
 
 ## Editing the hub
 

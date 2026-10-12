@@ -1,5 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -73,14 +83,20 @@ describe('writeHub path confinement', () => {
     writeFileSync(outside, 'keep me');
     mkdirSync(join(dir, 'bots'));
     symlinkSync(outside, join(dir, 'bots', 'triager.md'));
-    for (const change of [{ path: 'bots/triager.md', data: bot, body: 'Role.' }, { path: 'bots/triager.md', delete: true }])
+    for (const change of [
+      { path: 'bots/triager.md', data: bot, body: 'Role.' },
+      { path: 'bots/triager.md', delete: true },
+    ])
       expect(await writeHub(dir, { changes: [change] })).toMatchObject({ ok: false, status: 400 });
     expect(readFileSync(outside, 'utf8')).toBe('keep me');
   });
 
   it('refuses unknown fields in a change and malformed input', async () => {
     const dir = minimalHub();
-    expect(await writeHub(dir, { changes: [{ path: 'bots/a.md', data: bot, mode: 0o777 }] })).toMatchObject({ ok: false, status: 400 });
+    expect(await writeHub(dir, { changes: [{ path: 'bots/a.md', data: bot, mode: 0o777 }] })).toMatchObject({
+      ok: false,
+      status: 400,
+    });
     expect(await writeHub(dir, { changes: [] })).toMatchObject({ ok: false, status: 400 });
     expect(await writeHub(dir, 'bots/a.md')).toMatchObject({ ok: false, status: 400 });
   });
@@ -106,7 +122,9 @@ describe('writeHub validation', () => {
 
   it('rejects frontmatter that does not fit the kind', async () => {
     const dir = minimalHub();
-    const result = await writeHub(dir, { changes: [{ path: 'skills/triage.md', data: { description: '', extra: 1 } }] });
+    const result = await writeHub(dir, {
+      changes: [{ path: 'skills/triage.md', data: { description: '', extra: 1 } }],
+    });
     expect(result).toMatchObject({ ok: false, status: 422 });
     expect(readFileSync(join(dir, 'skills', 'triage.md'), 'utf8')).toContain('description: Triage.');
   });
@@ -131,7 +149,9 @@ describe('writeHub validation', () => {
       changes: [{ path: 'skills/triage.md', data: { description: 'New.' }, base: 'stale text' }],
     });
     expect(result).toMatchObject({ ok: false, status: 409 });
-    expect(await writeHub(dir, { changes: [{ path: 'skills/new.md', data: { description: 'A.' }, base: 'x' }] })).toMatchObject({
+    expect(
+      await writeHub(dir, { changes: [{ path: 'skills/new.md', data: { description: 'A.' }, base: 'x' }] })
+    ).toMatchObject({
       ok: false,
       status: 409,
     });
@@ -170,16 +190,23 @@ describe('writeHub round trip', () => {
     writeFileSync(join(dir, path), '---\n# why this skill exists\ndescription: Triage.\n---\nOld prompt.\n');
     const result = await writeHub(dir, { changes: [{ path, data: { description: 'Triage.' }, body: 'New prompt.' }] });
     expect(result).toMatchObject({ ok: true });
-    expect(readFileSync(join(dir, path), 'utf8')).toBe('---\n# why this skill exists\ndescription: Triage.\n---\nNew prompt.\n');
+    expect(readFileSync(join(dir, path), 'utf8')).toBe(
+      '---\n# why this skill exists\ndescription: Triage.\n---\nNew prompt.\n'
+    );
   });
 
   it('edits frontmatter in place, keeping comments, key order and style of what did not change', async () => {
     const dir = minimalHub();
     const path = 'checks/lint.md';
     mkdirSync(join(dir, 'checks'));
-    writeFileSync(join(dir, path), '---\n# runs in CI too\nmode: warn\nrun: npm run lint  # fast\npaths: [src/**]\n---\nBody.\n');
+    writeFileSync(
+      join(dir, path),
+      '---\n# runs in CI too\nmode: warn\nrun: npm run lint  # fast\npaths: [src/**]\n---\nBody.\n'
+    );
     const result = await writeHub(dir, {
-      changes: [{ path, data: { mode: 'block', run: 'npm run lint', paths: ['src/**'], description: 'Lint.' }, body: 'Body.' }],
+      changes: [
+        { path, data: { mode: 'block', run: 'npm run lint', paths: ['src/**'], description: 'Lint.' }, body: 'Body.' },
+      ],
     });
     expect(result).toMatchObject({ ok: true });
     expect(readFileSync(join(dir, path), 'utf8')).toBe(
@@ -198,8 +225,14 @@ describe('writeHub round trip', () => {
 
   it('serialises in schema key order no matter the input order, keeping keys it does not know last', () => {
     const path = 'bots/a.md';
-    const a = renderItem(path, { data: { can: ['reply'], extra: { z: 1 }, tools: ['read'], harness: 'pi' }, body: 'Hi.' });
-    const b = renderItem(path, { data: { harness: 'pi', tools: ['read'], extra: { z: 1 }, can: ['reply'] }, body: 'Hi.' });
+    const a = renderItem(path, {
+      data: { can: ['reply'], extra: { z: 1 }, tools: ['read'], harness: 'pi' },
+      body: 'Hi.',
+    });
+    const b = renderItem(path, {
+      data: { harness: 'pi', tools: ['read'], extra: { z: 1 }, can: ['reply'] },
+      body: 'Hi.',
+    });
     expect(a).toBe(b);
     expect(a).toBe('---\nharness: pi\ntools: [read]\ncan: [reply]\nextra: {z: 1}\n---\n\nHi.\n');
   });
@@ -223,7 +256,13 @@ describe('writeHub round trip', () => {
       ],
     });
     expect(rename).toMatchObject({ ok: true, written: ['bots/sorter.md'], deleted: ['bots/triager.md'] });
-    expect(tree(dir)).toEqual(['bots/sorter.md', 'hub.yaml', 'issues/1-start.md', 'notes/caveat/first.md', 'skills/triage.md']);
+    expect(tree(dir)).toEqual([
+      'bots/sorter.md',
+      'hub.yaml',
+      'issues/1-start.md',
+      'notes/caveat/first.md',
+      'skills/triage.md',
+    ]);
   });
 });
 
@@ -255,7 +294,8 @@ describe('writeHub atomic writes', () => {
 });
 
 describe('writeHub commit', () => {
-  const git = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+  const git = (dir: string, ...args: string[]) =>
+    execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
 
   it('commits only the changed paths as "update" when the hub is a git repository', async () => {
     const dir = minimalHub();
@@ -265,7 +305,10 @@ describe('writeHub commit', () => {
     git(dir, 'config', 'commit.gpgsign', 'false');
     writeFileSync(join(dir, 'unrelated.txt'), 'staged elsewhere');
     git(dir, 'add', 'unrelated.txt');
-    const result = await writeHub(dir, { changes: [{ path: 'bots/triager.md', data: bot, body: 'Role.' }], commit: true });
+    const result = await writeHub(dir, {
+      changes: [{ path: 'bots/triager.md', data: bot, body: 'Role.' }],
+      commit: true,
+    });
     expect(result).toMatchObject({ ok: true });
     expect(git(dir, 'log', '--format=%s')).toBe('update');
     expect(git(dir, 'show', '--name-only', '--format=')).toBe('bots/triager.md');
@@ -315,14 +358,21 @@ describe('writeHub commit', () => {
 
   it('only saves when the hub is not a git repository', async () => {
     const dir = minimalHub();
-    const result = await writeHub(dir, { changes: [{ path: 'bots/triager.md', data: bot, body: 'Role.' }], commit: true });
+    const result = await writeHub(dir, {
+      changes: [{ path: 'bots/triager.md', data: bot, body: 'Role.' }],
+      commit: true,
+    });
     expect(result).toEqual({ ok: true, written: ['bots/triager.md'], deleted: [] });
   });
 });
 
 describe('hub edit routes', () => {
   const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
-    new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    new Request(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
   const change = { changes: [{ path: 'bots/triager.md', data: bot, body: 'Role.' }] };
 
   it('lists item files with local issues', async () => {
@@ -337,7 +387,11 @@ describe('hub edit routes', () => {
   it('validates without writing', async () => {
     const dir = minimalHub();
     const route = hubWriteRoutes(dir);
-    const res = await route(post('http://127.0.0.1:5181/api/hub/validate', { changes: [{ path: 'bots/b.md', data: { ...bot, skills: ['nope'] } }] }));
+    const res = await route(
+      post('http://127.0.0.1:5181/api/hub/validate', {
+        changes: [{ path: 'bots/b.md', data: { ...bot, skills: ['nope'] } }],
+      })
+    );
     expect(await res!.json()).toMatchObject({ ok: false, errors: [{ path: 'bots/b.md' }] });
     expect(existsSync(join(dir, 'bots'))).toBe(false);
   });

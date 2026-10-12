@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { appendFile, readFile, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { Effect } from 'effect';
@@ -69,7 +69,8 @@ export const runEvent = async (jobs: PlannedJob[], p: Pipeline): Promise<JobResu
  * issues, the bothub MCP server, worktrees of the local `origin`, pull requests recorded in `<data>/pulls.jsonl`)
  * and serves the studio API on `port` (0 picks a free one). Each new event id waits in `<data>/queue` and runs one
  * after another; one whose label was removed before it ran is dropped. Runs a stopped process left unfinished are
- * marked interrupted at startup and their events run again. Resolves once listening.
+ * marked interrupted at startup and their events run again. Changes made while it was stopped run at startup; on the
+ * first start for a data directory, what is already there is recorded as seen instead. Resolves once listening.
  */
 export const serveHub = async ({
   hub,
@@ -152,8 +153,22 @@ export const serveHub = async ({
   for (const run of interrupted) log(`${run.workflow}/${run.job} ${run.id} interrupted, running its event again`);
   for (const event of new Map(interrupted.map(run => [run.event.id, run.event])).values()) enqueue(event, true);
   void work.wake();
-  const watching = issues.watch(enqueue, { interval });
+  const primed = join(root, 'issues-seen');
+  let priming = !(await stat(primed).catch(() => undefined));
+  const watching = issues.watch(
+    event => {
+      if (!priming) return enqueue(event);
+      pushing = pushing.then(() => store.deliver(event.id)).then(() => undefined);
+    },
+    { interval, replay: true }
+  );
   await watching.ready;
+  await pushing;
+  if (priming) {
+    await mkdir(root, { recursive: true });
+    await writeFile(primed, '');
+    priming = false;
+  }
   const server = await serve(api({ hubDir: dir, store }), port);
   const address = server.address();
   const listening = typeof address === 'object' && address ? address.port : port;

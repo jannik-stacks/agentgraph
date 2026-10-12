@@ -6,8 +6,8 @@ description: How a run is isolated and which models it can reach.
 ## The sandbox
 
 Every harness run, script job and script check is one hardened `docker run --rm`, built by
-<Sym name="dockerRun" />. There is no setting that turns it off or runs anything on the host
-instead:
+
+<Sym name="dockerRun" />. There is no setting that turns it off or runs anything on the host instead:
 
 - read-only root filesystem, `/tmp` as tmpfs, the operator's own non-root user, all capabilities
   dropped, `no-new-privileges`, memory, CPU and pid limits, no image pulls, and a watchdog that
@@ -50,10 +50,10 @@ the code is on [Runs](/docs/reference/runs).
 
 A bot's `harness` picks the agent program. Both talk only to the model proxy.
 
-| Harness | Notes |
-| --- | --- |
+| Harness    | Notes                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------- |
 | `opencode` | The primary choice. Real tool allowlists, including patterned bash, one process per run |
-| `pi` | Light and fast. Tools are all or nothing, so it suits read-only bots |
+| `pi`       | Light and fast. Tools are all or nothing, so it suits read-only bots                    |
 
 Each is a small adapter; see [Harnesses](/docs/reference/harnesses).
 
@@ -63,11 +63,11 @@ Bots name a model alias, never a vendor model. LiteLLM sits in front of every mo
 to upstreams, and gives each bot its own virtual key with rate limits, so its logs show which bot
 spent what.
 
-| Alias | Route |
-| --- | --- |
+| Alias             | Route                                                       |
+| ----------------- | ----------------------------------------------------------- |
 | `smart`, `writer` | A ChatGPT subscription through LiteLLM's `chatgpt` provider |
-| `review` | An Anthropic key, a different family from the authors |
-| `fast` | Ollama running `qwen3.5:4b` locally |
+| `review`          | An Anthropic key, a different family from the authors       |
+| `fast`            | Ollama running `qwen3.5:4b` locally                         |
 
 Ollama also serves `tev1:0.8b` through its decision API, for small yes, no and scoring questions
 that `decide` checks ask directly (<Sym name="decideCheck" />). An offline config points every alias at Ollama.

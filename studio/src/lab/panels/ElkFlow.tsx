@@ -68,7 +68,11 @@ const Routed = ({ data, markerEnd }: EdgeProps<RoutedEdge>) => {
   const { points, label, labelAt, loop } = data.edge;
   return (
     <>
-      <BaseEdge path={path(points)} {...(markerEnd && { markerEnd })} style={{ stroke: loop ? '#d97706' : '#71717a' }} />
+      <BaseEdge
+        path={path(points)}
+        {...(markerEnd && { markerEnd })}
+        style={{ stroke: loop ? '#d97706' : '#71717a' }}
+      />
       {label && labelAt && (
         <EdgeLabelRenderer>
           <div

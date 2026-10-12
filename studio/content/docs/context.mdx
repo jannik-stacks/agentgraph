@@ -9,13 +9,13 @@ the triggering event. Beyond that there are two ways to give it more.
 ## Preload
 
 `preload` renders context into the prompt before the run starts, through
-<Sym name="issueContext" /> and <Sym name="relevantNotes" />. Use it for things every run of
-the job needs.
 
-| Value | What is rendered |
-| --- | --- |
-| `issue` | The triggering issue |
-| `links` | Issues linked from it |
+<Sym name="issueContext" /> and <Sym name="relevantNotes" />. Use it for things every run of the job needs.
+
+| Value   | What is rendered             |
+| ------- | ---------------------------- |
+| `issue` | The triggering issue         |
+| `links` | Issues linked from it        |
 | `notes` | The notes that match the run |
 
 ## Read-only tools
@@ -24,11 +24,11 @@ the job needs.
 a run might need. They
 read, they never write; writing is what [proposals](/docs/proposals) are for.
 
-| Tool | Reads |
-| --- | --- |
+| Tool                        | Reads                                   |
+| --------------------------- | --------------------------------------- |
 | `issues_list`, `issues_get` | Issues, plans, specs and open questions |
-| `notes_search`, `notes_get` | Notes in the hub |
-| `runs_read` | Earlier runs from the run store |
+| `notes_search`, `notes_get` | Notes in the hub                        |
+| `runs_read`                 | Earlier runs from the run store         |
 
 ```yaml
 jobs:
@@ -43,7 +43,7 @@ jobs:
 Issues go through one interface, <Sym name="Issues" />, with two backends picked in `hub.yaml`:
 
 ```yaml
-issues: github   # or local
+issues: github # or local
 ```
 
 `github` reads and writes real issues in the target repo (<Sym name="githubIssues" />). `local`

@@ -111,7 +111,10 @@ export const SvgStage = ({
       <div
         ref={host}
         className="absolute left-0 top-0 origin-top-left"
-        style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, visibility: ready ? 'visible' : 'hidden' }}
+        style={{
+          transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`,
+          visibility: ready ? 'visible' : 'hidden',
+        }}
       />
       {!ready && !error && <p className="p-4 text-zinc-500">Rendering.</p>}
     </div>

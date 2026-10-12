@@ -48,7 +48,7 @@ export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segm
 
 export const docsSlugAtom = atom(get => get(segments).slice(1));
 
-const queryParam =(key: string) =>
+const queryParam = (key: string) =>
   atom(
     get => get(locationAtom).query.get(key),
     (_get, set, value: string | null) => set(navigateAtom, { query: { [key]: value } })

@@ -28,7 +28,8 @@ export const captions: Record<Lib, Caption> = {
     size: '663 kB gzip, of which 634 kB is the Graphviz wasm.',
     layout:
       'Graphviz dot in UML statechart notation: initial dots, dashed parallel regions, do/ activity rows under the state name, event [guard] labels. The final pseudo state has no label, so named outcomes are drawn as bold regular states.',
-    interaction: 'Static SVG. Pan, zoom and click come from the lab wrapper, matched through the Graphviz title of each node.',
+    interaction:
+      'Static SVG. Pan, zoom and click come from the lab wrapper, matched through the Graphviz title of each node.',
     compound:
       'Composite and parallel states are native and transitions may cross borders. Edges leaving a composite start from its border. Loops are dot back edges, and the closure fan-out turns into long curves.',
   },
@@ -60,6 +61,7 @@ export const captions: Record<Lib, Caption> = {
       'd2 with its bundled ELK, top to bottom. Fine for the run lifecycle; on the workflow, container labels overflow and some cross-container edges lose segments.',
     interaction:
       'Static SVG. Pan, zoom and click come from the lab wrapper, matched through base64 class names. The worker answers without request ids, so calls are queued.',
-    compound: 'Containers nest freely and edges address nested paths directly. No statechart notation; loops are ordinary edges.',
+    compound:
+      'Containers nest freely and edges address nested paths directly. No statechart notation; loops are ordinary edges.',
   },
 };

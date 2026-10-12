@@ -26,7 +26,9 @@ const FileDiff = ({ before, after }: { before: string; after: string }) => (
             line.type === 'del' && 'bg-red-50 text-red-900 dark:bg-red-950/60 dark:text-red-200'
           )}
         >
-          <span className="mr-2 select-none text-zinc-400">{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}</span>
+          <span className="mr-2 select-none text-zinc-400">
+            {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}
+          </span>
           {line.text}
         </div>
       )
@@ -55,20 +57,32 @@ export const ChangesTray = () => {
     <div className="border-t border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/70">
       <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
         {changes.length > 0 ? (
-          <button type="button" className="font-medium hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <button
+            type="button"
+            className="font-medium hover:underline"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
             {open ? '▾' : '▸'} {changes.length} pending {changes.length === 1 ? 'change' : 'changes'}
           </button>
         ) : null}
         {changes.length > 0 &&
           (errors.length ? (
             <span className="rounded bg-red-100 px-1.5 text-red-700 dark:bg-red-950 dark:text-red-300">
-              {errors.length} {errors.length === 1 ? 'problem' : 'problems'}, nothing can be saved until the hub compiles
+              {errors.length} {errors.length === 1 ? 'problem' : 'problems'}, nothing can be saved until the hub
+              compiles
             </span>
           ) : (
             <span className="text-emerald-700 dark:text-emerald-400">the hub compiles</span>
           ))}
         {result && (
-          <span className={result.ok && !result.commitError ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
+          <span
+            className={
+              result.ok && !result.commitError
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-red-700 dark:text-red-400'
+            }
+          >
             {result.ok
               ? result.commit
                 ? `saved and committed ${result.commit.slice(0, 7)}`
@@ -76,7 +90,12 @@ export const ChangesTray = () => {
                   ? `saved, but the commit failed: ${result.commitError}`
                   : 'saved'
               : `not saved: ${result.errors.map(e => (e.path ? `${e.path} ${e.message}` : e.message)).join('; ')}`}
-            <button type="button" className="ml-1.5 text-zinc-400 hover:text-zinc-700" aria-label="dismiss" onClick={() => setResult(undefined)}>
+            <button
+              type="button"
+              className="ml-1.5 text-zinc-400 hover:text-zinc-700"
+              aria-label="dismiss"
+              onClick={() => setResult(undefined)}
+            >
               ×
             </button>
           </span>
@@ -86,7 +105,12 @@ export const ChangesTray = () => {
             <button type="button" className={button} onClick={() => discard()}>
               Discard all
             </button>
-            <button type="button" className={hub.git ? button : primary} disabled={!validated.ok || saving} onClick={() => void save({})}>
+            <button
+              type="button"
+              className={hub.git ? button : primary}
+              disabled={!validated.ok || saving}
+              onClick={() => void save({})}
+            >
               Save
             </button>
             {hub.git && (
@@ -108,8 +132,15 @@ export const ChangesTray = () => {
           {errors.length > 0 && (
             <ul className="space-y-1 text-xs">
               {errors.map((e, i) => (
-                <li key={i} className="rounded border border-red-200 bg-white px-2 py-1 dark:border-red-900 dark:bg-zinc-950">
-                  <button type="button" className="mr-2 font-mono text-sky-700 hover:underline dark:text-sky-400" onClick={() => edit(e.path)}>
+                <li
+                  key={i}
+                  className="rounded border border-red-200 bg-white px-2 py-1 dark:border-red-900 dark:bg-zinc-950"
+                >
+                  <button
+                    type="button"
+                    className="mr-2 font-mono text-sky-700 hover:underline dark:text-sky-400"
+                    onClick={() => edit(e.path)}
+                  >
                     {e.path}
                   </button>
                   <span className="whitespace-pre-wrap text-red-800 dark:text-red-300">{e.message}</span>
@@ -137,11 +168,19 @@ export const ChangesTray = () => {
                   {status === 'deleted' ? (
                     <span className="font-mono">{change.path}</span>
                   ) : (
-                    <button type="button" className="font-mono hover:text-sky-700 hover:underline dark:hover:text-sky-300" onClick={() => edit(change.path)}>
+                    <button
+                      type="button"
+                      className="font-mono hover:text-sky-700 hover:underline dark:hover:text-sky-300"
+                      onClick={() => edit(change.path)}
+                    >
                       {change.path}
                     </button>
                   )}
-                  <button type="button" className="ml-auto text-zinc-500 hover:text-red-600" onClick={() => discard(change.path)}>
+                  <button
+                    type="button"
+                    className="ml-auto text-zinc-500 hover:text-red-600"
+                    onClick={() => discard(change.path)}
+                  >
                     discard
                   </button>
                 </div>

@@ -203,11 +203,20 @@ export const hubWriteRoutes =
     }
     if (pathname === '/api/hub/validate') {
       const parsed = WriteInput.safeParse(input);
-      if (!parsed.success) return Response.json({ ok: false, errors: [{ path: '', message: z.prettifyError(parsed.error) }] }, { status: 400 });
+      if (!parsed.success)
+        return Response.json(
+          { ok: false, errors: [{ path: '', message: z.prettifyError(parsed.error) }] },
+          { status: 400 }
+        );
       const unplaced = parsed.data.changes.filter(c => !itemKind(c.path));
       if (unplaced.length)
-        return Response.json({ ok: false, errors: unplaced.map(c => ({ path: c.path, message: 'is not a path a hub item may live at' })) });
-      const { ok, errors, warnings } = validateHub(applyChanges(await readHubItems(hubDir), parsed.data.changes as Change[]));
+        return Response.json({
+          ok: false,
+          errors: unplaced.map(c => ({ path: c.path, message: 'is not a path a hub item may live at' })),
+        });
+      const { ok, errors, warnings } = validateHub(
+        applyChanges(await readHubItems(hubDir), parsed.data.changes as Change[])
+      );
       return Response.json({ ok, errors, warnings });
     }
     const result = await writeHub(hubDir, input);

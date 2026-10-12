@@ -26,16 +26,14 @@ export const toSmcat = (chart: Chart): IStateMachine => {
     ];
     const states: IState[] = [
       ...(state.initial ? [{ name: initialOf(state), type: 'initial' as const }] : []),
-      ...state.children.map(
-        (child): IState => ({
-          name: child.id,
-          label: child.label,
-          type: child.type === 'parallel' ? 'parallel' : 'regular',
-          ...(child.type === 'final' && { class: 'terminal' }),
-          ...(child.notes.length && { actions: child.notes.map(body => ({ type: 'activity' as const, body })) }),
-          ...(child.children.length && { statemachine: machine(child) }),
-        })
-      ),
+      ...state.children.map((child): IState => ({
+        name: child.id,
+        label: child.label,
+        type: child.type === 'parallel' ? 'parallel' : 'regular',
+        ...(child.type === 'final' && { class: 'terminal' }),
+        ...(child.notes.length && { actions: child.notes.map(body => ({ type: 'activity' as const, body })) }),
+        ...(child.children.length && { statemachine: machine(child) }),
+      })),
     ];
     return { states, ...(transitions.length && { transitions }) };
   };

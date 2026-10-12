@@ -3,7 +3,15 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import type { Chart, ChartState } from './chart.ts';
 
 export type Point = { x: number; y: number };
-export type LaidState = { state: ChartState | undefined; id: string; parent?: string; x: number; y: number; width: number; height: number };
+export type LaidState = {
+  state: ChartState | undefined;
+  id: string;
+  parent?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 export type LaidEdge = { id: string; label: string; points: Point[]; labelAt?: Point; loop: boolean };
 
 const charWidth = 6.6;

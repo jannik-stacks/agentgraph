@@ -120,8 +120,8 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
 
   const association = (login: string): Association => (login.endsWith('[bot]') ? 'NONE' : 'OWNER');
 
-  const watch: Issues['watch'] = (onEvent, { interval } = {}) => {
-    let seen: Map<number, Issue> | undefined;
+  const watch: Issues['watch'] = (onEvent, { interval, replay } = {}) => {
+    let seen: Map<number, Issue> | undefined = replay ? new Map() : undefined;
     let scanning = Promise.resolve();
     const emit = (event: BotEvent | undefined) => event && onEvent(event);
     const scan = () =>

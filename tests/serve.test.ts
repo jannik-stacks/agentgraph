@@ -149,6 +149,50 @@ describe('serveHub', () => {
     }
   });
 
+  it('runs a comment made while it was stopped, but not what was there on its first start', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    const data = temp('serve-data');
+    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
+    await issues.comment(1, '/bothub from before the first start');
+    const done: [BotEvent, JobResult[]][] = [];
+    const start = () =>
+      serveHub({
+        hub,
+        data,
+        origin: bareOrigin(),
+        repo: 'acme/app',
+        env: {},
+        port: 0,
+        interval: 20,
+        log: () => {},
+        adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+        launch: unsandboxed,
+        onResults: (event, results) => done.push([event, results]),
+      });
+    const first = await start();
+    await first.idle();
+    await first.stop();
+    expect(done).toEqual([]);
+
+    await issues.comment(1, '/bothub while stopped');
+    const second = await start();
+    try {
+      while (!done.length) await new Promise(r => setTimeout(r, 20));
+      await second.idle();
+      expect(done.map(([event]) => event.body)).toEqual(['/bothub while stopped']);
+    } finally {
+      await second.stop();
+    }
+    const third = await start();
+    await third.idle();
+    await third.stop();
+    expect(done).toHaveLength(1);
+  });
+
   it('marks runs a stopped process left unfinished as interrupted and runs their event again', async () => {
     const hub = temp('serve-hub');
     for (const [path, text] of Object.entries(files)) {

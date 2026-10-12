@@ -16,15 +16,15 @@ one JSON object per line. The full type is <Sym name="Proposal" />.
 
 ## Kinds
 
-| Kind | Fields | Effect |
-| --- | --- | --- |
-| `reply` | `body` | Comments on the issue or pull request |
-| `label` | `add`, `remove` | Changes labels |
-| `push` | `branch`, `files` | Pushes the run's branch |
-| `open-pr` | `title`, `body`, `head`, `base`, `draft` | Opens a pull request |
-| `note` | `note`, `slug`, `title`, `body` | Opens a pull request on the hub repo adding a proposed note |
-| `ask` | `question` | Asks a human and waits |
-| `close` | `as`, `reason` | Not a write: says the job stopped short of done, and why |
+| Kind      | Fields                                   | Effect                                                      |
+| --------- | ---------------------------------------- | ----------------------------------------------------------- |
+| `reply`   | `body`                                   | Comments on the issue or pull request                       |
+| `label`   | `add`, `remove`                          | Changes labels                                              |
+| `push`    | `branch`, `files`                        | Pushes the run's branch                                     |
+| `open-pr` | `title`, `body`, `head`, `base`, `draft` | Opens a pull request                                        |
+| `note`    | `note`, `slug`, `title`, `body`          | Opens a pull request on the hub repo adding a proposed note |
+| `ask`     | `question`                               | Asks a human and waits                                      |
+| `close`   | `as`, `reason`                           | Not a write: says the job stopped short of done, and why    |
 
 ## Validation
 
@@ -41,5 +41,6 @@ Accepted proposals are applied by <Sym name="apply" /> only after the job's chec
 order. A pull request whose branch failed to push is skipped. Pushes never force.
 
 Every outcome, accepted, rejected and applied, is stored in the run's `outcome.json` as an
-<Sym name="Outcome" /> and shown in the Dashboard. Each effect is journalled before it is applied,
-so a retry never repeats one; the code is on [Proposals and apply](/docs/reference/proposals).
+
+<Sym name="Outcome" /> and shown in the Dashboard. Each effect is journalled before it is applied, so a retry never
+repeats one; the code is on [Proposals and apply](/docs/reference/proposals).

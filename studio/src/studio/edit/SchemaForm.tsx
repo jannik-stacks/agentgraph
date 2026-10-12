@@ -93,7 +93,18 @@ const field =
 const input = `${field} w-full`;
 const smallButton =
   'whitespace-nowrap rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-sky-600 dark:hover:text-sky-300';
-const mono = new Set(['run', 'branch', 'command', 'cron', 'paths', 'tools', 'types', 'branches', 'environment', 'source']);
+const mono = new Set([
+  'run',
+  'branch',
+  'command',
+  'cron',
+  'paths',
+  'tools',
+  'types',
+  'branches',
+  'environment',
+  'source',
+]);
 
 const Segmented = ({
   options,
@@ -106,7 +117,11 @@ const Segmented = ({
   onChange: (v: string | undefined) => void;
   label: string;
 }) => (
-  <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap gap-0.5 rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800/80">
+  <div
+    role="radiogroup"
+    aria-label={label}
+    className="inline-flex flex-wrap gap-0.5 rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800/80"
+  >
     {options.map(option => (
       <button
         key={option}
@@ -130,9 +145,16 @@ const Segmented = ({
 const EnumField = ({ options, value, onChange, path, required }: FieldProps & { options: string[] }) => {
   const set = (v: string | undefined) => onChange(v === undefined && required ? value : v);
   const short = options.length <= 5 && options.join('').length <= 40;
-  if (short) return <Segmented options={options} value={value as string | undefined} onChange={set} label={String(lastKey(path))} />;
+  if (short)
+    return (
+      <Segmented options={options} value={value as string | undefined} onChange={set} label={String(lastKey(path))} />
+    );
   return (
-    <select className={input} value={(value as string | undefined) ?? ''} onChange={e => set(e.target.value || undefined)}>
+    <select
+      className={input}
+      value={(value as string | undefined) ?? ''}
+      onChange={e => set(e.target.value || undefined)}
+    >
       {!required && <option value="">-</option>}
       {options.map(o => (
         <option key={o}>{o}</option>
@@ -145,7 +167,12 @@ const RefChip = ({ path, value, onRemove }: { path: Path; value: string; onRemov
   const target = useForm().link(path, value);
   return (
     <span className="inline-flex items-center">
-      <Chip dot={target?.dot} mono={mono.has(String(lastKey(path)))} title={target ? `open ${value}` : value} {...target}>
+      <Chip
+        dot={target?.dot}
+        mono={mono.has(String(lastKey(path)))}
+        title={target ? `open ${value}` : value}
+        {...target}
+      >
         {value}
       </Chip>
       {onRemove && (
@@ -234,7 +261,12 @@ const Toggle = ({ value, onChange, path }: FieldProps) => (
       value === true ? 'bg-sky-600' : 'bg-zinc-300 dark:bg-zinc-700'
     )}
   >
-    <span className={cx('inline-block size-4 rounded-full bg-white shadow transition-transform', value === true ? 'translate-x-4.5' : 'translate-x-0.5')} />
+    <span
+      className={cx(
+        'inline-block size-4 rounded-full bg-white shadow transition-transform',
+        value === true ? 'translate-x-4.5' : 'translate-x-0.5'
+      )}
+    />
   </button>
 );
 
@@ -455,7 +487,12 @@ const FieldRow = ({ name, ...props }: FieldProps & { name: string }) => {
         <legend className="flex items-center gap-2 px-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
           {name}
           {!props.required && (
-            <button type="button" className="text-zinc-400 hover:text-red-600" aria-label={`remove ${name}`} onClick={() => props.onChange(undefined)}>
+            <button
+              type="button"
+              className="text-zinc-400 hover:text-red-600"
+              aria-label={`remove ${name}`}
+              onClick={() => props.onChange(undefined)}
+            >
               ×
             </button>
           )}
@@ -492,10 +529,26 @@ const ObjectFields = ({ schema, value, onChange, path }: FieldProps) => {
   return (
     <div className="grid grid-cols-[7.5rem_1fr] items-start gap-x-3 gap-y-2">
       {Object.entries(props).map(([key, s]) => (
-        <FieldRow key={key} name={key} schema={s} value={data[key]} onChange={set(key)} path={[...path, key]} required={required.has(key)} />
+        <FieldRow
+          key={key}
+          name={key}
+          schema={s}
+          value={data[key]}
+          onChange={set(key)}
+          path={[...path, key]}
+          required={required.has(key)}
+        />
       ))}
       {unknown.map(key => (
-        <FieldRow key={key} name={key} schema={{}} value={data[key]} onChange={set(key)} path={[...path, key]} required={false} />
+        <FieldRow
+          key={key}
+          name={key}
+          schema={{}}
+          value={data[key]}
+          onChange={set(key)}
+          path={[...path, key]}
+          required={false}
+        />
       ))}
     </div>
   );
@@ -512,7 +565,8 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
   const [adding, setAdding] = useState('');
   const [opened, setOpened] = useState<string[]>([]);
   const pattern = names?.pattern ? new RegExp(names.pattern) : undefined;
-  const set = (key: string, v: unknown) => onChange({ ...data, [key]: v === undefined ? (shapeOf(item).kind === 'object' ? null : v) : v });
+  const set = (key: string, v: unknown) =>
+    onChange({ ...data, [key]: v === undefined ? (shapeOf(item).kind === 'object' ? null : v) : v });
   const remove = (key: string) => {
     const { [key]: _, ...rest } = data;
     onChange(rest);
@@ -538,18 +592,36 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
             {names?.enum ? (
               <span className="font-medium">{key}</span>
             ) : (
-              <KeyInput value={key} pattern={pattern} taken={Object.keys(data)} onRename={to => {
+              <KeyInput
+                value={key}
+                pattern={pattern}
+                taken={Object.keys(data)}
+                onRename={to => {
                   setOpened([...opened, to]);
                   onChange(renameKey(data, key, to));
-                }} />
+                }}
+              />
             )}
-            {issuesAt(ctx.issues, [...path, key], true).length > 0 && <span className="size-1.5 rounded-full bg-red-500" title="has problems" />}
-            <button type="button" className="ml-auto text-zinc-400 hover:text-red-600" aria-label={`remove ${key}`} onClick={() => remove(key)}>
+            {issuesAt(ctx.issues, [...path, key], true).length > 0 && (
+              <span className="size-1.5 rounded-full bg-red-500" title="has problems" />
+            )}
+            <button
+              type="button"
+              className="ml-auto text-zinc-400 hover:text-red-600"
+              aria-label={`remove ${key}`}
+              onClick={() => remove(key)}
+            >
               ×
             </button>
           </summary>
           <div className="border-t border-zinc-200 p-2.5 dark:border-zinc-800">
-            <Value schema={item} value={v ?? undefined} onChange={next => set(key, next)} path={[...path, key]} required />
+            <Value
+              schema={item}
+              value={v ?? undefined}
+              onChange={next => set(key, next)}
+              path={[...path, key]}
+              required
+            />
             <Issues path={[...path, key]} />
           </div>
         </details>
@@ -573,7 +645,12 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
               onChange={e => setAdding(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add(adding))}
             />
-            <button type="button" className={smallButton} disabled={!adding || (pattern && !pattern.test(adding))} onClick={() => add(adding)}>
+            <button
+              type="button"
+              className={smallButton}
+              disabled={!adding || (pattern && !pattern.test(adding))}
+              onClick={() => add(adding)}
+            >
               + add {singular}
             </button>
           </>
@@ -602,7 +679,10 @@ const KeyInput = ({
   return (
     <input
       aria-label="name"
-      className={cx('w-40 rounded bg-transparent px-1 font-medium outline-none focus:bg-white dark:focus:bg-zinc-900', !valid && 'text-red-600')}
+      className={cx(
+        'w-40 rounded bg-transparent px-1 font-medium outline-none focus:bg-white dark:focus:bg-zinc-900',
+        !valid && 'text-red-600'
+      )}
       value={text}
       onClick={e => e.preventDefault()}
       onKeyDown={e => {
@@ -625,10 +705,21 @@ const ObjectList = ({ item, value, onChange, path, required }: FieldProps & { it
     <div className="space-y-2">
       {items.map((v, i) => (
         <div key={i} className="relative rounded-md border border-zinc-200 p-2.5 dark:border-zinc-800">
-          <button type="button" className="absolute right-2 top-1 text-zinc-400 hover:text-red-600" aria-label="remove" onClick={() => set(items.filter((_, j) => j !== i))}>
+          <button
+            type="button"
+            className="absolute right-2 top-1 text-zinc-400 hover:text-red-600"
+            aria-label="remove"
+            onClick={() => set(items.filter((_, j) => j !== i))}
+          >
             ×
           </button>
-          <Value schema={item} value={v} onChange={n => set(items.map((x, j) => (j === i ? n : x)))} path={[...path, i]} required />
+          <Value
+            schema={item}
+            value={v}
+            onChange={n => set(items.map((x, j) => (j === i ? n : x)))}
+            path={[...path, i]}
+            required
+          />
         </div>
       ))}
       <button type="button" className={smallButton} onClick={() => set([...items, initialValue(item)])}>
@@ -651,7 +742,13 @@ export const SchemaForm = ({
   context: FormContext;
 }) => (
   <Ctx value={context}>
-    <ObjectFields schema={schema} value={value} onChange={v => onChange((v ?? {}) as Record<string, unknown>)} path={[]} required />
+    <ObjectFields
+      schema={schema}
+      value={value}
+      onChange={v => onChange((v ?? {}) as Record<string, unknown>)}
+      path={[]}
+      required
+    />
     <Issues path={[]} />
   </Ctx>
 );

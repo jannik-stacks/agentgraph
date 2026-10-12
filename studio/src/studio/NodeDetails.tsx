@@ -87,11 +87,20 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
         </Chip>
       );
   }
-  if (key === 'harness') return <Chip dot="bg-sky-500" title="harness reference" {...links.page('/docs/reference/harnesses')}>{value}</Chip>;
+  if (key === 'harness')
+    return (
+      <Chip dot="bg-sky-500" title="harness reference" {...links.page('/docs/reference/harnesses')}>
+        {value}
+      </Chip>
+    );
   if (key === 'model') {
     const alias = modelAlias(links.files, value);
     return alias ? (
-      <Chip dot="bg-violet-500" title={`model alias for ${alias.upstream}, in ${alias.file.path}`} {...links.file(alias.file)}>
+      <Chip
+        dot="bg-violet-500"
+        title={`model alias for ${alias.upstream}, in ${alias.file.path}`}
+        {...links.file(alias.file)}
+      >
         {value}
       </Chip>
     ) : (
@@ -147,7 +156,8 @@ const Prose = ({ text }: { text: string }) => {
 const Value = ({ path, value }: { path: string[]; value: unknown }): ReactNode => {
   if (value === null || value === undefined) return <span className="text-zinc-400">-</span>;
   if (typeof value === 'boolean') return <Badge tone={value ? 'ok' : 'neutral'}>{value ? 'yes' : 'no'}</Badge>;
-  if (typeof value === 'number' || typeof value === 'bigint') return <span className="tabular-nums">{String(value)}</span>;
+  if (typeof value === 'number' || typeof value === 'bigint')
+    return <span className="tabular-nums">{String(value)}</span>;
   if (typeof value === 'string') {
     if (path.at(-1) === 'run') return <Code text={value} />;
     if (value.includes('\n')) return <Prose text={value} />;
@@ -258,7 +268,12 @@ const Header = ({ node, data }: { node: GraphNode; data: Record<string, unknown>
           ))}
         {node.source?.root === 'hub' && (
           <span className="ml-auto">
-            <EditButton path={node.source.path} label={node.kind === 'job' || node.kind === 'script' || node.kind === 'trigger' ? 'Edit workflow' : 'Edit'} />
+            <EditButton
+              path={node.source.path}
+              label={
+                node.kind === 'job' || node.kind === 'script' || node.kind === 'trigger' ? 'Edit workflow' : 'Edit'
+              }
+            />
           </span>
         )}
       </div>

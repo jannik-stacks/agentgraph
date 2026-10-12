@@ -3,7 +3,16 @@ import { lazy, Suspense, useMemo, useRef } from 'react';
 import type { ConfigError } from '../../../src/config.ts';
 import { type GraphModel, graphModel } from '../graph-model.ts';
 import { sampleModel } from '../graph-sample.ts';
-import { editPathAtom, hubAtom, navigateAtom, sampleAtom, selectedNodeAtom, studioTabAtom, studioTabs } from '../state.ts';
+import {
+  editPathAtom,
+  hubAtom,
+  navigateAtom,
+  sampleAtom,
+  selectedNodeAtom,
+  studioTabAtom,
+  studioTabs,
+} from '../state.ts';
+import { Link } from '../Providers.tsx';
 import { cx, Muted } from '../ui.tsx';
 import { GraphCanvas } from './GraphCanvas.tsx';
 import { NodeDetails } from './NodeDetails.tsx';
@@ -39,7 +48,15 @@ const Errors = ({ errors }: { errors: ConfigError[] }) => {
   );
 };
 
-const Studio = ({ model, errors, editable }: { model: GraphModel | undefined; errors?: ConfigError[]; editable: boolean }) => {
+const Studio = ({
+  model,
+  errors,
+  editable,
+}: {
+  model: GraphModel | undefined;
+  errors?: ConfigError[];
+  editable: boolean;
+}) => {
   const [selected, setSelected] = useAtom(selectedNodeAtom);
   const edit = useAtomValue(editPathAtom);
   const navigate = useSetAtom(navigateAtom);
@@ -99,23 +116,22 @@ const Graph = () => (useAtomValue(sampleAtom) ? <Studio model={sampleModel} edit
 
 const Tabs = () => {
   const tab = useAtomValue(studioTabAtom);
-  const navigate = useSetAtom(navigateAtom);
   return (
-    <div className="flex gap-1 border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-800">
+    <nav className="flex gap-1 border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-800">
       {studioTabs.map(t => (
-        <button
+        <Link
           key={t}
+          href={t === 'graph' ? '/studio' : `/studio/${t}`}
           aria-current={t === tab ? 'page' : undefined}
-          onClick={() => navigate({ path: t === 'graph' ? '/studio' : `/studio/${t}` })}
           className={cx(
             'rounded px-2 py-0.5 text-xs capitalize',
             t === tab ? 'bg-zinc-200 dark:bg-zinc-800' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900'
           )}
         >
           {t}
-        </button>
+        </Link>
       ))}
-    </div>
+    </nav>
   );
 };
 
@@ -125,15 +141,9 @@ export const StudioView = () => {
     <div className="grid h-full grid-rows-[auto_1fr]">
       <Tabs />
       <div className="min-h-0">
-        {tab === 'setup' ? (
-          <SetupView />
-        ) : tab === 'lab' ? (
-          <Suspense fallback={<Muted>Loading.</Muted>}>
-            <LabView />
-          </Suspense>
-        ) : (
-          <Graph />
-        )}
+        <Suspense fallback={<Muted>Loading.</Muted>}>
+          {tab === 'setup' ? <SetupView /> : tab === 'lab' ? <LabView /> : <Graph />}
+        </Suspense>
       </div>
     </div>
   );

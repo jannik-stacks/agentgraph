@@ -14,6 +14,8 @@ const local = [
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    globalSetup: ['tests/setup/global.ts'],
+    setupFiles: ['tests/setup/processes.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

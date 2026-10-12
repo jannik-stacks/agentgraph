@@ -35,7 +35,8 @@ export const toMermaid = (chart: Chart) => {
       else body(state, `${pad}  `);
       lines.push(`${pad}}`);
     }
-    if (state.notes.length) lines.push(`${pad}note right of ${id}`, ...state.notes.map(n => `${pad}  ${text(n)}`), `${pad}end note`);
+    if (state.notes.length)
+      lines.push(`${pad}note right of ${id}`, ...state.notes.map(n => `${pad}  ${text(n)}`), `${pad}end note`);
   };
   body(chart.root, '  ');
   lines.push('  classDef terminal stroke-width:3px,stroke:#3f3f46');

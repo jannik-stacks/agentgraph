@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { compile } from './config.ts';
+import { fingerprint, srcDir as ownSrc } from './fingerprint.ts';
 import { hubWriteRoutes } from './hub-write.ts';
 import { readHub } from './load.ts';
 import { alive, type Run, type RunStatus, type Store } from './store.ts';
@@ -107,18 +108,23 @@ export const readFiles = async (roots: Root[]) => {
  * `GET /api/runs/:id/files` lists a run's raw harness files and `GET /api/runs/:id/files/<path>` serves one.
  * `GET /api/runs/:id/stream` tails a run's events as Server-Sent Events and ends with an `end` event once the run
  * is no longer queued or running.
+ * `GET /api/build` compares the fingerprint of `srcDir` when the handler was made with the one on disk now, so a
+ * client can tell the server runs older code than its source.
  */
 export const api = ({
   hubDir,
   store,
   roots = [],
   pollMs = 500,
+  srcDir = ownSrc,
 }: {
   hubDir: string;
   store: Store;
   roots?: Root[];
   pollMs?: number;
+  srcDir?: string;
 }): Handler => {
+  const running = fingerprint(srcDir);
   const stream = (id: string, from: number, signal: AbortSignal) => {
     const encoder = new TextEncoder();
     let cancelled = false;
@@ -159,6 +165,13 @@ export const api = ({
         } catch (e) {
           return Response.json({ errors: [{ path: hubDir, message: (e as Error).message }] });
         }
+      },
+    ],
+    [
+      /^\/api\/build$/,
+      async () => {
+        const disk = fingerprint(srcDir);
+        return Response.json({ running, disk, stale: disk !== running });
       },
     ],
     [/^\/api\/files$/, async () => Response.json(await readFiles([{ name: 'hub', dir: hubDir }, ...roots]))],

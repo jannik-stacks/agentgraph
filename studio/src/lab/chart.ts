@@ -8,7 +8,15 @@ export type ChartState = {
   notes: string[];
   children: ChartState[];
 };
-export type ChartEdge = { id: string; from: string; to: string; event: string; guard?: string; label: string; loop: boolean };
+export type ChartEdge = {
+  id: string;
+  from: string;
+  to: string;
+  event: string;
+  guard?: string;
+  label: string;
+  loop: boolean;
+};
 export type Chart = {
   root: ChartState;
   edges: ChartEdge[];

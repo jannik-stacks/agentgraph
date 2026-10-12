@@ -21,9 +21,10 @@ $BOTHUB_DATA/
 ```
 
 Run ids start with a timestamp (<Sym name="runId" />), so they sort in creation order. The store,
-<Sym name="openStore" />, is append-only: a run is created `queued`, moves to `running`, and ends
-with a <Sym name="RunStatus" />. A run left unfinished by a process that died is marked
-`interrupted` by <Sym name="reconcile" />.
+
+<Sym name="openStore" />, is append-only: a run is created `queued`, moves to `running`, and ends with a
+<Sym name="RunStatus" />. A run left unfinished by a process that died is marked `interrupted` by
+<Sym name="reconcile" />.
 
 ## The harness home
 

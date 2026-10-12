@@ -4,17 +4,23 @@ description: Where events come from, the long-running hubs, and running whole wo
 ---
 
 Everything starts from a <Sym name="BotEvent" />. A GitHub delivery is checked by
-<Sym name="webhook" /> and normalised by <Sym name="toEvent" />; a change to a local issue file is
-turned into the same event by <Sym name="changeEvent" />.
+
+<Sym name="webhook" /> and normalised by <Sym name="toEvent" />; a change to a local issue file is turned into the same
+event by <Sym name="changeEvent" />.
 
 <Fields name="BotEvent" />
 
 ## Serving
 
 <Sym name="serveHub" /> is the local hub: it watches `issues/`, runs each change through the
-[pipeline](/docs/reference/pipeline) one event at a time, plays GitHub's part with a local bare
-repository and serves the read-only <Sym name="api" /> that BHM reads. <Sym name="serveGitHub" />
+[pipeline](/docs/reference/pipeline) one event at a time, plays GitHub's part with a local bare repository and serves
+the read-only <Sym name="api" /> that BHM reads. <Sym name="serveGitHub" />
 is the same for a GitHub App, with short-lived installation tokens that no bot ever holds.
+
+Comments and new issues written while `serve` was stopped run when it starts again: each change
+has a delivery id derived from its content, and the ones already delivered are skipped. On the
+first start for a data directory, everything already in `issues/` is recorded as delivered
+instead, so old `/bothub` comments do not run.
 
 ## Assignment and the queue
 
@@ -36,6 +42,7 @@ Each new event waits in a queue before it runs. <Sym name="fileQueue" /> keeps o
 item under `<data>/queue/`, named so they sort in push order. Taking an item renames its file to
 carry the owning process, so two processes on one data directory never run the same item, and an
 item a stopped process had taken goes back to waiting when the queue is next opened.
+
 <Sym name="worker" /> runs items one after another.
 
 Removing the label withdraws the work. Before an item runs, <Sym name="withdrawn" /> checks that

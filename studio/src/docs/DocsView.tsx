@@ -18,7 +18,12 @@ const Page = () => {
     document.title = page ? `${page.data.title} | bothub docs` : 'bothub docs';
     return () => void (document.title = 'BHM');
   }, [page]);
-  if (!page) return <DocsPage><DocsTitle>Not found</DocsTitle></DocsPage>;
+  if (!page)
+    return (
+      <DocsPage>
+        <DocsTitle>Not found</DocsTitle>
+      </DocsPage>
+    );
   const Body = page.data.body;
   return (
     <DocsPage toc={page.data.toc}>

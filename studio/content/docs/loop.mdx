@@ -34,11 +34,11 @@ as its own run, linked to the one before it.
 
 ## Check modes
 
-| Mode | Effect |
-| --- | --- |
+| Mode     | Effect                                                             |
+| -------- | ------------------------------------------------------------------ |
 | `shadow` | Runs and records its verdict, never fails the attempt. The default |
-| `warn` | Gating: a failure sends findings back and holds proposals |
-| `block` | Gating, and meant to stay that way once a check has earned it |
+| `warn`   | Gating: a failure sends findings back and holds proposals          |
+| `block`  | Gating, and meant to stay that way once a check has earned it      |
 
 Today `warn` and `block` gate the loop the same way (see <Sym name="failingChecks" />). Jobs have a mode too: a job in `shadow`
 validates and stores its proposals but never applies them, which is how a new bot or skill starts

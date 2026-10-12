@@ -80,11 +80,14 @@ export const stageAtom = atom(null, (get, set, changes: Change | Change[]) => {
 });
 
 /** Stages an item's new frontmatter, keeping its current body unless one is given. */
-export const stageItemAtom = atom(null, (get, set, { path, data, body }: { path: string; data: Record<string, unknown>; body?: string }) => {
-  const hub = get(draftHubAtom);
-  if (!hub) return;
-  set(stageAtom, { path, data, body: body ?? draftItem(hub.files, path)?.body ?? '' });
-});
+export const stageItemAtom = atom(
+  null,
+  (get, set, { path, data, body }: { path: string; data: Record<string, unknown>; body?: string }) => {
+    const hub = get(draftHubAtom);
+    if (!hub) return;
+    set(stageAtom, { path, data, body: body ?? draftItem(hub.files, path)?.body ?? '' });
+  }
+);
 
 export const discardAtom = atom(null, (get, set, path?: string) => {
   if (path === undefined) return set(draftsAtom, {});
@@ -138,7 +141,9 @@ export const deleteItemAtom = atom(null, (_get, set, path: string) => {
   set(navigateAtom, { query: { edit: null } });
 });
 
-export type SaveResult = { ok: true; commit?: string; commitError?: string } | { ok: false; errors: { path: string; message: string }[] };
+export type SaveResult =
+  | { ok: true; commit?: string; commitError?: string }
+  | { ok: false; errors: { path: string; message: string }[] };
 
 export const savingAtom = atom(false);
 export const saveResultAtom = atom<SaveResult | undefined>(undefined);

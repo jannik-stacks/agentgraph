@@ -38,8 +38,9 @@ reached.
 ## Harness adapters are pure
 
 An adapter maps a <Sym name="RunSpec" /> to an argv and parses one output line into common
-<Sym name="AgentEvent" /> values. It spawns nothing and holds no state, so the runner, the sandbox
-and the sim share one code path and adapters are tested with recorded output.
+
+<Sym name="AgentEvent" /> values. It spawns nothing and holds no state, so the runner, the sandbox and the sim share one
+code path and adapters are tested with recorded output.
 
 <Source file="src/harnesses/pi.ts" symbol="command" />
 

@@ -109,11 +109,15 @@ const StateCard = ({ chart, id }: { chart: Chart; id: string }) => {
       ))}
       <Transitions
         title="leaves"
-        items={chart.edges.filter(e => e.from === id).map(e => ({ id: e.id, text: `to ${name(e.to)}`, label: e.label }))}
+        items={chart.edges
+          .filter(e => e.from === id)
+          .map(e => ({ id: e.id, text: `to ${name(e.to)}`, label: e.label }))}
       />
       <Transitions
         title="enters"
-        items={chart.edges.filter(e => e.to === id).map(e => ({ id: e.id, text: `from ${name(e.from)}`, label: e.label }))}
+        items={chart.edges
+          .filter(e => e.to === id)
+          .map(e => ({ id: e.id, text: `from ${name(e.from)}`, label: e.label }))}
       />
     </div>
   );
@@ -145,7 +149,12 @@ export default function LabView() {
       <style>{selectedStyle}</style>
       <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-800">
         <span className="text-xs font-medium text-zinc-500">Statechart lab</span>
-        <Segmented options={libs} value={lib} label={l => captions[l].name} onChange={l => navigate({ query: { lib: l } })} />
+        <Segmented
+          options={libs}
+          value={lib}
+          label={l => captions[l].name}
+          onChange={l => navigate({ query: { lib: l } })}
+        />
         <Segmented
           options={charts}
           value={chartName}
@@ -164,7 +173,9 @@ export default function LabView() {
           {selected ? (
             <StateCard chart={chart} id={selected} />
           ) : (
-            <p className="border-t border-zinc-200 pt-3 text-xs text-zinc-500 dark:border-zinc-800">Click a state to see its transitions.</p>
+            <p className="border-t border-zinc-200 pt-3 text-xs text-zinc-500 dark:border-zinc-800">
+              Click a state to see its transitions.
+            </p>
           )}
         </aside>
       </div>

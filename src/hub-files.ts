@@ -154,7 +154,13 @@ const childSchema = (schema: JsonSchema | undefined, value: unknown, key: string
  * Edits a parsed YAML node from `before` to `after` in place where it can, so unchanged keys keep their position,
  * style and comments. New keys go where the schema order puts them among the keys already there.
  */
-const patchNode = (doc: Document, node: unknown, before: unknown, after: unknown, schema: JsonSchema | undefined): unknown => {
+const patchNode = (
+  doc: Document,
+  node: unknown,
+  before: unknown,
+  after: unknown,
+  schema: JsonSchema | undefined
+): unknown => {
   if (deepEqual(before, after)) return node;
   if (isMap(node) && isRecord(before) && isRecord(after)) {
     for (const key of Object.keys(before)) if (after[key] === undefined) node.delete(key);
@@ -208,7 +214,9 @@ export const renderItem = (path: string, { data, body }: HubItem, original?: str
     try {
       const before = parseItem(path, original);
       if (kind === 'hub')
-        return deepEqual(before.data, data) ? original : (patchYaml(kind, original, before.data, data) ?? stringifyData(kind, data));
+        return deepEqual(before.data, data)
+          ? original
+          : (patchYaml(kind, original, before.data, data) ?? stringifyData(kind, data));
       const match = frontmatter.exec(original);
       if (match) {
         if (deepEqual(before.data, data) && before.body === body.trim()) return original;
@@ -252,7 +260,10 @@ export const fieldIssues = (path: string, data: Record<string, unknown>): FieldI
   const parsed = itemKinds[kind].schema.safeParse(data);
   return parsed.success
     ? []
-    : parsed.error.issues.map(issue => ({ path: issue.path.map(p => (typeof p === 'symbol' ? String(p) : p)), message: issue.message }));
+    : parsed.error.issues.map(issue => ({
+        path: issue.path.map(p => (typeof p === 'symbol' ? String(p) : p)),
+        message: issue.message,
+      }));
 };
 
 export type HubValidation = { ok: boolean; errors: ConfigError[]; warnings: ConfigError[]; config?: Config };

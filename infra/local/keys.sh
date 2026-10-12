@@ -18,12 +18,13 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 # Subscription models report $0 spend, so for smart and writer the rpm/tpm limits and
 # bothub's runs-per-day budget are what actually bite; the dollar budget covers review.
 BOTS=(
-  "implementor  smart,fast,local          10  30  400000"
-  "docs-editor  writer,fast,local          3  20  200000"
-  "reviewer     review,smart,fast,local          5  20  300000"
-  "fact-checker review,fast,local          2  20  150000"
-  "gardener     writer,fast,local          2  10  100000"
-  "triager      smart,fast,local           1  20  100000"
+  "implementor   smart,writer,fast,local   10  30  400000"
+  "docs-editor   writer,fast,local          3  20  200000"
+  "reviewer      review,smart,fast,local    5  20  300000"
+  "fact-checker  review,fast,local          2  20  150000"
+  "gardener      writer,fast,local          2  10  100000"
+  "triager       smart,fast,local           1  20  100000"
+  "claim-checker fast,local                 1  30  200000"
 )
 
 api() { # method path [json]

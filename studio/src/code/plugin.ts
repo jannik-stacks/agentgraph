@@ -3,7 +3,18 @@ import { join, relative, resolve as resolvePath, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHighlighter, type Highlighter } from 'shiki';
 import { parseSync, type Plugin, type ViteDevServer } from 'vite';
-import { type Decl, type Field, type FileMeta, type Files, type Ref, refKey, type Region, resolve, summary, type Tag } from './model.ts';
+import {
+  type Decl,
+  type Field,
+  type FileMeta,
+  type Files,
+  type Ref,
+  refKey,
+  type Region,
+  resolve,
+  summary,
+  type Tag,
+} from './model.ts';
 
 /** What under the bothub root the docs may show. Anything that looks like a secret is skipped. */
 const roots = ['src', 'infra'];
@@ -68,7 +79,12 @@ const cleanDoc = (value: string) => {
     .map(l => l.replace(/^\s*\* ?/, '').trimEnd());
   const tag = lines.findIndex(l => /^@\w/.test(l.trim()));
   const body = (tag < 0 ? lines : lines.slice(0, tag)).join('\n').trim();
-  return body.split(/\n\s*\n/).map(p => p.replace(/\s*\n\s*/g, ' ')).join('\n\n') || undefined;
+  return (
+    body
+      .split(/\n\s*\n/)
+      .map(p => p.replace(/\s*\n\s*/g, ' '))
+      .join('\n\n') || undefined
+  );
 };
 
 const keyName = (key: Node | undefined) =>
@@ -138,7 +154,8 @@ const analyzeTs = async (abs: string, text: string, version: number) => {
   const body = program.body as Node[];
   const decls: Decl[] = [];
   const reexported = new Set(
-    body.flatMap(s => (s.type === 'ExportNamedDeclaration' && !s.declaration && !s.source ? s.specifiers : []))
+    body
+      .flatMap(s => (s.type === 'ExportNamedDeclaration' && !s.declaration && !s.source ? s.specifiers : []))
       .map((s: Node) => s.local.name as string)
   );
   const shapes: { name: string; props: Node[]; zod: boolean }[] = [];
@@ -216,7 +233,9 @@ const analyzeTs = async (abs: string, text: string, version: number) => {
       let field: Field;
       if (zod) {
         const code = source(p.value);
-        const named = /^(?:z\.array\()?([A-Z]\w*)\)?(?:\.(?:optional|exactOptional|nullish|default)\(.*\))?$/.exec(code);
+        const named = /^(?:z\.array\()?([A-Z]\w*)\)?(?:\.(?:optional|exactOptional|nullish|default)\(.*\))?$/.exec(
+          code
+        );
         const full = schema ? typeOf(schema) : code;
         const record = /^z\.record\([^,]+,\s*([A-Z]\w*)\)/.exec(code);
         const short = named
@@ -263,7 +282,11 @@ const regionsOf = (text: string): Region[] => {
 
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const declarations = (style: Record<string, string> | undefined) =>
-  style ? Object.entries(style).map(([k, v]) => `${k}:${v}`).join(';') : '';
+  style
+    ? Object.entries(style)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(';')
+    : '';
 
 type Entry = { mtime: number; meta: FileMeta; raw: string; lines?: Promise<string[]> };
 type Found = { at: string; tag: Tag; target: { file?: string; symbol?: string; region?: string } };
@@ -368,7 +391,8 @@ export const bothubCode = (options: { root: string; content: string }): Plugin =
     const r = resolve(files, target);
     if ('error' in r) return r;
     const fields = r.file.tables[r.name];
-    if (tag === 'Fields' && !fields) return { error: `${r.name} in ${r.file.path} is not an object type or zod object` };
+    if (tag === 'Fields' && !fields)
+      return { error: `${r.name} in ${r.file.path} is not an object type or zod object` };
     const doc = summary(r.doc);
     const lines = tag === 'Source' ? (await htmlLines(cache.get(r.file.path)!)).slice(r.start - 1, r.end) : [];
     return {
@@ -456,4 +480,3 @@ export const bothubCode = (options: { root: string; content: string }): Plugin =
     },
   };
 };
-

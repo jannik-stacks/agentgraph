@@ -44,7 +44,15 @@ const refKinds: Record<string, NodeKind> = {
   subagents: 'bot',
 };
 
-const kindOfItem: Partial<Record<ItemKind, NodeKind>> = { bot: 'bot', skill: 'skill', check: 'check', workflow: 'trigger', note: 'note', issue: 'issues', hub: 'issues' };
+const kindOfItem: Partial<Record<ItemKind, NodeKind>> = {
+  bot: 'bot',
+  skill: 'skill',
+  check: 'check',
+  workflow: 'trigger',
+  note: 'note',
+  issue: 'issues',
+  hub: 'issues',
+};
 export const itemDot = (kind: ItemKind) => kindDot[kindOfItem[kind] ?? 'job'];
 
 const modelAliases = (sources: { path: string; source: string }[]) =>
@@ -78,7 +86,9 @@ const NameInput = ({ path, kind }: { path: string; kind: ItemKind }) => {
   };
   const problem = problemOf(text);
   const commit = (value: string) =>
-    problemOf(value) || value === name ? setText(name) : rename({ from: path, to: itemPath(kind, value, noteKindOf(path)) });
+    problemOf(value) || value === name
+      ? setText(name)
+      : rename({ from: path, to: itemPath(kind, value, noteKindOf(path)) });
   return (
     <div>
       <input
@@ -167,7 +177,10 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
     const named = (k: ItemKind) => hub.files.filter(f => itemKind(f.path) === k).map(f => itemName(f.path));
     const bots = named('bot');
     const harness = Harness.safeParse(item.data.harness).data;
-    const tools = [...(harness ? harnessToolNames[harness] : [...new Set(Object.values(harnessToolNames).flat())]), ...HubTool.options];
+    const tools = [
+      ...(harness ? harnessToolNames[harness] : [...new Set(Object.values(harnessToolNames).flat())]),
+      ...HubTool.options,
+    ];
     const labels = [
       ...new Set(
         hub.files
@@ -210,7 +223,8 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
           dot: kindDot[k],
         };
       },
-      open: p => kind === 'workflow' && p.length === 2 && p[0] === 'jobs' && p[1] === focusJob && workflowName === focusWorkflow,
+      open: p =>
+        kind === 'workflow' && p.length === 2 && p[0] === 'jobs' && p[1] === focusJob && workflowName === focusWorkflow,
     };
   }, [hub, item, kind, path, files, selected, model, navigate]);
 
@@ -238,10 +252,18 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
           <span className={cx('size-2 rounded-full', itemDot(kind))} />
           editing {kindLabel(kind)}
-          {status && <span className="rounded bg-amber-100 px-1.5 normal-case tracking-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300">{status}</span>}
+          {status && (
+            <span className="rounded bg-amber-100 px-1.5 normal-case tracking-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              {status}
+            </span>
+          )}
           <span className="ml-auto flex gap-1.5 normal-case tracking-normal">
             {kind !== 'hub' && (
-              <button type="button" className={cx(button, 'hover:border-red-400 hover:text-red-700 dark:hover:text-red-400')} onClick={() => remove(path)}>
+              <button
+                type="button"
+                className={cx(button, 'hover:border-red-400 hover:text-red-700 dark:hover:text-red-400')}
+                onClick={() => remove(path)}
+              >
                 Delete
               </button>
             )}
@@ -262,7 +284,10 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
                   type="button"
                   aria-pressed={noteKindOf(path) === k}
                   onClick={() => rename({ from: path, to: itemPath('note', itemName(path), k) })}
-                  className={cx('rounded px-2 py-0.5', noteKindOf(path) === k ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-600 dark:text-white' : '')}
+                  className={cx(
+                    'rounded px-2 py-0.5',
+                    noteKindOf(path) === k ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-600 dark:text-white' : ''
+                  )}
                 >
                   {k}
                 </button>
@@ -274,12 +299,18 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
       {(errors.length > 0 || warnings.length > 0) && (
         <ul className="space-y-1 text-xs">
           {errors.map(e => (
-            <li key={e.message} className="rounded border border-red-200 bg-red-50 px-2 py-1 text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300">
+            <li
+              key={e.message}
+              className="rounded border border-red-200 bg-red-50 px-2 py-1 text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300"
+            >
               {e.message}
             </li>
           ))}
           {warnings.map(e => (
-            <li key={e.message} className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
+            <li
+              key={e.message}
+              className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300"
+            >
               {e.message}
             </li>
           ))}
