@@ -32,3 +32,7 @@ backends, never by forking code. Each milestone ends with something you can run.
 6. **Learning loop.** Run memory summaries, the gardener proposing notes, `decide:` checks on the
    local decision model, the correction ladder from note to check.
 7. **Budgets and cost.** Runs per day, minutes and spend enforced; usage per bot on the dashboard.
+8. **Evals.** A daily small real-model run on fixed tasks built from merged PRs, each run with and
+   without a given note or skill, so a note has to show it changes outcomes. `spec` issues list
+   the paths and tests that prove them, checked by a link script. Offered skills can load their
+   full body through a read tool. Workflows that keep failing turn themselves off.
