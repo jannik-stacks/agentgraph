@@ -16,6 +16,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  resolve: { dedupe: ['yaml'] },
   server: { ...server, warmup: { clientFiles: ['./src/main.tsx', './src/docs/DocsView.tsx'] } },
   preview: server,
 });

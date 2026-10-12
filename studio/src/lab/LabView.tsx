@@ -1,7 +1,7 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { type ComponentType, lazy, Suspense, useMemo } from 'react';
 import { hubAtom, locationAtom, navigateAtom } from '../state.ts';
-import { cx, Muted } from '../ui.tsx';
+import { Muted, Segmented } from '../ui.tsx';
 import { type Chart, toChart } from './chart.ts';
 import { type Caption, captions, type Lib, libs } from './captions.ts';
 import { runMachine, workflowMachine } from './machines.ts';
@@ -24,36 +24,6 @@ const selectedStyle = `
 .lab-stage .lab-selected > :is(rect, path, polygon, ellipse, circle),
 .lab-stage .lab-selected > g > :is(rect, path, polygon, ellipse, circle) { stroke: #0ea5e9 !important; stroke-width: 3px !important; }
 `;
-
-const Segmented = <T extends string>({
-  options,
-  value,
-  label,
-  onChange,
-}: {
-  options: readonly T[];
-  value: T;
-  label: (option: T) => string;
-  onChange: (option: T) => void;
-}) => (
-  <div className="flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900">
-    {options.map(option => (
-      <button
-        key={option}
-        aria-current={option === value ? 'page' : undefined}
-        onClick={() => onChange(option)}
-        className={cx(
-          'rounded-md px-2 py-0.5 text-xs',
-          option === value
-            ? 'bg-white font-medium shadow-sm dark:bg-zinc-700'
-            : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
-        )}
-      >
-        {label(option)}
-      </button>
-    ))}
-  </div>
-);
 
 const CaptionCard = ({ caption }: { caption: Caption }) => (
   <dl className="space-y-2 text-xs">

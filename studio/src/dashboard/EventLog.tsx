@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import type { EventRecord } from '../../../src/store.ts';
 import type { AgentEvent } from '../../../src/types.ts';
 import { Badge, cx, Field, Fields, Pre } from '../ui.tsx';
@@ -60,7 +61,7 @@ const End = ({ event }: { event: Extract<AgentEvent, { type: 'end' }> }) => (
   </div>
 );
 
-const Entry = ({ item: { event, result } }: { item: Item }) => {
+const Entry = memo(function Entry({ event, result }: Omit<Item, 'seq'>) {
   switch (event.type) {
     case 'start':
       return (
@@ -91,14 +92,17 @@ const Entry = ({ item: { event, result } }: { item: Item }) => {
     case 'error':
       return <div className="text-red-600 dark:text-red-400">{event.message}</div>;
   }
-};
+});
 
-export const EventLog = ({ records }: { records: EventRecord[] }) => (
-  <ol className="space-y-2">
-    {pair(records).map(item => (
-      <li key={item.seq}>
-        <Entry item={item} />
-      </li>
-    ))}
-  </ol>
-);
+export const EventLog = ({ records }: { records: EventRecord[] }) => {
+  const items = useMemo(() => pair(records), [records]);
+  return (
+    <ol className="space-y-2">
+      {items.map(({ seq, event, result }) => (
+        <li key={seq} className="[contain-intrinsic-size:auto_1.5rem] [content-visibility:auto]">
+          <Entry event={event} {...(result && { result })} />
+        </li>
+      ))}
+    </ol>
+  );
+};

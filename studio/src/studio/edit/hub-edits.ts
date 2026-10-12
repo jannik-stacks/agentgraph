@@ -46,15 +46,29 @@ export const draftHubAtom = atom(get => {
 
 const source = (files: SourceFile[], path: string) => files.find(f => f.path === path)?.source;
 
+const parsed = new Map<string, HubItem | null>();
+
+/** An item parsed from its source, cached by path and source; `null` when it does not parse. */
+export const parseCached = (path: string, text: string) => {
+  const key = `${path}\0${text}`;
+  let item = parsed.get(key);
+  if (item === undefined) {
+    if (parsed.size > 1000) parsed.clear();
+    try {
+      item = parseItem(path, text);
+    } catch {
+      item = null;
+    }
+    parsed.set(key, item);
+  }
+  return item;
+};
+
 /** An item as it would be with the pending edits, or `undefined` when there is no such file. */
 export const draftItem = (files: SourceFile[], path: string): HubItem | undefined => {
   const text = source(files, path);
   if (text === undefined) return;
-  try {
-    return parseItem(path, text);
-  } catch {
-    return { data: {}, body: text };
-  }
+  return parseCached(path, text) ?? { data: {}, body: text };
 };
 
 const stage = (drafts: Record<string, Change>, disk: SourceFile[], changes: Change[]) => {
@@ -106,6 +120,11 @@ const uniqueName = (files: SourceFile[], kind: ItemKind, base: string, note?: No
 const nextIssue = (files: SourceFile[]) =>
   Math.max(0, ...files.filter(f => itemKind(f.path) === 'issue').map(f => Number(itemName(f.path).split('-')[0]))) + 1;
 
+/** Opens an item's editor in the studio. */
+export const editItemAtom = atom(null, (_get, set, path: string) =>
+  set(navigateAtom, { path: '/studio', query: { edit: path, node: null } })
+);
+
 /** Stages a new item of `kind` with the smallest valid frontmatter its schema allows, and opens it for editing. */
 export const createItemAtom = atom(null, (get, set, { kind, note }: { kind: ItemKind; note?: NoteKind }) => {
   const hub = get(draftHubAtom);
@@ -119,7 +138,7 @@ export const createItemAtom = atom(null, (get, set, { kind, note }: { kind: Item
   const path = itemPath(kind, name, note);
   const data = initialValue(itemSchema(kind)) as Record<string, unknown>;
   set(stageAtom, { path, data, body: '' });
-  set(navigateAtom, { path: '/studio', query: { edit: path, node: null } });
+  set(editItemAtom, path);
 });
 
 /** Moves an item to a new path and points every reference to its old name at the new one. */

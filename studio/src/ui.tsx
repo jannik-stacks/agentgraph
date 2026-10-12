@@ -1,4 +1,13 @@
-import { type ReactNode, useCallback, useState } from 'react';
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { Closure } from '../../src/schema.ts';
 import type { RunStatus } from '../../src/store.ts';
 import type { Tone } from './graph-model.ts';
@@ -137,4 +146,132 @@ export const useStoredFlag = (key: string, fallback: boolean) => {
     [key]
   );
   return [value, set] as const;
+};
+
+const buttons = {
+  default:
+    'rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-sky-600 dark:hover:text-sky-300',
+  primary:
+    'rounded px-2.5 py-0.5 text-xs font-medium text-white bg-sky-600 hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-600',
+  small:
+    'whitespace-nowrap rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-sky-600 dark:hover:text-sky-300',
+  dashed:
+    'rounded-md border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300',
+};
+
+export const Button = ({
+  variant = 'default',
+  className,
+  ...props
+}: ComponentProps<'button'> & { variant?: keyof typeof buttons }) => (
+  <button
+    type="button"
+    className={cx(buttons[variant], 'disabled:cursor-not-allowed disabled:opacity-40', className)}
+    {...props}
+  />
+);
+
+/** A row of mutually exclusive options. With `href` each option is a link marked `aria-current`, else a pressed button. */
+export const Segmented = <T extends string>({
+  options,
+  value,
+  onChange,
+  label = String,
+  href,
+  className = 'text-xs',
+  'aria-label': ariaLabel,
+}: {
+  options: readonly T[];
+  value: T | null | undefined;
+  onChange: (option: T) => void;
+  label?: (option: T) => ReactNode;
+  href?: (option: T) => string;
+  className?: string;
+  'aria-label'?: string;
+}) => (
+  <div
+    role="group"
+    aria-label={ariaLabel}
+    className={cx('inline-flex flex-wrap gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900', className)}
+  >
+    {options.map(option => {
+      const on = option === value;
+      const style = cx(
+        'rounded-md px-2 py-0.5 transition-colors',
+        on
+          ? 'bg-white font-medium text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-white'
+          : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
+      );
+      return href ? (
+        <a
+          key={option}
+          href={href(option)}
+          aria-current={on ? 'page' : undefined}
+          className={style}
+          onClick={e => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            onChange(option);
+          }}
+        >
+          {label(option)}
+        </a>
+      ) : (
+        <button key={option} type="button" aria-pressed={on} className={style} onClick={() => onChange(option)}>
+          {label(option)}
+        </button>
+      );
+    })}
+  </div>
+);
+
+/** Text typed into a field, kept local and committed after a pause in typing, on blur and on unmount. */
+export const useCommittedText = (value: string, commit: (text: string) => void, delay = 250) => {
+  const [text, setText] = useState(value);
+  const latest = useRef({
+    commit,
+    pending: undefined as string | undefined,
+    timer: undefined as ReturnType<typeof setTimeout> | undefined,
+  });
+  useLayoutEffect(() => {
+    latest.current.commit = commit;
+  });
+  const flush = useCallback(() => {
+    const l = latest.current;
+    clearTimeout(l.timer);
+    if (l.pending === undefined) return;
+    const next = l.pending;
+    l.pending = undefined;
+    l.commit(next);
+  }, []);
+  const change = useCallback(
+    (next: string) => {
+      setText(next);
+      latest.current.pending = next;
+      clearTimeout(latest.current.timer);
+      latest.current.timer = setTimeout(flush, delay);
+    },
+    [flush, delay]
+  );
+  useEffect(() => {
+    if (latest.current.pending === undefined) setText(value);
+  }, [value]);
+  useEffect(() => flush, [flush]);
+  return { text, change, flush };
+};
+
+/** Calls `poll` every `ms` while the tab is visible, and again whenever it becomes visible. */
+export const usePolling = (poll: () => void, ms: number) => {
+  const tick = useEffectEvent(poll);
+  useEffect(() => {
+    const run = () => {
+      if (!document.hidden) tick();
+    };
+    const timer = setInterval(run, ms);
+    document.addEventListener('visibilitychange', run);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', run);
+    };
+  }, [ms]);
 };

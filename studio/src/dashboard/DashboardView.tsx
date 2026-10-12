@@ -1,8 +1,7 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { useEffect } from 'react';
 import type { Run } from '../../../src/store.ts';
 import { botFilterAtom, needsHumanQueryAtom, runIdAtom, runsAtom, runsQueryAtom, statusFilterAtom } from '../state.ts';
-import { Muted } from '../ui.tsx';
+import { Muted, usePolling } from '../ui.tsx';
 import { NeedsHuman } from './NeedsHuman.tsx';
 import { RunDetail } from './RunDetail.tsx';
 import { RunTable } from './RunTable.tsx';
@@ -41,7 +40,6 @@ const unique = (values: (string | undefined)[]) => [...new Set(values.filter(v =
 const Runs = ({ runs }: { runs: Run[] }) => {
   const [status, setStatus] = useAtom(statusFilterAtom);
   const [bot, setBot] = useAtom(botFilterAtom);
-  const [selected, select] = useAtom(runIdAtom);
   const shown = runs.filter(run => (!status || run.status === status) && (!bot || run.bot === bot));
   return (
     <>
@@ -49,7 +47,7 @@ const Runs = ({ runs }: { runs: Run[] }) => {
         <Filter label="status" value={status} options={unique(runs.map(r => r.status))} onChange={setStatus} />
         <Filter label="bot" value={bot} options={unique(runs.map(r => r.bot))} onChange={setBot} />
       </div>
-      {shown.length ? <RunTable runs={shown} selected={selected} onSelect={select} /> : <Muted>No runs match.</Muted>}
+      {shown.length ? <RunTable runs={shown} /> : <Muted>No runs match.</Muted>}
     </>
   );
 };
@@ -60,13 +58,10 @@ export const DashboardView = () => {
   const refreshRuns = useSetAtom(runsQueryAtom);
   const refreshNeedsHuman = useSetAtom(needsHumanQueryAtom);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      refreshRuns();
-      refreshNeedsHuman();
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [refreshRuns, refreshNeedsHuman]);
+  usePolling(() => {
+    refreshRuns();
+    refreshNeedsHuman();
+  }, 5000);
 
   if (!runs) return <Muted>Loading runs.</Muted>;
   return (

@@ -1,7 +1,7 @@
 import { createContext, type ReactNode, use, useEffect, useId, useState } from 'react';
 import { parse, stringify } from 'yaml';
 import { type FieldIssue, initialValue, type JsonSchema } from '../../../../src/hub-files.ts';
-import { Chip, cx } from '../../ui.tsx';
+import { Button, Chip, cx, Segmented, useCommittedText } from '../../ui.tsx';
 
 export type Path = (string | number)[];
 type Target = { href: string; onClick: () => void };
@@ -91,8 +91,6 @@ const shapeOf = (schema: JsonSchema): Shape => {
 const field =
   'rounded border border-zinc-300 bg-white px-2 py-1 text-[13px] outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-900';
 const input = `${field} w-full`;
-const smallButton =
-  'whitespace-nowrap rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-sky-600 dark:hover:text-sky-300';
 const mono = new Set([
   'run',
   'branch',
@@ -106,48 +104,17 @@ const mono = new Set([
   'source',
 ]);
 
-const Segmented = ({
-  options,
-  value,
-  onChange,
-  label,
-}: {
-  options: string[];
-  value: string | undefined;
-  onChange: (v: string | undefined) => void;
-  label: string;
-}) => (
-  <div
-    role="radiogroup"
-    aria-label={label}
-    className="inline-flex flex-wrap gap-0.5 rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800/80"
-  >
-    {options.map(option => (
-      <button
-        key={option}
-        type="button"
-        role="radio"
-        aria-checked={option === value}
-        onClick={() => onChange(option === value ? undefined : option)}
-        className={cx(
-          'rounded px-2 py-0.5 text-xs',
-          option === value
-            ? 'bg-white font-medium text-zinc-900 shadow-sm dark:bg-zinc-600 dark:text-white'
-            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
-        )}
-      >
-        {option}
-      </button>
-    ))}
-  </div>
-);
-
 const EnumField = ({ options, value, onChange, path, required }: FieldProps & { options: string[] }) => {
   const set = (v: string | undefined) => onChange(v === undefined && required ? value : v);
   const short = options.length <= 5 && options.join('').length <= 40;
   if (short)
     return (
-      <Segmented options={options} value={value as string | undefined} onChange={set} label={String(lastKey(path))} />
+      <Segmented
+        options={options}
+        value={value as string | undefined}
+        onChange={o => set(o === value ? undefined : o)}
+        aria-label={String(lastKey(path))}
+      />
     );
   return (
     <select
@@ -193,9 +160,11 @@ const TextField = ({ value, onChange, path, required, schema }: FieldProps) => {
   const ctx = useForm();
   const id = useId();
   const key = String(lastKey(path));
-  const text = typeof value === 'string' ? value : value === undefined ? '' : String(value);
+  const { text, change, flush } = useCommittedText(
+    typeof value === 'string' ? value : value === undefined ? '' : String(value),
+    v => onChange(v === '' && !required ? undefined : v)
+  );
   const suggestions = ctx.suggest(path);
-  const set = (v: string) => onChange(v === '' && !required ? undefined : v);
   const multiline = key === 'run' || text.includes('\n') || text.length > 70;
   const link = text ? ctx.link(path, text) : undefined;
   return (
@@ -205,7 +174,8 @@ const TextField = ({ value, onChange, path, required, schema }: FieldProps) => {
           className={cx(input, 'min-h-16 font-mono text-xs')}
           value={text}
           rows={Math.min(8, text.split('\n').length + 1)}
-          onChange={e => set(e.target.value)}
+          onChange={e => change(e.target.value)}
+          onBlur={flush}
         />
       ) : (
         <div className="flex items-center gap-1.5">
@@ -214,7 +184,8 @@ const TextField = ({ value, onChange, path, required, schema }: FieldProps) => {
             value={text}
             list={suggestions ? id : undefined}
             placeholder={schema.pattern ? undefined : ''}
-            onChange={e => set(e.target.value)}
+            onChange={e => change(e.target.value)}
+            onBlur={flush}
           />
           {link && <RefChip path={path} value={text} />}
         </div>
@@ -344,14 +315,9 @@ const ChipsField = ({ value, onChange, path, required, numeric }: FieldProps & {
           </datalist>
           <div className="flex flex-wrap gap-1">
             {suggestions.slice(0, 16).map(s => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => add(s)}
-                className="rounded-md border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300"
-              >
+              <Button key={s} variant="dashed" onClick={() => add(s)}>
                 + {s}
-              </button>
+              </Button>
             ))}
           </div>
         </>
@@ -415,9 +381,9 @@ const UnionField = ({ options, value, onChange, path, required }: FieldProps & {
       <Segmented
         options={labels}
         value={labels[index]}
-        label={String(lastKey(path))}
+        aria-label={String(lastKey(path))}
         onChange={label => {
-          const next = options[labels.indexOf(label ?? '')];
+          const next = label === labels[index] ? undefined : options[labels.indexOf(label)];
           onChange(next ? initialValue(next) : required ? value : undefined);
         }}
       />
@@ -476,9 +442,9 @@ const FieldRow = ({ name, ...props }: FieldProps & { name: string }) => {
   if (group && props.value === undefined && !props.required)
     return (
       <div className="col-span-2">
-        <button type="button" className={smallButton} onClick={() => props.onChange(initialValue(props.schema))}>
+        <Button variant="small" onClick={() => props.onChange(initialValue(props.schema))}>
           + {name}
-        </button>
+        </Button>
       </div>
     );
   if (group)
@@ -645,14 +611,13 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
               onChange={e => setAdding(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add(adding))}
             />
-            <button
-              type="button"
-              className={smallButton}
+            <Button
+              variant="small"
               disabled={!adding || (pattern && !pattern.test(adding))}
               onClick={() => add(adding)}
             >
               + add {singular}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -722,9 +687,9 @@ const ObjectList = ({ item, value, onChange, path, required }: FieldProps & { it
           />
         </div>
       ))}
-      <button type="button" className={smallButton} onClick={() => set([...items, initialValue(item)])}>
+      <Button variant="small" onClick={() => set([...items, initialValue(item)])}>
         + add
-      </button>
+      </Button>
     </div>
   );
 };

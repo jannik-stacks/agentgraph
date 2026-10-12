@@ -32,6 +32,14 @@ beforeAll(async () => {
     store.set(state.locationAtom, { path, query: new URLSearchParams() });
     return renderToString(createElement(jotai.Provider, { store }, createElement(App)));
   };
+  for (const [route, view] of [
+    ['/studio', 'studio/StudioView.tsx'],
+    ['/dashboard', 'dashboard/DashboardView.tsx'],
+  ] as const) {
+    render(route);
+    await studioModule(view);
+    await new Promise(resolve => setTimeout(resolve));
+  }
 });
 
 /** The `href` of every link in the HTML, with whether it is marked as the current page. */

@@ -1,10 +1,9 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { hubFile } from '../../../../src/config.ts';
-import { type ItemKind, itemKind, itemName, noteKindOf, parseItem } from '../../../../src/hub-files.ts';
+import { type ItemKind, itemKind, itemName, noteKindOf } from '../../../../src/hub-files.ts';
 import { NoteKind } from '../../../../src/schema.ts';
-import { navigateAtom } from '../../state.ts';
-import { cx } from '../../ui.tsx';
-import { createItemAtom, draftHubAtom, draftsAtom } from './hub-edits.ts';
+import { Button, cx } from '../../ui.tsx';
+import { createItemAtom, draftHubAtom, draftsAtom, editItemAtom, parseCached } from './hub-edits.ts';
 import { itemDot } from './ItemEditor.tsx';
 
 const groups: { kind: ItemKind; title: string; hint: string }[] = [
@@ -16,14 +15,9 @@ const groups: { kind: ItemKind; title: string; hint: string }[] = [
   { kind: 'issue', title: 'issues', hint: 'local issues' },
 ];
 
-const add =
-  'rounded border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300';
-
 const title = (path: string, source: string) => {
-  try {
-    const t = parseItem(path, source).data.title;
-    return typeof t === 'string' && t ? t : undefined;
-  } catch {}
+  const t = parseCached(path, source)?.data.title;
+  return typeof t === 'string' && t ? t : undefined;
 };
 
 /** Every item in the hub by kind, each opening its editor, with a way to add one of each kind. */
@@ -31,9 +25,8 @@ export const HubItems = () => {
   const hub = useAtomValue(draftHubAtom);
   const drafts = useAtomValue(draftsAtom);
   const create = useSetAtom(createItemAtom);
-  const navigate = useSetAtom(navigateAtom);
+  const edit = useSetAtom(editItemAtom);
   if (!hub) return <p className="text-zinc-500">Loading the hub.</p>;
-  const edit = (path: string) => navigate({ path: '/studio', query: { edit: path, node: null } });
   const hasHub = hub.files.some(f => f.path === hubFile);
   return (
     <div className="space-y-4">
@@ -60,14 +53,14 @@ export const HubItems = () => {
               <span className="ml-auto flex gap-1">
                 {group.kind === 'note' ? (
                   NoteKind.options.map(note => (
-                    <button key={note} type="button" className={add} onClick={() => create({ kind: 'note', note })}>
+                    <Button key={note} variant="dashed" onClick={() => create({ kind: 'note', note })}>
                       + {note}
-                    </button>
+                    </Button>
                   ))
                 ) : (
-                  <button type="button" className={add} onClick={() => create({ kind: group.kind })}>
+                  <Button variant="dashed" onClick={() => create({ kind: group.kind })}>
                     + {group.kind}
-                  </button>
+                  </Button>
                 )}
               </span>
             </div>

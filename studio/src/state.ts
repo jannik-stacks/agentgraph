@@ -4,10 +4,18 @@ import type { needsHuman, readFiles } from '../../src/api.ts';
 import type { Config, ConfigError } from '../../src/config.ts';
 import type { Outcome, Run } from '../../src/store.ts';
 
+const last = new Map<string, { text: string; value: unknown }>();
+
+/** Fetches JSON, answering with the previous value when the response text has not changed. */
 const getJson = async <T>(path: string): Promise<T> => {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`${path} answered ${response.status}`);
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  const previous = last.get(path);
+  if (previous?.text === text) return previous.value as T;
+  const value = JSON.parse(text) as T;
+  last.set(path, { text, value });
+  return value;
 };
 
 export const routes = ['studio', 'dashboard', 'docs'] as const;
@@ -42,7 +50,7 @@ export const navigateAtom = atom(
 const segments = atom(get => get(locationAtom).path.split('/').filter(Boolean));
 export const routeAtom = atom(get => routes.find(route => route === get(segments)[0]));
 
-export const studioTabs = ['graph', 'setup', 'lab'] as const;
+export const studioTabs = ['graph', 'notes', 'setup', 'lab'] as const;
 export type StudioTab = (typeof studioTabs)[number];
 export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segments)[1]) ?? 'graph');
 

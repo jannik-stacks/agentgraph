@@ -1,14 +1,8 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { useState } from 'react';
-import { navigateAtom } from '../../state.ts';
-import { cx } from '../../ui.tsx';
+import { Button, cx } from '../../ui.tsx';
 import { diffLines, hunks } from './diff.ts';
-import { discardAtom, draftHubAtom, saveAtom, saveResultAtom, savingAtom } from './hub-edits.ts';
-
-const button =
-  'rounded border px-2 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-40 border-zinc-300 text-zinc-700 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-sky-600 dark:hover:text-sky-300';
-const primary =
-  'rounded px-2.5 py-0.5 text-xs font-medium text-white bg-sky-600 hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-sky-700 dark:hover:bg-sky-600';
+import { discardAtom, draftHubAtom, editItemAtom, saveAtom, saveResultAtom, savingAtom } from './hub-edits.ts';
 
 const FileDiff = ({ before, after }: { before: string; after: string }) => (
   <pre className="overflow-x-auto bg-white font-mono text-[11px] leading-[1.45] dark:bg-zinc-950">
@@ -44,14 +38,13 @@ export const ChangesTray = () => {
   const setResult = useSetAtom(saveResultAtom);
   const save = useSetAtom(saveAtom);
   const discard = useSetAtom(discardAtom);
-  const navigate = useSetAtom(navigateAtom);
+  const edit = useSetAtom(editItemAtom);
   const [open, setOpen] = useState(false);
   if (!hub) return null;
   const { changes, validated } = hub;
   if (!changes.length && !result) return null;
   const before = new Map(hub.before.map(f => [f.path, f.source]));
   const after = new Map(hub.files.map(f => [f.path, f.source]));
-  const edit = (path: string) => navigate({ path: '/studio', query: { edit: path, node: null } });
   const errors = validated.errors;
   return (
     <div className="border-t border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/70">
@@ -102,27 +95,23 @@ export const ChangesTray = () => {
         )}
         {changes.length > 0 && (
           <span className="ml-auto flex gap-1.5">
-            <button type="button" className={button} onClick={() => discard()}>
-              Discard all
-            </button>
-            <button
-              type="button"
-              className={hub.git ? button : primary}
+            <Button onClick={() => discard()}>Discard all</Button>
+            <Button
+              variant={hub.git ? 'default' : 'primary'}
               disabled={!validated.ok || saving}
               onClick={() => void save({})}
             >
               Save
-            </button>
+            </Button>
             {hub.git && (
-              <button
-                type="button"
-                className={primary}
+              <Button
+                variant="primary"
                 disabled={!validated.ok || saving}
                 title="writes the files, then runs git add and git commit -m update on them"
                 onClick={() => void save({ commit: true })}
               >
                 Save and commit
-              </button>
+              </Button>
             )}
           </span>
         )}

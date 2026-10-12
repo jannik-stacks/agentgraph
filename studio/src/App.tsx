@@ -1,12 +1,13 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, type ComponentType, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { DashboardView } from './dashboard/DashboardView.tsx';
 import { Logo } from './Logo.tsx';
 import { Link } from './Providers.tsx';
 import { StaleApi } from './StaleApi.tsx';
 import { navigateAtom, type Route, routeAtom, routes } from './state.ts';
-import { StudioView } from './studio/StudioView.tsx';
-import { cx, Muted } from './ui.tsx';
+import { Muted, Segmented } from './ui.tsx';
+
+const StudioView = lazy(() => import('./studio/StudioView.tsx').then(m => ({ default: m.StudioView })));
+const DashboardView = lazy(() => import('./dashboard/DashboardView.tsx').then(m => ({ default: m.DashboardView })));
 
 let Docs: ComponentType | undefined;
 const loadDocs = () => import('./docs/DocsView.tsx').then(m => (Docs = m.default));
@@ -34,25 +35,24 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 
 const labels: Record<Route, string> = { studio: 'Studio', dashboard: 'Dashboard', docs: 'Docs' };
 
-const Nav = ({ route }: { route: Route | undefined }) => (
-  <nav className="flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900">
-    {routes.map(r => (
-      <Link
-        key={r}
-        href={`/${r}`}
-        aria-current={r === route ? 'page' : undefined}
-        className={cx(
-          'rounded-md px-2.5 py-1 text-[13px] leading-5 transition-colors',
-          r === route
-            ? 'bg-white font-medium text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-white'
-            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
-        )}
-      >
-        {labels[r]}
-      </Link>
-    ))}
-  </nav>
-);
+const Nav = ({ route }: { route: Route | undefined }) => {
+  const navigate = useSetAtom(navigateAtom);
+  return (
+    <nav>
+      <Segmented
+        options={routes}
+        value={route}
+        label={r => labels[r]}
+        href={r => `/${r}`}
+        onChange={r => {
+          navigate({ path: `/${r}` });
+          scrollTo(0, 0);
+        }}
+        className="text-[13px] leading-5"
+      />
+    </nav>
+  );
+};
 
 const hubDir: string | undefined = import.meta.env.VITE_BHM_HUB;
 const dataDir: string | undefined = import.meta.env.VITE_BHM_DATA;
