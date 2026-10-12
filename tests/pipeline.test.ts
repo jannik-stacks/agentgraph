@@ -10,7 +10,7 @@ import { limiter } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent, ExecutorAdapter, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { sourceRepo, temp } from './git.ts';
+import { git, sourceRepo, temp } from './git.ts';
 
 const compiled = (mode: string) =>
   compile([
@@ -20,7 +20,7 @@ const compiled = (mode: string) =>
 executor: claude-code
 model: sonnet
 tools: [Read, Grep]
-can-write: [reply, label, open-pr]
+can-write: [reply, label, push-branch, open-pr]
 max-turns: 7
 timeout-minutes: 30
 ---
@@ -47,6 +47,12 @@ jobs:
     persona: bot
   plain:
     steps: [{ run: echo hi }]
+  implement:
+    mode: warn
+    persona: bot
+    safe-outputs:
+      push-branch: { paths: ['src/**'] }
+      open-pr: {}
 ---
 
 ## triage
@@ -59,7 +65,11 @@ Summarize the thread.
 
 ## notify
 
-Notify someone.`,
+Notify someone.
+
+## implement
+
+Implement it.`,
     },
   ]);
 
@@ -93,7 +103,7 @@ const finalMessage = [
   '```',
 ].join('\n');
 
-const lines = (ok: boolean) =>
+const lines = (ok: boolean, message: string) =>
   [
     { type: 'system', subtype: 'init', session_id: 's1', model: 'sonnet' },
     { type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } },
@@ -102,7 +112,7 @@ const lines = (ok: boolean) =>
       subtype: ok ? 'success' : 'error',
       is_error: !ok,
       num_turns: 2,
-      result: finalMessage,
+      result: message,
       total_cost_usd: 0.5,
     },
   ]
@@ -110,13 +120,13 @@ const lines = (ok: boolean) =>
     .join('\n');
 
 /** A claude-shaped adapter that runs `node -e` in the worktree, checks its secrets and records each spec. */
-const fake = (ok = true) => {
+const fake = (ok = true, { message = finalMessage, work = '' } = {}) => {
   const seen: RunSpec[] = [];
   const adapter: ExecutorAdapter = {
     name: 'claude-code',
     command: spec => {
       seen.push(spec);
-      const script = `require('fs').accessSync('README.md'); if (process.env.CLAUDE_CODE_OAUTH_TOKEN !== 'oauth' || process.env.OTHER) process.exit(9); console.log(${JSON.stringify(lines(ok))}); process.exit(${ok ? 0 : 1})`;
+      const script = `require('fs').accessSync('README.md'); ${work}; if (process.env.CLAUDE_CODE_OAUTH_TOKEN !== 'oauth' || process.env.OTHER) process.exit(9); console.log(${JSON.stringify(lines(ok, message))}); process.exit(${ok ? 0 : 1})`;
       return { cmd: 'node', args: ['-e', script], env: {} };
     },
     parseLine: claude.parseLine,
@@ -133,8 +143,10 @@ const fakeGitHub = () => {
   return { calls, gh };
 };
 
-const pipeline = async (overrides: Partial<Pipeline> & { config: Config }): Promise<Pipeline> => {
-  const origin = sourceRepo();
+const pipeline = async (
+  overrides: Partial<Pipeline> & { config: Config },
+  origin = sourceRepo()
+): Promise<Pipeline> => {
   const dataDir = temp('pipeline');
   return {
     event,
@@ -264,13 +276,39 @@ describe('runPlanned', () => {
     expect('run' in result && result.outcome).toBeUndefined();
   });
 
-  it('skips jobs without a persona', async () => {
+  it('pushes the agent branch before opening the pull request', async () => {
+    const { calls, gh } = fakeGitHub();
+    const origin = sourceRepo();
+    const message = [
+      '```bothub',
+      JSON.stringify([
+        { kind: 'open-pr', title: 'Add a', body: 'Closes #7', head: 'bothub/7-a', base: 'main' },
+        { kind: 'push-branch', branch: 'bothub/7-a', files: ['src/a.ts'] },
+      ]),
+      '```',
+    ].join('\n');
+    const work = "require('fs').mkdirSync('src'); require('fs').writeFileSync('src/a.ts', 'a')";
+    const p = await pipeline({ config: configFor(), gh, adapters: fake(true, { message, work }).adapters }, origin);
+    const result = await Effect.runPromise(runPlanned({ workflow: 'triage', job: 'implement', persona: 'bot' }, p));
+    expect('run' in result && result.outcome?.results).toEqual([
+      { kind: 'push-branch', status: 'applied', url: 'https://github.com/acme/app/tree/bothub/7-a' },
+      { kind: 'open-pr', status: 'applied', url: 'https://github.com/acme/app/issues/7#c1' },
+    ]);
+    expect(git(origin.dir, 'show', 'bothub/7-a:src/a.ts')).toBe('a');
+    expect(git(origin.dir, 'log', '-1', '--format=%an %s', 'bothub/7-a')).toBe('bothub[bot] bothub: implement');
+    expect(calls.map(c => c.path)).toEqual(['/repos/acme/app/pulls']);
+  });
+
+  it('skips jobs without a persona and stores them as skipped runs', async () => {
     const p = await pipeline({ config: configFor() });
     expect(await Effect.runPromise(runPlanned({ workflow: 'triage', job: 'plain' }, p))).toEqual({
       workflow: 'triage',
       job: 'plain',
       skipped: 'the job has no persona',
     });
+    expect(await p.store.list()).toEqual([
+      expect.objectContaining({ job: 'plain', status: 'skipped', reason: 'the job has no persona', event }),
+    ]);
   });
 });
 
@@ -291,6 +329,14 @@ describe('runPlan', () => {
       ['plain', 'the job has no persona'],
       ['notify', 'needs "plain", which did not succeed'],
     ]);
+    const stored = await p.store.list();
+    expect(stored.filter(r => r.status === 'skipped').map(r => [r.job, r.reason])).toEqual(
+      expect.arrayContaining([
+        ['plain', 'the job has no persona'],
+        ['notify', 'needs "plain", which did not succeed'],
+      ])
+    );
+    expect(stored).toHaveLength(4);
   });
 
   it('skips a dependent when the job it needs fails', async () => {

@@ -81,7 +81,8 @@ const checkBranch = (branch: string) =>
     ? undefined
     : `branch "${branch}" must be a plain name under "bothub/"`;
 
-const checkPaths = (files: string[], globs: string[] | undefined) => {
+/** Why one of `files` escapes the repository or falls outside `globs`, if one does. */
+export const checkPaths = (files: string[], globs: string[] | undefined) => {
   for (const file of files) {
     if (file.startsWith('/') || file.split('/').includes('..')) return `path "${file}" escapes the repository`;
     if (globs && !globs.some(glob => matchGlob(glob, file))) return `path "${file}" is outside the allowed paths`;

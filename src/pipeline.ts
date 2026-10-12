@@ -4,7 +4,7 @@ import { jobOrder, type Config, type Persona, type Workflow } from './config.ts'
 import type { PlannedJob } from './dispatch.ts';
 import { executors } from './executors/index.ts';
 import type { GitHub } from './github-app.ts';
-import { extractProposals, validate } from './outputs.ts';
+import { extractProposals, validate, type Proposal } from './outputs.ts';
 import { runJob, type limiter } from './runner.ts';
 import { SafeOutputKind, type Executor, type Job } from './schema.ts';
 import type { EventRecord, Outcome, Run, Store } from './store.ts';
@@ -112,16 +112,25 @@ export type Pipeline = {
   onEvent?: (run: Run, record: EventRecord) => void;
 };
 
-/** A planned job either skipped with a reason or run, with its outcome once the agent finished. */
+/** A planned job, either skipped with a stored reason or run with its outcome once the agent finished. */
 export type JobResult = PlannedJob & ({ skipped: string } | { run: Run; outcome?: Outcome });
 
 const settle = async (final: string, run: Run, job: Job, p: Pipeline): Promise<Outcome> => {
   const { proposals, errors } = extractProposals(final);
   const { accepted, rejected, apply: allowed } = validate(proposals, job['safe-outputs'], job.mode);
-  const { gh } = p;
+  const { gh, event, workspaces } = p;
   const applied = run.status === 'succeeded' && allowed && gh !== undefined;
-  const results = applied ? await apply(accepted, { event: p.event, gh }) : [];
+  const paths = job['safe-outputs']['push-branch']?.paths;
+  const push = ({ kind: _, ...proposal }: Extract<Proposal, { kind: 'push-branch' }>) =>
+    workspaces.publish(event.repo, run.id, { ...proposal, ...(paths && { paths }), message: `bothub: ${run.job}` });
+  const results = applied ? await apply(accepted, { event, gh, push }) : [];
   return { proposals, errors, accepted, rejected, results, applied };
+};
+
+const skip = async (planned: PlannedJob, reason: string, p: Pipeline): Promise<JobResult> => {
+  const { workflow, job, persona } = planned;
+  await p.store.create({ workflow, job, ...(persona && { persona }), event: p.event, status: 'skipped', reason });
+  return { ...planned, skipped: reason };
 };
 
 /**
@@ -133,8 +142,8 @@ export const runPlanned = (planned: PlannedJob, p: Pipeline): Effect.Effect<JobR
     const workflow = p.config.workflows[planned.workflow];
     const job = workflow?.jobs[planned.job];
     const persona = planned.persona ? p.config.personas[planned.persona] : undefined;
-    if (!workflow || !job) return { ...planned, skipped: 'the job is not in the config' };
-    if (!persona) return { ...planned, skipped: 'the job has no persona' };
+    if (!workflow || !job) return yield* Effect.promise(() => skip(planned, 'the job is not in the config', p));
+    if (!persona) return yield* Effect.promise(() => skip(planned, 'the job has no persona', p));
 
     const { store, event } = p;
     const created = yield* Effect.promise(() =>
@@ -203,9 +212,8 @@ export const runPlan = (planned: PlannedJob[], p: Pipeline): Effect.Effect<JobRe
           const job = planned.find(j => j.workflow === name && j.job === id);
           if (!job) continue;
           const blocked = workflow?.jobs[id]?.needs.filter(need => !succeeded.has(need)) ?? [];
-          const result: JobResult = blocked.length
-            ? { ...job, skipped: `needs ${blocked.map(need => `"${need}"`).join(', ')}, which did not succeed` }
-            : yield* runPlanned(job, p);
+          const reason = `needs ${blocked.map(need => `"${need}"`).join(', ')}, which did not succeed`;
+          const result = blocked.length ? yield* Effect.promise(() => skip(job, reason, p)) : yield* runPlanned(job, p);
           if ('run' in result && result.run.status === 'succeeded') succeeded.add(id);
           results.push(result);
         }

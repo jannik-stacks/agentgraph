@@ -10,7 +10,11 @@ export type ApplyResult = {
 };
 
 type Outcome = Omit<ApplyResult, 'kind'>;
-type Context = { event: BotEvent; gh: GitHub };
+type Context = {
+  event: BotEvent;
+  gh: GitHub;
+  push: (proposal: Extract<Proposal, { kind: 'push-branch' }>) => Promise<string>;
+};
 type Created = { html_url: string };
 
 const issuePath = ({ repo, number }: BotEvent) => {
@@ -50,20 +54,30 @@ const applyOne = async (proposal: Proposal, ctx: Context): Promise<Outcome> => {
     case 'open-pr':
       return openPr(ctx, proposal);
     case 'push-branch':
-      return { status: 'skipped', reason: `the runner pushes ${proposal.branch}` };
+      return { status: 'applied', url: await ctx.push(proposal) };
     case 'propose-rule':
       return { status: 'skipped', reason: `opening a rule pull request for ${proposal.path} is not supported yet` };
   }
 };
 
-/** Applies accepted proposals as the GitHub App, in order. A failure is reported and does not stop the rest. */
+const pushesFirst = (proposals: Proposal[]) => [
+  ...proposals.filter(p => p.kind === 'push-branch'),
+  ...proposals.filter(p => p.kind !== 'push-branch'),
+];
+
+/**
+ * Applies accepted proposals as the GitHub App: pushes first, then the rest in order. A failure is reported and
+ * does not stop the rest, but a pull request whose head failed to push is skipped.
+ */
 export const apply = async (accepted: Proposal[], ctx: Context): Promise<ApplyResult[]> => {
   const results: ApplyResult[] = [];
-  for (const proposal of accepted) {
-    const outcome = await applyOne(proposal, ctx).catch((e: Error): Outcome => ({
-      status: 'failed',
-      reason: e.message,
-    }));
+  const unpushed = new Set<string>();
+  for (const proposal of pushesFirst(accepted)) {
+    const outcome =
+      proposal.kind === 'open-pr' && unpushed.has(proposal.head)
+        ? { status: 'skipped' as const, reason: `pushing ${proposal.head} failed` }
+        : await applyOne(proposal, ctx).catch((e: Error): Outcome => ({ status: 'failed', reason: e.message }));
+    if (proposal.kind === 'push-branch' && outcome.status === 'failed') unpushed.add(proposal.branch);
     results.push({ kind: proposal.kind, ...outcome });
   }
   return results;

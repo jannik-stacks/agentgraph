@@ -7,18 +7,19 @@ import type { extractProposals, Validated } from './outputs.ts';
 import type { Executor } from './schema.ts';
 import type { AgentEvent, BotEvent } from './types.ts';
 
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed-out';
+export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed-out' | 'skipped';
 
-/** One job execution, persisted as `runs/<id>/run.json`. */
+/** One job execution, or a skipped job with its `reason`, persisted as `runs/<id>/run.json`. */
 export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'persona'> &
   Pick<Extract<AgentEvent, { type: 'end' }>, 'costUsd' | 'turns'> & {
     id: string;
-    executor: Executor;
+    executor?: Executor;
     event: BotEvent;
     status: RunStatus;
     startedAt?: string;
     endedAt?: string;
     error?: string;
+    reason?: string;
   };
 
 /** What a run proposed and what reached GitHub, persisted as `runs/<id>/outcome.json`. */
@@ -59,9 +60,10 @@ export const openStore = (dir: string) => {
   const write = (run: Run) => writeJson(runFile(run.id), run);
   const read = (id: string) => readJson<Run>(runFile(id));
 
-  const create = async (fields: Omit<Run, 'id' | 'status'>, id = runId()) => {
+  /** Records a new run, `queued` unless `status` says otherwise. */
+  const create = async (fields: Omit<Run, 'id' | 'status'> & Partial<Pick<Run, 'status'>>, id = runId()) => {
     await mkdir(runDir(id), { recursive: true });
-    return write({ ...fields, id, status: 'queued' });
+    return write({ status: 'queued', ...fields, id });
   };
 
   const update = async (id: string, patch: Partial<Omit<Run, 'id'>>) => {

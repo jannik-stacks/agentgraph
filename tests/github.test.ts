@@ -63,7 +63,16 @@ describe('toEvent', () => {
     });
   });
 
-  it('carries the head ref of a pull request', () => {
+  it('checks out the pull request head for comments on a pull request', () => {
+    const payload = commentPayload('/bothub fix it');
+    const event = toEvent('issue_comment', 'd5', {
+      ...payload,
+      issue: { ...payload.issue, pull_request: { url: 'u' } },
+    });
+    expect(event).toMatchObject({ number: 7, ref: 'refs/pull/7/head' });
+  });
+
+  it('carries the pull ref of a pull request, which also exists for forks', () => {
     const event = toEvent('pull_request', 'd2', {
       action: 'opened',
       repository: { full_name: 'acme/app' },
@@ -74,13 +83,13 @@ describe('toEvent', () => {
         body: null,
         user: { login: 'bot' },
         author_association: 'MEMBER',
-        head: { ref: 'bothub/7' },
+        head: { ref: 'patch-1' },
       },
     });
     expect(event).toMatchObject({
       trigger: 'pull_request',
       number: 9,
-      ref: 'bothub/7',
+      ref: 'refs/pull/9/head',
       actor: { association: 'MEMBER' },
     });
     expect(event).not.toHaveProperty('body');

@@ -31,8 +31,8 @@ const Payload = z.object({
   repository: Repo,
   sender: User,
   comment: z.object({ body: z.string(), html_url: z.string(), author_association: Association }).optional(),
-  issue: Item.extend({ author_association: Association }).optional(),
-  pull_request: Item.extend({ author_association: Association, head: z.object({ ref: z.string() }) }).optional(),
+  issue: Item.extend({ author_association: Association, pull_request: z.object({}).nullish() }).optional(),
+  pull_request: Item.extend({ author_association: Association }).optional(),
   review: z.object({ body: z.string().nullish(), html_url: z.string(), author_association: Association }).optional(),
   ref: z.string().optional(),
 });
@@ -47,14 +47,18 @@ const mapped = new Set<string>([
   'workflow_dispatch',
 ]);
 
-/** Normalises a webhook delivery into a `BotEvent`, or `undefined` for events bothub does not handle. */
+/**
+ * Normalises a webhook delivery into a `BotEvent`, or `undefined` for events bothub does not handle. Events on a
+ * pull request, including comments on it, carry its `refs/pull/<n>/head` ref, which also covers forks.
+ */
 export const toEvent = (name: string, deliveryId: string, payload: unknown, now = new Date()): BotEvent | undefined => {
   if (!mapped.has(name)) return;
   const p = Payload.parse(payload);
   const item = p.pull_request ?? p.issue;
   const authored = p.comment ?? p.review ?? item;
   const url = authored?.html_url ?? item?.html_url;
-  const ref = p.pull_request?.head.ref ?? p.ref;
+  const pr = p.pull_request ?? (p.issue?.pull_request ? p.issue : undefined);
+  const ref = pr ? `refs/pull/${pr.number}/head` : p.ref;
   return {
     id: deliveryId,
     ts: now.toISOString(),
