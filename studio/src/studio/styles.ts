@@ -57,6 +57,18 @@ export const edgeStyle: Record<EdgeKind, Partial<Edge>> = {
   calls: { style: { stroke: color('cyan-500'), strokeDasharray: '2 2' } },
 };
 
+export const kindDot: Record<NodeKind, string> = {
+  trigger: 'bg-violet-500',
+  job: 'bg-sky-500',
+  script: 'bg-slate-500',
+  bot: 'bg-emerald-500',
+  skill: 'bg-amber-500',
+  check: 'bg-rose-500',
+  note: 'bg-stone-400',
+  issues: 'bg-indigo-500',
+  tool: 'bg-cyan-500',
+};
+
 export const defaultEdgeLabel: Partial<Record<EdgeKind, string>> = {
   'loops-back': 'retry',
   'fans-out': 'for each chunk',

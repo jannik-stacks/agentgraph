@@ -19,3 +19,7 @@ body {
 .react-flow__handle {
   opacity: 0;
 }
+
+.react-flow__node {
+  transition: opacity 150ms;
+}

@@ -15,12 +15,13 @@ export type GraphNode = Omit<HubNode, 'badges' | 'detail'> & {
     sections?: { title: string; body: string }[];
   };
   source?: { root: string; path: string };
+  data?: Record<string, unknown>;
 };
 
 export type GraphEdge = HubGraph['edges'][number];
 export type GraphModel = { nodes: GraphNode[]; edges: GraphEdge[] };
 
-const modeTone: Record<Mode, Tone> = { shadow: 'neutral', warn: 'warn', block: 'danger' };
+export const modeTone: Record<Mode, Tone> = { shadow: 'neutral', warn: 'warn', block: 'danger' };
 const tone = (text: string): Tone | undefined => {
   const mode = Mode.safeParse(text);
   if (mode.success) return modeTone[mode.data];
@@ -93,7 +94,7 @@ const sourcePath = (node: HubNode, config: Config): string | undefined => {
   }
 };
 
-/** The core hub graph with display details: toned badges, summaries, fields, long text as sections and source files. */
+/** The core hub graph with display details: toned badges, summaries, fields, long text as sections, source files and the raw detail as `data`. */
 export const graphModel = (config: Config): GraphModel => {
   const { nodes, edges } = hubGraph(config);
   return {
@@ -118,6 +119,7 @@ export const graphModel = (config: Config): GraphModel => {
           sections: entries.filter(isSection).map(([title, value]) => ({ title, body: sectionBody(value) })),
         },
         ...(path && { source: { root: 'hub', path } }),
+        data: Object.fromEntries(entries),
       };
     }),
   };
