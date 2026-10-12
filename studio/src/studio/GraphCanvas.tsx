@@ -4,41 +4,65 @@ import {
   Controls,
   type Edge,
   type NodeChange,
+  Panel,
   ReactFlow,
   useNodesInitialized,
   useReactFlow,
   useStoreApi,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { type GraphEdge, type GraphModel, retryLoops } from '../graph-model.ts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type GraphEdge, type GraphModel, type Layer, layerModel, retryLoops } from '../graph-model.ts';
+import { cx } from '../ui.tsx';
 import { checkGroups, edgeId, layout, nodeSize, type Point } from './layout.ts';
 import { type LoopFlowEdge, LoopEdge, type RoutedFlowEdge, RoutedEdge } from './LoopEdge.tsx';
-import { type FlowNode, NodeCard } from './NodeCard.tsx';
+import { CastCard, type FlowNode, JobCard, type JobFlowNode, NodeCard, SelectNode } from './NodeCard.tsx';
+import { applyMoves, decorate, loadPositions, placeNodes, savePositions } from './placed.ts';
 import { defaultEdgeLabel, edgeStyle } from './styles.ts';
 
-const nodeTypes = { graph: NodeCard };
+const nodeTypes = { graph: NodeCard, job: JobCard, cast: CastCard };
 const edgeTypes = { routed: RoutedEdge, loop: LoopEdge };
+const fitViewOptions = { padding: 0.06 };
 
 const label = (edge: GraphEdge) => edge.label ?? defaultEdgeLabel[edge.kind];
 
 const strokeOf = (edge: GraphEdge) => String(edgeStyle[edge.kind].style?.stroke ?? '#71717a');
 
 type FlowEdge = RoutedFlowEdge | LoopFlowEdge;
+type AnyNode = FlowNode | JobFlowNode;
 
-const toFlow = (source: GraphModel) => {
-  const model = retryLoops(source);
-  const groups = checkGroups(source);
+const toFlow = (full: GraphModel, layer: Layer) => {
+  const shown = layerModel(full, layer);
+  const model = retryLoops(shown);
+  const groups = checkGroups(shown);
   const { boxes, routes, main: spine } = layout(model, label, groups);
   const main = (id: string) => spine.has(id);
-  const nodes: FlowNode[] = model.nodes.map(node => {
+  const byId = new Map(full.nodes.map(n => [n.id, n]));
+  const castOf = (id: string, kind: GraphEdge['kind'][]) => {
+    const to = full.edges.find(e => e.from === id && kind.includes(e.kind))?.to;
+    return to ? byId.get(to) : undefined;
+  };
+  const nodes = model.nodes.map((node): AnyNode => {
     const box = boxes.get(node.id);
-    return { id: node.id, type: 'graph', position: box ? { x: box.x, y: box.y } : { x: 0, y: 0 }, data: { node } };
+    const position = box ? { x: box.x, y: box.y } : { x: 0, y: 0 };
+    if (node.kind === 'job')
+      return {
+        id: node.id,
+        type: 'job',
+        position,
+        data: { node, bot: castOf(node.id, ['runs-as', 'fans-out']), skill: castOf(node.id, ['uses-skill']) },
+      };
+    return {
+      id: node.id,
+      type: node.kind === 'bot' || node.kind === 'skill' ? 'cast' : 'graph',
+      position,
+      data: { node },
+    };
   });
   const edges: FlowEdge[] = model.edges.map((edge): FlowEdge => {
     const { style, markerEnd } = edgeStyle[edge.kind];
     const text = label(edge);
-    const faint = !main(edge.from) || !main(edge.to);
+    const faint = !main(edge.from) && !main(edge.to);
     const gate = edge.kind === 'gates' && !!groups.get(edge.to)?.includes(edge.from);
     const color = strokeOf(edge);
     const common = {
@@ -78,53 +102,79 @@ const toFlow = (source: GraphModel) => {
 };
 
 const storageKey = (graph: string) => `bhm:graph-layout:${import.meta.env.VITE_BHM_HUB ?? 'hub'}:${graph}`;
+const layerKey = 'bhm.studio.layer';
 
-const isPoint = (value: unknown): value is Point =>
-  typeof value === 'object' &&
-  value !== null &&
-  typeof (value as Point).x === 'number' &&
-  typeof (value as Point).y === 'number';
-
-const load = (key: string): Record<string, Point> => {
+const loadLayer = (): Layer => {
   try {
-    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? '{}');
-    if (!stored || typeof stored !== 'object') return {};
-    return Object.fromEntries(Object.entries(stored).filter((entry): entry is [string, Point] => isPoint(entry[1])));
+    return localStorage.getItem(layerKey) === 'cast' ? 'cast' : 'flow';
   } catch {
-    return {};
+    return 'flow';
   }
 };
 
-const save = (key: string, at: Record<string, Point>) => {
-  try {
-    if (Object.keys(at).length) localStorage.setItem(key, JSON.stringify(at));
-    else localStorage.removeItem(key);
-  } catch {}
+const useLayer = () => {
+  const [layer, setLayer] = useState(loadLayer);
+  const choose = useCallback((next: Layer) => {
+    setLayer(next);
+    try {
+      localStorage.setItem(layerKey, next);
+    } catch {}
+  }, []);
+  return [layer, choose] as const;
 };
 
-/** Node positions the user dragged to, remembered per hub and graph for the nodes that still exist. */
-const useMoved = (key: string, ids: Set<string>) => {
-  const [state, setState] = useState(() => ({ key, at: load(key) }));
-  if (state.key !== key) setState({ key, at: load(key) });
-  const latest = useRef(state.at);
-  latest.current = state.at;
-  const at = state.key === key ? state.at : {};
-  return {
-    at,
-    moved: Object.keys(at).some(id => ids.has(id)),
-    move: (changes: NodeChange<FlowNode>[]) => {
-      const moves = changes.flatMap(c => (c.type === 'position' && c.position ? [[c.id, c.position] as const] : []));
-      if (moves.length) setState(s => ({ ...s, at: { ...s.at, ...Object.fromEntries(moves) } }));
-    },
-    persist: (dropped: FlowNode[]) => {
-      const all = { ...latest.current, ...Object.fromEntries(dropped.map(n => [n.id, n.position])) };
-      save(key, Object.fromEntries(Object.entries(all).filter(([id]) => ids.has(id))));
-    },
-    reset: () => {
-      setState({ key, at: {} });
-      save(key, {});
-    },
-  };
+/**
+ * The nodes React Flow draws, owned here so drags and measurements apply in place. They are placed again only when
+ * the layout or its storage key changes; dragged positions are saved when a drag stops.
+ */
+const usePlaced = (laidOut: AnyNode[], key: string, selected: string | null, near: Set<string> | undefined) => {
+  const [state, setState] = useState(() => {
+    const saved = loadPositions(key);
+    return { laidOut, key, selected, near, saved, nodes: decorate(placeNodes(laidOut, saved), selected, near) };
+  });
+  let current = state;
+  if (state.laidOut !== laidOut || state.key !== key) {
+    const saved = loadPositions(key);
+    const ids = new Set(laidOut.map(n => n.id));
+    const kept = Object.fromEntries(Object.entries(saved).filter(([id]) => ids.has(id)));
+    current = {
+      laidOut,
+      key,
+      selected,
+      near,
+      saved: kept,
+      nodes: decorate(placeNodes(laidOut, kept, state.nodes), selected, near),
+    };
+    setState(current);
+  } else if (state.selected !== selected || state.near !== near) {
+    current = { ...state, selected, near, nodes: decorate(state.nodes, selected, near) };
+    setState(current);
+  }
+  const onNodesChange = useCallback(
+    (changes: NodeChange<AnyNode>[]) => setState(s => ({ ...s, nodes: applyMoves(changes, s.nodes) })),
+    []
+  );
+  const onNodeDragStop = useCallback(
+    (_: unknown, __: unknown, dropped: AnyNode[]) =>
+      setState(s => {
+        const saved: Record<string, Point> = {
+          ...s.saved,
+          ...Object.fromEntries(dropped.map(n => [n.id, n.position])),
+        };
+        savePositions(s.key, saved);
+        return { ...s, saved };
+      }),
+    []
+  );
+  const reset = useCallback(
+    () =>
+      setState(s => {
+        savePositions(s.key, {});
+        return { ...s, saved: {}, nodes: decorate(placeNodes(s.laidOut, {}, s.nodes), s.selected, s.near) };
+      }),
+    []
+  );
+  return { nodes: current.nodes, moved: Object.keys(current.saved).length > 0, onNodesChange, onNodeDragStop, reset };
 };
 
 const ResetIcon = () => (
@@ -150,12 +200,43 @@ const GraphControls = ({ moved, onReset }: { moved: boolean; onReset: () => void
         disabled={!moved}
         onClick={() => {
           onReset();
-          requestAnimationFrame(() => void flow.fitView({ padding: 0.06, duration: 300 }));
+          requestAnimationFrame(() => void flow.fitView({ ...fitViewOptions, duration: 300 }));
         }}
       >
         <ResetIcon />
       </ControlButton>
     </Controls>
+  );
+};
+
+const toggle =
+  'rounded px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100 aria-pressed:bg-zinc-200 aria-pressed:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:aria-pressed:bg-zinc-700 dark:aria-pressed:text-zinc-100';
+
+/** The layers the canvas draws: the flow always, bots and skills on demand. */
+const Layers = ({ layer, onChange }: { layer: Layer; onChange: (layer: Layer) => void }) => {
+  const flow = useReactFlow();
+  return (
+    <Panel
+      position="top-left"
+      className="flex items-center gap-1 rounded-md border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
+    >
+      <span className="px-1 text-[10px] uppercase tracking-wide text-zinc-500">layers</span>
+      <button type="button" className={cx(toggle, 'cursor-default')} aria-pressed title="The flow is always shown">
+        Flow
+      </button>
+      <button
+        type="button"
+        className={toggle}
+        aria-pressed={layer === 'cast'}
+        title="Show the bot and skill each step casts"
+        onClick={() => {
+          onChange(layer === 'cast' ? 'flow' : 'cast');
+          requestAnimationFrame(() => void flow.fitView({ ...fitViewOptions, duration: 300 }));
+        }}
+      >
+        Bots and skills
+      </button>
+    </Panel>
   );
 };
 
@@ -182,7 +263,7 @@ const FocusSelected = ({ id }: { id: string | null }) => {
   return null;
 };
 
-/** The hub graph, draggable; `layoutKey` names the graph whose dragged positions are remembered. */
+/** The hub graph by layer, draggable; `layoutKey` names the graph whose dragged positions are remembered. */
 export const GraphCanvas = ({
   model,
   selected,
@@ -194,25 +275,15 @@ export const GraphCanvas = ({
   onSelect: (id: string | null) => void;
   layoutKey: string;
 }) => {
-  const flow = useMemo(() => toFlow(model), [model]);
-  const ids = useMemo(() => new Set(model.nodes.map(n => n.id)), [model]);
-  const moved = useMoved(storageKey(layoutKey), ids);
+  const [layer, setLayer] = useLayer();
+  const flow = useMemo(() => toFlow(model, layer), [model, layer]);
   const near = useMemo(() => {
     if (!selected) return undefined;
     const ids = new Set([selected]);
     for (const e of flow.edges) if (e.source === selected || e.target === selected) ids.add(e.source).add(e.target);
     return ids;
   }, [flow, selected]);
-  const nodes = useMemo(
-    () =>
-      flow.nodes.map(n => ({
-        ...n,
-        position: moved.at[n.id] ?? n.position,
-        selected: n.id === selected,
-        ...(near && !near.has(n.id) && { style: { opacity: 0.45 } }),
-      })),
-    [flow, selected, near, moved.at]
-  );
+  const placed = usePlaced(flow.nodes, storageKey(`${layoutKey}:${layer}`), selected, near);
   const edges = useMemo(
     () =>
       near
@@ -224,25 +295,33 @@ export const GraphCanvas = ({
         : flow.edges,
     [flow, selected, near]
   );
+  const latest = useRef(onSelect);
+  latest.current = onSelect;
+  const select = useCallback((id: string | null) => latest.current(id), []);
+  const onNodeClick = useCallback((_: unknown, n: AnyNode) => select(n.id), [select]);
+  const onPaneClick = useCallback(() => select(null), [select]);
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      nodesConnectable={false}
-      onNodesChange={moved.move}
-      onNodeDragStop={(_, __, dropped) => moved.persist(dropped)}
-      onNodeClick={(_, n) => onSelect(n.id)}
-      onPaneClick={() => onSelect(null)}
-      colorMode="system"
-      fitView
-      fitViewOptions={{ padding: 0.06 }}
-      minZoom={0.2}
-    >
-      <Background />
-      <GraphControls moved={moved.moved} onReset={moved.reset} />
-      <FocusSelected id={selected} />
-    </ReactFlow>
+    <SelectNode value={select}>
+      <ReactFlow
+        nodes={placed.nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        nodesConnectable={false}
+        onNodesChange={placed.onNodesChange}
+        onNodeDragStop={placed.onNodeDragStop}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
+        colorMode="system"
+        fitView
+        fitViewOptions={fitViewOptions}
+        minZoom={0.2}
+      >
+        <Background />
+        <Layers layer={layer} onChange={setLayer} />
+        <GraphControls moved={placed.moved} onReset={placed.reset} />
+        <FocusSelected id={selected} />
+      </ReactFlow>
+    </SelectNode>
   );
 };

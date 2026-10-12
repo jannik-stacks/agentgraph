@@ -1,7 +1,8 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { createContext, lazy, type ReactNode, Suspense, use, useMemo } from 'react';
+import { hubFile } from '../../../src/config.ts';
 import { Mode } from '../../../src/schema.ts';
-import { type GraphModel, type GraphNode, modeTone } from '../graph-model.ts';
+import { type GraphModel, type GraphNode, modeTone, type StepContext } from '../graph-model.ts';
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
 import { filesAtom, navigateAtom, sampleAtom } from '../state.ts';
 import { Badge, Chip, Chips, cx, Field, Fields, Pre, Section, useStoredFlag } from '../ui.tsx';
@@ -305,11 +306,142 @@ const Lead = ({ name, value }: { name: string; value: string }) => (
   </Section>
 );
 
+const contextEdges = new Set<string>(['reads-notes', 'preloads', 'calls']);
+
+const reasonTone = { rule: 'info', kind: 'ok', paths: 'warn' } as const;
+
+const NoteRow = ({ loaded }: { loaded: StepContext['notes'][number] }) => {
+  const navigate = useSetAtom(navigateAtom);
+  const { note } = loaded;
+  return (
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5">
+      <Chip
+        dot={kindDot.note}
+        title={`open ${note.path}`}
+        href={`?edit=${encodeURIComponent(note.path)}`}
+        onClick={() => navigate({ query: { edit: note.path } })}
+      >
+        {note.title}
+      </Chip>
+      <span className="text-[11px] text-zinc-500">{note.kind}</span>
+      {note.status && note.status !== 'accepted' && <Badge>{note.status}</Badge>}
+      <span className="ml-auto">
+        <Badge tone={reasonTone[loaded.why]}>{loaded.because}</Badge>
+      </span>
+    </li>
+  );
+};
+
+const Labelled = ({ name, children }: { name: string; children: ReactNode }) => (
+  <Field name={name}>
+    <Chips>{children}</Chips>
+  </Field>
+);
+
+/** What one step hands its bot: the notes it loads and why, the preload, the tools and the issue tracker. */
+const StepContextView = ({ context, heading }: { context: StepContext; heading?: ReactNode }) => {
+  const links = useLinksContext();
+  const navigate = useSetAtom(navigateAtom);
+  const docs = links.page('/docs/context');
+  return (
+    <div className="space-y-2 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
+      {heading}
+      {context.preload.includes('notes') ? (
+        context.notes.length ? (
+          <ul className="divide-y divide-zinc-100 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+            {context.notes.map(loaded => (
+              <NoteRow key={loaded.note.path} loaded={loaded} />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-zinc-500">No notes match this step.</p>
+        )
+      ) : (
+        <p className="text-xs text-zinc-500">Notes are not preloaded for this step.</p>
+      )}
+      <Fields>
+        <Labelled name="preload">
+          {context.preload.map(item => (
+            <Chip key={item} mono title="preloaded before the run starts" {...docs}>
+              {item}
+            </Chip>
+          ))}
+        </Labelled>
+        <Labelled name="tools">
+          {context.harnessTools.length ? (
+            context.harnessTools.map(tool => (
+              <Chip key={tool} mono title="harness tool" {...links.page('/docs/reference/harnesses')}>
+                {tool}
+              </Chip>
+            ))
+          ) : (
+            <span className="text-zinc-400">none</span>
+          )}
+        </Labelled>
+        <Labelled name="hub tools">
+          {context.hubTools.length ? (
+            context.hubTools.map(tool => (
+              <Chip key={tool} dot={kindDot.tool} mono title="read-only hub tool, served over MCP" {...docs}>
+                {tool}
+              </Chip>
+            ))
+          ) : (
+            <span className="text-zinc-400">none</span>
+          )}
+        </Labelled>
+        {context.issues && (
+          <Labelled name="issues">
+            <Chip
+              dot={kindDot.issues}
+              title={`${context.issues} issue tracker, set in ${hubFile}`}
+              href={`?edit=${hubFile}`}
+              onClick={() => navigate({ query: { edit: hubFile } })}
+            >
+              {context.issues}
+            </Chip>
+          </Labelled>
+        )}
+      </Fields>
+    </div>
+  );
+};
+
+/** What the selected step, or each step casting the selected bot, would see when its run starts. */
+const Context = ({ node }: { node: GraphNode }) => {
+  if (!node.context?.length) return null;
+  if (node.kind !== 'bot')
+    return (
+      <Section title="context">
+        <StepContextView context={node.context[0]!} />
+      </Section>
+    );
+  return (
+    <Section title="context">
+      {node.context.map(context => (
+        <StepContextView
+          key={context.step}
+          context={context}
+          heading={
+            <p className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+              cast by <NodeChip id={context.step} />
+              {context.skill && (
+                <>
+                  with <NodeChip id={context.skill} />
+                </>
+              )}
+            </p>
+          }
+        />
+      ))}
+    </Section>
+  );
+};
+
 const Connections = ({ node, model }: { node: GraphNode; model: GraphModel }) => {
   const group = (direction: 'from' | 'to') => {
     const other = direction === 'from' ? 'to' : 'from';
     const byKind = new Map<string, { id: string; label?: string | undefined }[]>();
-    for (const edge of model.edges.filter(e => e[direction] === node.id)) {
+    for (const edge of model.edges.filter(e => e[direction] === node.id && !contextEdges.has(e.kind))) {
       const items = byKind.get(edge.kind) ?? [];
       if (!items.some(item => item.id === edge[other])) items.push({ id: edge[other], label: edge.label });
       byKind.set(edge.kind, items);
@@ -413,6 +545,7 @@ export const NodeDetails = ({ node, model }: { node: GraphNode; model: GraphMode
     <LinksContext value={links}>
       <div className="space-y-5">
         <Header node={node} data={data ?? {}} />
+        <Context node={node} />
         {data ? (
           <>
             {entries.filter(isLead).map(([key, value]) => (

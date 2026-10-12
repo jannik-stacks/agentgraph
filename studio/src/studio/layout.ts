@@ -22,7 +22,41 @@ const laneCol = nodeSize.width + 28;
 const laneRow = nodeSize.height + 36;
 
 const spineKinds = new Set<NodeKind>(['trigger', 'job', 'script']);
-const nearKinds = new Set<NodeKind>(['bot', 'skill', 'check']);
+const castKinds = new Set<NodeKind>(['bot', 'skill']);
+
+/** The size of a bot or skill node, small enough for a pair to sit under the step that casts them. */
+export const castSize = { width: 112, height: 34 };
+const castGap = nodeSize.width - 2 * castSize.width;
+
+const overlap = (a: Box, b: Box) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/**
+ * Places each unplaced bot and skill under the first placed step that casts it, side by side in the step's column,
+ * starting at `top` and moving down a row where another pair is in the way. Returns the bottom of what it placed.
+ */
+const beneath = (ids: string[], edges: GraphEdge[], boxes: Map<string, Box>, top: number) => {
+  const casters = new Map<string, string[]>();
+  for (const id of ids) {
+    if (boxes.has(id)) continue;
+    const by = edges
+      .filter(e => e.to === id && e.from !== id && boxes.has(e.from))
+      .map(e => e.from)
+      .sort((a, b) => boxes.get(a)!.x - boxes.get(b)!.x || boxes.get(a)!.y - boxes.get(b)!.y)[0];
+    if (by) casters.set(by, [...(casters.get(by) ?? []), id]);
+  }
+  const placed: Box[] = [];
+  let bottom = top;
+  for (const [caster, cast] of [...casters].sort(([a], [b]) => boxes.get(a)!.x - boxes.get(b)!.x))
+    cast.forEach((id, i) => {
+      let box = { x: boxes.get(caster)!.x + (i % 2) * (castSize.width + castGap), y: top + stackGap, ...castSize };
+      while (placed.some(other => overlap(other, box))) box = { ...box, y: box.y + castSize.height + stackGap };
+      placed.push(box);
+      boxes.set(id, box);
+      bottom = Math.max(bottom, box.y + box.height);
+    });
+  return bottom;
+};
 
 type Port = { node: string; toward: Point; at: Point };
 
@@ -76,9 +110,9 @@ const lane = (ids: string[], near: (id: string) => number, left: number, top: nu
 
 /**
  * A left-to-right dagre layout of the pipeline: triggers, jobs and the checks they flow through, with the checks in
- * `groups` stacked right after their job and whatever follows the job placed after the stack. Everything the
- * pipeline uses goes in lanes underneath: bots, skills and loose checks first, then notes, the issue tracker and
- * tools. Routes are kept for the pipeline edges dagre placed.
+ * `groups` stacked right after their job and whatever follows the job placed after the stack. Underneath, each
+ * step's bot and skill sit in its column, then loose checks with theirs, then bots and skills nothing casts. Routes
+ * are kept for the pipeline edges dagre placed.
  */
 export const layout = (
   { nodes, edges }: GraphModel,
@@ -161,22 +195,23 @@ export const layout = (
     return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 24 + width / 2;
   };
   const rest = nodes.filter(node => !inSpine.has(node.id) && !grouped.has(node.id));
-  const first = lane(
-    rest.filter(node => nearKinds.has(node.kind)).map(node => node.id),
+  const casts = rest.filter(node => castKinds.has(node.kind)).map(node => node.id);
+  const castTop = (graph.height ?? 0) + laneGap / 2 - 24;
+  const underSpine = beneath(casts, edges, boxes, castTop);
+  const loose = lane(
+    rest.filter(node => !castKinds.has(node.kind)).map(node => node.id),
     centre,
     24,
-    (graph.height ?? 0) + laneGap - 24,
+    underSpine + (underSpine > castTop ? laneGap : 0),
     width
   );
-  first.boxes.forEach((box, id) => boxes.set(id, box));
-  const second = lane(
-    rest.filter(node => !nearKinds.has(node.kind)).map(node => node.id),
-    centre,
-    24,
-    first.bottom + laneGap / 2,
-    width
-  );
-  second.boxes.forEach((box, id) => boxes.set(id, box));
+  loose.boxes.forEach((box, id) => boxes.set(id, box));
+  const underLoose = beneath(casts, edges, boxes, loose.bottom);
+  let x = 24;
+  for (const id of casts.filter(id => !boxes.has(id))) {
+    boxes.set(id, { x, y: underLoose + stackGap, ...castSize });
+    x += castSize.width + castGap;
+  }
 
   const routes = new Map<string, EdgeRoute>();
   const ports: Port[] = [];

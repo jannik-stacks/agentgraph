@@ -30,9 +30,11 @@ does not exist is an error before anything runs.
 
 - **The CLI** (`bothub`) validates a hub, shows which jobs a webhook payload would start, runs
   them on your machine and reads back runs and their logs.
-- **BHM**, the bothub manager, is this app. Studio draws the hub as a graph and shows every file
-  behind it, Dashboard lists runs with their events, outcomes and anything waiting on a human, and
-  Docs is what you are reading.
+- **BHM**, the bothub manager, is this app. Studio draws each workflow as its steps: a job is one
+  step that casts a bot and hands it a skill, and the checks that gate it sit right after it.
+  Selecting a job or a bot shows what its run would see, the notes it loads, its tools and the
+  issue tracker. Dashboard lists runs with their events, outcomes and anything waiting on a human,
+  and Docs is what you are reading.
 
 Here is the example hub this BHM points at by default, the acme-app work loop:
 
