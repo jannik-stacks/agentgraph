@@ -1,0 +1,40 @@
+---
+title: Proposals and apply
+description: How a bot's final message becomes writes on GitHub or in local issues.
+---
+
+A bot ends its reply with a fenced `bothub` block. `outputs.ts` reads and validates it, and
+`apply.ts` carries out what was accepted. Concepts are on [Proposals](/docs/proposals).
+
+## The proposal type
+
+<Source file="src/outputs.ts" symbol="Proposal" />
+
+<Source file="src/outputs.ts" symbol="extractProposals" />
+
+## Validation
+
+<Sym name="validate" /> accepts only what the job explicitly allows and rejects the rest with a
+reason. Pushed files are checked with <Sym name="checkPaths" />.
+
+<Fields name="Validated" />
+
+<Source file="src/outputs.ts" symbol="validate" />
+
+<Source file="src/outputs.ts" symbol="checkPaths" />
+
+## Applying
+
+<Sym name="apply" /> pushes first, then applies the rest in order. Each effect has a stable key, is
+journalled as `pending` in the run's outcome before anything happens, and is recorded again as it
+lands. A retry after a crash finds what an earlier run already did and does not repeat it.
+
+<Fields name="ApplyResult" />
+
+<Source file="src/apply.ts" symbol="apply" />
+
+<Source file="src/apply.ts" symbol="applyOne" />
+
+Replies, labels and questions go through the [issues interface](/docs/reference/issues). Pushes go
+through the run's worktree (see <Sym name="workspaces" />), and the pipeline calls `apply` from
+`settle` once the job's checks pass (see [the until loop](/docs/reference/pipeline#the-until-loop)).

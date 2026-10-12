@@ -5,7 +5,8 @@ description: How a run is isolated and which models it can reach.
 
 ## The sandbox
 
-Each run is one hardened `docker run --rm`:
+With `BOTHUB_SANDBOX=docker` (or `bothub serve --sandbox docker`), each run is one hardened
+`docker run --rm`, built by <Sym name="dockerRun" />:
 
 - read-only root filesystem, `/tmp` as tmpfs, a non-root user, all capabilities dropped,
   `no-new-privileges`, memory, CPU and pid limits, and a watchdog that kills it at the timeout,
@@ -18,19 +19,22 @@ Each run is one hardened `docker run --rm`:
 No GitHub token goes inside. The run gets the proxy URL, its bot's own key and the decision API
 address. Pushes happen on the host, after checks.
 
-The image and `run.sh` live in `infra/local/sandbox`. The runner does not start runs through it
-yet; today it spawns the harness on the host with a private home and an allowlisted environment.
+Script jobs and script checks run in the same kind of container. Without the setting, the runner
+spawns the harness on the host with a private home and an allowlisted environment
+(<Sym name="agentEnv" />). The image and a standalone [run.sh](/source/infra/local/sandbox/run.sh)
+with the same flags live in `infra/local/sandbox`; the code is on
+[Runner and sandbox](/docs/reference/runner).
 
 ## Harnesses
 
-A bot's `harness` picks the agent program.
+A bot's `harness` picks the agent program. Both talk only to the model proxy.
 
 | Harness | Notes |
 | --- | --- |
 | `opencode` | The primary choice. Real tool allowlists, including patterned bash, one process per run |
 | `pi` | Light and fast. Tools are all or nothing, so it suits read-only bots |
-| `claude-code` | Anthropic's agent, through an API key |
-| `codex` | OpenAI's agent. The acme-app reviewer uses it so reviews come from a different model family |
+
+Each is a small adapter; see [Harnesses](/docs/reference/harnesses).
 
 ## Models
 
@@ -41,13 +45,15 @@ spent what.
 | Alias | Route |
 | --- | --- |
 | `smart`, `writer` | A ChatGPT subscription through LiteLLM's `chatgpt` provider |
-| `review` | An Anthropic API key, a different family from the authors |
+| `review` | An Anthropic key, a different family from the authors |
 | `fast` | Ollama running `qwen3.5:4b` locally |
 
 Ollama also serves `tev1:0.8b` through its decision API, for small yes, no and scoring questions
-that checks ask directly. An offline config points every alias at Ollama.
+that `decide` checks ask directly (<Sym name="decideCheck" />). An offline config points every alias at Ollama.
 
 Moving an alias from an API key to a subscription is a proxy config change; no bot file changes.
 
-Bot `budget` (runs per day, minutes, dollars per run) is in the schema but only the minutes limit
-is enforced today, as the run timeout. Environment gates for protected paths are not built yet.
+A bot's `budget` is enforced by the [pipeline](/docs/reference/pipeline): `runs-per-day` skips a
+run once the bot has started that many in the last 24 hours, `minutes` is the run timeout, and `usd-per-run` stops the until
+loop once attempts and checks have spent it. A job with an `environment` waits until a human adds
+the `approved` label to the approval issue bothub opens for it.

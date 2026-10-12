@@ -3,11 +3,12 @@ import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layo
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { useAtomValue } from 'jotai';
 import { type CSSProperties, useEffect } from 'react';
+import { codeComponents } from '../code/components.tsx';
 import { docsSlugAtom } from '../state.ts';
 import { HubGraph } from './HubGraph.tsx';
 import { source } from './source.ts';
 
-const components = { ...defaultMdxComponents, HubGraph };
+const components = { ...defaultMdxComponents, ...codeComponents, HubGraph };
 const tree = source.getPageTree();
 
 const Page = () => {

@@ -4,7 +4,8 @@ description: The only write path from a bot to GitHub.
 ---
 
 A bot never holds a GitHub token. It ends its final message with a fenced `bothub` block, and
-bothub reads proposals from the last such block: a JSON array or one JSON object per line.
+bothub reads proposals from the last such block (<Sym name="extractProposals" />): a JSON array or
+one JSON object per line. The full type is <Sym name="Proposal" />.
 
 ````md
 ```bothub
@@ -23,20 +24,22 @@ bothub reads proposals from the last such block: a JSON array or one JSON object
 | `open-pr` | `title`, `body`, `head`, `base`, `draft` | Opens a pull request |
 | `note` | `note`, `slug`, `title`, `body` | Opens a pull request on the hub repo adding a proposed note |
 | `ask` | `question` | Asks a human and waits |
+| `close` | `as`, `reason` | Not a write: says the job stopped short of done, and why |
 
 ## Validation
 
-Every proposal is checked before anything happens, and anything not explicitly allowed is
-rejected with a reason.
+Every proposal is checked by <Sym name="validate" /> before anything happens, and anything not
+explicitly allowed is rejected with a reason.
 
 - The kind must be in the job's effective `can` (the job's own `can`, narrowed by the bot's).
 - A push must be to the job's rendered `branch`, and every file it changed since the run started
   must be listed in `files` and match the job's `paths`.
 - At most three replies and one of every other kind per run.
 
-Accepted proposals are applied only after the job's checks pass, only when the job is not in
+Accepted proposals are applied by <Sym name="apply" /> only after the job's checks pass, only when the job is not in
 `shadow`, and only when bothub has a GitHub App to act as. Pushes go first, then the rest in
 order. A pull request whose branch failed to push is skipped. Pushes never force.
 
-Every outcome, accepted, rejected and applied, is stored in the run's `outcome.json` and shown in
-the Dashboard.
+Every outcome, accepted, rejected and applied, is stored in the run's `outcome.json` as an
+<Sym name="Outcome" /> and shown in the Dashboard. Each effect is journalled before it is applied,
+so a retry never repeats one; the code is on [Proposals and apply](/docs/reference/proposals).

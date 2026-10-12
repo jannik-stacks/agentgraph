@@ -1,0 +1,69 @@
+---
+title: Schema and config
+description: The file kinds of a hub and how they compile into one config.
+---
+
+Every hub file is Markdown with YAML frontmatter. `schema.ts` holds one zod schema per file kind,
+and the TypeScript types are inferred from them, so the schema is the only definition. `load.ts`
+reads a hub directory, `markdown.ts` splits each file into frontmatter and body, and `config.ts`
+validates the lot into a <Sym name="Config" />.
+
+## File kinds
+
+The tables below are the input side of each schema: what you may write in a file. A field with a
+default is optional.
+
+### Bot
+
+<Fields name="Bot" />
+
+### Skill
+
+<Fields name="Skill" />
+
+### Check
+
+<Fields name="Check" />
+
+### Workflow and job
+
+<Fields name="Workflow" />
+
+<Fields name="Job" />
+
+A trigger in `on:` takes a filter.
+
+<Fields name="TriggerFilter" />
+
+### Note and hub
+
+<Fields name="Note" />
+
+<Fields name="Hub" />
+
+The enums the fields above refer to.
+
+<Source file="src/schema.ts" symbol="Trigger" />
+<Source file="src/schema.ts" symbol="Mode" />
+<Source file="src/schema.ts" symbol="ProposalKind" />
+<Source file="src/schema.ts" symbol="Closure" />
+
+## Compiling
+
+<Sym name="readHub" /> collects the files, <Sym name="parseMarkdown" /> splits each one, and
+<Sym name="compile" /> routes them by directory and checks every cross reference. It fails closed:
+one error rejects the whole hub.
+
+<Source file="src/config.ts" symbol="Config" />
+
+<Source file="src/config.ts" symbol="compile" />
+
+## Effective settings
+
+A job can narrow what its bot may do. These helpers compute what a run actually gets, and the
+[pipeline](/docs/reference/pipeline) uses them when it builds a session.
+
+<Source file="src/config.ts" symbol="effectiveCan" />
+<Source file="src/config.ts" symbol="effectiveTools" />
+<Source file="src/config.ts" symbol="effectivePreload" />
+<Source file="src/config.ts" symbol="jobOrder" />

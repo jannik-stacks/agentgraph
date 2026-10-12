@@ -1,0 +1,36 @@
+---
+title: Reference
+description: The bothub codebase, one area at a time.
+---
+
+These pages walk through `src/` area by area. Every type table and code block on them is read from
+the source when the docs are built, so they always match the code. Each block's header links to
+those exact lines in the [source viewer](/source), and a chip like <Sym name="runPlan" /> jumps
+to a definition.
+
+| Page | Modules |
+| --- | --- |
+| [Schema and config](/docs/reference/config) | `schema.ts`, `config.ts`, `load.ts`, `markdown.ts` |
+| [Dispatch and pipeline](/docs/reference/pipeline) | `dispatch.ts`, `pipeline.ts` |
+| [Proposals and apply](/docs/reference/proposals) | `outputs.ts`, `apply.ts` |
+| [Runs and store](/docs/reference/store) | `store.ts`, `workspace.ts` |
+| [Runner and sandbox](/docs/reference/runner) | `runner.ts`, `sandbox.ts` |
+| [Harnesses](/docs/reference/harnesses) | `types.ts` and the two adapters |
+| [Issues](/docs/reference/issues) | `issues.ts`, `issues-local.ts`, `issues-github.ts` |
+| [Preload and tools](/docs/reference/tools) | `preload.ts`, `mcp.ts`, `mcp-config.ts` |
+| [Decide and memory](/docs/reference/decide) | `decide.ts`, `memory.ts` |
+| [Sim](/docs/reference/sim) | `sim.ts`, `sim-harness.ts` |
+| [API and serve](/docs/reference/serve) | `api.ts`, `serve.ts`, `cli.ts`, `graph.ts` |
+| [Webhook and GitHub](/docs/reference/github) | `webhook.ts`, `github.ts`, `github-app.ts`, `serve-github.ts` |
+
+## How one event flows
+
+```
+BotEvent → dispatch → runPlan → runPlanned → attempts → runJob (harness) → checks → validate → apply
+```
+
+An event comes from a webhook, a watched issue file or the CLI and is normalised into a
+<Sym name="BotEvent" />. <Sym name="dispatch" /> plans the jobs it starts, <Sym name="runPlan" />
+runs them in dependency order, and each bot job loops through attempts until its checks pass.
+Proposals from the final attempt are validated and applied, and everything lands in the
+[run store](/docs/reference/store).

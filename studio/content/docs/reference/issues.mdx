@@ -1,0 +1,42 @@
+---
+title: Issues
+description: One interface for issues, plans, specs and open questions, with a GitHub and a local backend.
+---
+
+Issues hold the work: the task a `/bothub` comment starts from, plans, specs and every question a
+bot could not answer alone. `issues.ts` defines the interface, `issues-github.ts` implements it over
+the GitHub REST API and `issues-local.ts` over Markdown files in the hub. `hub.yaml` picks one.
+
+## The interface
+
+<Fields name="Issue" />
+
+<Fields name="Issues" />
+
+<Source file="src/issues.ts" symbol="roles" />
+
+Both backends turn changes into the same <Sym name="BotEvent" /> a webhook would produce, by going
+through the webhook normaliser <Sym name="toEvent" />.
+
+<Source file="src/issues.ts" symbol="changeEvent" />
+
+## Local issues
+
+Each issue is `issues/<n>-<slug>.md`. Comments are appended as `## @<author> at <time>` sections,
+numbers are claimed with an exclusive lock file, and a watcher turns file changes into events, so a
+comment typed into a file starts the same workflows a GitHub comment does.
+
+<Source file="src/issues-local.ts" symbol="parseIssue" />
+
+<Source file="src/issues-local.ts" symbol="localId" />
+
+<Source file="src/issues-local.ts" symbol="localIssues" />
+
+## GitHub issues
+
+Plans and steps use the sub-issues API. `watch` polls for new issues, state changes and comments.
+
+<Source file="src/issues-github.ts" symbol="githubIssues" />
+
+Issues are read into a run by [preload and tools](/docs/reference/tools), written by
+[apply](/docs/reference/proposals), and watched by [serve](/docs/reference/serve).

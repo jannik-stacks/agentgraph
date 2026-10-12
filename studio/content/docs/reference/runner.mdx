@@ -1,0 +1,63 @@
+---
+title: Runner and sandbox
+description: How one agent session or script runs, on the host or in a container.
+---
+
+`runner.ts` starts a harness for one stored run, streams its output into the store, masks secrets
+and records how it ended. `sandbox.ts` builds the `docker run` command when the run goes into a
+container. `BOTHUB_SANDBOX=docker` picks the container; anything else runs on the host with a
+private home. The setup itself is on [Sandbox and models](/docs/sandbox).
+
+## Running a session
+
+<Sym name="runJob" /> never fails: every ending, including a timeout, a loop or a container that
+never started, becomes a run status.
+
+<Source file="src/runner.ts" symbol="runJob" />
+
+<Source file="src/runner.ts" symbol="agentEvents" />
+
+<Source file="src/runner.ts" symbol="stuckWatch" />
+
+## Environment and home
+
+A harness sees an allowlist of the host environment, its own home and only the secrets
+<Sym name="secretsFor" /> picked for its bot.
+
+<Source file="src/runner.ts" symbol="homeEnv" />
+
+<Source file="src/runner.ts" symbol="agentEnv" />
+
+<Source file="src/runner.ts" symbol="masker" />
+
+## Scripts
+
+Script jobs and script checks go through <Sym name="runScript" />, in a container too when the
+sandbox is `docker`.
+
+<Source file="src/runner.ts" symbol="runScript" />
+
+<Source file="src/runner.ts" symbol="limiter" />
+
+## The container
+
+<Source file="src/sandbox.ts" symbol="Sandbox" />
+
+<Source file="src/sandbox.ts" symbol="dockerRun" />
+
+<Source file="src/sandbox.ts" symbol="gitMounts" />
+
+<Source file="src/sandbox.ts" symbol="containerEnv" />
+
+Inside the container the spec is rewritten for its mounts, and the bothub MCP server runs from
+read-only mounts of bothub's code, the hub and the run store.
+
+<Source file="src/sandbox.ts" symbol="specInside" />
+
+<Source file="src/sandbox.ts" symbol="mcpInside" />
+
+<Source file="src/runner.ts" symbol="containedCommand" />
+
+The image and a standalone `run.sh` with the same flags live in
+[infra/local/sandbox](/source/infra/local/sandbox/run.sh). The command a harness runs comes from its
+[adapter](/docs/reference/harnesses).

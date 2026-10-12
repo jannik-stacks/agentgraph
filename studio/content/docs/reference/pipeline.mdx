@@ -1,0 +1,80 @@
+---
+title: Dispatch and pipeline
+description: From an event to finished jobs, including the until loop.
+---
+
+`dispatch.ts` decides which jobs an event starts. `pipeline.ts` runs them: in dependency order,
+each in a fresh worktree, each bot job looping until its checks pass, and each finishing with a
+closure that tells the jobs after it whether to go on.
+
+## Planning
+
+<Sym name="plan" /> matches an event against every workflow's triggers. Text written by people is
+only accepted from trusted associations unless a trigger's `guard` says otherwise.
+<Sym name="dispatch" /> wraps it with the store's delivery ledger, so a redelivered webhook plans
+nothing.
+
+<Fields name="PlannedJob" />
+
+<Source file="src/dispatch.ts" symbol="planWorkflow" />
+
+<Source file="src/dispatch.ts" symbol="dispatch" />
+
+## Running a plan
+
+<Sym name="runPlan" /> goes workflow by workflow. A job starts only when every job it needs closed
+`done` or `handed-off`, and it starts from the branch and pull request they handed off. A job of the
+same event that already closed is reused, and a job with an `environment` waits for approval.
+
+<Fields name="Pipeline" />
+
+<Source file="src/pipeline.ts" symbol="runPlan" />
+
+<Sym name="runPlanned" /> runs one job: a script, or a bot in a worktree held under a branch lock.
+
+<Source file="src/pipeline.ts" symbol="runPlanned" />
+
+## The until loop
+
+`attempts` is the heart of a bot job. It runs the bot, reads its proposals, and when the job has
+`until`, runs each check against the worktree. Failing findings go back to the same bot as a
+follow-up prompt. After `until.max` follow-ups, or once the bot's `usd-per-run` is spent, the run
+fails, every proposal but `ask` is held back, and bothub adds an `ask` that names the failing checks.
+
+<Source file="src/pipeline.ts" symbol="attempts" />
+
+<Source file="src/pipeline.ts" symbol="followUp" />
+
+## Checks
+
+A check is a script, a `decide` question to the local model (see
+[Decide and memory](/docs/reference/decide)) or a bot that replies `PASS` or `FAIL`.
+
+<Source file="src/pipeline.ts" symbol="runCheck" />
+
+<Source file="src/pipeline.ts" symbol="verdictOf" />
+
+<Source file="src/pipeline.ts" symbol="failingChecks" />
+
+## Closure
+
+Every finished job gets a <Sym name="Closure" />. It decides whether the jobs that need this one
+may start.
+
+<Source file="src/pipeline.ts" symbol="closureOf" />
+
+## The session
+
+<Sym name="buildSpec" /> turns a planned job into a <Sym name="RunSpec" /> for the harness: the
+bot's role and notes as the system prompt, the forced skill plus the event as the prompt.
+<Sym name="secretsFor" /> picks the only secrets a harness gets.
+
+<Source file="src/pipeline.ts" symbol="buildSpec" />
+
+<Source file="src/pipeline.ts" symbol="secretsFor" />
+
+<Source file="src/pipeline.ts" symbol="renderBranch" />
+
+Runs are stored through the [run store](/docs/reference/store), executed by the
+[runner](/docs/reference/runner), and their proposals go through
+[validate and apply](/docs/reference/proposals).

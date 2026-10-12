@@ -1,0 +1,47 @@
+---
+title: Webhook and GitHub
+description: Receiving deliveries, normalising them, and acting as a GitHub App.
+---
+
+In GitHub mode, deliveries arrive at a webhook receiver, are checked and normalised into a
+<Sym name="BotEvent" />, and run through the same [pipeline](/docs/reference/pipeline) as local
+events. bothub acts on GitHub as a GitHub App with short-lived installation tokens; no bot ever
+holds one.
+
+## Receiving
+
+<Fields name="WebhookOptions" />
+
+<Source file="src/webhook.ts" symbol="webhook" />
+
+<Source file="src/github.ts" symbol="verifySignature" />
+
+<Sym name="replay" /> signs a saved payload and posts it like GitHub would, for testing a receiver
+locally.
+
+<Source file="src/webhook.ts" symbol="replay" />
+
+## Normalising
+
+<Source file="src/github.ts" symbol="handled" />
+
+<Source file="src/github.ts" symbol="toEvent" />
+
+<Fields name="BotEvent" />
+
+## The GitHub App
+
+<Source file="src/github-app.ts" symbol="githubApp" />
+
+<Source file="src/github-app.ts" symbol="gh" />
+
+<Source file="src/github-app.ts" symbol="appJwt" />
+
+## Serving
+
+<Sym name="serveGitHub" /> puts it together: the receiver on its own port, the store's ledger
+against repeated deliveries, the pipeline running as the installation that sent the event, and the
+[API](/docs/reference/serve) on another port. Setting up the App is described in
+[infra/github](/source/infra/github/README.md).
+
+<Source file="src/serve-github.ts" symbol="serveGitHub" />

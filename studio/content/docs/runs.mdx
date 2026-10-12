@@ -12,20 +12,22 @@ $BOTHUB_DATA/
   repos/<owner>/<repo>.git    one bare mirror per repository, refreshed before each run
   work/<run id>/              one detached worktree per run, removed afterwards
   runs/<run id>/
-    run.json                  status, bot, harness, attempt, parent, cost, turns, error
+    run.json                  status, closure, bot, harness, attempt, parent, cost, turns, error
     events.jsonl              one line per agent event
     outcome.json              proposals, verdicts, what was applied
+    memory.md                 a short summary of what the run did
     home/                     the harness's private home, kept
     tmp/                      scratch space, removed when the run ends
 ```
 
-Run ids start with a timestamp, so they sort in creation order. The store is append-only: a run
-is created `queued`, moves to `running`, and ends as `succeeded`, `failed`, `cancelled`,
-`timed-out` or `skipped`.
+Run ids start with a timestamp (<Sym name="runId" />), so they sort in creation order. The store,
+<Sym name="openStore" />, is append-only: a run is created `queued`, moves to `running`, and ends
+with a <Sym name="RunStatus" />. A run left unfinished by a process that died is marked
+`interrupted` by <Sym name="reconcile" />.
 
 ## The harness home
 
-Each run gets its own `HOME`, XDG directories and `CODEX_HOME` under `home/`, so harness sessions
+Each run gets its own `HOME` and XDG directories under `home/` (<Sym name="homeEnv" />), so harness sessions
 never mix with yours or with other runs. The raw transcripts each harness writes stay there after
 the run, and the Dashboard can show the JSON and JSON Lines files in it. Credential files are
 never listed.

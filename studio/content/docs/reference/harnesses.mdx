@@ -1,0 +1,47 @@
+---
+title: Harnesses
+description: The agent programs a bot runs in, opencode and pi, behind one small adapter.
+---
+
+A harness is the agent CLI a bot runs in. bothub supports two, picked by the bot's `harness`:
+**opencode** and **pi**. Both talk only to the LiteLLM proxy, where a bot's `model` is an alias,
+so which tokens pay for a run is a proxy setting and not a harness choice.
+
+An adapter does two pure things: build the command line for a <Sym name="RunSpec" />, and turn
+each line of the harness's JSON output into normalised agent events. The
+[runner](/docs/reference/runner) does the spawning.
+
+## The contract
+
+<Fields name="RunSpec" />
+
+<Source file="src/types.ts" symbol="AgentEvent" />
+
+<Source file="src/types.ts" symbol="ExecutorAdapter" />
+
+<Source file="src/executors/index.ts" symbol="executors" />
+
+## opencode
+
+The primary harness. Tools are a real allowlist, including patterned bash like
+`bash(git diff*)`, and the bothub MCP server is mounted through `OPENCODE_CONFIG_CONTENT`.
+
+<Source file="src/executors/opencode.ts" symbol="permission" />
+
+<Source file="src/executors/opencode.ts" symbol="config" />
+
+<Source file="src/executors/opencode.ts" symbol="opencode" />
+
+## pi
+
+Light and fast. Tools are all or nothing and it has no MCP client, so it suits read-only bots. A
+small extension registers the proxy as its only provider.
+
+<Source file="src/executors/pi.ts" symbol="command" />
+
+<Source file="src/executors/pi-provider.ts" symbol="default" />
+
+## Without a model
+
+`bothub sim` swaps every adapter for a scripted one, so whole workflows run with no model at all.
+See [Sim](/docs/reference/sim).

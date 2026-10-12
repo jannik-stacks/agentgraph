@@ -8,7 +8,8 @@ the triggering event. Beyond that there are two ways to give it more.
 
 ## Preload
 
-`preload` renders context into the prompt before the run starts. Use it for things every run of
+`preload` renders context into the prompt before the run starts, through
+<Sym name="issueContext" /> and <Sym name="relevantNotes" />. Use it for things every run of
 the job needs.
 
 | Value | What is rendered |
@@ -19,7 +20,8 @@ the job needs.
 
 ## Read-only tools
 
-`tools` on a job offers lookups through the bothub MCP server, for things a run might need. They
+`tools` on a job offers lookups through the bothub MCP server (<Sym name="serveMcp" />), for things
+a run might need. They
 read, they never write; writing is what [proposals](/docs/proposals) are for.
 
 | Tool | Reads |
@@ -38,14 +40,14 @@ jobs:
 
 ## Issues
 
-Issues go through one interface with two backends, picked in `hub.yaml`:
+Issues go through one interface, <Sym name="Issues" />, with two backends picked in `hub.yaml`:
 
 ```yaml
 issues: github   # or local
 ```
 
-`github` reads and writes real issues in the target repo. `local` keeps them as files, which is
-handy for trying a hub without touching GitHub.
+`github` reads and writes real issues in the target repo (<Sym name="githubIssues" />). `local`
+keeps them as files (<Sym name="localIssues" />), which is handy for trying a hub without touching
+GitHub. pi has no MCP client, so a pi bot gets preload but no tools.
 
-The `preload` and `tools` keys are in the schema already; the Issues interface, the MCP server and
-the local backend are being built now.
+The code is on [Preload and tools](/docs/reference/tools) and [Issues](/docs/reference/issues).

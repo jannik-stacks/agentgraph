@@ -16,6 +16,8 @@ description: The few words that describe every hub.
 | **run** | One bot or script executing one job attempt, with events, cost and an outcome | the run store |
 | **note** | What the hub knows | `notes/<kind>/<slug>.md` |
 
+Each file kind has a schema; the fields are listed on [Schema and config](/docs/reference/config).
+
 ## Notes
 
 There are four kinds of note, split into rules and knowledge.
@@ -27,7 +29,7 @@ There are four kinds of note, split into rules and knowledge.
 
 Bots and skills choose which kinds they read with `notes: [decision, convention]`. A note can name
 the `check` that enforces it, which is how a rule earns teeth (see the correction ladder in
-[The loop](/docs/loop)).
+[The loop](/docs/loop)). Which notes a run loads is decided by <Sym name="relevantNotes" />.
 
 ## Issues as the work queue
 

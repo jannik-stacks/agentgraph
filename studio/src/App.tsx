@@ -8,6 +8,7 @@ import { StudioView } from './studio/StudioView.tsx';
 import { cx, Muted } from './ui.tsx';
 
 const DocsView = lazy(() => import('./docs/DocsView.tsx'));
+const SourceRoute = lazy(() => import('./code/SourceRoute.tsx'));
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   override state: { error?: Error } = {};
@@ -26,7 +27,7 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   }
 }
 
-const labels: Record<Route, string> = { studio: 'Studio', dashboard: 'Dashboard', docs: 'Docs' };
+const labels: Record<Route, string> = { studio: 'Studio', dashboard: 'Dashboard', docs: 'Docs', source: 'Source' };
 
 const Nav = ({ route }: { route: Route | undefined }) => (
   <nav className="flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-900">
@@ -88,12 +89,13 @@ export const App = () => {
   return (
     <div className="min-h-full">
       <Header route={route} />
-      <main className={route === 'docs' ? undefined : 'h-[calc(100dvh-3rem)] min-h-0'}>
+      <main className={route === 'docs' || route === 'source' ? undefined : 'h-[calc(100dvh-3rem)] min-h-0'}>
         <Boundary key={route}>
           <Suspense fallback={<Muted>Loading.</Muted>}>
             {route === 'studio' && <StudioView />}
             {route === 'dashboard' && <DashboardView />}
             {route === 'docs' && <DocsView />}
+            {route === 'source' && <SourceRoute />}
           </Suspense>
         </Boundary>
       </main>

@@ -1,0 +1,42 @@
+---
+title: Preload and tools
+description: Context rendered into a run, and the read-only tools it can call.
+---
+
+A run gets context two ways. Preload is rendered into the prompt before the run starts. Tools are
+served by the bothub MCP server, which the harness starts and the run calls when it needs to.
+Both only read; writes go through [proposals](/docs/reference/proposals). The concepts are on
+[Context](/docs/context).
+
+## Preload
+
+<Sym name="relevantNotes" /> picks the notes a run loads and <Sym name="renderNotes" /> renders them
+into the system prompt. <Sym name="issueContext" /> renders the triggering issue and its links into
+the prompt.
+
+<Source file="src/preload.ts" symbol="relevantNotes" />
+
+<Source file="src/preload.ts" symbol="overlaps" />
+
+<Source file="src/preload.ts" symbol="issueContext" />
+
+## The MCP server
+
+`bothub mcp` serves the granted tools over JSON-RPC on stdio.
+
+<Source file="src/mcp.ts" symbol="tools" />
+
+<Source file="src/mcp.ts" symbol="serveMcp" />
+
+## Mounting it in a harness
+
+<Sym name="bothubServer" /> is the command a harness runs to start the server. opencode gets it as
+an `mcp` entry; pi has no MCP client, so a pi bot gets no bothub tools.
+
+<Fields name="McpServer" />
+
+<Source file="src/mcp-config.ts" symbol="bothubServer" />
+
+<Source file="src/mcp-config.ts" symbol="mcpToolNames" />
+
+In a container, the server is rewritten to run from read-only mounts; see <Sym name="mcpInside" />.

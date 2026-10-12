@@ -1,0 +1,50 @@
+---
+title: API and serve
+description: The CLI, the long-running local hub and the read-only API behind BHM.
+---
+
+`cli.ts` is the `bothub` command. `serve.ts` is the long-running local hub that `bothub serve`
+starts, `api.ts` the read-only HTTP API that BHM reads, and `graph.ts` the node and edge model the
+Studio draws.
+
+## The CLI
+
+<Source file="src/cli.ts" symbol="commands" />
+
+<Source file="src/cli.ts" symbol="main" />
+
+## A local hub
+
+<Sym name="serveHub" /> watches the hub's `issues/` directory, runs the jobs each change starts
+through the [pipeline](/docs/reference/pipeline) one event at a time, and serves the API. GitHub's
+part is played by a local bare repository: <Sym name="localPulls" /> answers the few pull request
+calls the pipeline makes and records opened pull requests in `pulls.jsonl`.
+
+<Source file="src/serve.ts" symbol="serveHub" />
+
+<Source file="src/serve.ts" symbol="localPulls" />
+
+<Source file="src/serve.ts" symbol="localOrigin" />
+
+## The API
+
+<Sym name="api" /> is a Web `Request` handler, so the same code can run behind `node:http` or a
+Worker. It only reads: the hub's files, runs, their events (also as a live stream), outcomes, raw
+harness files and the runs that need a human.
+
+<Source file="src/api.ts" symbol="api" />
+
+<Source file="src/api.ts" symbol="readFiles" />
+
+<Source file="src/api.ts" symbol="needsHuman" />
+
+<Source file="src/api.ts" symbol="serve" />
+
+## The graph
+
+<Fields name="HubGraph" />
+
+<Source file="src/graph.ts" symbol="hubGraph" />
+
+The GitHub counterpart of `serveHub` is <Sym name="serveGitHub" />, on
+[Webhook and GitHub](/docs/reference/github).
