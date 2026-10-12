@@ -101,7 +101,7 @@ describe('cli', () => {
       job: 'implement',
       harness: 'opencode',
       timeoutMinutes: 45,
-      branch: 'bothub/7-add-a-health-endpoint-with-a-test',
+      branch: 'bothub/7',
       until: { checks: ['types', 'review'], max: 2 },
     });
     expect(job.spec.cwd.startsWith(join(data, 'work'))).toBe(true);

@@ -43,8 +43,18 @@ export const localPulls =
       const { stdout } = await exec('git', ['-C', origin, 'symbolic-ref', '--short', 'HEAD']);
       return { default_branch: stdout.trim() } as T;
     }
+    const pulls = async () =>
+      (await readFile(file, 'utf8').catch(() => ''))
+        .split('\n')
+        .filter(Boolean)
+        .map(line => JSON.parse(line) as { head?: string });
+    const listing = /^\/repos\/[^/]+\/[^/]+\/pulls\?(.*)$/.exec(path);
+    if (method === 'GET' && listing) {
+      const head = new URLSearchParams(listing[1]).get('head')?.replace(/^[^:]*:/, '');
+      return (await pulls()).filter(pull => head === undefined || pull.head === head) as T;
+    }
     if (method === 'POST' && /^\/repos\/[^/]+\/[^/]+\/pulls$/.test(path)) {
-      const count = (await readFile(file, 'utf8').catch(() => '')).split('\n').filter(Boolean).length;
+      const count = (await pulls()).length;
       const pull = { number: count + 1, ...(body as object), html_url: `${origin}#pull/${count + 1}` };
       await appendFile(file, `${JSON.stringify({ ts: new Date().toISOString(), ...pull })}\n`);
       return pull as T;

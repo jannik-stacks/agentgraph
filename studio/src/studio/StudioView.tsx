@@ -67,7 +67,7 @@ const Studio = ({
     else setSelected(id);
   };
   const canvas = model?.nodes.length ? (
-    <GraphCanvas model={model} selected={selected} onSelect={select} />
+    <GraphCanvas model={model} selected={selected} onSelect={select} layoutKey={editable ? 'hub' : 'sample'} />
   ) : errors?.length ? (
     <Errors errors={errors} />
   ) : (

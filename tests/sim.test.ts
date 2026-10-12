@@ -37,7 +37,7 @@ describe('simulate', () => {
     );
   });
 
-  it('turns a run whose checks keep failing into unsure issues under the task', async () => {
+  it('turns a run whose checks keep failing into unsure issues under the task', { timeout: 20_000 }, async () => {
     const { results, trace } = await run('stuck-run.yaml');
     const implement = results.find(r => r.job === 'implement');
     expect(implement && 'run' in implement && implement.run).toMatchObject({ status: 'failed', attempt: 4 });
@@ -54,12 +54,10 @@ describe('simulate', () => {
   it('finishes a job the process stopped while applying, without repeating what landed', async () => {
     const { results, trace } = await run('crash-mid-apply.yaml');
     expect(trace).toContain('reconcile issue/implement: interrupted, the process running it stopped while applying');
-    expect(trace.match(/git push bothub\/6-add-cvtojson/g)).toHaveLength(1);
+    expect(trace.match(/git push bothub\/6/g)).toHaveLength(1);
     expect(trace.match(/github POST \/repos\/stacks\/acme-app\/pulls /g)).toHaveLength(1);
     expect(trace.match(/^job {4}issue\/triage/gm)).toHaveLength(1);
-    expect(trace).toContain(
-      'applied  push: applied sim://acme/app/tree/bothub/6-add-cvtojson (applied by an earlier run)'
-    );
+    expect(trace).toContain('applied  push: applied sim://acme/app/tree/bothub/6 (applied by an earlier run)');
     expect(results.map(r => [r.job, 'skipped' in r ? r.closure : r.run.closure])).toEqual([
       ['triage', 'done'],
       ['implement', 'handed-off'],

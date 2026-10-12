@@ -15,7 +15,7 @@ const Canvas = () => {
   const config = useAtomValue(configAtom);
   const model = useMemo(() => (config ? graphModel(config) : sampleModel), [config]);
   const [selected, setSelected] = useState<string | null>(null);
-  return <GraphCanvas model={model} selected={selected} onSelect={setSelected} />;
+  return <GraphCanvas model={model} selected={selected} onSelect={setSelected} layoutKey="docs" />;
 };
 
 /** The running hub's graph, read-only, with a link to explore it in Studio. */

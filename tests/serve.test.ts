@@ -66,6 +66,8 @@ describe('localPulls', () => {
     const pull = await gh<{ number: number; html_url: string }>('POST', '/repos/a/b/pulls', { title: 't', head: 'x' });
     expect(pull).toMatchObject({ number: 1, html_url: `${bare}#pull/1` });
     expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ number: 1, title: 't', head: 'x' });
+    expect(await gh('GET', '/repos/a/b/pulls?head=a%3Ax&state=open')).toMatchObject([{ number: 1, head: 'x' }]);
+    expect(await gh('GET', '/repos/a/b/pulls?head=a%3Ay&state=open')).toEqual([]);
     await expect(gh('DELETE', '/repos/a/b')).rejects.toThrow('no local equivalent');
   });
 });

@@ -94,7 +94,7 @@ const sourcePath = (node: HubNode, config: Config): string | undefined => {
   }
 };
 
-/** Folds the per-check `loops-back` edges into one self-loop per job, labelled with the checks that send it back. */
+/** Folds the per-check `loops-back` edges into one self-loop per job. */
 export const retryLoops = (model: GraphModel): GraphModel => {
   const loops = new Map<string, { checks: string[]; label?: string | undefined }>();
   for (const edge of model.edges) {
@@ -112,7 +112,9 @@ export const retryLoops = (model: GraphModel): GraphModel => {
         from: job,
         to: job,
         kind: 'loops-back' as const,
-        label: [`${checks.join(', ')} fail${label ? ',' : ''}`, label].filter(Boolean).join(' '),
+        label: [`${checks.length > 1 ? 'any check' : checks[0]} fails${label ? ',' : ''}`, label]
+          .filter(Boolean)
+          .join(' '),
       })),
     ],
   };

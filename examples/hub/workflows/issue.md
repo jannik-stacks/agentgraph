@@ -11,7 +11,7 @@ jobs:
     on: { issue_comment: {} }
     bot: implementor
     skill: implement
-    branch: bothub/{issue}-{slug}
+    branch: bothub/{issue}
     until: { checks: [types, review], max: 2 }
     can: [reply, push, open-pr, ask]
     tools: [issues_get, notes_search]

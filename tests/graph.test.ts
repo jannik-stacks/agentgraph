@@ -13,7 +13,7 @@ describe('hubGraph', () => {
     expect(graph.nodes.map(n => `${n.id} ${n.badges?.join(',') ?? ''}`.trim())).toEqual([
       'trigger:issue/issue_comment /bothub,created',
       'trigger:issue/pull_request opened,synchronize',
-      'job:issue/implement warn,bothub/{issue}-{slug}',
+      'job:issue/implement warn,bothub/{issue}',
       'job:issue/review shadow',
       'bot:implementor opencode,writer',
       'bot:reviewer pi,review',

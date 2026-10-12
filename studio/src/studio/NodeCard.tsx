@@ -27,11 +27,7 @@ export const NodeCard = ({ data: { node }, selected }: NodeProps<FlowNode>) => {
       <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden font-sans text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         <span className="shrink-0">{node.kind}</span>
-        {forEach && (
-          <Badge tone="info">
-            per {forEach}
-          </Badge>
-        )}
+        {forEach && <Badge tone="info">per {forEach}</Badge>}
         {node.badges?.map(badge => (
           <Badge key={badge.text} {...(badge.tone && { tone: badge.tone })}>
             <span className="block max-w-[9rem] truncate">{badge.text}</span>
