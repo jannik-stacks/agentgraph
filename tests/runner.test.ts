@@ -301,6 +301,16 @@ console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTH
     expect(readFileSync(join(store.home(runId), 'log.txt'), 'utf8')).toBe('key ***');
   });
 
+  it('passes env to the harness without masking it', async () => {
+    const { store, runId } = await setup();
+    const script = `console.log('branch ' + process.env.BOTHUB_BRANCH);`;
+    const env = { BOTHUB_BRANCH: 'bothub/7-long-name' };
+    await Effect.runPromise(
+      runJob({ adapter: node(script, asText), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed, env })
+    );
+    expect((await store.events(runId)).map(r => r.event)).toEqual([{ type: 'text', text: 'branch bothub/7-long-name' }]);
+  });
+
   it('masks a secret in a binary home file without moving a byte', async () => {
     const { store, runId } = await setup();
     const script = `const e = process.env;

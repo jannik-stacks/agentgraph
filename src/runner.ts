@@ -373,7 +373,7 @@ class Withdrawn extends Error {}
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
  * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
- * Secret values are masked in stored events, errors and the home's files. A run caught in a loop
+ * Secret values are masked in stored events, errors and the home's files; `env` reaches the harness unmasked. A run caught in a loop
  * (see `stuckWatch`) is stopped with `stuck: …`; a sandbox that is unavailable or a container that never started fails with
  * `sandbox-failed: …`, and nothing runs on the host. A harness silent for `stallMinutes` fails as stalled, and a run
  * is cancelled as withdrawn once `until` resolves with a reason. Each of these, a timeout and a provider limit are
@@ -387,6 +387,7 @@ export const runJob = (options: {
   store: Store;
   runId: string;
   secrets?: Record<string, string>;
+  env?: Record<string, string>;
   onEvent?: (record: EventRecord) => void;
   launch?: Launcher;
   readonly?: boolean;
@@ -395,7 +396,7 @@ export const runJob = (options: {
 }): Effect.Effect<Run> =>
   Effect.suspend(() => {
     const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed, readonly } = options;
-    const { stallMinutes, until } = options;
+    const { stallMinutes, until, env } = options;
     const save = (patch: Partial<Omit<Run, 'id'>>) => Effect.promise(() => store.update(runId, patch));
     const finish = (patch: Partial<Omit<Run, 'id'>>) => {
       const stopped = patch.stopped ?? (providerLimit.test(patch.error ?? '') ? 'provider' : undefined);
@@ -444,7 +445,7 @@ export const runJob = (options: {
         })
       ),
       Effect.flatMap(spec =>
-        agentEvents(adapter, spec, secrets, home, launch, readonly).pipe(
+        agentEvents(adapter, spec, { ...env, ...secrets }, home, launch, readonly).pipe(
           events =>
             stallMinutes ? Stream.timeoutFail(events, () => new Stalled(), Duration.minutes(stallMinutes)) : events,
           events =>
