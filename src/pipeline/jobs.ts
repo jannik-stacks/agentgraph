@@ -262,6 +262,21 @@ const unfinished = async (planned: PlannedJob, created: Run, p: Pipeline) => {
 type Unfinished = NonNullable<Awaited<ReturnType<typeof unfinished>>>;
 
 /**
+ * The attempts the job already used on the event's issue, which `until.max` goes on counting: none when it starts over
+ * or fans out, after work that closed done or handed off, or for a human's new command after a run that used them all.
+ */
+const usedAttempts = async (planned: PlannedJob, job: Extract<Job, { type: 'bot' }>, p: Pipeline) => {
+  const { repo, number, id, actor } = p.event;
+  if (!job.until || number === undefined || planned.rerun === 'fresh' || job.over !== 'event') return 0;
+  const { workflow } = planned;
+  const runs = await p.store.runs({ repo, number, workflow, job: planned.job, check: false });
+  const last = runs.find(r => r.attempt !== undefined);
+  if (!last?.attempt || proceeds(last.closure)) return 0;
+  const human = last.event.id !== id && !actor.login.endsWith('[bot]');
+  return human && last.attempt > job.until.max ? 0 : last.attempt;
+};
+
+/**
  * What a human said after `run` ended: the text that started this run, other human comments on the event's issue and
  * its merge request, and comments on the issues it asked in.
  */
@@ -435,6 +450,7 @@ export const runPlanned = (
     if (job.type === 'script') return yield* scriptJob(planned, job, handoff, target, p, issue);
     const bot = p.config.bots[job.bot];
     if (!bot) return yield* Effect.promise(() => skip(planned, 'the job has no bot', p));
+    const used = yield* Effect.promise(() => usedAttempts(planned, job, p));
     const created = yield* Effect.promise(() =>
       p.store.create({
         workflow: planned.workflow,
@@ -442,7 +458,7 @@ export const runPlanned = (
         bot: bot.name,
         harness: bot.harness,
         event: p.event,
-        ...(job.until && { attempt: 1 }),
+        ...(job.until && { attempt: 1 + used }),
         ...(issue && { issue }),
       })
     );

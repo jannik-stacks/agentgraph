@@ -624,6 +624,17 @@ describe('until', () => {
     ]);
   });
 
+  it('counts attempts per issue across runs of one event, and anew for a human command after the limit', async () => {
+    const { seen, adapters } = fake({ message: replyAndAsk });
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters });
+    const first = await Effect.runPromise(runPlanned(planned('loop'), p));
+    const rerun = await Effect.runPromise(runPlanned(planned('loop'), p));
+    const human = await Effect.runPromise(runPlanned(planned('loop'), { ...p, event: { ...event, id: 'd2' } }));
+
+    expect([first, rerun, human].map(r => r.run.attempt)).toEqual([2, 3, 2]);
+    expect(seen).toHaveLength(5);
+  });
+
   it('stops when the bot closes without finishing, runs no checks and asks once', async () => {
     const issues = trackedIssues();
     const stop = bothub([

@@ -156,10 +156,10 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
  * Runs the job's bot, then its `until` checks. While a check that holds the change fails, its findings go back as a
  * new attempt in the same worktree, with the findings of failing `warn` checks alongside; once none fails, the attempt
  * settles with whatever the `warn` checks found. While it resolves a merge, conflict markers left in the conflicting
- * files count as a failing check. The loop stops at `until.max` follow-ups, or once the attempts and checks have spent
- * the bot's `usd-per-run`. An `item` of a fan-out adds its section to the prompt. A reply with text but no readable
- * proposals block first gets one format-only follow-up attempt, in the same session when the harness can continue
- * it, which `until.max` does not count. An agent that died before doing anything runs once more (see `retried`).
+ * files count as a failing check. Attempts number on from `first`'s, and the loop stops past `until.max` follow-ups
+ * in that count, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a fan-out adds its
+ * section to the prompt. A reply with text but no readable proposals block first gets one format-only follow-up
+ * attempt, in the same session when the harness can continue it, which `until.max` does not count. An agent that died before doing anything runs once more (see `retried`).
  */
 const attempts = (
   planned: PlannedJob,
@@ -209,9 +209,10 @@ const attempts = (
     let session = worktree.session;
     let reformats = 0;
     let reformatting = false;
-    for (let attempt = 1; ; attempt++) {
+    const start = first.attempt ?? 1;
+    for (let attempt = start; ; attempt++) {
       const current =
-        attempt === 1
+        attempt === start
           ? first
           : yield* Effect.promise(() =>
               p.store.create({
