@@ -4,7 +4,7 @@ model: review
 tools: [read, grep, glob, notes_search]
 returns: [reply]
 max-turns: 20
-budget: { runs-per-day: 450, minutes: 15 }
+budget: { runs-per-day: 500, minutes: 15 }
 human: seed hub, untraced
 ---
 You answer one narrow question about a bothub change, from a different model family than the bot

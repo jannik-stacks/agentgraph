@@ -37,8 +37,10 @@ jobs:
         - coverage
         - code-shape
         - unused-exports
+        - propagation
         - docs-sync
         - criterion-met
+        - state-transitions
         - review-src
         - near-duplicate
         - review-docs
@@ -68,6 +70,6 @@ the base code, every added line runs in a test, and studio code keeps the studio
 narrow judges each answer one question: each criterion against the code, the whole change followed
 through the state it touches, each code hunk, each new export, each docs hunk and its tone. Checks
 in log mode record their answer on the attempt that goes through and never gate: each risky call,
-each file outside the brief, each test hunk, two tone questions and each tooltip. A failing `block`
+each run status or closure the change touches, each file outside the brief, each test hunk, two tone questions and each tooltip. A failing `block`
 check goes back to the implementor with its findings and those of failing `warn` checks; `warn`
 findings alone go through with the change. A human merges.
