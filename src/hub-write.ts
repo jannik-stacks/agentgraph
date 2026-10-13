@@ -6,8 +6,9 @@ import { z } from 'zod';
 import type { HubChange } from './apply.ts';
 import type { ConfigError, SourceFile } from './config.ts';
 import { botEnv, git } from './git.ts';
-import { applyChanges, itemKind, validateHub, type Change } from './hub-files.ts';
+import { applyChanges, commitMessage, itemKind, validateHub, type Change } from './hub-files.ts';
 import { readHub } from './load.ts';
+import { localJson } from './local-json.ts';
 
 /** Every hub item file: what `readHub` reads, plus local issues under `issues/`. */
 export const readHubItems = async (dir: string): Promise<SourceFile[]> => {
@@ -17,6 +18,9 @@ export const readHubItems = async (dir: string): Promise<SourceFile[]> => {
   );
   return [...(await readHub(dir)), ...issues];
 };
+
+/** What `GET /api/hub/items` answers: every item file and whether the hub is in a git work tree. */
+export type HubItems = { files: SourceFile[]; git: boolean };
 
 const maxSource = 256 * 1024;
 
@@ -36,7 +40,7 @@ export type WriteResult =
   | { ok: true; written: string[]; deleted: string[]; commit?: string; commitError?: string }
   | { ok: false; status: 400 | 409 | 422; errors: ConfigError[] };
 
-const refuse = (status: 400 | 409 | 422, errors: ConfigError[]): WriteResult => ({ ok: false, status, errors });
+const refuse = (status: 400 | 409 | 422, errors: ConfigError[]) => ({ ok: false as const, status, errors });
 
 /**
  * Resolves a hub-relative item path to an absolute one inside `base`. Refuses paths no item may live at and any
@@ -58,6 +62,44 @@ const confine = async (base: string, path: string) => {
 
 const current = (path: string) => readFile(path, 'utf8').catch(() => null);
 
+/**
+ * Checks item changes against a hub directory without writing: the input's shape, that every path is confined to the
+ * hub's item folders, that each change's `base` still matches the file on disk, and the whole hub as it would be after
+ * the write. A refusal carries the status `writeHub` answers with.
+ */
+export const checkHubWrite = async (dir: string, input: unknown) => {
+  const parsed = WriteInput.safeParse(input);
+  if (!parsed.success) return refuse(400, [{ path: '', message: z.prettifyError(parsed.error) }]);
+  const { changes, commit } = parsed.data;
+  const base = await realpath(dir).catch(() => undefined);
+  if (!base) return refuse(400, [{ path: dir, message: 'hub directory does not exist' }]);
+
+  const targets = new Map<string, string>();
+  const errors: ConfigError[] = [];
+  for (const change of changes) {
+    if (targets.has(change.path)) errors.push({ path: change.path, message: 'is changed twice' });
+    try {
+      targets.set(change.path, await confine(base, change.path));
+    } catch (e) {
+      errors.push({ path: change.path, message: (e as Error).message });
+    }
+  }
+  if (errors.length) return refuse(400, errors);
+
+  for (const change of changes) {
+    if (change.base === undefined) continue;
+    if ((await current(targets.get(change.path)!)) !== change.base)
+      errors.push({ path: change.path, message: 'changed on disk since it was loaded' });
+  }
+  if (errors.length) return refuse(409, errors);
+
+  const before = await readHubItems(base);
+  const after = applyChanges(before, changes as Change[]);
+  const validated = validateHub(after);
+  if (!validated.ok) return refuse(422, validated.errors);
+  return { ok: true as const, warnings: validated.warnings, base, changes, commit, targets, before, after };
+};
+
 const isGitRepo = (dir: string) =>
   git(dir, ['rev-parse', '--is-inside-work-tree']).then(
     out => out === 'true',
@@ -75,42 +117,16 @@ const serial = <T>(task: () => Promise<T>) => {
 };
 
 /**
- * Writes item changes into a hub directory. Every path is confined to the hub's item folders, each change may name
- * the `base` text it was made against (`null` for a file that must not exist yet), and the whole hub is validated
- * as it would be after the write; any problem writes nothing. Files are written to a temporary name and renamed into
- * place. With `commit`, the changed paths are committed as `update` when the hub is in a git work tree.
+ * Writes item changes into a hub directory once `checkHubWrite` accepts them: each change may name the `base` text it
+ * was made against (`null` for a file that must not exist yet), and any problem writes nothing. Files are written to
+ * a temporary name and renamed into place. With `commit`, the changed paths are committed as `commitMessage` when
+ * the hub is in a git work tree.
  */
 export const writeHub = (dir: string, input: unknown): Promise<WriteResult> =>
   serial(async () => {
-    const parsed = WriteInput.safeParse(input);
-    if (!parsed.success) return refuse(400, [{ path: '', message: z.prettifyError(parsed.error) }]);
-    const { changes, commit } = parsed.data;
-    const base = await realpath(dir).catch(() => undefined);
-    if (!base) return refuse(400, [{ path: dir, message: 'hub directory does not exist' }]);
-
-    const targets = new Map<string, string>();
-    const errors: ConfigError[] = [];
-    for (const change of changes) {
-      if (targets.has(change.path)) errors.push({ path: change.path, message: 'is changed twice' });
-      try {
-        targets.set(change.path, await confine(base, change.path));
-      } catch (e) {
-        errors.push({ path: change.path, message: (e as Error).message });
-      }
-    }
-    if (errors.length) return refuse(400, errors);
-
-    for (const change of changes) {
-      if (change.base === undefined) continue;
-      if ((await current(targets.get(change.path)!)) !== change.base)
-        errors.push({ path: change.path, message: 'changed on disk since it was loaded' });
-    }
-    if (errors.length) return refuse(409, errors);
-
-    const before = await readHubItems(base);
-    const after = applyChanges(before, changes as Change[]);
-    const validated = validateHub(after);
-    if (!validated.ok) return refuse(422, validated.errors);
+    const checked = await checkHubWrite(dir, input);
+    if (!checked.ok) return checked;
+    const { base, changes, commit, targets, before, after } = checked;
 
     const sources = new Map(after.map(f => [f.path, f.source]));
     const old = new Map(before.map(f => [f.path, f.source]));
@@ -147,7 +163,7 @@ export const writeHub = (dir: string, input: unknown): Promise<WriteResult> =>
         const paths = [...result.written, ...result.deleted.filter(path => tracked.includes(path))];
         if (result.written.length) await git(base, ['add', '--', ...result.written]);
         if (paths.length) {
-          await git(base, ['commit', '-m', 'update', '--only', '--', ...paths]);
+          await git(base, ['commit', '-m', commitMessage, '--only', '--', ...paths]);
           result.commit = await git(base, ['rev-parse', 'HEAD']);
         }
       } catch (e) {
@@ -217,22 +233,6 @@ export const hubProposal =
     }
   };
 
-const loopback = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-
-const isLocal = (req: Request) => {
-  const url = new URL(req.url);
-  if (!loopback.has(url.hostname)) return false;
-  const origin = req.headers.get('origin');
-  if (origin === null) return true;
-  try {
-    return loopback.has(new URL(origin).hostname);
-  } catch {
-    return false;
-  }
-};
-
-const maxBody = 2 * 1024 * 1024;
-
 /**
  * Hub editing routes for the studio API. `GET /api/hub/items` lists every item file and whether the hub is in git;
  * `POST /api/hub/validate` checks changes without writing; `POST /api/hub/write` writes them (see `writeHub`).
@@ -245,41 +245,19 @@ export const hubWriteRoutes =
     const { pathname } = new URL(req.url);
     if (pathname === '/api/hub/items') {
       if (req.method !== 'GET') return Response.json({ error: 'method not allowed' }, { status: 405 });
-      return Response.json({ files: await readHubItems(hubDir), git: (await hubGit(hubDir)).repo });
+      const items: HubItems = { files: await readHubItems(hubDir), git: (await hubGit(hubDir)).repo };
+      return Response.json(items);
     }
     if (pathname !== '/api/hub/write' && pathname !== '/api/hub/validate') return;
-    if (req.method !== 'POST') return Response.json({ error: 'method not allowed' }, { status: 405 });
-    if (!isLocal(req)) return Response.json({ error: 'hub edits are only served on localhost' }, { status: 403 });
-    if (!req.headers.get('content-type')?.startsWith('application/json'))
-      return Response.json({ error: 'expected a JSON body' }, { status: 415 });
-    const text = await req.text();
-    if (text.length > maxBody) return Response.json({ error: 'body too large' }, { status: 413 });
-    let input: unknown;
-    try {
-      input = JSON.parse(text);
-    } catch {
-      return Response.json({ error: 'body is not JSON' }, { status: 400 });
-    }
+    const body = await localJson(req);
+    if ('response' in body) return body.response;
+    const { input } = body;
     if (pathname === '/api/hub/validate') {
-      const parsed = WriteInput.safeParse(input);
-      if (!parsed.success)
-        return Response.json(
-          { ok: false, errors: [{ path: '', message: z.prettifyError(parsed.error) }] },
-          { status: 400 }
-        );
-      const unplaced = parsed.data.changes.filter(c => !itemKind(c.path));
-      if (unplaced.length)
-        return Response.json({
-          ok: false,
-          errors: unplaced.map(c => ({ path: c.path, message: 'is not a path a hub item may live at' })),
-        });
-      const { ok, errors, warnings } = validateHub(
-        applyChanges(await readHubItems(hubDir), parsed.data.changes as Change[])
-      );
-      return Response.json({ ok, errors, warnings });
+      const checked = await checkHubWrite(hubDir, input);
+      return checked.ok
+        ? Response.json({ ok: true, errors: [], warnings: checked.warnings })
+        : Response.json(checked, { status: checked.status });
     }
     const result = await writeHub(hubDir, input);
-    return result.ok
-      ? Response.json(result)
-      : Response.json({ ok: false, errors: result.errors }, { status: result.status });
+    return Response.json(result, { status: result.ok ? 200 : result.status });
   };

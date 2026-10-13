@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { api, serve } from '../src/api.ts';
 import { tail, watchRuns } from '../src/live.ts';
-import { loadPrices } from '../src/prices.ts';
+import { loadPrices, modelNames } from '../src/prices.ts';
 import { openStore, type EventRecord } from '../src/store.ts';
 import type { AgentEvent, BotEvent } from '../src/types.ts';
 import { estimate, tally } from '../src/usage.ts';
@@ -325,5 +325,36 @@ describe('usage', () => {
     expect(prices.review).toMatchObject({ model: 'anthropic/x', input: 5, output: 25 });
     expect(prices.review?.cached).toBeCloseTo(0.5);
     expect(await loadPrices({ env: {} })()).toEqual({});
+  });
+});
+
+const MODEL_CONFIGS = [
+  {
+    name: 'every alias once, sorted',
+    files: [
+      { path: 'local/litellm.config.yaml', source: 'model_list:\n  - model_name: smart\n  - model_name: fast\n' },
+    ],
+    names: ['fast', 'smart'],
+  },
+  {
+    name: 'aliases of every proxy config',
+    files: [
+      { path: 'litellm.yaml', source: 'model_list:\n  - model_name: smart\n' },
+      { path: 'local/litellm.offline.yml', source: 'model_list:\n  - model_name: smart\n  - model_name: local\n' },
+    ],
+    names: ['local', 'smart'],
+  },
+  { name: 'no other yaml', files: [{ path: 'compose.yaml', source: 'model_list:\n  - model_name: x\n' }], names: [] },
+  {
+    name: 'no commented alias',
+    files: [{ path: 'litellm.yaml', source: '# model_name: old\nmodel_list: []\n' }],
+    names: [],
+  },
+  { name: 'nothing from broken yaml', files: [{ path: 'litellm.yaml', source: 'model_list: [' }], names: [] },
+];
+
+describe('modelNames', () => {
+  it.each(MODEL_CONFIGS)('lists $name', ({ files, names }) => {
+    expect(modelNames(files)).toEqual(names);
   });
 });

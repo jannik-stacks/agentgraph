@@ -1,6 +1,6 @@
 import { type Atom, atom } from 'jotai';
 import { atomWithRefresh, atomWithStorage, unwrap } from 'jotai/utils';
-import type { needsHuman, readFiles } from '../../src/api.ts';
+import type { ApiInfo, needsHuman, readFiles } from '../../src/api.ts';
 import type { Config, ConfigError } from '../../src/config.ts';
 
 const last = new Map<string, { text: string; value: unknown }>();
@@ -122,8 +122,5 @@ export const filesAtom = latest(filesQueryAtom, undefined);
 export const needsHumanQueryAtom = apiAtom<Awaited<ReturnType<typeof needsHuman>>>('/api/needs-human');
 export const needsHumanAtom = latest(needsHumanQueryAtom, undefined);
 
-/** What the API server serves: its hub and data directories, where the data directory really is, and its process. */
-export type Info = { hub: string; data: string; dataReal: string | null; pid: number; version: string };
-
-export const infoQueryAtom = apiAtom<Info>('/api/info');
+export const infoQueryAtom = apiAtom<ApiInfo>('/api/info');
 export const infoAtom = latest(infoQueryAtom, null);

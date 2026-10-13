@@ -2,7 +2,7 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { createContext, lazy, type ReactNode, Suspense, use, useMemo } from 'react';
 import { hubFile } from '../../../src/config.ts';
-import { Mode } from '../../../src/schema.ts';
+import { Mode, type Note } from '../../../src/schema.ts';
 import { type GraphModel, type GraphNode, modeTone, type StepContext } from '../graph-model.ts';
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
 import { Link } from '../Providers.tsx';
@@ -196,9 +196,13 @@ const Properties = ({ path, entries }: { path: string[]; entries: [string, unkno
     </dl>
   ) : null;
 
-type Note = { slug: string; title?: string; status?: string; check?: string };
-
-const NoteList = ({ kind, notes }: { kind: string; notes: Note[] }) => {
+const NoteList = ({
+  kind,
+  notes,
+}: {
+  kind: string;
+  notes: (Pick<Note, 'title' | 'status' | 'check'> & { slug: string })[];
+}) => {
   const links = useLinksContext();
   if (!notes.length) return <p className="text-zinc-500">No {kind} notes yet.</p>;
   return (
@@ -604,7 +608,7 @@ export const NodeDetails = ({ node, model }: { node: GraphNode; model: GraphMode
               <Lead key={key} name={key} value={String(value)} />
             ))}
             {node.kind === 'note' && Array.isArray(data.notes) ? (
-              <NoteList kind={node.label} notes={data.notes as Note[]} />
+              <NoteList kind={node.label} notes={data.notes as Parameters<typeof NoteList>[0]['notes']} />
             ) : (
               <Properties path={[]} entries={entries.filter(entry => !isLead(entry))} />
             )}

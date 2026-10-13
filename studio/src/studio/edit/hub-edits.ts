@@ -6,26 +6,21 @@ import {
   type Change,
   type HubItem,
   type ItemKind,
-  initialValue,
-  itemKind,
   itemKinds,
-  itemName,
-  itemPath,
-  itemSchema,
+  newItem,
   parseItem,
-  renameReferences,
+  renameItem,
   renderItem,
   validateHub,
 } from '../../../../src/hub-files.ts';
+import type { HubItems, WriteResult } from '../../../../src/hub-write.ts';
 import type { NoteKind } from '../../../../src/schema.ts';
 import { filesQueryAtom, hubAtom, navigateAtom } from '../../state.ts';
 
-type Items = { files: SourceFile[]; git: boolean };
-
-const getItems = async (): Promise<Items> => {
+const getItems = async (): Promise<HubItems> => {
   const response = await fetch('/api/hub/items');
   if (!response.ok) throw new Error(`/api/hub/items answered ${response.status}`);
-  return response.json() as Promise<Items>;
+  return response.json() as Promise<HubItems>;
 };
 
 export const itemsQueryAtom = atomWithRefresh(getItems);
@@ -109,17 +104,6 @@ export const discardAtom = atom(null, (get, set, path?: string) => {
   set(draftsAtom, rest);
 });
 
-const uniqueName = (files: SourceFile[], kind: ItemKind, base: string, note?: NoteKind) => {
-  const taken = new Set(files.map(f => f.path));
-  for (let i = 1; ; i++) {
-    const name = i === 1 ? base : `${base}-${i}`;
-    if (!taken.has(itemPath(kind, name, note))) return name;
-  }
-};
-
-const nextIssue = (files: SourceFile[]) =>
-  Math.max(0, ...files.filter(f => itemKind(f.path) === 'issue').map(f => Number(itemName(f.path).split('-')[0]))) + 1;
-
 /** Opens an item's editor in the studio. */
 export const editItemAtom = atom(null, (_get, set, path: string) =>
   set(navigateAtom, { path: '/studio', query: { edit: path, node: null } })
@@ -129,29 +113,17 @@ export const editItemAtom = atom(null, (_get, set, path: string) =>
 export const createItemAtom = atom(null, (get, set, { kind, note }: { kind: ItemKind; note?: NoteKind }) => {
   const hub = get(draftHubAtom);
   if (!hub) return;
-  const name =
-    kind === 'hub'
-      ? 'hub'
-      : kind === 'issue'
-        ? `${nextIssue(hub.files)}-new-issue`
-        : uniqueName(hub.files, kind, `new-${kind}`, note);
-  const path = itemPath(kind, name, note);
-  const data = initialValue(itemSchema(kind)) as Record<string, unknown>;
-  set(stageAtom, { path, data, body: '' });
-  set(editItemAtom, path);
+  const item = newItem(hub.files, kind, note);
+  set(stageAtom, item);
+  set(editItemAtom, item.path);
 });
 
 /** Moves an item to a new path and points every reference to its old name at the new one. */
 export const renameItemAtom = atom(null, (get, set, { from, to }: { from: string; to: string }) => {
   const hub = get(draftHubAtom);
-  const item = hub && draftItem(hub.files, from);
-  const kind = itemKind(from);
-  if (!hub || !item || !kind || from === to || source(hub.files, to) !== undefined) return;
-  set(stageAtom, [
-    { path: from, delete: true },
-    { path: to, ...item },
-    ...renameReferences(hub.files, kind, itemName(from), itemName(to)),
-  ]);
+  const renamed = hub && renameItem(hub.files, from, to);
+  if (!renamed?.ok || !renamed.changes.length) return;
+  set(stageAtom, renamed.changes);
   set(navigateAtom, { query: { edit: to } });
 });
 
@@ -160,12 +132,10 @@ export const deleteItemAtom = atom(null, (_get, set, path: string) => {
   set(navigateAtom, { query: { edit: null } });
 });
 
-export type SaveResult =
-  | { ok: true; commit?: string; commitError?: string }
-  | { ok: false; errors: { path: string; message: string }[] };
-
 export const savingAtom = atom(false);
-export const saveResultAtom = atom<SaveResult | undefined>(undefined);
+export const saveResultAtom = atom<WriteResult | Omit<Extract<WriteResult, { ok: false }>, 'status'> | undefined>(
+  undefined
+);
 
 /** Writes every pending edit, validated again by the server, and commits them as `update` when asked. */
 export const saveAtom = atom(null, async (get, set, { commit = false }: { commit?: boolean } = {}) => {
@@ -179,7 +149,7 @@ export const saveAtom = atom(null, async (get, set, { commit = false }: { commit
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ changes, commit }),
     });
-    const result = (await response.json()) as SaveResult & { error?: string };
+    const result = (await response.json()) as WriteResult & { error?: string };
     if (result.error) return set(saveResultAtom, { ok: false, errors: [{ path: '', message: result.error }] });
     set(saveResultAtom, result);
     if (!result.ok) return;

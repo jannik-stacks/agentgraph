@@ -8,8 +8,10 @@ import {
   itemPath,
   itemSchema,
   noteKindOf,
+  renameItem,
   type ItemKind,
 } from '../../../../src/hub-files.ts';
+import { modelNames } from '../../../../src/prices.ts';
 import { Harness, HubTool, NoteKind } from '../../../../src/schema.ts';
 import type { GraphModel } from '../../graph-model.ts';
 import { filesAtom, hrefAtom, navigateAtom, selectedNodeAtom } from '../../state.ts';
@@ -35,15 +37,6 @@ const Markdown = lazy(() => import('../../Markdown.tsx'));
 /** The icon kind of a hub file kind. */
 export const itemIcon = (kind: ItemKind): IconKind => (kind === 'issue' ? 'issues' : kind);
 
-const modelAliases = (sources: { path: string; source: string }[]) =>
-  [
-    ...new Set(
-      sources
-        .filter(f => /litellm[^/]*\.ya?ml$/.test(f.path))
-        .flatMap(f => [...f.source.matchAll(/model_name:\s*(\S+)/g)].map(m => m[1]!))
-    ),
-  ].sort();
-
 const lastKey = (path: Path) => String(path.findLast(p => typeof p === 'string') ?? '');
 
 const NameInput = ({ path, kind }: { path: string; kind: ItemKind }) => {
@@ -52,23 +45,14 @@ const NameInput = ({ path, kind }: { path: string; kind: ItemKind }) => {
   const name = itemName(path);
   const [text, setText] = useState(name);
   useEffect(() => setText(name), [name]);
-  const problemOf = (text: string) => {
-    const target = itemPath(kind, text, noteKindOf(path));
-    return text === name
-      ? undefined
-      : itemKind(target) !== kind
-        ? kind === 'issue'
-          ? 'a number, a dash and a lowercase slug'
-          : 'lowercase letters, digits and dashes, starting with a letter'
-        : hub?.files.some(f => f.path === target)
-          ? 'that name is taken'
-          : undefined;
+  const target = (value: string) => itemPath(kind, value, noteKindOf(path));
+  const problemOf = (value: string) => {
+    const renamed = hub && renameItem(hub.files, path, target(value));
+    return renamed && !renamed.ok ? renamed.error : undefined;
   };
   const problem = problemOf(text);
   const commit = (value: string) =>
-    problemOf(value) || value === name
-      ? setText(name)
-      : rename({ from: path, to: itemPath(kind, value, noteKindOf(path)) });
+    problemOf(value) || value === name ? setText(name) : rename({ from: path, to: target(value) });
   return (
     <div>
       <input
@@ -177,7 +161,7 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
         if (key === 'check' || key === 'checks') return named('check');
         if (key === 'needs') return jobs.filter(j => j !== p[1]);
         if (key === 'tools') return tools;
-        if (key === 'model') return modelAliases(files ?? []);
+        if (key === 'model') return modelNames(files ?? []);
         if (key === 'labels') return labels;
         if (key === 'subagents') return [...bots.filter(b => b !== itemName(path)), 'explore', 'general'];
       },

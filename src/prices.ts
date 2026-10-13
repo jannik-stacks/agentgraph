@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { parse } from 'yaml';
+import type { SourceFile } from './config.ts';
 import type { Price } from './usage.ts';
 
 /** A price table: model aliases to upstream model ids, and list prices per upstream model in USD per million tokens. */
@@ -11,6 +12,25 @@ type ModelInfo = {
 };
 
 const bare = (model: string) => model.split('/').at(-1) ?? model;
+
+const modelList = (source: string): ModelInfo[] => {
+  try {
+    const list = (parse(source) as { model_list?: unknown } | null)?.model_list;
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+};
+
+/** The model aliases a proxy serves: every `model_name` in the `litellm*.yaml` configs among `files`, sorted. */
+export const modelNames = (files: SourceFile[]) =>
+  [
+    ...new Set(
+      files
+        .filter(f => /litellm[^/]*\.ya?ml$/.test(f.path))
+        .flatMap(f => modelList(f.source).flatMap(m => (typeof m?.model_name === 'string' ? [m.model_name] : [])))
+    ),
+  ].sort();
 
 const fromProxy = async (env: Record<string, string | undefined>, fetcher: typeof fetch) => {
   const base = env.BOTHUB_LLM_BASE_URL;
@@ -47,6 +67,8 @@ export const loadPrices = ({
 }) => {
   let cached: { at: number; value: Promise<Record<string, Price & { model: string }>> } | undefined;
   const load = async () => {
+    // Loaded on first use so the studio can import this module in the browser.
+    const { readFile } = process.getBuiltinModule('node:fs/promises');
     const table: PriceTable = file ? JSON.parse(await readFile(file, 'utf8').catch(() => '{}')) : {};
     const models = table.models ?? {};
     const listed = (model: string) => models[model] ?? models[bare(model)];

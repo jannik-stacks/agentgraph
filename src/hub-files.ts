@@ -390,6 +390,74 @@ export const renameReferences = (files: SourceFile[], kind: ItemKind, from: stri
   return changes;
 };
 
+/** The message every hub save is committed with. */
+export const commitMessage = 'update';
+
+/** The number of a new issue: one above the highest of the numbered issue file names. */
+export const nextIssueNumber = (names: string[]) =>
+  Math.max(0, ...names.map(name => Number(/^(\d+)-/.exec(name)?.[1] ?? 0))) + 1;
+
+/** A new item of `kind` with the smallest valid frontmatter its schema allows, at a path no file holds yet. */
+export const newItem = (files: SourceFile[], kind: ItemKind, note?: NoteKind) => {
+  const taken = new Set(files.map(f => f.path));
+  const issues = files.filter(f => itemKind(f.path) === 'issue').map(f => itemName(f.path));
+  const unique = (base: string) => {
+    for (let i = 1; ; i++) {
+      const name = i === 1 ? base : `${base}-${i}`;
+      if (!taken.has(itemPath(kind, name, note))) return name;
+    }
+  };
+  const name =
+    kind === 'hub' ? 'hub' : kind === 'issue' ? `${nextIssueNumber(issues)}-new-issue` : unique(`new-${kind}`);
+  return {
+    path: itemPath(kind, name, note),
+    data: initialValue(itemSchema(kind)) as Record<string, unknown>,
+    body: '',
+  };
+};
+
+const slugRule = 'lowercase letters, digits and dashes, starting with a letter';
+const nameRules: Record<ItemKind, string> = {
+  hub: 'hub settings have no name',
+  bot: slugRule,
+  skill: slugRule,
+  check: slugRule,
+  workflow: slugRule,
+  note: 'lowercase letters, digits and dashes',
+  issue: 'a number, a dash and a lowercase slug',
+};
+
+/**
+ * The changes that move the item at `from` to `to` and point every reference to its old name at the new one, or why
+ * it cannot move: `to` is not a path of the same kind, or another file is there already.
+ */
+export const renameItem = (
+  files: SourceFile[],
+  from: string,
+  to: string
+): { ok: true; changes: Change[] } | { ok: false; error: string } => {
+  const kind = itemKind(from);
+  const text = files.find(f => f.path === from)?.source;
+  if (!kind || text === undefined) return { ok: false, error: `there is no item at ${from}` };
+  if (from === to) return { ok: true, changes: [] };
+  if (itemKind(to) !== kind) return { ok: false, error: nameRules[kind] };
+  if (files.some(f => f.path === to)) return { ok: false, error: 'that name is taken' };
+  let item: HubItem;
+  try {
+    item = parseItem(from, text);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  return {
+    ok: true,
+    changes: [
+      { path: from, delete: true },
+      { path: to, ...item },
+      ...renameReferences(files, kind, itemName(from), itemName(to)),
+    ],
+  };
+};
+
 /** A starting value for a schema: defaults, the first enum option, and only the required properties. */
 export const initialValue = (schema: JsonSchema): unknown => {
   if (schema.default !== undefined) return structuredClone(schema.default);

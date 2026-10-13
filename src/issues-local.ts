@@ -4,6 +4,7 @@ import { mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 import { Document, isScalar, visit } from 'yaml';
 import { z } from 'zod';
+import { nextIssueNumber } from './hub-files.ts';
 import { changeEvent, matches, type Comment, type Issue, type Issues } from './issues.ts';
 import { parseMarkdown } from './markdown.ts';
 import { IssueFile, type Association } from './schema.ts';
@@ -184,8 +185,7 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
     create: ({ title, body = '', labels = [], parent, links }) =>
       serial(async () => {
         await mkdir(dir, { recursive: true });
-        const last = Math.max(0, ...(await files()).map(name => Number(fileName.exec(name)?.[1])));
-        for (let number = last + 1; ; number++) {
+        for (let number = nextIssueNumber(await files()); ; number++) {
           if (!(await claim(number))) continue;
           try {
             if (await find(number)) continue;

@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { api } from '../src/api.ts';
 import { parseItem, renderItem, validateHub } from '../src/hub-files.ts';
-import { hubProposal, hubWriteRoutes, readHubItems, writeHub } from '../src/hub-write.ts';
+import { checkHubWrite, hubProposal, hubWriteRoutes, readHubItems, writeHub } from '../src/hub-write.ts';
 import { openStore } from '../src/store.ts';
 
 const example = join(import.meta.dirname, '..', 'examples', 'acme-app');
@@ -405,6 +405,32 @@ describe('writeHub commit', () => {
   });
 });
 
+const CHECKS = [
+  { name: 'malformed input', input: { changes: [] }, ok: false, status: 400 },
+  { name: 'a path outside the hub', input: { changes: [{ path: '../escape.md', data: bot }] }, ok: false, status: 400 },
+  {
+    name: 'a stale base',
+    input: { changes: [{ path: 'skills/triage.md', data: { description: 'New.' }, base: 'old' }] },
+    ok: false,
+    status: 409,
+  },
+  {
+    name: 'a change that breaks the hub',
+    input: { changes: [{ path: 'bots/b.md', data: { ...bot, skills: ['nope'] } }] },
+    ok: false,
+    status: 422,
+  },
+  { name: 'a valid change', input: { changes: [{ path: 'bots/b.md', data: bot }] }, ok: true, status: 200 },
+];
+
+describe('checkHubWrite', () => {
+  it.each(CHECKS)('answers $status for $name without writing', async ({ input, ok }) => {
+    const dir = minimalHub();
+    expect((await checkHubWrite(dir, input)).ok).toBe(ok);
+    expect(existsSync(join(dir, 'bots'))).toBe(false);
+  });
+});
+
 describe('hub edit routes', () => {
   const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
     new Request(url, {
@@ -423,15 +449,10 @@ describe('hub edit routes', () => {
     expect(typeof git).toBe('boolean');
   });
 
-  it('validates without writing', async () => {
+  it.each(CHECKS)('validates $name with the status a write answers, without writing', async ({ input, ok, status }) => {
     const dir = minimalHub();
-    const route = hubWriteRoutes(dir);
-    const res = await route(
-      post('http://127.0.0.1:5181/api/hub/validate', {
-        changes: [{ path: 'bots/b.md', data: { ...bot, skills: ['nope'] } }],
-      })
-    );
-    expect(await res!.json()).toMatchObject({ ok: false, errors: [{ path: 'bots/b.md' }] });
+    const res = await hubWriteRoutes(dir)(post('http://127.0.0.1:5181/api/hub/validate', input));
+    expect({ status: res!.status, ok: (await res!.json()).ok }).toEqual({ status, ok });
     expect(existsSync(join(dir, 'bots'))).toBe(false);
   });
 

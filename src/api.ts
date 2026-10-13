@@ -8,10 +8,26 @@ import { fingerprint, srcDir as ownSrc } from './fingerprint.ts';
 import { hubWriteRoutes } from './hub-write.ts';
 import { liveStream, watchRuns } from './live.ts';
 import { readHub } from './load.ts';
+import { localJson } from './local-json.ts';
+import { Missing } from './pulls.ts';
+import { Invalid, comment } from './review.ts';
 import { alive, type Run, type RunStatus, type Store } from './store.ts';
 import type { Price } from './usage.ts';
 
 export type Handler = (req: Request) => Promise<Response>;
+
+/** What `GET /api/info` answers: the hub and data directories, where the data directory really is, and the process. */
+export type ApiInfo = {
+  hub: string;
+  data: string;
+  dataReal: string | null;
+  pid: number;
+  version: string;
+  hubErrors: ConfigError[];
+};
+
+/** What `GET /api/build` answers: the source fingerprint the server runs, the one on disk, and whether they differ. */
+export type ApiBuild = { running: string; disk: string; stale: boolean };
 
 const live: RunStatus[] = ['queued', 'running'];
 const failed: RunStatus[] = ['failed', 'timed-out', 'interrupted'];
@@ -122,7 +138,8 @@ export const readFiles = async (roots: Root[]) => {
  * edit does not compile.
  * `GET /api/pulls` lists the merge requests in the data directory with their files, `GET /api/pulls/:n/diff` answers
  * one request's diff and `GET /api/runs/:id/diff` what a run committed (see `diffs.ts`); `?whitespace=hide` leaves out
- * changes made only of whitespace.
+ * changes made only of whitespace. `POST /api/comments` writes a `Review` to the local backend (see `comment`), from
+ * localhost only and as JSON.
  * `GET /api/build` compares the fingerprint of `srcDir` when the handler was made with the one on disk now, so a
  * client can tell the server runs older code than its source.
  */
@@ -199,20 +216,23 @@ export const api = ({
       /^\/api\/build$/,
       async () => {
         const disk = fingerprint(srcDir);
-        return Response.json({ running, disk, stale: disk !== running });
+        const build: ApiBuild = { running, disk, stale: disk !== running };
+        return Response.json(build);
       },
     ],
     [
       /^\/api\/info$/,
-      async () =>
-        Response.json({
+      async () => {
+        const info: ApiInfo = {
           hub: hubDir,
           data: store.dir,
           dataReal: await realpath(store.dir).catch(() => null),
           pid: process.pid,
           version: running,
           hubErrors: hubErrors(),
-        }),
+        };
+        return Response.json(info);
+      },
     ],
     [/^\/api\/files$/, async () => Response.json(await readFiles([{ name: 'hub', dir: hubDir }, ...roots]))],
     [/^\/api\/runs$/, async () => Response.json(await store.list())],
@@ -306,10 +326,22 @@ export const api = ({
 
   const edit = hubWriteRoutes(hubDir);
 
+  const commented = async (req: Request) => {
+    const body = await localJson(req);
+    if ('response' in body) return body.response;
+    try {
+      return Response.json(await comment({ dir: hubDir, data: store.dir }, body.input), { status: 201 });
+    } catch (e) {
+      const status = e instanceof Missing ? 404 : e instanceof Invalid ? 400 : 500;
+      return Response.json({ error: (e as Error).message }, { status });
+    }
+  };
+
   return async req => {
     const url = new URL(req.url);
     const edited = await edit(req);
     if (edited) return edited;
+    if (url.pathname === '/api/comments') return commented(req);
     if (req.method !== 'GET') return Response.json({ error: 'method not allowed' }, { status: 405 });
     for (const [pattern, route] of routes) {
       const match = pattern.exec(url.pathname);

@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
+import type { ApiBuild } from '../../src/api.ts';
 import { usePolling } from './ui.tsx';
-
-type Build = { running: string; disk: string; stale: boolean };
 
 /** Whether the API answers with code older than its source; an API without `/api/build` is older still. */
 export const isStale = async (get: typeof fetch = fetch) => {
   const response = await get('/api/build');
   if (response.status === 404) return true;
   if (!response.ok) return false;
-  return ((await response.json()) as Build).stale;
+  return ((await response.json()) as ApiBuild).stale;
 };
 
 /** A banner shown while the API server runs older code than `src/`. */
