@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
+import { opencode } from '../src/harnesses/opencode.ts';
 import { pi } from '../src/harnesses/pi.ts';
 import {
   agentEnv,
@@ -140,6 +141,20 @@ describe('agentEvents', () => {
       { type: 'text', text: 'a' },
       { type: 'text', text: 'b' },
     ]);
+  });
+
+  it('takes the opencode session from its first own line when a plugin prints first', async () => {
+    const lines = [
+      { type: 'bothub', event: { type: 'recall', on: 'turn', query: 'q', tokens: 1, items: [] } },
+      { type: 'text', sessionID: 'ses_1', part: { type: 'text', text: 'hi' } },
+    ];
+    const script = `process.stdout.write(${JSON.stringify(lines.map(line => JSON.stringify(line)).join('\n'))})`;
+    const adapter = { ...opencode, command: node(script).command };
+    const events = await Effect.runPromise(
+      Stream.runCollect(agentEvents(adapter, { ...spec, model: 'writer' }, undefined, undefined, unsandboxed))
+    );
+    expect(Chunk.toArray(events).map(e => e.type)).toEqual(['recall', 'start', 'text']);
+    expect(Chunk.toArray(events)[1]).toEqual({ type: 'start', model: 'writer', session: 'ses_1' });
   });
 
   it('closes stdin and does not inherit the host env', async () => {

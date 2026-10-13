@@ -178,12 +178,11 @@ const event = (line: Line): AgentEvent[] => {
   return [];
 };
 
-const sessionIn = (raw: string) => {
+const parsed = (raw: string): { type?: unknown; sessionID?: unknown } => {
   try {
-    const { sessionID } = JSON.parse(raw) as { sessionID?: unknown };
-    return typeof sessionID === 'string' ? sessionID : undefined;
+    return JSON.parse(raw) ?? {};
   } catch {
-    return undefined;
+    return {};
   }
 };
 
@@ -198,15 +197,17 @@ const parseLine = (raw: string): AgentEvent[] => {
 
 /**
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's
- * tool allowlist and project config is ignored. Its output names no model, so it reports the alias it was given.
+ * tool allowlist and project config is ignored. Its output names no model, so it reports the alias it was given,
+ * with the session its first own line names; bothub's plugins may print before it.
  */
 export const opencode: HarnessAdapter = {
   name: 'opencode',
   command,
   parseLine,
   start: (spec, line) => {
-    const session = sessionIn(line);
-    return [{ type: 'start', model: alias(spec), ...(session && { session }) }];
+    const { type, sessionID: session } = parsed(line);
+    if (type === 'bothub') return [];
+    return [{ type: 'start', model: alias(spec), ...(typeof session === 'string' && { session }) }];
   },
   plugins: pluginIds,
   sessions: '.local/share/opencode',

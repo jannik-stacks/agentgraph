@@ -11,17 +11,18 @@ wraps it with the store's delivery ledger so a redelivered webhook plans nothing
 
 ## The until loop
 
-A bot job runs, then each check in its `until` runs against the worktree. Findings from failing
-gating checks go back to the same bot as a follow-up prompt, until the checks pass, `until.max`
-follow-ups are used or the bot's `usd-per-run` is spent. The loop is in
+A bot job runs, then each check in its `until` runs against the worktree. While a `block` check
+fails, its findings and those of failing `warn` checks go back to the same bot as a follow-up
+prompt, until no `block` check fails, `until.max` follow-ups are used or the bot's `usd-per-run` is
+spent. The loop is in
 
 <Sym name="attempts" file="src/pipeline/attempt.ts" />. Every check ends in a verdict.
 
 <Fields name="Verdict" />
 
 A check gates when its mode is not `log`. A skipped check does not gate, unless no gating check
-ran at all. Once the follow-ups are spent, only failing `block` checks fail the run; `warn` ones are
-recorded and let it through. A `blocked` verdict means the check could not run, and the job asks a
+ran at all. Only failing `block` checks hold the change or fail the run; `warn` ones are recorded
+and let it through. A `blocked` verdict means the check could not run, and the job asks a
 human instead of sending the bot after it.
 
 Two jobs never work on one branch at the same time. A job whose branch another live run holds

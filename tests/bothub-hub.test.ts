@@ -782,6 +782,7 @@ describe('slicers for the narrow judges', () => {
     expect(found[1]).toMatchObject({
       task: 'Replay labels added while serve was stopped, once each.',
       criterion: 'A label removed and added again by hand runs again.',
+      'out of scope': ['GitHub polling.'],
     });
     expect(found[1]!.change).toContain('+export const labelId');
   });
@@ -878,6 +879,13 @@ describe('slicers for the narrow judges', () => {
     expect(found[0]!.hunk).toContain('+export const v3 = 33;');
     const docs = items(run('hunks.mjs', repo, ['studio/content/docs/']).out);
     expect(docs.map(i => i.file)).toEqual(['studio/content/docs/a.mdx']);
+  });
+
+  it("hunks: each hunk carries the brief's out-of-scope list", () => {
+    const repo = change({ 'src/labels.ts': labels.before }, { 'src/labels.ts': labels.after });
+    const found = items(run('hunks.mjs', repo, ['src/'], { BOTHUB_HUB: hubWith(brief) }).out);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.map(i => i['out of scope'])).toEqual(found.map(() => ['GitHub polling.']));
   });
 
   it('hunks: leaves out hunks that only make the change-wide rename, keeps the rest of a file', () => {

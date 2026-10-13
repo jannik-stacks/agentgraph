@@ -296,8 +296,9 @@ export const agentEvents = (
         const parse = (line: string) => {
           const events = adapter.parseLine(line);
           if (started) return events;
-          started = true;
-          return [...(adapter.start?.(spec, line) ?? []), ...events];
+          const first = adapter.start?.(spec, line) ?? [];
+          started = first.length > 0;
+          return [...first, ...events];
         };
         return output(command).pipe(Stream.decodeText(), Stream.splitLines, Stream.mapConcat(parse));
       })

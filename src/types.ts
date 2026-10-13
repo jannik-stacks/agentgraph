@@ -101,7 +101,7 @@ export type HarnessAdapter = {
   parseLine: (line: string) => AgentEvent[];
   /**
    * Events the adapter knows before the harness says them, such as the model alias it was given, or the session id
-   * the harness's first `line` names; sent with the first line.
+   * the harness's first own `line` names; sent with the first line it returns any for.
    */
   start?: (spec: RunSpec, line: string) => AgentEvent[];
   /** Where under the run home the harness keeps its sessions, when it can continue one. */

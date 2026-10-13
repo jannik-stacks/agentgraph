@@ -1433,7 +1433,7 @@ describe('over', () => {
     expect(result.outcome?.checks?.[0]?.findings).toContain('item 1:\nbad a');
   });
 
-  it('sends warn findings back but lets the change through once the attempts are spent', async () => {
+  it('settles with its warn findings once every check that holds the change passes', async () => {
     const { seen, result } = await run(
       hubWith([
         { name: 'style', data: { type: 'script', run: 'echo nit; exit 1', mode: 'warn' } },
@@ -1444,16 +1444,52 @@ describe('over', () => {
           ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) }
           : { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) }
     );
+    expect(seen.filter(spec => spec.system.startsWith('You work.'))).toHaveLength(1);
+    expect(result.run).toMatchObject({ status: 'succeeded', attempt: 1 });
+    expect(result.outcome?.accepted).toEqual([{ kind: 'reply', body: 'Done.' }]);
+    expect(result.outcome?.checks?.map(v => [v.check, v.pass, v.findings])).toEqual([
+      ['style', false, 'nit'],
+      ['small', true, undefined],
+    ]);
+  });
+
+  it('sends warn findings back alongside a failing check that holds the change', async () => {
+    let judged = 0;
+    const { seen, result } = await run(
+      hubWith([
+        { name: 'style', data: { type: 'script', run: 'echo nit; exit 1', mode: 'warn' } },
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+      ]),
+      spec =>
+        spec.system.startsWith('You judge.')
+          ? { message: bothub([{ kind: 'reply', body: ++judged === 1 ? 'FAIL\ntoo big' : 'PASS' }]) }
+          : { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) }
+    );
     const attempts = seen.filter(spec => spec.system.startsWith('You work.'));
     expect(attempts).toHaveLength(2);
     expect(attempts[1]!.prompt).toContain('### style\n\n```text\nnit\n```');
-    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(1);
+    expect(attempts[1]!.prompt).toContain('### small\n\n```text\ntoo big\n```');
     expect(result.run).toMatchObject({ status: 'succeeded', attempt: 2 });
-    expect(result.outcome?.accepted).toEqual([{ kind: 'reply', body: 'Done.' }]);
-    expect(result.outcome?.checks?.map(v => [v.check, v.pass])).toEqual([
-      ['style', false],
-      ['small', true],
-    ]);
+  });
+
+  it('runs log checks only once no check that holds the change failed', async () => {
+    const checks = (lint: string) =>
+      hubWith([
+        { name: 'lint', data: { type: 'script', run: lint, mode: 'block' } },
+        { name: 'tone', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Calm?' },
+      ]);
+    const failing = await run(checks('echo bad; exit 1'), judged);
+    expect(failing.seen.filter(spec => spec.system.startsWith('You judge.'))).toEqual([]);
+    expect(untimed(failing.result.outcome?.checks)?.[1]).toEqual({
+      check: 'tone',
+      gating: false,
+      pass: false,
+      skipped: true,
+      findings: 'not run: a check that holds the change failed',
+    });
+    const passing = await run(checks('true'), judged);
+    expect(passing.seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(1);
+    expect(untimed(passing.result.outcome?.checks)?.[1]).toMatchObject({ check: 'tone', pass: true });
   });
 
   it('tells check scripts the issue number and what the attempt replied', async () => {

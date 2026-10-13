@@ -1,6 +1,6 @@
 ---
 description: Implement one scoped bothub change and keep its checks green.
-human: seed hub, size rule and attempt first from dogfood round 5, K23
+human: seed hub, size rule and attempt first from dogfood round 5, K23; call the deciding module (T1) and the still prefix for negatives (K34) from dogfood round 6
 ---
 The issue and its triage brief are in your prompt: the task, the criteria with the test that
 proves each one, the files and what is out of scope. Read the code you are changing and its tests
@@ -11,8 +11,12 @@ read narrowly: find the function or test with `grep`, then `read` that part with
 
 Write each criterion's test first, with the exact title and in the file the brief names. It must
 fail before your change: a test that passes on the old code would not notice the change reverted.
-Only a test whose title starts with `still ` may already pass. Then make the smallest diff that
-meets the criteria. No history, rulings or names in comments; a short TSDoc line on a new export.
+Only a test whose title starts with `still ` may already pass, and test-guards flags any other. A
+negative test, one that checks something does not happen, usually passes on the old code too: title
+each extra one you add with `still `. Then make the smallest diff that meets the criteria. When the
+change must agree with what another module decides, call that module's function instead of
+restating its rules: a copy drifts, and each review finds the next condition it missed. No history,
+rulings or names in comments; a short TSDoc line on a new export.
 
 The hub links bothub's locked dependencies into `node_modules`. Run tools from the repository
 root, one command at a time, never chained with `&&`:

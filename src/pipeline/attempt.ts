@@ -123,12 +123,13 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
     : undefined;
 
 /**
- * Runs the job's bot, then its `until` checks, sending failing findings back as new attempts in the same worktree.
- * While it resolves a merge, conflict markers left in the conflicting files count as a failing check. The loop stops
- * at `until.max` follow-ups, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a
- * fan-out adds its section to the prompt. A reply with text but no readable proposals block first gets one
- * format-only follow-up attempt, in the same session when the harness can continue it, which `until.max` does not
- * count.
+ * Runs the job's bot, then its `until` checks. While a check that holds the change fails, its findings go back as a
+ * new attempt in the same worktree, with the findings of failing `warn` checks alongside; once none fails, the attempt
+ * settles with whatever the `warn` checks found. While it resolves a merge, conflict markers left in the conflicting
+ * files count as a failing check. The loop stops at `until.max` follow-ups, or once the attempts and checks have spent
+ * the bot's `usd-per-run`. An `item` of a fan-out adds its section to the prompt. A reply with text but no readable
+ * proposals block first gets one format-only follow-up attempt, in the same session when the harness can continue
+ * it, which `until.max` does not count.
  */
 const attempts = (
   planned: PlannedJob,
@@ -286,7 +287,7 @@ const attempts = (
       const broke = cap !== undefined && spent >= cap;
       const exhausted = attempt - reformats > max || broke;
       const verdicts = job.until ? checks : undefined;
-      if (!holding.length && !left.length && (exhausted || !fixable.length)) {
+      if (!holding.length && !left.length) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, validated.accepted, a, p, verdicts)
         );

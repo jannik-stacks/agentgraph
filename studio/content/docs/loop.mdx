@@ -30,9 +30,11 @@ jobs:
     returns: [push, merge-request, reply]
 ```
 
-The checks run in two stages. Every script check runs first, all at once. The bot and decide
-checks run after that, also all at once, and only when no `block` script failed, so a broken build
-never pays for a review. A check left out this way is skipped with the reason in its findings.
+The checks run in three stages, each all at once. The gating script checks run first. The gating
+bot and decide checks run after that, only when no `block` script failed, so a broken build never
+pays for a review. Checks in `log` mode run last, and only when no `block` check failed, so they
+judge only the attempt that goes through. A check left out this way is skipped with the reason in
+its findings.
 Verdicts keep the order of the `checks` list, and each records when it started and ended.
 
 A bot check judges an item only once it changed. When an earlier check run of the same job on the
@@ -96,11 +98,12 @@ files, and with GitHub they link there.
 | Mode    | Effect                                                                                    |
 | ------- | ----------------------------------------------------------------------------------------- |
 | `log`   | Runs and records its verdict, never shown to the bot, never holds the change. The default |
-| `warn`  | A failure sends findings back, but never fails the run on its own                         |
+| `warn`  | A failure goes back with a `block` failure, and never holds the change on its own         |
 | `block` | A failure sends findings back, and fails the run after the last try                       |
 
-A change that only `warn` checks still fail goes through once the attempts are spent, with their
-verdicts recorded. A `warn` script that fails does not hold back the bot and decide checks either.
+A change that only `warn` checks fail goes through on that attempt, with their verdicts recorded:
+their findings go back to the bot only alongside a failing `block` check. A `warn` script that
+fails does not hold back the bot and decide checks either.
 Jobs have a mode too: a job in `log` validates and stores its proposals but never applies them, which is how a new bot or skill starts
 out.
 

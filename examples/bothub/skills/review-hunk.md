@@ -1,11 +1,21 @@
 ---
 description: Answer one question about one hunk of a bothub change, PASS or FAIL.
-human: seed hub, untraced
+human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2)
 ---
-A hunk is one block of changed lines with the code around it. Other checks judge the criteria,
-the tests, the scope and duplicated code, so ask only this: is there an input that reaches this
-hunk, or a caller of what it changes, that it now handles wrongly? Read the callers when the hunk
-changes a signature or a return value.
+A hunk is one block of changed lines with the code around it. Other checks judge the criteria, the
+tests, the scope and duplicated code, so ask only this: is there an input that reaches this hunk, or
+a caller of what it changes, that it now handles wrongly? Read the callers when the hunk changes a
+signature or a return value.
 
-Answer `PASS` when you cannot name one. Answer `FAIL` with the input or caller, the line it goes
-wrong on and the smallest fix.
+An input counts when it reaches the hunk through bothub's own inputs and documented use: a hub file,
+an event, a model reply, a stored run, a config value, at any size the API returns (more than one
+page of results is ordinary). A human acting through the tracker (labels, comments, closing) is
+documented use; a human hand-editing text bothub wrote (a marker in an issue body, a stored file),
+malformed Unicode and other input crafted to break the code are notes, not findings. So is an input
+that only a case under the item's `out of scope` reaches: the brief left it out on purpose. Judge
+the lines the hunk changes; the code around them is context.
+
+Answer `PASS` when you cannot name one, with any notes after the verdict. Answer `FAIL` with the
+input or caller, the line it goes wrong on and the smallest fix. When it goes wrong because the hunk
+restates a rule another module already decides (dispatch, config, the pipeline), the smallest fix is
+to call that module's function, not to copy one more of its conditions: name the function.

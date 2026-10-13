@@ -1,6 +1,6 @@
 // One JSON line per acceptance criterion in the triage brief, carrying the task, the criterion, the test that proves
-// it with its code and the change to src/ and studio/src/, so a reviewer judges one criterion against the code without
-// fetching anything.
+// it with its code, the change to src/ and studio/src/ and the brief's out-of-scope list, so a reviewer judges one
+// criterion against the code without fetching anything.
 import { readFileSync } from 'node:fs';
 import { findBrief, parseBrief } from './brief.mjs';
 import { base, changeText, titleOf } from './changes.mjs';
@@ -35,7 +35,7 @@ const testCode = (file, title) => {
 
 const text = findBrief();
 if (text) {
-  const { task, criteria } = parseBrief(text);
+  const { task, criteria, outOfScope } = parseBrief(text);
   const change = changeText(base(), ['src/', 'studio/src/'], 'function');
   const clipped = change.length > maxChars ? `${change.slice(0, maxChars)}\n[clipped]` : change;
   for (const { n, text: criterion, title, file } of criteria) {
@@ -48,6 +48,7 @@ if (text) {
         test: `it('${title}') in ${file}`,
         ...(code && { 'test code': code }),
         change: clipped,
+        ...(outOfScope.length && { 'out of scope': outOfScope }),
       })
     );
   }

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { studioDir, studioModule } from './studio.ts';
 
 type Plugin = { buildStart: (this: { error: (message: string) => never }) => Promise<void> };
@@ -47,6 +47,16 @@ const anchors = async (file: string) => {
 describe('docs', () => {
   it('resolves every source reference in the docs', async () => {
     await expect(checkReferences(content)).resolves.toBeUndefined();
+  });
+
+  it('loads every zod schema module the docs reference for its field tables', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await checkReferences(content);
+      expect(warn.mock.calls.flat().filter(text => String(text).includes('could not load'))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('fails on a reference to a name several files export, or that no file has', async () => {

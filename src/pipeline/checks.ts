@@ -323,45 +323,40 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
 export const holds = (verdict: Verdict, p: Pipeline) => p.config.checks[verdict.check]?.mode !== 'warn';
 
 /**
- * Runs the named checks in two stages, each all at once: every script check first, then, only when no script that
- * holds the change failed, the bot and decide checks, so the cheap gates spare the costly ones. A check left out that
- * way is skipped. Verdicts keep the order of `names`.
+ * Runs the named checks in stages, each all at once: the gating script checks first, then, only when none that holds
+ * the change failed, the gating bot and decide checks, so the cheap gates spare the costly ones. Checks in `log` mode
+ * run last and only when nothing that holds the change failed, so they judge only an attempt that settles. A check
+ * left out that way is skipped. Verdicts keep the order of `names`.
  */
 export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
     const verdicts: Verdict[] = [];
-    const stage = (cheap: boolean) =>
+    const listed = names.map((name, i) => ({ name, i, check: p.config.checks[name] }));
+    const scripts = listed.filter(({ check }) => !check || (check.mode !== 'log' && check.type === 'script'));
+    const costly = listed.filter(({ check }) => check && check.mode !== 'log' && check.type !== 'script');
+    const logged = listed.filter(({ check }) => check?.mode === 'log');
+    const run = (stage: typeof listed) =>
       Effect.forEach(
-        names.flatMap((name, i) => {
-          const check = p.config.checks[name];
-          return (!check || check.type === 'script') === cheap ? [{ name, i, check }] : [];
-        }),
+        stage,
         ({ name, i, check }) =>
           Effect.map(
             check
               ? runCheck(check, a, p)
               : Effect.succeed<Verdict>({ check: name, gating: true, pass: false, findings: 'unknown check' }),
-            verdict => {
-              verdicts[i] = verdict;
-              return verdict;
-            }
+            verdict => (verdicts[i] = verdict)
           ),
         { concurrency: 'unbounded' }
       );
-    const scripts = yield* stage(true);
-    if (scripts.some(v => v.gating && !v.skipped && !v.pass && holds(v, p)))
-      names.forEach((name, i) => {
-        const check = p.config.checks[name];
-        if (check && check.type !== 'script')
-          verdicts[i] = {
-            check: name,
-            gating: check.mode !== 'log',
-            pass: false,
-            skipped: true,
-            findings: 'not run: a script check failed',
-          };
+    const skip = (stage: typeof listed, findings: string) =>
+      stage.forEach(({ name, i, check }) => {
+        verdicts[i] = { check: name, gating: check?.mode !== 'log', pass: false, skipped: true, findings };
       });
-    else yield* stage(false);
+    const held = (ran: Verdict[]) => ran.some(v => v.gating && !v.skipped && !v.pass && holds(v, p));
+    if (held(yield* run(scripts))) {
+      skip(costly, 'not run: a script check failed');
+      skip(logged, 'not run: a check that holds the change failed');
+    } else if (held(yield* run(costly))) skip(logged, 'not run: a check that holds the change failed');
+    else yield* run(logged);
     return verdicts;
   });
 

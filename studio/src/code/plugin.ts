@@ -193,7 +193,8 @@ const analyzeTs = async (abs: string, text: string, version: number) => {
   let mod: Record<string, any> | undefined;
   if (shapes.some(s => s.zod)) {
     try {
-      mod = await import(/* @vite-ignore */ `${pathToFileURL(abs).href}?v=${version}`);
+      // A whole number: a dot in the query hides the .ts extension from vitest's transform.
+      mod = await import(/* @vite-ignore */ `${pathToFileURL(abs).href}?v=${Math.trunc(version * 1000)}`);
     } catch (e) {
       console.warn(`[bothub-code] could not load ${abs} for zod tables, showing zod source instead: ${e}`);
     }

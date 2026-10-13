@@ -1,10 +1,11 @@
 // One JSON line per hunk the change makes under the given roots, with surrounding code so it reads on its own. Hunks
 // that only touch comments or blank lines are left out: the rules check covers them. So are hunks that only make
 // the change's rename (see size.mjs): the types and tests checks cover a rename, and it would crowd out the rest. A new
-// file is one item.
+// file is one item. Each item carries the triage brief's out-of-scope list when there is one.
 //
 //   node hunks.mjs <root>...      e.g. node hunks.mjs src/
 import { readFileSync } from 'node:fs';
+import { findBrief, parseBrief } from './brief.mjs';
 import { base, changedFiles, diffOf, inBase, renameOf, swapIn } from './changes.mjs';
 
 const roots = process.argv.slice(2);
@@ -15,6 +16,10 @@ const maxLines = 200;
 const clip = lines => (lines.length > maxLines ? [...lines.slice(0, maxLines), '[clipped]'] : lines).join('\n');
 const code = /\.(ts|tsx|mts|cts|js|mjs)$/;
 
+const brief = findBrief();
+const outOfScope = brief ? parseBrief(brief).outOfScope : [];
+const scoped = outOfScope.length ? { 'out of scope': outOfScope } : {};
+
 const sha = base();
 const changed = changedFiles(sha);
 const { rename } = renameOf(sha, changed);
@@ -24,7 +29,7 @@ for (const { path, deleted } of files) {
   if (!deleted && !inBase(sha, path)) {
     const lines = readFileSync(path, 'utf8').split('\n');
     if (lines.some(line => !trivial(`+${line}`)))
-      console.log(JSON.stringify({ file: path, line: 1, hunk: clip(lines.map(line => `+${line}`)) }));
+      console.log(JSON.stringify({ file: path, line: 1, hunk: clip(lines.map(line => `+${line}`)), ...scoped }));
     continue;
   }
   const [, ...parts] = diffOf(sha, [path], context).split(/^(?=@@ )/m);
@@ -34,6 +39,6 @@ for (const { path, deleted } of files) {
     if (changes.every(trivial)) continue;
     if (rename && swapIn(part) === rename) continue;
     const line = Number(/^@@ -\S+ \+(\d+)/.exec(lines[0])?.[1] ?? 1);
-    console.log(JSON.stringify({ file: path, line, hunk: clip(lines) }));
+    console.log(JSON.stringify({ file: path, line, hunk: clip(lines), ...scoped }));
   }
 }
