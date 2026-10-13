@@ -29,14 +29,14 @@ export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'find
   const { proposals } = extractProposals(final);
   const reply = proposals.find(proposal => proposal.kind === 'reply');
   const [first = '', ...rest] = (reply?.body ?? (proposals.length ? '' : final)).trim().split('\n');
-  const word = first.replace(/[\s*_]/g, '').toUpperCase();
-  if (word !== 'PASS' && word !== 'FAIL')
+  const verdict = /^[\s*_]*(pass|fail)\b[\s*_]*[:.\-–—]?\s*(.*)$/i.exec(first);
+  if (!verdict)
     return {
       pass: false,
-      findings: `run ${run.id} gave no verdict${reply ? ': its first line is neither PASS nor FAIL' : ''}`,
+      findings: `run ${run.id} gave no verdict${reply ? ': its first line does not start with PASS or FAIL' : ''}`,
     };
-  const findings = rest.join('\n').trim();
-  return { pass: word === 'PASS', ...(findings && { findings }) };
+  const findings = [verdict[2], ...rest].join('\n').trim();
+  return { pass: verdict[1]!.toUpperCase() === 'PASS', ...(findings && { findings }) };
 };
 
 const verdictContract = [
@@ -56,6 +56,8 @@ export type Attempt = {
   handoff: Handoff;
   target: Target;
   item?: number;
+  /** The branch tip a push replaces, when the job started over. */
+  replace?: string;
   /** What the attempt replied, for check scripts as `BOTHUB_REPLY`. */
   reply?: string;
   /** A fan-out item's replies are collected here under its label instead of posted one by one. */

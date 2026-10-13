@@ -837,13 +837,28 @@ describe('checks fail closed', () => {
     expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').findings).toBe('run r failed: model error');
     expect(verdictOf(ok({}), 'All good.')).toEqual({ pass: false, findings: 'run r gave no verdict' });
     expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: 'Looks fine\nPASS' }])).findings).toMatch(
-      /neither PASS nor FAIL/
+      /does not start with PASS or FAIL/
     );
     expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: 'pass' }]))).toEqual({ pass: true });
     expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: '**FAIL**\na.ts:3 is wrong' }]))).toEqual({
       pass: false,
       findings: 'a.ts:3 is wrong',
     });
+  });
+
+  const VERDICT_FIRST_LINES = [
+    { first: 'FAIL /work/docs/config.mdx:35', pass: false, findings: '/work/docs/config.mdx:35' },
+    { first: 'FAIL - runs.mdx:29-31', pass: false, findings: 'runs.mdx:29-31' },
+    { first: 'pass — a.ts:26 describes the digest', pass: true, findings: 'a.ts:26 describes the digest' },
+    { first: '**PASS**: nothing found', pass: true, findings: 'nothing found' },
+  ];
+
+  it.each(VERDICT_FIRST_LINES)('reads the verdict that leads "$first"', ({ first, pass, findings }) => {
+    expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: first }]))).toEqual({ pass, findings });
+  });
+
+  it('does not read a word that only starts with pass', () => {
+    expect(verdictOf(ok({}), 'Passing tests cover it.').findings).toBe('run r gave no verdict');
   });
 
   it('reads a final message without a bothub block as the reply', () => {
@@ -981,7 +996,8 @@ describe('memory', () => {
           'tools: [read, notes_search, history]',
           'returns: [reply, note, hub(notes/**)]',
           'preload: [{ recall: { cutoff: 0.4, budget: 900 } }]',
-          'session: { resume: attempts, share: hub }',
+          'resume: summary',
+          'history: hub',
           'summarizer: extractive',
         ].join('\n'),
         'You learn.'
@@ -1003,7 +1019,7 @@ jobs:
     return result.config;
   };
 
-  it('wires the surfacer from preload recall, the history tool and every bot share', () => {
+  it("wires the surfacer from preload recall, the history tool and how far the bot's history reaches", () => {
     const config = memory();
     const workflow = config.workflows.w!;
     const mcp = (tools: string[]) => ({ command: 'node', args: tools, env: {} });
@@ -1015,7 +1031,7 @@ jobs:
       bot: 'mem',
       hub: '/hub',
       data: '/data',
-      share: { mem: 'hub', quiet: 'bot' },
+      scope: 'hub',
       summarizer: { mode: 'extractive', granularity: 'item', 'max-bytes': 512 },
       history: true,
       cutoff: 0.4,
