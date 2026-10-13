@@ -1,8 +1,9 @@
 // Turns a data directory's finished runs into anomaly items for the retro judge: one JSON line per invariant and key,
 // with what the invariant means, how often it held, the issues and runs that show it and one piece of evidence. Every
 // invariant reads only what runs leave behind: run.json, outcome.json, events.jsonl and pulls.jsonl. `--hub` adds
-// each check's mode, the check names and each bot's resume setting; without it every failing gating check counts as
-// holding and every bot as resuming its session.
+// each check's mode, the check names, each bot's resume setting, each issue's Done when list and each job's until.max;
+// without it every failing gating check counts as holding, every bot as resuming its session, and briefs and attempt
+// counts go unchecked.
 //
 //   node retro.mjs <data> [--hub <dir>] [--since <iso time>]
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -41,6 +42,23 @@ const front = (hub, kind, field) => {
   return Object.fromEntries(names.map(file => [file.slice(0, -3), value(file)]).filter(([, v]) => v));
 };
 
+/** The number of items in the `Done when` list of issue `n` under `<hub>/issues`. */
+const doneWhen = (hub, n) => {
+  const dir = hub ? join(hub, 'issues') : '';
+  const file = dir && existsSync(dir) && readdirSync(dir).find(f => f.startsWith(`${n}-`));
+  return file ? (section(read(join(dir, file)), 'Done when').match(/^[-*] /gm) ?? []).length : 0;
+};
+
+/** The `until.max` a workflow under `<hub>/workflows` gives `job`. */
+const maxAttempts = (hub, workflow, job) => {
+  const lines = hub ? read(join(hub, 'workflows', `${workflow}.md`)).split('\n') : [];
+  const indent = line => /^\s*/.exec(line)[0].length;
+  const at = lines.findIndex(line => new RegExp(`^\\s+${job}:\\s*$`).test(line));
+  const end = lines.findIndex((line, i) => i > at && line.trim() && indent(line) <= indent(lines[at]));
+  const block = at < 0 ? '' : lines.slice(at, end < 0 ? undefined : end).join('\n');
+  return Number(/until:[\s\S]*?max:\s*(\d+)/.exec(block)?.[1] ?? 0);
+};
+
 const said = ['reply', 'ask', 'merge-request', 'label'];
 const posted = r => (r.outcome.results ?? []).some(x => said.includes(x.kind) && x.status !== 'failed');
 const calls = (r, tool) => r.events.filter(e => e.type === 'tool_call' && tool.test(e.tool));
@@ -66,6 +84,17 @@ const gist = text =>
     .slice(0, 2)
     .join(' ')
     .slice(0, 120);
+const section = (text, heading) =>
+  new RegExp(`^## ${heading}\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, 'm').exec(text ?? '')?.[1] ?? '';
+const places = text => new Set(String(text ?? '').match(/[\w./-]+\.\w+:\d+/g) ?? []);
+const testFile = /(^|\/)tests?\/|\.test\./;
+const added = (r, keep) =>
+  calls(r, /edit|write|patch/)
+    .filter(e => keep(e.input?.filePath ?? ''))
+    .reduce((sum, { input: i }) => {
+      const old = new Set((i.oldString ?? '').split('\n'));
+      return sum + (i.newString ?? i.content ?? '').split('\n').filter(l => l.trim() && !old.has(l)).length;
+    }, 0);
 const words = text => new Set(text.toLowerCase().match(/[a-z]{4,}/g) ?? []);
 const overlap = (a, b) => [...a].filter(w => b.has(w)).length / Math.max(1, Math.min(a.size, b.size));
 const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
@@ -230,6 +259,80 @@ const invariants = {
         })
       );
     },
+  },
+  'cut-title': {
+    means: "an ask's title, its first line, is cut off or stops mid-sentence",
+    find: ({ jobs }) =>
+      jobs.flatMap(r =>
+        asks(r)
+          .map(q => q.trim().split('\n')[0])
+          .filter(line => line.length > 80 || !/[?.!]$/.test(line))
+          .map(line => hit(r, job(r), line))
+      ),
+  },
+  'crashed-handoff': {
+    means: 'a job handed off while one of its check runs had crashed, so that check never judged the change',
+    find: ({ jobs }) =>
+      jobs
+        .filter(r => r.run.closure === 'handed-off')
+        .flatMap(r =>
+          findings(r)
+            .filter(([, text]) => /^run \S+ failed:/m.test(text))
+            .map(([check, text]) => hit(r, job(r), `${check}: ${/^run \S+ failed:.*/m.exec(text)[0]}`))
+        ),
+  },
+  'test-heavy': {
+    means: 'a change under 10 source lines added more than 10 times as many test lines',
+    find: ({ chains, writing }) =>
+      chains
+        .filter(chain => writing.has(job(chain[0])))
+        .flatMap(chain => {
+          const sum = keep => chain.reduce((n, r) => n + added(r, keep), 0);
+          const tests = sum(f => testFile.test(f));
+          const source = sum(f => /\.[cm]?[jt]sx?$/.test(f) && !testFile.test(f));
+          return source < 10 && tests > 10 * Math.max(1, source)
+            ? [hit(chain.at(-1), job(chain[0]), `${tests} test lines for ${source} source lines`)]
+            : [];
+        }),
+  },
+  'wide-brief': {
+    means: "a brief has more criteria than the issue's Done when items plus one",
+    find: ({ jobs, hub }) =>
+      jobs.flatMap(r =>
+        accepted(r, 'reply').flatMap(x => {
+          const criteria = (section(x.body, 'Criteria').match(/^\d+\.\s/gm) ?? []).length;
+          const done = doneWhen(hub, r.run.event?.number);
+          return done && criteria > done + 1 ? [hit(r, job(r), `${criteria} criteria for ${done} Done when items`)] : [];
+        })
+      ),
+  },
+  'same-line': {
+    means: 'a new run on an issue failed the same check on the same line as the run before it',
+    find: ({ chains }) =>
+      chains.flatMap(chain =>
+        pairs(chain.filter(r => (r.outcome.checks ?? []).some(c => !c.skipped)))
+          .filter(([prev, cur]) => !attempt(prev, cur))
+          .flatMap(([prev, cur]) =>
+            failing(cur).flatMap(c => {
+              const before = failing(prev).filter(p => p.check === c.check).flatMap(p => [...places(p.findings)]);
+              const same = [...places(c.findings)].filter(place => before.includes(place));
+              return same.map(place => hit(cur, `${c.check}: ${place}`, c.findings));
+            })
+          )
+      ),
+  },
+  'over-attempts': {
+    means: "a job ran more attempts on one issue than its until.max, so a new run reset the count",
+    find: ({ chains, writing, hub }) =>
+      chains
+        .filter(chain => writing.has(job(chain[0])))
+        .flatMap(chain => {
+          const max = maxAttempts(hub, chain[0].run.workflow, chain[0].run.job);
+          const ran = chain.filter(r => r.run.status !== 'skipped');
+          return max && ran.length > max
+            ? [hit(ran.at(-1), `${job(chain[0])}#${chain[0].run.event?.number}`, `${ran.length} attempts, until.max ${max}`)]
+            : [];
+        }),
   },
   'no-block': {
     means: "a bot's reply had no bothub block, so its work was thrown away",
@@ -423,6 +526,7 @@ export const retro = (runs, { hub, pulls = [] } = {}) => {
     chains: chains(jobs),
     writing: new Set(jobs.filter(r => accepted(r, 'push').length).map(job)),
     pulls,
+    hub,
     modes: front(hub, 'checks', 'mode'),
     checks: Object.keys(front(hub, 'checks', 'type')),
     resume: bot => (hub ? (resumes[bot] ?? 'none') : 'session'),

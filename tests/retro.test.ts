@@ -4,7 +4,7 @@ import { runScript, temp, write } from './kit.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 
-type Run = { id: string; run: Record<string, unknown>; outcome?: Record<string, unknown> };
+type Run = { id: string; run: Record<string, unknown>; outcome?: Record<string, unknown>; events?: object[] };
 
 /** A data directory holding `runs` and `pulls`, the way serve leaves them. */
 const data = (runs: Run[], pulls: object[] = []) => {
@@ -12,12 +12,14 @@ const data = (runs: Run[], pulls: object[] = []) => {
   write(dir, {
     'pulls.jsonl': pulls.map(p => JSON.stringify(p)).join('\n'),
     ...Object.fromEntries(
-      runs.flatMap(({ id, run, outcome = {} }) => [
+      runs.flatMap(({ id, run, outcome = {}, events = [] }) => [
         [`runs/${id}/run.json`, JSON.stringify({ workflow: 'issue', job: 'implement', attempt: 1, ...run })],
         [`runs/${id}/outcome.json`, JSON.stringify(outcome)],
         [
           `runs/${id}/events.jsonl`,
-          JSON.stringify({ ts: '2026-10-13T10:00:01.000Z', seq: 0, event: { type: 'start' } }),
+          [{ type: 'start' }, ...events]
+            .map((event, seq) => JSON.stringify({ ts: '2026-10-13T10:00:01.000Z', seq, event }))
+            .join('\n'),
         ],
       ])
     ),
@@ -125,6 +127,58 @@ describe('retro.mjs', () => {
         'rejected: issue/implement: push: branch "***" must be a plain name under "bothub/"',
       ])
     );
+  });
+
+  it('flags a cut-off ask, a crashed check at handoff, heavy tests, a wide brief, a repeated line and extra attempts', () => {
+    const edit = (filePath: string, lines: number) => ({
+      type: 'tool_call',
+      tool: 'edit',
+      input: { filePath, oldString: '', newString: Array.from({ length: lines }, (_, i) => `line ${i}`).join('\n') },
+    });
+    const brief = `## Task\nx\n\n## Criteria\n${[1, 2, 3, 4].map(n => `${n}. c Test: it('t${n}') in tests/a.test.ts`).join('\n')}\n`;
+    const coverage = failing('coverage', 'src/serve.ts:256: added code no test runs');
+    const dir = data([
+      {
+        id: id(1),
+        run: { status: 'succeeded', closure: 'done', job: 'triage', event },
+        outcome: {
+          accepted: [
+            { kind: 'reply', body: brief },
+            { kind: 'ask', question: 'The adapter emits usage but' },
+          ],
+        },
+      },
+      { id: id(2), run: { status: 'succeeded', event }, outcome: coverage, events: [edit('/work/src/a.ts', 2)] },
+      {
+        id: id(3),
+        run: { status: 'succeeded', event },
+        outcome: coverage,
+        events: [edit('/work/tests/a.test.ts', 30)],
+      },
+      {
+        id: id(4),
+        run: { status: 'succeeded', closure: 'handed-off', event },
+        outcome: {
+          checks: [{ check: 'review-tests', gating: false, pass: false, findings: 'a.ts:1:\nrun X failed: boom' }],
+        },
+      },
+    ]);
+    const hub = temp('retro-hub');
+    write(hub, {
+      'issues/2-x.md': '---\ntitle: x\n---\n## Done when\n\n- one\n- two\n\n## @morgan at now\n',
+      'workflows/issue.md': '---\njobs:\n  implement:\n    until:\n      checks: [coverage]\n      max: 2\n---\n',
+    });
+    expect(keys(dir, ['--hub', hub])).toEqual(
+      expect.arrayContaining([
+        'cut-title: issue/triage',
+        'crashed-handoff: issue/implement',
+        'test-heavy: issue/implement',
+        'wide-brief: issue/triage',
+        'same-line: coverage: src/serve.ts:256',
+        'over-attempts: issue/implement#2',
+      ])
+    );
+    expect(keys(dir).filter(key => /^(wide-brief|over-attempts)/.test(key))).toEqual([]);
   });
 
   it('gives each item a stable id from its key, and reports nothing for a clean run', () => {
