@@ -26,7 +26,7 @@ export const depsKey = async (worktree: string, deps: Deps) => {
 
 /** Runs the install in the worktree and moves the dirs it leaves to `entry`. */
 const install = async (worktree: string, deps: Deps, entry: string, launch: Launcher, hub?: string) => {
-  const { ok, output } = await runScript(deps.install, worktree, deps['timeout-minutes'], {}, launch, hub);
+  const { ok, output } = await runScript(deps.install, worktree, deps['timeout-minutes'], {}, launch, { hub });
   if (!ok) throw new Error(`installing dependencies failed: ${output.split('\n').slice(-10).join('\n')}`);
   const staged = `${entry}.${randomBytes(4).toString('hex')}.tmp`;
   try {
@@ -64,28 +64,45 @@ const exclude = async (common: string, deps: Deps) => {
   await appendFile(file, `${lines.at(-1) ? '\n' : ''}${missing.join('\n')}\n`);
 };
 
-/**
- * Makes the worktree's dependencies ready: installs them under `cache` once per key, then links each dir into the
- * worktree and records the install in its admin dir, where the sandbox finds it to mount read-only.
- */
-export const prepareDeps = async (worktree: string, deps: Deps, cache: string, launch: Launcher, hub?: string) => {
+const inFlight = new Map<string, Promise<void>>();
+
+/** Runs `work` once for `key` at a time: a caller arriving while it runs waits for the same promise. */
+const once = (key: string, work: () => Promise<void>) => {
+  const running = inFlight.get(key);
+  if (running) return running;
+  const started = work().finally(() => inFlight.delete(key));
+  inFlight.set(key, started);
+  return started;
+};
+
+const ready = async (worktree: string, deps: Deps, cache: string, launch: Launcher, hub?: string) => {
   const git = await gitDirs(worktree);
   if (!git) return;
   const entry = join(cache, await depsKey(worktree, deps));
   const marker = join(git.admin, depsMarker);
-  const current = (await readFile(marker, 'utf8').catch(() => '')).trim();
+  const [current] = (await readFile(marker, 'utf8').catch(() => '')).split('\n');
   const intact = await Promise.all(deps.dirs.map(dir => exists(join(worktree, dir, linked))));
   if (current === entry && intact.every(Boolean)) return;
   await rm(marker, { force: true });
-  if (!(await exists(entry))) {
-    await mkdir(cache, { recursive: true });
-    for (const dir of deps.dirs) await rm(join(worktree, dir), { recursive: true, force: true });
-    await install(worktree, deps, entry, launch, hub);
-  }
+  if (!(await exists(entry)))
+    await once(entry, async () => {
+      if (await exists(entry)) return;
+      await mkdir(cache, { recursive: true });
+      for (const dir of deps.dirs) await rm(join(worktree, dir), { recursive: true, force: true });
+      await install(worktree, deps, entry, launch, hub);
+    });
   await link(worktree, deps, entry);
   await exclude(git.common, deps);
-  await writeFile(marker, entry);
+  await writeFile(marker, [entry, ...deps.dirs].join('\n'));
 };
+
+/**
+ * Makes the worktree's dependencies ready: installs them under `cache` once per key, then links each dir into the
+ * worktree and records the install in its admin dir, where the sandbox finds it to mount read-only. Concurrent calls
+ * for one worktree, or for one install, share the work.
+ */
+export const prepareDeps = (worktree: string, deps: Deps, cache: string, launch: Launcher, hub?: string) =>
+  once(worktree, () => ready(worktree, deps, cache, launch, hub));
 
 /** A launcher that makes a worktree's dependencies ready before anything starts in it. */
 export const withDeps = (launch: Launcher, deps: Deps, cache: string, hub?: string): Launcher => ({

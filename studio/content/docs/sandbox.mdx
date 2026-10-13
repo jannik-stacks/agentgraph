@@ -14,7 +14,8 @@ Every harness run, script job and script check is one hardened `docker run --rm`
   kills it at the timeout,
 - the run's `home/` mounted read-write, so transcripts survive the container,
 - the worktree at `/work`, with the bare mirror mounted read-only so refs and objects cannot be
-  touched,
+  touched; for checks and the scripts their `over` runs, the worktree and its git admin
+  directory are read-only too,
 - the internal `bothub-sandbox` network with no route out. The run can reach the model proxy, an
   egress proxy that only allows GitHub and the npm registry, and a relay to the host's Ollama.
 
@@ -24,6 +25,11 @@ installed dependencies. The docker socket is never mounted.
 
 `/tmp` allows running programs because forbidding it would protect nothing: the worktree is
 writable and runnable anyway, and test runners and build tools run what they write to `/tmp`.
+
+A check judges the change and never edits it. In its read-only worktree the dependency directories
+stay writable, so tools keep their caches there (`node_modules/.vite`, for one). Anything else a
+check writes goes to `$TMPDIR`: a build check points its output there, for example
+`npm run build -- --outDir "$TMPDIR/dist"`, and so does a coverage report.
 
 No GitHub token goes inside. The run gets the proxy URL, its bot's own key and the decision API
 address. Pushes happen on the host, after checks.
@@ -45,7 +51,8 @@ Before the first harness run or script in a worktree, <Sym name="prepareDeps" />
 command, the directories and the lockfiles' contents. When `<data>/deps/<hash>` does not exist
 yet, it runs `install` in the worktree, in the same sandbox as any script, so the egress proxy
 lets it reach the npm registry, and moves the directories into the cache. Later runs with the
-same lockfiles skip the install.
+same lockfiles skip the install. Worktrees that need the same install at the same time share one,
+and `bothub serve --prewarm` runs it at startup, so the first event does not wait for it.
 
 Each worktree then gets its directories back as plain folders of links into the cache, which is
 mounted read-only at the same path. The packages cannot be changed, while tools can still write
@@ -61,8 +68,9 @@ version, delete `<data>/deps`.
 Before each container starts, bothub checks that docker answers, that the `bothub-sandbox`
 network exists and is internal, and that the image is present. If any of that fails, or docker
 cannot start the container, the run ends with status `failed` and an error starting with
-`sandbox-failed:`, and nothing runs on the host. A script check that cannot start fails the same
-way, so a gate never passes without its check running.
+`sandbox-failed:`, and nothing runs on the host. A check that cannot start, or runs out of time, is
+blocked: the job asks a human instead of passing the gate or sending the bot after a problem it
+did not cause.
 
 The environment can set the image (`BOTHUB_SANDBOX_IMAGE`), the resource limits
 (`BOTHUB_SANDBOX_MEMORY`, `BOTHUB_SANDBOX_CPUS`, `BOTHUB_SANDBOX_PIDS`) and the model proxy URL

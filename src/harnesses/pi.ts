@@ -3,7 +3,7 @@ import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
 
 type Block = { type: 'text'; text: string } | { type: string };
 
-type Usage = { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+type Usage = { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } };
 
 type Message =
   | {
@@ -89,6 +89,8 @@ const reply = (m: Assistant): AgentEvent[] => {
             type: 'usage' as const,
             inputTokens: (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0),
             outputTokens: u.output ?? 0,
+            ...(u.cacheRead && { cachedInputTokens: u.cacheRead }),
+            ...(u.cost?.total && { costUsd: u.cost.total }),
           },
         ]
       : []),

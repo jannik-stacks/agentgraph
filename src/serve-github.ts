@@ -8,18 +8,24 @@ import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import type { JobResult } from './pipeline.ts';
+import { fileQueue, worker, type WorkerOptions } from './queue.ts';
 import { limiter } from './runner.ts';
-import { runEvent } from './serve.ts';
+import { checkLine, laneOf, runEvent } from './serve.ts';
 import { openStore } from './store.ts';
 import type { BotEvent } from './types.ts';
 import { webhook } from './webhook.ts';
 import { workspaces } from './workspace.ts';
 
+/** A webhook delivery waiting to run: its event and the installation that sent it. */
+type Delivery = { event: BotEvent; installation?: number };
+
 /**
  * A hub driven by GitHub App webhooks: receives deliveries on `webhookPort` (the only port to expose through a
- * tunnel), acknowledges repeated delivery ids from the store's ledger without running them, runs the jobs as the installation that sent
- * it, and serves the studio API on `port`. Events from repositories outside `repos`, when given, are ignored. Events
- * run one after another; resolves to a `stop` function once listening.
+ * tunnel), acknowledges repeated delivery ids from the store's ledger without running them, runs the jobs as the
+ * installation that sent it, and serves the studio API on `port`. Events from repositories outside `repos`, when
+ * given, are ignored. Deliveries wait in `<data>/queue` and run like `serveHub`'s: up to `concurrency` at once, one at a
+ * time per issue or pull request, and a failing one again after a wait (`retry`) until it moves to
+ * `<data>/queue/failed`. Resolves once listening.
  */
 export const serveGitHub = async ({
   hub,
@@ -32,6 +38,8 @@ export const serveGitHub = async ({
   webhookPort = 5183,
   log = line => process.stderr.write(`${line}\n`),
   onResults,
+  concurrency = 4,
+  retry = {},
 }: {
   hub: string;
   data: string;
@@ -43,19 +51,21 @@ export const serveGitHub = async ({
   webhookPort?: number;
   log?: (line: string) => void;
   onResults?: (event: BotEvent, results: JobResult[]) => void;
+  concurrency?: number;
+  retry?: Pick<WorkerOptions<Delivery>, 'tries' | 'backoff'>;
 }) => {
   const dir = resolve(hub);
   const root = resolve(data);
   const store = openStore(root);
   const spaces = workspaces({ dataDir: root, token: repo => app.repoToken(repo) });
-  const limit = await Effect.runPromise(limiter(1));
+  const limit = await Effect.runPromise(limiter(concurrency));
 
-  const handle = async (event: BotEvent, installation: number | undefined) => {
+  const handle = async ({ event, installation }: Delivery) => {
     if (repos && !repos.includes(event.repo)) return log(`event ${event.id} from ${event.repo} ignored`);
     const compiled = compile(await readHub(dir));
     if (!compiled.ok) {
       for (const e of compiled.errors) log(`hub: ${e.path}: ${e.message}`);
-      return;
+      throw new Error(`the hub does not compile (${compiled.errors.length} errors)`);
     }
     const { config } = compiled;
     const jobs = plan(event, config);
@@ -80,18 +90,31 @@ export const serveGitHub = async ({
         if (e.type === 'start' || e.type === 'end' || e.type === 'error')
           log(`${run.workflow}/${run.job} ${run.id} ${e.type}${'message' in e ? ` ${e.message}` : ''}`);
       },
+      onCheck: (run, check, verdict) => log(checkLine(run, check, verdict)),
     });
     for (const r of results)
       log(`${r.workflow}/${r.job}: ${'skipped' in r ? `skipped, ${r.skipped}` : `${r.run.status} ${r.run.id}`}`);
     if (results.length) onResults?.(event, results);
   };
 
-  let queue = Promise.resolve();
+  const queue = fileQueue<Delivery>(join(root, 'queue'));
+  const work = worker(queue, handle, e => log(`error: ${e.message}`), {
+    concurrency,
+    key: ({ id, item }) => laneOf({ id, item: item.event }),
+    ...retry,
+  });
+  void work.wake();
+  let pushing = Promise.resolve();
   const receiver = webhook({
     secret,
     seen: async id => !(await store.deliver(id)),
     onEvent: (event, _id, { installation }) => {
-      queue = queue.then(() => handle(event, installation)).catch((e: Error) => log(`error: ${e.message}`));
+      pushing = pushing
+        .then(async () => {
+          await queue.push(event.id, { event, ...(installation !== undefined && { installation }) });
+          void work.wake();
+        })
+        .catch((e: Error) => log(`error: ${e.message}`));
     },
     onError: (e, id) => log(`delivery ${id}: ${(e as Error).message}`),
   });
@@ -102,10 +125,14 @@ export const serveGitHub = async ({
   const close = (server: typeof hooks) => new Promise(done => server.close(done));
   return {
     ports: { webhook: portOf(hooks), studio: portOf(studio) },
-    idle: () => queue,
+    idle: async () => {
+      await pushing;
+      await work.idle();
+    },
     stop: async () => {
       await Promise.all([close(hooks), close(studio)]);
-      await queue;
+      await pushing;
+      await work.stop();
     },
   };
 };

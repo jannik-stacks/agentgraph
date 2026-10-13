@@ -98,9 +98,9 @@ const hostUser = () => `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 10
 
 /**
  * `docker run` for one command in a hardened, throwaway container: read-only root, tmpfs `/tmp` (executable, since
- * the worktree is writable and executable anyway and tools run what they build there), the host user (never
- * root), no capabilities, no new privileges, resource limits, the internal network and no image pulls. The worktree
- * is `/work` and the working directory; `home` is mounted as `/home/agent` when given; `stdin` keeps stdin open. `env` is set in argv; `secrets`
+ * tools run what they build there), the host user (never root), no capabilities, no new privileges, resource
+ * limits, the internal network and no image pulls. The worktree is `/work` and the working directory, read-only with
+ * `readonly`; `home` is mounted as `/home/agent` when given; `stdin` keeps stdin open. `env` is set in argv; `secrets`
  * are passed by name only, so their values come from the docker client's environment (the returned `env`) and never
  * appear in argv.
  * @throws SandboxError for a root user or a mount of `/`, `/run`, `/var/run` or a docker socket.
@@ -117,6 +117,7 @@ export const dockerRun = ({
   config = sandboxConfig(),
   user = hostUser(),
   stdin = false,
+  readonly = false,
 }: {
   name: string;
   worktree: string;
@@ -129,6 +130,7 @@ export const dockerRun = ({
   config?: ReturnType<typeof sandboxConfig>;
   user?: string;
   stdin?: boolean;
+  readonly?: boolean;
 }) => {
   if (!/^[1-9][0-9]*:[0-9]+$/.test(user)) throw new SandboxError(`refusing to run a container as user "${user}"`);
   return {
@@ -160,7 +162,7 @@ export const dockerRun = ({
       config.cpus,
       '--pids-limit',
       config.pids,
-      ...bind({ src: worktree, dst: inside.work }),
+      ...bind({ src: worktree, dst: inside.work, readonly }),
       ...(home ? bind({ src: home, dst: inside.home }) : []),
       ...mounts.flatMap(bind),
       '--workdir',
@@ -195,14 +197,15 @@ export const sandboxReady = async (config = sandboxConfig()) => {
 
 /**
  * A worktree's `.git` file points at its admin dir inside the bare mirror. The mirror is mounted read-only at its
- * host path and only the admin dir read-write, so git works in `/work` while refs and objects stay untouchable.
+ * host path and the admin dir read-write unless `readonly`, so git works in `/work` while refs and objects stay
+ * untouchable.
  */
-export const gitMounts = async (worktree: string): Promise<Mount[]> => {
+export const gitMounts = async (worktree: string, readonly = false): Promise<Mount[]> => {
   const dirs = await gitDirs(worktree);
   if (!dirs) return [];
   return [
     { src: dirs.common, dst: dirs.common, readonly: true },
-    { src: dirs.admin, dst: dirs.admin },
+    { src: dirs.admin, dst: dirs.admin, ...(readonly && { readonly }) },
   ];
 };
 
@@ -216,14 +219,23 @@ export const gitDirs = async (worktree: string) => {
   return { admin, common };
 };
 
-/** The file in a worktree's admin dir naming the installed dependencies its dirs link to. */
+/**
+ * The file in a worktree's admin dir naming the installed dependencies its dirs link to: the install on the first
+ * line, then one line per dir.
+ */
 export const depsMarker = 'bothub-deps';
 
-/** The installed dependencies a worktree links to, mounted read-only at their own path so the links resolve. */
-export const depsMounts = async (worktree: string): Promise<Mount[]> => {
+/**
+ * The installed dependencies a worktree links to, mounted read-only at their own path so the links resolve. In a
+ * `readonly` worktree its dependency dirs stay writable, since tools keep their caches there.
+ */
+export const depsMounts = async (worktree: string, readonly = false): Promise<Mount[]> => {
   const dirs = await gitDirs(worktree);
-  const entry = dirs && (await readFile(join(dirs.admin, depsMarker), 'utf8').catch(() => '')).trim();
-  return entry ? [{ src: entry, dst: entry, readonly: true }] : [];
+  const marker = dirs ? await readFile(join(dirs.admin, depsMarker), 'utf8').catch(() => '') : '';
+  const [entry, ...linked] = marker.split('\n').filter(Boolean);
+  if (!entry) return [];
+  const scratch = readonly ? linked.map(dir => ({ src: join(worktree, dir), dst: join(inside.work, dir) })) : [];
+  return [{ src: entry, dst: entry, readonly: true }, ...scratch];
 };
 
 const bothubRoot = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');

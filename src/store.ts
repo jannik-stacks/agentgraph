@@ -53,15 +53,20 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
 
 /**
  * One check's result after an attempt. Only gating checks (not in `shadow` mode) can fail the attempt; a `skipped`
- * check matched no changed file and passes only when the check allows it.
+ * check matched no changed file and passes only when the check allows it. A `blocked` check could not run (budget,
+ * timeout, sandbox): it pauses the job for a human instead of going back to the bot.
  */
 export type Verdict = {
   check: string;
   pass: boolean;
   gating: boolean;
   skipped?: boolean;
+  blocked?: boolean;
   findings?: string;
   runs?: string[];
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
 };
 
 /**
@@ -267,6 +272,7 @@ export const openStore = (dir: string, owner: Owner = self) => {
   };
 
   return {
+    dir,
     create,
     update,
     append,

@@ -140,17 +140,19 @@ const variant = (schema: JsonSchema | undefined, value: unknown): JsonSchema | u
  */
 export type UnionChoice = { label: string; option: JsonSchema; value?: unknown };
 
-/** The choices a union offers, flattening enum options into one choice per value. */
-export const unionChoices = (options: JsonSchema[]): UnionChoice[] =>
-  options.flatMap((option, i) => {
+/** The choices a union offers, flattening enum options into one choice per value; an object option named like a value says it takes options. */
+export const unionChoices = (options: JsonSchema[]): UnionChoice[] => {
+  const values = new Set(options.flatMap(option => option.enum?.map(String) ?? []));
+  return options.flatMap((option, i) => {
     if (option.enum) return option.enum.map(value => ({ label: String(value), option, value }));
     const discriminator = Object.values(option.properties ?? {}).find(p => p.const !== undefined)?.const;
     if (discriminator !== undefined) return [{ label: String(discriminator), option }];
     const t = typeOf(option);
     const fields = option.required?.length ? option.required : Object.keys(option.properties ?? {});
     const label = t === 'array' ? 'list' : t === 'object' ? fields.join(' and ') || 'map' : (t ?? `option ${i + 1}`);
-    return [{ label, option }];
+    return [{ label: values.has(label) ? `${label} with options` : label, option }];
   });
+};
 
 /** The choice `value` is, if any. */
 export const currentChoice = (choices: UnionChoice[], value: unknown) =>

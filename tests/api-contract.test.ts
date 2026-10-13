@@ -50,7 +50,8 @@ describe('studio and API contract', () => {
   it('finds the API paths the studio fetches', () => {
     const paths = [...studioPaths().keys()];
     expect(paths).toContain('/api/hub');
-    expect(paths.some(p => /^\/api\/runs\/\$\{.*\}\/stream$/.test(p))).toBe(true);
+    expect(paths).toContain('/api/stream');
+    expect(paths).toContain('/api/info');
   });
 
   it('serves every API path the studio fetches', async () => {

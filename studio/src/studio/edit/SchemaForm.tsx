@@ -8,7 +8,7 @@ import {
   switchChoice,
   unionChoices,
 } from '../../../../src/hub-files.ts';
-import { Button, Chip, cx, RemovableChip, Segmented, useCommittedText } from '../../ui.tsx';
+import { Button, Chip, cx, RemovableChip, Segmented, Select, useCommittedText } from '../../ui.tsx';
 
 export type Path = (string | number)[];
 type Target = { href: string; onClick: () => void };
@@ -124,8 +124,9 @@ const EnumField = ({ options, value, onChange, path, required }: FieldProps & { 
       />
     );
   return (
-    <select
-      className={input}
+    <Select
+      wrapperClassName="w-full"
+      className="w-full py-1 text-[13px]"
       value={(value as string | undefined) ?? ''}
       onChange={e => set(e.target.value || undefined)}
     >
@@ -133,7 +134,7 @@ const EnumField = ({ options, value, onChange, path, required }: FieldProps & { 
       {options.map(o => (
         <option key={o}>{o}</option>
       ))}
-    </select>
+    </Select>
   );
 };
 
@@ -579,12 +580,12 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
       <div className="flex items-center gap-1.5">
         {free ? (
           free.length > 0 && (
-            <select className={cx(field, 'py-0.5 text-xs')} value="" onChange={e => add(e.target.value)}>
+            <Select value="" onChange={e => add(e.target.value)}>
               <option value="">+ add {singular}</option>
               {free.map(k => (
                 <option key={k}>{k}</option>
               ))}
-            </select>
+            </Select>
           )
         ) : (
           <>

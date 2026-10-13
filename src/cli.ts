@@ -20,7 +20,7 @@ import { buildSpec, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
 import { sandboxConfig, sandboxNetwork } from './sandbox.ts';
 import { Bot, Check, Hub, Note, Skill, Workflow } from './schema.ts';
-import { localOrigin, runEvent, serveHub } from './serve.ts';
+import { checkLine, localOrigin, runEvent, serveHub } from './serve.ts';
 import { serveGitHub } from './serve-github.ts';
 import { simulate } from './sim.ts';
 import { openStore, runId, type Run } from './store.ts';
@@ -34,10 +34,22 @@ const data = { type: 'string', description: 'Data directory (default: $BOTHUB_DA
 const eventName = { type: 'string', description: 'GitHub event name, e.g. issue_comment', required: true } as const;
 const payload = { type: 'positional', description: 'Webhook payload JSON file', required: true } as const;
 const followInterval = 500;
+const concurrency = {
+  type: 'string',
+  description: 'Events and agent sessions that run at once; one event at a time per issue',
+  default: '4',
+} as const;
 
 const asJson = (flag: boolean | undefined) => flag ?? !process.stdout.isTTY;
 const print = (text: string) => process.stdout.write(text.endsWith('\n') ? text : text + '\n');
 const fail = (text: string) => process.stderr.write(`bothub: ${text}\n`);
+
+/** A positive whole number from a flag, or undefined after reporting why it is not one. */
+const positive = (flag: string, value: string) => {
+  const n = Number(value);
+  if (Number.isInteger(n) && n > 0) return n;
+  fail(`--${flag} must be a positive whole number, not "${value}"`);
+};
 
 /** The sandbox settings, or undefined after reporting why they are rejected. */
 const sandbox = () => {
@@ -289,7 +301,7 @@ const run = defineCommand({
       event,
       store,
       workspaces: workspaces({ dataDir: root, ...(app && { token: app.token }) }),
-      limit: await Effect.runPromise(limiter(1)),
+      limit: await Effect.runPromise(limiter()),
       env,
       ...(app && { gh: app.gh }),
       ...(issues && { issues }),
@@ -297,6 +309,7 @@ const run = defineCommand({
       hub: resolve(args.dir),
       data: resolve(root),
       onEvent: (r, record) => process.stderr.write(`${r.workflow}/${r.job} ${describe(record.event)}\n`),
+      onCheck: (r, check, verdict) => process.stderr.write(`${checkLine(r, check, verdict)}\n`),
     });
     if (asJson(args.json)) print(JSON.stringify(results));
     else for (const r of results) print(summary(r));
@@ -407,10 +420,14 @@ const serveCmd = defineCommand({
     repo: { type: 'string', description: 'Local bare repository used as origin', required: true },
     name: { type: 'string', description: 'Repository name events carry (default: local/<repo>)' },
     port: { type: 'string', description: 'Studio API port', default: '5181' },
+    concurrency,
+    prewarm: { type: 'boolean', description: "Install the hub's deps at start instead of on the first run" },
   },
   async run({ args }) {
     const config = sandbox();
     if (!config) return 2;
+    const at = positive('concurrency', args.concurrency);
+    if (!at) return 2;
     const root = dataDir(args.data);
     const result = await loadConfig(args.hub);
     if (!result.ok) {
@@ -429,6 +446,8 @@ const serveCmd = defineCommand({
       ...(args.name && { repo: args.name }),
       env: await loadEnv(root),
       port: Number(args.port),
+      concurrency: at,
+      ...(args.prewarm && { prewarm: true }),
     });
     process.stderr.write(`sandbox ${config.image} on ${sandboxNetwork}, data ${root}\n`);
     await new Promise<void>(done => {
@@ -448,9 +467,12 @@ const webhookServe = defineCommand({
     repo: { type: 'string', description: 'Comma-separated owner/repo allowlist (default: every installed repository)' },
     port: { type: 'string', description: 'Studio API port', default: '5181' },
     'webhook-port': { type: 'string', description: 'Webhook port, the only one to expose', default: '5183' },
+    concurrency,
   },
   async run({ args }) {
     if (!sandbox()) return 2;
+    const at = positive('concurrency', args.concurrency);
+    if (!at) return 2;
     const root = dataDir(args.data);
     const env = await loadEnv(root);
     const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
@@ -472,6 +494,7 @@ const webhookServe = defineCommand({
       ...(args.repo && { repos: args.repo.split(',').map(r => r.trim()) }),
       port: Number(args.port),
       webhookPort: Number(args['webhook-port']),
+      concurrency: at,
     });
     await new Promise<void>(done => {
       process.once('SIGINT', done);

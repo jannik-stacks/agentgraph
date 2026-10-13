@@ -5,8 +5,10 @@ import { Readable } from 'node:stream';
 import { compile } from './config.ts';
 import { fingerprint, srcDir as ownSrc } from './fingerprint.ts';
 import { hubWriteRoutes } from './hub-write.ts';
+import { liveStream, watchRuns } from './live.ts';
 import { readHub } from './load.ts';
 import { alive, type Run, type RunStatus, type Store } from './store.ts';
+import type { Price } from './usage.ts';
 
 export type Handler = (req: Request) => Promise<Response>;
 
@@ -108,6 +110,9 @@ export const readFiles = async (roots: Root[]) => {
  * `GET /api/runs/:id/files` lists a run's raw harness files and `GET /api/runs/:id/files/<path>` serves one.
  * `GET /api/runs/:id/stream` tails a run's events as Server-Sent Events and ends with an `end` event once the run
  * is no longer queued or running.
+ * `GET /api/stream` is the live view of the store as Server-Sent Events (see `liveStream`); `?run=<id>` also follows
+ * one run's events, resuming after `Last-Event-ID` or from `?from=`. `GET /api/live` answers its snapshot as JSON and
+ * `GET /api/prices` the estimated list prices from `prices`.
  * `GET /api/build` compares the fingerprint of `srcDir` when the handler was made with the one on disk now, so a
  * client can tell the server runs older code than its source.
  */
@@ -117,14 +122,25 @@ export const api = ({
   roots = [],
   pollMs = 500,
   srcDir = ownSrc,
+  prices = async () => ({}),
+  watch = {},
 }: {
   hubDir: string;
   store: Store;
   roots?: Root[];
   pollMs?: number;
   srcDir?: string;
+  prices?: () => Promise<Record<string, Price & { model: string }>>;
+  watch?: Parameters<typeof watchRuns>[1];
 }): Handler => {
   const running = fingerprint(srcDir);
+  const watcher = watchRuns(store.dir, watch);
+  const resumeFrom = (req: Request, url: URL) => {
+    const last = req.headers.get('last-event-id');
+    const resumed = last ? offset(last) : undefined;
+    return resumed === undefined ? offset(url.searchParams.get('from')) : resumed + 1;
+  };
+  const sseHeaders = { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' };
   const stream = (id: string, from: number, signal: AbortSignal) => {
     const encoder = new TextEncoder();
     let cancelled = false;
@@ -174,8 +190,44 @@ export const api = ({
         return Response.json({ running, disk, stale: disk !== running });
       },
     ],
+    [
+      /^\/api\/info$/,
+      async () =>
+        Response.json({
+          hub: hubDir,
+          data: store.dir,
+          dataReal: await realpath(store.dir).catch(() => null),
+          pid: process.pid,
+          version: running,
+        }),
+    ],
     [/^\/api\/files$/, async () => Response.json(await readFiles([{ name: 'hub', dir: hubDir }, ...roots]))],
     [/^\/api\/runs$/, async () => Response.json(await store.list())],
+    [
+      /^\/api\/stream$/,
+      async (req, url) => {
+        const from = resumeFrom(req, url);
+        if (from === undefined)
+          return Response.json({ error: '"from" must be a non-negative integer' }, { status: 400 });
+        const run = url.searchParams.get('run') || undefined;
+        return new Response(liveStream({ watcher, dir: store.dir, run, from, signal: req.signal }), {
+          headers: sseHeaders,
+        });
+      },
+    ],
+    [
+      /^\/api\/live$/,
+      async () => {
+        const subscription = watcher.subscribe(() => {});
+        try {
+          await subscription.ready;
+          return Response.json({ runs: watcher.rows(), pulls: watcher.pulls() });
+        } finally {
+          subscription.close();
+        }
+      },
+    ],
+    [/^\/api\/prices$/, async () => Response.json(await prices())],
     [/^\/api\/needs-human$/, async () => Response.json(await needsHuman(store))],
     [
       /^\/api\/runs\/([^/]+)$/,
@@ -214,15 +266,11 @@ export const api = ({
     [
       /^\/api\/runs\/([^/]+)\/stream$/,
       async (req, url, id) => {
-        const last = req.headers.get('last-event-id');
-        const resumed = last ? offset(last) : undefined;
-        const from = resumed === undefined ? offset(url.searchParams.get('from')) : resumed + 1;
+        const from = resumeFrom(req, url);
         if (from === undefined)
           return Response.json({ error: '"from" must be a non-negative integer' }, { status: 400 });
         if (!(await store.read(id))) return notFound();
-        return new Response(stream(id, from, req.signal), {
-          headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' },
-        });
+        return new Response(stream(id, from, req.signal), { headers: sseHeaders });
       },
     ],
   ];
@@ -276,5 +324,10 @@ export const serve = (handler: Handler, port: number) => {
         res.end(JSON.stringify({ error: e.message }));
       });
   });
-  return new Promise<typeof server>(resolve => server.listen(port, '127.0.0.1', () => resolve(server)));
+  return new Promise<typeof server>((resolve, reject) => {
+    server.once('error', (e: NodeJS.ErrnoException) =>
+      reject(e.code === 'EADDRINUSE' ? new Error(`port ${port} is in use by another studio or server`) : e)
+    );
+    server.listen(port, '127.0.0.1', () => resolve(server));
+  });
 };

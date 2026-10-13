@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import { localOrigin, serveHub } from '../src/serve.ts';
+import { checkLine, laneOf, localOrigin, serveHub } from '../src/serve.ts';
+import { fileQueue } from '../src/queue.ts';
 import { unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import type { JobResult } from '../src/pipeline.ts';
@@ -96,14 +97,14 @@ describe('serveHub', () => {
     }
   });
 
-  it('keeps serving through a hub edit that does not compile, and runs again once it is fixed', async () => {
+  it('keeps an event that meets a hub edit that does not compile, and runs it once the hub is fixed', async () => {
     const hub = temp('serve-hub');
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(join(hub, path, '..'), { recursive: true });
       writeFileSync(join(hub, path), text);
     }
     const lines: string[] = [];
-    const done: JobResult[][] = [];
+    const done: [BotEvent, JobResult[]][] = [];
     const served = await serveHub({
       hub,
       data: temp('serve-data'),
@@ -115,23 +116,107 @@ describe('serveHub', () => {
       log: line => lines.push(line),
       adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
       launch: unsandboxed,
-      onResults: (_, results) => done.push(results),
+      onResults: (event, results) => done.push([event, results]),
+      retry: { backoff: () => 300 },
     });
     const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
-    const settle = async (check: () => boolean) => {
-      while (!check()) await new Promise(r => setTimeout(r, 20));
-      await served.idle();
-    };
     try {
       writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!.replace('tools: [read]', 'tools: [Read]'));
       await issues.comment(1, '/bothub why');
-      await settle(() => lines.some(line => line.startsWith('hub: bots/helper.md')));
+      while (!lines.some(line => line.includes('the hub does not compile'))) await new Promise(r => setTimeout(r, 20));
+      expect(lines.some(line => line.startsWith('hub: bots/helper.md'))).toBe(true);
       expect(done).toEqual([]);
 
       writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!);
       await issues.comment(1, '/bothub why, again');
-      await settle(() => done.length > 0);
-      expect(done.flat().map(r => ('run' in r ? r.run.status : r.skipped))).toEqual(['succeeded']);
+      while (done.length < 2) await new Promise(r => setTimeout(r, 20));
+      await served.idle();
+      expect(done.map(([event, results]) => [event.body, results.map(r => 'run' in r && r.run.status)])).toEqual([
+        ['/bothub why', ['succeeded']],
+        ['/bothub why, again', ['succeeded']],
+      ]);
+    } finally {
+      await served.stop();
+    }
+  });
+
+  it('moves an event that keeps failing to the failed items', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    writeFileSync(join(hub, 'bots/helper.md'), 'not a bot');
+    const data = temp('serve-data');
+    const served = await serveHub({
+      hub,
+      data,
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 20,
+      log: () => {},
+      launch: unsandboxed,
+      retry: { tries: 2, backoff: () => 10 },
+    });
+    try {
+      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
+      const queue = fileQueue<BotEvent>(join(data, 'queue'));
+      while (!(await queue.failed()).length) await new Promise(r => setTimeout(r, 20));
+      const [failed] = await queue.failed();
+      expect(failed).toMatchObject({ item: { body: '/bothub why' }, tries: 2 });
+      expect(failed?.error).toMatch(/^the hub does not compile/);
+      expect(await queue.list()).toEqual([]);
+    } finally {
+      await served.stop();
+    }
+  });
+
+  it('runs two issues at once and leaves events a bot made that start nothing out of the queue', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    writeFileSync(
+      join(hub, 'issues/2-other.md'),
+      '---\ntitle: Another\nstate: open\nlabels: []\nauthor: morgan\n---\n\nHow?\n'
+    );
+    const timed = {
+      command: () => ({
+        cmd: process.execPath,
+        args: ['-e', `setTimeout(() => console.log(${JSON.stringify(reply)}), 300)`],
+        env: {},
+      }),
+      parseLine: adapter.parseLine,
+    };
+    const lines: string[] = [];
+    const data = temp('serve-data');
+    const served = await serveHub({
+      hub,
+      data,
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 20,
+      log: line => lines.push(line),
+      adapters: { opencode: { name: 'opencode', ...timed }, pi: { name: 'pi', ...timed } },
+      launch: unsandboxed,
+    });
+    try {
+      const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
+      await issues.comment(1, '/bothub one');
+      await issues.comment(2, '/bothub two');
+      while (lines.filter(line => line.startsWith('issue/answer: succeeded')).length < 2)
+        await new Promise(r => setTimeout(r, 20));
+      await served.idle();
+      const runs = await openStore(data).list();
+      const [a, b] = runs.map(r => [Date.parse(r.startedAt!), Date.parse(r.endedAt!)] as const);
+      expect(a![0] < b![1] && b![0] < a![1]).toBe(true);
+      expect(lines.filter(line => line.includes('by @bothub[bot]: 0 jobs'))).toHaveLength(2);
+      expect(await fileQueue(join(data, 'queue')).list()).toEqual([]);
     } finally {
       await served.stop();
     }
@@ -223,5 +308,22 @@ describe('serveHub', () => {
     } finally {
       await served.stop();
     }
+  });
+});
+
+describe('checkLine and laneOf', () => {
+  it('names a check start and its verdict with its time, and keeps one lane per issue', () => {
+    const run = { workflow: 'pr', job: 'fix', id: 'r1' } as Parameters<typeof checkLine>[0];
+    const verdict = { check: 'tests', gating: true, pass: false };
+    expect(checkLine(run, 'tests')).toBe('pr/fix r1 check tests start');
+    expect(checkLine(run, 'tests', { ...verdict, pass: true, durationMs: 1234 })).toBe(
+      'pr/fix r1 check tests pass in 1.2s'
+    );
+    expect(checkLine(run, 'tests', { ...verdict, blocked: true })).toBe('pr/fix r1 check tests blocked');
+    expect(checkLine(run, 'tests', { ...verdict, skipped: true })).toBe('pr/fix r1 check tests skipped');
+    expect(checkLine(run, 'tests', verdict)).toBe('pr/fix r1 check tests fail');
+    const event = { repo: 'acme/app', number: 3 } as BotEvent;
+    expect(laneOf({ id: 'e1', item: event })).toBe('acme/app#3');
+    expect(laneOf({ id: 'e2', item: { repo: 'acme/app' } as BotEvent })).toBe('acme/app#e2');
   });
 });

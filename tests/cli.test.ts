@@ -69,6 +69,17 @@ describe('cli', () => {
     expect(io.out[0]).toMatch(new RegExp(`, ${io.err.length} warnings?\\n$`));
   });
 
+  it('serve takes only a positive whole number of events at once', async () => {
+    const { err } = capture();
+    const hub = ['--hub', temp('cli'), '--repo', temp('cli')];
+    expect(await main(['serve', ...hub, '--concurrency', '0'])).toBe(2);
+    await main(['webhook', 'serve', ...hub, '--concurrency', 'many']);
+    expect(err.join('')).toBe(
+      'bothub: --concurrency must be a positive whole number, not "0"\n' +
+        'bothub: --concurrency must be a positive whole number, not "many"\n'
+    );
+  });
+
   it('schema prints a JSON Schema for each file kind', async () => {
     const io = capture();
     expect(await main(['schema'])).toBe(0);

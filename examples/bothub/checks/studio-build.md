@@ -1,7 +1,7 @@
 ---
 type: script
 description: The studio type-checks and builds, and no browser code reaches a Node builtin.
-run: npm --prefix studio run build --silent
+run: npm --prefix studio run build --silent -- --outDir "$TMPDIR/studio-dist" --emptyOutDir
 paths: [src/**, studio/**]
 mode: block
 ---

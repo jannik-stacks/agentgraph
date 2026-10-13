@@ -45,7 +45,17 @@ describe('union forms', () => {
   it('offers each value of over, and a script field for run and each', () => {
     const over = check.oneOf![0]!.properties!.over!;
     const choices = unionChoices(over.anyOf!);
-    expect(choices.map(c => c.label)).toEqual(['diff', 'added', 'event', 'each-file', 'each-hunk', 'run', 'each']);
+    expect(choices.map(c => c.label)).toEqual([
+      'diff',
+      'added',
+      'event',
+      'each-file',
+      'each-hunk',
+      'run',
+      'each',
+      'each-hunk with options',
+    ]);
+    expect(currentChoice(choices, { 'each-hunk': { context: 'function' } })?.label).toBe('each-hunk with options');
     expect(over.default).toBe('diff');
     expect(currentChoice(choices, 'each-hunk')?.label).toBe('each-hunk');
     expect(currentChoice(choices, { each: 'ls', max: 3 })?.label).toBe('each');

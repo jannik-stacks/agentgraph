@@ -138,7 +138,7 @@ export const githubPulls = (gh: GitHub, repo: string): Pulls => {
 };
 
 /** One line of the log, besides its `ts`. */
-type Op =
+export type Op =
   | {
       number: number;
       op: 'open';
@@ -157,7 +157,8 @@ type Op =
 /** A local request with every commit its branch was at, in order. */
 type Folded = Pull & { head: string; shas: string[] };
 
-const fold = (ops: Op[], url: (number: number) => string) => {
+/** The requests an op log describes, each at its latest state. */
+export const fold = (ops: Op[], url: (number: number) => string) => {
   const pulls = new Map<number, Folded>();
   for (const op of ops) {
     const pull = pulls.get(op.number);

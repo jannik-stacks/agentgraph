@@ -27,7 +27,7 @@ A glob that leaves the hub or reaches `hub.yaml`, `bots/` or `workflows/` is an 
 
 A check has a `type`, and each type takes its own fields: `script` takes `run`, `bot` takes `bot`
 and an optional `skill`, and `decide` takes an optional `threshold`. All of them take `over`,
-`paths`, `mode` and `description`. The body is the bot's prompt or the decide question. A field
+`paths`, `mode`, `concurrency` and `description`. The body is the bot's prompt or the decide question. A field
 the type does not take is an error, and a missing `type` names the one the fields suggest. A
 check that no job lists in `until` or `requires` never runs, and `bothub check` warns about it.
 

@@ -62,7 +62,15 @@ every job in a sandbox container and pushes to that origin only; pull requests a
 The studio API is served on 5181 (`--port` to change it). To watch the runs in the studio
 dashboard instead, give serve another port and point the studio at the same data directory:
 `cd ../../studio && npm run dev -- --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e` (API on 5181,
-UI on 5182).
+UI on 5182). Set `BHM_API_PORT` and `BHM_PORT` to run a second studio beside it; a port already in
+use stops the studio with a message instead of a crash.
+
+## Prices
+
+The dashboard shows billed cost as the harness reports it and, separately, an estimate at list
+prices. Prices come from the proxy's `/model/info` when it has them, then from `prices.json`
+(USD per million tokens, aliases mapped to models). The ChatGPT login bills nothing per token, so
+smart and writer runs show $0 billed and their list-price estimate.
 
 ## Compute profile
 

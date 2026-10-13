@@ -20,9 +20,13 @@ const noNodeInBrowser = (): Plugin => ({
   },
 });
 
-export const apiPort = 5181;
+export const apiPort = Number(process.env.BHM_API_PORT) || 5181;
 
-const server = { port: 5182, strictPort: true, proxy: { '/api': `http://127.0.0.1:${apiPort}` } };
+const server = {
+  port: Number(process.env.BHM_PORT) || 5182,
+  strictPort: true,
+  proxy: { '/api': `http://127.0.0.1:${apiPort}` },
+};
 
 export default defineConfig({
   appType: 'spa',

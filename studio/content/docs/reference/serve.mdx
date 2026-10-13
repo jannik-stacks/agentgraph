@@ -13,8 +13,8 @@ event by <Sym name="changeEvent" />.
 ## Serving
 
 <Sym name="serveHub" /> is the local hub: it watches `issues/`, runs each change through the
-[pipeline](/docs/reference/pipeline) one event at a time, plays GitHub's part with a local bare repository and serves
-the read-only <Sym name="api" /> that BHM reads. <Sym name="serveGitHub" />
+[pipeline](/docs/reference/pipeline), plays GitHub's part with a local bare repository and serves the read-only
+<Sym name="api" /> that BHM reads. <Sym name="serveGitHub" />
 is the same for a GitHub App, with short-lived installation tokens that no bot ever holds.
 
 Comments and new issues written while `serve` was stopped run when it starts again: each change
@@ -48,7 +48,20 @@ item under `<data>/queue/`, named so they sort in push order. Taking an item ren
 carry the owning process, so two processes on one data directory never run the same item, and an
 item a stopped process had taken goes back to waiting when the queue is next opened.
 
-<Sym name="worker" /> runs items one after another.
+<Sym name="worker" /> runs up to `--concurrency` items at once, 4 unless set, and never two for the same issue or pull
+request, so the events of one issue run in the order they came. The same number caps the agent sessions running at once
+across all events. An event a bot made that starts no job is logged and never queued.
+
+An item whose handling fails, for one because the hub does not compile after an edit, waits and
+is tried again, 5 seconds later and twice as long each time after. After 5 tries it moves to
+`<data>/queue/failed/` with its last error, and `failed` lists it. Nothing is dropped.
+
+`serve` logs each check as it starts and ends, with its verdict and how long it took:
+
+```text
+issue/implement 2026-10-13T10-27-07-656Z-9693d9 check tests start
+issue/implement 2026-10-13T10-27-07-656Z-9693d9 check tests pass in 41.3s
+```
 
 Removing the label withdraws the work. Before an item runs, <Sym name="withdrawn" /> checks that
 the label which started it is still on the issue and drops the item if not; a job already running

@@ -75,10 +75,10 @@ const hub = () => {
 describe.skipIf(!(await up()))('local strategy against docker and the model proxy', () => {
   it('runs a hub script in the sandbox with the hub mounted read-only', { timeout: 120_000 }, async () => {
     const { dir } = fixture();
-    const ok = await runScript('sh "$BOTHUB_HUB/scripts/marker.sh"', dir, 2, {}, undefined, hub());
+    const ok = await runScript('sh "$BOTHUB_HUB/scripts/marker.sh"', dir, 2, {}, undefined, { hub: hub() });
     expect(ok).toMatchObject({ ok: true });
     expect(ok.output).toContain('issues: local');
-    const denied = await runScript('touch "$BOTHUB_HUB/written"', dir, 2, {}, undefined, hub());
+    const denied = await runScript('touch "$BOTHUB_HUB/written"', dir, 2, {}, undefined, { hub: hub() });
     expect(denied.ok).toBe(false);
   });
 

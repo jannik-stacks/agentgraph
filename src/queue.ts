@@ -3,17 +3,25 @@ import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 import { alive, self, type Owner } from './store.ts';
 
-export type Queued<T> = { id: string; item: T; taken?: Owner };
+/**
+ * A queued item: its id, who took it, how often it failed (`tries`), the last `error` and the time before which it
+ * waits (`after`, ms since the epoch).
+ */
+export type Queued<T> = { id: string; item: T; taken?: Owner; tries?: number; error?: string; after?: number };
 
 /**
  * Work waiting to run, in the order it was pushed. `push` is a no-op for an id already waiting or taken, `take` claims
- * the oldest waiting item for this process and `done` removes a taken one.
+ * the oldest waiting item `accept` agrees to for this process and `done` removes a taken one. `retry` puts a taken item
+ * back to wait `delay` ms with its error, `fail` moves it to the failed items `failed` lists.
  */
 export type Queue<T> = {
   push: (id: string, item: T) => Promise<boolean>;
-  take: () => Promise<Queued<T> | undefined>;
+  take: (accept?: (entry: Queued<T>) => boolean) => Promise<Queued<T> | undefined>;
   done: (id: string) => Promise<void>;
+  retry: (id: string, error: string, delay: number) => Promise<void>;
+  fail: (id: string, error: string) => Promise<void>;
   list: () => Promise<Queued<T>[]>;
+  failed: () => Promise<Queued<T>[]>;
 };
 
 const hashed = (id: string) => createHash('sha256').update(id).digest('hex').slice(0, 24);
@@ -25,13 +33,21 @@ let seq = 0;
 /**
  * A queue of JSON files in `dir`, one per item, named so they sort in push order. Taking renames the file to carry its
  * owner, so two processes never take the same item; the first call returns items taken by a process that is gone to
- * the waiting ones.
+ * the waiting ones. Failed items move to `dir/failed`.
  */
 export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
-  const names = async () => (await readdir(dir).catch(() => [])).sort();
+  const failedDir = join(dir, 'failed');
+  const names = async (at = dir) => (await readdir(at).catch(() => [])).sort();
   const find = async (id: string) =>
     (await names()).find(name => (pending.exec(name) ?? claimed.exec(name))?.[2] === hashed(id));
-  const read = async (name: string) => JSON.parse(await readFile(join(dir, name), 'utf8')) as Queued<T>;
+  const read = async (name: string, at = dir) => JSON.parse(await readFile(join(at, name), 'utf8')) as Queued<T>;
+  const mine = async (id: string) => {
+    const name = await find(id);
+    const m = name && claimed.exec(name);
+    return m ? { name, waiting: `${m[1]}-${m[2]}.json`, entry: await read(name) } : undefined;
+  };
+  const stored = ({ id, item, tries, error, after }: Queued<T>) =>
+    JSON.stringify({ id, item, ...(tries && { tries }), ...(error && { error }), ...(after && { after }) });
 
   let recovered: Promise<void> | undefined;
   const ready = () =>
@@ -60,24 +76,48 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
         await rm(tmp, { force: true });
       }
     },
-    take: async () => {
+    take: async (accept = () => true) => {
       await ready();
       for (const name of await names()) {
         if (!pending.test(name)) continue;
-        const mine = `${name}.${owner.pid}-${owner.token}`;
+        const entry = await read(name).catch(e => {
+          if (gone(e)) return;
+          throw e;
+        });
+        if (!entry || !accept(entry)) continue;
+        const taken = `${name}.${owner.pid}-${owner.token}`;
         try {
-          await rename(join(dir, name), join(dir, mine));
+          await rename(join(dir, name), join(dir, taken));
         } catch (e) {
           if (gone(e)) continue;
           throw e;
         }
-        return { ...(await read(mine)), taken: owner };
+        return { ...(await read(taken)), taken: owner };
       }
       return undefined;
     },
     done: async id => {
       const name = await find(id);
       if (name && claimed.test(name)) await rm(join(dir, name), { force: true });
+    },
+    retry: async (id, error, delay) => {
+      const found = await mine(id);
+      if (!found) return;
+      const { name, waiting, entry } = found;
+      await writeFile(
+        join(dir, name),
+        stored({ ...entry, tries: (entry.tries ?? 0) + 1, error, after: Date.now() + delay })
+      );
+      await rename(join(dir, name), join(dir, waiting));
+    },
+    fail: async (id, error) => {
+      const found = await mine(id);
+      if (!found) return;
+      const { name, waiting, entry } = found;
+      await mkdir(failedDir, { recursive: true });
+      const { after: _, ...rest } = entry;
+      await writeFile(join(failedDir, waiting), stored({ ...rest, tries: (entry.tries ?? 0) + 1, error }));
+      await rm(join(dir, name), { force: true });
     },
     list: async () => {
       await ready();
@@ -94,50 +134,126 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
       );
       return items.filter(entry => entry !== undefined);
     },
+    failed: async () =>
+      Promise.all((await names(failedDir)).filter(name => pending.test(name)).map(name => read(name, failedDir))),
   };
 };
 
 /**
- * Runs queued items one after another while there are any. `wake` starts draining after a push, `idle` resolves once
- * the queue is drained and `stop` lets the running item finish and takes no more.
+ * How a worker runs: at most `concurrency` items at once, never two with the same `key` (items with one key run in
+ * push order), and a failing item is tried again after `backoff(tries)` ms, until `tries` failures move it to the
+ * failed items.
  */
-export const worker = <T>(queue: Queue<T>, run: (item: T) => Promise<void>, onError: (e: Error) => void) => {
-  let draining: Promise<void> | undefined;
+export type WorkerOptions<T> = {
+  concurrency?: number;
+  key?: (entry: Queued<T>) => string;
+  tries?: number;
+  backoff?: (tries: number) => number;
+};
+
+/**
+ * Runs queued items while there are any (see `WorkerOptions`). `wake` starts taking after a push, `idle` resolves once
+ * nothing runs, waits or is left to take, and `stop` lets the running items finish and takes no more. `onError` hears
+ * every failure, with how it goes on.
+ */
+export const worker = <T>(
+  queue: Queue<T>,
+  run: (item: T) => Promise<void>,
+  onError: (e: Error) => void,
+  { concurrency = 1, key = entry => entry.id, tries = 5, backoff = n => 5000 * 2 ** (n - 1) }: WorkerOptions<T> = {}
+) => {
+  const running = new Map<string, Promise<void>>();
+  const busy = new Set<string>();
+  const later = new Map<ReturnType<typeof setTimeout>, Promise<void>>();
+  let taking: Promise<void> | undefined;
   let again = false;
   let stopped = false;
-  const drain = async () => {
+
+  const wakeIn = (delay: number) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const waited = new Promise<void>(done => {
+      timer = setTimeout(() => {
+        later.delete(timer);
+        done();
+        void wake();
+      }, delay);
+    });
+    later.set(timer!, waited);
+  };
+
+  const start = (entry: Queued<T>) => {
+    const lane = key(entry);
+    busy.add(lane);
+    const finished = (async () => {
+      try {
+        await run(entry.item);
+        await queue.done(entry.id);
+      } catch (e) {
+        const message = (e as Error).message;
+        const failures = (entry.tries ?? 0) + 1;
+        if (failures >= tries) {
+          await queue.fail(entry.id, message);
+          onError(new Error(`${entry.id}: ${message}; failed ${failures} times, moved to the failed items`));
+        } else {
+          const delay = backoff(failures);
+          await queue.retry(entry.id, message, delay);
+          onError(new Error(`${entry.id}: ${message}; trying again in ${Math.round(delay / 1000)}s`));
+          wakeIn(delay);
+        }
+      }
+    })()
+      .catch(onError)
+      .finally(() => {
+        busy.delete(lane);
+        running.delete(entry.id);
+        void wake();
+      });
+    running.set(entry.id, finished);
+  };
+
+  const take = async () => {
     do {
       again = false;
-      for (let next; !stopped && (next = await queue.take());) {
-        try {
-          await run(next.item);
-        } catch (e) {
-          onError(e as Error);
-        } finally {
-          await queue.done(next.id);
-        }
+      while (!stopped && running.size < concurrency) {
+        const blocked = new Set(busy);
+        const now = Date.now();
+        const next = await queue.take(entry => {
+          const lane = key(entry);
+          if (blocked.has(lane) || (entry.after ?? 0) > now) {
+            blocked.add(lane);
+            return false;
+          }
+          return true;
+        });
+        if (!next) break;
+        start(next);
       }
     } while (again && !stopped);
   };
+
   const wake = () => {
-    if (draining) {
+    if (taking) {
       again = true;
-      return draining;
+      return taking;
     }
-    return (draining = drain()
+    return (taking = take()
       .catch(onError)
       .finally(() => {
-        draining = undefined;
+        taking = undefined;
       }));
   };
+
   return {
     wake,
     idle: async () => {
-      while (draining) await draining;
+      while (taking || running.size || later.size) await Promise.all([taking, ...running.values(), ...later.values()]);
     },
     stop: async () => {
       stopped = true;
-      await draining;
+      for (const timer of later.keys()) clearTimeout(timer);
+      later.clear();
+      await taking;
+      await Promise.all(running.values());
     },
   };
 };

@@ -8,7 +8,7 @@ import { filesAtom, navigateAtom, sampleAtom } from '../state.ts';
 import { Badge, Chip, Chips, cx, Field, Fields, Pre, Section, useStoredFlag } from '../ui.tsx';
 import { KindIcon, kindTitle } from './icons.tsx';
 
-const Markdown = lazy(() => import('./Markdown.tsx'));
+const Markdown = lazy(() => import('../Markdown.tsx'));
 
 type Target = { href: string; onClick: () => void };
 
@@ -348,7 +348,13 @@ const preloadMeaning = (item: PreloadItem) => {
 };
 
 const overText = (over: NonNullable<StepContext['over']>) =>
-  typeof over === 'string' ? over : 'run' in over ? `run: ${over.run}` : `each: ${over.each}`;
+  typeof over === 'string'
+    ? over
+    : 'run' in over
+      ? `run: ${over.run}`
+      : 'each' in over
+        ? `each: ${over.each}`
+        : `each-hunk, at most ${over['each-hunk'].max}`;
 
 /**
  * What one step hands its bot, in the order the run meets it: who acts, what it does, what it takes in, what it uses

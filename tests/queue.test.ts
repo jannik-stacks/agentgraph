@@ -113,7 +113,7 @@ describe('fileQueue', () => {
 });
 
 describe('worker', () => {
-  it('runs items one after another, survives a failing one and picks up pushes made while draining', async () => {
+  it('runs items one after another, moves a failing one aside and picks up pushes made while draining', async () => {
     const q = fileQueue<string>(temp('queue'));
     const ran: string[] = [];
     const errors: string[] = [];
@@ -132,7 +132,8 @@ describe('worker', () => {
           void work.wake();
         }
       },
-      e => errors.push(e.message)
+      e => errors.push(e.message),
+      { tries: 1 }
     );
     await q.push('a', 'a');
     await q.push('bad', 'bad');
@@ -141,9 +142,73 @@ describe('worker', () => {
     void work.wake();
     await work.idle();
     expect(ran).toEqual(['a', 'b', 'c']);
-    expect(errors).toEqual(['bad item']);
+    expect(errors).toEqual(['bad: bad item; failed 1 times, moved to the failed items']);
     expect(most).toBe(1);
     expect(await q.list()).toEqual([]);
+    expect(await q.failed()).toEqual([{ id: 'bad', item: 'bad', tries: 1, error: 'bad item' }]);
+  });
+
+  it('runs items of different lanes at once and keeps each lane in push order', async () => {
+    const q = fileQueue<{ issue: number; n: number }>(temp('queue'));
+    const log: string[] = [];
+    let running = 0;
+    let most = 0;
+    const work = worker(
+      q,
+      async ({ issue, n }) => {
+        most = Math.max(most, ++running);
+        log.push(`start ${issue}.${n}`);
+        await new Promise(done => setTimeout(done, issue === 1 ? 40 : 5));
+        log.push(`end ${issue}.${n}`);
+        running--;
+      },
+      () => {},
+      { concurrency: 3, key: entry => String(entry.item.issue) }
+    );
+    for (const [issue, n] of [
+      [1, 1],
+      [1, 2],
+      [2, 1],
+      [3, 1],
+      [2, 2],
+    ] as const)
+      await q.push(`${issue}.${n}`, { issue, n });
+    void work.wake();
+    await work.idle();
+    expect(most).toBe(3);
+    const at = (line: string) => log.indexOf(line);
+    expect(at('start 1.2')).toBeGreaterThan(at('end 1.1'));
+    expect(at('start 2.2')).toBeGreaterThan(at('end 2.1'));
+    expect(at('start 2.2')).toBeLessThan(at('end 1.1'));
+    expect(await q.list()).toEqual([]);
+  });
+
+  it('tries a failing item again after its backoff, holding its lane, then moves it to the failed items', async () => {
+    const q = fileQueue<{ issue: number; n: number }>(temp('queue'));
+    const ran: string[] = [];
+    const errors: string[] = [];
+    let flaky = 2;
+    const work = worker(
+      q,
+      async ({ issue, n }) => {
+        ran.push(`${issue}.${n}`);
+        if (issue === 1 && n === 1 && flaky-- > 0) throw new Error('hub broken');
+        if (issue === 2) throw new Error('always');
+      },
+      e => errors.push(e.message),
+      { concurrency: 2, key: entry => String(entry.item.issue), tries: 3, backoff: n => n * 10 }
+    );
+    await q.push('1.1', { issue: 1, n: 1 });
+    await q.push('1.2', { issue: 1, n: 2 });
+    await q.push('2.1', { issue: 2, n: 1 });
+    void work.wake();
+    await work.idle();
+    expect(ran.filter(r => r.startsWith('1.'))).toEqual(['1.1', '1.1', '1.1', '1.2']);
+    expect(ran.filter(r => r === '2.1')).toHaveLength(3);
+    expect(errors).toContain('1.1: hub broken; trying again in 0s');
+    expect(errors).toContain('2.1: always; failed 3 times, moved to the failed items');
+    expect(await q.list()).toEqual([]);
+    expect(await q.failed()).toEqual([{ id: '2.1', item: { issue: 2, n: 1 }, tries: 3, error: 'always' }]);
   });
 
   it('finishes the running item on stop and leaves the rest queued', async () => {

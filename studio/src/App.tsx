@@ -1,10 +1,11 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, type ComponentType, lazy, type ReactNode, Suspense, useEffect } from 'react';
+import { infoAtom } from './info.ts';
 import { Logo } from './Logo.tsx';
 import { Link } from './Providers.tsx';
 import { StaleApi } from './StaleApi.tsx';
 import { navigateAtom, type Route, routeAtom, routes } from './state.ts';
-import { Muted, Segmented } from './ui.tsx';
+import { cx, Muted, Segmented, Tooltip } from './ui.tsx';
 
 const StudioView = lazy(() => import('./studio/StudioView.tsx').then(m => ({ default: m.StudioView })));
 const DashboardView = lazy(() => import('./dashboard/DashboardView.tsx').then(m => ({ default: m.DashboardView })));
@@ -58,22 +59,43 @@ const hubDir: string | undefined = import.meta.env.VITE_BHM_HUB;
 const dataDir: string | undefined = import.meta.env.VITE_BHM_DATA;
 const base = (dir: string) => dir.split('/').filter(Boolean).at(-1) ?? dir;
 
-const Where = () =>
-  hubDir || dataDir ? (
-    <dl className="ml-auto hidden min-w-0 items-center gap-3 text-xs text-zinc-500 md:flex">
-      {[
-        ['hub', hubDir],
-        ['data', dataDir],
-      ].map(([name, dir]) =>
-        dir ? (
-          <div key={name} className="flex min-w-0 gap-1" title={dir}>
-            <dt>{name}</dt>
-            <dd className="truncate font-mono text-zinc-700 dark:text-zinc-300">{base(dir)}</dd>
-          </div>
-        ) : null
-      )}
-    </dl>
-  ) : null;
+/**
+ * The hub and data directory the API serves, as `/api/info` reports them, so a page answered by another server
+ * shows it. Before the API answers, the directories this page was started with.
+ */
+const Where = () => {
+  const info = useAtomValue(infoAtom);
+  const hub = info?.hub ?? hubDir;
+  const data = info?.data ?? dataDir;
+  if (!hub && !data) return null;
+  const other = info && dataDir && info.data !== dataDir;
+  const tip = [
+    hub && `Hub: ${hub}`,
+    data && `Data: ${data}`,
+    info?.dataReal && info.dataReal !== info.data && `which is ${info.dataReal}`,
+    info && `API process ${info.pid}`,
+    other && `This page was started for ${dataDir}, but the API serves another data directory`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return (
+    <Tooltip tip={tip} focusable className="ml-auto hidden md:flex">
+      <dl className={cx('flex min-w-0 items-center gap-3 text-xs', other ? 'text-amber-600' : 'text-zinc-500')}>
+        {[
+          ['hub', hub],
+          ['data', info?.dataReal ?? data],
+        ].map(([name, dir]) =>
+          dir ? (
+            <div key={name} className="flex min-w-0 gap-1">
+              <dt>{name}</dt>
+              <dd className="truncate font-mono text-zinc-700 dark:text-zinc-300">{base(dir)}</dd>
+            </div>
+          ) : null
+        )}
+      </dl>
+    </Tooltip>
+  );
+};
 
 const Header = ({ route }: { route: Route | undefined }) => (
   <header className="sticky top-0 z-40 flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/90 px-3 backdrop-blur sm:gap-5 sm:px-4 dark:border-zinc-800 dark:bg-zinc-950/90">

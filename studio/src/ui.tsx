@@ -1,9 +1,13 @@
 import {
+  cloneElement,
   type ComponentProps,
+  isValidElement,
+  type ReactElement,
   type ReactNode,
   useCallback,
   useEffect,
   useEffectEvent,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -204,6 +208,77 @@ const buttons = {
     'rounded-md border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300',
 };
 
+const gap = 6;
+
+const place = (tip: HTMLElement, anchor: DOMRect) => {
+  tip.showPopover();
+  const box = tip.getBoundingClientRect();
+  const below = anchor.bottom + gap;
+  const top = below + box.height > innerHeight ? anchor.top - box.height - gap : below;
+  const left = Math.min(Math.max(8, anchor.left + anchor.width / 2 - box.width / 2), innerWidth - box.width - 8);
+  tip.style.top = `${Math.max(8, top)}px`;
+  tip.style.left = `${left}px`;
+};
+
+/**
+ * Explains what it wraps on hover and on keyboard focus, as the wrapped element's description. The tip sits in the
+ * top layer, so scrolling containers never clip it. `focusable` lets keyboard users reach content that is not
+ * interactive itself.
+ */
+export const Tooltip = ({
+  tip,
+  children,
+  focusable = false,
+  className,
+}: {
+  tip: ReactNode;
+  children: ReactNode;
+  focusable?: boolean;
+  className?: string | undefined;
+}) => {
+  const id = useId();
+  const ref = useRef<HTMLSpanElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const show = (target: HTMLElement, delay: number) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => ref.current && place(ref.current, target.getBoundingClientRect()), delay);
+  };
+  const hide = () => {
+    clearTimeout(timer.current);
+    if (ref.current?.matches(':popover-open')) ref.current.hidePopover();
+  };
+  useEffect(() => hide, []);
+  const element = isValidElement(children) && typeof children.type === 'string';
+  return (
+    <span
+      className={cx('inline-flex min-w-0', className)}
+      onMouseEnter={e => show(e.currentTarget, 300)}
+      onMouseLeave={hide}
+      onFocus={e => show(e.currentTarget, 0)}
+      onBlur={hide}
+      onKeyDown={e => e.key === 'Escape' && hide()}
+      {...(!element && { 'aria-describedby': id })}
+      {...(!element && focusable && { tabIndex: 0 })}
+    >
+      {element
+        ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+            'aria-describedby': id,
+            ...(focusable && { tabIndex: 0 }),
+          })
+        : children}
+      <span
+        ref={ref}
+        id={id}
+        role="tooltip"
+        popover="manual"
+        className="pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
+      >
+        {tip}
+      </span>
+    </span>
+  );
+};
+
 export const Button = ({
   variant = 'default',
   className,
@@ -214,6 +289,26 @@ export const Button = ({
     className={cx(buttons[variant], 'disabled:cursor-not-allowed disabled:opacity-40', className)}
     {...props}
   />
+);
+
+/** A native select with its own chevron, spaced from the text, in place of the browser's arrow. */
+export const Select = ({
+  className,
+  wrapperClassName,
+  ...props
+}: ComponentProps<'select'> & { wrapperClassName?: string }) => (
+  <span className={cx('relative inline-flex items-center', wrapperClassName)}>
+    <select
+      className={cx(
+        'appearance-none rounded border border-zinc-300 bg-white py-0.5 pr-6 pl-2 text-xs outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-900',
+        className
+      )}
+      {...props}
+    />
+    <svg viewBox="0 0 12 12" aria-hidden="true" className="pointer-events-none absolute right-2 size-2.5 text-zinc-500">
+      <path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  </span>
 );
 
 /** A row of mutually exclusive options. With `href` each option is a link marked `aria-current`, else a pressed button. */
@@ -305,10 +400,11 @@ export const useCommittedText = (value: string, commit: (text: string) => void, 
   return { text, change, flush };
 };
 
-/** Calls `poll` every `ms` while the tab is visible, and again whenever it becomes visible. */
-export const usePolling = (poll: () => void, ms: number) => {
+/** Calls `poll` every `ms` while the tab is visible, and again whenever it becomes visible. `null` pauses it. */
+export const usePolling = (poll: () => void, ms: number | null) => {
   const tick = useEffectEvent(poll);
   useEffect(() => {
+    if (ms === null) return;
     const run = () => {
       if (!document.hidden) tick();
     };

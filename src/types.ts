@@ -46,7 +46,17 @@ export type AgentEvent =
   | { type: 'text'; text: string }
   | { type: 'tool_call'; id: string; tool: string; input: unknown }
   | { type: 'tool_result'; id: string; ok: boolean; output?: string }
-  | { type: 'usage'; inputTokens: number; outputTokens: number }
+  | {
+      type: 'usage';
+      /** All input of one model call, cached input included. */
+      inputTokens: number;
+      outputTokens: number;
+      /** The part of `inputTokens` read from the provider's prompt cache. */
+      cachedInputTokens?: number;
+      reasoningTokens?: number;
+      /** What the harness says this call cost. */
+      costUsd?: number;
+    }
   | { type: 'end'; ok: boolean; turns?: number; result?: string; costUsd?: number }
   | { type: 'error'; message: string };
 

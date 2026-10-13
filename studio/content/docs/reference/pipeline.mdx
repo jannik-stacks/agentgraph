@@ -20,7 +20,12 @@ follow-ups are used or the bot's `usd-per-run` is spent. The loop is in
 <Fields name="Verdict" />
 
 A check gates when its mode is not `shadow`. A skipped check does not gate, unless no gating check
-ran at all.
+ran at all. Once the follow-ups are spent, only failing `block` checks fail the run; `warn` ones are
+recorded and let it through. A `blocked` verdict means the check could not run, and the job asks a
+human instead of sending the bot after it.
+
+Two jobs never work on one branch at the same time. A job whose branch another live run holds
+waits for it, up to its own timeout, and is deferred only after that.
 
 <Source file="src/pipeline.ts" symbol="failingChecks" />
 

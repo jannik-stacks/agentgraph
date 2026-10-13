@@ -31,6 +31,12 @@ import { commit, git, sourceRepo, temp } from './git.ts';
 
 const md = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n\n${body}` });
 
+const untimed = (verdicts: Verdict[] | undefined) =>
+  verdicts?.map(({ startedAt, endedAt, durationMs, ...verdict }) => {
+    if (startedAt) expect(Date.parse(endedAt!) - Date.parse(startedAt)).toBe(durationMs);
+    return verdict;
+  });
+
 const configFor = (mode = 'shadow'): Config => {
   const result = compile([
     md(
@@ -501,7 +507,7 @@ describe('until', () => {
     ]);
     expect(result.run.id).toBe(runs[1]!.id);
     expect((await p.store.outcome(runs[0]!.id))?.applied).toBe(false);
-    expect(result.outcome?.checks).toEqual([
+    expect(untimed(result.outcome?.checks)).toEqual([
       { check: 'exists', gating: true, pass: true, findings: '3\n4\n5\n6\n7\n8\n9\n10\n11\n12' },
       { check: 'shadowed', gating: false, pass: false, findings: 'never mind' },
     ]);
@@ -545,27 +551,29 @@ describe('until', () => {
     const write =
       "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/a.ts', 'a'); fs.writeFileSync('src/b.ts', 'b')";
     const verdicts: string[] = [];
-    const { seen, adapters } = fake((spec, call) => {
+    let failed = false;
+    const { seen, adapters } = fake(spec => {
       if (!spec.prompt.startsWith('Judge this file.'))
         return { message: bothub([{ kind: 'reply', body: 'ok' }]), work: write };
-      const failing = call === 3 && spec.prompt.includes('## Changes to src/b.ts');
-      verdicts.push(failing ? 'FAIL' : 'PASS');
+      const failing = !failed && spec.prompt.includes('## Changes to src/b.ts');
+      failed ||= failing;
+      verdicts.push(`${failing ? 'FAIL' : 'PASS'} ${spec.prompt.includes('## Changes to src/b.ts') ? 'b' : 'a'}`);
       return { message: bothub([{ kind: 'reply', body: failing ? 'FAIL\nsrc/b.ts:1 is wrong' : 'PASS' }]) };
     });
     const p = await pipeline({ config: configFor(), adapters });
     const result = await Effect.runPromise(runPlanned(planned('judged'), p));
     if (!('run' in result)) throw new Error('skipped');
-    expect(verdicts).toEqual(['PASS', 'FAIL', 'PASS', 'PASS']);
-    const judge = seen[1]!;
+    expect(verdicts.slice(0, 2).sort()).toEqual(['FAIL b', 'PASS a']);
+    expect(verdicts.slice(2).sort()).toEqual(['PASS a', 'PASS b']);
+    const judge = seen.find(s => s.prompt.includes('## Changes to src/a.ts'))!;
     expect(judge.system.startsWith('You judge.')).toBe(true);
-    expect(judge.prompt).toContain(
-      'Judge this file.\n\nBe strict.\n\n## Changes to src/a.ts\n\n```text\ndiff --git a/src/a.ts'
-    );
+    expect(judge.prompt.startsWith('Judge this file.\n\nBe strict.\n\n## Event\n')).toBe(true);
+    expect(judge.prompt.indexOf('## Verdict')).toBeLessThan(judge.prompt.indexOf('## Changes to src/a.ts'));
+    expect(judge.prompt).toMatch(/## Changes to src\/a\.ts\n\n```text\ndiff --git a\/src\/a\.ts[^]*```$/);
     expect(judge.prompt).not.toContain('src/b.ts');
-    expect(judge.prompt).toContain('## Verdict');
     expect(seen[3]!.prompt).toContain('### judged\n\n```text\nsrc/b.ts:\nsrc/b.ts:1 is wrong\n```');
     expect(result.run).toMatchObject({ status: 'succeeded', attempt: 2 });
-    expect(result.outcome?.checks).toEqual([
+    expect(untimed(result.outcome?.checks)).toEqual([
       { check: 'judged', gating: true, pass: true, runs: [expect.any(String), expect.any(String)] },
     ]);
     const checkRuns = (await p.store.list()).filter(r => r.check === 'judged');
@@ -680,6 +688,19 @@ describe('checks fail closed', () => {
       pass: false,
       findings: 'a.ts:3 is wrong',
     });
+  });
+
+  it('blocks a check whose run ended for a reason outside its work', () => {
+    expect(verdictOf(ok({ status: 'timed-out' }), '')).toEqual({
+      pass: false,
+      findings: 'run r timed-out',
+      blocked: true,
+    });
+    expect(verdictOf(ok({ status: 'skipped', reason: 'over budget' }), '')).toMatchObject({ blocked: true });
+    expect(verdictOf(ok({ status: 'failed', error: 'sandbox-failed: no network' }), '')).toMatchObject({
+      blocked: true,
+    });
+    expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').blocked).toBeUndefined();
   });
 
   it('does not gate on a check the change does not touch, unless no gating check ran', () => {
@@ -952,12 +973,26 @@ jobs:
     expect(handoffEnv()).toEqual({});
   });
 
-  it('defers a job whose branch another live run holds', async () => {
+  it('waits for a branch another live run holds and goes on once it is released', async () => {
+    const { seen, adapters } = fake(behave);
+    const p = await pipeline({ config: flow(), adapters });
+    const held = await p.store.lock(`acme/app:${branch}`, 'other');
+    if (!('release' in held)) throw new Error('not locked');
+    setTimeout(() => void held.release(), 300);
+    const result = await Effect.runPromise(runPlanned(jobs[0]!, p));
+    expect(seen).toHaveLength(1);
+    expect('run' in result && result.run.status).toBe('succeeded');
+  });
+
+  it('defers a job whose branch another live run holds past its timeout', async () => {
     const { seen, adapters } = fake(behave);
     const p = await pipeline({ config: flow(), adapters });
     const held = await p.store.lock(`acme/app:${branch}`, 'other');
     expect('release' in held).toBe(true);
-    const result = await Effect.runPromise(runPlanned(jobs[0]!, p));
+    const now = Date.now();
+    let calls = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now + calls++ * 600_000);
+    const result = await Effect.runPromise(runPlanned(jobs[0]!, p)).finally(() => vi.restoreAllMocks());
     expect(seen).toHaveLength(0);
     expect('run' in result && result.run).toMatchObject({
       status: 'skipped',
@@ -1008,9 +1043,14 @@ describe('over', () => {
     return result.config;
   };
 
-  const run = async (config: Config, behave: Parameters<typeof fake>[0] = { work }, env = {}) => {
+  const run = async (
+    config: Config,
+    behave: Parameters<typeof fake>[0] = { work },
+    env = {},
+    extra: Partial<Pipeline> = {}
+  ) => {
     const { seen, adapters } = fake(behave);
-    const p = await pipeline({ config, adapters, env: { BOTHUB_LLM_API_KEY: 'key', ...env } }, origin());
+    const p = await pipeline({ config, adapters, env: { BOTHUB_LLM_API_KEY: 'key', ...env }, ...extra }, origin());
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
     if (!('run' in result)) throw new Error('skipped');
     return { result, seen, p };
@@ -1020,23 +1060,165 @@ describe('over', () => {
 
   it('runs a script once per hunk with the hunk in BOTHUB_ITEM and on stdin', async () => {
     const log = logFile();
-    const script = `printf '%s|' "$(printf '%s' "$BOTHUB_ITEM" | sed -n 1p)" >> ${log}; grep -c '^@@' >> ${log}`;
+    const script = `echo "$(printf '%s' "$BOTHUB_ITEM" | sed -n 1p)|$(grep -c '^@@')" >> ${log}`;
     const { result } = await run(
       hubWith([{ name: 'hunks', data: { type: 'script', over: 'each-hunk', run: script } }])
     );
-    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+    expect(readFileSync(log, 'utf8').trim().split('\n').sort()).toEqual([
       'diff --git a/long.txt b/long.txt|1',
       'diff --git a/long.txt b/long.txt|1',
       'diff --git a/src/a.ts b/src/a.ts|1',
     ]);
-    expect(result.outcome?.checks).toEqual([{ check: 'hunks', gating: false, pass: true }]);
+    expect(untimed(result.outcome?.checks)).toEqual([{ check: 'hunks', gating: false, pass: true }]);
+  });
+
+  it('stops at more hunks than each-hunk takes, and widens hunks by their context', async () => {
+    const log = logFile();
+    const script = `printf '%s' "$BOTHUB_ITEM" | sed -n 1p >> ${log}`;
+    const { result } = await run(
+      hubWith([{ name: 'few', data: { type: 'script', over: { 'each-hunk': { max: 2 } }, run: script } }])
+    );
+    expect(result.outcome?.checks?.[0]).toMatchObject({
+      pass: false,
+      findings: 'the change has 3 hunks, more than the 2 "each-hunk" takes; make a smaller change or split it',
+    });
+    await run(
+      hubWith([{ name: 'wide', data: { type: 'script', over: { 'each-hunk': { context: 10 } }, run: script } }])
+    );
+    expect(readFileSync(log, 'utf8').trim().split('\n').sort()).toEqual([
+      'diff --git a/long.txt b/long.txt',
+      'diff --git a/src/a.ts b/src/a.ts',
+    ]);
+  });
+
+  it('judges items at once unless its concurrency says otherwise', async () => {
+    const order = async (data: Record<string, unknown>) => {
+      const log = logFile();
+      const script = `echo start >> ${log}; sleep 0.2; echo end >> ${log}`;
+      await run(hubWith([{ name: 'slow', data: { type: 'script', over: 'each-hunk', run: script, ...data } }]));
+      return readFileSync(log, 'utf8').trim().split('\n');
+    };
+    expect(await order({ concurrency: 1 })).toEqual(['start', 'end', 'start', 'end', 'start', 'end']);
+    expect((await order({})).slice(0, 3)).toEqual(['start', 'start', 'start']);
+  });
+
+  const recording = (down = '') => {
+    const calls: string[] = [];
+    const launch: Launcher = {
+      ...unsandboxed,
+      agent: (adapter, spec, secrets, home, readonly) => {
+        calls.push(`agent ${spec.system.split('\n')[0]} ${readonly ? 'ro' : 'rw'}`);
+        return unsandboxed.agent(adapter, spec, secrets, home, readonly);
+      },
+      script: (script, cwd, env, access) => {
+        calls.push(`script ${script} ${access?.readonly ? 'ro' : 'rw'}`);
+        if (script === down) return Promise.reject(new SandboxError('the sandbox is down'));
+        return unsandboxed.script(script, cwd, env, access);
+      },
+    };
+    return { calls, launch };
+  };
+  const judged = (spec: RunSpec) =>
+    spec.system.startsWith('You judge.') ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) } : { work };
+
+  it('gives checks a read-only worktree and the job a writable one', async () => {
+    const { calls, launch } = recording();
+    await run(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Is the change small?' },
+        { name: 'lint', data: { type: 'script', run: 'true' } },
+      ]),
+      judged,
+      {},
+      { launch }
+    );
+    expect(calls).toEqual(['agent You work. rw', 'script true ro', 'agent You judge. ro']);
+  });
+
+  it('runs bot checks only once every gating script check passed, and keeps the verdicts in order', async () => {
+    const { seen, result } = await run(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+        { name: 'lint', data: { type: 'script', run: 'echo bad; exit 1', mode: 'block' } },
+      ]),
+      judged
+    );
+    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toEqual([]);
+    expect(untimed(result.outcome?.checks)).toEqual([
+      { check: 'small', gating: true, pass: false, skipped: true, findings: 'not run: a script check failed' },
+      { check: 'lint', gating: true, pass: false, findings: 'bad' },
+    ]);
+  });
+
+  it('asks a human once when a check could not run, without sending it back to the bot', async () => {
+    const { calls, launch } = recording('down');
+    const issues = trackedIssues();
+    const { seen, result } = await run(
+      hubWith([{ name: 'tests', data: { type: 'script', run: 'down', mode: 'block' } }]),
+      { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      {},
+      { launch, issues }
+    );
+    expect(seen).toHaveLength(1);
+    expect(calls).toEqual(['agent You work. rw', 'script down ro']);
+    expect(result.outcome?.checks?.[0]).toMatchObject({ pass: false, blocked: true });
+    const question = `checks could not run: tests (sandbox-failed: the sandbox is down). The change waits in run ${result.run.id}; nothing went back to the bot.`;
+    expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
+    expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
+  });
+
+  it('sends warn findings back but lets the change through once the attempts are spent', async () => {
+    const { seen, result } = await run(
+      hubWith([
+        { name: 'style', data: { type: 'script', run: 'echo nit; exit 1', mode: 'warn' } },
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+      ]),
+      spec =>
+        spec.system.startsWith('You judge.')
+          ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) }
+          : { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) }
+    );
+    const attempts = seen.filter(spec => spec.system.startsWith('You work.'));
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]!.prompt).toContain('### style\n\n```text\nnit\n```');
+    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(2);
+    expect(result.run).toMatchObject({ status: 'succeeded', attempt: 2 });
+    expect(result.outcome?.accepted).toEqual([{ kind: 'reply', body: 'Done.' }]);
+    expect(result.outcome?.checks?.map(v => [v.check, v.pass])).toEqual([
+      ['style', false],
+      ['small', true],
+    ]);
+  });
+
+  it('tells check scripts the issue number and what the attempt replied', async () => {
+    const log = logFile();
+    await run(
+      hubWith([{ name: 'brief', data: { type: 'script', run: `echo "$BOTHUB_ISSUE|$BOTHUB_REPLY" >> ${log}` } }]),
+      { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) }
+    );
+    expect(readFileSync(log, 'utf8')).toBe('7|Done.\n');
+  });
+
+  it('gives a check bot the issue before the verdict contract and the item last', async () => {
+    const issues = trackedIssues();
+    const config = hubWith([
+      { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Is the change small?' },
+    ]);
+    config.bots.judge = { ...config.bots.judge!, preload: ['issue'] };
+    const { seen } = await run(config, judged, {}, { issues });
+    const prompt = seen.find(spec => spec.system.startsWith('You judge.'))!.prompt;
+    const at = (text: string) => prompt.indexOf(text);
+    expect(at('Is the change small?')).toBe(0);
+    expect(at('Do it.')).toBeGreaterThan(0);
+    expect(at('Do it.')).toBeLessThan(at('## Verdict'));
+    expect(at('## Verdict')).toBeLessThan(at('## Changes'));
   });
 
   it('runs a script once per file', async () => {
     const log = logFile();
     const script = `printf '%s' "$BOTHUB_ITEM" | sed -n 1p >> ${log}`;
     await run(hubWith([{ name: 'files', data: { type: 'script', over: 'each-file', run: script } }]));
-    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+    expect(readFileSync(log, 'utf8').trim().split('\n').sort()).toEqual([
       'diff --git a/long.txt b/long.txt',
       'diff --git a/src/a.ts b/src/a.ts',
     ]);
@@ -1048,7 +1230,7 @@ describe('over', () => {
     const { result } = await run(
       hubWith([{ name: 'items', data: { type: 'script', over: { each, max: 5 }, run: check } }])
     );
-    expect(result.outcome?.checks).toEqual([
+    expect(untimed(result.outcome?.checks)).toEqual([
       { check: 'items', gating: false, pass: false, findings: 'item 2:\nbad plain' },
     ]);
   });
@@ -1058,7 +1240,7 @@ describe('over', () => {
     const { result } = await run(
       hubWith([{ name: 'many', data: { type: 'script', over: { each: 'seq 5', max: 2 }, run: `touch ${marker}` } }])
     );
-    expect(result.outcome?.checks).toEqual([
+    expect(untimed(result.outcome?.checks)).toEqual([
       {
         check: 'many',
         gating: false,
@@ -1090,10 +1272,10 @@ describe('over', () => {
       ]),
       judged
     );
-    const [small, stat] = seen.slice(1);
-    expect(small!.prompt).toMatch(/^Is the change small\?\n\n## Changes\n\n```text\ndiff --git a\/long.txt/);
-    expect(small!.prompt).toContain('## Verdict');
-    expect(stat!.prompt).toMatch(/^Judge the stat\.\n\n## Command output\n\n```text\nlong.txt \| 4/);
+    const small = seen.find(s => s.prompt.startsWith('Is the change small?'))!;
+    const stat = seen.find(s => s.prompt.startsWith('Judge the stat.'))!;
+    expect(small.prompt).toMatch(/## Verdict\n[^]*\n\n## Changes\n\n```text\ndiff --git a\/long.txt[^]*```$/);
+    expect(stat.prompt).toMatch(/\n\n## Command output\n\n```text\nlong.txt \| 4[^#]*```$/);
     expect(result.outcome?.checks?.map(c => [c.check, c.pass])).toEqual([
       ['small', true],
       ['stat', true],
@@ -1120,7 +1302,7 @@ describe('over', () => {
       expect(body.questions).toEqual({ answer: { type: 'noul', instructions: 'Is this hunk free of secrets?' } });
       expect(body.state).toMatch(/^diff --git [\s\S]*\n@@ /);
     }
-    expect(result.outcome?.checks).toEqual([
+    expect(untimed(result.outcome?.checks)).toEqual([
       {
         check: 'secrets',
         gating: false,
@@ -1141,7 +1323,7 @@ describe('over', () => {
     );
     expect(seen).toHaveLength(1);
     expect(result.run).toMatchObject({ status: 'succeeded', attempt: 1 });
-    expect(result.outcome?.checks).toEqual([
+    expect(untimed(result.outcome?.checks)).toEqual([
       { check: 'docs', gating: true, pass: false, skipped: true, findings: 'no changed file matches its paths' },
       { check: 'exists', gating: true, pass: true },
     ]);

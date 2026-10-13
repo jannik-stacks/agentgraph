@@ -210,10 +210,11 @@ export const workspaces = ({
   };
 
   /**
-   * Files a run changed since `base`, committed or not, and their diff (limited to `only` when given). Reads through a
-   * copy of the index, so the worktree's own index is untouched.
+   * Files a run changed since `base`, committed or not, and their diff (limited to `only` when given), with `context`
+   * lines around each hunk or the whole enclosing `function`. Reads through a copy of the index, so the worktree's own
+   * index is untouched.
    */
-  const changes = async (runId: string, base: string, only: string[] = []) => {
+  const changes = async (runId: string, base: string, only: string[] = [], context?: number | 'function') => {
     const path = worktreePath(dataDir, runId);
     if (!(await exists(path))) throw new Error(`no worktree for run "${runId}"`);
     const index = await git(['-C', path, 'rev-parse', '--path-format=absolute', '--git-path', 'index']);
@@ -224,7 +225,8 @@ export const workspaces = ({
       const run = (args: string[]) => git(['-C', path, ...args], env);
       await run(['add', '-A']);
       const files = names(await run(['diff', '--cached', '--name-only', '--no-renames', '-z', base]));
-      const diff = await run(['diff', '--cached', '--no-renames', base, '--', ...only]);
+      const around = context === undefined ? [] : context === 'function' ? ['--function-context'] : [`-U${context}`];
+      const diff = await run(['diff', '--cached', '--no-renames', ...around, base, '--', ...only]);
       return { files, diff };
     } finally {
       await rm(scratch, { force: true });

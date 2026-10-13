@@ -116,6 +116,11 @@ describe('dockerRun', () => {
     ]);
   });
 
+  it('mounts the worktree read-only when asked', () => {
+    const ro = dockerRun({ ...base, user: '501:20', worktree: '/data/work/r1', readonly: true });
+    expect(ro.args).toContain('type=bind,src=/data/work/r1,dst=/work,readonly');
+  });
+
   it('passes secrets by name only and ends with the image and command', () => {
     expect(run.args.join(' ')).not.toContain('sk-secret');
     expect(run.args).toContain('BOTHUB_LLM_API_KEY');
@@ -137,6 +142,10 @@ describe('gitMounts', () => {
     expect(await gitMounts(work)).toEqual([
       { src: join(dir, 'repos', 'a', 'b.git'), dst: join(dir, 'repos', 'a', 'b.git'), readonly: true },
       { src: admin, dst: admin },
+    ]);
+    expect(await gitMounts(work, true)).toEqual([
+      { src: join(dir, 'repos', 'a', 'b.git'), dst: join(dir, 'repos', 'a', 'b.git'), readonly: true },
+      { src: admin, dst: admin, readonly: true },
     ]);
     expect(await gitMounts(dir)).toEqual([]);
   });

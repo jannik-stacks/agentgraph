@@ -13,7 +13,8 @@ type Part =
   | {
       type: 'step-finish';
       reason: string;
-      tokens?: { input?: number; output?: number; cache?: { read?: number; write?: number } };
+      tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } };
+      cost?: number;
     }
   | { type: string };
 
@@ -136,6 +137,9 @@ const step = (part: Extract<Part, { type: 'step-finish' }>): AgentEvent[] => {
           type: 'usage',
           inputTokens: (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0),
           outputTokens: t.output ?? 0,
+          ...(t.cache?.read && { cachedInputTokens: t.cache.read }),
+          ...(t.reasoning && { reasoningTokens: t.reasoning }),
+          ...(part.cost && { costUsd: part.cost }),
         },
       ]
     : [];

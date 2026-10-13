@@ -197,12 +197,19 @@ const script = z.string().min(1);
 /**
  * What a check or job looks at: once over the whole `diff`, the lines it `added`, the triggering `event`'s text or
  * the output of a `run` script; or once per changed file (`each-file`), per diff hunk (`each-hunk`) or per line an
- * `each` script prints, at most `max` of them.
+ * `each` script prints, at most `max` of them. `{ each-hunk: { max, context } }` sets how many hunks it takes and
+ * how much surrounding code each one shows: a number of lines, or `function` for the whole enclosing function.
  */
 export const Over = z.union([
   z.enum(['diff', 'added', 'event', 'each-file', 'each-hunk']),
   z.strictObject({ run: script }),
   z.strictObject({ each: script, max: z.int().positive().default(50) }),
+  z.strictObject({
+    'each-hunk': z.strictObject({
+      max: z.int().positive().default(30),
+      context: z.union([z.literal('function'), z.int().min(0).max(200)]).optional(),
+    }),
+  }),
 ]);
 export type Over = z.infer<typeof Over>;
 
@@ -239,12 +246,13 @@ const step = (over: 'diff' | 'event') => ({
   mode: Mode.default('shadow'),
 });
 
-const checkFields = { ...step('diff'), description: z.string().optional() };
+const checkFields = { ...step('diff'), description: z.string().optional(), concurrency: z.int().positive().optional() };
 
 /**
  * `checks/<name>.md`: what a check looks at (`over`) and who judges it. A `script` passes when it exits 0; a `bot`
  * replies PASS or FAIL to the body, added after the skill when there is one; `decide` asks the local decision model
  * the body as a yes-or-no question and passes on yes. A check whose `paths` match no changed file does not apply.
+ * `concurrency` is how many of its items are judged at once.
  */
 export const Check = z.discriminatedUnion(
   'type',

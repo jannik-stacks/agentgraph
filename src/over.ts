@@ -54,11 +54,15 @@ export const scriptItems = (output: string): Item[] =>
     .filter(line => line.trim())
     .map((line, i) => ({ label: labelOf(line, i), text: line }));
 
+/** How many hunks an `each-hunk` takes and how much code around each it shows, or `undefined` for any other `over`. */
+export const hunkOptions = (over: Over | undefined) =>
+  over === 'each-hunk' ? { max: 30 } : typeof over === 'object' && 'each-hunk' in over ? over['each-hunk'] : undefined;
+
 /** What a fan-out runs once for, or `undefined` when `over` runs once. */
 export const fanOut = (over: Over | undefined) =>
   over === 'each-file'
     ? 'file'
-    : over === 'each-hunk'
+    : hunkOptions(over)
       ? 'hunk'
       : typeof over === 'object' && 'each' in over
         ? 'item'
@@ -67,7 +71,8 @@ export const fanOut = (over: Over | undefined) =>
 /** The items `over` names from its inputs. A script `over` takes its items from `output`. */
 export const itemsOf = (over: Over, { diff, event, output = '' }: OverInputs): Item[] => {
   const one = (label: string, text: string) => (text.trim() ? [{ label, text }] : []);
-  if (typeof over === 'object') return 'each' in over ? scriptItems(output) : one('output', output.trim());
+  if (typeof over === 'object')
+    return 'each-hunk' in over ? hunks(diff) : 'each' in over ? scriptItems(output) : one('output', output.trim());
   switch (over) {
     case 'diff':
       return one('diff', diff);

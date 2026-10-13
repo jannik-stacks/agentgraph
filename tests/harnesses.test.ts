@@ -155,6 +155,21 @@ describe('opencode', () => {
     expect(events[6]).toEqual({ type: 'end', ok: true });
   });
 
+  it('reports cached input, reasoning and cost per step when there are any', () => {
+    const line =
+      '{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":100,"output":20,"reasoning":5,"cache":{"read":900,"write":0}},"cost":0.002}}';
+    expect(parseLine(line)).toEqual([
+      {
+        type: 'usage',
+        inputTokens: 1000,
+        outputTokens: 20,
+        cachedInputTokens: 900,
+        reasoningTokens: 5,
+        costUsd: 0.002,
+      },
+    ]);
+  });
+
   it('maps a denied tool call to a failed result', () => {
     const denied =
       '{"type":"tool_use","timestamp":1791808195447,"sessionID":"ses_1","part":{"type":"tool","tool":"bash","callID":"call_mock1","state":{"status":"error","input":{"command":"ls"},"error":"The user has specified a rule which prevents you from using this specific tool call."},"id":"prt_1","sessionID":"ses_1","messageID":"msg_1"}}';

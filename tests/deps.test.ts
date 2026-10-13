@@ -39,6 +39,11 @@ describe('prepareDeps', () => {
     writeFileSync(join(a, 'vendor', '.cache'), 'tools write here');
     expect(git(a, 'status', '--porcelain')).toBe('');
     expect(await depsMounts(a)).toEqual([{ src: entry, dst: entry, readonly: true }]);
+    expect(await depsMounts(a, true)).toEqual([
+      { src: entry, dst: entry, readonly: true },
+      { src: join(a, 'vendor'), dst: '/work/vendor' },
+      { src: join(a, 'sub/vendor'), dst: '/work/sub/vendor' },
+    ]);
 
     const b = worktree('b');
     await prepareDeps(b, deps, cache, unsandboxed);
@@ -52,6 +57,16 @@ describe('prepareDeps', () => {
     expect(readFileSync(join(b, 'vendor', 'pkg', 'index.js'), 'utf8')).toBe('v2\n');
     expect(readFileSync(join(a, 'vendor', 'pkg', 'index.js'), 'utf8')).toBe('v1\n');
     expect(git(b, 'status', '--porcelain')).toBe('M deps.lock');
+  });
+
+  it('installs once for worktrees that ask at the same time', async () => {
+    const { deps, worktree, runs, cache } = setup();
+    const trees = ['a', 'b', 'c'].map(worktree);
+    await Promise.all(
+      trees.map(tree => prepareDeps(tree, { ...deps, install: `sleep 0.2; ${deps.install}` }, cache, unsandboxed))
+    );
+    expect(runs()).toBe(1);
+    for (const tree of trees) expect(readFileSync(join(tree, 'vendor', 'pkg', 'index.js'), 'utf8')).toBe('v1\n');
   });
 
   it('fails when the install fails or leaves a dir out, and does nothing outside a worktree', async () => {

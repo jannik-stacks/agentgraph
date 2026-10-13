@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { Effect } from 'effect';
 import { apply, type ApplyResult } from './apply.ts';
 import {
@@ -17,7 +18,7 @@ import {
 import { isTrusted, type PlannedJob } from './dispatch.ts';
 import { decideCheck } from './decide.ts';
 import { withDeps } from './deps.ts';
-import { fanOut, itemsOf, type Item } from './over.ts';
+import { fanOut, hunkOptions, itemsOf, type Item } from './over.ts';
 import { harnesses } from './harnesses/index.ts';
 import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
@@ -38,7 +39,7 @@ import {
 } from './outputs.ts';
 import { issueContext } from './preload.ts';
 import { githubPulls, type Pull, type Pulls } from './pulls.ts';
-import { runJob, runScript, sandboxed, type Launcher, type limiter } from './runner.ts';
+import { runJob, runScript, sandboxed, type Launcher, type limiter, type ScriptResult } from './runner.ts';
 import {
   NoteKind,
   type Preload,
@@ -373,9 +374,11 @@ export const secretsFor = ({ name }: Pick<Defined<Bot>, 'name'>, env: Record<str
  * Everything a planned job needs to run. Without `gh` or `issues`, nothing is applied; merge requests go through
  * `pulls`, GitHub's when only `gh` is given, and are skipped without either. Hub changes land through `hubPr`, by default on a branch of the `hub` directory's own repository.
  * `data` is the data directory: runs are summarized into it, and opencode runs surface what it holds. Scripts see the `hub` directory read-only as `BOTHUB_HUB` and the
- * commit their worktree started from as `BOTHUB_BASE`. `issues` defaults to GitHub's when `gh` is given and also feeds
+ * commit their worktree started from as `BOTHUB_BASE`, the event's number as `BOTHUB_ISSUE`, and a check script the
+ * attempt's reply as `BOTHUB_REPLY`. `issues` defaults to GitHub's when `gh` is given and also feeds
  * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it. Harnesses and scripts
- * run in the sandbox; `launch` replaces it only in tests and the simulator.
+ * run in the sandbox; `launch` replaces it only in tests and the simulator. `onCheck` hears each check of an attempt
+ * start, without a verdict, and end, with it.
  */
 export type Pipeline = {
   config: Config;
@@ -394,6 +397,7 @@ export type Pipeline = {
   adapters?: Record<Harness, HarnessAdapter>;
   launch?: Launcher;
   onEvent?: (run: Run, record: EventRecord) => void;
+  onCheck?: (attempt: Run, check: string, verdict?: Verdict) => void;
 };
 
 /** How the pipeline starts commands: in the sandbox unless `launch` says otherwise, with the hub's `deps` ready. */
@@ -460,8 +464,9 @@ const summarize = async (bot: Defined<Bot>, run: string, p: Pipeline) => {
 };
 
 /**
- * Runs one agent session through the limiter and resolves to the finished run and its final message. A bot out of
- * runs for the day is skipped instead; the model the harness reports is recorded on the run.
+ * Runs one agent session through the limiter and resolves to the finished run and its final message, with the
+ * worktree read-only when `readonly`. A bot out of runs for the day is skipped instead; the model the harness reports
+ * is recorded on the run.
  */
 const agent = (
   bot: Defined<Bot>,
@@ -469,7 +474,8 @@ const agent = (
   timeoutMinutes: number,
   run: Run,
   p: Pipeline,
-  env: Record<string, string> = {}
+  env: Record<string, string> = {},
+  readonly = false
 ) =>
   Effect.gen(function* () {
     const spent = yield* Effect.promise(() => outOfRuns(bot, p.store));
@@ -489,6 +495,7 @@ const agent = (
         runId: run.id,
         secrets: { ...secretsFor(bot, p.env), ...env },
         launch: launcher(p),
+        readonly,
         onEvent: record => {
           if (record.event.type === 'start') model ??= record.event.model;
           if (record.event.type === 'text') lastText = record.event.text;
@@ -504,13 +511,22 @@ const agent = (
   });
 
 /**
- * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A check
- * that cannot decide (the run failed, there is no reply, or the first line is neither word) fails with the reason.
+ * Whether a run ended for a reason outside the bot's work: skipped for its budget, out of time, a sandbox that never
+ * started or a provider that refused it.
  */
-export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'findings'> => {
+const outsideWork = (run: Run) =>
+  run.status === 'skipped' || run.status === 'timed-out' || sandboxFailed(run) || providerLimit.test(run.error ?? '');
+
+/**
+ * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A check
+ * that cannot decide (the run failed, there is no reply, or the first line is neither word) fails with the reason; a
+ * run that ended for a reason outside its work (see `outsideWork`) is `blocked` as well.
+ */
+export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'findings' | 'blocked'> => {
   if (run.status !== 'succeeded') {
     const why = run.error ?? run.reason;
-    return { pass: false, findings: `run ${run.id} ${run.status}${why ? `: ${why}` : ''}` };
+    const findings = `run ${run.id} ${run.status}${why ? `: ${why}` : ''}`;
+    return { pass: false, findings, ...(outsideWork(run) && { blocked: true }) };
   }
   const reply = extractProposals(final).proposals.find(proposal => proposal.kind === 'reply');
   if (!reply) return { pass: false, findings: `run ${run.id} gave no verdict` };
@@ -539,6 +555,8 @@ type Attempt = {
   handoff: Handoff;
   target: Target;
   item?: number;
+  /** What the attempt replied, for check scripts as `BOTHUB_REPLY`. */
+  reply?: string;
   /** A fan-out item's replies are collected here under its label instead of posted one by one. */
   fold?: { label: string; replies: Item[] };
   merging?: boolean;
@@ -555,14 +573,17 @@ type Scope = {
 };
 
 /**
- * The items `over` names. A script `over` runs in the worktree with `BOTHUB_BASE` set to where the change starts; a
- * script that fails, or prints more items than `max`, gives an error instead.
+ * The items `over` names. A script `over` runs in the read-only worktree with `BOTHUB_BASE` set to where the change
+ * starts; a script that fails, or prints more items than `max`, gives an error instead, and so does a change with
+ * more hunks than an `each-hunk` takes.
  */
 const gather = async (over: Over, scope: Scope, p: Pipeline): Promise<{ items: Item[]; error?: string }> => {
-  if (typeof over === 'object') {
+  const hunked = hunkOptions(over);
+  if (typeof over === 'object' && !('each-hunk' in over)) {
     const script = 'each' in over ? over.each : over.run;
     const env = { ...scope.env, BOTHUB_BASE: scope.since };
-    const { ok, output, stdout } = await runScript(script, scope.cwd, scope.timeout, env, launcher(p), p.hub);
+    const access = { hub: p.hub, readonly: true };
+    const { ok, output, stdout } = await runScript(script, scope.cwd, scope.timeout, env, launcher(p), access);
     if (!ok) return { items: [], error: `the "over" script failed: ${output || 'exited non-zero'}` };
     const items = itemsOf(over, { diff: '', output: stdout });
     if ('each' in over && items.length > over.max)
@@ -573,8 +594,14 @@ const gather = async (over: Over, scope: Scope, p: Pipeline): Promise<{ items: I
     return { items };
   }
   if (over === 'event') return { items: itemsOf(over, { diff: '', event: p.event.body }) };
-  const { diff } = await p.workspaces.changes(scope.worktree, scope.since, scope.files);
-  return { items: itemsOf(over, { diff }) };
+  const { diff } = await p.workspaces.changes(scope.worktree, scope.since, scope.files, hunked?.context);
+  const items = itemsOf(over, { diff });
+  if (hunked && items.length > hunked.max)
+    return {
+      items: [],
+      error: `the change has ${items.length} hunks, more than the ${hunked.max} "each-hunk" takes; make a smaller change or split it`,
+    };
+  return { items };
 };
 
 /** An item as a prompt section. The event is already in every prompt, so it gets none. */
@@ -587,21 +614,40 @@ const itemSection = (over: Over, item: Item) => {
     'each-file': `Changes to ${item.label}`,
     'each-hunk': `Hunk in ${item.label}`,
   };
-  const title = typeof over === 'string' ? titles[over] : 'run' in over ? 'Command output' : `Item: ${item.label}`;
+  const title =
+    typeof over === 'string'
+      ? titles[over]
+      : 'run' in over
+        ? 'Command output'
+        : 'each-hunk' in over
+          ? titles['each-hunk']
+          : `Item: ${item.label}`;
   return `## ${title}\n\n${fenced(item.text)}`;
 };
 
-/** The item as a script sees it: in `BOTHUB_ITEM` and on stdin. */
-const runOnItem = (script: string, item: Item, scope: Scope, p: Pipeline) =>
-  runScript(script, scope.cwd, scope.timeout, { ...scope.env, BOTHUB_ITEM: item.text }, launcher(p), p.hub, item.text);
+/** The item as a script sees it: in `BOTHUB_ITEM` and on stdin, with the worktree read-only when `readonly`. */
+const runOnItem = (script: string, item: Item, scope: Scope, p: Pipeline, readonly = false) =>
+  runScript(script, scope.cwd, scope.timeout, { ...scope.env, BOTHUB_ITEM: item.text }, launcher(p), {
+    hub: p.hub,
+    input: item.text,
+    readonly,
+  });
 
-type Judged = Pick<Verdict, 'pass' | 'findings'> & { run?: string };
+type Judged = Pick<Verdict, 'pass' | 'findings' | 'blocked'> & { run?: string };
 
 const passTail = 10;
 
-/** A script check's verdict: its output on a failure, and the last lines of it on a pass, so warnings stay visible. */
-const scriptVerdict = ({ ok, output }: { ok: boolean; output: string }): Judged => {
-  if (!ok) return { pass: false, findings: output || 'exited non-zero' };
+/**
+ * A script check's verdict: its output on a failure, and the last lines of it on a pass, so warnings stay visible. A
+ * script that never started or ran out of time is `blocked`.
+ */
+const scriptVerdict = ({ ok, output, sandboxFailed, timedOut }: ScriptResult): Judged => {
+  if (!ok)
+    return {
+      pass: false,
+      findings: output || 'exited non-zero',
+      ...((sandboxFailed || timedOut) && { blocked: true }),
+    };
   const tail = output.trim().split('\n').slice(-passTail).join('\n');
   return { pass: true, ...(tail && { findings: tail }) };
 };
@@ -609,23 +655,25 @@ const scriptVerdict = ({ ok, output }: { ok: boolean; output: string }): Judged 
 const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline) => {
   if (check.type === 'script')
     return (item: Item) =>
-      Effect.promise(async (): Promise<Judged> => {
-        return scriptVerdict(await runOnItem(check.run, item, scope, p));
-      });
+      Effect.promise(async (): Promise<Judged> => scriptVerdict(await runOnItem(check.run, item, scope, p, true)));
   if (check.type === 'decide')
     return (item: Item) =>
       Effect.promise(() => decideCheck(check.body.trim(), item.text, p.env, check.threshold) as Promise<Judged>);
   const bot = p.config.bots[check.bot];
   const skill = check.skill ? p.config.skills[check.skill] : undefined;
+  const preload = bot ? effectivePreload(bot, {}) : [];
+  let preloaded: Promise<string | undefined> | undefined;
   return (item: Item): Effect.Effect<Judged> =>
     Effect.gen(function* () {
       if (!bot) return { pass: false, findings: `unknown bot "${check.bot}"` };
+      const context = yield* Effect.promise(() => (preloaded ??= issueContext(issuesOf(p), p.event, preload)));
       const prompt = [
         skill?.body,
         check.body,
-        itemSection(check.over, item),
-        verdictContract,
+        context,
         eventContext(p.event, a.planned.args, undefined),
+        verdictContract,
+        itemSection(check.over, item),
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -646,23 +694,33 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         returns: ['reply'],
         prompt,
         cwd: a.cwd,
-        preload: effectivePreload(bot, {}),
+        preload,
         tools: effectiveTools(bot, {}),
         access: p,
       });
-      const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p);
+      const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
       return { ...verdictOf(run, final), run: run.id };
     });
 };
 
+/** The event's issue or pull request number as `BOTHUB_ISSUE`, for scripts. */
+const issueEnv = ({ event }: Pipeline) => (event.number === undefined ? {} : { BOTHUB_ISSUE: String(event.number) });
+
+/** The longest attempt reply a check script sees in `BOTHUB_REPLY`. */
+const replyLimit = 64_000;
+
+/** How many items of one check are judged at once, unless the check sets its own `concurrency`. */
+const itemConcurrency = 8;
+
 /**
- * Runs one check over an attempt's changes. A check whose `paths` match no changed file, or that has nothing to look
- * at, is skipped. A script that does not fan out runs once and reads the worktree itself; every other check judges
- * each item `over` names and passes only when every item passes.
+ * Runs one check over an attempt's changes, read-only. A check whose `paths` match no changed file, or that has
+ * nothing to look at, is skipped. A script that does not fan out runs once and reads the worktree itself; every other
+ * check judges the items `over` names, `concurrency` at a time, and passes only when every item passes. A check with
+ * any `blocked` item is blocked.
  */
-const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
+const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
-    const done = (result: Pick<Verdict, 'pass' | 'findings' | 'runs' | 'skipped'>): Verdict => ({
+    const done = (result: Pick<Verdict, 'pass' | 'findings' | 'runs' | 'skipped' | 'blocked'>): Verdict => ({
       check: check.name,
       gating: check.mode !== 'shadow',
       ...result,
@@ -678,12 +736,18 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       since: a.base,
       files,
       timeout: a.job['timeout-minutes'] ?? defaultMinutes,
-      env: { ...handoffEnv(a.handoff), BOTHUB_BASE: a.base },
+      env: {
+        ...handoffEnv(a.handoff),
+        ...issueEnv(p),
+        ...(a.reply !== undefined && { BOTHUB_REPLY: a.reply.slice(0, replyLimit) }),
+        BOTHUB_BASE: a.base,
+      },
     };
 
     if (check.type === 'script' && !fanOut(over)) {
+      const access = { hub: p.hub, readonly: true };
       const result = yield* Effect.promise(() =>
-        runScript(check.run, a.cwd, scope.timeout, scope.env, launcher(p), p.hub)
+        runScript(check.run, a.cwd, scope.timeout, scope.env, launcher(p), access)
       );
       return done(scriptVerdict(result));
     }
@@ -691,21 +755,82 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
     const { items, error } = yield* Effect.promise(() => gather(over, scope, p));
     if (error) return done({ pass: false, findings: error });
     if (!items.length) return skipped('nothing to look at');
-    const judge = judgeWith(check, a, scope, p);
-    const runs: string[] = [];
-    const findings: string[] = [];
-    let pass = true;
-    for (const item of items) {
-      const verdict = yield* judge(item);
-      if (verdict.run) runs.push(verdict.run);
-      pass &&= verdict.pass;
-      if (verdict.findings) findings.push(items.length > 1 ? `${item.label}:\n${verdict.findings}` : verdict.findings);
-    }
+    const judged = yield* Effect.forEach(items, judgeWith(check, a, scope, p), {
+      concurrency: check.concurrency ?? itemConcurrency,
+    });
+    const runs = judged.flatMap(verdict => (verdict.run ? [verdict.run] : []));
+    const findings = judged.flatMap(({ findings }, i) =>
+      findings ? [items.length > 1 ? `${items[i]?.label}:\n${findings}` : findings] : []
+    );
     return done({
-      pass,
+      pass: judged.every(verdict => verdict.pass),
+      ...(judged.some(verdict => verdict.blocked) && { blocked: true }),
       ...(runs.length && { runs }),
       ...(findings.length && { findings: findings.join('\n\n') }),
     });
+  });
+
+/** Runs one check (see `judgeCheck`), timed, telling `onCheck` when it starts and ends. */
+const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
+  Effect.gen(function* () {
+    const start = Date.now();
+    p.onCheck?.(a.parent, check.name);
+    const verdict = yield* judgeCheck(check, a, p);
+    const end = Date.now();
+    const timed: Verdict = {
+      ...verdict,
+      startedAt: new Date(start).toISOString(),
+      endedAt: new Date(end).toISOString(),
+      durationMs: end - start,
+    };
+    p.onCheck?.(a.parent, check.name, timed);
+    return timed;
+  });
+
+/** Whether a failing verdict holds the change: every gating check does, except one in `warn` mode. */
+const holds = (verdict: Verdict, p: Pipeline) => p.config.checks[verdict.check]?.mode !== 'warn';
+
+/**
+ * Runs the named checks in two stages, each all at once: every script check first, then, only when no script that
+ * holds the change failed, the bot and decide checks, so the cheap gates spare the costly ones. A check left out that
+ * way is skipped. Verdicts keep the order of `names`.
+ */
+const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
+  Effect.gen(function* () {
+    const verdicts: Verdict[] = [];
+    const stage = (cheap: boolean) =>
+      Effect.forEach(
+        names.flatMap((name, i) => {
+          const check = p.config.checks[name];
+          return (!check || check.type === 'script') === cheap ? [{ name, i, check }] : [];
+        }),
+        ({ name, i, check }) =>
+          Effect.map(
+            check
+              ? runCheck(check, a, p)
+              : Effect.succeed<Verdict>({ check: name, gating: true, pass: false, findings: 'unknown check' }),
+            verdict => {
+              verdicts[i] = verdict;
+              return verdict;
+            }
+          ),
+        { concurrency: 'unbounded' }
+      );
+    const scripts = yield* stage(true);
+    if (scripts.some(v => v.gating && !v.skipped && !v.pass && holds(v, p)))
+      names.forEach((name, i) => {
+        const check = p.config.checks[name];
+        if (check && check.type !== 'script')
+          verdicts[i] = {
+            check: name,
+            gating: check.mode !== 'shadow',
+            pass: false,
+            skipped: true,
+            findings: 'not run: a script check failed',
+          };
+      });
+    else yield* stage(false);
+    return verdicts;
   });
 
 /**
@@ -920,12 +1045,7 @@ const tryMerge = async (pull: Pull, round: number, a: Attempt, pulls: Pulls, p: 
   try {
     if (tree.conflicts.length) return { conflicts: tree.conflicts };
     const at: Attempt = { ...a, worktree: id, cwd: tree.path, base: tree.base };
-    const verdicts = await Effect.runPromise(
-      Effect.forEach(a.job.requires ?? [], name => {
-        const check = p.config.checks[name];
-        return check ? runCheck(check, at, p) : Effect.succeed<Verdict>({ check: name, gating: true, pass: false });
-      })
-    );
+    const verdicts = await Effect.runPromise(runChecks(a.job.requires ?? [], at, p));
     const failing = failingChecks(verdicts);
     if (failing.length)
       throw new Error(
@@ -1127,6 +1247,7 @@ const attempts = (
       const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
       const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
       const validated = validate(extracted.proposals, allowance, job.mode);
+      const replies = extracted.proposals.flatMap(proposal => (proposal.kind === 'reply' ? [proposal.body] : []));
       const a: Attempt = {
         planned,
         job,
@@ -1139,6 +1260,7 @@ const attempts = (
         ...(item && { item: item.index }),
         ...(item?.fold && { fold: item.fold }),
         ...(merging && { merging }),
+        ...(replies.length && { reply: replies.join('\n\n') }),
       };
       const succeeded = run.status === 'succeeded';
       const problems = succeeded ? proposalProblems(extracted, validated, kinds) : [];
@@ -1170,13 +1292,7 @@ const attempts = (
         return yield* finish(planned, run, outcome, kinds, p, merging);
       }
 
-      const checks: Verdict[] = [];
-      for (const name of job.until?.checks ?? []) {
-        const check = p.config.checks[name];
-        checks.push(
-          check ? yield* runCheck(check, a, p) : { check: name, gating: true, pass: false, findings: 'unknown check' }
-        );
-      }
+      const checks = yield* runChecks(job.until?.checks ?? [], a, p);
       spent += yield* Effect.promise(() =>
         costOf(
           checks.flatMap(v => v.runs ?? []),
@@ -1184,47 +1300,62 @@ const attempts = (
         )
       );
       const failing = failingChecks(checks);
+      const holding = failing.filter(v => holds(v, p));
+      const fixable = failing.filter(v => !v.blocked);
+      const broke = cap !== undefined && spent >= cap;
+      const exhausted = attempt > max || broke;
       const verdicts = job.until ? checks : undefined;
-      if (!failing.length && !left.length) {
+      if (!holding.length && !left.length && (exhausted || !fixable.length)) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, validated.accepted, a, p, verdicts)
         );
         return yield* finish(planned, run, outcome, kinds, p, merging);
       }
 
-      const broke = cap !== undefined && spent >= cap;
-      if (attempt > max || broke) {
-        const what = [failing.length && 'checks still failing', left.length && 'merge conflicts left'].filter(Boolean);
+      /** Holds every proposal but the asks and asks a human `question`; a `failed` reason also fails the run. */
+      const askHuman = (reason: string, question: string, failed?: string) =>
+        Effect.gen(function* () {
+          const ask: Proposal = { kind: 'ask', question };
+          const asks = [...validated.accepted.filter(proposal => proposal.kind === 'ask'), ask];
+          const held = validated.accepted
+            .filter(proposal => proposal.kind !== 'ask')
+            .map(proposal => ({ proposal, reason }));
+          const ended = failed
+            ? yield* Effect.promise(() => p.store.update(run.id, { status: 'failed', error: failed }))
+            : run;
+          const outcome = yield* Effect.promise(() =>
+            settle(
+              ended,
+              { ...extracted, proposals: [...extracted.proposals, ask] },
+              { ...validated, accepted: asks, rejected: [...validated.rejected, ...held] },
+              asks,
+              a,
+              p,
+              verdicts
+            )
+          );
+          return yield* finish(planned, ended, outcome, kinds, p, merging);
+        });
+
+      const blocked = holding.filter(v => v.blocked);
+      if (blocked.length) {
+        const reason = `checks could not run: ${blocked.map(v => `${v.check} (${v.findings?.split('\n')[0] ?? 'no output'})`).join(', ')}`;
+        return yield* askHuman(reason, `${reason}. The change waits in run ${run.id}; nothing went back to the bot.`);
+      }
+
+      if (exhausted) {
+        const what = [holding.length && 'checks still failing', left.length && 'merge conflicts left'].filter(Boolean);
         const reason = broke
           ? `spent $${spent.toFixed(2)} of the $${cap} budget in ${attempt} attempts with ${what.join(' and ')}`
           : `${what.join(' and ')} after ${attempt} attempts`;
-        const ask: Proposal = {
-          kind: 'ask',
-          question: `${reason}: ${[...failing.map(v => v.check), ...left].join(', ')}. The findings are in run ${run.id}.`,
-        };
-        const asks = [...validated.accepted.filter(proposal => proposal.kind === 'ask'), ask];
-        const held = validated.accepted
-          .filter(proposal => proposal.kind !== 'ask')
-          .map(proposal => ({ proposal, reason }));
-        const failed = yield* Effect.promise(() => p.store.update(run.id, { status: 'failed', error: reason }));
-        const outcome = yield* Effect.promise(() =>
-          settle(
-            failed,
-            { ...extracted, proposals: [...extracted.proposals, ask] },
-            { ...validated, accepted: asks, rejected: [...validated.rejected, ...held] },
-            asks,
-            a,
-            p,
-            verdicts
-          )
-        );
-        return yield* finish(planned, failed, outcome, kinds, p, merging);
+        const names = [...holding.map(v => v.check), ...left].join(', ');
+        return yield* askHuman(reason, `${reason}: ${names}. The findings are in run ${run.id}.`, reason);
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
       const earlier =
         bot.session?.resume === 'attempts' ? yield* Effect.promise(() => attemptSummary(run, p)) : undefined;
-      prompt = followUp(task, failing, validated.rejected, attempt + 1, max + 1, [], earlier, left);
+      prompt = followUp(task, fixable, validated.rejected, attempt + 1, max + 1, [], earlier, left);
       parent = run;
     }
   });
@@ -1251,7 +1382,7 @@ const jobItems = async (job: Job, worktree: Worktree, handoff: Handoff, p: Pipel
     since,
     files: changed.filter(file => paths?.some(glob => matchGlob(glob, file))),
     timeout: job['timeout-minutes'] ?? defaultMinutes,
-    env: { ...handoffEnv(handoff), BOTHUB_BASE: worktree.base },
+    env: { ...handoffEnv(handoff), ...issueEnv(p), BOTHUB_BASE: worktree.base },
   };
   if (paths && !scope.files.length) return { items: [], scope };
   return { ...(await gather(job.over, scope, p)), scope };
@@ -1345,7 +1476,7 @@ const scriptJob = (
     const returns = job.returns ?? [];
     const kinds = returnKinds(returns);
     const once = (cwd: string, env: Record<string, string>) =>
-      runScript(job.run, cwd, timeout, env, launcher(p), p.hub);
+      runScript(job.run, cwd, timeout, env, launcher(p), { hub: p.hub });
     const each = async (worktree: Worktree) => {
       const { items, error, scope } = await jobItems(job, worktree, handoff, p);
       if (error) return { ok: false, output: error, stdout: '' };
@@ -1367,6 +1498,7 @@ const scriptJob = (
         );
         const env = {
           ...handoffEnv(handoff),
+          ...issueEnv(p),
           BOTHUB_BASE: worktree.base,
           ...(yield* Effect.promise(() => requestsEnv(kinds, target, p))),
         };
@@ -1418,25 +1550,35 @@ const scriptJob = (
         );
         return yield* finish(planned, run, outcome, kinds, p);
       });
-    return yield* withWorktree(created, execute, handoff, p, { target, lock: lockOf(target, returns) });
+    return yield* withWorktree(created, execute, handoff, p, { target, lock: lockOf(target, returns), wait: timeout });
   });
 
 /** The branch a job locks while it runs: its own, or the `into` it merges into. */
 const lockOf = (target: Target, returns: Return[]) =>
   target.branch ?? (returnKinds(returns).includes('merge') ? target.into : undefined);
 
+/** Takes the lock on `name` for `run`, waiting while another live run holds it, at most `minutes`. */
+const waitForLock = async (name: string, run: string, minutes: number, p: Pipeline) => {
+  const deadline = Date.now() + minutes * 60_000;
+  for (let pause = 100; ; pause = Math.min(pause * 2, 5000)) {
+    const held = await p.store.lock(name, run);
+    if ('release' in held || Date.now() + pause > deadline) return held;
+    await sleep(pause);
+  }
+};
+
 /**
  * Runs `use` in a fresh worktree for `created`, at the job's branch when it exists, otherwise the handed-off branch or
  * the event's ref, holding the lock on `lock`. With `merge`, that branch is merged in for the job to resolve. The
  * commit the worktree starts from is stored as the run's `base`; the worktree is always removed. A branch another
- * live run holds defers the job.
+ * live run holds is waited for, at most `wait` minutes, then defers the job.
  */
 const withWorktree = (
   created: Run,
   use: (worktree: Worktree) => Effect.Effect<JobResult>,
   handoff: Handoff,
   p: Pipeline,
-  { target, lock, merge }: { target: Target; lock: string | undefined; merge?: string }
+  { target, lock, merge, wait }: { target: Target; lock: string | undefined; merge?: string; wait: number }
 ): Effect.Effect<JobResult> => {
   const planned: PlannedJob = {
     workflow: created.workflow,
@@ -1462,7 +1604,7 @@ const withWorktree = (
   };
   return Effect.acquireUseRelease(
     Effect.promise(() =>
-      lock ? p.store.lock(`${p.event.repo}:${lock}`, created.id) : Promise.resolve({ release: async () => {} })
+      lock ? waitForLock(`${p.event.repo}:${lock}`, created.id, wait, p) : Promise.resolve({ release: async () => {} })
     ),
     held =>
       'holder' in held
@@ -1531,7 +1673,12 @@ export const runPlanned = (
       worktree => fanned(planned, workflow, job, created, worktree, handoff, p),
       handoff,
       p,
-      { target, lock: lockOf(target, effectiveReturns(bot, job)), ...(merge && { merge }) }
+      {
+        target,
+        lock: lockOf(target, effectiveReturns(bot, job)),
+        ...(merge && { merge }),
+        wait: job['timeout-minutes'] ?? defaultMinutes,
+      }
     );
   });
 

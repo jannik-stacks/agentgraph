@@ -2,7 +2,6 @@ import { atom } from 'jotai';
 import { atomWithRefresh, unwrap } from 'jotai/utils';
 import type { needsHuman, readFiles } from '../../src/api.ts';
 import type { Config, ConfigError } from '../../src/config.ts';
-import type { Outcome, Run } from '../../src/store.ts';
 
 const last = new Map<string, { text: string; value: unknown }>();
 
@@ -56,6 +55,14 @@ export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segm
 
 export const docsSlugAtom = atom(get => get(segments).slice(1));
 
+/** The dashboard page: the run list, one run's page at `/dashboard/runs/<id>`, or `/dashboard/follow`. */
+export const dashboardPageAtom = atom(get => {
+  const [, page, id] = get(segments);
+  if (page === 'runs' && id) return { run: decodeURIComponent(id) };
+  if (page === 'follow') return { follow: true as const };
+  return {};
+});
+
 const queryParam = (key: string) =>
   atom(
     get => get(locationAtom).query.get(key),
@@ -66,6 +73,8 @@ export const selectedNodeAtom = queryParam('node');
 export const runIdAtom = queryParam('run');
 export const statusFilterAtom = queryParam('status');
 export const botFilterAtom = queryParam('bot');
+export const sinceFilterAtom = queryParam('since');
+export const sortAtom = queryParam('sort');
 export const selectedFileAtom = queryParam('file');
 export const editPathAtom = queryParam('edit');
 export const sampleAtom = atom(get => get(locationAtom).query.has('sample'));
@@ -75,16 +84,7 @@ export const hubAtom = atomWithRefresh(() => getJson<{ config: Config } | { erro
 export const filesQueryAtom = atomWithRefresh(() => getJson<Awaited<ReturnType<typeof readFiles>>>('/api/files'));
 export const filesAtom = unwrap(filesQueryAtom, previous => previous);
 
-export const runsQueryAtom = atomWithRefresh(() => getJson<Run[]>('/api/runs'));
-export const runsAtom = unwrap(runsQueryAtom, previous => previous);
-
 export const needsHumanQueryAtom = atomWithRefresh(() =>
   getJson<Awaited<ReturnType<typeof needsHuman>>>('/api/needs-human')
 );
 export const needsHumanAtom = unwrap(needsHumanQueryAtom, previous => previous);
-
-export const runDetailQueryAtom = atomWithRefresh(async get => {
-  const id = get(runIdAtom);
-  return id ? getJson<{ run: Run; outcome: Outcome | null }>(`/api/runs/${encodeURIComponent(id)}`) : null;
-});
-export const runDetailAtom = unwrap(runDetailQueryAtom, previous => previous ?? null);

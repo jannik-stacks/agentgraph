@@ -29,7 +29,7 @@ import {
 } from './hub-edits.ts';
 import { type FormContext, type Path, SchemaForm } from './SchemaForm.tsx';
 
-const Markdown = lazy(() => import('../Markdown.tsx'));
+const Markdown = lazy(() => import('../../Markdown.tsx'));
 
 const refKinds: Record<string, NodeKind> = {
   bot: 'bot',

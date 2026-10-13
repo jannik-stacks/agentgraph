@@ -103,8 +103,9 @@ const output = ({ cmd, args, cwd, env, stop }: Command) =>
   );
 
 /**
- * A command inside a run container with `worktree` at `/work`. `home` is mounted as `/home/agent` (otherwise
- * `HOME` is the container's tmpfs `/tmp`); secrets travel by name, and the docker client gets the host allowlist.
+ * A command inside a run container with `worktree` at `/work`, read-only with `readonly`. `home` is mounted as
+ * `/home/agent` (otherwise `HOME` is the container's tmpfs `/tmp`); secrets travel by name, and the docker client gets
+ * the host allowlist.
  */
 const contained = async ({
   name,
@@ -116,6 +117,7 @@ const contained = async ({
   cmd,
   args,
   stdin,
+  readonly = false,
 }: {
   name: string;
   worktree: string;
@@ -126,6 +128,7 @@ const contained = async ({
   cmd: string;
   args: string[];
   stdin?: boolean;
+  readonly?: boolean;
 }): Promise<Command> => {
   const config = sandboxConfig();
   await sandboxReady(config);
@@ -135,12 +138,13 @@ const contained = async ({
     name: container,
     worktree,
     home,
-    mounts: [...mounts, ...(await gitMounts(worktree)), ...(await depsMounts(worktree))],
+    mounts: [...mounts, ...(await gitMounts(worktree, readonly)), ...(await depsMounts(worktree, readonly))],
     env: { ...containerEnv(), ...(home ? homeEnv(inside.home, inside.tmp) : { HOME: inside.tmp }), ...env },
     ...(secrets && { secrets }),
     cmd,
     args,
     ...(stdin && { stdin }),
+    readonly,
   });
   return { ...run, env: agentEnv(run.env), cwd: worktree, stop: removeContainer(container) };
 };
@@ -153,7 +157,8 @@ export const containedCommand = (
   adapter: HarnessAdapter,
   spec: RunSpec,
   secrets: Record<string, string> = {},
-  home?: string
+  home?: string,
+  readonly = false
 ) => {
   const { spec: seen, mounts } = specInside(spec);
   const { cmd, args, env } = adapter.command(seen);
@@ -161,6 +166,7 @@ export const containedCommand = (
     name: adapter.name,
     worktree: spec.cwd,
     home,
+    readonly,
     mounts,
     env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, bothubPaths(value)])),
     secrets: { ...secrets, BOTHUB_LLM_BASE_URL: sandboxConfig().llmUrl },
@@ -168,6 +174,9 @@ export const containedCommand = (
     args: args.map(bothubArg),
   });
 };
+
+/** What a script sees besides its worktree: the `hub` directory, read-only, and whether the worktree is `readonly`. */
+export type ScriptAccess = { hub?: string | undefined; readonly?: boolean };
 
 /**
  * How commands are started. Every real run uses `sandboxed`; `startFailed` tells whether an error before any output
@@ -178,16 +187,17 @@ export type Launcher = {
     adapter: HarnessAdapter,
     spec: RunSpec,
     secrets?: Record<string, string>,
-    home?: ReturnType<typeof homeEnv>
+    home?: ReturnType<typeof homeEnv>,
+    readonly?: boolean
   ) => Promise<Command>;
-  script: (script: string, cwd: string, env: Record<string, string>, hub?: string) => Promise<Command>;
+  script: (script: string, cwd: string, env: Record<string, string>, access?: ScriptAccess) => Promise<Command>;
   startFailed: (error: Error & { exitCode?: number; code?: unknown }) => boolean;
 };
 
 /** Starts every command in a hardened run container; fails when the sandbox is unavailable. */
 export const sandboxed: Launcher = {
-  agent: (adapter, spec, secrets, home) => containedCommand(adapter, spec, secrets, home?.HOME),
-  script: (script, cwd, env, hub) =>
+  agent: (adapter, spec, secrets, home, readonly) => containedCommand(adapter, spec, secrets, home?.HOME, readonly),
+  script: (script, cwd, env, { hub, readonly } = {}) =>
     contained({
       name: 'script',
       worktree: cwd,
@@ -196,6 +206,7 @@ export const sandboxed: Launcher = {
       cmd: 'sh',
       args: ['-c', script],
       stdin: true,
+      ...(readonly && { readonly }),
     }),
   startFailed: error => error.exitCode === 125 || typeof error.code === 'string',
 };
@@ -209,7 +220,7 @@ export const unsandboxed: Launcher = {
     const { cmd, args, env } = adapter.command(spec);
     return { cmd, args, cwd: spec.cwd, env: agentEnv(env, secrets, home) };
   },
-  script: async (script, cwd, env, hub) => ({
+  script: async (script, cwd, env, { hub } = {}) => ({
     cmd: 'sh',
     args: ['-c', script],
     cwd,
@@ -227,11 +238,12 @@ export const agentEvents = (
   spec: RunSpec,
   secrets?: Record<string, string>,
   home?: ReturnType<typeof homeEnv>,
-  launch: Launcher = sandboxed
+  launch: Launcher = sandboxed,
+  readonly = false
 ): Stream.Stream<AgentEvent, Error> =>
   Stream.unwrap(
     Effect.tryPromise({
-      try: () => launch.agent(adapter, spec, secrets, home),
+      try: () => launch.agent(adapter, spec, secrets, home, readonly),
       catch: e => (e instanceof SandboxError ? e : new SandboxError((e as Error).message)),
     }).pipe(
       Effect.map(command => {
@@ -314,9 +326,10 @@ export const runJob = (options: {
   secrets?: Record<string, string>;
   onEvent?: (record: EventRecord) => void;
   launch?: Launcher;
+  readonly?: boolean;
 }): Effect.Effect<Run> =>
   Effect.suspend(() => {
-    const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed } = options;
+    const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed, readonly } = options;
     const save = (patch: Partial<Omit<Run, 'id'>>) => Effect.promise(() => store.update(runId, patch));
     const finish = (patch: Partial<Omit<Run, 'id'>>) => save({ ...patch, endedAt: new Date().toISOString() });
 
@@ -357,7 +370,7 @@ export const runJob = (options: {
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
       Effect.zipRight(Effect.tryPromise({ try: () => makeHome(home), catch: e => e as Error })),
       Effect.zipRight(
-        agentEvents(adapter, spec, secrets, home, launch).pipe(
+        agentEvents(adapter, spec, secrets, home, launch, readonly).pipe(
           Stream.runForEach(record),
           Effect.timeout(Duration.minutes(timeoutMinutes))
         )
@@ -394,12 +407,15 @@ const scriptOutputLimit = 8192;
 const scriptRawLimit = 64 << 10;
 const scriptStdoutLimit = 4 << 20;
 
+/** How a script ended: exited 0 or not, its output tail and stdout, and whether it never ran or ran out of time. */
+export type ScriptResult = { ok: boolean; output: string; stdout: string; sandboxFailed?: true; timedOut?: true };
+
 /**
- * Runs `script` with `sh -c` in a run container with `cwd` as its worktree and the minimal agent env plus `env`. A
- * `hub` directory is mounted read-only and named by `BOTHUB_HUB`, so a script can run the hub's own scripts.
- * `input` is written to its stdin. Resolves to whether it exited 0 within the timeout, with the tail of its combined
- * output with terminal colors stripped, and its stdout up to 4 MB; a sandbox that is unavailable resolves to
- * `sandbox-failed: …` without running anything. Never rejects.
+ * Runs `script` with `sh -c` in a run container with `cwd` as its worktree, read-only with `readonly`, and the
+ * minimal agent env plus `env`. A `hub` directory is mounted read-only and named by `BOTHUB_HUB`, so a script can
+ * run the hub's own scripts. `input` is written to its stdin. Resolves to whether it exited 0 within the timeout,
+ * with the tail of its combined output with terminal colors stripped, and its stdout up to 4 MB; a sandbox that is
+ * unavailable resolves to `sandbox-failed: …` without running anything. Never rejects.
  */
 export const runScript = async (
   script: string,
@@ -407,13 +423,17 @@ export const runScript = async (
   timeoutMinutes: number,
   env: Record<string, string> = {},
   launch: Launcher = sandboxed,
-  hub?: string,
-  input = ''
-) => {
-  const failed = (message: string) => ({ ok: false, output: `sandbox-failed: ${message}`, stdout: '' });
-  const command = await launch.script(script, cwd, env, hub).catch((error: Error) => error);
+  { input = '', ...access }: ScriptAccess & { input?: string } = {}
+): Promise<ScriptResult> => {
+  const failed = (message: string): ScriptResult => ({
+    ok: false,
+    output: `sandbox-failed: ${message}`,
+    stdout: '',
+    sandboxFailed: true,
+  });
+  const command = await launch.script(script, cwd, env, access).catch((error: Error) => error);
   if (command instanceof Error) return failed(command.message);
-  return new Promise<{ ok: boolean; output: string; stdout: string }>(resolve => {
+  return new Promise<ScriptResult>(resolve => {
     const child = spawn(command.cmd, command.args, {
       cwd: command.cwd,
       env: command.env,
@@ -453,10 +473,15 @@ export const runScript = async (
       if (code === 125 && launch.startFailed({ name: 'exit', message: '', exitCode: 125 }))
         return resolve(failed(shown().trim() || 'the container did not start'));
       const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
-      resolve({ ok: code === 0 && !timedOut, output: (shown() + tail).trim(), stdout });
+      resolve({
+        ok: code === 0 && !timedOut,
+        output: (shown() + tail).trim(),
+        stdout,
+        ...(timedOut && { timedOut }),
+      });
     });
   });
 };
 
-/** A limiter allowing at most `n` wrapped effects to run at once; waiting runs stay `queued`. */
-export const limiter = (n = 1) => Effect.map(Effect.makeSemaphore(n), semaphore => semaphore.withPermits(1));
+/** A limiter allowing at most `n` wrapped effects to run at once (4 by default); waiting runs stay `queued`. */
+export const limiter = (n = 4) => Effect.map(Effect.makeSemaphore(n), semaphore => semaphore.withPermits(1));

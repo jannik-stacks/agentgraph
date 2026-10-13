@@ -462,7 +462,7 @@ describe('runScript', () => {
 
   it('writes the input to stdin and returns the whole stdout apart from the output tail', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
-    const result = await runScript('tr a-z A-Z; echo note >&2', cwd, 1, {}, unsandboxed, undefined, 'one\ntwo\n');
+    const result = await runScript('tr a-z A-Z; echo note >&2', cwd, 1, {}, unsandboxed, { input: 'one\ntwo\n' });
     expect(result).toEqual({ ok: true, output: 'ONE\nTWO\nnote', stdout: 'ONE\nTWO\n' });
   });
 
