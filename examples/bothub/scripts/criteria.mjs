@@ -1,7 +1,7 @@
 // One JSON line per acceptance criterion in the triage brief, carrying the task, the criterion, the test that proves
-// it with its code, the change to the src/ and studio/src/ files that test imports (the whole change when they cannot
-// be resolved) and the brief's out-of-scope list, so a reviewer judges one criterion against the code without
-// fetching anything, and a criterion whose files did not change keeps its earlier verdict.
+// it with its code, the change to the src/, studio/src/ and hub script files that test imports (the whole change when
+// they cannot be resolved) and the brief's out-of-scope list, so a reviewer judges one criterion against the code
+// without fetching anything, and a criterion whose files did not change keeps its earlier verdict.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
@@ -35,7 +35,7 @@ const testCode = (file, title) => {
   return [...lines.slice(start, start + maxTestLines), '[clipped]'].join('\n');
 };
 
-const roots = ['src/', 'studio/src/'];
+const roots = ['src/', 'studio/src/', 'examples/bothub/scripts/'];
 const imports = /^\s*(?:import|export)\b[^'"]*?['"](\.[^'"]+)['"]/gm;
 
 /** The files under `roots` that `file` imports, following their own imports, or nothing when one cannot be read. */

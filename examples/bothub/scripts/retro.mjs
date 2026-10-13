@@ -297,6 +297,17 @@ const invariants = {
             .map(([check, text]) => hit(r, job(r), `${check}: ${/^run \S+ failed:.*/m.exec(text)[0]}`))
         ),
   },
+  'unjudged-handoff': {
+    means: 'a job handed off with every gating bot check skipped because no changed file matched its paths',
+    find: ({ jobs, types }) =>
+      jobs
+        .filter(r => r.run.closure === 'handed-off')
+        .flatMap(r => {
+          const bots = (r.outcome.checks ?? []).filter(c => c.gating && types[c.check] === 'bot');
+          const unjudged = bots.every(c => c.skipped && /no changed file matches/.test(c.findings ?? ''));
+          return bots.length && unjudged ? [hit(r, job(r), bots.map(c => c.check).join(', '))] : [];
+        }),
+  },
   'test-heavy': {
     means: 'a change under 10 source lines added more than 10 times as many test lines',
     find: ({ chains, writing }) =>

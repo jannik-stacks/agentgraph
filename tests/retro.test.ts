@@ -83,6 +83,34 @@ describe('retro.mjs', () => {
     expect(keys(dir)).not.toContain('retry-no-holding: issue/implement');
   });
 
+  it('flags a handoff no gating bot check judged because none matched a changed file', () => {
+    const skip = (check: string) => ({
+      check,
+      gating: true,
+      pass: false,
+      skipped: true,
+      findings: 'no changed file matches its paths',
+    });
+    const handoff = (n: number, checks: object[]) => ({
+      id: id(n),
+      run: { status: 'succeeded', closure: 'handed-off', event: { number: n } },
+      outcome: { checks: [{ check: 'tests', gating: true, pass: true }, ...checks] },
+    });
+    const dir = data([
+      handoff(1, [skip('review-src'), skip('criterion-met')]),
+      handoff(2, [skip('review-src'), { check: 'criterion-met', gating: true, pass: true }]),
+    ]);
+    const hub = temp('retro-hub');
+    write(hub, {
+      'checks/review-src.md': '---\ntype: bot\nmode: block\n---\nq',
+      'checks/criterion-met.md': '---\ntype: bot\nmode: warn\n---\nq',
+      'checks/tests.md': '---\ntype: script\nmode: block\n---\nq',
+    });
+    expect(retro(dir, ['--hub', hub]).filter(item => item.key.startsWith('unjudged-handoff'))).toMatchObject([
+      { key: 'unjudged-handoff: issue/implement', runs: [id(1)] },
+    ]);
+  });
+
   it('flags parking onto the branch of an open merge request, and not after it merged', () => {
     const parked = {
       id: id(2),
