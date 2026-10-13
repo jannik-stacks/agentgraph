@@ -351,17 +351,12 @@ describe('tests', () => {
     });
   });
 
-  it('lists the module load errors a passing suite prints with --load-errors', () => {
+  it('fails a passing suite whose output reports a module that could not load, and lists those lines', () => {
     const loads =
       "it('loads', () => { console.error('could not load /work/src/a.ts: [PARSE_ERROR] Unexpected token'); });";
-    expect(run('tests.mjs', suite(loads))).toEqual({ ok: true, out: 'tests: 1 passed' });
-    expect(run('tests.mjs', suite(loads), ['--load-errors'])).toEqual({
+    expect(run('tests.mjs', suite(loads))).toEqual({
       ok: false,
-      out: 'could not load /work/src/a.ts: [PARSE_ERROR] Unexpected token\nload-errors: 1 finding',
-    });
-    expect(run('tests.mjs', suite("it('adds', () => expect(1 + 1).toBe(2));"), ['--load-errors'])).toEqual({
-      ok: true,
-      out: 'load-errors: ok',
+      out: 'could not load /work/src/a.ts: [PARSE_ERROR] Unexpected token\ntests: 1 passed, but the output reports a module that could not load',
     });
   });
 

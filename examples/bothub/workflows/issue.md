@@ -33,7 +33,6 @@ jobs:
         - types
         - studio-build
         - tests
-        - load-errors
         - test-guards
         - coverage
         - code-shape
