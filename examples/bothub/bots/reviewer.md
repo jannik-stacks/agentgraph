@@ -2,8 +2,9 @@
 harness: opencode
 model: review
 tools: [read, grep, glob, issues_get, notes_search]
-returns: [reply, label, ask]
+returns: [reply]
 skills: [review-hunk]
+preload: [issue, links, recall]
 max-turns: 20
 budget: { runs-per-day: 60, minutes: 15 }
 ---

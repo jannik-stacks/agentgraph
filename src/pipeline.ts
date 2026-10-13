@@ -504,8 +504,8 @@ const agent = (
   });
 
 /**
- * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, the rest are findings. A check that cannot
- * decide (the run failed, there is no reply, or the first line is neither word) fails with the reason.
+ * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A check
+ * that cannot decide (the run failed, there is no reply, or the first line is neither word) fails with the reason.
  */
 export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'findings'> => {
   if (run.status !== 'succeeded') {
@@ -515,7 +515,7 @@ export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'find
   const reply = extractProposals(final).proposals.find(proposal => proposal.kind === 'reply');
   if (!reply) return { pass: false, findings: `run ${run.id} gave no verdict` };
   const [first = '', ...rest] = reply.body.trim().split('\n');
-  const word = first.trim().toUpperCase();
+  const word = first.replace(/[\s*_]/g, '').toUpperCase();
   if (word !== 'PASS' && word !== 'FAIL')
     return { pass: false, findings: `run ${run.id} gave no verdict: its first line is neither PASS nor FAIL` };
   const findings = rest.join('\n').trim();
@@ -882,12 +882,12 @@ const settle = async (
 
 /**
  * Posts a fan-out's collected replies as one reply: the items with findings first, each under its label, then how many
- * passed. A reply whose first word is `pass` counts as a pass. Recorded on the fan-out's first run; resolves to why
- * it failed, if it did.
+ * passed. A reply whose first word is `pass`, bold or not, counts as a pass. Recorded on the fan-out's first run;
+ * resolves to why it failed, if it did.
  */
 const postSummary = async (first: Run, noun: string, replies: Item[], p: Pipeline) => {
   if (!replies.length) return;
-  const passed = replies.filter(reply => /^pass\b/i.test(reply.text.trim()));
+  const passed = replies.filter(reply => /^[*_]*pass\b/i.test(reply.text.trim()));
   const found = replies.filter(reply => !passed.includes(reply));
   const total = `${replies.length} ${noun}${replies.length === 1 ? '' : 's'}`;
   const head = found.length

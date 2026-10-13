@@ -22,24 +22,15 @@ jobs:
     skill: implement
     branch: bothub/{issue}
     until:
-      checks: [safety, harness-memory, docs-style, comments, lint, format, types, studio-build, tests, docs-tone]
+      checks: [safety, harness-memory, docs-style, comments, lint, format, types, studio-build, tests, docs-tone, review]
       max: 3
     returns: [reply, push, merge-request, note, ask]
     tools: [issues_get, notes_search]
     mode: warn
-    timeout-minutes: 45
-  review:
-    type: bot
-    needs: [implement]
-    bot: reviewer
-    skill: review-hunk
-    over: each-hunk
-    preload: [issue, links, recall]
-    returns: [reply, label]
-    mode: warn
-    timeout-minutes: 20
+    timeout-minutes: 60
 ---
-A maintainer comments `/bothub` on an issue. The triager replies with a scoped task, the
-implementor works on `bothub/<issue>` until every script check passes (at most three rounds), and
-the reviewer reads the change one hunk at a time for what the scripts cannot judge. A human
-merges.
+A maintainer comments `/bothub` on an issue. The triager replies with a scoped task, and the
+implementor works on `bothub/<issue>` until every check passes, at most three rounds: the scripts
+first, then the reviewer, who reads the change one hunk at a time for what the scripts cannot
+judge. A blocking review finding goes back to the implementor like any other failing check. A
+human merges.

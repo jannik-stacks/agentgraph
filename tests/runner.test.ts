@@ -466,6 +466,14 @@ describe('runScript', () => {
     expect(result).toEqual({ ok: true, output: 'ONE\nTWO\nnote', stdout: 'ONE\nTWO\n' });
   });
 
+  it('strips terminal colors from the output tail, also when a sequence spans two writes', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
+    const script = `printf '\\033[3'; sleep 0.1; printf '2mgreen\\033[0m\\n'`;
+    expect(await runScript(script, cwd, 1, {}, unsandboxed)).toMatchObject({ ok: true, output: 'green' });
+    const long = `i=0; while [ $i -lt 8000 ]; do printf '\\033[32m.\\033[39m'; i=$((i+1)); done; echo; echo done`;
+    expect(await runScript(long, cwd, 1, {}, unsandboxed)).toMatchObject({ ok: true, output: 'done' });
+  });
+
   it('kills the script after the timeout', async () => {
     const result = await runScript('sleep 5', mkdtempSync(join(tmpdir(), 'bothub-script-')), 0.002, {}, unsandboxed);
     expect(result).toMatchObject({ ok: false, output: 'timed out after 0.002 minutes' });

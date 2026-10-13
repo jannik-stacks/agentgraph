@@ -45,7 +45,7 @@ const configFor = (mode = 'shadow'): Config => {
     md('skills/implement.md', 'description: Change code.', 'Implement it.'),
     md('skills/judge.md', 'description: Judge a file.', 'Judge this file.'),
     md('checks/exists.md', 'type: script\nrun: test -f src/a.ts && seq 12\nmode: block'),
-    md('checks/shadowed.md', 'type: script\nrun: echo never mind; exit 1'),
+    md('checks/shadowed.md', 'type: script\nrun: printf "\\033[33mnever mind\\033[0m\\n"; exit 1'),
     md('checks/judged.md', 'type: bot\nbot: judge\nskill: judge\nover: each-file\nmode: block', 'Be strict.'),
     md('notes/style/small.md', 'title: Small changes\nstatus: accepted', 'Keep changes small.'),
     md('notes/style/old.md', 'title: Old rule\nstatus: retired', 'Forget this.'),
@@ -676,6 +676,10 @@ describe('checks fail closed', () => {
       /neither PASS nor FAIL/
     );
     expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: 'pass' }]))).toEqual({ pass: true });
+    expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: '**FAIL**\na.ts:3 is wrong' }]))).toEqual({
+      pass: false,
+      findings: 'a.ts:3 is wrong',
+    });
   });
 
   it('does not gate on a check the change does not touch, unless no gating check ran', () => {
@@ -1180,7 +1184,7 @@ describe('over', () => {
 
   it('folds the replies of a fan-out into one, findings first and passes counted', async () => {
     const issues = trackedIssues();
-    const replies = ['pass\n\nNothing found.', 'findings\n\nlong.txt:19 reads oddly.', 'PASS'];
+    const replies = ['pass\n\nNothing found.', 'findings\n\nlong.txt:19 reads oddly.', '**PASS**: nothing found.'];
     const { adapters } = fake((_spec, call) => ({ message: bothub([{ kind: 'reply', body: replies[call - 1] }]) }));
     const config = hubWith([], {
       over: { each: "printf 'one\\ntwo\\nthree\\n'" },

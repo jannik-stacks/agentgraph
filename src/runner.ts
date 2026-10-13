@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { loadedMarker } from './harnesses/opencode-surfacer.ts';
 import { Cause, Duration, Effect, Stream } from 'effect';
 import {
@@ -390,14 +391,15 @@ export const runJob = (options: {
   });
 
 const scriptOutputLimit = 8192;
+const scriptRawLimit = 64 << 10;
 const scriptStdoutLimit = 4 << 20;
 
 /**
  * Runs `script` with `sh -c` in a run container with `cwd` as its worktree and the minimal agent env plus `env`. A
  * `hub` directory is mounted read-only and named by `BOTHUB_HUB`, so a script can run the hub's own scripts.
  * `input` is written to its stdin. Resolves to whether it exited 0 within the timeout, with the tail of its combined
- * output and its stdout up to 4 MB; a sandbox that is unavailable resolves to `sandbox-failed: …` without running
- * anything. Never rejects.
+ * output with terminal colors stripped, and its stdout up to 4 MB; a sandbox that is unavailable resolves to
+ * `sandbox-failed: …` without running anything. Never rejects.
  */
 export const runScript = async (
   script: string,
@@ -420,12 +422,18 @@ export const runScript = async (
     });
     child.stdin.on('error', () => {});
     child.stdin.end(input);
-    let output = '';
+    let raw = '';
+    let cut = false;
     let stdout = '';
     let timedOut = false;
     const add = (chunk: Buffer) => {
-      output = (output + chunk.toString()).slice(-scriptOutputLimit);
+      raw += chunk.toString();
+      if (raw.length <= scriptRawLimit) return;
+      raw = raw.slice(-scriptRawLimit);
+      cut = true;
     };
+    const shown = () =>
+      stripVTControlCharacters(cut ? raw.slice(raw.indexOf('\n') + 1) : raw).slice(-scriptOutputLimit);
     child.stdout.on('data', (chunk: Buffer) => {
       if (stdout.length < scriptStdoutLimit) stdout += chunk.toString();
       add(chunk);
@@ -443,9 +451,9 @@ export const runScript = async (
     child.once('close', code => {
       clearTimeout(timer);
       if (code === 125 && launch.startFailed({ name: 'exit', message: '', exitCode: 125 }))
-        return resolve(failed(output.trim() || 'the container did not start'));
+        return resolve(failed(shown().trim() || 'the container did not start'));
       const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
-      resolve({ ok: code === 0 && !timedOut, output: (output + tail).trim(), stdout });
+      resolve({ ok: code === 0 && !timedOut, output: (shown() + tail).trim(), stdout });
     });
   });
 };

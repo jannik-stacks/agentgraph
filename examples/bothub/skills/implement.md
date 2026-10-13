@@ -17,6 +17,9 @@ root:
 Never run `npm install`, `npm ci` or `npx`.
 
 After you finish, the hub runs its safety, harness-memory, docs-style, comments, lint, format,
-types and tests checks and sends back whatever fails. End with a `push` of your branch listing
-every file you changed, a `merge-request` from that branch whose body says which issue it closes,
-and a reply that lists each criterion and the command that proved it.
+types, studio-build and tests checks, then a reviewer reads each hunk, and whatever fails comes
+back to you. A review finding is about behavior: fix the cause it names, not only the example.
+
+End with a `push` of your branch listing every file you changed, a `merge-request` from that
+branch whose body says which issue it closes, and a reply that lists each criterion and the
+command that proved it.

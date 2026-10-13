@@ -10,8 +10,8 @@ Reply in the issue with:
 - **Out of scope**: adjacent ideas this task will not do.
 - **Acceptance criteria**: observable results, each followed by what proves it: a test to add
   or change (name the test file), or one of the hub's checks. The checks are safety,
-  harness-memory, docs-style, comments, lint, format, types and tests; they run in the sandbox,
-  so keep criteria to focused tests and rg.
+  harness-memory, docs-style, comments, lint, format, types, studio-build and tests; they run in
+  the sandbox, so keep criteria to focused tests and rg.
 
 If you can't tell what is being asked, or the fix needs a choice the code does not settle, ask
 one focused question and stop.

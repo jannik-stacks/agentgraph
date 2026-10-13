@@ -1,8 +1,8 @@
 ---
-description: Review one hunk of a bothub change and return pass, findings or fail.
+description: Review one hunk of a bothub change and answer PASS or FAIL with findings.
 ---
-A hunk is one contiguous block of changed lines. Read the task and its acceptance criteria, then
-enough surrounding code to know what the hunk does.
+A hunk is one contiguous block of changed lines. Read the task and its acceptance criteria in the
+issue, then enough surrounding code to know what the hunk does.
 
 Look for, in this order:
 1. Behavior that doesn't meet an acceptance criterion, or breaks a caller.
@@ -12,6 +12,5 @@ Look for, in this order:
 
 Each finding gives file and line, what is wrong, a suggested fix and whether it blocks.
 
-Return **pass** when nothing is found, **findings** when nothing blocks, **fail** when something
-does; on fail, label the pull request `blocking`. If you can't reach a verdict without
-information you don't have, ask.
+Answer `PASS` when nothing blocks, with any findings that don't block after it, and `FAIL` when
+something does. A failing verdict goes back to the implementor, so name the smallest fix.
