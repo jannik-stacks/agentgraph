@@ -734,6 +734,24 @@ describe('parking', { timeout: 20_000 }, () => {
     );
   });
 
+  it(
+    'runs an agent that died before doing anything once more, then defers and says so on the issue',
+    { timeout: 40_000 },
+    async () => {
+      const issues = trackedIssues();
+      const { seen, adapters } = fakeHarness(() => ({ events: [], exit: 137 }));
+      const p = await pipeline({ config: configFor(), issues, adapters });
+      const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+
+      expect(seen).toHaveLength(2);
+      expect(result.run).toMatchObject({ stopped: 'infra', closure: 'deferred', attempt: 1 });
+      const [said] = (await issues.get(7))!.comments;
+      expect(said!.body).toBe(
+        "triage/parking was deferred: the bot's run died twice before it did anything (exited with code 137). It continues when it runs again."
+      );
+    }
+  );
+
   it('resumes from the parked branch with the question and the answer', async () => {
     const { issues, origin, seen, p, result } = await blockedRun();
     const [asked] = await issues.list({ label: 'unsure' });

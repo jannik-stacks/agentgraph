@@ -39,9 +39,10 @@ A run that ends before its work is done records why in `stopped`, next to its st
 | `sandbox`   | the sandbox never started, so nothing ran                                   |
 | `provider`  | the model provider refused the run                                          |
 | `budget`    | the bot had used its runs for the day                                       |
+| `infra`     | the harness died twice before its bot did anything, 10 seconds apart        |
 
 The process is stopped with it. A withdrawn run closes as `no-op` and applies nothing, a sandbox,
-provider or budget stop as `deferred`, and the rest as `blocked`. The issue is checked every 30
+provider, budget or infra stop as `deferred`, and the rest as `blocked`. The issue is checked every 30
 seconds while an agent runs.
 
 ## The harness home

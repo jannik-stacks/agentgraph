@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { effectivePreload, returnKinds, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
@@ -95,6 +96,33 @@ const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Ru
   return recorded.length ? { ...extracted, proposals: [...recorded, ...extracted.proposals] } : extracted;
 };
 
+/** Whether a run failed before its bot did anything, for no reason outside its work. */
+const diedEarly = async (run: Run, p: Pipeline) =>
+  run.status === 'failed' &&
+  !run.stopped &&
+  (await p.store.events(run.id)).every(({ event }) => event.type === 'start' || event.type === 'error');
+
+const infraWait = 10_000;
+
+/**
+ * Runs `ran` on `current`, and when it died before its bot did anything, once more on a new run after `infraWait`. A
+ * second such death stops that run as `infra`, which defers the job.
+ */
+const retried = (ran: (run: Run) => ReturnType<typeof agent>, current: Run, p: Pipeline) =>
+  Effect.gen(function* () {
+    const first = yield* ran(current);
+    if (!(yield* Effect.promise(() => diedEarly(first.run, p)))) return first;
+    yield* Effect.sleep(infraWait);
+    const { id, status: _status, error: _error, owner: _owner, startedAt: _start, endedAt: _end, ...same } = first.run;
+    const again = yield* ran(yield* Effect.promise(() => p.store.create({ ...same, parent: id })));
+    if (!(yield* Effect.promise(() => diedEarly(again.run, p)))) return again;
+    const why = stripVTControlCharacters(again.run.error ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const error = `the bot's run died twice before it did anything${why ? ` (${why.slice(0, 200)})` : ''}`;
+    return { ...again, run: yield* Effect.promise(() => p.store.update(again.run.id, { stopped: 'infra', error })) };
+  });
+
 const costOf = async (ids: string[], store: Store) =>
   (await Promise.all(ids.map(id => store.read(id)))).reduce((sum, run) => sum + (run?.costUsd ?? 0), 0);
 
@@ -131,7 +159,7 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
  * files count as a failing check. The loop stops at `until.max` follow-ups, or once the attempts and checks have spent
  * the bot's `usd-per-run`. An `item` of a fan-out adds its section to the prompt. A reply with text but no readable
  * proposals block first gets one format-only follow-up attempt, in the same session when the harness can continue
- * it, which `until.max` does not count.
+ * it, which `until.max` does not count. An agent that died before doing anything runs once more (see `retried`).
  */
 const attempts = (
   planned: PlannedJob,
@@ -196,7 +224,7 @@ const attempts = (
               })
             );
       const spec = { ...built.spec, prompt, ...(session && { session }) };
-      const { run, final } = yield* agent(bot, spec, timeoutMinutes, current, p, env);
+      const { run, final } = yield* retried(on => agent(bot, spec, timeoutMinutes, on, p, env), current, p);
       spent += run.costUsd ?? 0;
       const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
       const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
