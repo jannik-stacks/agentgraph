@@ -15,3 +15,29 @@ files, the test that loads them, such as compiling the example hub, covers them;
 re-reads the files and lists their keys only restates the edit. Leave out casts the types do not
 need, such as `as { … }` on parsed data or `as const` on a table; `!` on a lookup the test controls
 is fine, since a missing value throws there anyway.
+
+Bad:
+
+```ts
+it('accepts every association list', () => {
+  for (const list of [['OWNER'], [], ['NONE']]) {
+    const result = compile([workflow(list)]);
+    if (list.length) expect(result.ok).toBe(true);
+    else expect(result.ok).toBe(false);
+  }
+});
+```
+
+Good:
+
+```ts
+const ASSOCIATION_LISTS = [
+  { list: ['OWNER'], ok: true },
+  { list: ['NONE'], ok: true },
+  { list: [], ok: false },
+];
+
+it.each(ASSOCIATION_LISTS)('compiles associations $list', ({ list, ok }) => {
+  expect(compile([workflow(list)]).ok).toBe(ok);
+});
+```
