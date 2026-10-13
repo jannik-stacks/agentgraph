@@ -164,6 +164,9 @@ const attempts = (
     const max = job.until?.max ?? 1;
     const cap = bot.budget?.['usd-per-run'];
     let spent = 0;
+    const broke = () => cap !== undefined && spent >= cap;
+    const overBudget = (what: string, attempt: number) =>
+      `spent $${spent.toFixed(2)} of the $${cap} budget in ${attempt} attempts with ${what}`;
     let parent = first;
     const task = [
       built.spec.prompt,
@@ -222,11 +225,13 @@ const attempts = (
       if (problems.length) {
         const error = problems.join('; ');
         const tries = attempt - reformats;
-        if (!reformat && tries > max) {
+        if ((!reformat && tries > max) || broke()) {
           const failed = yield* Effect.promise(() =>
             p.store.update(run.id, {
               status: 'failed',
-              error: `no usable proposals after ${attempt} attempts: ${error}`,
+              error: broke()
+                ? `${overBudget('no usable proposals', attempt)}: ${error}`
+                : `no usable proposals after ${attempt} attempts: ${error}`,
             })
           );
           const outcome = yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
@@ -287,8 +292,7 @@ const attempts = (
       const failing = failingChecks(checks);
       const holding = failing.filter(v => holds(v, p));
       const fixable = failing.filter(v => !v.blocked);
-      const broke = cap !== undefined && spent >= cap;
-      const exhausted = attempt - reformats > max || broke;
+      const exhausted = attempt - reformats > max || broke();
       const verdicts = job.until ? checks : undefined;
       if (!holding.length && !left.length) {
         const outcome = yield* Effect.promise(() =>
@@ -330,9 +334,7 @@ const attempts = (
 
       if (exhausted) {
         const what = [holding.length && 'checks still failing', left.length && 'merge conflicts left'].filter(Boolean);
-        const reason = broke
-          ? `spent $${spent.toFixed(2)} of the $${cap} budget in ${attempt} attempts with ${what.join(' and ')}`
-          : `${what.join(' and ')} after ${attempt} attempts`;
+        const reason = broke() ? overBudget(what.join(' and '), attempt) : `${what.join(' and ')} after ${attempt} attempts`;
         const names = [...holding.map(v => v.check), ...left].join(', ');
         const question = `${reason}: ${names}. The findings are in run ${run.id}.\n\n${findingsFor(holding)}`;
         return yield* askHuman(reason, question.trim(), reason);

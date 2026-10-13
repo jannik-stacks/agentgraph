@@ -163,16 +163,11 @@ const references = (config: Config): ConfigError[] => {
   return errors;
 };
 
-/** Harnesses that report what a run cost; `usd-per-run` is enforced only on these. */
-const costReporting: readonly Harness[] = [];
-
 /** Fields that compile but that the runner does not act on, or that make a job do nothing it asked for. */
 const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
   const found: ConfigError[] = [];
   for (const bot of Object.values(bots)) {
     const warn = (message: string) => found.push({ path: bot.path, message });
-    if (bot.budget?.['usd-per-run'] !== undefined && !costReporting.includes(bot.harness))
-      warn(`"usd-per-run" is declared, not enforced: harness "${bot.harness}" reports no cost`);
     if (bot.harness === 'pi') {
       if (bot['max-turns'] !== undefined)
         warn('"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it');

@@ -1144,6 +1144,15 @@ describe('budgets', () => {
     });
   });
 
+  it('stops retrying an unusable reply once the run budget is spent', async () => {
+    const config = configFor('warn');
+    config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };
+    const { seen, adapters } = fake({ message: '' });
+    const result = await Effect.runPromise(runPlanned(triage, await pipeline({ config, adapters })));
+    expect(seen).toHaveLength(1);
+    expect(result.run.error).toMatch(/^spent \$0\.50 of the \$0\.5 budget in 1 attempts with no usable proposals/);
+  });
+
   it('prices a run its harness reports at no cost, so the run budget still stops the loop', async () => {
     const config = configFor();
     config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };

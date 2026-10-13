@@ -305,7 +305,6 @@ describe('compile', () => {
       ),
     ]);
     expect(result.ok && result.warnings.map(w => `${w.path}: ${w.message}`)).toEqual([
-      'bots/b.md: "usd-per-run" is declared, not enforced: harness "opencode" reports no cost',
       'checks/judge.md: decides in block mode without a "threshold"; tune one in log mode first',
       'checks/tuned.md: no job lists it in "until" or "requires", so it never runs',
       'workflows/w.md: job "a" loops until checks that are all in log mode, so it never repeats',
