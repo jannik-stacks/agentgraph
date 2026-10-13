@@ -157,6 +157,68 @@ describe('test-guards: the suite stays whole', () => {
   });
 });
 
+describe('test-guards: tests assert outside loops and branches', () => {
+  const OLD_LOOP = ["it('old', () => {", '  for (const n of [1, 2]) expect(n).toBeTruthy();', '});', ''].join('\n');
+
+  it('fails added loops of expect( calls, loops nested in them and expect( under an if', () => {
+    const repo = change(
+      { 'tests/a.test.ts': OLD_LOOP },
+      {
+        'tests/a.test.ts': [
+          OLD_LOOP,
+          "it('reads every example', () => {",
+          "  for (const [example, names] of [['hub', ['issue']]] as const) {",
+          '    for (const name of names) {',
+          "      if (name === 'merge') expect(example).toBe('hub');",
+          '      else expect(name).toBe(example);',
+          '    }',
+          '  }',
+          '});',
+          '',
+        ].join('\n'),
+      }
+    );
+    const { ok, found } = guards(repo);
+    expect(ok).toBe(false);
+    expect(found).toEqual([
+      'tests/a.test.ts:6: a loop of expect( calls inside a test; give each case an it.each row from an upcased const array, or collect the results and assert once after the loop',
+      'tests/a.test.ts:7: a loop nested in a loop of expect( calls; flatten the cases into one it.each table',
+      'tests/a.test.ts:8: an expect( under an if or else; give each case its own test that asserts unconditionally',
+      'tests/a.test.ts:9: an expect( under an if or else; give each case its own test that asserts unconditionally',
+    ]);
+  });
+
+  it('passes it.each tables, setup loops, an assertion after a loop and loops the base already had', () => {
+    const repo = change(
+      { 'tests/a.test.ts': OLD_LOOP },
+      {
+        'tests/a.test.ts': [
+          OLD_LOOP,
+          'const NAMES = [',
+          "  ['issue', 1],",
+          "  ['merge', 2],",
+          '];',
+          "it.each(NAMES)('counts %s', (name, n) => expect(name.length).toBeGreaterThan(n));",
+          "it('collects then asserts', () => {",
+          '  const seen: number[] = [];',
+          '  for (const n of [1, 2]) {',
+          '    if (n > 1) seen.push(n);',
+          '  }',
+          '  expect(seen).toEqual([2]);',
+          '});',
+          "it('throws on a missing row', () => {",
+          '  const row = NAMES.find(([name]) => name === "issue");',
+          "  if (!row) throw new Error('missing');",
+          '  expect(row[1]).toBe(1);',
+          '});',
+          '',
+        ].join('\n'),
+      }
+    );
+    expect(guards(repo)).toMatchObject(guardsOk);
+  });
+});
+
 describe('coverage', () => {
   const branchy = ['export const sign = (n: number) => {', '  if (n < 0) return -1;', '  return 1;', '};', ''].join(
     '\n'

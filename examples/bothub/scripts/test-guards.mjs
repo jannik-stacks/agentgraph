@@ -1,5 +1,6 @@
 // Guards the test suite a change leaves behind, cheapest first. Against $BOTHUB_BASE it keeps every test with its
-// assertions, skips, focuses and slows none, and leaves tests/setup/ alone. It adds the test each criterion of the
+// assertions, skips, focuses and slows none, and leaves tests/setup/ alone. The test lines it adds assert outside
+// loops and branches, so each case is its own it.each row. It adds the test each criterion of the
 // triage brief names, with its exact title, in the file the criterion names. And every test it adds fails on the
 // base code: in a temporary copy of the base with the change's tests/ files on top, a new test that passes would not
 // notice the change being reverted. A test titled "still …" guards behavior that already worked and may pass.
@@ -62,6 +63,56 @@ const integrity = () => {
       const ms = timeoutOf(text);
       if (ms > defaultTimeout) findings.push(`${path}:${line}: a test timeout of ${ms} ms, above the ${defaultTimeout} ms default`);
     }
+  }
+};
+
+const loopOpen = /^for(\s+await)?\s*\(|\.forEach\(/;
+const branchOpen = /^(\}\s*)?(if\s*\(|else\b)/;
+const asserts = /\bexpect(\.soft)?\(/;
+
+/** Loops and branches that hold an `expect(`, found by indentation in formatted code, with line numbers from 1. */
+const shapeOf = text => {
+  const found = [];
+  const open = [];
+  const close = () => {
+    const block = open.pop();
+    if (block.kind !== 'loop') return;
+    const outer = open.findLast(b => b.kind === 'loop');
+    if (outer) outer.inner.push(block.line, ...block.inner);
+    else if (block.asserts)
+      found.push({ line: block.line, what: 'loop' }, ...block.inner.map(line => ({ line, what: 'nested' })));
+  };
+  text.split('\n').forEach((raw, i) => {
+    const row = raw.replace(strings, '""');
+    const trimmed = row.trim();
+    if (!trimmed || trimmed.startsWith('//')) return;
+    const indent = row.length - row.trimStart().length;
+    const closing = /^[\]})]/.test(trimmed);
+    while (open.length && (indent < open.at(-1).indent || (indent === open.at(-1).indent && !closing))) close();
+    if (trimmed.startsWith('}') && open.at(-1)?.indent === indent) close();
+    const line = i + 1;
+    const kind = loopOpen.test(trimmed) ? 'loop' : branchOpen.test(trimmed) ? 'branch' : undefined;
+    if (kind) open.push({ kind, indent, line, asserts: false, inner: [] });
+    if (!asserts.test(trimmed)) return;
+    for (const block of open) block.asserts = true;
+    if (open.some(b => b.kind === 'branch')) found.push({ line, what: 'branch' });
+  });
+  while (open.length) close();
+  return found.sort((a, b) => a.line - b.line);
+};
+
+const shapeText = {
+  loop: 'a loop of expect( calls inside a test; give each case an it.each row from an upcased const array, or collect the results and assert once after the loop',
+  nested: 'a loop nested in a loop of expect( calls; flatten the cases into one it.each table',
+  branch: 'an expect( under an if or else; give each case its own test that asserts unconditionally',
+};
+
+const shape = () => {
+  for (const { path, deleted } of changed) {
+    if (deleted || !isTestFile(path)) continue;
+    const added = new Set(addedLines(sha, path).map(({ line }) => line));
+    for (const { line, what } of shapeOf(readFileSync(path, 'utf8')))
+      if (added.has(line)) findings.push(`${path}:${line}: ${shapeText[what]}`);
   }
 };
 
@@ -136,6 +187,7 @@ const bite = () => {
 };
 
 integrity();
+shape();
 criteria();
 bite();
 report('test-guards', findings);
