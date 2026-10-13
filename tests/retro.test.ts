@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runScript, temp, write } from './kit.ts';
+import { commit, git, runScript, temp, write } from './kit.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 
@@ -179,6 +179,50 @@ describe('retro.mjs', () => {
       ])
     );
     expect(keys(dir).filter(key => /^(wide-brief|over-attempts)/.test(key))).toEqual([]);
+  });
+
+  it('flags an empty turn after an engine ask, shipped gaps, fast script failures, a pushed park and a flat decider', () => {
+    const repo = temp('retro-repo');
+    git(repo, 'init', '-q', '-b', 'main');
+    const base = commit(repo, { 'a.ts': '1\n' });
+    write(repo, { 'a.ts': '2\n' });
+    git(repo, 'commit', '-qam', 'bothub: implement (parked)');
+    const sha = git(repo, 'rev-parse', 'HEAD');
+    const decision = (p: number) => ({ type: 'decision', ask: 'In scope?', p });
+    const dir = data([
+      {
+        id: id(1),
+        run: { status: 'succeeded', event, bot: 'implementor' },
+        outcome: {
+          checks: [{ check: 'lint', gating: true, pass: false, durationMs: 900, findings: 'a.ts:1: no' }],
+          accepted: [{ kind: 'push' }, { kind: 'ask', question: 'checks could not run: review-src' }],
+        },
+        events: [1, 2, 3, 4, 5].map(n => decision(0.5 + n / 100)),
+      },
+      {
+        id: id(2),
+        run: { status: 'succeeded', closure: 'handed-off', event, bot: 'implementor', base },
+        outcome: {
+          checks: [{ check: 'review-tests', gating: false, pass: false, findings: 'exited with code 137' }],
+          accepted: [{ kind: 'push' }],
+          results: [{ kind: 'push', status: 'applied', url: `${join(repo, '.git')}#bothub/2`, sha }],
+        },
+        events: [{ type: 'decision', ask: 'In scope?', error: 'decide: timed out after 5000 ms' }],
+      },
+    ]);
+    const hub = temp('retro-hub');
+    write(hub, { 'checks/lint.md': '---\ntype: script\nmode: block\n---\nx' });
+    expect(keys(dir, ['--hub', hub])).toEqual(
+      expect.arrayContaining([
+        'empty-retrigger: issue/implement',
+        'shipped-gaps: review-tests',
+        'fast-script-fail: lint',
+        'parked-pushed: issue/implement',
+        'decider-flat: In scope?',
+        'decider-error: decide: timed out after N ms',
+        'env-error: killed',
+      ])
+    );
   });
 
   it('gives each item a stable id from its key, and reports nothing for a clean run', () => {

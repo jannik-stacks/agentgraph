@@ -7,6 +7,7 @@
 //
 //   node retro.mjs <data> [--hub <dir>] [--since <iso time>]
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
@@ -67,6 +68,20 @@ const accepted = (r, kind) => (r.outcome.accepted ?? []).filter(x => x.kind === 
 const asks = r => accepted(r, 'ask').map(x => x.question);
 const failing = r => (r.outcome.checks ?? []).filter(c => c.gating && !c.pass && !c.skipped);
 const findings = r => (r.outcome.checks ?? []).map(c => [c.check, String(c.findings ?? '')]);
+const engineAsk = /^checks (still failing|could not run)/;
+const crashed = /^run \S+ failed:/m;
+const decisions = r => r.events.filter(e => e.type === 'decision');
+/** The subjects of the commits a push result added since `base`, read from its repository when it is on disk. */
+const subjects = (result, base) => {
+  const repo = (result.url ?? '').split('#')[0];
+  if (!result.sha || !repo || !existsSync(repo)) return [];
+  const range = base ? [`${base}..${result.sha}`] : ['-n', '20', result.sha];
+  try {
+    return execFileSync('git', ['--git-dir', repo, 'log', '--format=%s', ...range], { encoding: 'utf8' }).split('\n');
+  } catch {
+    return [];
+  }
+};
 const recalls = r => r.events.filter(e => e.type === 'recall');
 const shown = r => recalls(r).flatMap(e => (e.items ?? []).filter(i => i.fate === 'surfaced' || i.fate === 'unjudged'));
 const tokens = r => r.events.reduce((sum, e) => sum + (e.type === 'usage' ? e.inputTokens : 0), 0);
@@ -110,6 +125,7 @@ const environment = {
   'no home directory': /uv_os_homedir/,
   'missing binary': /spawnSync \S+ ENOENT/,
   'terminal escapes': /\[\d+(;\d+)*m\S/,
+  killed: /exited with code (137|143)\b/,
 };
 
 /** The runs of one job on one issue, oldest first, and each with the run before it. */
@@ -220,7 +236,7 @@ const invariants = {
     find: ({ jobs }) =>
       jobs.flatMap(r =>
         asks(r)
-          .filter(q => /^checks (still failing|could not run)/.test(q))
+          .filter(q => engineAsk.test(q))
           .map(q => hit(r, job(r), q))
       ),
   },
@@ -232,7 +248,7 @@ const invariants = {
       const limit = /allowed (edit )?paths|\b(file|size) cap\b|raise the (cap|limit)/i;
       return jobs.flatMap(r =>
         asks(r)
-          .filter(q => !/^checks (still failing|could not run)/.test(q))
+          .filter(q => !engineAsk.test(q))
           .flatMap(q =>
             [...checks.filter(c => named(c).test(q)), ...(limit.test(q) ? ['hub limit'] : [])].map(c => hit(r, c, q))
           )
@@ -277,7 +293,7 @@ const invariants = {
         .filter(r => r.run.closure === 'handed-off')
         .flatMap(r =>
           findings(r)
-            .filter(([, text]) => /^run \S+ failed:/m.test(text))
+            .filter(([, text]) => crashed.test(text))
             .map(([check, text]) => hit(r, job(r), `${check}: ${/^run \S+ failed:.*/m.exec(text)[0]}`))
         ),
   },
@@ -333,6 +349,52 @@ const invariants = {
             ? [hit(ran.at(-1), `${job(chain[0])}#${chain[0].run.event?.number}`, `${ran.length} attempts, until.max ${max}`)]
             : [];
         }),
+  },
+  'empty-retrigger': {
+    means: 'after bothub asked about its checks, the next turn changed nothing and only re-ran them',
+    find: ({ chains }) =>
+      chains.flatMap(chain =>
+        pairs(chain)
+          .filter(([prev, cur]) => asks(prev).some(q => engineAsk.test(q)) && !edits(cur) && cur.run.bot)
+          .map(([prev, cur]) => hit(cur, job(cur), `no edit after ${prev.id} asked: ${asks(prev)[0]}`))
+      ),
+  },
+  'shipped-gaps': {
+    means: 'a job handed off while a warn or log check still failed on it',
+    find: ({ jobs, modes }) =>
+      jobs
+        .filter(r => r.run.closure === 'handed-off')
+        .flatMap(r =>
+          (r.outcome.checks ?? [])
+            .filter(c => !c.pass && !c.skipped && !crashed.test(String(c.findings ?? '')))
+            .filter(c => !c.gating || ['warn', 'log'].includes(modes[c.check]))
+            .map(c => hit(r, c.check, c.findings))
+        ),
+  },
+  'fast-script-fail': {
+    means: 'an attempt failed only on script checks under 10 s, which the bot could have run before finishing',
+    find: ({ jobs, types }) =>
+      jobs
+        .filter(r => failing(r).length && failing(r).every(c => types[c.check] === 'script' && c.durationMs < 10_000))
+        .map(r =>
+          hit(
+            r,
+            failing(r)
+              .map(c => c.check)
+              .join('+'),
+            failing(r)[0].findings
+          )
+        ),
+  },
+  'parked-pushed': {
+    means: 'a commit made to park unchecked work was pushed as part of the change',
+    find: ({ jobs }) =>
+      jobs.flatMap(r =>
+        (r.outcome.results ?? [])
+          .filter(x => x.kind === 'push' && x.status === 'applied')
+          .flatMap(x => subjects(x, r.run.base).filter(s => s.includes('(parked)')))
+          .map(subject => hit(r, job(r), subject))
+      ),
   },
   'no-block': {
     means: "a bot's reply had no bothub block, so its work was thrown away",
@@ -498,6 +560,26 @@ const invariants = {
         })
       ),
   },
+  'decider-flat': {
+    means: 'a decider gave nearly the same score to every call it judged, so it does not separate them',
+    find: ({ runs }) =>
+      Object.entries(Object.groupBy(runs.flatMap(decisions), e => e.ask)).flatMap(([ask, es]) => {
+        const ps = es.map(e => e.p).filter(p => p !== undefined);
+        const last = runs.findLast(r => decisions(r).some(e => e.ask === ask));
+        return ps.length >= 5 && Math.max(...ps) - Math.min(...ps) < 0.15
+          ? [hit(last, ask, `${ps.length} scores from ${Math.min(...ps).toFixed(2)} to ${Math.max(...ps).toFixed(2)}`)]
+          : [];
+      }),
+  },
+  'decider-error': {
+    means: 'a decider call failed, so the call it judged went through unjudged',
+    find: ({ runs }) =>
+      runs.flatMap(r =>
+        decisions(r)
+          .filter(e => e.error)
+          .map(e => hit(r, gist(e.error), e.error))
+      ),
+  },
   'recall-error': {
     means: 'recall failed',
     find: ({ runs }) =>
@@ -528,6 +610,7 @@ export const retro = (runs, { hub, pulls = [] } = {}) => {
     pulls,
     hub,
     modes: front(hub, 'checks', 'mode'),
+    types: front(hub, 'checks', 'type'),
     checks: Object.keys(front(hub, 'checks', 'type')),
     resume: bot => (hub ? (resumes[bot] ?? 'none') : 'session'),
   };
