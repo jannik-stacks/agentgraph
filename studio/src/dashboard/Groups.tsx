@@ -161,6 +161,7 @@ const LinkChip = ({ link, direction }: { link: Link; direction: 'from' | 'to' })
   const select = useSetAtom(runIdAtom);
   return (
     <Tooltip
+      className="shrink-0"
       tip={`${direction === 'from' ? 'Started by' : 'Started'} ${link.label}${link.likely ? ', matched by issue and time' : ''}`}
       action="Open that run"
     >
@@ -187,6 +188,7 @@ const PullChips = ({ event }: { event: string }) => {
   return pulls.map(pull => (
     <Tooltip
       key={pull.number}
+      className="shrink-0"
       tip={`Merge request #${pull.number}, ${pull.state}: ${pull.title}`}
       action="Show its changes"
     >
@@ -247,7 +249,7 @@ export const GroupRow = memo(function GroupRow({ group, open: initiallyOpen }: {
             ))}
             <PullChips event={event.id} />
           </span>
-          <Io tally={group.tally} className="text-xs" />
+          <Io tally={group.tally} className="shrink-0 text-xs" />
           <Cost
             billed={cost.billed}
             estimated={cost.estimated}
