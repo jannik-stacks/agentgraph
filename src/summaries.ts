@@ -1,39 +1,11 @@
 import { createHash } from 'node:crypto';
 import { appendFile, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { z } from 'zod';
 import type { EventRecord, Run } from './store.ts';
 import type { AgentEvent } from './types.ts';
+import { Summarizer, type Granularity, type Share } from './schema.ts';
 
-export const Granularity = z.enum(['item', 'turn', 'run']);
-export type Granularity = z.infer<typeof Granularity>;
-
-const Settings = z.strictObject({
-  mode: z.enum(['off', 'extractive', 'model']).default('extractive'),
-  model: z.string().min(1).optional(),
-  granularity: z.union([Granularity, z.array(Granularity).min(1)]).default('item'),
-  'max-bytes': z.number().int().min(64).max(4096).default(512),
-  prompt: z.string().min(1).optional(),
-});
-
-/**
- * How past run events become one-line summaries: `off`, `extractive` (no model, the default), or a model alias given
- * directly or as `{ mode: model, model }`.
- */
-export const Summarizer = z.preprocess(
-  value =>
-    value === 'off' || value === 'extractive'
-      ? { mode: value }
-      : typeof value === 'string'
-        ? { mode: 'model', model: value }
-        : value,
-  Settings.refine(s => s.mode !== 'model' || s.model, 'mode model needs a model')
-);
-export type Summarizer = z.output<typeof Settings>;
-
-/** Who may see a run's transcript again: no bot, the bot that ran it, or any bot in the hub. */
-export const Share = z.enum(['none', 'bot', 'hub']);
-export type Share = z.infer<typeof Share>;
+export { Granularity, Share, Summarizer } from './schema.ts';
 
 /** One line of `runs/<id>/summaries.jsonl`. `from` and `to` are the event seqs it covers. Later lines for the same `id` replace earlier ones. */
 export type SummaryRecord = {

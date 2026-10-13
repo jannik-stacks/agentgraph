@@ -3,7 +3,8 @@ import { parse } from 'yaml';
 import type { Config } from './config.ts';
 import { decide as askModel, defaultDecideModel, defaultDecideUrl } from './decide.ts';
 import type { Issue } from './issues.ts';
-import { visible, type Share, type SummaryRecord } from './summaries.ts';
+import type { Share } from './schema.ts';
+import { visible, type SummaryRecord } from './summaries.ts';
 
 /**
  * One searchable document: a note, an issue or a run summary. `pointer` says where the full text lives; `bot` and

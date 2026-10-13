@@ -1,8 +1,24 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { fumadocsMdx } from 'fumadocs-mdx/vite';
-import { defineConfig } from 'vite';
+import { builtinModules } from 'node:module';
+import { defineConfig, type Plugin } from 'vite';
 import { bothubCode } from './src/code/plugin.ts';
+
+const builtins = new Set(builtinModules);
+
+/** Fails the build when browser code imports a Node builtin, which vite would otherwise only stub out. */
+const noNodeInBrowser = (): Plugin => ({
+  name: 'bothub:no-node-in-browser',
+  enforce: 'pre',
+  resolveId(source, importer, options) {
+    if (options.ssr || !importer || importer.includes('/node_modules/')) return;
+    if (!source.startsWith('node:') && !builtins.has(source)) return;
+    this.error(
+      `${importer} imports ${source}, which does not run in the browser; move what the studio needs out of that module`
+    );
+  },
+});
 
 export const apiPort = 5181;
 
@@ -11,6 +27,7 @@ const server = { port: 5182, strictPort: true, proxy: { '/api': `http://127.0.0.
 export default defineConfig({
   appType: 'spa',
   plugins: [
+    noNodeInBrowser(),
     bothubCode({ root: '..', content: 'content/docs' }),
     fumadocsMdx({ index: false, macro: { include: 'src/docs/**' } }),
     react(),
