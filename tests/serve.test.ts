@@ -211,12 +211,13 @@ describe('serveHub', () => {
       const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
       await issues.comment(1, '/bothub one');
       await issues.comment(2, '/bothub two');
-      while (lines.filter(line => line.startsWith('issue/answer: succeeded')).length < 2)
+      while (lines.filter(line => line.includes('by @bothub[bot]: 0 jobs')).length < 2)
         await new Promise(r => setTimeout(r, 20));
       await served.idle();
       const runs = await openStore(data).list();
       const [a, b] = runs.map(r => [Date.parse(r.startedAt!), Date.parse(r.endedAt!)] as const);
       expect(a![0] < b![1] && b![0] < a![1]).toBe(true);
+      expect(lines.filter(line => line.startsWith('issue/answer: succeeded'))).toHaveLength(2);
       expect(lines.filter(line => line.includes('by @bothub[bot]: 0 jobs'))).toHaveLength(2);
       expect(await fileQueue(join(data, 'queue')).list()).toEqual([]);
     } finally {

@@ -48,6 +48,11 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
   };
   const stored = ({ id, item, tries, error, after }: Queued<T>) =>
     JSON.stringify({ id, item, ...(tries && { tries }), ...(error && { error }), ...(after && { after }) });
+  const replace = async (at: string, name: string, text: string) => {
+    const tmp = join(at, `.${name}.${owner.token}.tmp`);
+    await writeFile(tmp, text);
+    await rename(tmp, join(at, name));
+  };
 
   let recovered: Promise<void> | undefined;
   const ready = () =>
@@ -104,10 +109,7 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
       const found = await mine(id);
       if (!found) return;
       const { name, waiting, entry } = found;
-      await writeFile(
-        join(dir, name),
-        stored({ ...entry, tries: (entry.tries ?? 0) + 1, error, after: Date.now() + delay })
-      );
+      await replace(dir, name, stored({ ...entry, tries: (entry.tries ?? 0) + 1, error, after: Date.now() + delay }));
       await rename(join(dir, name), join(dir, waiting));
     },
     fail: async (id, error) => {
@@ -116,7 +118,7 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
       const { name, waiting, entry } = found;
       await mkdir(failedDir, { recursive: true });
       const { after: _, ...rest } = entry;
-      await writeFile(join(failedDir, waiting), stored({ ...rest, tries: (entry.tries ?? 0) + 1, error }));
+      await replace(failedDir, waiting, stored({ ...rest, tries: (entry.tries ?? 0) + 1, error }));
       await rm(join(dir, name), { force: true });
     },
     list: async () => {
@@ -164,21 +166,22 @@ export const worker = <T>(
 ) => {
   const running = new Map<string, Promise<void>>();
   const busy = new Set<string>();
-  const later = new Map<ReturnType<typeof setTimeout>, Promise<void>>();
+  const later = new Map<ReturnType<typeof setTimeout>, { at: number; waited: Promise<void> }>();
   let taking: Promise<void> | undefined;
   let again = false;
   let stopped = false;
 
-  const wakeIn = (delay: number) => {
+  const wakeAt = (at: number) => {
+    if ([...later.values()].some(alarm => alarm.at <= at)) return;
     let timer: ReturnType<typeof setTimeout>;
     const waited = new Promise<void>(done => {
       timer = setTimeout(() => {
         later.delete(timer);
         done();
         void wake();
-      }, delay);
+      }, at - Date.now());
     });
-    later.set(timer!, waited);
+    later.set(timer!, { at, waited });
   };
 
   const start = (entry: Queued<T>) => {
@@ -198,7 +201,6 @@ export const worker = <T>(
           const delay = backoff(failures);
           await queue.retry(entry.id, message, delay);
           onError(new Error(`${entry.id}: ${message}; trying again in ${Math.round(delay / 1000)}s`));
-          wakeIn(delay);
         }
       }
     })()
@@ -212,6 +214,7 @@ export const worker = <T>(
   };
 
   const take = async () => {
+    let due = Infinity;
     do {
       again = false;
       while (!stopped && running.size < concurrency) {
@@ -219,7 +222,9 @@ export const worker = <T>(
         const now = Date.now();
         const next = await queue.take(entry => {
           const lane = key(entry);
-          if (blocked.has(lane) || (entry.after ?? 0) > now) {
+          if (blocked.has(lane)) return false;
+          if ((entry.after ?? 0) > now) {
+            due = Math.min(due, entry.after!);
             blocked.add(lane);
             return false;
           }
@@ -229,6 +234,7 @@ export const worker = <T>(
         start(next);
       }
     } while (again && !stopped);
+    if (due < Infinity && !stopped) wakeAt(due);
   };
 
   const wake = () => {
@@ -246,7 +252,8 @@ export const worker = <T>(
   return {
     wake,
     idle: async () => {
-      while (taking || running.size || later.size) await Promise.all([taking, ...running.values(), ...later.values()]);
+      while (taking || running.size || later.size)
+        await Promise.all([taking, ...running.values(), ...[...later.values()].map(alarm => alarm.waited)]);
     },
     stop: async () => {
       stopped = true;

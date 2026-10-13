@@ -211,6 +211,27 @@ describe('worker', () => {
     expect(await q.failed()).toEqual([{ id: '2.1', item: { issue: 2, n: 1 }, tries: 3, error: 'always' }]);
   });
 
+  it('runs a retried item once it is due even when its timer fires before then', async () => {
+    const q = fileQueue<string>(temp('queue'));
+    const late: typeof q = { ...q, retry: (id, error, delay) => q.retry(id, error, delay + 30) };
+    const ran: string[] = [];
+    let flaky = 1;
+    const work = worker(
+      late,
+      async item => {
+        ran.push(item);
+        if (flaky-- > 0) throw new Error('hub broken');
+      },
+      () => {},
+      { backoff: () => 10 }
+    );
+    await q.push('a', 'a');
+    void work.wake();
+    await work.idle();
+    expect(ran).toEqual(['a', 'a']);
+    expect(await q.list()).toEqual([]);
+  });
+
   it('finishes the running item on stop and leaves the rest queued', async () => {
     const q = fileQueue<string>(temp('queue'));
     const ran: string[] = [];
