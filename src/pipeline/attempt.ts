@@ -334,7 +334,9 @@ const attempts = (
 
       if (exhausted) {
         const what = [holding.length && 'checks still failing', left.length && 'merge conflicts left'].filter(Boolean);
-        const reason = broke() ? overBudget(what.join(' and '), attempt) : `${what.join(' and ')} after ${attempt} attempts`;
+        const reason = broke()
+          ? overBudget(what.join(' and '), attempt)
+          : `${what.join(' and ')} after ${attempt} attempts`;
         const names = [...holding.map(v => v.check), ...left].join(', ');
         const question = `${reason}: ${names}. The findings are in run ${run.id}.\n\n${findingsFor(holding)}`;
         return yield* askHuman(reason, question.trim(), reason);

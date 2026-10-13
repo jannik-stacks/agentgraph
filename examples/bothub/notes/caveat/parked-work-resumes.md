@@ -6,8 +6,9 @@ human: dogfood round 2 kinks K12 and K19, reused jobs from dogfood round 5 K24
 When the implementor asks a question and closes as blocked, or its checks still fail after the
 last attempt, bothub commits the worktree and pushes it to `bothub/<issue>-parked`, beside the merge
 request branch. The next run of the job on that issue starts from it: the prompt opens a
-`## Resuming` section with the question asked and the human's answer, and the checks measure the
-change from where the branch forked, so the parked work counts as part of the change.
+`## Resuming` section with the question asked, or why it stopped and what its last failing checks
+found, and the human's answer. The checks measure the change from where the branch forked, so the
+parked work counts as part of the change.
 
 A resumed run continues the parked work instead of redoing it. Its `push` lists the files it
 changed on top of the parked work; the files already parked need not be listed again. The jobs it

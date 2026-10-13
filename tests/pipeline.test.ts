@@ -747,6 +747,15 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
   });
 
+  it('resumes a crashed attempt with the findings of the attempt before it', async () => {
+    const { seen, adapters } = fake((_spec, call) => (call === 2 ? { ok: false } : {}));
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters });
+    const crashed = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(crashed.run).toMatchObject({ status: 'failed', closure: 'blocked', attempt: 2 });
+    await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(seen[2]!.prompt).toContain('Its checks last found:\n\n### exists\n\n```text\nexited non-zero\n```');
+  });
+
   it('resumes in the blocked run session with resume: session', async () => {
     const config = configFor();
     config.bots.bot = { ...config.bots.bot!, resume: 'session' };
@@ -1555,7 +1564,10 @@ describe('over', () => {
       { issues: trackedIssues() }
     );
     expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(2);
-    expect(result.outcome?.checks?.[0]).toMatchObject({ blocked: true, runs: [expect.any(String), expect.any(String)] });
+    expect(result.outcome?.checks?.[0]).toMatchObject({
+      blocked: true,
+      runs: [expect.any(String), expect.any(String)],
+    });
     expect(result.run).toMatchObject({ closure: 'blocked' });
   });
 

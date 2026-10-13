@@ -13,7 +13,7 @@ import type { Run, Store } from '../store.ts';
 import type { BotEvent } from '../types.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
-import { type Attempt, issueEnv, runOnItem } from './checks.ts';
+import { type Attempt, failingChecks, findingsFor, issueEnv, runOnItem } from './checks.ts';
 import { continuing, saidSince, sessionOf } from './continue.ts';
 import { closed, finish, remember, settle } from './landing.ts';
 import { type Worktree, defaultBranchFor, fanned, jobItems, proposalProblems, requestsEnv } from './attempt.ts';
@@ -286,10 +286,22 @@ const answers = async (run: Run, questions: string[], planned: PlannedJob, p: Pi
   return [...(said ? [said] : []), ...(await saidSince(ended, p.event.pull, p)), ...comments.flat()];
 };
 
-/** The prompt section for a job that resumes its unfinished run: what it asked or why it stopped, and the answer. */
+/** The failing checks of the last attempt up to `run` that ran its checks. */
+const lastFailing = async (run: Run | undefined, p: Pipeline): Promise<string> => {
+  if (!run) return '';
+  const checks = (await p.store.outcome(run.id))?.checks;
+  if (checks) return findingsFor(failingChecks(checks));
+  return lastFailing(run.parent ? await p.store.read(run.parent) : undefined, p);
+};
+
+/**
+ * The prompt section for a job that resumes its unfinished run: what it asked, or why it stopped and what its checks
+ * last found, and the answer.
+ */
 const resumption = async ({ run, outcome }: Unfinished, planned: PlannedJob, p: Pipeline) => {
   const questions = (outcome?.accepted ?? []).flatMap(proposal => (proposal.kind === 'ask' ? [proposal.question] : []));
   const said = await answers(run, questions, planned, p);
+  const failing = questions.length ? '' : await lastFailing(run, p);
   return [
     '## Resuming',
     run.parked
@@ -298,6 +310,7 @@ const resumption = async ({ run, outcome }: Unfinished, planned: PlannedJob, p: 
     questions.length
       ? `It asked:\n\n${questions.map(fenced).join('\n\n')}`
       : run.reason && `It stopped because ${run.reason}.`,
+    failing && `Its checks last found:\n\n${failing}`,
     said.length ? `The human answered:\n\n${said.map(fenced).join('\n\n')}` : 'No answer was found; read the issue.',
   ]
     .filter(Boolean)
