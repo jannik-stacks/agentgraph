@@ -20,32 +20,45 @@ import { Icon } from './studio/icons.tsx';
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
 
-/** The classes of each tone: a badge's fill, an icon's or text's color, and a status dot's fill. */
-export const tones: Record<Tone, { badge: string; text: string; dot: string }> = {
+/**
+ * The classes of each tone: a badge's fill, an icon's or text's color, a status dot's fill, a light wash for a whole row
+ * and a stronger mark for part of one.
+ */
+export const tones: Record<Tone, { badge: string; text: string; dot: string; wash: string; mark: string }> = {
   neutral: {
     badge: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
     text: 'text-zinc-400 dark:text-zinc-500',
     dot: 'bg-zinc-300 dark:bg-zinc-600',
+    wash: 'bg-zinc-50 dark:bg-zinc-400/10',
+    mark: 'bg-zinc-200 dark:bg-zinc-400/30',
   },
   info: {
     badge: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
     text: 'text-sky-600 dark:text-sky-400',
     dot: 'bg-sky-500',
+    wash: 'bg-sky-50 dark:bg-sky-500/15',
+    mark: 'bg-sky-200 dark:bg-sky-500/40',
   },
   ok: {
     badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
     text: 'text-emerald-600 dark:text-emerald-400',
     dot: 'bg-emerald-500',
+    wash: 'bg-emerald-50 dark:bg-emerald-500/15',
+    mark: 'bg-emerald-200 dark:bg-emerald-500/40',
   },
   warn: {
     badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
     text: 'text-amber-600 dark:text-amber-400',
     dot: 'bg-amber-500',
+    wash: 'bg-amber-50 dark:bg-amber-500/15',
+    mark: 'bg-amber-200 dark:bg-amber-500/40',
   },
   danger: {
     badge: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
     text: 'text-red-600 dark:text-red-400',
     dot: 'bg-red-500',
+    wash: 'bg-red-50 dark:bg-red-500/15',
+    mark: 'bg-red-200 dark:bg-red-500/40',
   },
 };
 

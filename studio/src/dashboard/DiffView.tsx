@@ -15,19 +15,18 @@ const flush = { '--padding-left': '0', '--padding-right': '0', tabSize: tab } as
 const codeInset = '0.25rem';
 
 /**
- * A row's background under the code: the light tint of an added or removed line, and the changed characters in a
- * stronger tint of the same tone, placed by column so the highlighted text above stays as shiki drew it.
+ * A row's background under the code: the wash of an added or removed line, and the changed words marked in a stronger
+ * tint of the same tone, placed by column so the highlighted text above stays as shiki drew it.
  */
 const RowTint = ({ kind, spans }: { kind: Kind; spans: [number, number][] | undefined }) => {
   const tone = kindTones[kind];
   if (!tone) return <div className="h-5" />;
   return (
-    <div className="relative h-5">
-      <div className={cx('absolute inset-0 opacity-[0.12] dark:opacity-[0.16]', tones[tone].dot)} />
+    <div className={cx('relative h-5', tones[tone].wash)}>
       {spans?.map(([from, to]) => (
         <span
           key={from}
-          className={cx('absolute inset-y-0 rounded-[2px] opacity-35 dark:opacity-45', tones[tone].dot)}
+          className={cx('absolute inset-y-px rounded-[3px]', tones[tone].mark)}
           style={{ left: `calc(${codeInset} + ${from}ch)`, width: `${Math.max(to - from, 0.5)}ch` }}
         />
       ))}

@@ -8,7 +8,8 @@ import {
   pairLines,
 } from '../studio/src/dashboard/diff-lines.ts';
 
-const kinds = (...list: Kind[]) => list.map(kind => ({ kind }));
+const kinds = (...list: Kind[]) => list.map(kind => ({ kind, text: 'x' }));
+const lines = (...list: [Kind, string][]) => list.map(([kind, text]) => ({ kind, text }));
 
 describe('pairLines', () => {
   it('pairs each removed line with the added line in the same position of the run after it', () => {
@@ -21,6 +22,23 @@ describe('pairLines', () => {
     ]);
   });
 
+  it('pairs the lines of an uneven run with their most similar counterparts, in order', () => {
+    const pairs = pairLines(
+      lines(
+        ['del', '  tools: z.array(z.string()),'],
+        ['del', '  cron: z.string(),'],
+        ['add', '  {'],
+        ['add', '    tools: z.array(z.string()),'],
+        ['add', '    cron: z.string(),'],
+        ['add', '  }']
+      )
+    );
+    expect(pairs.get(0)).toBe(3);
+    expect(pairs.get(1)).toBe(4);
+    expect(pairs.has(2)).toBe(false);
+    expect(pairs.has(5)).toBe(false);
+  });
+
   it('leaves the extra lines of an uneven run unpaired', () => {
     const pairs = pairLines(kinds('del', 'del', 'del', 'add'));
     expect(pairs.get(0)).toBe(3);
@@ -29,6 +47,10 @@ describe('pairLines', () => {
     const more = pairLines(kinds('del', 'add', 'add'));
     expect(more.get(0)).toBe(1);
     expect(more.has(2)).toBe(false);
+  });
+
+  it('pairs nothing in an uneven run of rewritten lines', () => {
+    expect(pairLines(lines(['del', 'return value;'], ['add', 'throw new Error();'], ['add', '}'])).size).toBe(0);
   });
 
   it('pairs nothing across a context line or for lines only added or only removed', () => {
@@ -45,7 +67,7 @@ describe('pairLines', () => {
 });
 
 describe('changedSpans', () => {
-  it('marks what differs between the shared start and end', () => {
+  it('marks the changed word', () => {
     expect(changedSpans('const a = 1;', 'const a = 42;')).toEqual({ del: [[10, 11]], add: [[10, 12]] });
   });
 
@@ -53,14 +75,43 @@ describe('changedSpans', () => {
     expect(changedSpans('foo(a)', 'foo(a, b)')).toEqual({ del: [], add: [[5, 8]] });
   });
 
+  it('marks each of several separate edits in a line on its own', () => {
+    expect(changedSpans('call(alpha, 1, beta)', 'call(gamma, 1, delta)')).toEqual({
+      del: [
+        [5, 10],
+        [15, 19],
+      ],
+      add: [
+        [5, 10],
+        [15, 20],
+      ],
+    });
+  });
+
+  it('marks a punctuation-only edit', () => {
+    expect(changedSpans('foo(a, b);', 'foo(a; b);')).toEqual({ del: [[5, 6]], add: [[5, 6]] });
+    expect(changedSpans('x = a.b', 'x = a?.b')).toEqual({ del: [], add: [[5, 6]] });
+  });
+
+  it('marks a renamed identifier as a whole word', () => {
+    expect(changedSpans('const total = count + 1;', 'const sum = count + 1;')).toEqual({
+      del: [[6, 11]],
+      add: [[6, 9]],
+    });
+  });
+
+  it('joins changes that only one whitespace token separates', () => {
+    expect(changedSpans('say red fox now', 'say blue cat now')).toEqual({ del: [[4, 11]], add: [[4, 12]] });
+  });
+
   it('marks nothing on identical lines', () => {
     expect(changedSpans('same', 'same')).toEqual({ del: [], add: [] });
   });
 
-  it('gives up when less than the cutoff of the text is unchanged', () => {
+  it('gives up on a full rewrite', () => {
     expect(changedSpans('return value;', 'throw new Error();')).toBeUndefined();
-    expect(changedSpans('abcdefghij', 'abXXXXXXXX')).toBeUndefined();
-    expect(changedSpans('abcdefghij', 'abcdXXXXXX')).toEqual({ del: [[4, 10]], add: [[4, 10]] });
+    expect(changedSpans('abcdefghij', 'abcdXXXXXX')).toBeUndefined();
+    expect(changedSpans('  const total = items.length;', '  throw new Error("empty");')).toBeUndefined();
   });
 });
 
