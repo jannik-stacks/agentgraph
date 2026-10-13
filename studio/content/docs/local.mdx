@@ -57,6 +57,9 @@ Run `npm run verify` from the `bothub` directory. It stops at the first failure 
 - The studio build, which fails on a docs reference to source that does not exist.
 - `bothub check` on every hub under `examples/`.
 
+`npm run precommit` runs the bothub hub's own size, rules, unused-exports and propagation scripts
+over the uncommitted change, against `HEAD` or `BOTHUB_BASE`, and fails on a finding of a gating one.
+
 ## Editing the hub
 
 The graph shows the flow. Each workflow file is a frame around its triggers, its jobs and the

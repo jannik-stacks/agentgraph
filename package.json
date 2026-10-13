@@ -19,6 +19,7 @@
     "lint": "oxlint",
     "format": "oxfmt src tests bin studio",
     "verify": "oxfmt --check src tests bin studio && oxlint && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs",
+    "precommit": "sh bin/precommit.sh",
     "verify:hubs": "for hub in examples/*/; do [ -e \"${hub}bots\" ] || [ -e \"${hub}hub.yaml\" ] || continue; node bin/bothub.mjs check --no-json --dir \"$hub\" || exit 1; done"
   },
   "dependencies": {
