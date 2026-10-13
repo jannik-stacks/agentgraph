@@ -20,6 +20,7 @@ import {
   runPlanned,
   secretsFor,
   verdictOf,
+  withGaps,
   type JobResult,
   type Pipeline,
 } from '../src/pipeline.ts';
@@ -1647,6 +1648,23 @@ describe('over', () => {
     ]);
   });
 
+  it('lists failing warn and log checks under Known gaps in a merge request body, one line each', () => {
+    const config = hubWith([
+      { name: 'style', data: { type: 'script', run: 'true', mode: 'warn' } },
+      { name: 'tests', data: { type: 'script', run: 'true', mode: 'log' } },
+      { name: 'lint', data: { type: 'script', run: 'true', mode: 'block' } },
+    ]);
+    const verdicts: Verdict[] = [
+      { check: 'style', gating: true, pass: false, findings: 'criterion 3:\n- Blocking: the crash window\nmore' },
+      { check: 'tests', gating: false, pass: false, findings: 'asserts the input' },
+      { check: 'lint', gating: true, pass: true },
+    ];
+    expect(withGaps('Part of #7', verdicts, { config })).toBe(
+      'Part of #7\n\n## Known gaps\n\n- style: criterion 3: Blocking: the crash window\n- tests: asserts the input'
+    );
+    expect(withGaps('Part of #7', verdicts.slice(2), { config })).toBe('Part of #7');
+  });
+
   it('sends warn findings back alongside a failing check that holds the change', async () => {
     let judged = 0;
     const { seen, result } = await run(
@@ -1809,7 +1827,7 @@ describe('over', () => {
         gating: false,
         pass: false,
         findings: expect.stringMatching(
-          /\nsrc\/a.ts @@ -0,0 \+1 @@:\nProbability of yes 0.100, threshold 0.5. Is this hunk free of secrets\?/
+          /^src\/a.ts @@ -0,0 \+1 @@:\nProbability of yes 0.100, threshold 0.5. Is this hunk free of secrets\?/
         ),
       },
     ]);

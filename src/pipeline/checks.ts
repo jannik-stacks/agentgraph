@@ -259,8 +259,8 @@ const itemConcurrency = 8;
 /**
  * Runs one check over an attempt's changes, read-only. A check whose `paths` match no changed file, or that has
  * nothing to look at, is skipped. A script that does not fan out runs once and reads the worktree itself; every other
- * check judges the items `over` names, `concurrency` at a time, and passes only when every item passes. A check with
- * any `blocked` item is blocked.
+ * check judges the items `over` names, `concurrency` at a time, and passes only when every item passes, with the
+ * failing items' findings first. A check with any `blocked` item is blocked.
  */
 const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
@@ -303,9 +303,12 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       concurrency: check.concurrency ?? itemConcurrency,
     });
     const runs = judged.flatMap(verdict => verdict.runs ?? []);
-    const findings = judged.flatMap(({ findings }, i) =>
-      findings ? [items.length > 1 ? `${items[i]?.label}:\n${findings}` : findings] : []
-    );
+    const findings = judged
+      .flatMap(({ findings, pass }, i) =>
+        findings ? [{ pass, text: items.length > 1 ? `${items[i]?.label}:\n${findings}` : findings }] : []
+      )
+      .sort((x, y) => Number(x.pass) - Number(y.pass))
+      .map(({ text }) => text);
     const blocked = judged.filter(verdict => verdict.blocked);
     if (blocked.length && items.length > 1) {
       const why = blocked[0]?.findings?.split('\n')[0] ?? 'no output';
@@ -367,7 +370,21 @@ export const couldNotRun = (blocked: Verdict[]) => {
 };
 
 /** Whether a failing verdict holds the change: every gating check does, except one in `warn` mode. */
-export const holds = (verdict: Verdict, p: Pipeline) => p.config.checks[verdict.check]?.mode !== 'warn';
+export const holds = (verdict: Verdict, p: Pick<Pipeline, 'config'>) => p.config.checks[verdict.check]?.mode !== 'warn';
+
+const gapLength = 200;
+
+/** A merge request body with a "Known gaps" section: each failing `warn` or `log` check and its first finding. */
+export const withGaps = (body: string, checks: Verdict[], p: Pick<Pipeline, 'config'>) => {
+  const gaps = checks.filter(v => !v.pass && !v.skipped && !v.blocked && (!v.gating || !holds(v, p)));
+  if (!gaps.length) return body;
+  const line = ({ check, findings = '' }: Verdict) => {
+    const [first = 'failed without output', next] = findings.split('\n').filter(l => l.trim());
+    const finding = first.endsWith(':') && next ? `${first} ${next.replace(/^\s*[-*]\s*/, '')}` : first;
+    return `- ${check}: ${finding.replace(/^\s*[-*]\s*/, '').slice(0, gapLength)}`;
+  };
+  return `${body.trimEnd()}\n\n## Known gaps\n\n${gaps.map(line).join('\n')}`;
+};
 
 /**
  * Runs the named checks in stages, each all at once: the gating script checks first, then, only when none that holds

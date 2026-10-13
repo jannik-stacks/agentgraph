@@ -112,7 +112,8 @@ files, and with GitHub they link there.
 
 A change that only `warn` checks fail goes through on that attempt, with their verdicts recorded:
 their findings go back to the bot only alongside a failing `block` check. A `warn` script that
-fails does not hold back the bot and decide checks either.
+fails does not hold back the bot and decide checks either. A merge request the change opens gets a
+"Known gaps" section in its body, one line per failing `warn` or `log` check with its first finding.
 Jobs have a mode too: a job in `log` validates and stores its proposals but never applies them, which is how a new bot or skill starts
 out.
 

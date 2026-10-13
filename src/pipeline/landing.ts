@@ -11,7 +11,7 @@ import { summarizeOutcome } from '../summaries.ts';
 import { type JobResult, type Pipeline, issuesOf, pullsOf } from './context.ts';
 import type { Handoff } from './prompt.ts';
 import { stepsInto } from './attempt.ts';
-import { type Attempt, failingChecks, runChecks } from './checks.ts';
+import { type Attempt, failingChecks, runChecks, withGaps } from './checks.ts';
 import { openerOf } from './continue.ts';
 import { runPlanned } from './jobs.ts';
 
@@ -103,7 +103,11 @@ export const settle = async (
   const base: Outcome = { proposals, errors, accepted, rejected, results: [], applied, ...(checks && { checks }) };
   if (!applied) return p.store.saveOutcome(run.id, base);
   const folds = (proposal: Proposal) => a.fold !== undefined && proposal.kind === 'reply';
-  const writes = toApply.filter(proposal => proposal.kind !== 'close' && !folds(proposal));
+  const writes = toApply
+    .filter(proposal => proposal.kind !== 'close' && !folds(proposal))
+    .map(proposal =>
+      proposal.kind === 'merge-request' && checks ? { ...proposal, body: withGaps(proposal.body, checks, p) } : proposal
+    );
   if (run.status === 'succeeded' && writes.some(proposal => proposal.kind === 'merge'))
     await p.store.update(run.id, { status: 'running' });
   const push: Parameters<typeof apply>[1]['push'] = ({ kind: _, ...proposal }, journal) =>
