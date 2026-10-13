@@ -14,3 +14,15 @@ so the dashboard only stays live while these hold:
   `outputTokens`, and `cachedInputTokens`, `reasoningTokens` and `costUsd` when it knows them.
   The run list's tallies and every cost the dashboard shows are folded from these.
 - `src/usage.ts` runs in the browser too, so it must not import Node builtins.
+
+Bad:
+
+```ts
+writeFileSync(eventsFile, events.map(e => JSON.stringify(e)).join('\n'));
+```
+
+Good:
+
+```ts
+appendFileSync(eventsFile, `${JSON.stringify({ seq: last + 1, ...event })}\n`);
+```

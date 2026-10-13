@@ -50,7 +50,7 @@ which model it runs on and how it scored.
 | `scripts/` | what the checks run, mounted read-only at `$BOTHUB_HUB` (`/hub`) in the sandbox; `bounds.mjs` holds the paths and caps safety, size and triage-brief read, `brief.mjs` parses the triage brief, `hunks.mjs`, `criteria.mjs`, `scope.mjs`, `exports.mjs`, `risky.mjs` and `tooltips.mjs` slice the change for the judges; `line-rules.mjs` and `ast.mjs` back the rules and code-shape checks; `calibrate.mjs` scores a model against `fixtures/` |
 | `hub.yaml` | local issues in `issues/`, and `deps`: bothub's and studio's locked dependencies, installed in the sandbox once per lockfile and linked into every run's worktree |
 | `fixtures/` | labelled items for calibrating the model checks |
-| `notes/` | style, decision and caveat notes, each naming the check that enforces it |
+| `notes/` | style, decision and caveat notes, each naming the check that enforces it, with Bad and Good code blocks where an example shows the rule |
 
 Scripts that need the brief read it from `BOTHUB_BRIEF` (a file), or from the local issue that
 `BOTHUB_ISSUE` or a `bothub/<n>` `BOTHUB_BRANCH` names, or else from the one open issue labeled

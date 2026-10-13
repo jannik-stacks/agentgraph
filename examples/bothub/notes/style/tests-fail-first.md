@@ -12,3 +12,16 @@ value, so `expect(id).not.toBe(oldId)` passes when the id is missing. A test tha
 fixture is rewritten until it fails without the change.
 
 A test that guards behavior which already worked is titled `still …` and may pass on the base.
+
+Bad:
+
+```ts
+const id = deliveryId(label);
+expect(id).not.toBe(oldId);
+```
+
+Good:
+
+```ts
+expect(deliveryId(label)).toBe('label:bug:2');
+```

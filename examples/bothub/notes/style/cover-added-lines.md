@@ -12,3 +12,17 @@ A line that only makes the change's rename was there before, so coverage, lint a
 leave it alone; the change is not asked to test or tidy code it only renamed. For the same reason
 the check leaves the whole-file thresholds out: a small fix in a file with old untested code is
 not asked to cover that code.
+
+Bad:
+
+```ts
+if (!issue) return undefined;
+```
+
+Good:
+
+```ts
+it('returns nothing for an unknown issue', () => {
+  expect(find(store, 99)).toBeUndefined();
+});
+```

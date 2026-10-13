@@ -14,3 +14,25 @@ the new one, never half of one.
 
 A test that fails one time in twenty is a race, in the code or in what the test waits for. Wait on
 the condition the test asserts, never on a sleep or a longer timeout.
+
+Bad:
+
+```ts
+setTimeout(() => run(job), job.dueAt - Date.now());
+writeFileSync(queueFile, JSON.stringify(queue));
+```
+
+Good:
+
+```ts
+const wake = () => {
+  const wait = job.dueAt - Date.now();
+  if (wait > 0) return setTimeout(wake, wait);
+  run(job);
+};
+setTimeout(wake, job.dueAt - Date.now());
+
+const tmp = join(dirname(queueFile), `.${basename(queueFile)}.tmp`);
+writeFileSync(tmp, JSON.stringify(queue));
+renameSync(tmp, queueFile);
+```

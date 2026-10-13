@@ -9,3 +9,26 @@ Components are defined at module level, never inside another component. Routes a
 load with `lazy(() => import(...))` from `App.tsx`, so the first paint carries only the shell.
 Values that follow from props or state are computed while rendering, not copied into state by an
 effect.
+
+Bad:
+
+```tsx
+const Runs = ({ runs }: { runs: Run[] }) => {
+  const [count, setCount] = useState(0);
+  useEffect(() => setCount(runs.length), [runs]);
+  const Row = ({ run }: { run: Run }) => <li>{run.id}</li>;
+  return <ul data-count={count}>{runs.map(run => <Row key={run.id} run={run} />)}</ul>;
+};
+```
+
+Good:
+
+```tsx
+const Row = ({ run }: { run: Run }) => <li>{run.id}</li>;
+
+const Runs = ({ runs }: { runs: Run[] }) => (
+  <ul data-count={runs.length}>{runs.map(run => <Row key={run.id} run={run} />)}</ul>
+);
+
+const Studio = lazy(() => import('./Studio'));
+```

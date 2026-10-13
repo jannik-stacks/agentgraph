@@ -19,3 +19,17 @@ The names below were replaced; the new one is used in code, comments, docs and h
 
 A line that quotes an old name, or names the new one beside it, is a hint about the name and stays
 allowed.
+
+Bad:
+
+```yaml
+executor: opencode
+can: [reply]
+```
+
+Good:
+
+```yaml
+harness: opencode
+returns: [reply]
+```
