@@ -386,7 +386,10 @@ const attempts = (
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
-      const next = recheck === undefined ? yield* Effect.promise(() => carried(bot.resume, run, p)) : { session, summary: undefined };
+      const next =
+        recheck === undefined
+          ? yield* Effect.promise(() => carried(bot.resume, run, p))
+          : { session, summary: undefined };
       session = next.session;
       prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], next.summary, left);
       parent = run;
