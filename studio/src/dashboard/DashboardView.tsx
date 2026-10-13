@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { RunRow } from '../../../src/live.ts';
 import {
   botFilterAtom,
@@ -10,11 +10,14 @@ import {
   needsHumanQueryAtom,
   runIdAtom,
   runPageAtom,
+  runViewAtom,
+  runViews,
   sinceFilterAtom,
   sortAtom,
   statusFilterAtom,
 } from '../state.ts';
-import { Muted, RemovableChip, Select, Tooltip } from '../ui.tsx';
+import { Icon } from '../studio/icons.tsx';
+import { cx, Muted, RemovableChip, Segmented, Select, Tooltip } from '../ui.tsx';
 import { GroupList } from './Groups.tsx';
 import { live, pricesAtom, useLiveStream } from './live.ts';
 import { costOfRuns, groupRuns, isFailed, isLive } from './model.ts';
@@ -108,6 +111,57 @@ const Runs = ({ rows }: { rows: RunRow[] }) => {
   );
 };
 
+const viewTips = {
+  pane: 'Open runs in the pane beside the list',
+  modal: 'Open runs in a dialog over the list',
+};
+
+/** Where a selected run opens, as this viewer prefers it. */
+const ViewToggle = () => {
+  const [view, setView] = useAtom(runViewAtom);
+  return (
+    <Segmented
+      aria-label="Where runs open"
+      options={runViews}
+      value={view}
+      onChange={setView}
+      className="shrink-0 text-xs"
+      label={option => (
+        <Tooltip tip={viewTips[option]}>
+          <span className="inline-flex items-center gap-1">
+            <Icon name={option} className="size-3" />
+            {option}
+          </span>
+        </Tooltip>
+      )}
+    />
+  );
+};
+
+/** A large dialog over the run list; Escape, a click beside it or its close button calls `onClose`. */
+const Modal = ({ onClose, children }: { onClose: () => void; children: ReactNode }) => {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => dialog?.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      aria-label="Run"
+      onCancel={e => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+      className="m-auto h-[88vh] max-h-none w-[min(72rem,94vw)] max-w-none overflow-hidden rounded-lg border border-zinc-200 bg-white p-0 text-inherit shadow-2xl backdrop:bg-zinc-950/30 dark:border-zinc-800 dark:bg-zinc-950 dark:backdrop:bg-black/50"
+    >
+      {children}
+    </dialog>
+  );
+};
+
 const noticeFor = 8000;
 
 /** The stream's state when it is not plainly live: reconnecting, failing, or a change it just noticed. */
@@ -179,6 +233,8 @@ export const DashboardView = () => {
   const [selected, select] = useAtom(runIdAtom);
   const event = useAtomValue(eventIdAtom);
   const runPage = useAtomValue(runPageAtom);
+  const view = useAtomValue(runViewAtom);
+  const selectEvent = useSetAtom(eventIdAtom);
   const moved = useAtomValue(locationAtom).query.get('run');
   const rows = useAtomValue(live.rows);
   const refreshNeedsHuman = useSetAtom(needsHumanQueryAtom);
@@ -218,26 +274,47 @@ export const DashboardView = () => {
       </div>
     );
   if (!rows) return <Waiting />;
+  const modal = view === 'modal';
+  const close = () => (selected ? select(null) : selectEvent(null));
   return (
     <div className="grid h-full grid-cols-1 grid-rows-[auto_1fr]">
       <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-800">
         <SummaryStrip runs={rows} />
         <ChangesLink />
         <Connection />
+        <span className="ml-auto" />
+        <ViewToggle />
       </div>
       <div className="flex min-h-0">
-        <div className="w-[36rem] shrink-0 overflow-y-auto border-r border-zinc-200 dark:border-zinc-800">
+        <div
+          className={cx(
+            'overflow-y-auto',
+            modal ? 'min-w-0 flex-1' : 'w-[36rem] shrink-0 border-r border-zinc-200 dark:border-zinc-800'
+          )}
+        >
           {rows.length ? <Runs rows={rows} /> : <NoRuns />}
         </div>
-        <div className="min-w-0 flex-1">
-          {selected ? (
-            <RunView key={selected} id={selected} />
-          ) : event ? (
-            <EventView key={event} id={event} />
-          ) : (
-            <Muted>Select an event or a run to see it here.</Muted>
-          )}
-        </div>
+        {modal ? (
+          (selected || event) && (
+            <Modal onClose={close}>
+              {selected ? (
+                <RunView key={selected} id={selected} onClose={close} />
+              ) : (
+                event && <EventView key={event} id={event} onClose={close} />
+              )}
+            </Modal>
+          )
+        ) : (
+          <div className="min-w-0 flex-1">
+            {selected ? (
+              <RunView key={selected} id={selected} />
+            ) : event ? (
+              <EventView key={event} id={event} />
+            ) : (
+              <Muted>Select an event or a run to see it here.</Muted>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

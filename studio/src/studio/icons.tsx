@@ -150,6 +150,21 @@ const glyphs = {
   in: <path d="M12 4v16m-6-6 6 6 6-6" />,
   out: <path d="M12 20V4m-6 6 6-6 6 6" />,
   chevron: <path d="m9 6 6 6-6 6" />,
+  left: <path d="M19 12H5m6-6-6 6 6 6" />,
+  right: <path d="M5 12h14m-6-6 6 6-6 6" />,
+  close: <path d="M6 6l12 12M18 6 6 18" />,
+  pane: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M10 4v16" />
+    </>
+  ),
+  modal: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <rect x="7" y="8" width="10" height="8" rx="1" />
+    </>
+  ),
   ok: (
     <>
       <circle cx="12" cy="12" r="9" />

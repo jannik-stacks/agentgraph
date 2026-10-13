@@ -5,17 +5,21 @@ import { sum } from '../../../src/usage.ts';
 import { eventIdAtom, runIdAtom, runPageAtom } from '../state.ts';
 import { Icon, KindIcon } from '../studio/icons.tsx';
 import { cx, IconButton, Muted } from '../ui.tsx';
-import { Cost, Elapsed, Io, paneHeader, StatusIcon } from './bits.tsx';
+import { Cost, Elapsed, Io, LastActivity, paneHeader, Running, StatusIcon } from './bits.tsx';
 import { EventLine } from './Groups.tsx';
 import { fetchOutcome, live, pricesAtom } from './live.ts';
 import { checksOf, costOfRuns, groupRuns, isLive, type JobNode } from './model.ts';
-import { Text, VerdictView } from './render/index.tsx';
+import { FindingsLine, Text, VerdictView } from './render/index.tsx';
 
-/** One line in the right pane's lists: a status, a name and what else it needs, and the totals of its runs. */
+/**
+ * One line in the right pane's lists: a status, a name and what else it needs, and the totals of its runs. `after`
+ * ends the name's part of the line; a running run adds a second line with what it did last.
+ */
 const Line = ({
   icon,
   label,
   note,
+  after,
   runs,
   depth,
   onSelect,
@@ -24,6 +28,7 @@ const Line = ({
   icon: ReactNode;
   label: ReactNode;
   note?: ReactNode;
+  after?: ReactNode;
   runs: RunRow[];
   depth: number;
   onSelect?: (() => void) | undefined;
@@ -32,20 +37,21 @@ const Line = ({
   const prices = useAtomValue(pricesAtom);
   const cost = costOfRuns(runs, prices);
   const one = runs.length === 1 ? runs[0] : undefined;
+  const running = one && isLive(one.status) ? one : undefined;
   const body = (
     <>
       {icon}
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span className="truncate">{label}</span>
-        {note && <span className="truncate text-zinc-500">{note}</span>}
+        <span className="shrink-0 truncate">{label}</span>
+        {note && <span className="shrink-0 truncate text-zinc-500">{note}</span>}
+        {after}
       </span>
       {runs.length > 0 && (
         <span className="flex shrink-0 items-center gap-3">
-          {one && (
-            <Elapsed
-              startedAt={one.startedAt}
-              endedAt={one.endedAt ?? (isLive(one.status) ? undefined : one.startedAt)}
-            />
+          {running ? (
+            <Running run={running} />
+          ) : (
+            one && <Elapsed startedAt={one.startedAt} endedAt={one.endedAt ?? one.startedAt} />
           )}
           <Io tally={sum(runs.map(r => r.tally))} />
           <Cost billed={cost.billed} estimated={cost.estimated} className="w-12 justify-end" />
@@ -56,7 +62,7 @@ const Line = ({
   const row = 'flex w-full min-w-0 items-center gap-2 rounded py-1 pr-2 text-left text-xs';
   const indent = { paddingLeft: `${0.5 + depth * 1.25}rem` };
   return (
-    <li>
+    <li className={cx(running && 'bhm-live-row rounded')}>
       {onSelect ? (
         <button
           type="button"
@@ -71,6 +77,11 @@ const Line = ({
           {body}
         </div>
       )}
+      {running && (
+        <div className="flex min-w-0 pr-2 pb-1 text-xs" style={{ paddingLeft: `${1.875 + depth * 1.25}rem` }}>
+          <LastActivity activity={running.activity} className="flex-1" />
+        </div>
+      )}
       {children && (
         <div className="pr-2 pb-1 empty:hidden" style={{ paddingLeft: `${1.875 + depth * 1.25}rem` }}>
           {children}
@@ -80,10 +91,14 @@ const Line = ({
   );
 };
 
-/** The findings of check `name` on `attempt`, fetched with the attempt's outcome. */
-export const FetchedFindings = ({ attempt, name }: { attempt: RunRow; name: string }) => {
+/**
+ * The findings of check `name` on `attempt`, fetched with the attempt's outcome: with `line`, the end of the check's row
+ * when they fit on it; else the block under the row when they do not.
+ */
+export const FetchedFindings = ({ attempt, name, line = false }: { attempt: RunRow; name: string; line?: boolean }) => {
   const verdict = use(fetchOutcome(attempt.id, attempt.status))?.checks?.find(v => v.check === name);
-  return verdict ? <VerdictView verdict={verdict} /> : null;
+  if (!verdict) return null;
+  return line ? <FindingsLine verdict={verdict} /> : <VerdictView verdict={verdict} />;
 };
 
 /** The verdict of check `name` on `attempt` as an icon in its status and tone, with what it means as the tip. */
@@ -127,6 +142,13 @@ export const CheckLines = ({ attempt, rows, depth }: { attempt: RunRow; rows: Ru
         icon={<VerdictIcon attempt={attempt} name={name} runs={runs} />}
         label={name}
         note={[gating === false && 'log', runs.length > 1 && `${runs.length} runs`].filter(Boolean).join(', ')}
+        after={
+          !runs.length && (
+            <Suspense fallback={null}>
+              <FetchedFindings attempt={attempt} name={name} line />
+            </Suspense>
+          )
+        }
         runs={runs}
         depth={depth}
         onSelect={runs.length ? () => select(runs.at(-1)!.id) : undefined}
@@ -177,7 +199,15 @@ const JobLines = ({ job, rows }: { job: JobNode; rows: RunRow[] }) => {
 };
 
 /** One triggering event: what started it, then every job it started, their attempts and the checks that judged them. */
-export const EventView = ({ id, variant = 'panel' }: { id: string; variant?: 'panel' | 'page' }) => {
+export const EventView = ({
+  id,
+  variant = 'panel',
+  onClose,
+}: {
+  id: string;
+  variant?: 'panel' | 'page';
+  onClose?: (() => void) | undefined;
+}) => {
   const rows = useAtomValue(live.rows);
   const pulls = useAtomValue(live.pulls);
   const setRunPage = useSetAtom(runPageAtom);
@@ -199,13 +229,18 @@ export const EventView = ({ id, variant = 'panel' }: { id: string; variant?: 'pa
       <header className={paneHeader}>
         {variant === 'page' && (
           <IconButton tip="Back to the run list" onClick={() => setRunPage(false)}>
-            <Icon name="chevron" className="size-3 rotate-180" />
+            <Icon name="left" className="size-3" />
           </IconButton>
         )}
         <EventLine group={group} />
         {variant === 'panel' && (
           <IconButton tip="Open this event on its own page" onClick={() => setRunPage(true)}>
             <Icon name="open" className="size-3" />
+          </IconButton>
+        )}
+        {onClose && (
+          <IconButton tip="Close" keys="Esc" onClick={onClose}>
+            <Icon name="close" className="size-3" />
           </IconButton>
         )}
       </header>

@@ -7,19 +7,22 @@ import {
   use,
   useCallback,
   useContext,
+  useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import type { RunRow } from '../../../src/live.ts';
+import { extractProposals, proseLine } from '../../../src/outputs.ts';
 import type { EventRecord } from '../../../src/store.ts';
 import { estimate, type Price, tokensOf } from '../../../src/usage.ts';
 import { eventIdAtom, infoAtom, navigateAtom, runIdAtom, runPageAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
 import { Link } from '../Providers.tsx';
-import { cx, IconButton, Tooltip } from '../ui.tsx';
-import { Cost, Elapsed, formatTokens, Io, paneHeader, StatusIcon, useEnter } from './bits.tsx';
+import { cx, Disclosure, IconButton, Tooltip } from '../ui.tsx';
+import { Ago, Cost, Elapsed, formatTokens, Io, paneHeader, Running, StatusIcon, useEnter } from './bits.tsx';
 import { fetchEvents, fetchOutcome, live, pricesAtom, recordKey } from './live.ts';
 import {
   attemptsOf,
@@ -41,7 +44,17 @@ import { DiffFiles, DiffSummary, WhitespaceToggle } from './DiffView.tsx';
 import { CheckLines, FetchedFindings, VerdictIcon } from './EventView.tsx';
 import { fetchRunDiff, hideWhitespaceAtom } from './pulls.ts';
 import { AnswerBox } from './Review.tsx';
-import { OutcomeView, RunFields, Text, ToolBody, toolSummary } from './render/index.tsx';
+import {
+  OutcomeView,
+  ProposalView,
+  Raw,
+  RawToggle,
+  RunFields,
+  Text,
+  ToolBody,
+  toolName,
+  toolSummary,
+} from './render/index.tsx';
 import { RecalledHead, RecalledRows, recallsOf } from './render/recall.tsx';
 
 type Mode = 'auto' | 'all' | 'none';
@@ -52,14 +65,16 @@ const Steps = createContext<{
 
 /**
  * A collapsible step. Its body renders only while open; `auto` says whether it starts open. `head` may depend on
- * whether the step is open, so a running step can hand its spinner down to the step inside it. `fresh` is the key
- * whose first arrival animates the step in. With `stay`, a step that opened on its own stays open after `auto` turns
- * false, so a run that finishes does not fold away under the reader.
+ * whether the step is open, so a running step can hand its spinner down to the step inside it. `actions` sit at the end
+ * of the head's line while open, in a slot every step keeps so their columns line up. `fresh` is the key whose first
+ * arrival animates the step in. With `stay`, a step that opened on its own stays open after `auto` turns false, so a
+ * run that finishes does not fold away under the reader.
  */
 const Step = ({
   id,
   auto,
   head,
+  actions,
   children,
   depth = 0,
   fresh = '',
@@ -68,6 +83,7 @@ const Step = ({
   id: string;
   auto: boolean;
   head: ReactNode | ((open: boolean) => ReactNode);
+  actions?: ReactNode;
   children: () => ReactNode;
   depth?: number;
   fresh?: string;
@@ -78,16 +94,19 @@ const Step = ({
   const open = isOpen(id, auto, stay);
   return (
     <li className={cx('[contain-intrinsic-size:auto_1.75rem] [content-visibility:auto]', enter)}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => toggle(id, !open)}
-        className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-zinc-50 dark:hover:bg-zinc-900"
-        style={{ paddingLeft: `${0.5 + depth * 1}rem` }}
-      >
-        <Icon name="chevron" className={cx('size-3 text-zinc-400 transition-transform', open && 'rotate-90')} />
-        {typeof head === 'function' ? head(open) : head}
-      </button>
+      <div className="flex items-center rounded pr-1 hover:bg-zinc-50 dark:hover:bg-zinc-900">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => toggle(id, !open)}
+          className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-1 text-left text-xs"
+          style={{ paddingLeft: `${0.5 + depth * 1}rem` }}
+        >
+          <Icon name="chevron" className={cx('size-3 text-zinc-400 transition-transform', open && 'rotate-90')} />
+          {typeof head === 'function' ? head(open) : head}
+        </button>
+        <span className="flex w-5 shrink-0 justify-center">{open && actions}</span>
+      </div>
       {open && <div style={{ paddingLeft: `${1.5 + depth * 1}rem` }}>{children()}</div>}
     </li>
   );
@@ -114,12 +133,14 @@ const ToolLine = memo(function ToolLine({
 }) {
   const cost = toolCost(tool, price);
   const failed = tool.result?.ok === false;
+  const [raw, setRaw] = useState(false);
   return (
     <Step
       id={tool.call.id}
       auto={failed}
       depth={depth}
       fresh={recordKey(runId, tool.seq)}
+      actions={<RawToggle raw={raw} onToggle={() => setRaw(!raw)} />}
       head={
         <Row>
           <StatusIcon
@@ -128,10 +149,11 @@ const ToolLine = memo(function ToolLine({
             className="size-3"
             tip={!tool.result ? 'Tool running' : failed ? 'Tool failed' : 'Tool call'}
           />
-          <span className="font-mono">{tool.call.tool.replace(/^bothub_/, '')}</span>
+          <span className="font-mono">{toolName(tool.call.tool)}</span>
           <span className="min-w-0 truncate font-mono text-zinc-500">
             {toolSummary(tool.call.tool, tool.call.input)}
           </span>
+          {!tool.result && <span className="shrink-0 text-sky-700 dark:text-sky-300">running</span>}
           <Right>
             <Tooltip
               tip={`Result: ${tool.resultChars.toLocaleString()} characters, about ${formatTokens(cost.result)} tokens\nRead again by ${tool.carried} later ${tool.carried === 1 ? 'call' : 'calls'}: ${formatTokens(cost.carried)} tokens in all`}
@@ -167,6 +189,7 @@ const ToolLine = memo(function ToolLine({
           <ToolBody
             tool={tool.call.tool}
             input={tool.call.input}
+            raw={raw}
             {...(tool.result?.output !== undefined && { output: tool.result.output })}
             {...(tool.result && { ok: tool.result.ok })}
           />
@@ -176,9 +199,10 @@ const ToolLine = memo(function ToolLine({
   );
 });
 
+/** The first line a turn said, past any code fence, else the tools it called. */
 const turnSummary = (turn: Turn) =>
-  turn.texts[0]?.text.split('\n')[0]?.slice(0, 120) ??
-  turn.tools.map(t => t.call.tool.replace(/^bothub_/, '')).join(', ');
+  (turn.texts[0] && proseLine(turn.texts[0].text)?.slice(0, 120)) ??
+  (turn.texts.length ? 'proposals' : turn.tools.map(t => toolName(t.call.tool)).join(', '));
 
 const TurnLine = memo(function TurnLine({
   runId,
@@ -212,9 +236,7 @@ const TurnLine = memo(function TurnLine({
             <Icon name="model" className="size-3 text-zinc-400" />
           </Tooltip>
           <span className="min-w-0 truncate text-zinc-700 dark:text-zinc-300">{turnSummary(turn)}</span>
-          {live && !(open && turn.tools.some(t => !t.result)) && (
-            <StatusIcon status="running" className="size-3" tip="The model is working" />
-          )}
+          {live && !open && <StatusIcon status="running" className="size-3" tip="The model is working" />}
           <Right>
             {turn.grew !== undefined && (
               <Tooltip tip="Input added since the previous call: new messages and tool results">
@@ -238,7 +260,7 @@ const TurnLine = memo(function TurnLine({
         <ul className="space-y-1 py-1">
           {turn.texts.map(t => (
             <li key={t.seq} className="pr-2">
-              <Text text={t.text} />
+              <Text text={t.text} fences={fences} />
             </li>
           ))}
           {turn.tools.map(tool => (
@@ -249,6 +271,57 @@ const TurnLine = memo(function TurnLine({
     </Step>
   );
 });
+
+/** The bottom of a live transcript: the run is still going, and how long since its last event. */
+const Working = ({ run, records }: { run: RunRow; records: EventRecord[] }) => {
+  const last = records.at(-1)!;
+  const waiting = last.event.type === 'tool_call' ? 'a tool' : 'the model';
+  return (
+    <li className="flex items-center gap-2 px-2 py-1 pl-7 text-xs text-sky-800 dark:text-sky-200">
+      <StatusIcon status={run.status} className="size-3" tip="The run is working" />
+      <span>waiting for {waiting}</span>
+      <Tooltip tip="Time since the run's last event; most harnesses report a step only once it is done">
+        <span className="text-zinc-500">
+          last event <Ago at={last.ts} />
+        </span>
+      </Tooltip>
+    </li>
+  );
+};
+
+/** A proposals block in a bot's message, parsed the way the hub reads it, as one line that opens to the proposals. */
+const ProposalsFence = ({ code }: { code: string }) => {
+  const { proposals, errors } = extractProposals(`\`\`\`bothub\n${code}\n\`\`\``);
+  return (
+    <Disclosure
+      className="not-prose my-1.5 text-xs"
+      summaryClassName="text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+      summary={
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <Icon name="file" className="size-3" />
+          <span>proposes</span>
+          <span className="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">
+            {proposals.map(p => p.kind).join(', ') || 'nothing'}
+          </span>
+          {errors.length > 0 && <span className="text-red-600 dark:text-red-400">{errors.length} unreadable</span>}
+        </span>
+      }
+    >
+      <div className="mt-1.5 space-y-2 border-l-2 border-zinc-200 pl-3 dark:border-zinc-800">
+        {proposals.map((proposal, i) => (
+          <ProposalView key={i} proposal={proposal} />
+        ))}
+        {errors.map((error, i) => (
+          <p key={i} className="text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        ))}
+      </div>
+    </Disclosure>
+  );
+};
+
+const fences = { bothub: (code: string) => <ProposalsFence code={code} /> };
 
 /** A run's model calls and tool calls as steps; the last one stays open while the run is live. */
 const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord[]; price: Price | undefined }) => {
@@ -295,6 +368,7 @@ const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord
           depth={0}
         />
       ))}
+      {live && records.length > 0 && <Working run={run} records={records} />}
       {errors.map((message, i) => (
         <li key={i} className="px-2 py-1 text-xs text-red-600 dark:text-red-400">
           {message}
@@ -372,15 +446,18 @@ const VerdictStep = ({ attempt, name, runs }: { attempt: RunRow; name: string; r
   if (!brief) return null;
   return (
     <li className="space-y-1 px-2 py-1 text-xs">
-      <div className="flex items-center gap-2 pl-5">
+      <div className="flex min-w-0 items-center gap-2 pl-5">
         <VerdictIcon attempt={attempt} name={name} runs={runs} />
         <span className="font-medium">verdict</span>
-        <span className="text-zinc-500">
+        <span className="shrink-0 text-zinc-500">
           {brief.skipped ? 'skipped' : brief.pass ? 'passed' : 'failed'}
           {!brief.gating && ', log only'}
         </span>
+        <Suspense fallback={null}>
+          <FetchedFindings attempt={attempt} name={name} line />
+        </Suspense>
       </div>
-      <div className="pl-10">
+      <div className="pl-10 empty:hidden">
         <Suspense fallback={null}>
           <FetchedFindings attempt={attempt} name={name} />
         </Suspense>
@@ -543,7 +620,7 @@ const Breakdown = ({ runs, records, prices }: { runs: RunRow[]; records: EventRe
         <ol className="space-y-0.5">
           {heavy.map(tool => (
             <li key={tool.call.id} className="flex items-center gap-2">
-              <span className="font-mono">{tool.call.tool.replace(/^bothub_/, '')}</span>
+              <span className="font-mono">{toolName(tool.call.tool)}</span>
               <span className="min-w-0 truncate font-mono text-zinc-500">
                 {toolSummary(tool.call.tool, tool.call.input)}
               </span>
@@ -618,49 +695,97 @@ const Missing = ({ id }: { id: string }) => {
 const crumb =
   'min-w-0 truncate rounded px-1 hover:bg-zinc-100 hover:text-sky-700 dark:hover:bg-zinc-800 dark:hover:text-sky-300';
 
-const Sep = () => <Icon name="chevron" className="size-3 shrink-0 text-zinc-400" />;
+const Sep = () => (
+  <span aria-hidden className="shrink-0 px-0.5 text-zinc-300 select-none dark:text-zinc-600">
+    /
+  </span>
+);
 
-/** `noun i/n` with buttons to the one before and after; the noun selects the current one when `onOpen` is given. */
+const typing = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+
+const stepButton =
+  'inline-flex h-full items-center px-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:pointer-events-none disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200';
+
+/**
+ * `noun i/n` in one pill between buttons to the one before and after, also on `keys`; the count selects the current one
+ * when `onOpen` is given.
+ */
 const Stepper = ({
   noun,
   list,
   at,
+  keys,
   onOpen,
 }: {
   noun: string;
   list: RunRow[];
   at: number;
+  keys: [string, string];
   onOpen?: (() => void) | undefined;
 }) => {
   const select = useSetAtom(runIdAtom);
+  const go = useEffectEvent((step: number) => {
+    const next = list[at + step];
+    if (next) select(next.id);
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+      if (e.key === keys[0]) go(-1);
+      else if (e.key === keys[1]) go(1);
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, [keys]);
   const label = (
-    <span className="tabular-nums">
+    <span className="px-1 tabular-nums">
       {noun} {at + 1}/{list.length}
     </span>
   );
   return (
-    <span className="inline-flex shrink-0 items-center">
-      {onOpen ? (
-        <button type="button" className={crumb} onClick={onOpen}>
-          {label}
+    <span
+      role="group"
+      aria-label={`${noun}s`}
+      className="inline-flex h-5 shrink-0 items-center overflow-hidden rounded-full border border-zinc-200 dark:border-zinc-700"
+    >
+      <Tooltip action={`Previous ${noun}`} keys={keys[0]} className="h-full">
+        <button
+          type="button"
+          aria-label={`Previous ${noun}`}
+          className={cx(stepButton, 'pl-1.5')}
+          disabled={at === 0}
+          onClick={() => go(-1)}
+        >
+          <Icon name="left" className="size-3" />
         </button>
+      </Tooltip>
+      {onOpen ? (
+        <Tooltip action={`Show this ${noun}`} className="h-full">
+          <button type="button" className={cx(stepButton, 'text-zinc-700 dark:text-zinc-300')} onClick={onOpen}>
+            {label}
+          </button>
+        </Tooltip>
       ) : (
-        <span className="px-1">{label}</span>
+        label
       )}
-      <IconButton tip={`Previous ${noun}`} variant="quiet" disabled={at === 0} onClick={() => select(list[at - 1]!.id)}>
-        <Icon name="chevron" className="size-3 rotate-180" />
-      </IconButton>
-      <IconButton
-        tip={`Next ${noun}`}
-        variant="quiet"
-        disabled={at === list.length - 1}
-        onClick={() => select(list[at + 1]!.id)}
-      >
-        <Icon name="chevron" className="size-3" />
-      </IconButton>
+      <Tooltip action={`Next ${noun}`} keys={keys[1]} className="h-full">
+        <button
+          type="button"
+          aria-label={`Next ${noun}`}
+          className={cx(stepButton, 'pr-1.5')}
+          disabled={at === list.length - 1}
+          onClick={() => go(1)}
+        >
+          <Icon name="right" className="size-3" />
+        </button>
+      </Tooltip>
     </span>
   );
 };
+
+const attemptKeys: [string, string] = ['[', ']'];
+const runKeys: [string, string] = ['j', 'k'];
 
 /** Where the shown run sits: event, job, attempt, check and check run, each a way to the view above it. */
 const Crumbs = ({ execution }: { execution: NonNullable<ReturnType<typeof executionOf>> }) => {
@@ -698,14 +823,20 @@ const Crumbs = ({ execution }: { execution: NonNullable<ReturnType<typeof execut
       {attempts.length > 1 && (
         <>
           <Sep />
-          <Stepper noun="attempt" list={attempts} at={at} {...(run.check && { onOpen: () => select(attempt.id) })} />
+          <Stepper
+            noun="attempt"
+            list={attempts}
+            at={at}
+            keys={attemptKeys}
+            {...(run.check && { onOpen: () => select(attempt.id) })}
+          />
         </>
       )}
       {run.check && (
         <>
           <Sep />
           <span className="shrink-0 px-1 font-medium">{run.check}</span>
-          {siblings.length > 1 && <Stepper noun="run" list={siblings} at={siblings.indexOf(run)} />}
+          {siblings.length > 1 && <Stepper noun="run" list={siblings} at={siblings.indexOf(run)} keys={runKeys} />}
         </>
       )}
     </nav>
@@ -717,7 +848,15 @@ const Crumbs = ({ execution }: { execution: NonNullable<ReturnType<typeof execut
  * it, its outcome and its changes; a check run shows its verdict, its transcript and its record. Live and failed steps
  * start open; the view keeps to the bottom while live unless scrolled up.
  */
-export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'panel' | 'page' | 'follow' }) => {
+export const RunView = ({
+  id,
+  variant = 'panel',
+  onClose,
+}: {
+  id: string;
+  variant?: 'panel' | 'page' | 'follow';
+  onClose?: (() => void) | undefined;
+}) => {
   const follow = variant === 'follow';
   const rows = useAtomValue(live.rows);
   const prices = useAtomValue(pricesAtom);
@@ -728,6 +867,7 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
   const [mode, setMode] = useState<Mode>('auto');
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [pinned, setPinned] = useState(true);
+  const [rawRecord, setRawRecord] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const toggle = useCallback((step: string, open: boolean) => setOverrides(o => ({ ...o, [step]: open })), []);
   const opened = useRef(new Set<string>());
@@ -763,27 +903,25 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
     <Step
       id="run"
       auto={false}
+      actions={<RawToggle raw={rawRecord} onToggle={() => setRawRecord(!rawRecord)} />}
       head={
         <Row>
-          <Tooltip tip="The run record: ids, harness, model, timing">
-            <Icon name="file" className="size-3.5 text-zinc-400" />
+          <Icon name="file" className="size-3.5 text-zinc-400" />
+          <Tooltip tip="What the hub stored about this run in run.json: job, bot, event, timing and ids">
+            <span className="font-medium">record</span>
           </Tooltip>
-          <span className="font-medium">record</span>
+          <span className="truncate text-zinc-500">run.json</span>
         </Row>
       }
     >
-      {() => (
-        <div className="py-1 pr-2 text-xs">
-          <RunFields run={run} />
-        </div>
-      )}
+      {() => <div className="py-1 pr-2 pl-5 text-xs">{rawRecord ? <Raw value={run} /> : <RunFields run={run} />}</div>}
     </Step>
   );
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <header className={paneHeader}>
-        {variant !== 'panel' && (
+        {(variant === 'page' || follow) && (
           <IconButton
             tip="Back to the run list"
             onClick={() => {
@@ -791,11 +929,12 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
               if (follow) select(run.id);
             }}
           >
-            <Icon name="chevron" className="size-3 rotate-180" />
+            <Icon name="left" className="size-3" />
           </IconButton>
         )}
-        <StatusIcon status={run.status} level="job" />
+        {!running && <StatusIcon status={run.status} level="job" />}
         <Crumbs execution={execution} />
+        {running && <Running run={run} />}
         <span className="flex shrink-0 items-center gap-1">
           <IconButton tip="Expand every step" onClick={() => setAll('all')}>
             <Icon name="expand" className="size-3" />
@@ -811,9 +950,14 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
           >
             <Icon name="follow" className="size-3" />
           </IconButton>
-          {variant === 'panel' && (
+          {variant !== 'page' && !follow && (
             <IconButton tip="Open this run on its own page" onClick={() => setRunPage(true)}>
               <Icon name="open" className="size-3" />
+            </IconButton>
+          )}
+          {onClose && (
+            <IconButton tip="Close" keys="Esc" onClick={onClose}>
+              <Icon name="close" className="size-3" />
             </IconButton>
           )}
         </span>

@@ -1,3 +1,3 @@
-export { Text } from './core.tsx';
-export { OutcomeView, ProposalView, RunFields, VerdictView } from './outcome.tsx';
-export { ToolBody, toolSummary } from './tools.tsx';
+export { Raw, RawToggle, Text } from './core.tsx';
+export { FindingsLine, OutcomeView, ProposalView, RunFields, VerdictView } from './outcome.tsx';
+export { ToolBody, toolName, toolSummary } from './tools.tsx';

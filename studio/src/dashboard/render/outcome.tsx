@@ -218,15 +218,38 @@ const findingsOf = (verdict: Verdict) => {
 };
 
 /**
- * A check's findings, without its name or status, which the row above already shows. Findings a check bot wrote are
- * markdown; any other check's are its raw output, shown as is.
+ * Findings that read as one plain line: no line breaks, no file:line items and, when a check bot wrote them, no
+ * markdown. Those sit on the check's own row; anything richer gets a block under it.
+ */
+export const findingsLine = (verdict: Verdict) => {
+  const findings = findingsOf(verdict);
+  if (!findings || findings.includes('\n') || locations(findings)) return;
+  if (verdict.runs?.length && /[`*_[\]#|>]/.test(findings)) return;
+  return findings;
+};
+
+/** One-line findings as the end of a row, after a dash, truncated with the whole line as the tip. */
+export const FindingsLine = ({ verdict }: { verdict: Verdict }) => {
+  const line = findingsLine(verdict);
+  if (!line) return null;
+  return (
+    <Tooltip tip={line} className="min-w-0">
+      <span className="min-w-0 truncate text-zinc-500">
+        <span className="mr-1.5 text-zinc-300 dark:text-zinc-600">—</span>
+        {line}
+      </span>
+    </Tooltip>
+  );
+};
+
+/**
+ * A check's findings, without its name or status, which the row above already shows; nothing when they fit on that
+ * row. Findings a check bot wrote are markdown; any other check's are its raw output, shown as is.
  */
 export const VerdictView = ({ verdict }: { verdict: Verdict }) => {
   const findings = findingsOf(verdict);
-  if (!findings) return null;
+  if (!findings || findingsLine(verdict)) return null;
   const found = locations(findings);
-  if (!found && !findings.includes('\n') && findings.length <= 120)
-    return <p className="min-w-0 truncate font-mono text-[11px] text-zinc-500">{findings}</p>;
   return found ? (
     <ul className="min-w-0 space-y-0.5 font-mono text-[11px]">
       {found.map(({ file, line, message }, i) => (
@@ -239,7 +262,9 @@ export const VerdictView = ({ verdict }: { verdict: Verdict }) => {
       ))}
     </ul>
   ) : (
-    <div className="min-w-0 text-xs">{verdict.runs?.length ? <Text text={findings} /> : <Code code={findings} />}</div>
+    <div className="min-w-0 text-xs">
+      {verdict.runs?.length ? <Text text={findings} /> : <Code code={findings} compact wrap lines={12} />}
+    </div>
   );
 };
 
@@ -288,48 +313,59 @@ export const OutcomeView = ({ outcome }: { outcome: Outcome }) => {
   );
 };
 
-/** The fields of a stored run. */
+const time = (iso: string | undefined) => (iso ? new Date(iso).toLocaleString() : undefined);
+
+/** The fields of a stored run as a table: what ran, for which event, when, and where it sits. */
 export const RunFields = ({ run }: { run: Run }) => (
-  <WithRaw value={run}>
-    <Fields>
-      <Field name="status">
-        <Badge tone={statusTone(run.status)}>{run.status}</Badge>
-        {run.closure && (
-          <>
-            {' '}
-            <Badge tone={closureTones[run.closure]}>{run.closure}</Badge>
-          </>
-        )}
-      </Field>
-      <Field name="job">
-        {run.workflow} / {run.job}
-        {run.check && <span className="text-zinc-500"> check {run.check}</span>}
-        {run.attempt !== undefined && <span className="text-zinc-500"> attempt {run.attempt}</span>}
-      </Field>
-      <Field name="bot">
-        {run.bot ?? '-'}
-        {run.harness && <span className="text-zinc-500"> {run.harness}</span>}
-        {run.model && <span className="text-zinc-500"> {run.model}</span>}
-      </Field>
-      <Field name="event">
-        {run.event.trigger}
-        {run.event.action && `.${run.event.action}`} {run.event.repo}
-        {run.event.number !== undefined && `#${run.event.number}`} {run.event.actor.login}
-      </Field>
-      {run.approval !== undefined && <Field name="approval">#{run.approval}</Field>}
-      {run.error && (
-        <Field name="error">
-          <span className="text-red-600 dark:text-red-400">{run.error}</span>
-        </Field>
+  <Fields>
+    <Field name="status">
+      <Badge tone={statusTone(run.status)}>{run.status}</Badge>
+      {run.closure && (
+        <>
+          {' '}
+          <Badge tone={closureTones[run.closure]}>{run.closure}</Badge>
+        </>
       )}
-      {run.parent && (
-        <Field name="parent">
-          <span className="font-mono text-[11px]">{run.parent}</span>
-        </Field>
-      )}
-      <Field name="id">
-        <span className="font-mono text-[11px]">{run.id}</span>
+    </Field>
+    <Field name="job">
+      {run.workflow} / {run.job}
+      {run.check && <span className="text-zinc-500"> check {run.check}</span>}
+      {run.attempt !== undefined && <span className="text-zinc-500"> attempt {run.attempt}</span>}
+    </Field>
+    <Field name="bot">
+      {run.bot ?? '-'}
+      {run.harness && <span className="text-zinc-500"> {run.harness}</span>}
+      {run.model && <span className="text-zinc-500"> {run.model}</span>}
+    </Field>
+    <Field name="event">
+      {run.event.trigger}
+      {run.event.action && `.${run.event.action}`} {run.event.repo}
+      {run.event.number !== undefined && `#${run.event.number}`} {run.event.actor.login}
+    </Field>
+    {run.startedAt && (
+      <Field name="time">
+        {time(run.startedAt)}
+        {run.endedAt && <span className="text-zinc-500"> to {time(run.endedAt)}</span>}
       </Field>
-    </Fields>
-  </WithRaw>
+    )}
+    {run.approval !== undefined && <Field name="approval">#{run.approval}</Field>}
+    {run.parked && (
+      <Field name="parked">
+        <Branch name={run.parked} />
+      </Field>
+    )}
+    {(run.error || run.reason) && (
+      <Field name={run.error ? 'error' : 'reason'}>
+        <span className={cx(run.error && 'text-red-600 dark:text-red-400')}>{run.error ?? run.reason}</span>
+      </Field>
+    )}
+    {run.parent && (
+      <Field name="parent">
+        <span className="font-mono text-[11px]">{run.parent}</span>
+      </Field>
+    )}
+    <Field name="id">
+      <span className="font-mono text-[11px]">{run.id}</span>
+    </Field>
+  </Fields>
 );

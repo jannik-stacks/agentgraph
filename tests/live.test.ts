@@ -105,6 +105,7 @@ describe('live stream', () => {
       m => m.event === 'run' && (m.data as { id: string; status: string }).status === 'succeeded'
     );
     expect(changed.at(-1)?.data).toMatchObject({ id, tally: { calls: 1, in: 100, out: 7 } });
+    expect(changed.at(-1)?.data).toMatchObject({ activity: { at: '', text: 'step 4' } });
     abort.abort();
   });
 

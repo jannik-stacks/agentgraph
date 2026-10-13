@@ -84,3 +84,11 @@ body {
     animation: none;
   }
 }
+
+:root {
+  --bhm-code-bg: color-mix(in oklab, var(--color-zinc-50) 70%, white);
+}
+
+.dark {
+  --bhm-code-bg: color-mix(in oklab, var(--color-zinc-900) 45%, var(--color-zinc-950));
+}

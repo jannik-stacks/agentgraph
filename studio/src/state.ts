@@ -1,5 +1,5 @@
 import { type Atom, atom, type Getter, type Setter } from 'jotai';
-import { atomWithRefresh, atomWithStorage, unwrap } from 'jotai/utils';
+import { atomWithRefresh, atomWithStorage, createJSONStorage, unwrap } from 'jotai/utils';
 import type { ApiInfo, needsHuman, readFiles } from '../../src/api.ts';
 import type { Config, ConfigError } from '../../src/config.ts';
 
@@ -97,8 +97,43 @@ export const runIdAtom = atom(get => get(dashboardPageAtom).run ?? null, selectA
 /** The selected event, at `/dashboard/events/<id>`. */
 export const eventIdAtom = atom(get => get(dashboardPageAtom).event ?? null, selectAt('events'));
 
+/** Local storage that answers nothing and keeps nothing where the browser refuses it. */
+const local = {
+  getItem: (key: string) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {}
+  },
+  removeItem: (key: string) => {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+  },
+};
+
+/** A preference of this viewer, kept in this browser. */
+const preference = <T>(key: string, initial: T) =>
+  atomWithStorage(
+    key,
+    initial,
+    createJSONStorage<T>(() => local),
+    { getOnInit: true }
+  );
+
 /** Whether a selected run takes the whole page instead of sitting beside the run list. */
-export const runPageAtom = atomWithStorage('bhm.dashboard.run-page', false, undefined, { getOnInit: true });
+export const runPageAtom = preference('bhm.dashboard.run-page', false);
+
+export const runViews = ['pane', 'modal'] as const;
+
+/** Where a selected run or event opens: in the pane beside the run list, or in a dialog over it. */
+export const runViewAtom = preference<(typeof runViews)[number]>('bhm.dashboard.view', 'pane');
 
 export const selectedNodeAtom = queryParam('node');
 export const statusFilterAtom = queryParam('status');

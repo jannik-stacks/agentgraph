@@ -1,6 +1,7 @@
 import { type FSWatcher, watch } from 'node:fs';
 import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { proseLine } from './outputs.ts';
 import { fold, type Op, type Pull } from './pulls.ts';
 import type { EventRecord, Outcome, Run } from './store.ts';
 import { count, emptyTally, type Tally } from './usage.ts';
@@ -18,8 +19,32 @@ export const briefOf = (outcome: Outcome) => ({
   ...(outcome.pr !== undefined && { pr: outcome.pr }),
 });
 
-/** A run as the dashboard lists it: the stored run, the totals of its events and a brief of its outcome. */
-export type RunRow = Run & { tally: Tally; brief?: ReturnType<typeof briefOf> };
+/** When a run's last event arrived, and the last thing it said or the last tool it called. */
+export type Activity = { at: string; text?: string; tool?: string; input?: unknown };
+
+const clip = (value: unknown) => (typeof value === 'string' && value.length > 160 ? `${value.slice(0, 160)}…` : value);
+
+const activityOf = ({ ts, event }: EventRecord, previous: Activity | undefined): Activity => {
+  if (event.type === 'text') return { at: ts, text: clip(proseLine(event.text) ?? '') as string };
+  if (event.type === 'tool_call') {
+    const { input } = event;
+    return {
+      at: ts,
+      tool: event.tool,
+      input:
+        input && typeof input === 'object' && !Array.isArray(input)
+          ? Object.fromEntries(Object.entries(input).map(([key, value]) => [key, clip(value)]))
+          : clip(input),
+    };
+  }
+  return { ...previous, at: ts };
+};
+
+/**
+ * A run as the dashboard lists it: the stored run, the totals of its events, its latest activity and a brief of its
+ * outcome.
+ */
+export type RunRow = Run & { tally: Tally; activity?: Activity; brief?: ReturnType<typeof briefOf> };
 
 /** One line in `pulls.jsonl` reduced to what links a request to the job that opened it. */
 export type PullRow = Pick<Pull, 'number' | 'title' | 'branch' | 'into' | 'state' | 'origin'>;
@@ -163,23 +188,32 @@ export const watchRuns = (dir: string, { pollMs = 1000, sweepEvery = 15, useWatc
     if (sigs[0] !== entry.sigs[0] || !row) {
       const run = parse<Run>(await readFile(join(base, 'run.json'), 'utf8').catch(() => ''));
       if (!run) return;
-      row = { ...run, tally: row?.tally ?? emptyTally(), ...(row?.brief && { brief: row.brief }) };
+      row = {
+        ...run,
+        tally: row?.tally ?? emptyTally(),
+        ...(row?.activity && { activity: row.activity }),
+        ...(row?.brief && { brief: row.brief }),
+      };
     }
     if (sigs[1] !== entry.sigs[1]) {
       let offset = entry.offset;
       let total = row.tally;
+      let activity = row.activity;
       const size = Number(sigs[1]?.split(':')[1] ?? 0);
-      if (size < offset) [offset, total] = [0, emptyTally()];
+      if (size < offset) [offset, total, activity] = [0, emptyTally(), undefined];
       const read = await tail(join(base, 'events.jsonl'), offset);
       if (read.lines.length) {
         total = { ...total };
         for (const line of read.lines) {
           const record = parse<EventRecord>(line);
-          if (record) count(total, record.event);
+          if (!record) continue;
+          count(total, record.event);
+          activity = activityOf(record, activity);
         }
         change.events = true;
       }
-      row = { ...row, tally: total };
+      const { activity: _, ...rest } = row;
+      row = { ...rest, tally: total, ...(activity && { activity }) };
       entry.offset = read.offset;
     }
     if (sigs[2] !== entry.sigs[2]) {

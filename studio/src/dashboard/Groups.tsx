@@ -4,7 +4,7 @@ import { Link as Anchor } from '../Providers.tsx';
 import { eventIdAtom, navigateAtom, runIdAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
 import { cx, Tooltip } from '../ui.tsx';
-import { age, Cost, Io, StatusIcon, useEnter } from './bits.tsx';
+import { age, Cost, Elapsed, Io, Running, StatusIcon, useEnter } from './bits.tsx';
 import { live, pricesAtom } from './live.ts';
 import { costOfRuns, eventTitle, type Group, type JobNode, type Link, triggerGlyph } from './model.ts';
 
@@ -12,11 +12,13 @@ const chip =
   'inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1 text-[11px] hover:border-sky-400 dark:hover:border-sky-600';
 const chipIdle = 'border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400';
 const chipOn = 'border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-600 dark:bg-sky-950 dark:text-sky-200';
+const chipLive = 'bhm-live-row border-sky-300 text-sky-800 dark:border-sky-800 dark:text-sky-200';
 
 /** A job and the checks that gate it, each selecting its latest run; `after` puts an arrow in front. */
 const Node = ({ job, after, run }: { job: JobNode; after: boolean; run: string | null }) => {
   const select = useSetAtom(runIdAtom);
   const attempts = job.attempts.length;
+  const live = job.attempts.find(a => a.status === 'running');
   return (
     <>
       <Tooltip
@@ -24,7 +26,7 @@ const Node = ({ job, after, run }: { job: JobNode; after: boolean; run: string |
         action="Show the latest attempt"
         className="shrink-0 items-center gap-1"
       >
-        {after && <Icon name="chevron" className="size-3 text-zinc-400" />}
+        {after && <Icon name="right" className="size-2.5 text-zinc-300 dark:text-zinc-600" />}
         <button
           type="button"
           onClick={e => {
@@ -34,11 +36,12 @@ const Node = ({ job, after, run }: { job: JobNode; after: boolean; run: string |
           className={cx(
             chip,
             'gap-1.5 bg-white dark:bg-zinc-900',
-            job.attempts.some(a => a.id === run) ? chipOn : chipIdle
+            job.attempts.some(a => a.id === run) ? chipOn : live ? chipLive : chipIdle
           )}
         >
           <StatusIcon status={job.status} level="job" className="size-3" />
           {job.job}
+          {live && <Elapsed startedAt={live.startedAt} className="text-sky-700 dark:text-sky-300" />}
           {attempts > 1 && (
             <span className="inline-flex items-center gap-0.5 text-zinc-500">
               <Icon name="retry" className="size-2.5" />
@@ -63,7 +66,7 @@ const Node = ({ job, after, run }: { job: JobNode; after: boolean; run: string |
             className={cx(
               chip,
               'border-dashed text-[10px] leading-4',
-              runs.some(r => r.id === run) ? chipOn : chipIdle
+              runs.some(r => r.id === run) ? chipOn : runs.at(-1)!.status === 'running' ? chipLive : chipIdle
             )}
           >
             <StatusIcon status={runs.at(-1)!.status} level="job" kind="check" className="size-2.5" />
@@ -127,7 +130,8 @@ export const EventLine = ({ group, links = true }: { group: Group; links?: boole
   const prices = useAtomValue(pricesAtom);
   const { event } = group;
   const cost = costOfRuns(group.runs, prices);
-  const running = group.runs.filter(r => r.status === 'running').length;
+  const live = group.runs.filter(r => r.status === 'running');
+  const running = live.length;
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <StatusIcon
@@ -149,9 +153,13 @@ export const EventLine = ({ group, links = true }: { group: Group; links?: boole
       </span>
       <Io tally={group.tally} className="shrink-0 text-xs" />
       <Cost billed={cost.billed} estimated={cost.estimated} tally={group.tally} className="w-12 justify-end text-xs" />
-      <Tooltip tip={`Started ${new Date(group.startedAt).toLocaleString()}`} className="w-14 shrink-0 justify-end">
-        <span className="text-xs text-zinc-500">{age(group.startedAt)}</span>
-      </Tooltip>
+      {live[0] ? (
+        <Running run={live[0]} />
+      ) : (
+        <Tooltip tip={`Started ${new Date(group.startedAt).toLocaleString()}`} className="w-14 shrink-0 justify-end">
+          <span className="text-xs text-zinc-500">{age(group.startedAt)}</span>
+        </Tooltip>
+      )}
     </div>
   );
 };

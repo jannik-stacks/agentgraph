@@ -1,9 +1,11 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { Activity, RunRow } from '../../../src/live.ts';
 import type { RunStatus } from '../../../src/store.ts';
 import type { Tally } from '../../../src/usage.ts';
 import type { Tone } from '../graph-model.ts';
 import { checkMarks, type Glyph, Icon, KindIcon } from '../studio/icons.tsx';
 import { cx, statusTone, tones, Tooltip } from '../ui.tsx';
+import { toolName, toolSummary } from './render/tools.tsx';
 
 /** The header of the right pane: one line at a fixed height, whatever the selection puts in it. */
 export const paneHeader =
@@ -166,7 +168,7 @@ const Breathing = ({ className }: { className: string }) => (
     {[0, 1, 2].map(i => (
       <span
         key={i}
-        className="bhm-breathe size-[3px] rounded-full bg-zinc-400 dark:bg-zinc-500"
+        className="bhm-breathe size-[3px] rounded-full bg-sky-500 dark:bg-sky-400"
         style={{ animationDelay: `${i * 160}ms` }}
       />
     ))}
@@ -260,11 +262,62 @@ const noClock = () => () => {};
 const second = () => Math.floor(Date.now() / 1000);
 
 /** How long a run took, counting every second while it runs. Shown on one element per running thing. */
-export const Elapsed = ({ startedAt, endedAt }: { startedAt?: string | undefined; endedAt?: string | undefined }) => {
+export const Elapsed = ({
+  startedAt,
+  endedAt,
+  className = 'text-zinc-500',
+}: {
+  startedAt?: string | undefined;
+  endedAt?: string | undefined;
+  className?: string;
+}) => {
   const now = useSyncExternalStore(endedAt ? noClock : subscribeClock, second, second);
   if (!startedAt) return <span />;
   const ms = new Date(endedAt ?? now * 1000).getTime() - new Date(startedAt).getTime();
-  return <span className="text-zinc-500 tabular-nums">{formatDuration(Math.max(0, ms))}</span>;
+  return <span className={cx('tabular-nums', className)}>{formatDuration(Math.max(0, ms))}</span>;
+};
+
+/** How long ago `at` was, counting every second. */
+export const Ago = ({ at, className }: { at: string; className?: string }) => {
+  const now = useSyncExternalStore(subscribeClock, second, second);
+  const ms = Math.max(0, now * 1000 - new Date(at).getTime());
+  return <span className={cx('tabular-nums', className)}>{ms < 1000 ? 'just now' : `${formatDuration(ms)} ago`}</span>;
+};
+
+/** A running run, plainly: a pulsing dot, the word, and how long it has been going. */
+export const Running = ({ run, className }: { run: Pick<RunRow, 'status' | 'startedAt'>; className?: string }) => (
+  <Tooltip tip={run.status === 'queued' ? 'Queued, waiting to start' : 'Running, time since it started'}>
+    <span
+      className={cx(
+        'inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-50 py-px pr-2 pl-0.5 text-[11px] text-sky-800 dark:bg-sky-950/60 dark:text-sky-200',
+        className
+      )}
+    >
+      <Dot tone={statusTone(run.status)} pulse={run.status === 'running'} />
+      {run.status === 'queued' ? 'queued' : 'running'}
+      {run.status === 'running' && <Elapsed startedAt={run.startedAt} className="text-sky-700 dark:text-sky-300" />}
+    </span>
+  </Tooltip>
+);
+
+/** What a run did last: its last line of text or the tool it called, and how long ago anything happened. */
+export const LastActivity = ({ activity, className }: { activity: Activity | undefined; className?: string }) => {
+  if (!activity) return <span className={cx('text-zinc-500', className)}>waiting for the first event</span>;
+  return (
+    <span className={cx('flex min-w-0 items-center gap-1.5 text-zinc-500', className)}>
+      {activity.tool ? (
+        <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
+          <span className="shrink-0 text-zinc-600 dark:text-zinc-400">{toolName(activity.tool)}</span>
+          <span className="min-w-0 truncate">{toolSummary(activity.tool, activity.input)}</span>
+        </span>
+      ) : (
+        activity.text && <span className="min-w-0 truncate italic">{activity.text}</span>
+      )}
+      <Tooltip tip="Time since the run's last event" className="ml-auto shrink-0 pl-2">
+        <Ago at={activity.at} className="text-[11px] text-zinc-400" />
+      </Tooltip>
+    </span>
+  );
 };
 
 const Amount = ({ value, glyph }: { value: number; glyph: 'in' | 'out' }) => (

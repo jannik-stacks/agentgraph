@@ -211,3 +211,13 @@ export const validate = (proposals: Proposal[], allowance: Allowance, mode: Mode
   }
   return { accepted, rejected, apply: mode !== 'log' };
 };
+
+/** The first non-empty line of a message outside any code fence. */
+export const proseLine = (text: string) => {
+  let fenced = false;
+  for (const line of text.split('\n')) {
+    if (/^\s*(`{3,}|~{3,})/.test(line)) fenced = !fenced;
+    else if (!fenced && line.trim()) return line.trim();
+  }
+  return undefined;
+};

@@ -47,7 +47,7 @@ const Mergeable = ({ pull }: { pull: PullListing }) =>
 const Branches = ({ pull }: { pull: Pick<PullListing, 'branch' | 'into'> }) => (
   <span className="inline-flex min-w-0 items-center gap-1 font-mono text-[11px] text-zinc-500">
     <span className="truncate">{pull.branch}</span>
-    <Icon name="chevron" className="size-2.5 text-zinc-400" />
+    <Icon name="right" className="size-2.5 text-zinc-400" />
     <span className="truncate">{pull.into}</span>
   </span>
 );
@@ -118,7 +118,9 @@ const PullList = ({ pulls }: { pulls: PullListing[] }) => {
         <Link href="/dashboard" className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">
           Runs
         </Link>
-        <Icon name="chevron" className="size-3 text-zinc-400" />
+        <span aria-hidden className="text-zinc-300 select-none dark:text-zinc-600">
+          /
+        </span>
         <span className="font-medium">Changes</span>
         <span className="text-zinc-500 tabular-nums">
           {open} open, {pulls.length - open} closed or merged
@@ -305,7 +307,9 @@ const PullPage = ({ pull }: { pull: PullListing }) => {
           <Link href="/dashboard" className="hover:text-zinc-900 dark:hover:text-zinc-100">
             Runs
           </Link>
-          <Icon name="chevron" className="size-3 text-zinc-400" />
+          <span aria-hidden className="text-zinc-300 select-none dark:text-zinc-600">
+            /
+          </span>
           <Link href="/dashboard/pulls" className="hover:text-zinc-900 dark:hover:text-zinc-100">
             Changes
           </Link>
