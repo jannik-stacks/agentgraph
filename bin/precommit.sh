@@ -1,17 +1,11 @@
 #!/bin/sh
-# Runs the bothub hub's cheap script checks over this repository's uncommitted change, against HEAD or $BOTHUB_BASE,
-# with each check's own command. Prints every finding and fails when a check in block mode has one.
+# Runs the bothub hub's fast script checks over this repository's uncommitted change, against HEAD or $BOTHUB_BASE.
+# Safety is left out: its bounds are for bots, not maintainers. Prints every finding and fails when a check in block
+# mode has one.
 #
-#   npm run precommit                     BOTHUB_BASE=main npm run precommit
+#   npm run precommit                     BOTHUB_BASE=main npm run precommit          npm run precommit -- rules size
 set -u
 cd "$(dirname "$0")/.."
-checks=examples/bothub/checks
 export BOTHUB_HUB="$PWD/examples/bothub" BOTHUB_BASE="${BOTHUB_BASE:-HEAD}"
-failed=0
-for check in size rules unused-exports propagation; do
-  mode=$(sed -n 's/^mode: *//p' "$checks/$check.md")
-  sh -c "$(sed -n 's/^run: *//p' "$checks/$check.md")" && continue
-  echo "$check: the findings above are $mode"
-  if [ "$mode" = block ]; then failed=1; fi
-done
-exit $failed
+[ $# -gt 0 ] || set -- $(node --input-type=module -e "import { fast } from './examples/bothub/scripts/fast.mjs'; console.log(fast.filter(c => c !== 'safety').join(' '))")
+exec node examples/bothub/scripts/fast.mjs "$@"
