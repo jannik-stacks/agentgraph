@@ -6,9 +6,9 @@
 //
 //   node triage-brief.mjs [--within <root>,<root>...] [reply-file]      otherwise the reply is read from BOTHUB_REPLY
 import { existsSync, readFileSync } from 'node:fs';
-import { capped, maxFiles, paths, rejects } from './bounds.mjs';
+import { capped, maxFiles, paths } from './bounds.mjs';
 import { findIssue, parseBrief } from './brief.mjs';
-import { report } from './changes.mjs';
+import { rejects, report } from './changes.mjs';
 
 const args = process.argv.slice(2);
 const at = args.indexOf('--within');

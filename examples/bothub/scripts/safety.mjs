@@ -5,9 +5,8 @@
 //
 // With `--markdown`, a new markdown file must sit under one of those roots. `--max-lines` caps a file's length.
 import { readFileSync, statSync } from 'node:fs';
-import { basename } from 'node:path';
 import { paths } from './bounds.mjs';
-import { addedLines, base, changedFiles, inBase, report } from './changes.mjs';
+import { addedLines, base, changedFiles, inBase, rejects, report } from './changes.mjs';
 
 const args = process.argv.slice(2);
 const flag = name => {
@@ -20,23 +19,6 @@ const maxLines = new Map(flag('--max-lines').map(spec => [spec.slice(0, spec.las
 const roots = args.length ? args : paths;
 
 const under = (path, root) => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
-
-const forbiddenPath = [
-  [/(^|\/)\.env(\.(?!example$)[^/]*)?$/, 'an environment file'],
-  [/\.(pem|key|p12|pfx|keystore|jks)$/i, 'key material'],
-  [/(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/, 'an SSH key'],
-  [/(^|\/)\.(npmrc|netrc|git-credentials|pypirc)$/, 'a credentials file'],
-  [/(^|\/)\.github\/workflows\//, 'CI configuration'],
-  [/(^|\/)\.git(\/|$)/, 'git internals'],
-];
-
-const memory = [
-  [/(^|\/)AGENTS\.md$/, 'AGENTS.md'],
-  [/(^|\/)CLAUDE(\.local)?\.md$/, 'CLAUDE.md'],
-  [/(^|\/)\.opencode\//, '.opencode/'],
-];
-
-const working = /^(audit|report|review|findings|summary|notes?|todo|unclear|deferred|progress|status|plan)([-_.].*)?\.md$/i;
 
 const secret = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'a private key'],
@@ -79,15 +61,13 @@ const sha = base();
 const findings = [];
 for (const { path, deleted } of changedFiles(sha)) {
   if (!roots.some(root => under(path, root))) findings.push(`${path}: outside the allowed paths (${roots.join(', ')})`);
-  for (const [pattern, what] of forbiddenPath) if (pattern.test(path)) findings.push(`${path}: ${what} must not change`);
-  for (const [pattern, what] of memory)
-    if (pattern.test(path)) findings.push(`${path}: writes harness memory (${what}); propose a note instead`);
+  const fresh = !deleted && !inBase(sha, path);
+  const rejected = rejects(path, fresh);
+  for (const why of rejected) findings.push(`${path}: ${why}`);
   if (deleted) continue;
-  const fresh = !inBase(sha, path);
   if (fresh && statSync(path).size > maxBytes) findings.push(`${path}: a new file larger than ${maxBytes / 1024} KB`);
-  if (fresh && /\.md$/.test(path) && working.test(basename(path)))
-    findings.push(`${path}: a new report or tracking file; put the outcome where the project keeps its records`);
-  else if (fresh && /\.mdx?$/.test(path) && markdownRoots.length && !markdownRoots.some(root => under(path, root)))
+  const tracking = rejected.some(why => why.startsWith('a new report'));
+  if (fresh && !tracking && /\.mdx?$/.test(path) && markdownRoots.length && !markdownRoots.some(root => under(path, root)))
     findings.push(`${path}: a new markdown file outside ${markdownRoots.join(', ')}; keep working notes out of the repository`);
   const cap = maxLines.get(path);
   if (cap) {

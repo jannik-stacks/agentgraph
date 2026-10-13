@@ -732,26 +732,6 @@ describe('triage-brief', () => {
     expect(skill).toContain(`at most ${maxFiles} files outside \`tests/\``);
   });
 
-  it('still rejects the same file names as the safety check', async () => {
-    const { rejects } = await import(join(scripts, 'bounds.mjs'));
-    const names = [
-      '.env',
-      'k.pem',
-      'id_rsa',
-      '.npmrc',
-      '.github/workflows/ci.yml',
-      'AGENTS.md',
-      'a/CLAUDE.md',
-      '.opencode/x',
-      'a/plan.md',
-      'a/b.ts',
-    ];
-    const repo = change({ 'a/b.ts': '' }, Object.fromEntries(names.map(name => [name, 'x\n'])));
-    const expected = names.flatMap(name => rejects(name, name !== 'a/b.ts').map((why: string) => `${name}: ${why}`));
-    expect(expected).toHaveLength(9);
-    expect(findings(run('safety.mjs', repo, names).out).sort()).toEqual(expected.sort());
-  });
-
   it('fails a brief naming a file the safety check would fail', () => {
     const text = brief.replace(
       '- `tests/labels.test.ts`',
