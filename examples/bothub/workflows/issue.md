@@ -41,6 +41,14 @@ jobs:
         - tests-bite
         - coverage
         - criteria-tests
+        - escape-hatches
+        - unfinished
+        - retired-names
+        - docs-prose
+        - docs-sync
+        - code-shape
+        - react-hints
+        - unused-exports
         - risky
         - scope
         - near-duplicate

@@ -1,0 +1,27 @@
+// A schema a change adds to src/schema.ts that no docs page names, so the reference falls behind the code.
+import { execFileSync } from 'node:child_process';
+import { addedLines, base, changedFiles, report } from './changes.mjs';
+
+const declaration = /^export const ([A-Z]\w*)\s*=\s*z\b/;
+
+const mentioned = name => {
+  try {
+    execFileSync('git', ['grep', '-q', '--untracked', '-w', '-F', name, '--', 'studio/content/docs'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const sha = base();
+const findings = [];
+for (const { path, deleted } of changedFiles(sha)) {
+  if (deleted || path !== 'src/schema.ts') continue;
+  for (const { line, text } of addedLines(sha, path)) {
+    const name = declaration.exec(text)?.[1];
+    if (name && !mentioned(name)) {
+      findings.push(`${path}:${line}: ${name} is in no docs page; add <Fields name="${name}" /> where it belongs`);
+    }
+  }
+}
+report('docs-sync', findings);
