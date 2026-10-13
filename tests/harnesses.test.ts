@@ -129,10 +129,26 @@ describe('opencode', () => {
     expect(args).toContain('bothub/default');
   });
 
-  it('reports the model alias it runs, since its output names none', () => {
+  it('reports the model alias it runs, since its output names none, and the session its first line names', () => {
     const { model: _, ...bare } = spec;
-    expect(harnesses.opencode.start?.(spec)).toEqual([{ type: 'start', model: 'coder' }]);
-    expect(harnesses.opencode.start?.(bare)).toEqual([{ type: 'start', model: 'default' }]);
+    expect(harnesses.opencode.start?.(spec, '')).toEqual([{ type: 'start', model: 'coder' }]);
+    expect(harnesses.opencode.start?.(bare, 'not json')).toEqual([{ type: 'start', model: 'default' }]);
+    const first = readFileSync(join(import.meta.dirname, 'fixtures', 'opencode-run.jsonl'), 'utf8').split('\n')[0]!;
+    expect(harnesses.opencode.start?.(spec, first)).toEqual([
+      { type: 'start', model: 'coder', session: 'ses_ecfe5c55cffe3r1vZYoqdYrwvF' },
+    ]);
+  });
+
+  it('continues an earlier session by id, keeping its sessions in the run home', () => {
+    const { args } = command({ ...spec, session: { id: 'ses_1', home: '/data/runs/r1/home' } });
+    expect(args.slice(args.indexOf('--model'), args.indexOf('--'))).toEqual([
+      '--model',
+      'bothub/coder',
+      '--session',
+      'ses_1',
+    ]);
+    expect(harnesses.opencode.sessions).toBe('.local/share/opencode');
+    expect(harnesses.pi.sessions).toBeUndefined();
   });
 
   it('lets a plain tool entry win over its patterns', () => {

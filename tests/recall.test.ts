@@ -20,6 +20,7 @@ import {
 } from '../src/recall.ts';
 import type { EventRecord } from '../src/store.ts';
 import {
+  askerOf,
   fit,
   history,
   items,
@@ -29,6 +30,7 @@ import {
   summarizeEvents,
   summarizeRun,
   Summarizer,
+  type History,
 } from '../src/summaries.ts';
 
 const hub = new URL('../examples/acme-app/', import.meta.url).pathname;
@@ -188,13 +190,16 @@ describe('model summaries', () => {
   });
 });
 
-const runDir = async (runs: { id: string; bot: string }[]) => {
+type Seen = { id: string; bot: string; job?: string; event?: string; number?: number };
+
+const runDir = async (runs: Seen[]) => {
   const dir = await mkdtemp(join(tmpdir(), 'recall-'));
-  for (const { id, bot } of runs) {
+  for (const { id, bot, job = 'j', event = id, number } of runs) {
     await mkdir(join(dir, 'runs', id), { recursive: true });
+    const on = { id: event, repo: 'acme/app', ...(number !== undefined && { number }) };
     await writeFile(
       join(dir, 'runs', id, 'run.json'),
-      JSON.stringify({ id, bot, workflow: 'w', job: 'j', status: 'succeeded' })
+      JSON.stringify({ id, bot, workflow: 'w', job, status: 'succeeded', event: on })
     );
     await writeFile(join(dir, 'runs', id, 'events.jsonl'), await readFile(fixture, 'utf8'));
     await summarizeRun(dir, id, Summarizer.parse('extractive'));
@@ -202,28 +207,43 @@ const runDir = async (runs: { id: string; bot: string }[]) => {
   return dir;
 };
 
-describe('share', () => {
-  it('limits recall and history to what the asking bot may see', async () => {
-    const dir = await runDir([
-      { id: 'a', bot: 'implementor' },
-      { id: 'b', bot: 'reviewer' },
-      { id: 'c', bot: 'triager' },
-    ]);
-    const shareOf = (bot: string | undefined) => (bot === 'reviewer' ? 'hub' : bot === 'triager' ? 'none' : 'bot');
-    const records = await loadSummaries(dir, shareOf);
-    expect(new Set(records.map(r => r.run))).toEqual(new Set(['a', 'b']));
-    const idx = index(summaryDocs(records));
-    const runsFor = async (bot: string) =>
-      new Set(
-        (await recall({ index: idx, task: 'bothub_issues_get', bot, top: 50, budget: 1e6, decide: none })).map(
-          h => h.doc.pointer.split('#')[0]
-        )
-      );
-    expect(await runsFor('implementor')).toEqual(new Set(['a', 'b']));
-    expect(await runsFor('checker')).toEqual(new Set(['b']));
-    const h = history(dir, 'checker', shareOf);
-    expect((await h.list()).map(r => r.id)).toEqual(['b']);
-    expect(await h.read('a')).toBeUndefined();
+describe('history', () => {
+  const runs: Seen[] = [
+    { id: 'a', bot: 'implementor', event: 'e1', number: 7 },
+    { id: 'b', bot: 'reviewer', event: 'e2', number: 7 },
+    { id: 'c', bot: 'implementor', event: 'e3', number: 9 },
+    { id: 'd', bot: 'implementor', event: 'e1', number: 7 },
+  ];
+
+  it('limits recall and history to how far the asking bot reaches', async () => {
+    const dir = await runDir(runs);
+    const records = await loadSummaries(dir);
+    expect(new Set(records.map(r => r.run))).toEqual(new Set(['a', 'b', 'c', 'd']));
+    const idx = index(summaryDocs(records.filter(r => r.run !== 'd')));
+    const reach = async (scope: History) => {
+      const asker = await askerOf(dir, 'd', 'implementor', scope);
+      const recalled = await recall({
+        index: idx,
+        task: 'bothub_issues_get',
+        asker,
+        top: 50,
+        budget: 1e6,
+        decide: none,
+      });
+      const listed = (await history(dir, asker).list()).filter(r => r.id !== 'd');
+      return { recalled: new Set(recalled.map(h => h.doc.pointer.split('#')[0])), listed: listed.map(r => r.id) };
+    };
+    expect(await reach('hub')).toEqual({ recalled: new Set(['a', 'b', 'c']), listed: ['c', 'b', 'a'] });
+    expect(await reach('bot')).toEqual({ recalled: new Set(['a', 'c']), listed: ['c', 'a'] });
+    expect(await reach('issue')).toEqual({ recalled: new Set(['a', 'b']), listed: ['b', 'a'] });
+    expect(await reach('run')).toEqual({ recalled: new Set(['a']), listed: ['a'] });
+    expect(await reach('none')).toEqual({ recalled: new Set(), listed: [] });
+  });
+
+  it('reads only runs the asker may see', async () => {
+    const dir = await runDir(runs);
+    const h = history(dir, await askerOf(dir, 'd', 'checker', 'issue'));
+    expect(await h.read('c')).toBeUndefined();
     expect((await h.read('b', { from: 0, to: 1 }))?.length).toBe(2);
   });
 });

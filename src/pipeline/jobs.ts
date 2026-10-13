@@ -12,6 +12,7 @@ import type { BotEvent } from '../types.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, issueEnv, runOnItem } from './checks.ts';
+import { continuing, lastPushed, saidSince } from './continue.ts';
 import { closed, finish, remember, settle } from './landing.ts';
 import { type Worktree, defaultBranchFor, fanned, jobItems, proposalProblems, requestsEnv } from './attempt.ts';
 
@@ -106,13 +107,19 @@ const scriptJob = (
           parent: run,
           handoff,
           target,
+          ...(worktree.replace && { replace: worktree.replace }),
         };
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, problems.length ? undefined : validated.accepted, a, p)
         );
         return yield* finish(planned, run, outcome, kinds, p);
       });
-    return yield* withWorktree(created, execute, handoff, p, { target, lock: lockOf(target, returns), wait: timeout });
+    return yield* withWorktree(created, execute, handoff, p, {
+      target,
+      lock: lockOf(target, returns),
+      wait: timeout,
+      fresh: planned.rerun === 'fresh',
+    });
   });
 
 /** The branch a job locks while it runs: its own, or the `into` it merges into. */
@@ -131,7 +138,8 @@ const waitForLock = async (name: string, run: string, minutes: number, p: Pipeli
 
 /**
  * Runs `use` in a fresh worktree for `created`, at the job's branch when it exists, otherwise the handed-off branch or
- * the event's ref, holding the lock on `lock`. With `merge`, that branch is merged in for the job to resolve. The
+ * the event's ref, holding the lock on `lock`. With `fresh`, it starts from the handed-off branch or the event's ref
+ * even when the job's branch exists, to replace it. With `merge`, that branch is merged in for the job to resolve. The
  * commit the worktree starts from is stored as the run's `base`; the worktree is always removed. A branch another
  * live run holds is waited for, at most `wait` minutes, then defers the job.
  */
@@ -140,7 +148,13 @@ const withWorktree = (
   use: (worktree: Worktree) => Effect.Effect<JobResult>,
   handoff: Handoff,
   p: Pipeline,
-  { target, lock, merge, wait }: { target: Target; lock: string | undefined; merge?: string; wait: number }
+  {
+    target,
+    lock,
+    merge,
+    wait,
+    fresh,
+  }: { target: Target; lock: string | undefined; merge?: string; wait: number; fresh?: boolean }
 ): Effect.Effect<JobResult> => {
   const planned: PlannedJob = {
     workflow: created.workflow,
@@ -163,6 +177,7 @@ const withWorktree = (
     ...(ref && { ref }),
     ...(target.branch && { branch: target.branch }),
     ...(merge && { merge }),
+    ...(fresh && { fresh }),
   };
   return Effect.acquireUseRelease(
     Effect.promise(() =>
@@ -179,8 +194,17 @@ const withWorktree = (
             Effect.tryPromise(async (): Promise<Worktree> => {
               const worktree = await p.workspaces.create(start, created.id);
               await p.store.update(created.id, { base: worktree.base });
-              const { path: cwd, base, conflicts } = worktree;
-              return { id: created.id, cwd, base, conflicts, merging: merge !== undefined };
+              const { path: cwd, base, conflicts, branch, replace } = worktree;
+              const merging = merge !== undefined;
+              return {
+                id: created.id,
+                cwd,
+                base,
+                conflicts,
+                merging,
+                ...(branch && { branch }),
+                ...(replace && { replace }),
+              };
             }),
             use,
             () => Effect.promise(() => p.workspaces.remove(p.event.repo, created.id))
@@ -202,28 +226,28 @@ const lastBlocked = async (planned: PlannedJob, created: Run, p: Pipeline) => {
 };
 
 /**
- * What a human said after `run` ended: the text that started this run, other human comments on the event's issue,
- * and comments on the issues it asked in.
+ * What a human said after `run` ended: the text that started this run, other human comments on the event's issue and
+ * its merge request, and comments on the issues it asked in.
  */
 const answers = async (run: Run, questions: string[], planned: PlannedJob, p: Pipeline) => {
   const said = (planned.args ?? p.event.body)?.trim();
   const issues = issuesOf(p);
-  const { number, body } = p.event;
+  const { number } = p.event;
   if (!issues || number === undefined) return said ? [said] : [];
+  const ended = run.endedAt ?? '';
   const asked = questions.length
     ? (await issues.list({ label: roles.unsure, state: 'all', parent: number })).filter(issue =>
         questions.some(question => issue.body.startsWith(question.trim()))
       )
     : [];
-  const since = async (from: number) =>
-    ((await issues.get(from))?.comments ?? []).filter(comment => comment.ts > (run.endedAt ?? ''));
-  const earlier = (await since(number))
-    .filter(comment => !comment.author.endsWith('[bot]') && comment.body.trim() !== body?.trim())
-    .map(comment => `On #${number}: ${comment.body.trim()}`);
   const comments = await Promise.all(
-    asked.map(async ({ number }) => (await since(number)).map(comment => `In #${number}: ${comment.body.trim()}`))
+    asked.map(async ({ number }) =>
+      ((await issues.get(number))?.comments ?? [])
+        .filter(comment => comment.ts > ended)
+        .map(comment => `In #${number}: ${comment.body.trim()}`)
+    )
   );
-  return [...(said ? [said] : []), ...earlier, ...comments.flat()];
+  return [...(said ? [said] : []), ...(await saidSince(ended, p.event.pull, p)), ...comments.flat()];
 };
 
 /**
@@ -257,6 +281,28 @@ const resumed = async (worktree: Worktree, planned: PlannedJob, created: Run, ha
 };
 
 /**
+ * The worktree with the job's earlier work on the issue picked up, unless it starts over: resumed when its last run
+ * blocked, otherwise continued when the worktree started at the job's branch. A continued job's change is measured
+ * from the head its last run pushed, or with `all` from where the branch forked.
+ */
+const picked = async (worktree: Worktree, planned: PlannedJob, created: Run, handoff: Handoff, p: Pipeline) => {
+  if (planned.rerun === 'fresh') return worktree;
+  const resuming = await resumed(worktree, planned, created, handoff, p);
+  if (resuming.resume || !worktree.branch || worktree.merging) return resuming;
+  const bot = planned.bot === undefined ? undefined : p.config.bots[planned.bot];
+  const resume = bot?.resume;
+  const continued = await continuing(planned, created, worktree.branch, resume, p);
+  if (!continued) return worktree;
+  const { section, session } = continued;
+  const carried = { ...worktree, resume: section, ...(session && { session }) };
+  const from = planned.rerun === 'all' ? (handoff.branch ?? p.event.ref) : await lastPushed(planned, created, p);
+  if (from === undefined && planned.rerun !== 'all') return carried;
+  const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
+  await p.store.update(created.id, { base });
+  return { ...carried, base };
+};
+
+/**
  * Pushes a blocked job's work to its branch without a merge request, so the next run of the job on the issue resumes
  * from it, and records the branch on the run as `parked`. Work the job may not push stays unparked, with the reason.
  */
@@ -280,6 +326,7 @@ const park = async (
       ...(job.paths && { paths: job.paths }),
       message: `bothub: ${result.job} (parked)`,
       base: worktree.base,
+      ...(worktree.replace && { replace: worktree.replace }),
     });
     return { ...result, run: await p.store.update(result.run.id, { parked: branch }) };
   } catch (e) {
@@ -334,7 +381,7 @@ export const runPlanned = (
       created,
       started =>
         Effect.gen(function* () {
-          const worktree = yield* Effect.promise(() => resumed(started, planned, created, handoff, p));
+          const worktree = yield* Effect.promise(() => picked(started, planned, created, handoff, p));
           const result = yield* fanned(planned, workflow, job, created, worktree, handoff, p);
           return yield* Effect.promise(() => park(result, worktree, job, target, returns, p));
         }),
@@ -343,6 +390,7 @@ export const runPlanned = (
       {
         target,
         lock: lockOf(target, returns),
+        fresh: planned.rerun === 'fresh',
         ...(merge && { merge }),
         wait: job['timeout-minutes'] ?? defaultMinutes,
       }
@@ -365,13 +413,14 @@ const reuse = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | unde
 };
 
 /**
- * The job's latest run on the event's issue when it closed done or handed off and a job that needs it blocked after
- * it, so a comment that answers that job resumes it without redoing this one.
+ * The job's latest run on the event's issue when it closed done or handed off and a job that needs it ran after it
+ * and left work to pick up: blocked, or handed off a branch. A comment that answers or continues that job then reruns
+ * it without redoing this one, unless it asks to rerun everything.
  */
 const answered = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | undefined> => {
   const { repo, number } = p.event;
   const jobs = p.config.workflows[planned.workflow]?.jobs;
-  if (number === undefined || !jobs) return;
+  if (number === undefined || !jobs || planned.rerun) return;
   const runs = (await p.store.runs({ repo, number, workflow: planned.workflow, check: false })).filter(
     r => r.status !== 'skipped'
   );
@@ -379,7 +428,7 @@ const answered = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | u
   const run = runs[at];
   if (run?.status !== 'succeeded' || !proceeds(run.closure)) return;
   const next = runs.slice(0, at).find(r => jobs[r.job]?.needs.includes(planned.job));
-  return next?.closure === 'blocked' ? reused(planned, run, p) : undefined;
+  return next?.closure === 'blocked' || next?.closure === 'handed-off' ? reused(planned, run, p) : undefined;
 };
 
 /**

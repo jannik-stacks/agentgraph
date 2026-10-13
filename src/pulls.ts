@@ -1,7 +1,9 @@
 import { appendFile, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { botEnv, gitStatus } from './git.ts';
 import type { GitHub, GitHubError } from './github-app.ts';
 import { toEvent } from './github.ts';
+import type { Comment } from './issues.ts';
 import type { Proposal } from './outputs.ts';
 import type { BotEvent } from './types.ts';
 
@@ -21,6 +23,15 @@ export type Pull = {
   origin?: { job: string; event: string };
 };
 
+/** A comment on a merge request; one on a line of its diff names the file, the line and its side of the diff. */
+export type PullComment = Comment & { path?: string; line?: number; side?: 'old' | 'new' };
+
+/** The local merge requests' op log in data directory `data`. */
+export const pullsFile = (data: string) => join(data, 'pulls.jsonl');
+
+/** What was asked for does not exist. */
+export class Missing extends Error {}
+
 export type PullFilter = { branch?: string; into?: string; state?: Pull['state'] | 'all' };
 
 export type NewPull = Omit<Extract<Proposal, { kind: 'merge-request' }>, 'kind' | 'into'> &
@@ -29,12 +40,14 @@ export type NewPull = Omit<Extract<Proposal, { kind: 'merge-request' }>, 'kind' 
 /**
  * Merge requests behind one interface. `list` returns open requests unless `state` says otherwise; `get` adds whether
  * the request merges cleanly. `open` creates `into` from the default branch when it does not exist yet. `merge` lands
- * a request only while `into` and the branch are still at the commits in `expected`, and throws otherwise.
+ * a request only while `into` and the branch are still at the commits in `expected`, and throws otherwise. `comments`
+ * lists what was said on a request, oldest first.
  */
 export type Pulls = {
   defaultBranch: () => Promise<string>;
   list: (filter?: PullFilter) => Promise<Pull[]>;
   get: (number: number) => Promise<(Pull & { mergeable?: boolean }) | undefined>;
+  comments: (number: number) => Promise<PullComment[]>;
   open: (request: NewPull) => Promise<Pull>;
   merge: (number: number, expected: { head: string; into: string }) => Promise<{ sha: string }>;
 };
@@ -45,6 +58,16 @@ const matches = (pull: Pull, { branch, into, state = 'open' }: PullFilter) =>
   (into === undefined || pull.into === into);
 
 const originMarker = /<!-- bothub:request (\S+) (\S+) -->/;
+
+type RestComment = {
+  user: { login: string };
+  body: string;
+  created_at: string;
+  html_url: string;
+  path?: string;
+  line?: number | null;
+  side?: 'LEFT' | 'RIGHT';
+};
 
 type RestPull = {
   number: number;
@@ -90,8 +113,26 @@ export const githubPulls = (gh: GitHub, repo: string): Pulls => {
     const found = await gh<RestPull>('GET', `/repos/${repo}/pulls/${number}`).catch(notFound);
     return found && toPull(found);
   };
+  const comments = async (number: number) => {
+    const [said, reviewed] = await Promise.all([
+      gh<RestComment[]>('GET', `/repos/${repo}/issues/${number}/comments?per_page=100`),
+      gh<RestComment[]>('GET', `/repos/${repo}/pulls/${number}/comments?per_page=100`),
+    ]);
+    return [...said, ...reviewed]
+      .map((c): PullComment => ({
+        author: c.user.login,
+        ts: c.created_at,
+        body: c.body,
+        url: c.html_url,
+        ...(c.path && { path: c.path }),
+        ...(typeof c.line === 'number' && { line: c.line }),
+        ...(c.side && { side: c.side === 'LEFT' ? 'old' : 'new' }),
+      }))
+      .sort((a, b) => a.ts.localeCompare(b.ts));
+  };
   return {
     defaultBranch,
+    comments,
     list: async (filter = {}) => {
       const state =
         filter.state === 'open' || filter.state === undefined ? 'open' : filter.state === 'all' ? 'all' : 'closed';
@@ -148,7 +189,50 @@ export type Op =
       sha: string;
     }
   | { number: number; op: 'update'; sha: string }
-  | { number: number; op: 'merge'; sha: string; 'into-sha': string };
+  | { number: number; op: 'merge'; sha: string; 'into-sha': string }
+  | ({ number: number; op: 'comment' } & Omit<PullComment, 'ts' | 'url'>);
+
+/** The comments in an op log on request `number`, each with the time it was recorded. */
+export const commentsIn = (ops: (Op & { ts?: string })[], number: number, url: (number: number) => string) =>
+  ops.flatMap((op): PullComment[] =>
+    op.op === 'comment' && op.number === number
+      ? [
+          {
+            author: op.author,
+            ts: op.ts ?? '',
+            body: op.body,
+            url: `${url(number)}/comments`,
+            ...(op.path && { path: op.path }),
+            ...(op.line !== undefined && { line: op.line }),
+            ...(op.side && { side: op.side }),
+          },
+        ]
+      : []
+  );
+
+const readLog = async (file: string) =>
+  (await readFile(file, 'utf8').catch(() => ''))
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line) as Op & { ts?: string });
+
+/** Local merge request `number` in the op log `file`; throws {@link Missing} when there is no such request. */
+export const localPull = async (file: string, number: number) => {
+  const pull = fold(await readLog(file), String).find(pull => pull.number === number);
+  if (!pull) throw new Missing(`no merge request #${number}`);
+  return pull;
+};
+
+/**
+ * Records comments on local merge request `number` in the op log `file`, in order and in one write; throws
+ * {@link Missing} when there is no such request.
+ */
+export const commentOn = async (file: string, number: number, ...comments: Omit<PullComment, 'ts' | 'url'>[]) => {
+  await localPull(file, number);
+  const ts = new Date().toISOString();
+  const ops = comments.map((comment): Op & { ts: string } => ({ ts, number, op: 'comment', ...comment }));
+  await appendFile(file, ops.map(op => `${JSON.stringify(op)}\n`).join(''));
+};
 
 /** A local request with every commit its branch was at, in order. */
 type Folded = Pull & { head: string; shas: string[] };
@@ -182,7 +266,8 @@ export const fold = (ops: Op[], url: (number: number) => string) => {
  * branch moved, `merge` when it landed. The default branch is the origin's `HEAD`, a request's head is its branch's
  * live commit, mirrored to `refs/pull/<n>/head` like GitHub, and a merge is `merge-tree`, `commit-tree` and a
  * compare-and-swap `update-ref` on the origin. `events` records branches that moved and returns the `pull_request`
- * events (opened, synchronize, closed) of every request in `repo`, with ids that stay the same each time.
+ * events (opened, synchronize, closed) of every request in `repo` and an event per comment, with ids that stay the same
+ * each time. `comment` records a comment on a request.
  */
 export const localPulls = ({ origin, file, repo }: { origin: string; file: string; repo: string }) => {
   const git = (args: string[], env?: Record<string, string>) => gitStatus(origin, args, env);
@@ -191,11 +276,7 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
     return code === 0 && stdout ? stdout : undefined;
   };
   const url = (number: number) => `${origin}#pull/${number}`;
-  const ops = async () =>
-    (await readFile(file, 'utf8').catch(() => ''))
-      .split('\n')
-      .filter(Boolean)
-      .map(line => JSON.parse(line) as Op);
+  const ops = () => readLog(file);
   const record = (op: Op) => appendFile(file, `${JSON.stringify({ ts: new Date().toISOString(), ...op })}\n`);
   const all = async () =>
     Promise.all(
@@ -219,6 +300,7 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
 
   const pulls: Pulls = {
     defaultBranch,
+    comments: async number => commentsIn(await ops(), number, url),
     list: async (filter = {}) => (await all()).filter(pull => matches(pull, filter)).map(plain),
     get: async number => {
       const pull = (await all()).find(p => p.number === number);
@@ -289,6 +371,21 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
     });
   };
 
+  /** A comment as GitHub would deliver it: `issue_comment` on the request, or `pull_request_review_comment` on a line. */
+  const commentEvent = (pull: Pull, comment: PullComment, id: string): BotEvent | undefined => {
+    const user = { login: comment.author };
+    const association = comment.author.endsWith('[bot]') ? 'NONE' : 'OWNER';
+    const item = { number: pull.number, html_url: pull.url, body: pull.body, user, author_association: association };
+    const said = { body: comment.body, html_url: comment.url ?? pull.url, author_association: association };
+    const common = { action: 'created', repository: { full_name: repo }, sender: user, comment: said };
+    return comment.path
+      ? toEvent('pull_request_review_comment', id, {
+          ...common,
+          pull_request: { ...item, base: { ref: pull.into } },
+        })
+      : toEvent('issue_comment', id, { ...common, issue: { ...item, pull_request: {} } });
+  };
+
   const events = () =>
     serial(async () => {
       for (const pull of fold(await ops(), url)) {
@@ -297,18 +394,25 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
         await record({ number: pull.number, op: 'update', sha: head });
         await git(['update-ref', `refs/pull/${pull.number}/head`, head]);
       }
-      return fold(await ops(), url).flatMap(pull => {
+      const log = await ops();
+      return fold(log, url).flatMap(pull => {
         const id = `local-pull-${pull.number}`;
         const found = [
           event(pull, 'opened', `${id}-opened`),
           ...pull.shas.slice(1).map(sha => event(pull, 'synchronize', `${id}-synchronize-${sha.slice(0, 12)}`)),
           pull.state === 'merged' ? event(pull, 'closed', `${id}-closed`) : undefined,
+          ...commentsIn(log, pull.number, url).map((comment, i) =>
+            commentEvent(pull, comment, `${id}-comment-${i + 1}`)
+          ),
         ];
         return found.filter(e => e !== undefined).map(e => ({ ...e, source: 'local' as const }));
       });
     });
 
-  return { ...pulls, events };
+  const comment = (number: number, said: Omit<PullComment, 'ts' | 'url'>) =>
+    serial(() => commentOn(file, number, said));
+
+  return { ...pulls, events, comment };
 };
 
 export type LocalPulls = ReturnType<typeof localPulls>;

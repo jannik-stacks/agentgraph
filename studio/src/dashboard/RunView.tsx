@@ -39,6 +39,7 @@ import {
 } from './model.ts';
 import { DiffFiles, DiffSummary, WhitespaceToggle } from './DiffView.tsx';
 import { fetchRunDiff, hideWhitespaceAtom } from './pulls.ts';
+import { AnswerBox } from './Review.tsx';
 import { OutcomeView, RunFields, Text, ToolBody, toolSummary, VerdictView } from './render/index.tsx';
 import { RecalledHead, RecalledRows, recallsOf } from './render/recall.tsx';
 
@@ -496,6 +497,7 @@ const OutcomeStep = ({ run }: { run: RunRow }) => {
               <FetchedOutcome run={run} />
             </Suspense>
           )}
+          <AnswerBox run={run} />
         </div>
       )}
     </Step>

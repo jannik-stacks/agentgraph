@@ -4,3 +4,4 @@ export { verdictOf, failingChecks } from './pipeline/checks.ts';
 export { closureOf } from './pipeline/landing.ts';
 export { proposalProblems } from './pipeline/attempt.ts';
 export { runPlanned, approvals, runPlan } from './pipeline/jobs.ts';
+export { continuation } from './pipeline/continue.ts';

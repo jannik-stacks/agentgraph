@@ -164,10 +164,7 @@ type Hooks = Awaited<ReturnType<typeof surfacer>>;
 const start = async (options: Partial<SurfacerOptions> & { url?: string } = {}) => {
   const files = await fixture();
   const { url = (await fakeTev(keywords(scores))).url, ...rest } = options;
-  const hooks = await surfacer(
-    {},
-    { run: 'r-now', bot: 'implementor', share: { reviewer: 'none' }, ...files, decide: { url }, ...rest }
-  );
+  const hooks = await surfacer({}, { run: 'r-now', bot: 'implementor', ...files, decide: { url }, ...rest });
   return { hooks, files };
 };
 

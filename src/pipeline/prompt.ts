@@ -152,7 +152,7 @@ const surfacerFor = (config: Config, bot: Defined<Bot>, preload: Preload[], tool
     bot: bot.name,
     hub: access.hub,
     data: access.data,
-    share: Object.fromEntries(Object.values(config.bots).map(b => [b.name, b.session?.share ?? 'bot'])),
+    ...(bot.history && { scope: bot.history }),
     ...(bot.summarizer && { summarizer: bot.summarizer }),
     ...(history && { history }),
     ...(!recall && { surface: false }),

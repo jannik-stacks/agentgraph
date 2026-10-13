@@ -102,6 +102,7 @@ const command = (spec: RunSpec) => ({
     provider,
     '--model',
     `${provider}/${alias(spec)}`,
+    ...(spec.session ? ['--session', spec.session.id] : []),
     '--',
     ...words(spec.prompt),
   ],
@@ -166,6 +167,15 @@ const event = (line: Line): AgentEvent[] => {
   return [];
 };
 
+const sessionIn = (raw: string) => {
+  try {
+    const { sessionID } = JSON.parse(raw) as { sessionID?: unknown };
+    return typeof sessionID === 'string' ? sessionID : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const parseLine = (raw: string): AgentEvent[] => {
   if (!raw.trim()) return [];
   try {
@@ -183,6 +193,10 @@ export const opencode: HarnessAdapter = {
   name: 'opencode',
   command,
   parseLine,
-  start: spec => [{ type: 'start', model: alias(spec) }],
+  start: (spec, line) => {
+    const session = sessionIn(line);
+    return [{ type: 'start', model: alias(spec), ...(session && { session }) }];
+  },
   plugins: pluginIds,
+  sessions: '.local/share/opencode',
 };

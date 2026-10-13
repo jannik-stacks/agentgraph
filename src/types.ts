@@ -5,7 +5,8 @@ import type { Association, Harness, Trigger } from './schema.ts';
 
 /**
  * A trigger from GitHub, a local issue tracker or the CLI, normalised so workflows never see raw payloads. `label` is
- * the label an `issues` `labeled` or `unlabeled` event is about, `parent` the parent of the event's issue when known.
+ * the label an `issues` `labeled` or `unlabeled` event is about, `parent` the parent of the event's issue when known,
+ * `pull` the merge request the event is on.
  */
 export type BotEvent = {
   id: string;
@@ -22,6 +23,7 @@ export type BotEvent = {
   branch?: string;
   label?: string;
   parent?: number;
+  pull?: number;
 };
 
 /** What a run needs to start an agent session. */
@@ -38,6 +40,8 @@ export type RunSpec = {
   surfacer?: SurfacerOptions;
   /** Decision-model questions asked during the run. */
   decider?: DeciderOptions;
+  /** An earlier run's harness session to continue: its id, and the run home that holds it. */
+  session?: { id: string; home: string };
 };
 
 /** Agent output, normalised across harnesses. */
@@ -85,8 +89,13 @@ export type HarnessAdapter = {
   name: Harness;
   command: (spec: RunSpec) => { cmd: string; args: string[]; env: Record<string, string> };
   parseLine: (line: string) => AgentEvent[];
-  /** Events the adapter knows before the harness says them, such as the model alias it was given; sent with the first line. */
-  start?: (spec: RunSpec) => AgentEvent[];
+  /**
+   * Events the adapter knows before the harness says them, such as the model alias it was given, or the session id
+   * the harness's first `line` names; sent with the first line.
+   */
+  start?: (spec: RunSpec, line: string) => AgentEvent[];
+  /** Where under the run home the harness keeps its sessions, when it can continue one. */
+  sessions?: string;
   /** The ids of bothub's own plugins the run loads; each marks itself loaded in the run home. */
   plugins?: (spec: RunSpec) => string[];
 };

@@ -75,6 +75,23 @@ describe('compile', () => {
     expect(errorsOf([file('notes/pattern/a.md', 'title: A')]).join()).toMatch(/unknown note kind "pattern"/);
   });
 
+  it('rewrites an old session in its error, and keeps resume: session to harnesses that can', () => {
+    const of = (harness: string, lines: string) =>
+      file('bots/b.md', `harness: ${harness}\ntools: []\nreturns: []\n${lines}`, 'role');
+    expect(errorsOf([of('opencode', 'session: { resume: attempts, share: hub }')]).join()).toMatch(
+      /session is replaced by resume and history; write resume: summary and history: hub/
+    );
+    expect(errorsOf([of('opencode', 'session: {}\ncan: [reply]')]).join()).toMatch(
+      /session is replaced by resume and history; remove it; Unrecognized keys: "can"/
+    );
+    expect(errorsOf([of('pi', 'resume: session')]).join()).toMatch(
+      /pi cannot resume its session yet; use resume: summary/
+    );
+    const result = compile([of('opencode', 'resume: session\nhistory: issue')]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    expect(result.config.bots.b).toMatchObject({ resume: 'session', history: 'issue' });
+  });
+
   it('reads hub(<globs>) returns from a YAML flow list and keeps them inside the hub', () => {
     const result = compile([bot('p', '[reply, hub(notes/**, skills/*.md), note]')]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));

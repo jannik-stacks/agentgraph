@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -44,6 +44,16 @@ export const homeEnv = (home: string, tmp: string) => ({
 /** Creates every directory `homeEnv` points at. */
 const makeHome = (env: ReturnType<typeof homeEnv>) =>
   Promise.all(Object.values(env).map(dir => mkdir(dir, { recursive: true })));
+
+/** The spec to run: with the earlier run's sessions copied into the new home, or without a session to continue. */
+const handOver = async (adapter: HarnessAdapter, spec: RunSpec, home: string): Promise<RunSpec> => {
+  const { session, ...rest } = spec;
+  if (!session || !adapter.sessions) return rest;
+  const from = join(session.home, adapter.sessions);
+  if (!(await stat(from).catch(() => undefined))) return rest;
+  await cp(from, join(home, adapter.sessions), { recursive: true });
+  return spec;
+};
 
 /**
  * The child's environment: an allowlist of the host env, then the run's private home, then the adapter's env, then
@@ -285,7 +295,7 @@ export const agentEvents = (
           const events = adapter.parseLine(line);
           if (started) return events;
           started = true;
-          return [...(adapter.start?.(spec) ?? []), ...events];
+          return [...(adapter.start?.(spec, line) ?? []), ...events];
         };
         return output(command).pipe(Stream.decodeText(), Stream.splitLines, Stream.mapConcat(parse));
       })
@@ -300,8 +310,12 @@ export const masker = (values: string[]) => {
 
 const scrubLimit = 8 << 20;
 
-/** Masks secrets in place in every file under `dir` that contains one. Never throws. */
-const scrub = async (dir: string, mask: (text: string) => string) => {
+/** Masks secrets in place in every file under `dir` that contains one, a binary file without moving a byte. Never throws. */
+const scrub = async (dir: string, secrets: string[]) => {
+  const mask = masker(secrets);
+  const hidden = secrets.filter(value => value.length >= 8).map(value => Buffer.from(value).toString('latin1'));
+  const sameLength = (bytes: string) =>
+    hidden.reduce((out, value) => out.replaceAll(value, '*'.repeat(value.length)), bytes);
   const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => []);
   await Promise.all(
     entries
@@ -309,9 +323,11 @@ const scrub = async (dir: string, mask: (text: string) => string) => {
       .map(async entry => {
         const file = join(entry.parentPath, entry.name);
         if ((await stat(file)).size > scrubLimit) return;
-        const text = await readFile(file, 'utf8');
-        const masked = mask(text);
-        if (masked !== text) await writeFile(file, masked);
+        const content = await readFile(file);
+        const binary = content.includes(0);
+        const text = content.toString(binary ? 'latin1' : 'utf8');
+        const masked = binary ? sameLength(text) : mask(text);
+        if (masked !== text) await writeFile(file, masked, binary ? 'latin1' : 'utf8');
       })
   ).catch(() => {});
 };
@@ -412,8 +428,13 @@ export const runJob = (options: {
         return missing;
       });
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
-      Effect.zipRight(Effect.tryPromise({ try: () => makeHome(home), catch: e => e as Error })),
       Effect.zipRight(
+        Effect.tryPromise({
+          try: () => makeHome(home).then(() => handOver(adapter, spec, home.HOME)),
+          catch: e => e as Error,
+        })
+      ),
+      Effect.flatMap(spec =>
         agentEvents(adapter, spec, secrets, home, launch, readonly).pipe(
           events =>
             stallMinutes ? Stream.timeoutFail(events, () => new Stalled(), Duration.minutes(stallMinutes)) : events,
@@ -466,7 +487,12 @@ export const runJob = (options: {
       }),
       Effect.onInterrupt(() => finish({ status: 'cancelled', ...usage() })),
       Effect.ensuring(
-        Effect.promise(() => Promise.all([rm(home.TMPDIR, { recursive: true, force: true }), scrub(home.HOME, mask)]))
+        Effect.promise(() =>
+          Promise.all([
+            rm(home.TMPDIR, { recursive: true, force: true }),
+            scrub(home.HOME, Object.values(secrets ?? {})),
+          ])
+        )
       )
     );
   });

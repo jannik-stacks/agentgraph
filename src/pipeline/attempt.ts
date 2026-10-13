@@ -7,8 +7,8 @@ import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
 import { issueContext } from '../preload.ts';
 import type { Job, ProposalKind, Workflow } from '../schema.ts';
-import { items } from '../summaries.ts';
 import type { Run, Store } from '../store.ts';
+import type { RunSpec } from '../types.ts';
 import { unresolved } from '../workspace.ts';
 import { type JobResult, type Pipeline, agent, issuesOf, pullsOf } from './context.ts';
 import { type Handoff, type Target, buildSpec, defaultMinutes, handoffEnv } from './prompt.ts';
@@ -24,6 +24,7 @@ import {
   itemSection,
   runChecks,
 } from './checks.ts';
+import { carried } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
 
@@ -72,21 +73,14 @@ const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Ru
   return recorded.length ? { ...extracted, proposals: [...recorded, ...extracted.proposals] } : extracted;
 };
 
-const earlierLines = 40;
-
-/** What an attempt did, one line per message and tool call, for the next attempt of a bot that resumes. */
-const attemptSummary = async (run: Run, p: Pipeline) => {
-  const lines = items(await p.store.events(run.id)).map(item => `- ${item.line}`);
-  return lines.slice(-earlierLines).join('\n') || undefined;
-};
-
 const costOf = async (ids: string[], store: Store) =>
   (await Promise.all(ids.map(id => store.read(id)))).reduce((sum, run) => sum + (run?.costUsd ?? 0), 0);
 
 /**
  * A run's worktree: the run that owns it, its path, the commit its change is measured from, while it resolves a
- * merge (`merging`) the files that merge left conflicting, and when it picks up an earlier run's work, the prompt
- * section that says so.
+ * merge (`merging`) the files that merge left conflicting, the job's `branch` when it started there or the branch tip
+ * it replaces (`replace`) when it started over, and when it picks up an earlier run's work, the prompt section that
+ * says so.
  */
 export type Worktree = {
   id: string;
@@ -94,7 +88,10 @@ export type Worktree = {
   base: string;
   conflicts: string[];
   merging: boolean;
+  branch?: string;
+  replace?: string;
   resume?: string;
+  session?: RunSpec['session'];
 };
 
 /** The default branch, when the job may open merge requests and there is a backend to ask. */
@@ -153,6 +150,7 @@ const attempts = (
       .filter(Boolean)
       .join('\n\n');
     let prompt = task;
+    let session = worktree.session;
     for (let attempt = 1; ; attempt++) {
       const current =
         attempt === 1
@@ -167,7 +165,8 @@ const attempts = (
                 attempt,
               })
             );
-      const { run, final } = yield* agent(bot, { ...built.spec, prompt }, timeoutMinutes, current, p, env);
+      const spec = { ...built.spec, prompt, ...(session && { session }) };
+      const { run, final } = yield* agent(bot, spec, timeoutMinutes, current, p, env);
       spent += run.costUsd ?? 0;
       const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
       const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
@@ -182,6 +181,7 @@ const attempts = (
         parent: run,
         handoff,
         target,
+        ...(worktree.replace && { replace: worktree.replace }),
         ...(item && { item: item.index }),
         ...(item?.fold && { fold: item.fold }),
         ...(merging && { merging }),
@@ -203,9 +203,9 @@ const attempts = (
         }
         const failed = yield* Effect.promise(() => p.store.update(run.id, { status: 'failed', error }));
         yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
-        const earlier =
-          bot.session?.resume === 'attempts' ? yield* Effect.promise(() => attemptSummary(run, p)) : undefined;
-        prompt = followUp(task, [], [], attempt + 1, max + 1, problems, earlier);
+        const next = yield* Effect.promise(() => carried(bot.resume, run, p));
+        session = next.session;
+        prompt = followUp(task, [], [], attempt + 1, max + 1, problems, next.summary);
         parent = failed;
         continue;
       }
@@ -298,9 +298,9 @@ const attempts = (
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
-      const earlier =
-        bot.session?.resume === 'attempts' ? yield* Effect.promise(() => attemptSummary(run, p)) : undefined;
-      prompt = followUp(task, fixable, validated.rejected, attempt + 1, max + 1, [], earlier, left);
+      const next = yield* Effect.promise(() => carried(bot.resume, run, p));
+      session = next.session;
+      prompt = followUp(task, fixable, validated.rejected, attempt + 1, max + 1, [], next.summary, left);
       parent = run;
     }
   });

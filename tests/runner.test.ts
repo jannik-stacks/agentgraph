@@ -286,6 +286,20 @@ console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTH
     expect(readFileSync(join(store.home(runId), 'log.txt'), 'utf8')).toBe('key ***');
   });
 
+  it('masks a secret in a binary home file without moving a byte', async () => {
+    const { store, runId } = await setup();
+    const script = `const e = process.env;
+require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.concat([Buffer.from([0, 255, 1]), Buffer.from('key ' + e.BOTHUB_LLM_API_KEY), Buffer.from([0, 200])]));`;
+    const secrets = { BOTHUB_LLM_API_KEY: 'sk-secret-value-123' };
+    await Effect.runPromise(
+      runJob({ adapter: node(script, asText), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed, secrets })
+    );
+    const db = readFileSync(join(store.home(runId), 'opencode.db'));
+    expect(db).toEqual(
+      Buffer.concat([Buffer.from([0, 255, 1]), Buffer.from(`key ${'*'.repeat(19)}`), Buffer.from([0, 200])])
+    );
+  });
+
   it('stops a run that repeats the same tool call and result', async () => {
     const { store, runId } = await setup();
     const loop = (line: string): AgentEvent[] =>

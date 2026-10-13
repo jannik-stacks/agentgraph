@@ -3,12 +3,11 @@ import { parse } from 'yaml';
 import type { Config } from './config.ts';
 import { decide as askModel, defaultDecideModel, defaultDecideUrl } from './decide.ts';
 import type { Issue } from './issues.ts';
-import type { Share } from './schema.ts';
-import { visible, type SummaryRecord } from './summaries.ts';
+import { type Asker, type Origin, visible, type SummaryRecord } from './summaries.ts';
 
 /**
- * One searchable document: a note, an issue or a run summary. `pointer` says where the full text lives; `bot` and
- * `share` limit who may recall a run summary.
+ * One searchable document: a note, an issue or a run summary. `pointer` says where the full text lives; a run
+ * summary's `origin` is the run it comes from, which decides who may recall it.
  */
 export type Doc = {
   id: string;
@@ -16,8 +15,7 @@ export type Doc = {
   title: string;
   text: string;
   pointer: string;
-  bot?: string;
-  share?: Share;
+  origin?: Origin;
 };
 
 const stop = new Set(
@@ -148,20 +146,19 @@ export const issueDocs = (issues: Issue[]): Doc[] =>
   }));
 
 /** Run summaries as documents; the pointer is `<run>#<from>-<to>`, the events they stand for. */
-export const summaryDocs = (records: (SummaryRecord & { bot?: string; share: Share })[]): Doc[] =>
+export const summaryDocs = (records: (SummaryRecord & { origin: Origin })[]): Doc[] =>
   records.map(r => ({
     id: `summary:${r.id}`,
     kind: 'summary',
     title: r.kind,
     text: r.line,
     pointer: `${r.run}#${r.from}-${r.to}`,
-    ...(r.bot && { bot: r.bot }),
-    share: r.share,
+    origin: r.origin,
   }));
 
-/** Whether the asking bot may recall `doc`. Notes and issues are hub-wide; run summaries follow their share. */
-export const allowedFor = (asker: string | undefined) => (doc: Doc) =>
-  doc.kind !== 'summary' || (asker !== undefined && visible(asker, doc.bot, doc.share ?? 'bot'));
+/** Whether `asker` may recall `doc`. Notes and issues are hub-wide; run summaries follow the asker's `history`. */
+export const allowedFor = (asker: Asker | undefined) => (doc: Doc) =>
+  doc.kind !== 'summary' || (asker !== undefined && visible(asker, doc.origin ?? {}));
 
 /** The decision call recall uses; `decide` from decide.ts fits. */
 export type DecideFn = typeof askModel;
@@ -184,7 +181,7 @@ export const weigh = async ({
   index: idx,
   task,
   query = task,
-  bot,
+  asker,
   top = 20,
   cutoff = 0.7,
   budget = 2000,
@@ -195,7 +192,7 @@ export const weigh = async ({
   index: Index;
   task: string;
   query?: string;
-  bot?: string;
+  asker?: Asker;
   top?: number;
   cutoff?: number;
   budget?: number;
@@ -203,7 +200,7 @@ export const weigh = async ({
   url?: string;
   model?: string;
 }): Promise<{ weighed: Weighed[]; error?: string }> => {
-  const candidates = idx.search(query, { limit: Math.min(top, 64), keep: allowedFor(bot) });
+  const candidates = idx.search(query, { limit: Math.min(top, 64), keep: allowedFor(asker) });
   if (!candidates.length) return { weighed: [] };
   let ranked: Recalled[];
   const below: Weighed[] = [];

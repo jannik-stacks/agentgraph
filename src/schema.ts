@@ -35,9 +35,16 @@ export const Summarizer = z.preprocess(
 );
 export type Summarizer = z.output<typeof Settings>;
 
-/** Who may see a run's transcript again: no bot, the bot that ran it, or any bot in the hub. */
-export const Share = z.enum(['none', 'bot', 'hub']);
-export type Share = z.infer<typeof Share>;
+/** What a new run or attempt starts with besides its task: nothing, a summary of the last run, or its harness session. */
+export const Resume = z.enum(['none', 'summary', 'session']);
+export type Resume = z.infer<typeof Resume>;
+
+/**
+ * Whose earlier runs a bot's `history` and recall may read: none, the same job's runs for the same event, every run on
+ * the same issue, the bot's own runs, or every run in the hub.
+ */
+export const History = z.enum(['none', 'run', 'issue', 'bot', 'hub']);
+export type History = z.infer<typeof History>;
 
 export const githubTriggers = [
   'issue_comment',
@@ -169,33 +176,54 @@ export const TriggerFilter = z
 
 export const On = z.partialRecord(Trigger, TriggerFilter);
 
+/** The error for unknown bot keys, with an old `session:` rewritten as the fields that replace it. */
+const unknownBotKeys = (keys: string[], input: unknown) => {
+  if (!keys.includes('session')) return;
+  const others = keys.filter(key => key !== 'session');
+  const unknown = others.length ? `Unrecognized keys: ${others.map(key => `"${key}"`).join(', ')}` : '';
+  const { resume, share } = ((input as Record<string, unknown>).session ?? {}) as Record<string, unknown>;
+  const fields = [
+    ...(resume === 'attempts' ? ['resume: summary'] : []),
+    ...(typeof share === 'string' ? [`history: ${share}`] : []),
+  ];
+  const instead = fields.length ? `write ${fields.join(' and ')}` : 'remove it';
+  return [`session is replaced by resume and history; ${instead}`, unknown].filter(Boolean).join('; ');
+};
+
 /**
  * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any hub tools (see
  * `HubTool`) the bot may call during a run; `returns` is the most it may return, which a job can only narrow.
- * `session.share` says whose runs `history` and recall may show again; `session.resume: attempts` carries an
- * attempt's summary into the next one of the same `until` loop.
+ * `resume` is what a new run or attempt starts with besides its task; `history` how far back `history` and recall
+ * reach, `bot` by default.
  */
-export const Bot = z.strictObject({
-  harness: Harness,
-  model: z.string().optional(),
-  tools: z.array(z.string()),
-  returns: Returns,
-  skills: z.array(name).optional(),
-  preload: z.array(Preload).optional(),
-  session: z
-    .strictObject({ resume: z.enum(['none', 'attempts']).default('none'), share: Share.default('bot') })
-    .optional(),
-  summarizer: Summarizer.optional(),
-  'max-turns': z.int().positive().optional(),
-  budget: z
-    .strictObject({
-      'runs-per-day': z.int().positive().optional(),
-      minutes: z.number().positive().optional(),
-      'usd-per-run': z.number().positive().optional(),
-    })
-    .optional(),
-  human,
-});
+export const Bot = z
+  .strictObject(
+    {
+      harness: Harness,
+      model: z.string().optional(),
+      tools: z.array(z.string()),
+      returns: Returns,
+      skills: z.array(name).optional(),
+      preload: z.array(Preload).optional(),
+      resume: Resume.optional(),
+      history: History.optional(),
+      summarizer: Summarizer.optional(),
+      'max-turns': z.int().positive().optional(),
+      budget: z
+        .strictObject({
+          'runs-per-day': z.int().positive().optional(),
+          minutes: z.number().positive().optional(),
+          'usd-per-run': z.number().positive().optional(),
+        })
+        .optional(),
+      human,
+    },
+    { error: issue => (issue.code === 'unrecognized_keys' ? unknownBotKeys(issue.keys, issue.input) : undefined) }
+  )
+  .refine(bot => bot.harness !== 'pi' || bot.resume !== 'session', {
+    path: ['resume'],
+    message: 'pi cannot resume its session yet; use resume: summary',
+  });
 export type Bot = z.infer<typeof Bot>;
 
 /** `skills/<name>.md`: what to do. The body is the prompt. */
@@ -402,3 +430,34 @@ export const Hub = z.strictObject({
   human,
 });
 export type Hub = z.infer<typeof Hub>;
+
+/** How a bot picks the work up after a comment: not at all, only what changed, everything again, or from scratch. */
+export const Continue = z.enum(['none', 'changed', 'all', 'fresh']);
+export type Continue = z.infer<typeof Continue>;
+
+const said = z.string().trim();
+
+/** A comment on one line of a merge request's diff, on its old or new side. */
+export const LineComment = z.strictObject({
+  path: said.min(1),
+  side: z.enum(['old', 'new']).default('new'),
+  line: z.number().int().positive(),
+  body: said.min(1),
+});
+
+/**
+ * What a human writes on a local merge request (`pull`) or issue (`issue`): a comment, line comments on a merge
+ * request, and how the bot continues, sent once as the workflow's command with them.
+ */
+export const Review = z
+  .strictObject({
+    pull: z.number().int().positive().optional(),
+    issue: z.number().int().positive().optional(),
+    body: said.default(''),
+    lines: z.array(LineComment).default([]),
+    continue: Continue.default('changed'),
+  })
+  .refine(r => (r.pull === undefined) !== (r.issue === undefined), 'name either a merge request or an issue')
+  .refine(r => r.pull !== undefined || !r.lines.length, 'line comments need a merge request')
+  .refine(r => r.body || r.lines.length || r.continue !== 'none', 'write a comment');
+export type Review = z.input<typeof Review>;

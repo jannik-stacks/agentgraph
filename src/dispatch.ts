@@ -4,7 +4,15 @@ import { matchGlob } from './outputs.ts';
 import type { Association, Workflow } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
-export type PlannedJob = { workflow: string; job: string; bot?: string; args?: string };
+/**
+ * A job an event starts, with the command's arguments and, when the command's first word asks for it, how much runs
+ * again: `all` reruns the jobs before it and checks the whole branch, `fresh` also starts the branch over.
+ */
+export type PlannedJob = { workflow: string; job: string; bot?: string; args?: string; rerun?: Rerun };
+
+export type Rerun = 'all' | 'fresh';
+
+const rerunWord = /^(all|fresh)(?:\s+|$)/;
 
 const trusted: Association[] = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 const humanText = new Set([
@@ -46,9 +54,15 @@ const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[
   if (allowed && !allowed.includes(event.actor.association)) return [];
 
   let args: string | undefined;
+  let rerun: Rerun | undefined;
   if (filter.command) {
     args = parseCommand(event.body ?? '', filter.command);
     if (args === undefined) return [];
+    const word = rerunWord.exec(args);
+    if (word) {
+      rerun = word[1] as Rerun;
+      args = args.slice(word[0].length);
+    }
   }
 
   return Object.entries(workflow.jobs)
@@ -58,6 +72,7 @@ const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[
       job: id,
       ...(job.type === 'bot' && { bot: job.bot }),
       ...(args !== undefined && { args }),
+      ...(rerun && { rerun }),
     }));
 };
 

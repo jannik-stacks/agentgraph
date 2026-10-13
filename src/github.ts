@@ -62,7 +62,8 @@ export const handled: ReadonlySet<string> = new Set<string>([
 
 /**
  * Normalises a webhook delivery into a `BotEvent`, or `undefined` for events bothub does not handle. Events on a
- * pull request, including comments on it, carry its `refs/pull/<n>/head` ref, which also covers forks. The actor is
+ * pull request, including comments on it, carry its number as `pull` and its `refs/pull/<n>/head` ref, which also
+ * covers forks. The actor is
  * the sender; a bot sender is always `NONE`, so a label or close a bot makes never passes a trust guard.
  */
 export const toEvent = (name: string, deliveryId: string, payload: unknown, now = new Date()): BotEvent | undefined => {
@@ -88,5 +89,6 @@ export const toEvent = (name: string, deliveryId: string, payload: unknown, now 
     ...(ref && { ref }),
     ...(branch && { branch }),
     ...(p.label && { label: p.label.name }),
+    ...(pr && { pull: pr.number }),
   };
 };

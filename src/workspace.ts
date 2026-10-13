@@ -81,10 +81,18 @@ export const workspaces = ({
    * Refreshes the mirror and checks out a run's start: the job's `branch` when it exists, otherwise the event's ref
    * (or the default branch). With `merge`, that branch is merged in without committing, conflict markers left in
    * place. Resolves to the path, the commit the change is measured from (`base`, which `publish` and `changes` take
-   * back; the merged-in tip with `merge`), the commit checked out (`head`) and the files left conflicting.
+   * back; the merged-in tip with `merge`), the commit checked out (`head`), the files left conflicting and, when it
+   * started at the job's existing branch, that `branch`. With `fresh`, it starts from the ref even when the branch
+   * exists, and resolves to the branch's tip as `replace`, for `publish` to replace.
    */
   const create = async (
-    { repo, ref, branch, merge }: Pick<BotEvent, 'repo' | 'ref'> & { branch?: string; merge?: string },
+    {
+      repo,
+      ref,
+      branch,
+      merge,
+      fresh,
+    }: Pick<BotEvent, 'repo' | 'ref'> & { branch?: string; merge?: string; fresh?: boolean },
     runId: string
   ) => {
     const mirror = await sync(repo);
@@ -92,22 +100,24 @@ export const workspaces = ({
     const at = (name: string) => `${name.startsWith('refs/') ? name : `refs/heads/${name}`}^{commit}`;
     const verify = (name: string) => git(mirror, ['rev-parse', '--verify', '--quiet', at(name)]).catch(() => '');
     const own = branch ? await verify(branch) : '';
-    const rev = own || (ref ? at(ref) : 'HEAD^{commit}');
+    const rev = (!fresh && own) || (ref ? at(ref) : 'HEAD^{commit}');
     await serial(repo, () => git(mirror, ['worktree', 'add', '--detach', path, rev]));
     const head = await git(path, ['rev-parse', 'HEAD']);
-    if (!merge) return { path, base: head, head, conflicts: [] };
+    const started = !own || !branch ? {} : fresh ? { replace: own } : { branch };
+    if (!merge) return { path, base: head, head, conflicts: [], ...started };
     const base = await verify(merge);
     if (!base) throw new Error(`branch "${merge}" does not exist`);
     const merging = ['-c', 'commit.gpgsign=false', 'merge', '--no-commit', '--no-ff', '-q', base];
     await git(path, merging, botEnv).catch(() => {});
     const conflicts = names(await git(path, ['diff', '--name-only', '--diff-filter=U', '-z']));
-    return { path, base, head, conflicts };
+    return { path, base, head, conflicts, ...started };
   };
 
   /**
    * Pushes a run's commit to `branch` without forcing, after checking that every file it changes since `base` is
    * allowed by `paths` and every file it changes on top of the branch is listed in `files`; a run that started at the
-   * branch moves it forward. A merge in progress
+   * branch moves it forward. With `replace`, the branch is replaced instead, only while it is still at that commit.
+   * A merge in progress
    * is committed whole with both parents once no conflicting file keeps a marker; then every file the branch changes
    * against the merged-in tip must be allowed by `paths`. Reports the commit to `committed` before pushing it; when the
    * remote branch is already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it
@@ -124,11 +134,13 @@ export const workspaces = ({
       base,
       expected,
       committed,
+      replace,
     }: Omit<Extract<Proposal, { kind: 'push' }>, 'kind'> & {
       paths?: string[];
       message: string;
       base: string;
       expected?: string;
+      replace?: string;
       committed?: (sha: string) => Promise<unknown>;
     }
   ) => {
@@ -150,7 +162,7 @@ export const workspaces = ({
       () => true,
       () => false
     );
-    if (!ahead) throw new Error(`branch "${branch}" exists and this run did not start from it`);
+    if (!ahead && !replace) throw new Error(`branch "${branch}" exists and this run did not start from it`);
 
     // Uncommitted changes are committed when the proposal lists every one of them; a merge is committed whole.
     const merging = await run(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']).catch(() => '');
@@ -177,14 +189,15 @@ export const workspaces = ({
       names(await run(['diff', '--name-only', '--no-renames', '-z', `${from}...HEAD`]));
     const changed = await diffed(merging || base);
     if (!changed.length) throw new Error(`branch "${branch}" has no changes`);
-    const own = tip && tip !== base && !merging ? await diffed(tip) : changed;
+    const own = tip && tip !== base && !merging && !replace ? await diffed(tip) : changed;
     const unlisted = merging ? undefined : own.find(file => !files.includes(file));
     if (unlisted) throw new Error(`"${unlisted}" changed but is not listed in the proposal`);
     const outside = checkPaths(changed, paths);
     if (outside) throw new Error(outside);
 
     await committed?.(await run(['rev-parse', 'HEAD']));
-    await run(['push', '-q', origin, `HEAD:${ref}`], await auth(repo));
+    const lease = replace ? [`--force-with-lease=${ref}:${replace}`] : [];
+    await run(['push', '-q', ...lease, origin, `HEAD:${ref}`], await auth(repo));
     return url;
   };
 
@@ -212,12 +225,12 @@ export const workspaces = ({
     }
   };
 
-  /** The commit where a run's worktree forked from `branch`, a ref, or the default branch when none is given. */
+  /** The commit where a run's worktree forked from `branch`, a ref, a commit, or the default branch when none is given. */
   const forkPoint = async (repo: string, runId: string, branch?: string) => {
     const path = worktreePath(dataDir, runId);
     const target = !branch
       ? await git(mirrorPath(repo), ['rev-parse', 'HEAD'])
-      : branch.startsWith('refs/')
+      : branch.startsWith('refs/') || /^[0-9a-f]{40}$/.test(branch)
         ? branch
         : `refs/heads/${branch}`;
     return git(path, ['merge-base', 'HEAD', target]);

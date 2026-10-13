@@ -59,6 +59,32 @@ where the branch forked, so the parked work is checked with the rest. A resumed 
 files it changed on top of the branch. The jobs it needs that already closed done on the issue before
 it blocked are not run again: their runs are reused, so answering the implementor does not redo triage.
 
+## Continuing
+
+A command comment on an issue whose job already pushed its work, or on the merge request that job
+opened, continues that job. A comment on the merge request is planned as a comment on the issue
+the request was opened for, for that workflow only. A request that is closed or merged, or that no
+bothub run opened, continues nothing, and a bot's comment starts nothing.
+
+The worktree starts at the job's branch, and the prompt gets a `## Continuing` section: the
+earlier runs of the job on the issue, the branch and the open merge request, and what the human
+asks, the command's text and every human comment since the last run, a line comment with its file
+and line. The jobs it needs that already closed on the issue are reused.
+
+The command's first word picks how much runs again:
+
+| Command         | Branch            | Jobs before it | Checks look at                              |
+| --------------- | ----------------- | -------------- | ------------------------------------------- |
+| `/bothub`       | kept              | reused         | the change since the last run's pushed head |
+| `/bothub all`   | kept              | run again      | the whole branch since it forked            |
+| `/bothub fresh` | reset to the base | run again      | the whole new change                        |
+
+A fresh run replaces the branch only while it is still at the tip the run started from, so a push
+a human makes meanwhile is refused, not overwritten. The merge request stays open and shows the new
+change. In the dashboard a merge request page has a comment box, with the same choice and line
+comments from the diff gutter, and a blocked run has an answer box; both write the local backend's
+files, and with GitHub they link there.
+
 ## Check modes
 
 | Mode    | Effect                                                                                    |

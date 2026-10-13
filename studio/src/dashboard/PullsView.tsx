@@ -11,6 +11,7 @@ import { age, StatusIcon } from './bits.tsx';
 import { Counts, DiffFiles, DiffSummary, fileAnchor, useOpenFiles, WhitespaceToggle } from './DiffView.tsx';
 import { live } from './live.ts';
 import { fetchPullDiff, hideWhitespaceAtom, type PullListing, pullsAtom, pullsQueryAtom } from './pulls.ts';
+import { PullReview } from './Review.tsx';
 
 const stateTones: Record<PullListing['state'], Tone> = { open: 'ok', merged: 'info', closed: 'neutral' };
 const stateTips: Record<PullListing['state'], string> = {
@@ -277,15 +278,16 @@ const PullColumns = ({
 
 const PullDiff = ({ pull, hide, open }: { pull: PullListing; hide: boolean; open: OpenFiles }) => {
   const diff = use(fetchPullDiff(pull.number, pull.head, hide));
-  if (!diff)
-    return (
-      <PullColumns pull={pull} files={pull.files} open={open}>
-        <p className="text-xs text-zinc-500">The diff could not be read.</p>
-      </PullColumns>
-    );
+  const refresh = useSetAtom(pullsQueryAtom);
   return (
-    <PullColumns pull={pull} files={diff.files} open={open}>
-      <DiffFiles files={diff.files} hiddenFiles={diff.hiddenFiles} open={open} />
+    <PullColumns pull={pull} files={diff?.files ?? pull.files} open={open}>
+      <PullReview pull={pull} onSent={refresh}>
+        {diff ? (
+          <DiffFiles files={diff.files} hiddenFiles={diff.hiddenFiles} open={open} />
+        ) : (
+          <p className="text-xs text-zinc-500">The diff could not be read.</p>
+        )}
+      </PullReview>
     </PullColumns>
   );
 };

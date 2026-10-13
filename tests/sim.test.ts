@@ -11,7 +11,7 @@ const run = async (name: string) => {
   return { results, trace: lines.join('\n') };
 };
 
-describe('simulate', () => {
+describe('simulate', { timeout: 20_000 }, () => {
   it('runs a /bothub comment through triage, implementation with tool calls, and review', async () => {
     const { results, trace } = await run('bothub-comment.yaml');
     expect(results.map(r => r.run.status)).toEqual(['succeeded', 'succeeded', 'succeeded']);

@@ -5,7 +5,7 @@ tools: [read, edit, write, bash, grep, glob, issues_get, notes_search, notes_get
 returns: [reply, push, merge-request, note, ask]
 skills: [implement]
 preload: [issue, recall]
-session: { resume: attempts }
+resume: summary
 max-turns: 60
 budget: { runs-per-day: 20, minutes: 45 }
 human: seed hub, untraced; size rule and attempt first from dogfood round 5, K23

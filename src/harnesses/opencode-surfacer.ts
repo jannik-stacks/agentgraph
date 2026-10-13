@@ -7,6 +7,7 @@ import { accepted } from '../preload.ts';
 import { allowedFor, index, loadSynonyms, noteDocs, summaryDocs, weigh, type Doc, type Index } from '../recall.ts';
 import type { EventRecord } from '../store.ts';
 import {
+  askerOf,
   fit,
   history,
   items,
@@ -14,7 +15,7 @@ import {
   modelLine,
   Summarizer,
   type Endpoint,
-  type Share,
+  type History,
   type SummaryRecord,
 } from '../summaries.ts';
 import type { AgentEvent } from '../types.ts';
@@ -47,7 +48,7 @@ export type SurfacerOptions = {
   bot: string;
   data: string;
   hub: string;
-  share?: Record<string, Share>;
+  scope?: History;
   summarizer?: string | Partial<Summarizer>;
   history?: boolean;
   cutoff?: number;
@@ -84,7 +85,8 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
   const o = raw as SurfacerOptions;
   await markLoaded(surfacerId);
   const settings = Summarizer.parse(o.summarizer ?? 'extractive');
-  const shareOf = (bot: string | undefined) => o.share?.[bot ?? ''] ?? 'bot';
+  let asker: ReturnType<typeof askerOf> | undefined;
+  const asking = () => (asker ??= askerOf(o.data, o.run, o.bot, o.scope ?? 'bot'));
   const url = o.decide?.url ?? (process.env.BOTHUB_DECIDE_URL || defaultDecideUrl);
   const model = o.decide?.model ?? (process.env.BOTHUB_DECIDE_MODEL || defaultDecideModel);
   const timeoutMs = o.decide?.timeoutMs ?? 20_000;
@@ -101,7 +103,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
   let corpus: Promise<Index> | undefined;
   const load = () =>
     (corpus ??= Promise.all([
-      loadSummaries(o.data, shareOf),
+      loadSummaries(o.data),
       loadSynonyms(join(o.hub, 'synonyms.yaml')),
       readHub(o.hub).then(compile),
     ]).then(([records, words, hub]) =>
@@ -133,7 +135,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         index: fresh,
         task,
         query,
-        bot: o.bot,
+        asker: await asking(),
         ...(o.cutoff !== undefined && { cutoff: o.cutoff }),
         ...(o.budget !== undefined && { budget: o.budget }),
         url,
@@ -196,9 +198,9 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
       );
   };
 
-  const h = history(o.data, o.bot, shareOf);
   const readHistory = async (query: string): Promise<{ text: string; items: RecallItem[] }> => {
     const q = query.trim();
+    const h = history(o.data, await asking());
     if (!q) {
       const runs = await h.list();
       return {
@@ -219,7 +221,8 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         text: own.map(r => `${r.run}#${r.from}-${r.to} ${r.line}`).join('\n') || `run "${q}" has no summaries`,
         items: own.map(r => ({ pointer: `${r.run}#${r.from}-${r.to}`, kind: 'summary', fate: 'returned' })),
       };
-    const hits = (await load()).search(q, { limit: 10, keep: d => d.kind === 'summary' && allowedFor(o.bot)(d) });
+    const allowed = allowedFor(await asking());
+    const hits = (await load()).search(q, { limit: 10, keep: d => d.kind === 'summary' && allowed(d) });
     return {
       text: hits.map(({ doc }) => `${doc.pointer} ${doc.text}`).join('\n') || 'nothing found',
       items: hits.map(({ doc, score }) => ({ ...itemOf(doc), score: round(score), fate: 'returned' })),

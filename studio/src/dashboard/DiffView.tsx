@@ -1,11 +1,12 @@
 import { useAtom } from 'jotai';
-import { type CSSProperties, memo, type ReactNode, useMemo, useState } from 'react';
+import { type CSSProperties, Fragment, memo, type ReactNode, useMemo, useState } from 'react';
 import type { Tone } from '../graph-model.ts';
 import { langOf } from '../source/lang.ts';
 import { useHighlighted } from '../source/highlight.tsx';
 import { cx, Disclosure, tones, Tooltip } from '../ui.tsx';
-import { emphasisOf, type Hunk, hunksOf, type Kind } from './diff-lines.ts';
+import { emphasisOf, type Hunk, hunksOf, type Kind, type Line, type Span } from './diff-lines.ts';
 import { type FileDiff, hideWhitespaceAtom, totals } from './pulls.ts';
+import { AddLineNote, LineNotes, type Side, useLines } from './Review.tsx';
 
 const kindTones: Record<Kind, Tone | undefined> = { add: 'ok', del: 'danger', ctx: undefined };
 const signs: Record<Kind, string> = { add: '+', del: '-', ctx: ' ' };
@@ -34,51 +35,94 @@ const RowTint = ({ kind, spans }: { kind: Kind; spans: [number, number][] | unde
   );
 };
 
+/** Which side of the diff a line is on, and its number there. */
+const sideOf = (line: Line): [Side, number] => (line.kind === 'del' ? ['old', line.old ?? 0] : ['new', line.new ?? 0]);
+
 /**
- * One hunk: a gutter with both line numbers and the sign, and the code, colored in place once shiki has loaded. Every
- * row is one fixed line high and the code never wraps, so the gutter, the row tints and the code stay aligned.
+ * Rows `from` to `to` of a hunk: a gutter with both line numbers and the sign, and the code, colored in place once
+ * shiki has loaded. Every row is one fixed line high and the code never wraps, so the gutter, the row tints and the
+ * code stay aligned.
  */
-const HunkView = ({ hunk, lang }: { hunk: Hunk; lang: string }) => {
-  const code = useHighlighted(hunk.lines.map(l => l.text).join('\n'), lang);
+const Rows = ({
+  lines,
+  from,
+  lang,
+  path,
+  emphasis,
+}: {
+  lines: Line[];
+  from: number;
+  lang: string;
+  path: string;
+  emphasis: Map<number, Span[]>;
+}) => {
+  const code = useHighlighted(lines.map(l => l.text).join('\n'), lang);
+  return (
+    <div className="flex">
+      <div className="shrink-0 select-none tabular-nums">
+        {lines.map((line, i) => {
+          const tone = kindTones[line.kind];
+          const [side, number] = sideOf(line);
+          return (
+            <div
+              key={i}
+              className={cx(
+                'group relative grid h-5 w-[5.5rem] grid-cols-[2.25rem_2.25rem_1rem]',
+                tone ? tones[tone].badge : 'text-zinc-400 dark:text-zinc-600'
+              )}
+            >
+              <span aria-hidden className="pr-1 text-right">
+                {line.old ?? ''}
+              </span>
+              <span aria-hidden className="pr-1 text-right">
+                {line.new ?? ''}
+              </span>
+              <span aria-hidden className="text-center">
+                {signs[line.kind]}
+              </span>
+              <AddLineNote path={path} side={side} line={number} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="relative w-max min-w-full">
+          <div aria-hidden className="absolute inset-0">
+            {lines.map((line, i) => (
+              <RowTint key={i} kind={line.kind} spans={emphasis.get(from + i)} />
+            ))}
+          </div>
+          <pre className="shiki relative bg-transparent! pr-4 leading-5" style={{ ...flush, paddingLeft: codeInset }}>
+            {code}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/** One hunk: its header, then its rows, broken after every line that has comments to show them under it. */
+const HunkView = ({ hunk, lang, path }: { hunk: Hunk; lang: string; path: string }) => {
   const emphasis = useMemo(() => emphasisOf(hunk.lines, tab), [hunk]);
+  const notes = useLines();
+  const ends = hunk.lines.flatMap((line, i) => (notes?.has(path, ...sideOf(line)) ? [i + 1] : []));
+  const breaks = [0, ...ends.filter(end => end < hunk.lines.length), hunk.lines.length];
   return (
     <>
       <div className="flex bg-sky-500/10 text-zinc-500 dark:bg-sky-400/10">
         <span className="w-[5.5rem] shrink-0" />
         <span className="truncate px-2">{hunk.header}</span>
       </div>
-      <div className="flex">
-        <div aria-hidden className="shrink-0 select-none tabular-nums">
-          {hunk.lines.map((line, i) => {
-            const tone = kindTones[line.kind];
-            return (
-              <div
-                key={i}
-                className={cx(
-                  'grid h-5 w-[5.5rem] grid-cols-[2.25rem_2.25rem_1rem]',
-                  tone ? tones[tone].badge : 'text-zinc-400 dark:text-zinc-600'
-                )}
-              >
-                <span className="pr-1 text-right">{line.old ?? ''}</span>
-                <span className="pr-1 text-right">{line.new ?? ''}</span>
-                <span className="text-center">{signs[line.kind]}</span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="min-w-0 flex-1 overflow-x-auto">
-          <div className="relative w-max min-w-full">
-            <div aria-hidden className="absolute inset-0">
-              {hunk.lines.map((line, i) => (
-                <RowTint key={i} kind={line.kind} spans={emphasis.get(i)} />
-              ))}
-            </div>
-            <pre className="shiki relative bg-transparent! pr-4 leading-5" style={{ ...flush, paddingLeft: codeInset }}>
-              {code}
-            </pre>
-          </div>
-        </div>
-      </div>
+      {breaks.slice(1).map((to, i) => {
+        const from = breaks[i] ?? 0;
+        const [side, line] = sideOf(hunk.lines[to - 1]!);
+        return (
+          <Fragment key={from}>
+            <Rows lines={hunk.lines.slice(from, to)} from={from} lang={lang} path={path} emphasis={emphasis} />
+            <LineNotes path={path} side={side} line={line} />
+          </Fragment>
+        );
+      })}
     </>
   );
 };
@@ -117,7 +161,7 @@ const FileBody = ({ file }: { file: FileDiff }) => {
   return (
     <div className="font-mono text-[11.5px]">
       {hunks.map((hunk, i) => (
-        <HunkView key={i} hunk={hunk} lang={lang} />
+        <HunkView key={i} hunk={hunk} lang={lang} path={file.path} />
       ))}
     </div>
   );

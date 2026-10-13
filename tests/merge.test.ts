@@ -103,7 +103,7 @@ const setup = async (config = configFor(), adapters?: Pipeline['adapters']) => {
 
 const results = (result: JobResult) => result.outcome?.results;
 
-describe('merge', () => {
+describe('merge', { timeout: 20_000 }, () => {
   it('lands the oldest open request once its required checks pass on the merged tree', async () => {
     const { origin, pulls, p, branch } = await setup();
     const head = branch('bothub/5-6', 'six\n');

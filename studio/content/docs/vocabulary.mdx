@@ -79,16 +79,17 @@ reviewed, and only notes reach every bot.
 | What               | Kept where                  | Who reads it                                                   |
 | ------------------ | --------------------------- | -------------------------------------------------------------- |
 | **note**           | `notes/` in the repository  | every run, surfaced when relevant or by `notes_search`         |
-| **run summary**    | `runs/<id>/summaries.jsonl` | later runs as `session.share` allows, surfaced or by `history` |
+| **run summary**    | `runs/<id>/summaries.jsonl` | later runs within their bot's `history`, surfaced or by search |
 | **run memory**     | `runs/<id>/memory.md`       | humans                                                         |
 | **transcript**     | `runs/<id>/home/`           | humans only                                                    |
-| **harness memory** | the harness's own files     | nobody, it is wiped with the sandbox                           |
+| **harness memory** | the harness's own files     | the job's next run with `resume: session`, otherwise nobody    |
 
 A run summary is one line per message and tool call, written after every run. Run memory is a
 short record of the run: tools used, checks that failed and why, what was proposed and what
-landed. A retry gets the failing check findings, and with `session.resume: attempts` a summary of
-the attempt before it. Harnesses like opencode keep their own memory files; bothub starts every
-run from a clean home and a check can refuse a change that writes them into the repository.
+landed. A retry gets the failing check findings, and with `resume: summary` a summary of the
+attempt before it. Harnesses like opencode keep their own memory files; bothub starts every run
+from a clean home, apart from the session a `resume: session` bot continues, and a check can refuse
+a change that writes them into the repository.
 
 When something a run learned should outlast it, the bot returns a note and a human accepts it.
 That is the only path from memory to what the hub knows.

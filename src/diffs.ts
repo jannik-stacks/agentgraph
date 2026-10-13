@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { git, gitStatus } from './git.ts';
-import { fold, type Op, type Pull } from './pulls.ts';
+import { commentsIn, fold, type Op, type Pull } from './pulls.ts';
 import type { Run, Store } from './store.ts';
 
 /** One file of a diff. `patch` holds its hunks, left out when the file is binary or larger than the cap. */
@@ -161,7 +161,7 @@ const openerOf = async (store: Store, runs: Run[], pull: Pull) => {
 
 /**
  * The merge requests in `<data>/pulls.jsonl`, each with the run that opened it, the issue that run was for, whether it
- * merges cleanly, and its files with their added and deleted lines.
+ * merges cleanly, its files with their added and deleted lines, and its comments.
  */
 export const listPulls = async (store: Store) => {
   const ops = await readOps(join(store.dir, 'pulls.jsonl'));
@@ -185,6 +185,7 @@ export const listPulls = async (store: Store) => {
         ...pull,
         ...(located && { head: located.head, base: located.base }),
         ...(mergeable !== undefined && { mergeable }),
+        comments: commentsIn(ops, pull.number, n => `#${n}`),
         ...(opener && { run: opener.id, ...(opener.event.number !== undefined && { issue: opener.event.number }) }),
         ...(files && {
           files: files.map(({ path, status, additions, deletions }) => ({ path, status, additions, deletions })),

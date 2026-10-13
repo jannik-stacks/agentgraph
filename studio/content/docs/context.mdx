@@ -42,8 +42,9 @@ notes and the summaries of earlier runs, and adds the few that matter to the nex
 <Sym name="recall" /> ranks with BM25 first, then a small local model scores the top hits and drops those under the
 cutoff. Proposed, superseded and retired notes are never surfaced.
 
-Earlier runs are surfaced only where the bot that ran them shares them: `session.share` is `none`,
-`bot` (the default, its own runs) or `hub` (every bot). After every run its events are written down
+Earlier runs are surfaced as far as the reading bot's `history` reaches: `none`, `run` (the same
+job's earlier runs for the same event), `issue` (every run on the same issue), `bot` (the default,
+its own runs) or `hub` (every run). The `history` tool reaches as far. After every run its events are written down
 as one-line summaries (<Sym name="summarizeRun" />), extractive by default; `summarizer` on the bot
 picks a model instead, or `off`.
 
@@ -75,11 +76,16 @@ jobs:
 
 ## Sessions
 
-`session.resume` says what a retry of the same job starts with. `none`, the default, sends only
-the failing check findings. `attempts` adds a short summary of what the earlier attempt did.
+`resume` says what a new attempt or run of a bot starts with besides its task. `none`, the default,
+sends a retry only the failing check findings. `summary` adds a short summary of what the attempt
+before did, and to a job that continues its work on an issue, what its last run did. `session`
+continues the harness's own conversation: bothub copies the session out of the last run's home into
+the new one, and opencode picks it up. A run with no session to hand over starts as with `summary`.
+pi cannot continue a session yet, so a pi bot with `resume: session` does not load.
 
 ```yaml
-session: { resume: attempts, share: hub }
+resume: summary
+history: issue
 summarizer: extractive
 ```
 

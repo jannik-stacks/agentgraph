@@ -11,6 +11,7 @@ import type { Outcome, Run, Verdict } from '../store.ts';
 import { type JobResult, type Pipeline, issuesOf, pullsOf } from './context.ts';
 import type { Handoff } from './prompt.ts';
 import { type Attempt, failingChecks, runChecks } from './checks.ts';
+import { openerOf } from './continue.ts';
 import { runPlanned } from './jobs.ts';
 
 const kindsOf = (outcome: Outcome) =>
@@ -26,7 +27,8 @@ export const closed = (closure: Closure, reason?: string): Pick<Run, 'closure' |
 /**
  * What happened to a job's work, from its run and outcome. A closure the bot stated wins once the run succeeded. A
  * question is `blocked`, a merge request `handed-off`, any other write (a merge too) `done`. A push without a merge
- * request is `handed-off` when a later job needs this one or it resolves a merge, otherwise `blocked`. A job that may push but
+ * request is `handed-off` when a later job needs this one, it resolves a merge or its branch already has an open
+ * request, otherwise `blocked`. A job that may push but
  * changed nothing, or one that wrote nothing at all, is `no-op`. A skipped run, a provider limit or a sandbox that
  * never started is `deferred`;
  * any other failure, or an effect that failed to apply, is `blocked`.
@@ -49,7 +51,9 @@ export const closureOf = (run: Run, outcome: Outcome | undefined, returns: Propo
   if (asked) return closed('blocked', 'asked a human');
   if (kinds.includes('merge-request')) return closed('handed-off');
   if (kinds.includes('push'))
-    return taken ? closed('handed-off') : closed('blocked', 'pushed a branch without opening a merge request');
+    return taken || outcome.pr !== undefined
+      ? closed('handed-off')
+      : closed('blocked', 'pushed a branch without opening a merge request');
   if (returns.includes('push')) return closed('no-op', 'proposed no change');
   return kinds.length ? closed('done') : closed('no-op', 'proposed nothing');
 };
@@ -104,6 +108,7 @@ export const settle = async (
       ...(paths && { paths }),
       message: `bothub: ${run.job}`,
       base: a.base,
+      ...(a.replace && { replace: a.replace }),
       ...journal,
     });
   const results = await apply(writes, {
@@ -125,7 +130,17 @@ export const settle = async (
     a.fold.replies.push({ label: a.fold.label, text: proposal.body });
     return [{ kind: 'reply', status: 'applied', reason: 'folded into the summary reply' } satisfies ApplyResult];
   });
-  return p.store.saveOutcome(run.id, { ...base, results: [...results, ...folded], ...handoffOf(writes, results) });
+  const handoff = handoffOf(writes, results);
+  const open =
+    handoff.branch && handoff.pr === undefined
+      ? (await pulls?.list({ branch: handoff.branch }).catch(() => []))?.[0]
+      : undefined;
+  return p.store.saveOutcome(run.id, {
+    ...base,
+    results: [...results, ...folded],
+    ...handoff,
+    ...(open && { pr: open.number }),
+  });
 };
 
 /**
@@ -184,7 +199,7 @@ const tryMerge = async (pull: Pull, round: number, a: Attempt, pulls: Pulls, p: 
 const resolveConflicts = async (pull: Pull, p: Pipeline) => {
   const [workflow = '', job = ''] = pull.origin?.job.split('/') ?? [];
   const definition = p.config.workflows[workflow]?.jobs[job];
-  const event = pull.origin && (await p.store.runs({ event: pull.origin.event }))[0]?.event;
+  const event = (await openerOf(pull, p.store))?.event;
   if (!definition || !event) return;
   const planned: PlannedJob = { workflow, job, ...(definition.type === 'bot' && { bot: definition.bot }) };
   await Effect.runPromise(runPlanned(planned, { ...p, event }, {}, pull.into));

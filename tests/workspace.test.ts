@@ -237,6 +237,31 @@ describe('workspaces.publish', () => {
     expect(git(origin.dir, 'show', 'bothub/7:README.md')).toBe('both');
   });
 
+  it('starts a branch over from the ref and replaces it only while it is still at the tip it saw', async () => {
+    const { origin, ws } = setup();
+    const fresh = await ws.create({ repo: 'acme/app', branch: 'feature', fresh: true }, 'run-1');
+    expect(fresh).toMatchObject({ head: origin.main, replace: origin.feature });
+    expect(fresh).not.toHaveProperty('branch');
+    writeFileSync(join(fresh.path, 'new.txt'), 'new\n');
+    const push = (runId: string, replace?: string) =>
+      ws.publish('acme/app', runId, {
+        branch: 'feature',
+        files: ['new.txt'],
+        message: 'm',
+        base: origin.main,
+        ...(replace && { replace }),
+      });
+    await expect(push('run-1')).rejects.toThrow('did not start from it');
+    await push('run-1', origin.feature);
+    expect(git(origin.dir, 'ls-tree', '--name-only', 'feature').split('\n')).toEqual(['README.md', 'new.txt']);
+
+    const again = await ws.create({ repo: 'acme/app', branch: 'feature', fresh: true }, 'run-2');
+    writeFileSync(join(again.path, 'new.txt'), 'newer\n');
+    git(origin.dir, 'update-ref', 'refs/heads/feature', origin.feature);
+    await expect(push('run-2', again.replace)).rejects.toThrow();
+    expect(git(origin.dir, 'rev-parse', 'feature')).toBe(origin.feature);
+  });
+
   it('refuses GitHub workflow changes unless the job names them', async () => {
     const { path, publish } = await started();
     git(path, 'checkout', '-qb', 'bothub/7');

@@ -129,6 +129,13 @@ describe('plan', () => {
     ]);
   });
 
+  it('takes `all` or `fresh` as the first word to pick how much reruns', () => {
+    const planned = (body: string) => plan(event(body), config)[0];
+    expect(planned('/bothub fresh use it.each')).toMatchObject({ rerun: 'fresh', args: 'use it.each' });
+    expect(planned('/bothub all')).toMatchObject({ rerun: 'all', args: '' });
+    expect(planned('/bothub allow nulls')).toEqual(expect.not.objectContaining({ rerun: expect.anything() }));
+  });
+
   it('ignores untrusted commenters and non-commands', () => {
     expect(plan(event('/bothub do it', 'NONE'), config)).toEqual([]);
     expect(plan(event('thanks!'), config)).toEqual([]);

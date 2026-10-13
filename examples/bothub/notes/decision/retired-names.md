@@ -16,6 +16,7 @@ The names below were replaced; the new one is used in code, comments, docs and h
 - for-each became `over:`
 - extra prompt became prompt
 - the convention and pattern note kinds became style
+- `session:` in a bot file became `resume:` and `history:`, and `resume: attempts` became `resume: summary`
 
 A line that quotes an old name, or names the new one beside it, is a hint about the name and stays
 allowed.

@@ -9,7 +9,7 @@ import { git } from './git.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
-import { approvals, issuesOf, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
+import { approvals, continuation, issuesOf, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
 import { localPulls } from './pulls.ts';
 import { fileQueue, worker, type Queued, type WorkerOptions } from './queue.ts';
 import { limiter, sandboxed } from './runner.ts';
@@ -122,18 +122,25 @@ const described = (event: BotEvent, jobs: number) =>
   `event ${event.trigger}${event.action ? ` (${event.action})` : ''} on ${event.repo}${event.number ? `#${event.number}` : ''} by @${event.actor.login}: ${jobs} jobs`;
 
 /**
- * Runs one event: an event whose label was removed before it ran is dropped, any other runs the jobs it plans (see
- * `runEvent`). Logs the plan and each job's result.
+ * Runs one event: an event whose label was removed before it ran is dropped, a comment on a merge request bothub
+ * opened continues the issue it was for (see `continuation`), and any other runs the jobs it plans (see `runEvent`).
+ * Logs the plan and each job's result.
  */
-export const handleEvent = async (event: BotEvent, hub: Hub): Promise<JobResult[]> => {
+export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobResult[]> => {
   const config = await hub.config();
+  const continued = await continuation(pipelineFor(hub, config, delivered));
+  if (continued && 'reason' in continued) {
+    hub.log(`event ${delivered.id} continues nothing, ${continued.reason}`);
+    return [];
+  }
+  const event = continued?.event ?? delivered;
   const p = pipelineFor(hub, config, event);
   const issues = issuesOf(p);
   if (issues && (await withdrawn(event, issues))) {
     hub.log(`event ${event.id} dropped, its label "${event.label}" was removed`);
     return [];
   }
-  const jobs = plan(event, config);
+  const jobs = plan(event, config).filter(job => !continued || job.workflow === continued.workflow);
   hub.log(described(event, jobs.length));
   const results = await runEvent(jobs, p);
   for (const r of results)

@@ -3,9 +3,9 @@ import { appendFile, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EventRecord, Run } from './store.ts';
 import type { AgentEvent } from './types.ts';
-import { Summarizer, type Granularity, type Share } from './schema.ts';
+import { Summarizer, type Granularity, type History } from './schema.ts';
 
-export { Granularity, Share, Summarizer } from './schema.ts';
+export { Granularity, History, Summarizer } from './schema.ts';
 
 /** One line of `runs/<id>/summaries.jsonl`. `from` and `to` are the event seqs it covers. Later lines for the same `id` replace earlier ones. */
 export type SummaryRecord = {
@@ -256,12 +256,41 @@ export const readSummaries = async (dir: string, run: string) => {
   return [...latest.values()].sort((a, b) => a.from - b.from || a.to - b.to);
 };
 
-/** Whether the asking bot may see a run by `owner` whose bot shares at `share`. */
-export const visible = (asker: string, owner: string | undefined, share: Share) =>
-  share === 'hub' || (share === 'bot' && owner !== undefined && owner === asker);
+/** Which run an earlier run was: its bot, job and event. */
+export type Origin = Partial<Pick<Run, 'bot' | 'workflow' | 'job'>> & {
+  event?: Partial<Pick<Run['event'], 'id' | 'repo' | 'number'>>;
+};
 
-/** Resolves a bot's share setting; `bot` unless the bot says otherwise. */
-export type ShareOf = (bot: string | undefined) => Share;
+/** The bot asking for earlier runs, how far its `history` reaches, and the run it asks from. */
+export type Asker = { bot: string; history: History; from?: Origin | undefined };
+
+/** Whether `asker` may see a run that was `seen`. */
+export const visible = (asker: Asker, seen: Origin) => {
+  const { history, from } = asker;
+  if (history === 'hub') return true;
+  if (history === 'bot') return seen.bot === asker.bot;
+  if (!from?.event || !seen.event) return false;
+  if (history === 'issue')
+    return (
+      seen.event.number !== undefined && seen.event.number === from.event.number && seen.event.repo === from.event.repo
+    );
+  if (history === 'run')
+    return seen.event.id === from.event.id && seen.workflow === from.workflow && seen.job === from.job;
+  return false;
+};
+
+const originOf = (run: Run): Origin => ({
+  ...(run.bot && { bot: run.bot }),
+  workflow: run.workflow,
+  job: run.job,
+  ...(run.event && {
+    event: {
+      id: run.event.id,
+      repo: run.event.repo,
+      ...(run.event.number !== undefined && { number: run.event.number }),
+    },
+  }),
+});
 
 const runsIn = async (dir: string) => {
   try {
@@ -280,6 +309,12 @@ const readRun = async (dir: string, id: string) => {
   }
 };
 
+/** The asker for run `id` of `bot` under data dir `dir`, reaching as far as `history`. */
+export const askerOf = async (dir: string, id: string, bot: string, history: History): Promise<Asker> => {
+  const run = await readRun(dir, id);
+  return { bot, history, ...(run && { from: originOf(run) }) };
+};
+
 /** The last event seq of `run` a bot may see: everything after its earliest rewind point is archived. */
 const visibleUpTo = (run: Pick<Run, 'archived'> | undefined) =>
   run?.archived?.length ? Math.min(...run.archived.map(a => a.after)) : Infinity;
@@ -288,8 +323,8 @@ const visibleUpTo = (run: Pick<Run, 'archived'> | undefined) =>
  * Past runs and their transcripts as the asking bot may see them, for a `history` tool: `list` gives the visible runs
  * newest first, `read` one run's summaries, or its original events between two seqs. Archived events never come back.
  */
-export const history = (dir: string, asker: string, shareOf: ShareOf = () => 'bot') => {
-  const allowed = (run: Run | undefined): run is Run => !!run && visible(asker, run.bot, shareOf(run.bot));
+export const history = (dir: string, asker: Asker) => {
+  const allowed = (run: Run | undefined): run is Run => !!run && visible(asker, originOf(run));
   return {
     list: async (limit = 20) => {
       const out: Pick<Run, 'id' | 'workflow' | 'job' | 'bot' | 'status' | 'startedAt'>[] = [];
@@ -319,16 +354,14 @@ export const history = (dir: string, asker: string, shareOf: ShareOf = () => 'bo
   };
 };
 
-/** Every visible run's current summaries under data dir `dir`, tagged with the run's bot and share, without archived ones. */
-export const loadSummaries = async (dir: string, shareOf: ShareOf = () => 'bot') => {
-  const out: (SummaryRecord & { bot?: string; share: Share })[] = [];
+/** Every run's current summaries under data dir `dir`, tagged with the run they come from, without archived ones. */
+export const loadSummaries = async (dir: string) => {
+  const out: (SummaryRecord & { origin: Origin })[] = [];
   for (const id of await runsIn(dir)) {
     const run = await readRun(dir, id);
-    const share = shareOf(run?.bot);
-    if (share === 'none') continue;
+    const origin = run ? originOf(run) : {};
     const last = visibleUpTo(run);
-    for (const record of await readSummaries(dir, id))
-      if (record.to <= last) out.push({ ...record, ...(run?.bot && { bot: run.bot }), share });
+    for (const record of await readSummaries(dir, id)) if (record.to <= last) out.push({ ...record, origin });
   }
   return out;
 };
