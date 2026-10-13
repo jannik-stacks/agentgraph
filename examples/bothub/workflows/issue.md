@@ -52,6 +52,7 @@ jobs:
         - docs-tone-tagline
         - docs-tone-marketing
         - tooltip-text
+        - notes-followed
       max: 3
     returns: [reply, push, merge-request, note, ask]
     tools: [issues_get, notes_search]
