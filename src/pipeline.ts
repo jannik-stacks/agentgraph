@@ -1,11 +1,15 @@
+import { readFile } from 'node:fs/promises';
 import { Effect } from 'effect';
 import { apply, type ApplyResult } from './apply.ts';
 import {
-  effectiveCan,
   effectivePreload,
+  effectiveReturns,
   effectiveTools,
   harnessTools,
   jobOrder,
+  recallOf,
+  returnGlobs,
+  returnKinds,
   type Config,
   type Defined,
 } from './config.ts';
@@ -16,18 +20,21 @@ import { harnesses } from './harnesses/index.ts';
 import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
 import { roles, type Issues } from './issues.ts';
+import type { SurfacerOptions } from './harnesses/opencode-surfacer.ts';
+import { hubProposal } from './hub-write.ts';
 import { mcpToolNames, type McpServer } from './mcp-config.ts';
+import { proposalsFile, type McpTool } from './mcp.ts';
 import { writeMemory } from './memory.ts';
 import {
   approved,
   extractProposals,
   matchGlob,
+  Proposal,
   validate,
-  type Proposal,
   type Rejection,
   type Validated,
 } from './outputs.ts';
-import { issueContext, relevantNotes, renderNotes } from './preload.ts';
+import { issueContext } from './preload.ts';
 import { runJob, runScript, type Launcher, type limiter } from './runner.ts';
 import {
   NoteKind,
@@ -40,9 +47,10 @@ import {
   type Job,
   type Over,
   type ProposalKind,
-  type Skill,
+  type Return,
   type Workflow,
 } from './schema.ts';
+import { items, Summarizer, summarizeRun } from './summaries.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from './store.ts';
 import type { BotEvent, HarnessAdapter, RunSpec } from './types.ts';
 import type { Workspaces } from './workspace.ts';
@@ -55,29 +63,36 @@ const examples: Record<ProposalKind, string> = {
   push: '{ "kind": "push", "branch": "<branch>", "files": ["src/changed.ts"] }',
   'open-pr':
     '{ "kind": "open-pr", "title": "…", "body": "Closes #<issue>", "head": "<branch>", "base": "main", "draft": true }',
-  note: '{ "kind": "note", "note": "pattern", "slug": "short-kebab-name", "title": "…", "body": "The note, in Markdown" }',
+  note: '{ "kind": "note", "note": "style", "slug": "short-kebab-name", "title": "…", "body": "The note, in Markdown" }',
+  hub: '{ "kind": "hub", "title": "…", "body": "Why", "files": [{ "path": "<hub file>", "content": "The whole new file" }] }',
   ask: '{ "kind": "ask", "question": "What should happen when …?" }',
 };
 
-const proposing = (kinds: ProposalKind[], branch: string | undefined) => {
+const proposing = (returns: Return[], branch: string | undefined, notesTool: boolean) => {
+  const kinds = returnKinds(returns);
+  const globs = returnGlobs(returns);
   const has = (kind: ProposalKind) => kinds.includes(kind);
   const pushes = has('push') || has('open-pr');
   const notes = [
     pushes && (branch ? `Use the branch \`${branch}\`.` : 'Branches must start with `bothub/`.'),
     has('push') && '`files` lists every file you changed, as repository-relative paths.',
     has('open-pr') && 'Leave out `base` to target the default branch.',
-    has('note') && `A note's kind is one of ${NoteKind.options.join(', ')}.`,
+    has('note') &&
+      `A note's kind is one of ${NoteKind.options.join(', ')}: what was chosen and why, how code and docs should look, or a known sharp edge.${notesTool ? ' The `notes_add` tool proposes one as well.' : ''}`,
+    has('hub') &&
+      `A \`hub\` change proposes whole files of the hub, under ${globs.map(glob => `\`${glob}\``).join(', ')}; a human merges it. \`"delete": true\` in place of \`content\` removes a file.`,
     has('ask') && 'An `ask` opens an issue labelled `unsure` for a human; stop after asking.',
     'When you stop without finishing, add `{ "kind": "close", "as": "blocked", "reason": "…" }` with `as` one of blocked, deferred or no-op.',
     'Include only the proposals you need.',
   ].filter(Boolean);
-  const example = (kind: ProposalKind) => examples[kind].replaceAll('<branch>', branch ?? 'bothub/<issue>-<slug>');
+  const example = (kind: ProposalKind) =>
+    examples[kind].replaceAll('<branch>', branch ?? 'bothub/<issue>-<slug>').replaceAll('<hub file>', globs[0] ?? '');
   return [
-    '## Proposing changes',
+    '## What you return',
     '',
-    'You cannot write to GitHub yourself. To post a comment, label, push, open a pull request, add a note or ask a',
-    'human, end your final message with one fenced block tagged `bothub` that holds a JSON array of proposals.',
-    'Only the last such block counts. Anything the job does not allow is rejected.',
+    'You cannot write to GitHub or the hub yourself. Your run ends when you return: end your final message with one',
+    'fenced block tagged `bothub` that holds a JSON array of what you return. Only the last such block counts.',
+    'Anything the job does not allow is rejected.',
     '',
     '```bothub',
     '[',
@@ -124,67 +139,95 @@ const offered = (config: Config, bot: Defined<Bot>) =>
       ].join('\n\n')
     : undefined;
 
-const toolDescriptions: Record<HubTool, string> = {
+const toolDescriptions: Record<McpTool | 'history', string> = {
   issues_list: 'list issues, filtered by label (plan, spec, unsure), state or parent',
   issues_get: 'read one issue with its comments',
-  notes_search: 'search the hub notes, including patterns and caveats not loaded here',
+  notes_search: 'search the hub notes: decisions, style and caveats',
   notes_get: 'read one note',
+  notes_add: 'propose a note for a human to accept',
   runs_read: 'list past runs or read one run transcript',
+  history: 'search and read earlier runs you may see',
 };
 
-const offeredTools = (tools: HubTool[]) =>
+const offeredTools = (tools: (McpTool | 'history')[]) =>
   tools.length
     ? [
         '## Hub tools',
-        'Read-only tools from the `bothub` server. Writes still go through proposals.',
+        'Tools over the hub and earlier runs. Changes still go through what you return.',
         tools.map(tool => `- ${tool}: ${toolDescriptions[tool]}`).join('\n'),
       ].join('\n\n')
     : undefined;
 
+/** Where a run reaches the hub: its tools server, its directory and the data directory with earlier runs. */
+type HubAccess = Partial<Pick<Pipeline, 'mcp' | 'hub' | 'data'>>;
+
 /**
- * A bot's session for a skill. The system prompt holds, in order, the role, the relevant notes (when `notes` is
- * preloaded), the `pinned` sections (the forced skill and the task), the offered skills, the hub tools and the
- * proposal format for `can`. Hub tools are served by `mcp` when one is given.
+ * The surfacer for an opencode run that preloads recall or may call `history`: accepted notes and the summaries of
+ * earlier runs its bot may see, surfaced by relevance as it works. `run` is filled in when the run starts.
+ */
+const surfacerFor = (config: Config, bot: Defined<Bot>, preload: Preload[], tools: HubTool[], access: HubAccess) => {
+  const recall = preload.map(recallOf).find(Boolean);
+  const history = tools.includes('history');
+  if (bot.harness !== 'opencode' || !access.hub || !access.data || (!recall && !history)) return;
+  const options: SurfacerOptions = {
+    run: '',
+    bot: bot.name,
+    hub: access.hub,
+    data: access.data,
+    share: Object.fromEntries(Object.values(config.bots).map(b => [b.name, b.session?.share ?? 'bot'])),
+    ...(bot.summarizer && { summarizer: bot.summarizer }),
+    ...(history && { history }),
+    ...(!recall && { surface: false }),
+    ...(recall?.cutoff !== undefined && { cutoff: recall.cutoff }),
+    ...(recall?.budget !== undefined && { budget: recall.budget }),
+  };
+  return options;
+};
+
+/**
+ * A bot's session. The system prompt holds, in order, the role, the `pinned` sections (the forced skill and the
+ * task), the offered skills, the hub tools and what the run may return. Hub tools are served by `access.mcp`, with
+ * `notes_add` when an opencode run may return notes; `history` and recall come from the surfacer.
  */
 const session = ({
   config,
   bot,
-  skill,
-  can,
+  returns,
   branch,
   prompt,
   cwd,
-  paths,
-  preload = ['notes'],
+  preload = ['recall'],
   tools = [],
-  mcp,
+  access = {},
   pinned = [],
 }: {
   config: Config;
   bot: Defined<Bot>;
-  skill?: Defined<Skill> | undefined;
-  can: ProposalKind[];
+  returns: Return[];
   branch: string | undefined;
   prompt: string;
   cwd: string;
-  paths?: string[] | undefined;
   preload?: Preload[];
   tools?: HubTool[];
-  mcp?: ((tools: HubTool[]) => McpServer) | undefined;
+  access?: HubAccess;
   pinned?: (string | undefined)[];
 }): RunSpec => {
-  const kinds = [...(bot.notes ?? []), ...(skill?.notes ?? [])];
-  const notes = preload.includes('notes') ? renderNotes(relevantNotes(config.notes, { kinds, paths })) : undefined;
-  const served = mcp && tools.length ? tools : [];
+  const notesTool = bot.harness === 'opencode' && returnKinds(returns).includes('note');
+  const served: McpTool[] = access.mcp
+    ? [
+        ...tools.filter((tool): tool is Exclude<HubTool, 'history'> => tool !== 'history'),
+        ...(notesTool ? ['notes_add' as const] : []),
+      ]
+    : [];
+  const surfacer = surfacerFor(config, bot, preload, tools, access);
   return {
     prompt,
     system: [
       bot.body,
-      notes,
       ...pinned,
       offered(config, bot),
-      offeredTools(served),
-      can.length ? proposing(can, branch) : undefined,
+      offeredTools([...served, ...(surfacer?.history ? ['history' as const] : [])]),
+      returns.length ? proposing(returns, branch, served.includes('notes_add')) : undefined,
     ]
       .filter(Boolean)
       .join('\n\n'),
@@ -192,7 +235,8 @@ const session = ({
     ...(bot.model && { model: bot.model }),
     tools: [...harnessTools(bot), ...mcpToolNames(bot.harness, served)],
     ...(bot['max-turns'] && { maxTurns: bot['max-turns'] }),
-    ...(mcp && served.length && { mcp: mcp(served) }),
+    ...(access.mcp && served.length && { mcp: access.mcp(served) }),
+    ...(surfacer && { surfacer }),
   };
 };
 
@@ -242,10 +286,10 @@ export const buildSpec = ({
   event,
   cwd,
   preloaded,
-  mcp,
   handoff,
+  ...access
 }: Pick<PlannedJob, 'job' | 'args'> &
-  Pick<Pipeline, 'mcp'> & {
+  HubAccess & {
     config: Config;
     workflow: Defined<Workflow>;
     event: BotEvent;
@@ -259,7 +303,7 @@ export const buildSpec = ({
   const bot = config.bots[job.bot];
   const skill = config.skills[job.skill];
   if (!bot || !skill) throw new Error(`job "${id}" has no bot and skill`);
-  const can = effectiveCan(bot, job);
+  const returns = effectiveReturns(bot, job);
   const branch = branchFor(job, { event, args, job: id, workflow: workflow.name }, handoff);
   const prompt = eventContext(event, args, branch, handoff?.pr);
   const preload = effectivePreload(bot, job);
@@ -268,20 +312,18 @@ export const buildSpec = ({
     spec: session({
       config,
       bot,
-      skill,
-      can,
+      returns,
       branch,
       prompt,
       cwd,
-      paths: job.paths,
       preload,
       tools,
-      mcp,
+      access,
       pinned: [`## Skill: ${skill.name}\n\n${skill.body}`, preloaded],
     }),
     bot,
     job,
-    can,
+    returns,
     branch,
     timeoutMinutes: job['timeout-minutes'] ?? bot.budget?.minutes ?? defaultMinutes,
   };
@@ -305,7 +347,8 @@ export const secretsFor = ({ name }: Pick<Defined<Bot>, 'name'>, env: Record<str
 
 /**
  * Everything a planned job needs to run. Without `gh` or `issues`, nothing is applied; without `gh`, pull requests
- * are skipped; without `hubPr`, notes are skipped. Scripts see the `hub` directory read-only as `BOTHUB_HUB` and the
+ * are skipped. Hub changes land through `hubPr`, by default on a branch of the `hub` directory's own repository.
+ * `data` is the data directory: runs are summarized into it, and opencode runs surface what it holds. Scripts see the `hub` directory read-only as `BOTHUB_HUB` and the
  * commit their worktree started from as `BOTHUB_BASE`. `issues` defaults to GitHub's when `gh` is given and also feeds
  * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it. Harnesses and scripts
  * run in the sandbox; `launch` replaces it only in tests and the simulator.
@@ -319,8 +362,9 @@ export type Pipeline = {
   env: Record<string, string | undefined>;
   gh?: GitHub;
   issues?: Issues;
-  mcp?: (tools: HubTool[]) => McpServer;
+  mcp?: (tools: McpTool[]) => McpServer;
   hub?: string;
+  data?: string;
   hubPr?: Parameters<typeof apply>[1]['hubPr'];
   adapters?: Record<Harness, HarnessAdapter>;
   launch?: Launcher;
@@ -369,6 +413,16 @@ const outOfRuns = async (bot: Defined<Bot>, store: Store, now = Date.now()) => {
   return used >= cap ? `bot "${bot.name}" used its ${cap} runs for the last 24 hours` : undefined;
 };
 
+/** Writes a run's summaries into the data directory, with the bot's summarizer; a summary never fails the run. */
+const summarize = async (bot: Defined<Bot>, run: string, p: Pipeline) => {
+  const settings = bot.summarizer ?? Summarizer.parse('extractive');
+  if (!p.data || settings.mode === 'off') return;
+  const { BOTHUB_LLM_BASE_URL: url, BOTHUB_LLM_API_KEY: apiKey } = secretsFor(bot, p.env);
+  await summarizeRun(p.data, run, settings, url ? { endpoint: { url, ...(apiKey && { apiKey }) } } : {}).catch(
+    () => {}
+  );
+};
+
 /**
  * Runs one agent session through the limiter and resolves to the finished run and its final message. A bot out of
  * runs for the day is skipped instead; the model the harness reports is recorded on the run.
@@ -393,7 +447,7 @@ const agent = (
     const finished = yield* p.limit(
       runJob({
         adapter: (p.adapters ?? harnesses)[bot.harness],
-        spec,
+        spec: spec.surfacer ? { ...spec, surfacer: { ...spec.surfacer, run: run.id } } : spec,
         timeoutMinutes,
         store: p.store,
         runId: run.id,
@@ -409,6 +463,7 @@ const agent = (
     );
     const reported: string | undefined = model;
     const recorded = reported ? yield* Effect.promise(() => p.store.update(run.id, { model: reported })) : finished;
+    yield* Effect.promise(() => summarize(bot, run.id, p));
     return { run: recorded, final: result ?? lastText };
   });
 
@@ -539,14 +594,13 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       const spec = session({
         config: p.config,
         bot,
-        skill,
-        can: ['reply'],
+        returns: ['reply'],
         branch: undefined,
         prompt,
         cwd: a.cwd,
-        paths: check.paths,
+        preload: effectivePreload(bot, {}),
         tools: effectiveTools(bot, {}),
-        mcp: p.mcp,
+        access: p,
       });
       const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p);
       return { ...verdictOf(run, final), run: run.id };
@@ -622,10 +676,12 @@ const followUp = (
   rejected: Rejection[],
   attempt: number,
   total: number,
-  problems: string[] = []
+  problems: string[] = [],
+  earlier?: string
 ) =>
   [
     prompt,
+    ...(earlier ? ['## Your earlier attempt', earlier] : []),
     ...(problems.length
       ? [
           '## Proposal errors',
@@ -669,7 +725,7 @@ const closed = (closure: Closure, reason?: string): Pick<Run, 'closure' | 'reaso
  * never started is `deferred`;
  * any other failure, or an effect that failed to apply, is `blocked`.
  */
-export const closureOf = (run: Run, outcome: Outcome | undefined, can: ProposalKind[], taken = false) => {
+export const closureOf = (run: Run, outcome: Outcome | undefined, returns: ProposalKind[], taken = false) => {
   if (run.status === 'skipped') return closed('deferred', run.reason);
   const asked = outcome && kindsOf(outcome).includes('ask');
   if (run.status !== 'succeeded') {
@@ -687,7 +743,7 @@ export const closureOf = (run: Run, outcome: Outcome | undefined, can: ProposalK
   if (kinds.includes('open-pr')) return closed('handed-off');
   if (kinds.includes('push'))
     return taken ? closed('handed-off') : closed('blocked', 'pushed a branch without opening a pull request');
-  if (can.includes('push')) return closed('no-op', 'proposed no change');
+  if (returns.includes('push')) return closed('no-op', 'proposed no change');
   return kinds.length ? closed('done') : closed('no-op', 'proposed nothing');
 };
 
@@ -750,7 +806,7 @@ const settle = async (
     record: results => p.store.saveOutcome(run.id, { ...base, results }),
     ...(gh && { gh }),
     ...(issues && { issues }),
-    ...(hubPr && { hubPr }),
+    ...((hubPr ?? p.hub) && { hubPr: hubPr ?? hubProposal(p.hub!) }),
   });
   return p.store.saveOutcome(run.id, { ...base, results, ...handoffOf(writes, results) });
 };
@@ -763,11 +819,11 @@ const remember = async (run: Run, outcome: Outcome | undefined, p: Pipeline) => 
   } catch {}
 };
 
-const finish = (planned: PlannedJob, run: Run, outcome: Outcome | undefined, can: ProposalKind[], p: Pipeline) =>
+const finish = (planned: PlannedJob, run: Run, outcome: Outcome | undefined, kinds: ProposalKind[], p: Pipeline) =>
   Effect.promise(async (): Promise<JobResult> => {
     const jobs = Object.values(p.config.workflows[planned.workflow]?.jobs ?? {});
     const taken = jobs.some(job => job.needs.includes(planned.job));
-    const final = await p.store.update(run.id, closureOf(run, outcome, can, taken));
+    const final = await p.store.update(run.id, closureOf(run, outcome, kinds, taken));
     await remember(final, outcome, p);
     return { ...planned, run: final, ...(outcome && { outcome }) };
   });
@@ -787,9 +843,9 @@ const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: P
 export const proposalProblems = (
   extracted: ReturnType<typeof extractProposals>,
   validated: Validated,
-  can: ProposalKind[]
+  kinds: ProposalKind[]
 ): string[] => {
-  if (!can.length) return [];
+  if (!kinds.length) return [];
   if (extracted.errors.length) return extracted.errors;
   if (validated.rejected.length && !validated.accepted.length)
     return validated.rejected.map(({ proposal, reason }) => `\`${proposal.kind}\` was rejected: ${reason}`);
@@ -798,6 +854,31 @@ export const proposalProblems = (
       'the reply has no bothub block; end with your proposals, or a `close` proposal when there is nothing to do',
     ];
   return [];
+};
+
+/** The notes a run proposed with `notes_add`, ahead of those in its final message. */
+const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Run, p: Pipeline) => {
+  const text = await readFile(proposalsFile(p.store.home(run.id)), 'utf8').catch(() => '');
+  const recorded = text
+    .split('\n')
+    .filter(Boolean)
+    .flatMap(line => {
+      try {
+        const parsed = Proposal.safeParse(JSON.parse(line));
+        return parsed.success ? [parsed.data] : [];
+      } catch {
+        return [];
+      }
+    });
+  return recorded.length ? { ...extracted, proposals: [...recorded, ...extracted.proposals] } : extracted;
+};
+
+const earlierLines = 40;
+
+/** What an attempt did, one line per message and tool call, for the next attempt of a bot that resumes. */
+const attemptSummary = async (run: Run, p: Pipeline) => {
+  const lines = items(await p.store.events(run.id)).map(item => `- ${item.line}`);
+  return lines.slice(-earlierLines).join('\n') || undefined;
 };
 
 const costOf = async (ids: string[], store: Store) =>
@@ -832,8 +913,11 @@ const attempts = (
       preloaded,
       handoff,
       ...(p.mcp && { mcp: p.mcp }),
+      ...(p.hub && { hub: p.hub }),
+      ...(p.data && { data: p.data }),
     });
-    const { bot, job, can, branch, timeoutMinutes } = built;
+    const { bot, job, returns, branch, timeoutMinutes } = built;
+    const kinds = returnKinds(returns);
     const env = handoffEnv(handoff);
     const max = job.until?.max ?? 1;
     const cap = bot.budget?.['usd-per-run'];
@@ -857,8 +941,8 @@ const attempts = (
             );
       const { run, final } = yield* agent(bot, { ...built.spec, prompt }, timeoutMinutes, current, p, env);
       spent += run.costUsd ?? 0;
-      const extracted = extractProposals(final);
-      const validated = validate(extracted.proposals, { can, paths: job.paths, branch }, job.mode);
+      const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
+      const validated = validate(extracted.proposals, { returns, paths: job.paths, branch }, job.mode);
       const a: Attempt = {
         planned,
         job,
@@ -870,7 +954,7 @@ const attempts = (
         ...(item && { item: item.index }),
       };
       const succeeded = run.status === 'succeeded';
-      const problems = succeeded ? proposalProblems(extracted, validated, can) : [];
+      const problems = succeeded ? proposalProblems(extracted, validated, kinds) : [];
       if (problems.length) {
         const error = problems.join('; ');
         if (attempt > max) {
@@ -881,11 +965,13 @@ const attempts = (
             })
           );
           const outcome = yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
-          return yield* finish(planned, failed, outcome, can, p);
+          return yield* finish(planned, failed, outcome, kinds, p);
         }
         const failed = yield* Effect.promise(() => p.store.update(run.id, { status: 'failed', error }));
         yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
-        prompt = followUp(task, [], [], attempt + 1, max + 1, problems);
+        const earlier =
+          bot.session?.resume === 'attempts' ? yield* Effect.promise(() => attemptSummary(run, p)) : undefined;
+        prompt = followUp(task, [], [], attempt + 1, max + 1, problems, earlier);
         parent = failed;
         continue;
       }
@@ -893,7 +979,7 @@ const attempts = (
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, succeeded ? validated.accepted : undefined, a, p)
         );
-        return yield* finish(planned, run, outcome, can, p);
+        return yield* finish(planned, run, outcome, kinds, p);
       }
 
       const checks: Verdict[] = [];
@@ -914,7 +1000,7 @@ const attempts = (
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, validated.accepted, a, p, checks)
         );
-        return yield* finish(planned, run, outcome, can, p);
+        return yield* finish(planned, run, outcome, kinds, p);
       }
 
       const broke = cap !== undefined && spent >= cap;
@@ -942,11 +1028,13 @@ const attempts = (
             checks
           )
         );
-        return yield* finish(planned, failed, outcome, can, p);
+        return yield* finish(planned, failed, outcome, kinds, p);
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, checks));
-      prompt = followUp(task, failing, validated.rejected, attempt + 1, max + 1);
+      const earlier =
+        bot.session?.resume === 'attempts' ? yield* Effect.promise(() => attemptSummary(run, p)) : undefined;
+      prompt = followUp(task, failing, validated.rejected, attempt + 1, max + 1, [], earlier);
       parent = run;
     }
   });

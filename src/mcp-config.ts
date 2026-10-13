@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import type { Harness, HubTool } from './schema.ts';
+import type { McpTool } from './mcp.ts';
+import type { Harness } from './schema.ts';
 
 /** How a harness starts the bothub MCP server: a stdio command. */
 export type McpServer = { command: string; args: string[]; env: Record<string, string> };
@@ -17,7 +18,7 @@ export const bothubServer = ({
   env = {},
 }: {
   dir: string;
-  tools: HubTool[];
+  tools: McpTool[];
   repo: string;
   data?: string;
   env?: Record<string, string>;
@@ -33,7 +34,7 @@ export const opencodeMcpConfig = ({ command, args, env }: McpServer) => ({
 });
 
 /** The names a harness's tool allowlist uses for the bothub tools. pi has no MCP client, so it gets none. */
-export const mcpToolNames = (harness: Harness, tools: HubTool[]): string[] => {
+export const mcpToolNames = (harness: Harness, tools: McpTool[]): string[] => {
   switch (harness) {
     case 'opencode':
       return tools.map(tool => `${serverName}_${tool}`);

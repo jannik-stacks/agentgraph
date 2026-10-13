@@ -54,4 +54,6 @@ export type HarnessAdapter = {
   name: Harness;
   command: (spec: RunSpec) => { cmd: string; args: string[]; env: Record<string, string> };
   parseLine: (line: string) => AgentEvent[];
+  /** The ids of bothub's own plugins the run loads; each marks itself loaded in the run home. */
+  plugins?: (spec: RunSpec) => string[];
 };

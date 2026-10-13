@@ -1,6 +1,6 @@
 import { hubTools, type Config } from './config.ts';
 import { fanOut } from './over.ts';
-import { NoteKind, ruleKinds, type HubTool, type Over, type Preload } from './schema.ts';
+import { NoteKind, type HubTool, type Over, type Preload } from './schema.ts';
 
 /** A node and edge model of a hub, for rendering. Ids are prefixed by kind, like `job:issue/implement`. */
 export type HubGraph = {
@@ -14,17 +14,7 @@ export type HubGraph = {
   edges: {
     from: string;
     to: string;
-    kind:
-      | 'triggers'
-      | 'needs'
-      | 'runs-as'
-      | 'uses-skill'
-      | 'gates'
-      | 'loops-back'
-      | 'fans-out'
-      | 'reads-notes'
-      | 'preloads'
-      | 'calls';
+    kind: 'triggers' | 'needs' | 'runs-as' | 'uses-skill' | 'gates' | 'loops-back' | 'fans-out' | 'preloads' | 'calls';
     label?: string;
   }[];
 };
@@ -33,29 +23,22 @@ const badges = (...items: (string | false | undefined)[]) => items.filter((item)
 
 /**
  * Builds the hub graph: triggers start jobs, jobs (or scripts) need jobs, run as bots with skills and loop back
- * from their `until` checks; bots and skills read notes, one node per note kind. Context reaches a run two ways,
- * both drawn from where they are declared: `preload` edges into the issue tracker and the rule notes, and `calls`
- * edges to the read tools a run may call.
+ * from their `until` checks. Notes get one node per kind; they reach a run by relevance, so no edge leads to them.
+ * Other context is drawn from where it is declared: `preload` edges into the issue tracker, and `calls` edges to the
+ * hub tools a run may call.
  */
 export const hubGraph = (config: Config): HubGraph => {
   const graph: HubGraph = { nodes: [], edges: [] };
   const node = (n: HubGraph['nodes'][number]) => graph.nodes.push(n);
   const edge = (e: HubGraph['edges'][number]) => graph.edges.push(e);
-  const reads = new Set<NoteKind>();
-  const readNotes = (from: string, kinds: NoteKind[] = [], kind: 'reads-notes' | 'preloads' = 'reads-notes') =>
-    kinds.forEach(note => {
-      reads.add(note);
-      edge({ from, to: `note:${note}`, kind });
-    });
   const tools = new Set<HubTool>();
   let tracker = false;
   const preloads = (from: string, preload: Preload[] | undefined) => {
-    const items = preload?.filter(item => item !== 'notes') ?? [];
+    const items = preload?.filter(item => item === 'issue' || item === 'links') ?? [];
     if (items.length) {
       tracker = true;
       edge({ from, to: 'issues:issues', kind: 'preloads', label: items.join(', ') });
     }
-    if (preload?.includes('notes')) readNotes(from, [...ruleKinds], 'preloads');
   };
   const calls = (from: string, granted: HubTool[]) =>
     granted.forEach(tool => {
@@ -113,7 +96,6 @@ export const hubGraph = (config: Config): HubGraph => {
       badges: badges(bot.harness, bot.model),
       detail: { ...rest, role: body },
     });
-    readNotes(`bot:${name}`, bot.notes);
     preloads(`bot:${name}`, bot.preload);
     calls(`bot:${name}`, hubTools(bot));
   }
@@ -121,7 +103,6 @@ export const hubGraph = (config: Config): HubGraph => {
   for (const skill of Object.values(config.skills)) {
     const { name, path: _, body, ...rest } = skill;
     node({ id: `skill:${name}`, kind: 'skill', label: name, detail: { ...rest, prompt: body } });
-    readNotes(`skill:${name}`, skill.notes);
   }
 
   for (const check of Object.values(config.checks)) {
@@ -140,7 +121,7 @@ export const hubGraph = (config: Config): HubGraph => {
 
   for (const kind of NoteKind.options) {
     const notes = config.notes.filter(n => n.kind === kind);
-    if (!notes.length && !reads.has(kind)) continue;
+    if (!notes.length) continue;
     node({
       id: `note:${kind}`,
       kind: 'note',

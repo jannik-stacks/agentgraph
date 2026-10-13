@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import type { HubChange } from './apply.ts';
 import type { ConfigError, SourceFile } from './config.ts';
 import { applyChanges, itemKind, validateHub, type Change } from './hub-files.ts';
 import { readHub } from './load.ts';
@@ -157,6 +159,78 @@ export const writeHub = (dir: string, input: unknown): Promise<WriteResult> =>
     }
     return result;
   });
+
+const bot = { name: 'bothub[bot]', email: 'bothub[bot]@users.noreply.github.com' };
+
+const branchSlug = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, '') || 'change';
+
+/**
+ * Lands a hub change on a new branch `bothub/hub/<slug>-<sha>` of the hub's own repository, made from its HEAD, for a
+ * human to merge. The working tree and the checked-out branch are never touched, and a change that would leave the
+ * hub invalid is refused. Resolves to the branch, or to nothing when the hub directory is not the top of a repository.
+ */
+export const hubProposal =
+  (dir: string) =>
+  async ({ files, title, body }: HubChange): Promise<string | undefined> => {
+    const top = await run('git', ['-C', dir, 'rev-parse', '--show-toplevel']).then(
+      ({ stdout }) => realpath(stdout.trim()),
+      () => undefined
+    );
+    if (!top || top !== (await realpath(dir))) return;
+    const changed = new Set(files.map(file => file.path));
+    const after = [
+      ...(await readHubItems(dir)).filter(file => !changed.has(file.path)),
+      ...files.flatMap(file => (file.content === null ? [] : [{ path: file.path, source: file.content }])),
+    ];
+    const validated = validateHub(after);
+    if (!validated.ok)
+      throw new Error(
+        `the change leaves the hub invalid: ${validated.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`
+      );
+    const scratch = await mkdtemp(join(tmpdir(), 'bothub-hub-'));
+    const env = {
+      ...process.env,
+      GIT_INDEX_FILE: join(scratch, 'index'),
+      GIT_AUTHOR_NAME: bot.name,
+      GIT_AUTHOR_EMAIL: bot.email,
+      GIT_COMMITTER_NAME: bot.name,
+      GIT_COMMITTER_EMAIL: bot.email,
+    };
+    const git = async (args: string[]) => (await run('git', ['-C', top, ...args], { env })).stdout.trim();
+    try {
+      await git(['read-tree', 'HEAD']);
+      for (const file of files) {
+        if (file.content === null) {
+          await git(['update-index', '--force-remove', '--', file.path]);
+          continue;
+        }
+        const blob = join(scratch, 'blob');
+        await writeFile(blob, file.content);
+        const sha = await git(['hash-object', '-w', '--', blob]);
+        await git(['update-index', '--add', '--cacheinfo', `100644,${sha},${file.path}`]);
+      }
+      const tree = await git(['write-tree']);
+      const commit = await git([
+        'commit-tree',
+        '--no-gpg-sign',
+        tree,
+        '-p',
+        'HEAD',
+        '-m',
+        body.trim() ? `${title}\n\n${body}` : title,
+      ]);
+      const branch = `bothub/hub/${branchSlug(title)}-${commit.slice(0, 7)}`;
+      await git(['update-ref', `refs/heads/${branch}`, commit, '']);
+      return branch;
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  };
 
 const loopback = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 

@@ -1,42 +1,86 @@
 ---
 title: Context
-description: What a run knows before it starts, and what it can look up.
+description: What a run takes in, what it uses while it works, and what it returns.
 ---
 
-A run sees the bot's role, its offered skills, the notes it reads, the forced skill's prompt and
-the triggering event. Beyond that there are two ways to give it more.
+A run starts with the bot's role, its offered skills, the forced skill's prompt, the triggering
+event and what it may return. Three things add to that: preload before the run, notes and earlier
+runs surfaced while it works, and hub tools it calls itself.
+
+| Row         | What it holds                                                                |
+| ----------- | ---------------------------------------------------------------------------- |
+| **in**      | What the run looks at (`over`) and what it sees first (`preload`)            |
+| **uses**    | Harness tools and hub tools                                                  |
+| **returns** | The proposal kinds it may hand back; a check returns a verdict, pass or fail |
+
+The studio shows these three rows for every job and check.
 
 ## Preload
 
-`preload` renders context into the prompt before the run starts, through
+`preload` renders context into the prompt before the run starts, through <Sym name="issueContext" />,
+or switches on recall for it. Without `preload` a run gets `recall` alone.
 
-<Sym name="issueContext" /> and <Sym name="relevantNotes" />. Use it for things every run of the job needs.
+| Value    | What it adds                                                            |
+| -------- | ----------------------------------------------------------------------- |
+| `issue`  | The triggering issue with its comments and the questions asked on it    |
+| `links`  | Its parent, linked issues and sub-issues                                |
+| `recall` | Notes and earlier runs surfaced by relevance while the bot works, below |
 
-| Value   | What is rendered             |
-| ------- | ---------------------------- |
-| `issue` | The triggering issue         |
-| `links` | Issues linked from it        |
-| `notes` | The notes that match the run |
+`recall` takes two settings: `cutoff`, the relevance a hit needs to be shown, and `budget`, how
+much surfaced text one turn may add.
 
-## Read-only tools
+```yaml
+preload: [issue, { recall: { cutoff: 0.5, budget: 1200 } }]
+```
 
-`tools` on a job offers lookups through the bothub MCP server (<Sym name="serveMcp" />), for things
-a run might need. They
-read, they never write; writing is what [proposals](/docs/proposals) are for.
+## Surfacing
 
-| Tool                        | Reads                                   |
-| --------------------------- | --------------------------------------- |
-| `issues_list`, `issues_get` | Issues, plans, specs and open questions |
-| `notes_search`, `notes_get` | Notes in the hub                        |
-| `runs_read`                 | Earlier runs from the run store         |
+Notes are what the hub knows, surfaced when relevant. A bot never lists the notes it reads. While
+it works, the <Sym name="surfacer" /> plugin takes the task and each new turn, searches accepted
+notes and the summaries of earlier runs, and adds the few that matter to the next model turn.
+
+<Sym name="recall" /> ranks with BM25 first, then a small local model scores the top hits and drops those under the
+cutoff. Proposed, superseded and retired notes are never surfaced.
+
+Earlier runs are surfaced only where the bot that ran them shares them: `session.share` is `none`,
+`bot` (the default, its own runs) or `hub` (every bot). After every run its events are written down
+as one-line summaries (<Sym name="summarizeRun" />), extractive by default; `summarizer` on the bot
+picks a model instead, or `off`.
+
+The surfacer runs inside opencode. pi has no plugins, so a pi run gets no recall.
+
+## Hub tools
+
+`tools` on a bot, narrowed by a job, offers lookups a run calls when it needs them. They read; any
+change goes through what the run [returns](/docs/proposals). opencode gets them from the bothub MCP
+server (<Sym name="serveMcp" />); pi has no MCP client, so a pi bot gets preload but no hub tools.
+
+| Tool                        | Reads                                                |
+| --------------------------- | ---------------------------------------------------- |
+| `issues_list`, `issues_get` | Issues, plans, specs and open questions              |
+| `notes_search`, `notes_get` | Every note in the hub, with its status               |
+| `runs_read`                 | Earlier runs from the run store                      |
+| `history`                   | Summaries of earlier runs the bot may see, by search |
+
+A run whose returns include `note` also gets `notes_add`, which proposes a note while it works.
 
 ```yaml
 jobs:
   triage:
     type: bot
     bot: triager
-    preload: [issue, links]
+    preload: [issue, links, recall]
     tools: [issues_get, notes_search]
+```
+
+## Sessions
+
+`session.resume` says what a retry of the same job starts with. `none`, the default, sends only
+the failing check findings. `attempts` adds a short summary of what the earlier attempt did.
+
+```yaml
+session: { resume: attempts, share: hub }
+summarizer: extractive
 ```
 
 ## Issues
@@ -49,6 +93,6 @@ issues: github # or local
 
 `github` reads and writes real issues in the target repo (<Sym name="githubIssues" />). `local`
 keeps them as files (<Sym name="localIssues" />), which is handy for trying a hub without touching
-GitHub. pi has no MCP client, so a pi bot gets preload but no tools.
+GitHub.
 
 The code is on [Issues and context](/docs/reference/context).

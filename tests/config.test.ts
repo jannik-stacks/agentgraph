@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   compile,
-  effectiveCan,
+  effectiveReturns,
   effectivePreload,
   effectiveTools,
   harnessTools,
@@ -15,8 +15,8 @@ import { parseMarkdown } from '../src/markdown.ts';
 const hub = join(import.meta.dirname, '../examples/hub');
 
 const file = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n${body}` });
-const bot = (name: string, can = '[reply]') =>
-  file(`bots/${name}.md`, `harness: opencode\ntools: []\ncan: ${can}\nmax-turns: 5`, 'role');
+const bot = (name: string, returns = '[reply]') =>
+  file(`bots/${name}.md`, `harness: opencode\ntools: []\nreturns: ${returns}\nmax-turns: 5`, 'role');
 const skill = (name: string) => file(`skills/${name}.md`, 'description: does it', 'prompt');
 const workflow = (frontmatter: string) => file('workflows/w.md', frontmatter);
 const errorsOf = (files: SourceFile[]) => {
@@ -42,9 +42,9 @@ describe('compile', () => {
     expect(notes.map(n => `${n.kind}/${n.name}`)).toEqual([
       'caveat/empty-allowlist',
       'caveat/esm-only-bin',
-      'convention/typecheck-clean',
       'decision/parse-at-the-boundary',
-      'pattern/small-pure-functions',
+      'style/small-pure-functions',
+      'style/typecheck-clean',
     ]);
     expect(bots.reviewer).toMatchObject({ harness: 'pi', body: expect.stringContaining('Try to break them') });
     expect(checks.review).toMatchObject({
@@ -64,8 +64,54 @@ describe('compile', () => {
 
   it('rejects unknown keys and old names', () => {
     expect(errorsOf([workflow('on: {}\njobs: {}\npermissions: {}')]).join()).toMatch(/permissions/);
-    expect(errorsOf([file('bots/b.md', 'harness: codex\ntools: []\ncan: []\nmax-turns: 1')]).join()).toMatch(/harness/);
-    expect(errorsOf([bot('b', '[push-branch]')]).join()).toMatch(/can/);
+    expect(errorsOf([file('bots/b.md', 'harness: codex\ntools: []\nreturns: []\nmax-turns: 1')]).join()).toMatch(
+      /harness/
+    );
+    expect(errorsOf([bot('b', '[push-branch]')]).join()).toMatch(/returns/);
+    const old = (line: string) => file('bots/b.md', `harness: opencode\ntools: []\n${line}\nmax-turns: 1`, 'role');
+    expect(errorsOf([old('can: [reply]')]).join()).toMatch(/Unrecognized key: "can"/);
+    expect(errorsOf([old('returns: []\nnotes: [caveat]')]).join()).toMatch(/Unrecognized key: "notes"/);
+    expect(errorsOf([old('returns: []\npreload: [notes]')])).not.toEqual([]);
+    expect(errorsOf([file('notes/pattern/a.md', 'title: A')]).join()).toMatch(/unknown note kind "pattern"/);
+  });
+
+  it('reads hub(<globs>) returns from a YAML flow list and keeps them inside the hub', () => {
+    const result = compile([bot('p', '[reply, hub(notes/**, skills/*.md), note]')]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    expect(result.config.bots.p?.returns).toEqual(['reply', 'hub(notes/**, skills/*.md)', 'note']);
+    expect(errorsOf([bot('p', '[hub(../x/**)]')])).toEqual(['returns "hub(../x/**)": "../x/**" leaves the hub']);
+    expect(errorsOf([bot('p', '[hub(/etc/**)]')])).toEqual(['returns "hub(/etc/**)": "/etc/**" leaves the hub']);
+    expect(errorsOf([bot('p', '[hub()]')]).join()).toMatch(
+      /must be one of reply, label, push, open-pr, note, ask, or hub\(<globs>\)/
+    );
+  });
+
+  it('never lets a bot return changes to hub.yaml, bots or workflows', () => {
+    const reach = 'reaches hub.yaml, bots/**, workflows/**, which only a human changes';
+    for (const glob of ['**', 'bots/**', 'workflows/x.md', 'hub.yaml', '*.yaml', 'bots/**/*.md'])
+      expect(errorsOf([bot('p', `[hub(${glob})]`)])).toEqual([`returns "hub(${glob})": "${glob}" ${reach}`]);
+    expect(errorsOf([bot('p', '[hub(notes/**, skills/**, checks/*.md)]')])).toEqual([]);
+  });
+
+  it('lets a job narrow hub globs only to globs the bot returns', () => {
+    const errors = errorsOf([
+      bot('p', '[reply, hub(notes/**)]'),
+      skill('s'),
+      workflow(
+        [
+          'on: { push: {} }',
+          'jobs:',
+          '  same: { type: bot, bot: p, skill: s, returns: [hub(notes/**)] }',
+          '  inner: { type: bot, bot: p, skill: s, returns: [hub(notes/caveat/*.md)] }',
+          '  wider: { type: bot, bot: p, skill: s, returns: [hub(skills/**)] }',
+          '  kind: { type: bot, bot: p, skill: s, returns: [note] }',
+        ].join('\n')
+      ),
+    ]);
+    expect(errors).toEqual([
+      'job "wider" returns "hub(skills/**)", which bot "p" does not return',
+      'job "kind" returns "note", which bot "p" does not return',
+    ]);
   });
 
   it('checks references between jobs, bots, skills and checks', () => {
@@ -76,7 +122,7 @@ describe('compile', () => {
         [
           'on: { pull_request: }',
           'jobs:',
-          '  a: { type: bot, needs: missing, bot: p, skill: s, can: [open-pr], until: { checks: [ghost] } }',
+          '  a: { type: bot, needs: missing, bot: p, skill: s, returns: [open-pr], until: { checks: [ghost] } }',
           '  b: { type: bot, bot: ghost, skill: s }',
           '  c: { type: script, on: { issue_comment: {} }, run: echo }',
           '  e: { type: bot, bot: p, skill: nope }',
@@ -88,7 +134,7 @@ describe('compile', () => {
     expect(errors).toEqual([
       'job "a" needs unknown job "missing"',
       'job "a" waits for unknown check "ghost"',
-      'job "a" allows "open-pr", which bot "p" cannot do',
+      'job "a" returns "open-pr", which bot "p" does not return',
       'job "b" uses unknown bot "ghost"',
       'job "c" triggers on "issue_comment", which the workflow does not listen to',
       'job "e" uses unknown skill "nope"',
@@ -139,7 +185,7 @@ describe('compile', () => {
       file('notes/rumor/b.md', 'title: B'),
     ]);
     expect(result.ok ? [] : result.errors.map(e => `${e.path}: ${e.message}`)).toEqual([
-      'notes/rumor/b.md: unknown note kind "rumor", expected one of "decision", "convention", "pattern", "caveat"',
+      'notes/rumor/b.md: unknown note kind "rumor", expected one of "decision", "style", "caveat"',
     ]);
     const errors = errorsOf([
       { ...bot('p'), source: bot('p').source.replace('max-turns', 'skills: [gone]\nmax-turns') },
@@ -162,7 +208,7 @@ describe('compile', () => {
   });
 
   it('reads hub.yaml and checks preload and tools grants', () => {
-    const tooled = file('bots/t.md', 'harness: opencode\ntools: [read, issues_get]\ncan: [reply]\nmax-turns: 5');
+    const tooled = file('bots/t.md', 'harness: opencode\ntools: [read, issues_get]\nreturns: [reply]\nmax-turns: 5');
     const result = compile([{ path: 'hub.yaml', source: 'issues: local\n' }, tooled]);
     expect(result.ok && result.config.hub).toEqual({ issues: 'local' });
     const empty = compile([]);
@@ -179,8 +225,8 @@ describe('compile', () => {
 
   it('rejects tool names the harness does not have, so a bot never runs with a silently empty allowlist', () => {
     const errors = errorsOf([
-      file('bots/caps.md', 'harness: opencode\ntools: [Read, bash(git diff*), issues_get]\ncan: [reply]'),
-      file('bots/pi.md', 'harness: pi\ntools: [glob, find, bash(git *)]\ncan: [reply]'),
+      file('bots/caps.md', 'harness: opencode\ntools: [Read, bash(git diff*), issues_get]\nreturns: [reply]'),
+      file('bots/pi.md', 'harness: pi\ntools: [glob, find, bash(git *)]\nreturns: [reply]'),
     ]);
     expect(errors).toEqual([
       expect.stringMatching(/^lists tool "Read", which opencode does not have \(one of read, /),
@@ -190,12 +236,14 @@ describe('compile', () => {
   });
 
   it('warns that pi ignores max-turns and gets no hub tools', () => {
-    const result = compile([file('bots/p.md', 'harness: pi\ntools: [read, notes_search]\ncan: [reply]\nmax-turns: 4')]);
+    const result = compile([
+      file('bots/p.md', 'harness: pi\ntools: [read, notes_search]\nreturns: [reply]\nmax-turns: 4'),
+    ]);
     expect(result.ok && result.warnings.map(w => w.message)).toEqual([
       '"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it',
       'lists hub tools (notes_search) that pi runs do not get',
     ]);
-    const quiet = compile([file('bots/p.md', 'harness: pi\ntools: [read]\ncan: [reply]')]);
+    const quiet = compile([file('bots/p.md', 'harness: pi\ntools: [read]\nreturns: [reply]')]);
     expect(quiet.ok && quiet.warnings).toEqual([]);
   });
 
@@ -232,10 +280,10 @@ describe('compile', () => {
   });
 });
 
-describe('effectiveCan', () => {
+describe('effectiveReturns', () => {
   it('narrows the bot to the job', () => {
-    expect(effectiveCan({ can: ['reply', 'push', 'ask'] }, { can: ['push', 'label'] })).toEqual(['push']);
-    expect(effectiveCan({ can: ['reply'] }, {})).toEqual(['reply']);
+    expect(effectiveReturns({ returns: ['reply', 'push', 'ask'] }, { returns: ['push', 'label'] })).toEqual(['push']);
+    expect(effectiveReturns({ returns: ['reply'] }, {})).toEqual(['reply']);
   });
 });
 
@@ -248,10 +296,10 @@ describe('effective context', () => {
     expect(effectiveTools(bot, { tools: ['issues_get'] })).toEqual(['issues_get']);
   });
 
-  it('takes the job preload, then the bot preload, then the notes alone', () => {
+  it('takes the job preload, then the bot preload, then recall alone', () => {
     expect(effectivePreload(bot, { preload: ['links'] })).toEqual(['links']);
     expect(effectivePreload(bot, {})).toEqual(['issue']);
-    expect(effectivePreload({}, {})).toEqual(['notes']);
+    expect(effectivePreload({}, {})).toEqual(['recall']);
   });
 });
 

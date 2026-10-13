@@ -1,7 +1,16 @@
 import { z } from 'zod';
-import { Closure, NoteKind, type Job, type Mode, type ProposalKind } from './schema.ts';
+import { Closure, hubGlobs, humanOnly, NoteKind, type Job, type Mode, type Return } from './schema.ts';
 
 const text = z.string().min(1);
+
+/** A note a run proposes; it lands as `notes/<note>/<slug>.md` with status proposed. */
+export const NoteProposal = z.strictObject({
+  kind: z.literal('note'),
+  note: NoteKind,
+  slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'must be lowercase kebab-case'),
+  title: text,
+  body: text,
+});
 
 /**
  * A write an agent asks the hub to make on its behalf. `close` is not a write: it states that the job stopped short
@@ -19,12 +28,20 @@ export const Proposal = z.discriminatedUnion('kind', [
     base: text.optional(),
     draft: z.boolean().optional(),
   }),
+  NoteProposal,
   z.strictObject({
-    kind: z.literal('note'),
-    note: NoteKind,
-    slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'must be lowercase kebab-case'),
+    kind: z.literal('hub'),
     title: text,
-    body: text,
+    body: z.string(),
+    files: z
+      .array(
+        z.union([
+          z.strictObject({ path: text, content: z.string() }),
+          z.strictObject({ path: text, delete: z.literal(true) }),
+        ])
+      )
+      .min(1)
+      .max(50),
   }),
   z.strictObject({ kind: z.literal('ask'), question: text }),
   z.strictObject({ kind: z.literal('close'), as: Closure.extract(['blocked', 'deferred', 'no-op']), reason: text }),
@@ -107,7 +124,8 @@ const caps: Record<Proposal['kind'], number> = {
   label: 1,
   push: 1,
   'open-pr': 1,
-  note: 1,
+  note: 3,
+  hub: 1,
   ask: 1,
   close: 1,
 };
@@ -115,9 +133,17 @@ const caps: Record<Proposal['kind'], number> = {
 /** The label a human adds to an approval issue; never a bot. */
 export const approved = 'approved';
 
+/** Why a hub file change is refused: it leaves the hub, or touches `hub.yaml`, `bots/` or `workflows/`. */
+export const humanOnlyPath = (path: string) => {
+  if (path.startsWith('/') || path.split('/').includes('..')) return `path "${path}" leaves the hub`;
+  if (humanOnly.some(glob => matchGlob(glob, path))) return `path "${path}" changes only by a human`;
+};
+
+const kindOf = (entry: Return) => (hubGlobs(entry) ? 'hub' : entry);
+
 const check = (
   proposal: Proposal,
-  { paths, branch }: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'>
+  { paths, branch, returns }: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'> & { returns: Return[] }
 ): string | undefined => {
   const pinned = (name: string) =>
     branch && name !== branch ? `branch "${name}" is not the job's branch "${branch}"` : undefined;
@@ -128,19 +154,29 @@ const check = (
       return checkBranch(proposal.head) ?? pinned(proposal.head);
     case 'label':
       return proposal.add?.includes(approved) ? `only a human adds the "${approved}" label` : undefined;
+    case 'hub': {
+      const globs = returns.flatMap(entry => hubGlobs(entry) ?? []);
+      for (const { path } of proposal.files) {
+        const refused = humanOnlyPath(path);
+        if (refused) return refused;
+        if (!globs.some(glob => matchGlob(glob, path))) return `path "${path}" is outside hub(${globs.join(', ')})`;
+      }
+    }
   }
 };
 
 /**
- * Checks proposals against what a job allows: its effective `can`, its `paths` for pushed files and its rendered
- * `branch`, at most 3 replies and 1 of every other kind. A `close` is always allowed. Fails closed: every proposal that is not explicitly allowed
- * is rejected with a reason. `apply` says whether the job's mode lets accepted proposals reach GitHub.
+ * Checks proposals against what a job allows: its effective `returns`, its `paths` for pushed files, its rendered
+ * `branch`, the `hub(<globs>)` it returns for hub file changes, at most 3 replies and 1 of every other kind. A
+ * `close` is always allowed. Fails closed: every proposal that is not explicitly allowed is rejected with a reason.
+ * `apply` says whether the job's mode lets accepted proposals land.
  */
 export const validate = (
   proposals: Proposal[],
-  allowance: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'> & { can: ProposalKind[] },
+  allowance: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'> & { returns: Return[] },
   mode: Mode
 ): Validated => {
+  const kinds = new Set(allowance.returns.map(kindOf));
   const accepted: Proposal[] = [];
   const rejected: Rejection[] = [];
   const counts = new Map<Proposal['kind'], number>();
@@ -148,7 +184,7 @@ export const validate = (
     const count = counts.get(proposal.kind) ?? 0;
     const max = caps[proposal.kind];
     const reason =
-      proposal.kind !== 'close' && !allowance.can.includes(proposal.kind)
+      proposal.kind !== 'close' && !kinds.has(proposal.kind)
         ? `"${proposal.kind}" is not allowed for this job`
         : (check(proposal, allowance) ?? (count >= max ? `more than ${max} "${proposal.kind}" proposals` : undefined));
     if (reason) {

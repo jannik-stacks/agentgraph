@@ -61,7 +61,7 @@ export const inside = {
 };
 
 const proxy = 'http://egress:8888';
-const direct = 'litellm,ollama-relay,localhost,127.0.0.1';
+const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
 
 /**
  * The environment every run container starts with: the allowlisted egress proxy, the decision API relay, and npm
@@ -75,7 +75,7 @@ export const containerEnv = (env: Record<string, string | undefined> = process.e
   http_proxy: proxy,
   NO_PROXY: direct,
   no_proxy: direct,
-  BOTHUB_DECIDE_URL: 'http://ollama-relay:11434',
+  BOTHUB_DECIDE_URL: 'http://ollama.internal:11434',
   BOTHUB_DECIDE_MODEL: env.BOTHUB_DECIDE_MODEL ?? 'tev1:0.8b',
   npm_config_update_notifier: 'false',
   npm_config_include: 'dev',

@@ -2,10 +2,9 @@
 harness: opencode
 model: writer
 tools: [read, edit, write, bash, grep, glob, issues_get, notes_search, notes_get]
-can: [reply, push, open-pr, note, ask]
+returns: [reply, push, open-pr, note, ask]
 skills: [implement]
-notes: [caveat]
-preload: [issue, links, notes]
+preload: [issue, links, recall]
 max-turns: 40
 budget: { runs-per-day: 20, minutes: 45 }
 ---

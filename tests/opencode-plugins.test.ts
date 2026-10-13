@@ -100,8 +100,8 @@ const runs: { id: string; bot: string; archived?: number; summaries: SummaryReco
 
 const notes: Record<string, string> = {
   'notes/decision/bigint-amounts.md': '---\ntitle: Amounts are bigint\n---\nFees, amounts and nonces are bigint.\n',
-  'notes/convention/docs-words.md': '---\ntitle: Docs use words\n---\nNo middle dots in docs.\n',
-  'notes/pattern/fee-retry.md':
+  'notes/style/docs-words.md': '---\ntitle: Docs use words\n---\nNo middle dots in docs.\n',
+  'notes/style/fee-retry.md':
     '---\ntitle: Retry FeeEstimateError\nstatus: proposed\n---\nRetry FeeEstimateError three times.\n',
 };
 

@@ -20,9 +20,7 @@ describe('simulate', () => {
       'succeeded',
     ]);
     expect(trace).toContain('event  issue_comment (created) on #6 by @morgan: /bothub add cvToJson');
-    expect(trace).toMatch(
-      /job {4}issue\/triage \(triager\)\n {7}preload Notes [\d.]+ kB, Issue #6 [\d.]+ kB, Linked issues/
-    );
+    expect(trace).toMatch(/job {4}issue\/triage \(triager\)\n {7}preload Issue #6 [\d.]+ kB, Linked issues/);
     expect(trace).toContain(
       'tool  issues_get {"number":4}\n         ->  { "number": 4, "title": "Clarity values round-trip through JSON"'
     );
@@ -41,7 +39,7 @@ describe('simulate', () => {
     const { results, trace } = await run('stuck-run.yaml');
     const implement = results.find(r => r.job === 'implement');
     expect(implement && 'run' in implement && implement.run).toMatchObject({ status: 'failed', attempt: 4 });
-    expect(trace).toContain('checks   safety pass, style pass, lint pass, types pass, tests fail');
+    expect(trace).toContain('checks   safety pass, harness-memory pass, style pass, lint pass, types pass, tests fail');
     expect(trace).toContain('rejected push: checks still failing after 4 attempts');
     expect(trace).toMatch(
       /\+ 8-should-cvfromjson-reject-a-uint-passed-as-a-number\.md \(new\)\n.*\n {4}\| title: Should cvFromJson/

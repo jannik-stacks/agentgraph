@@ -15,11 +15,11 @@ import { toEvent } from './github.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
-import { serveMcp } from './mcp.ts';
+import { McpTool, serveMcp } from './mcp.ts';
 import { buildSpec, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
 import { sandboxConfig, sandboxNetwork } from './sandbox.ts';
-import { Bot, Check, Hub, HubTool, Note, Skill, Workflow } from './schema.ts';
+import { Bot, Check, Hub, Note, Skill, Workflow } from './schema.ts';
 import { localOrigin, runEvent, serveHub } from './serve.ts';
 import { serveGitHub } from './serve-github.ts';
 import { simulate } from './sim.ts';
@@ -236,6 +236,8 @@ const run = defineCommand({
           workflow,
           event,
           cwd: worktreePath(root, runId()),
+          hub: resolve(args.dir),
+          data: resolve(root),
         });
         const { cmd, args: argv } = harnesses[bot.harness].command(spec);
         return {
@@ -293,6 +295,7 @@ const run = defineCommand({
       ...(issues && { issues }),
       mcp: tools => bothubServer({ dir: resolve(args.dir), tools, repo: event.repo, data: resolve(root) }),
       hub: resolve(args.dir),
+      data: resolve(root),
       onEvent: (r, record) => process.stderr.write(`${r.workflow}/${r.job} ${describe(record.event)}\n`),
     });
     if (asJson(args.json)) print(JSON.stringify(results));
@@ -355,12 +358,12 @@ const logs = defineCommand({
 });
 
 const mcp = defineCommand({
-  meta: { name: 'mcp', description: "Serve a hub's read-only tools over MCP on stdio" },
+  meta: { name: 'mcp', description: "Serve a hub's tools over MCP on stdio" },
   args: {
     dir,
     data,
     repo: { type: 'string', description: 'Repository the issues belong to', default: 'hub/issues' },
-    tools: { type: 'string', description: 'Comma-separated tools to serve', default: HubTool.options.join(',') },
+    tools: { type: 'string', description: 'Comma-separated tools to serve', default: McpTool.options.join(',') },
   },
   async run({ args }) {
     const result = await loadConfig(args.dir);
@@ -368,9 +371,9 @@ const mcp = defineCommand({
       for (const e of result.errors) fail(`${e.path}: ${e.message}`);
       return 2;
     }
-    const tools = z.array(HubTool).safeParse(args.tools.split(',').filter(Boolean));
+    const tools = z.array(McpTool).safeParse(args.tools.split(',').filter(Boolean));
     if (!tools.success) {
-      fail(`unknown tool in "${args.tools}", expected ${HubTool.options.join(', ')}`);
+      fail(`unknown tool in "${args.tools}", expected ${McpTool.options.join(', ')}`);
       return 2;
     }
     const issues = hubIssues(result.config, args.dir, args.repo);
@@ -378,6 +381,7 @@ const mcp = defineCommand({
       config: result.config,
       ...(issues && { issues }),
       ...(args.data && { store: openStore(args.data) }),
+      ...(process.env.HOME && { home: process.env.HOME }),
     });
     return 0;
   },

@@ -1,49 +1,46 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compile } from '../src/config.ts';
 import { localIssues } from '../src/issues-local.ts';
-import { issueContext, overlaps, relevantNotes } from '../src/preload.ts';
+import { accepted, issueContext, runContext } from '../src/preload.ts';
+import type { Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
 import { temp } from './git.ts';
 
-const note = (path: string, front: string) => ({ path, source: `---\n${front}\n---\n\n${path}` });
+describe('runContext', () => {
+  const bot = {
+    name: 'b',
+    path: 'bots/b.md',
+    harness: 'opencode',
+    tools: ['read', 'notes_search'],
+    returns: ['reply', 'note', 'hub(notes/**)'],
+    role: '',
+  } as Bot;
 
-const compiled = compile([
-  note('notes/decision/everywhere.md', 'title: Everywhere'),
-  note('notes/convention/docs.md', 'title: Docs\npaths: [docs/**]'),
-  note('notes/convention/old.md', 'title: Old\nstatus: retired'),
-  note('notes/pattern/listed.md', 'title: Listed'),
-  note('notes/caveat/kit.md', 'title: Kit\npaths: [kit/src/**]'),
-  note('notes/caveat/loose.md', 'title: Loose'),
-  note('notes/caveat/drafted.md', 'title: Drafted\nstatus: proposed'),
-  note('notes/decision/ruled.md', 'title: Ruled\nstatus: accepted'),
-]);
-if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
-const { notes } = compiled.config;
-const names = (kinds: Parameters<typeof relevantNotes>[1]['kinds'], paths?: string[]) =>
-  relevantNotes(notes, { kinds, paths }).map(n => n.name);
-
-describe('relevantNotes', () => {
-  it('loads rules whose paths overlap, and knowledge only when listed or scoped to the job', () => {
-    expect(names([])).toEqual(['everywhere', 'docs', 'ruled']);
-    expect(names([], ['kit/**'])).toEqual(['everywhere', 'kit', 'ruled']);
-    expect(names(['pattern'], ['docs/content/**'])).toEqual(['everywhere', 'docs', 'listed', 'ruled']);
-    expect(names(['caveat'], ['docs/**'])).toEqual(['everywhere', 'docs', 'loose', 'ruled']);
+  it('recalls by default and narrows what the bot returns to the step', () => {
+    expect(runContext({ bot })).toEqual({
+      preload: ['recall'],
+      harnessTools: ['read'],
+      hubTools: ['notes_search'],
+      returns: ['reply', 'note', 'hub(notes/**)'],
+    });
+    expect(runContext({ bot, step: { over: 'diff', preload: ['issue'], returns: ['reply'] } })).toEqual({
+      over: 'diff',
+      preload: ['issue'],
+      harnessTools: ['read'],
+      hubTools: ['notes_search'],
+      returns: ['reply'],
+    });
   });
 
-  it('loads only accepted notes, never proposed or retired ones', () => {
-    const loaded = names(['decision', 'convention', 'pattern', 'caveat'], ['docs/**', 'kit/**']);
-    expect(loaded).toContain('ruled');
-    expect(loaded).not.toContain('drafted');
-    expect(loaded).not.toContain('old');
-  });
-
-  it('judges glob overlap by literal prefix', () => {
-    expect(overlaps(['docs/**'], ['docs/content/**/*.mdx'])).toBe(true);
-    expect(overlaps(['kit/**'], ['CLAUDE.md'])).toBe(false);
-    expect(overlaps(['**/*.ts'], ['kit/**'])).toBe(true);
-    expect(overlaps(undefined, ['kit/**'])).toBe(true);
+  it('counts a note in force when accepted or without a status', () => {
+    const note = (status?: 'proposed' | 'accepted' | 'retired') => ({ ...(status && { status }) }) as never;
+    expect([undefined, 'accepted', 'proposed', 'retired'].map(s => accepted(note(s as never)))).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
   });
 });
 
@@ -87,7 +84,7 @@ describe('issueContext', () => {
         '### Sub-issues\n\n- [x] #7: Sub',
       ].join('\n\n')
     );
-    expect(await issueContext(issues, event, ['notes'])).toBeUndefined();
+    expect(await issueContext(issues, event, ['recall'])).toBeUndefined();
     expect(await issueContext(undefined, event, ['issue'])).toBeUndefined();
   });
 

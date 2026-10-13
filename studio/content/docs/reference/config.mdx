@@ -12,6 +12,17 @@ shape; the two below carry most of the meaning.
 
 <Fields name="Bot" />
 
+## Returns
+
+What a bot returns at most, and a job narrows: proposal kinds, or `hub(<globs>)` for hub files.
+A glob that leaves the hub or reaches `hub.yaml`, `bots/` or `workflows/` is an error.
+
+<Source file="src/schema.ts" symbol="Return" />
+
+## Preload
+
+<Source file="src/schema.ts" symbol="Preload" />
+
 ## Check
 
 A check has a `type`, and each type takes its own fields: `script` takes `run`, `bot` takes `bot`
@@ -31,7 +42,7 @@ What a check or job looks at, and whether it runs once or once per item; see
 ## Job
 
 A workflow is a set of triggers and a map of jobs. A `bot` job casts a bot with a skill and takes
-`branch`, `until`, `can`, `preload` and `tools`; a `script` job takes `run`. Both take `on`,
+`branch`, `until`, `returns`, `preload` and `tools`; a `script` job takes `run`. Both take `on`,
 `needs`, `over`, `paths`, `mode`, `environment` and `timeout-minutes`.
 
 <Source file="src/schema.ts" symbol="Job" />

@@ -75,6 +75,7 @@ export const serveGitHub = async ({
       ...(issues && { issues }),
       mcp: tools => bothubServer({ dir, tools, repo: event.repo, data: root }),
       hub: dir,
+      data: root,
       onEvent: (run, { event: e }) => {
         if (e.type === 'start' || e.type === 'end' || e.type === 'error')
           log(`${run.workflow}/${run.job} ${run.id} ${e.type}${'message' in e ? ` ${e.message}` : ''}`);

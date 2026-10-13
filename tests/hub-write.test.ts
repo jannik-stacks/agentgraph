@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { api } from '../src/api.ts';
 import { parseItem, renderItem, validateHub } from '../src/hub-files.ts';
-import { hubWriteRoutes, readHubItems, writeHub } from '../src/hub-write.ts';
+import { hubProposal, hubWriteRoutes, readHubItems, writeHub } from '../src/hub-write.ts';
 import { openStore } from '../src/store.ts';
 
 const example = join(import.meta.dirname, '..', 'examples', 'acme-app');
@@ -41,7 +41,7 @@ const tree = (dir: string): string[] =>
     .map(e => join(e.parentPath, e.name).slice(dir.length + 1))
     .sort();
 
-const bot = { harness: 'opencode', tools: ['read'], can: ['reply'], skills: ['triage'] };
+const bot = { harness: 'opencode', tools: ['read'], returns: ['reply'], skills: ['triage'] };
 
 describe('writeHub path confinement', () => {
   const attacks = [
@@ -223,15 +223,15 @@ describe('writeHub round trip', () => {
   it('serialises in schema key order no matter the input order, keeping keys it does not know last', () => {
     const path = 'bots/a.md';
     const a = renderItem(path, {
-      data: { can: ['reply'], extra: { z: 1 }, tools: ['read'], harness: 'pi' },
+      data: { returns: ['reply'], extra: { z: 1 }, tools: ['read'], harness: 'pi' },
       body: 'Hi.',
     });
     const b = renderItem(path, {
-      data: { harness: 'pi', tools: ['read'], extra: { z: 1 }, can: ['reply'] },
+      data: { harness: 'pi', tools: ['read'], extra: { z: 1 }, returns: ['reply'] },
       body: 'Hi.',
     });
     expect(a).toBe(b);
-    expect(a).toBe('---\nharness: pi\ntools: [read]\ncan: [reply]\nextra: {z: 1}\n---\n\nHi.\n');
+    expect(a).toBe('---\nharness: pi\ntools: [read]\nreturns: [reply]\nextra: {z: 1}\n---\n\nHi.\n');
   });
 
   it('creates, renames and deletes in one batch', async () => {
@@ -293,6 +293,48 @@ describe('writeHub atomic writes', () => {
 describe('writeHub commit', () => {
   const git = (dir: string, ...args: string[]) =>
     execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+
+  it('lands a bot hub change on its own branch, leaving the working tree and HEAD alone', async () => {
+    const dir = minimalHub();
+    git(dir, 'init', '-q');
+    git(dir, 'config', 'user.name', 'test');
+    git(dir, 'config', 'user.email', 'test@example.com');
+    git(dir, 'config', 'commit.gpgsign', 'false');
+    writeFileSync(join(dir, 'skills', 'old.md'), '---\ndescription: Old.\n---\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-qm', 'init');
+    const head = git(dir, 'rev-parse', 'HEAD');
+    const note = '---\ntitle: Fees retry once\nstatus: proposed\n---\n\nA rejected fee retries once.\n';
+    const branch = await hubProposal(dir)({
+      title: 'note: Fees retry once',
+      body: 'From a run.',
+      files: [
+        { path: 'notes/caveat/fee-retry.md', content: note },
+        { path: 'skills/old.md', content: null },
+      ],
+    });
+    expect(branch).toMatch(/^bothub\/hub\/note-fees-retry-once-[0-9a-f]{7}$/);
+    expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    expect(git(dir, 'status', '--porcelain')).toBe('');
+    expect(existsSync(join(dir, 'notes'))).toBe(false);
+    expect(git(dir, 'show', `${branch}:notes/caveat/fee-retry.md`)).toBe(note.trimEnd());
+    expect(git(dir, 'diff', '--name-status', head, branch!).split('\n')).toEqual([
+      'A\tnotes/caveat/fee-retry.md',
+      'D\tskills/old.md',
+    ]);
+    expect(git(dir, 'log', '-1', '--format=%an%n%B', branch!)).toBe(
+      'bothub[bot]\nnote: Fees retry once\n\nFrom a run.'
+    );
+
+    await expect(
+      hubProposal(dir)({ title: 'bad', body: '', files: [{ path: 'notes/caveat/x.md', content: '---\n---\n' }] })
+    ).rejects.toThrow(/leaves the hub invalid/);
+    const nested = join(temp(), 'hub');
+    mkdirSync(nested);
+    git(join(nested, '..'), 'init', '-q');
+    expect(await hubProposal(nested)({ title: 't', body: '', files: [] })).toBeUndefined();
+    expect(await hubProposal(minimalHub())({ title: 't', body: '', files: [] })).toBeUndefined();
+  });
 
   it('commits only the changed paths as "update" when the hub is a git repository', async () => {
     const dir = minimalHub();
@@ -419,7 +461,7 @@ describe('hub edit routes', () => {
     const res = await handler(post('http://localhost:5182/api/hub/write', change, { origin: 'http://localhost:5182' }));
     expect(res.status).toBe(200);
     expect(readFileSync(join(dir, 'bots', 'triager.md'), 'utf8')).toBe(
-      '---\nharness: opencode\ntools: [read]\ncan: [reply]\nskills: [triage]\n---\n\nRole.\n'
+      '---\nharness: opencode\ntools: [read]\nreturns: [reply]\nskills: [triage]\n---\n\nRole.\n'
     );
     expect((await handler(post('http://localhost/api/files', {}))).status).toBe(405);
   });

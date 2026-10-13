@@ -2,9 +2,8 @@
 harness: pi
 model: review
 tools: [read, grep, find]
-can: [reply]
+returns: [reply]
 skills: [review, review-file]
-notes: [caveat]
 budget: { minutes: 20 }
 ---
 

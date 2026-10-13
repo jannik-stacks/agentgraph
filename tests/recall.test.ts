@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '../src/config.ts';
 import { parseIssue } from '../src/issues-local.ts';
 import { parseMarkdown } from '../src/markdown.ts';
+import { NoteKind } from '../src/schema.ts';
 import {
   index,
   issueDocs,
@@ -41,7 +42,7 @@ const readEvents = async () =>
 
 const hubNotes = async (): Promise<Config['notes']> => {
   const notes: Config['notes'] = [];
-  for (const kind of ['caveat', 'convention', 'decision', 'pattern'] as const)
+  for (const kind of NoteKind.options)
     for (const file of await readdir(join(hub, 'notes', kind))) {
       const path = join(hub, 'notes', kind, file);
       const { data, body } = parseMarkdown(await readFile(path, 'utf8'));

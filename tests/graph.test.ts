@@ -9,7 +9,7 @@ if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
 const graph = hubGraph(compiled.config);
 
 describe('hubGraph', () => {
-  it('has one node per trigger, job, bot, skill, check, read note kind, issue tracker and read tool', () => {
+  it('has one node per trigger, job, bot, skill, check, note kind with notes, issue tracker and read tool', () => {
     expect(graph.nodes.map(n => `${n.id} ${n.badges?.join(',') ?? ''}`.trim())).toEqual([
       'trigger:issue/issue_comment /bothub,created',
       'trigger:issue/pull_request opened,synchronize',
@@ -23,8 +23,7 @@ describe('hubGraph', () => {
       'check:review warn,reviewer',
       'check:types block,script',
       'note:decision 1',
-      'note:convention 1',
-      'note:pattern 1',
+      'note:style 2',
       'note:caveat 2',
       'issues:issues github',
       'tool:issues_get read',
@@ -34,7 +33,7 @@ describe('hubGraph', () => {
     expect(graph.nodes.every(n => n.id.startsWith(`${n.kind}:`))).toBe(true);
   });
 
-  it('links triggers, bots, skills, the until loop, fan-out, notes, preloads and tool calls', () => {
+  it('links triggers, bots, skills, the until loop, fan-out, issue preloads and tool calls, and no edge to notes', () => {
     expect(graph.edges.map(e => `${e.kind} ${e.from} -> ${e.to}${e.label ? ` (${e.label})` : ''}`)).toEqual([
       'triggers trigger:issue/issue_comment -> job:issue/implement',
       'runs-as job:issue/implement -> bot:implementor',
@@ -49,17 +48,10 @@ describe('hubGraph', () => {
       'runs-as job:issue/review -> bot:reviewer',
       'uses-skill job:issue/review -> skill:review',
       'preloads job:issue/review -> issues:issues (issue)',
-      'preloads job:issue/review -> note:decision',
-      'preloads job:issue/review -> note:convention',
-      'reads-notes bot:implementor -> note:caveat',
       'preloads bot:implementor -> issues:issues (issue, links)',
-      'preloads bot:implementor -> note:decision',
-      'preloads bot:implementor -> note:convention',
       'calls bot:implementor -> tool:issues_get',
       'calls bot:implementor -> tool:notes_search',
       'calls bot:implementor -> tool:notes_get',
-      'reads-notes bot:reviewer -> note:caveat',
-      'reads-notes skill:review-file -> note:convention',
       'fans-out check:review -> bot:reviewer (for each file)',
       'uses-skill check:review -> skill:review-file',
     ]);
@@ -74,9 +66,10 @@ describe('hubGraph', () => {
       bot: 'implementor',
       until: { checks: ['types', 'review'] },
     });
-    const convention = graph.nodes.find(n => n.id === 'note:convention');
-    expect(convention?.detail).toEqual({
+    const style = graph.nodes.find(n => n.id === 'note:style');
+    expect(style?.detail).toEqual({
       notes: [
+        { slug: 'small-pure-functions', title: 'Logic lives in small pure functions', status: 'accepted' },
         { slug: 'typecheck-clean', title: 'The project typechecks with no errors', status: 'accepted', check: 'types' },
       ],
     });

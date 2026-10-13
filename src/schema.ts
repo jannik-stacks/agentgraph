@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Share, Summarizer } from './summaries.ts';
 
 export const githubTriggers = [
   'issue_comment',
@@ -22,21 +23,71 @@ export type Association = z.infer<typeof Association>;
 export const Mode = z.enum(['shadow', 'warn', 'block']);
 export type Mode = z.infer<typeof Mode>;
 
-export const ProposalKind = z.enum(['reply', 'label', 'push', 'open-pr', 'note', 'ask']);
+export const ProposalKind = z.enum(['reply', 'label', 'push', 'open-pr', 'note', 'hub', 'ask']);
 export type ProposalKind = z.infer<typeof ProposalKind>;
 
-export const NoteKind = z.enum(['decision', 'convention', 'pattern', 'caveat']);
+/** Hub files that change only by a human: no `hub(...)` return reaches them. */
+export const humanOnly = ['hub.yaml', 'bots/**', 'workflows/**'] as const;
+
+const hubReturn = /^hub\((.+)\)$/;
+
+/** The globs of a `hub(<globs>)` return, or nothing for any other kind. */
+export const hubGlobs = (entry: string) =>
+  hubReturn
+    .exec(entry)?.[1]
+    ?.split(',')
+    .map(glob => glob.trim())
+    .filter(Boolean);
+
+/** An entry of `returns`: a proposal kind, or `hub(<globs>)` for changes to hub files matching the globs. */
+export const Return = z.union(
+  [
+    ProposalKind.exclude(['hub']),
+    z
+      .string()
+      .regex(hubReturn)
+      .transform(entry => `hub(${hubGlobs(entry)!.join(', ')})`),
+  ],
+  { error: `must be one of ${ProposalKind.exclude(['hub']).options.join(', ')}, or hub(<globs>)` }
+);
+export type Return = z.output<typeof Return>;
+
+/** Rejoins a `hub(a, b)` entry that a YAML flow list split at its commas. */
+const rejoin = (value: unknown) => {
+  if (!Array.isArray(value)) return value;
+  const out: unknown[] = [];
+  for (const item of value) {
+    const last = out.at(-1);
+    if (typeof last === 'string' && typeof item === 'string' && last.includes('(') && !last.includes(')'))
+      out[out.length - 1] = `${last}, ${item}`;
+    else out.push(item);
+  }
+  return out;
+};
+
+/** What a bot or job may return: the proposals it ends with. */
+export const Returns = z.preprocess(rejoin, z.array(Return));
+
+export const NoteKind = z.enum(['decision', 'style', 'caveat']);
 export type NoteKind = z.infer<typeof NoteKind>;
 
-/** Rules load whenever their `paths` match; knowledge loads only when relevant. */
-export const ruleKinds: readonly NoteKind[] = ['decision', 'convention'];
-
-/** Context rendered into a run before it starts: the triggering issue, its linked issues, the matching notes. */
-export const Preload = z.enum(['issue', 'links', 'notes']);
+/**
+ * Context rendered into a run before it starts: the triggering issue, its linked issues, and `recall`, which surfaces
+ * accepted notes and past-run summaries by relevance while the bot works.
+ */
+export const Preload = z.union([
+  z.enum(['issue', 'links', 'recall']),
+  z.strictObject({
+    recall: z.strictObject({
+      cutoff: z.number().min(0).max(1).optional(),
+      budget: z.int().positive().optional(),
+    }),
+  }),
+]);
 export type Preload = z.infer<typeof Preload>;
 
-/** Read-only tools the bothub MCP server offers a run. */
-export const HubTool = z.enum(['issues_list', 'issues_get', 'notes_search', 'notes_get', 'runs_read']);
+/** Read-only tools a bot may be given: the bothub MCP server's, and `history` over earlier runs. */
+export const HubTool = z.enum(['issues_list', 'issues_get', 'notes_search', 'notes_get', 'runs_read', 'history']);
 export type HubTool = z.infer<typeof HubTool>;
 
 export const IssuesBackend = z.enum(['github', 'local']);
@@ -76,17 +127,22 @@ export const TriggerFilter = z
 export const On = z.partialRecord(Trigger, TriggerFilter);
 
 /**
- * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any bothub read tools
- * (see `HubTool`) the bot may call during a run.
+ * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any hub tools (see
+ * `HubTool`) the bot may call during a run; `returns` is the most it may return, which a job can only narrow.
+ * `session.share` says whose runs `history` and recall may show again; `session.resume: attempts` carries an
+ * attempt's summary into the next one of the same `until` loop.
  */
 export const Bot = z.strictObject({
   harness: Harness,
   model: z.string().optional(),
   tools: z.array(z.string()),
-  can: z.array(ProposalKind),
+  returns: Returns,
   skills: z.array(name).optional(),
-  notes: z.array(NoteKind).optional(),
   preload: z.array(Preload).optional(),
+  session: z
+    .strictObject({ resume: z.enum(['none', 'attempts']).default('none'), share: Share.default('bot') })
+    .optional(),
+  summarizer: Summarizer.optional(),
   'max-turns': z.int().positive().optional(),
   budget: z
     .strictObject({
@@ -99,10 +155,7 @@ export const Bot = z.strictObject({
 export type Bot = z.infer<typeof Bot>;
 
 /** `skills/<name>.md`: what to do. The body is the prompt. */
-export const Skill = z.strictObject({
-  description: z.string().min(1),
-  notes: z.array(NoteKind).optional(),
-});
+export const Skill = z.strictObject({ description: z.string().min(1) });
 export type Skill = z.infer<typeof Skill>;
 
 const script = z.string().min(1);
@@ -199,7 +252,7 @@ export const Job = z.discriminatedUnion(
       skill: name,
       branch: z.string().optional(),
       until: z.strictObject({ checks: z.array(name).min(1), max: z.int().positive().default(2) }).optional(),
-      can: z.array(ProposalKind).optional(),
+      returns: Returns.optional(),
       preload: z.array(Preload).optional(),
       tools: z.array(HubTool).optional(),
       ...jobEnd,
@@ -225,14 +278,13 @@ export const Workflow = z.strictObject({
 });
 export type Workflow = z.infer<typeof Workflow>;
 
-/** `notes/<kind>/<slug>.md`: what the hub knows. The body is the note. */
+/** `notes/<kind>/<slug>.md`: what the hub knows, surfaced to runs when relevant. The body is the note. */
 export const Note = z.strictObject({
   title: z.string().min(1),
   status: z.enum(['proposed', 'accepted', 'superseded', 'retired']).optional(),
   source: z.string().optional(),
   evidence: z.array(z.string()).optional(),
   check: name.optional(),
-  paths: z.array(z.string()).optional(),
 });
 export type Note = z.infer<typeof Note>;
 

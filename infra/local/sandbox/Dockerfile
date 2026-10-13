@@ -20,7 +20,15 @@ RUN npm install -g --no-fund --no-audit \
       oxfmt@${OXFMT_VERSION} \
  && npm cache clean --force
 
-ENV DO_NOT_TRACK=1 \
+# opencode installs @opencode-ai/plugin into its config dir before loading bothub's plugins. Installing it here,
+# and making this the config dir, saves that install on every run.
+RUN mkdir -p /opt/opencode \
+ && cd /opt/opencode \
+ && npm install --no-fund --no-audit --save-exact @opencode-ai/plugin@${OPENCODE_VERSION} \
+ && npm cache clean --force
+
+ENV OPENCODE_CONFIG_DIR=/opt/opencode \
+    DO_NOT_TRACK=1 \
     PI_TELEMETRY=0 \
     OPENCODE_DISABLE_AUTOUPDATE=1 \
     DISABLE_AUTOUPDATER=1 \

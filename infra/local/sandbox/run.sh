@@ -95,11 +95,11 @@ docker run --rm --init --pull never --name "$name" \
   -e XDG_STATE_HOME=/home/agent/.local/state -e XDG_CACHE_HOME=/home/agent/.cache \
   -e BOTHUB_LLM_BASE_URL="$LLM_URL" \
   -e BOTHUB_LLM_API_KEY="$key" \
-  -e BOTHUB_DECIDE_URL=http://ollama-relay:11434 \
+  -e BOTHUB_DECIDE_URL=http://ollama.internal:11434 \
   -e BOTHUB_DECIDE_MODEL="${BOTHUB_DECIDE_MODEL:-tev1:0.8b}" \
   -e HTTPS_PROXY=http://egress:8888 -e HTTP_PROXY=http://egress:8888 \
   -e https_proxy=http://egress:8888 -e http_proxy=http://egress:8888 \
-  -e NO_PROXY=litellm,ollama-relay,localhost,127.0.0.1 -e no_proxy=litellm,ollama-relay,localhost,127.0.0.1 \
+  -e NO_PROXY=litellm,ollama.internal,localhost,127.0.0.1 -e no_proxy=litellm,ollama.internal,localhost,127.0.0.1 \
   -e npm_config_cache=/cache/npm -e npm_config_prefer_offline=true \
   -e npm_config_logs_dir=/tmp/npm-logs -e npm_config_update_notifier=false \
   -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \

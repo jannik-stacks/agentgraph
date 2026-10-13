@@ -1,17 +1,24 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compile, type Config } from '../src/config.ts';
+import { compile, recallOf, type Config } from '../src/config.ts';
 import { readHub } from '../src/load.ts';
 import { buildSpec } from '../src/pipeline.ts';
-import { relevantNotes, renderNotes } from '../src/preload.ts';
+import type { Preload } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
 import { studioModule } from './studio.ts';
 
 type Node = {
   id: string;
   kind: string;
-  context?: { step: string; preload: string[]; notes: { note: Config['notes'][number]; why: string }[] }[];
+  context?: {
+    step: string;
+    preload: Preload[];
+    harnessTools: string[];
+    hubTools: string[];
+    returns: string[];
+    verdict?: true;
+  }[];
 };
 type Edge = { from: string; to: string; kind: string };
 type Model = { nodes: Node[]; edges: Edge[] };
@@ -43,7 +50,7 @@ const event: BotEvent = {
 };
 
 describe('studio step context', () => {
-  it.each(hubs)('%s: each job shows exactly the notes its run loads', (_, config) => {
+  it.each(hubs)('%s: each job shows exactly what its run gets: preload, recall, tools and returns', (_, config) => {
     const model = graphModel(config);
     let jobs = 0;
     for (const workflow of Object.values(config.workflows))
@@ -53,18 +60,18 @@ describe('studio step context', () => {
         const node = model.nodes.find(n => n.id === `job:${workflow.name}/${id}`);
         const [context] = node?.context ?? [];
         expect(context?.step).toBe(node?.id);
-        const shown = context!.notes.map(n => n.note);
-        const { spec } = buildSpec({ config, workflow, job: id, event, cwd: '/w' });
-        const rendered = renderNotes(shown);
-        if (rendered) expect(spec.system).toContain(rendered);
-        else expect(spec.system).not.toContain('## Notes');
-        const bot = config.bots[job.bot]!;
-        const skill = config.skills[job.skill]!;
-        const kinds = [...(bot.notes ?? []), ...(skill.notes ?? [])];
-        const loads = context!.preload.includes('notes')
-          ? relevantNotes(config.notes, { kinds, paths: job.paths })
-          : [];
-        expect(shown).toEqual(loads);
+        const mcp = (tools: string[]) => ({ command: 'node', args: tools, env: {} });
+        const built = buildSpec({ config, workflow, job: id, event, cwd: '/w', hub: '/hub', data: '/data', mcp });
+        const { spec } = built;
+        expect(context!.returns).toEqual(built.returns);
+        expect(context!.harnessTools).toEqual(spec.tools.filter(t => !t.startsWith('bothub_')));
+        expect(context!.hubTools.filter(t => t !== 'history')).toEqual(
+          spec.tools.filter(t => t.startsWith('bothub_') && t !== 'bothub_notes_add').map(t => t.slice(7))
+        );
+        const recalls = context!.preload.some(item => recallOf(item));
+        const opencode = config.bots[job.bot]!.harness === 'opencode';
+        expect(spec.surfacer !== undefined && spec.surfacer.surface !== false).toBe(recalls && opencode);
+        expect(spec.system).not.toContain('## Notes');
       }
     expect(jobs).toBeGreaterThan(0);
   });

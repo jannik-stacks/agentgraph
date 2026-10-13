@@ -1,17 +1,17 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../src/config.ts';
 import { localIssues } from '../src/issues-local.ts';
 import { bothubServer, mcpToolNames, opencodeMcpConfig, type McpServer } from '../src/mcp-config.ts';
-import { serveMcp } from '../src/mcp.ts';
+import { proposalsFile, serveMcp } from '../src/mcp.ts';
 import { openStore } from '../src/store.ts';
 import { temp } from './git.ts';
 
 const compiled = compile([
   { path: 'notes/caveat/hex.md', source: '---\ntitle: Hex has no 0x\n---\n\nPersisted hex has no prefix.' },
-  { path: 'notes/pattern/vectors.md', source: '---\ntitle: Golden vectors\n---\n\nTest against vectors.' },
+  { path: 'notes/style/vectors.md', source: '---\ntitle: Golden vectors\n---\n\nTest against vectors.' },
   { path: 'notes/caveat/hex-draft.md', source: '---\ntitle: Hex draft\nstatus: proposed\n---\n\nMaybe hex prefix.' },
 ]);
 if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
@@ -83,9 +83,12 @@ describe('serveMcp', () => {
     expect(
       JSON.parse((await server.call('notes_search', { query: 'hex', status: 'proposed' })).content[0]!.text)
     ).toEqual([{ kind: 'caveat', slug: 'hex-draft', title: 'Hex draft', status: 'proposed' }]);
-    expect(JSON.parse((await server.call('notes_get', { kind: 'pattern', slug: 'vectors' })).content[0]!.text)).toEqual(
-      { slug: 'vectors', title: 'Golden vectors', kind: 'pattern', body: 'Test against vectors.' }
-    );
+    expect(JSON.parse((await server.call('notes_get', { kind: 'style', slug: 'vectors' })).content[0]!.text)).toEqual({
+      slug: 'vectors',
+      title: 'Golden vectors',
+      kind: 'style',
+      body: 'Test against vectors.',
+    });
     expect(await server.call('runs_read')).toEqual({
       content: [{ type: 'text', text: 'unknown tool "runs_read"' }],
       isError: true,
@@ -123,6 +126,25 @@ describe('serveMcp', () => {
     expect((await bare.call('runs_read')).content[0]!.text).toBe('this server has no runs');
     expect((await bare.call('issues_get', { number: 1 })).content[0]!.text).toBe('this server has no issues');
     await bare.close();
+  });
+});
+
+describe('notes_add', () => {
+  it('records a proposed note in the run home for the pipeline to land', async () => {
+    const home = temp('home');
+    const server = connect(['notes_add'], { config: compiled.config, home });
+    const note = { note: 'caveat', slug: 'fee-retry', title: 'Fees retry once', body: 'A rejected fee retries once.' };
+    expect((await server.call('notes_add', note)).content[0]!.text).toContain('notes/caveat/fee-retry.md');
+    expect((await server.call('notes_add', { ...note, note: 'pattern' })).isError).toBe(true);
+    expect((await server.call('notes_add', { ...note, slug: 'Not Kebab' })).isError).toBe(true);
+    expect((await server.call('notes_search', { query: 'fee' })).isError).toBe(true);
+    await server.close();
+    const lines = readFileSync(proposalsFile(home), 'utf8').trim().split('\n');
+    expect(lines.map(line => JSON.parse(line))).toEqual([{ kind: 'note', ...note }]);
+
+    const homeless = connect(['notes_add'], { config: compiled.config });
+    expect((await homeless.call('notes_add', note)).isError).toBe(true);
+    await homeless.close();
   });
 });
 

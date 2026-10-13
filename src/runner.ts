@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { loadedMarker } from './harnesses/opencode-surfacer.ts';
 import { Cause, Duration, Effect, Stream } from 'effect';
 import {
   bothubArg,
@@ -337,6 +338,13 @@ export const runJob = (options: {
     });
 
     const home = homeEnv(store.home(runId), store.tmp(runId));
+    const unloaded = () =>
+      Effect.promise(async () => {
+        const missing: string[] = [];
+        for (const id of adapter.plugins?.(spec) ?? [])
+          if (!(await stat(loadedMarker(home.HOME, id)).catch(() => undefined))) missing.push(id);
+        return missing;
+      });
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
       Effect.zipRight(Effect.tryPromise({ try: () => makeHome(home), catch: e => e as Error })),
       Effect.zipRight(
@@ -348,7 +356,11 @@ export const runJob = (options: {
       Effect.matchEffect({
         onSuccess: () =>
           end?.ok
-            ? finish({ status: 'succeeded', ...usage() })
+            ? Effect.flatMap(unloaded(), missing =>
+                missing.length
+                  ? finish({ status: 'failed', ...usage(), error: `plugin ${missing.join(', ')} did not load` })
+                  : finish({ status: 'succeeded', ...usage() })
+              )
             : finish({
                 status: 'failed',
                 ...usage(),

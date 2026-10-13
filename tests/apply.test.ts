@@ -164,7 +164,7 @@ describe('apply', () => {
       { kind: 'open-pr', title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true },
       { kind: 'ask', question: 'Which database?' },
       { kind: 'push', branch: 'bothub/7', files: ['a.ts'] },
-      { kind: 'note', note: 'pattern', slug: 'x', title: 'X', body: 'Do x.' },
+      { kind: 'note', note: 'style', slug: 'x', title: 'X', body: 'Do x.' },
     ];
     const journal: string[][] = [];
     const results = await apply(proposals, {
@@ -262,7 +262,7 @@ describe('apply', () => {
     expect(writes(calls)).toEqual([]);
   });
 
-  it('opens a hub pull request for a note when it can', async () => {
+  it('lands a note as a proposed note file in the hub when the hub has a repository', async () => {
     const note: Proposal = {
       kind: 'note',
       note: 'caveat',
@@ -280,10 +280,60 @@ describe('apply', () => {
     expect(await apply([note], { event, gh: gh('t', fetch), push, hubPr })).toEqual([
       { kind: 'note', key: 'd1/note-1', status: 'applied', url: 'https://github.com/acme/hub/pull/1' },
     ]);
-    expect(opened).toEqual([expect.objectContaining({ path: 'notes/caveat/fork-prs.md', title: 'note: Fork PRs?' })]);
-    expect(await apply([note], { event, gh: gh('t', fetch), push })).toEqual([
-      { kind: 'note', key: 'd1/note-1', status: 'skipped', reason: 'no hub repository to open a note pull request in' },
+    expect(opened).toEqual([
+      {
+        files: [noteFile(note as Extract<Proposal, { kind: 'note' }>)],
+        title: 'note: Fork PRs?',
+        body: `Proposed caveat note from ${event.url ?? event.repo}.`,
+      },
     ]);
+    expect(await apply([note], { event, gh: gh('t', fetch), push })).toEqual([
+      { kind: 'note', key: 'd1/note-1', status: 'skipped', reason: 'the hub has no repository to land it in' },
+    ]);
+  });
+
+  it('lands a hub change with deletions, and refuses one that reaches hub.yaml, bots or workflows', async () => {
+    const opened: unknown[] = [];
+    const hubPr = async (change: unknown) => (opened.push(change), 'bothub/hub/skills-1');
+    const { fetch } = fakeFetch();
+    const change: Proposal = {
+      kind: 'hub',
+      title: 'Sharper review skill',
+      body: 'why',
+      files: [
+        { path: 'skills/review.md', content: 'x' },
+        { path: 'notes/style/old.md', delete: true },
+      ],
+    };
+    expect(await apply([change], { event, gh: gh('t', fetch), push, hubPr })).toEqual([
+      { kind: 'hub', key: 'd1/hub-1', status: 'applied', url: 'bothub/hub/skills-1' },
+    ]);
+    expect(opened).toEqual([
+      {
+        title: 'Sharper review skill',
+        body: 'why',
+        files: [
+          { path: 'skills/review.md', content: 'x' },
+          { path: 'notes/style/old.md', content: null },
+        ],
+      },
+    ]);
+    const refused = await apply(
+      [
+        {
+          ...change,
+          files: [
+            { path: 'notes/a.md', content: 'x' },
+            { path: 'bots/b.md', content: 'x' },
+          ],
+        },
+      ],
+      { event, gh: gh('t', fetch), push, hubPr }
+    );
+    expect(refused).toEqual([
+      { kind: 'hub', key: 'd1/hub-1', status: 'failed', reason: 'path "bots/b.md" changes only by a human' },
+    ]);
+    expect(opened).toHaveLength(1);
   });
 
   it('keeps going after a failure', async () => {

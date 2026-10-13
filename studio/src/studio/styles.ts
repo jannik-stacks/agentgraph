@@ -52,7 +52,6 @@ export const edgeStyle: Record<EdgeKind, Partial<Edge>> = {
     labelBgPadding: [6, 2],
     labelBgBorderRadius: 8,
   },
-  'reads-notes': { style: { stroke: color('stone-400'), strokeDasharray: '1 4', strokeLinecap: 'round' } },
   preloads: { style: { stroke: color('indigo-500'), strokeDasharray: '4 3' }, markerEnd: arrow('indigo-500') },
   calls: { style: { stroke: color('cyan-500'), strokeDasharray: '2 2' } },
 };

@@ -74,7 +74,9 @@ services:
     networks: [sandbox, egress]
     restart: unless-stopped
 
-  # Gives run containers the Ollama decision API (/v1/systemone) on the host, port 11434 only.
+  # Gives run containers the Ollama decision API (/v1/systemone) on the host, port 11434 only. Run containers
+  # reach it as ollama.internal: Ollama answers 403 to host names outside localhost, private addresses and
+  # .internal, .local or .localhost names.
   ollama-relay:
     profiles: [sandbox]
     build: ./egress
@@ -86,7 +88,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 32m
     pids_limit: 64
-    networks: [sandbox, egress]
+    networks:
+      sandbox: { aliases: [ollama.internal] }
+      egress: {}
     restart: unless-stopped
 
   ollama:

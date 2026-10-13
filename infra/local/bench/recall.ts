@@ -12,6 +12,7 @@ import type { EventRecord } from '../../../src/store.ts';
 import { items, loadSummaries, modelLine, summarizeRun, Summarizer } from '../../../src/summaries.ts';
 import type { Config } from '../../../src/config.ts';
 import { decide } from '../../../src/decide.ts';
+import { NoteKind } from '../../../src/schema.ts';
 
 let asked = 0;
 const loud: typeof decide = request => (
@@ -46,7 +47,7 @@ const time = async <T>(fn: () => Promise<T> | T) => {
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 
 const notes: Config['notes'] = [];
-for (const kind of ['caveat', 'convention', 'decision', 'pattern'] as const)
+for (const kind of NoteKind.options)
   for (const file of await readdir(join(hub, 'notes', kind)).catch(() => [])) {
     const path = join(hub, 'notes', kind, file);
     const { data, body } = parseMarkdown(await readFile(path, 'utf8'));

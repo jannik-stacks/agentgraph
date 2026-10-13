@@ -71,7 +71,7 @@ describe('cli', () => {
     expect(await main(['schema'])).toBe(0);
     const schemas = JSON.parse(io.out.join(''));
     expect(Object.keys(schemas)).toEqual(['hub', 'bot', 'skill', 'check', 'workflow', 'note']);
-    expect(schemas.bot.required).toEqual(['harness', 'tools', 'can']);
+    expect(schemas.bot.required).toEqual(['harness', 'tools', 'returns']);
     const jobs = schemas.workflow.properties.jobs.additionalProperties.oneOf;
     const bot = jobs.find((job: any) => job.properties.type.const === 'bot');
     expect(bot.properties.until.properties.max.default).toBe(2);
@@ -112,7 +112,8 @@ describe('cli', () => {
     });
     expect(job.spec.cwd.startsWith(join(data, 'work'))).toBe(true);
     expect(job.spec.system).toContain('"kind": "open-pr"');
-    expect(job.spec.system).toContain('#### The project typechecks with no errors');
+    expect(job.spec.system).not.toContain('## Notes');
+    expect(job.spec.surfacer).toMatchObject({ bot: 'implementor', hub: join(examples, 'hub'), data });
     expect(job.spec.prompt).toContain('```text\nadd a /health endpoint with a test\n```');
     expect(job.command.slice(0, 2)).toEqual(['opencode', 'run']);
 

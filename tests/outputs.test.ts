@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractProposals, matchGlob, Proposal, validate } from '../src/outputs.ts';
-import { ProposalKind } from '../src/schema.ts';
+import { ProposalKind, type Return } from '../src/schema.ts';
 
 const fence = (body: string, info = 'bothub') => `\`\`\`${info}\n${body}\n\`\`\``;
 
@@ -66,7 +66,7 @@ describe('matchGlob', () => {
 });
 
 describe('validate', () => {
-  const allowed = { can: ['reply', 'push', 'open-pr', 'note'] as ProposalKind[], paths: ['src/**', 'README.md'] };
+  const allowed = { returns: ['reply', 'push', 'open-pr', 'note'] as Return[], paths: ['src/**', 'README.md'] };
 
   it('accepts allowed proposals and applies outside shadow mode', () => {
     const proposals: Proposal[] = [
@@ -84,7 +84,7 @@ describe('validate', () => {
     expect(validate([proposal], allowed, 'block').rejected).toEqual([
       { proposal, reason: '"label" is not allowed for this job' },
     ]);
-    expect(validate([proposal], { can: [] }, 'block').accepted).toEqual([]);
+    expect(validate([proposal], { returns: [] }, 'block').accepted).toEqual([]);
   });
 
   it('caps replies at 3 and every other kind at 1', () => {
@@ -103,7 +103,7 @@ describe('validate', () => {
     expect(reason(['src/../package.json'])).toBe('path "src/../package.json" escapes the repository');
     expect(reason(['/etc/passwd'])).toBe('path "/etc/passwd" escapes the repository');
     const anywhere = (files: string[], paths?: string[]) =>
-      validate([push(files)], { can: ['push'], ...(paths && { paths }) }, 'warn').rejected[0]?.reason;
+      validate([push(files)], { returns: ['push'], ...(paths && { paths }) }, 'warn').rejected[0]?.reason;
     expect(anywhere(['.github/workflows/ci.yml'])).toMatch(/is a GitHub workflow/);
     expect(anywhere(['.github/workflows/ci.yml'], ['**'])).toMatch(/is a GitHub workflow/);
     expect(anywhere(['.github/workflows/ci.yml'], ['.github/workflows/**'])).toBeUndefined();
@@ -111,9 +111,9 @@ describe('validate', () => {
 
   it('always allows a close and keeps the approved label for humans', () => {
     const close: Proposal = { kind: 'close', as: 'no-op', reason: 'already done' };
-    expect(validate([close], { can: [] }, 'warn').accepted).toEqual([close]);
+    expect(validate([close], { returns: [] }, 'warn').accepted).toEqual([close]);
     const label: Proposal = { kind: 'label', add: ['approved'] };
-    expect(validate([label], { can: ['label'] }, 'warn').rejected[0]?.reason).toBe(
+    expect(validate([label], { returns: ['label'] }, 'warn').rejected[0]?.reason).toBe(
       'only a human adds the "approved" label'
     );
   });
@@ -129,6 +129,26 @@ describe('validate', () => {
     expect(reason('bothub/8-b', 'bothub/7-a')).toBe('branch "bothub/8-b" is not the job\'s branch "bothub/7-a"');
     const pr: Proposal = { kind: 'open-pr', title: 't', body: '', head: 'feature' };
     expect(validate([pr], allowed, 'warn').rejected[0]?.reason).toMatch(/must be a plain name/);
+  });
+
+  it('takes hub file changes only inside the returned globs, and never to hub.yaml, bots or workflows', () => {
+    const hub = (...paths: string[]): Proposal => ({
+      kind: 'hub',
+      title: 't',
+      body: 'b',
+      files: paths.map(path => ({ path, content: 'x' })),
+    });
+    const reason = (proposal: Proposal, returns: Return[] = ['hub(notes/**, skills/*.md)']) =>
+      validate([proposal], { returns }, 'warn').rejected[0]?.reason;
+    expect(reason(hub('notes/style/a.md', 'skills/b.md'))).toBeUndefined();
+    expect(reason(hub('skills/x/b.md'))).toBe('path "skills/x/b.md" is outside hub(notes/**, skills/*.md)');
+    expect(reason(hub('notes/a.md'), ['note'])).toBe('"hub" is not allowed for this job');
+    for (const path of ['hub.yaml', 'bots/a.md', 'workflows/w.md'])
+      expect(reason(hub(path), ['hub(**)'])).toBe(`path "${path}" changes only by a human`);
+    expect(reason(hub('../repo/x'), ['hub(**)'])).toBe('path "../repo/x" leaves the hub');
+    expect(
+      validate([hub('notes/a.md'), hub('notes/b.md')], { returns: ['hub(notes/**)'] }, 'warn').rejected
+    ).toHaveLength(1);
   });
 
   it('rejects malformed notes when extracting', () => {

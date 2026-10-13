@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { compile } from '../config.ts';
 import { decide, defaultDecideModel, defaultDecideUrl } from '../decide.ts';
@@ -19,8 +19,22 @@ import {
 } from '../summaries.ts';
 import type { AgentEvent } from '../types.ts';
 
-/** What the surfacer plugin gets from bothub, as opencode plugin options. Paths are as seen by the harness. */
+/** The file a bothub plugin writes in the run home when opencode loads it; a run whose plugin left none fails. */
+export const loadedMarker = (home: string, id: string) => join(home, '.bothub', 'loaded', id);
+
+/** Marks plugin `id` as loaded in the run home. */
+export const markLoaded = async (id: string) => {
+  const file = loadedMarker(process.env.HOME ?? '/tmp', id);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, `${process.pid}\n`);
+};
+
+/**
+ * What the surfacer plugin gets from bothub, as opencode plugin options. Paths are as seen by the harness. `surface`
+ * false keeps recall off and serves only `history`.
+ */
 export type SurfacerOptions = {
+  surface?: boolean;
   run: string;
   bot: string;
   data: string;
@@ -55,6 +69,7 @@ const hitLine = (doc: Doc) => `- [${doc.pointer}] ${doc.kind === 'note' ? `${doc
  */
 export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) => {
   const o = raw as SurfacerOptions;
+  await markLoaded(surfacerId);
   const settings = Summarizer.parse(o.summarizer ?? 'extractive');
   const shareOf = (bot: string | undefined) => o.share?.[bot ?? ''] ?? 'bot';
   const url = o.decide?.url ?? (process.env.BOTHUB_DECIDE_URL || defaultDecideUrl);
@@ -168,7 +183,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
   return {
     'chat.message': async ({ sessionID }: { sessionID: string }, { parts }: { parts: Part[] }) => {
       const text = textOf(parts);
-      if (text) surface(session(sessionID), text);
+      if (text && o.surface !== false) surface(session(sessionID), text);
     },
     'experimental.chat.system.transform': async (
       { sessionID }: { sessionID?: string },
@@ -208,4 +223,6 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
   };
 };
 
-export default { id: 'bothub-surfacer', server: surfacer };
+const surfacerId = 'bothub-surfacer';
+
+export default { id: surfacerId, server: surfacer };

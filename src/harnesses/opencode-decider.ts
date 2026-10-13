@@ -1,6 +1,7 @@
 import { decide, defaultDecideModel, defaultDecideUrl, defaultThreshold } from '../decide.ts';
 import type { agentTriggers } from '../schema.ts';
 import { items } from '../summaries.ts';
+import { markLoaded } from './opencode-surfacer.ts';
 
 /**
  * One yes-or-no question for the decision model at a hook point. Yes means all is well; below `threshold` the
@@ -33,6 +34,7 @@ const clip = (text: string) =>
 /** opencode server plugin: asks the decision model its questions at tool calls, tool results and final messages. */
 export const decider = async (_input: unknown, raw?: Record<string, unknown>) => {
   const o = raw as DeciderOptions;
+  await markLoaded(deciderId);
   const url = o.decide?.url ?? (process.env.BOTHUB_DECIDE_URL || defaultDecideUrl);
   const model = o.decide?.model ?? (process.env.BOTHUB_DECIDE_MODEL || defaultDecideModel);
   const timeoutMs = o.decide?.timeoutMs ?? 20_000;
@@ -115,4 +117,6 @@ export const decider = async (_input: unknown, raw?: Record<string, unknown>) =>
   };
 };
 
-export default { id: 'bothub-decider', server: decider };
+const deciderId = 'bothub-decider';
+
+export default { id: deciderId, server: decider };

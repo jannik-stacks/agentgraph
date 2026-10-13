@@ -34,7 +34,6 @@ const jobState = (machine: string, job: Job, next: string | undefined, config: C
     job.type === 'bot' ? `bot ${job.bot}${bot ? ` (${bot.harness})` : ''}` : `run ${job.run}`,
     job.type === 'bot' && `skill ${job.skill}`,
     `mode ${job.mode}${job['timeout-minutes'] ? `, ${job['timeout-minutes']} min` : ''}`,
-    bot?.notes?.length && `reads notes: ${bot.notes.join(', ')}`,
   ].filter(Boolean);
   const until = job.type === 'bot' ? job.until : undefined;
   const forEach = fanOut(job.over);

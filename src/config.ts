@@ -1,11 +1,14 @@
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { parseMarkdown } from './markdown.ts';
+import { matchGlob } from './outputs.ts';
 import {
   Bot,
   Check,
   Hub,
   HubTool,
+  hubGlobs,
+  humanOnly,
   Note,
   NoteKind,
   Skill,
@@ -13,6 +16,8 @@ import {
   type Harness,
   type Job,
   type Preload,
+  type ProposalKind,
+  type Return,
 } from './schema.ts';
 
 export type SourceFile = { path: string; source: string };
@@ -125,6 +130,7 @@ const references = (config: Config): ConfigError[] => {
 
   for (const bot of Object.values(bots)) {
     const fail = at(bot.path);
+    for (const problem of returnProblems(bot.returns)) fail(problem);
     for (const skill of bot.skills ?? []) if (!(skill in skills)) fail(`offers unknown skill "${skill}"`);
     for (const tool of bot.tools) {
       const problem = toolProblem(bot.harness, tool);
@@ -172,6 +178,7 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
         warn('"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it');
       const served = hubTools(bot);
       if (served.length) warn(`lists hub tools (${served.join(', ')}) that pi runs do not get`);
+      if (bot.preload?.some(recallOf)) warn('preloads recall, which pi runs do not get');
     }
   }
   for (const check of Object.values(checks))
@@ -212,8 +219,9 @@ const checkJob = (id: string, job: Job, workflow: Workflow, { bots, skills, chec
     fail(`uses unknown bot "${job.bot}"`);
     return errors;
   }
-  for (const kind of job.can ?? [])
-    if (!bot.can.includes(kind)) fail(`allows "${kind}", which bot "${bot.name}" cannot do`);
+  for (const problem of returnProblems(job.returns ?? [])) fail(problem);
+  for (const entry of job.returns ?? [])
+    if (!narrows(bot.returns, entry)) fail(`returns "${entry}", which bot "${bot.name}" does not return`);
   for (const tool of job.tools ?? [])
     if (!hubTools(bot).includes(tool)) fail(`grants tool "${tool}", which bot "${bot.name}" does not have`);
   return errors;
@@ -251,23 +259,63 @@ export const jobOrder = (workflow: Pick<Workflow, 'jobs'>): string[] => {
   return order;
 };
 
-/** What a bot may propose in a job: the bot's `can`, narrowed by the job's `can` when it has one. */
-export const effectiveCan = (bot: Pick<Bot, 'can'>, job: Pick<Extract<Job, { type: 'bot' }>, 'can'>) =>
-  job.can ? bot.can.filter(kind => job.can?.includes(kind)) : bot.can;
+const reachesHumanOnly = (glob: string) => {
+  const prefix = glob.split(/[*?{[]/)[0] ?? '';
+  return (
+    ['hub.yaml', 'bots/a.md', 'workflows/a.md'].some(path => matchGlob(glob, path)) ||
+    humanOnly.some(path => prefix.startsWith(path.replace('**', '')))
+  );
+};
 
-/** The bothub read tools among a bot's `tools`. */
+/** Why `returns` entries are unusable: a `hub(...)` glob that leaves the hub or reaches a file only a human changes. */
+const returnProblems = (returns: Return[]) =>
+  returns.flatMap(entry =>
+    (hubGlobs(entry) ?? []).flatMap(glob => {
+      if (glob.startsWith('/') || glob.split('/').includes('..'))
+        return [`returns "${entry}": "${glob}" leaves the hub`];
+      if (reachesHumanOnly(glob))
+        return [`returns "${entry}": "${glob}" reaches ${humanOnly.join(', ')}, which only a human changes`];
+      return [];
+    })
+  );
+
+/** Whether a job's `returns` entry is within the bot's: the same kind, or hub globs a bot glob covers. */
+const narrows = (bot: Return[], entry: Return) => {
+  const globs = hubGlobs(entry);
+  if (!globs) return bot.includes(entry);
+  const allowed = returnGlobs(bot);
+  return globs.every(glob => allowed.some(outer => outer === glob || matchGlob(outer, glob)));
+};
+
+/** The proposal kind of each `returns` entry: `hub` for `hub(<globs>)`. */
+export const returnKinds = (returns: Return[]): ProposalKind[] => [
+  ...new Set(returns.map(entry => (hubGlobs(entry) ? 'hub' : (entry as ProposalKind)))),
+];
+
+/** The hub globs every `hub(<globs>)` entry of `returns` names. */
+export const returnGlobs = (returns: Return[]) => returns.flatMap(entry => hubGlobs(entry) ?? []);
+
+/** What a bot may return in a job: the bot's `returns`, narrowed to the job's when it has them. */
+export const effectiveReturns = (bot: Pick<Bot, 'returns'>, job: Pick<Extract<Job, { type: 'bot' }>, 'returns'>) =>
+  job.returns ? job.returns.filter(entry => narrows(bot.returns, entry)) : bot.returns;
+
+/** The hub tools among a bot's `tools`. */
 export const hubTools = (bot: Pick<Bot, 'tools'>): HubTool[] =>
   bot.tools.filter((tool): tool is HubTool => HubTool.safeParse(tool).success);
 
-/** A bot's harness tools, without the bothub read tools. */
+/** A bot's harness tools, without the hub tools. */
 export const harnessTools = (bot: Pick<Bot, 'tools'>) => bot.tools.filter(tool => !HubTool.safeParse(tool).success);
 
 /** The read tools a run gets: the job's `tools` when it has them, otherwise the bot's. */
 export const effectiveTools = (bot: Pick<Bot, 'tools'>, job: Pick<Extract<Job, { type: 'bot' }>, 'tools'>) =>
   job.tools ?? hubTools(bot);
 
-/** What is rendered into a run before it starts: the job's `preload`, then the bot's, then the notes alone. */
+/** What a run starts with: the job's `preload`, then the bot's, then recall alone. */
 export const effectivePreload = (
   bot: Pick<Bot, 'preload'>,
   job: Pick<Extract<Job, { type: 'bot' }>, 'preload'>
-): Preload[] => job.preload ?? bot.preload ?? ['notes'];
+): Preload[] => job.preload ?? bot.preload ?? ['recall'];
+
+/** The recall settings among `preload`, when it has recall. */
+export const recallOf = (preload: Preload) =>
+  preload === 'recall' ? {} : typeof preload === 'object' ? preload.recall : undefined;

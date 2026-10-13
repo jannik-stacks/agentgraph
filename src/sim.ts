@@ -144,7 +144,7 @@ const kb = (text: string) => `${(text.length / 1024).toFixed(1)} kB`;
 const preloaded = ({ system, prompt }: RunSpec) =>
   `${system}\n${prompt}`
     .split(/^(?=## )/m)
-    .filter(section => /^## (Notes|Issue #|Linked issues)/.test(section))
+    .filter(section => /^## (Issue #|Linked issues)/.test(section))
     .map(section => `${section.slice(3, section.indexOf('\n')).split(':')[0]} ${kb(section)}`)
     .join(', ') || 'nothing';
 
@@ -278,6 +278,7 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
             launch: unsandboxed,
             mcp: tools => bothubServer({ dir: hub, tools, repo, data }),
             hub,
+            data,
             onEvent: (run, { event: e }) => {
               if (e.type === 'start' && spec) {
                 const name = `${run.workflow}/${run.job}${run.attempt ? ` attempt ${run.attempt}` : ''}`;

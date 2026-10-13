@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs, styleText } from 'node:util';
-import { compile, effectiveCan } from '../src/config.ts';
+import { compile, effectiveReturns } from '../src/config.ts';
 import { pi } from '../src/harnesses/pi.ts';
 import { readHub } from '../src/load.ts';
 import { extractProposals, validate } from '../src/outputs.ts';
@@ -88,7 +88,7 @@ for (const [seq, agentEvent] of events.entries()) {
 const { proposals, errors } = extractProposals(message);
 const { accepted, rejected } = validate(
   proposals,
-  { can: effectiveCan(bot, job), paths: job.paths, branch: 'bothub/7-health-endpoint' },
+  { returns: effectiveReturns(bot, job), paths: job.paths, branch: 'bothub/7-health-endpoint' },
   job.mode
 );
 const urls: Partial<Record<string, string>> = {

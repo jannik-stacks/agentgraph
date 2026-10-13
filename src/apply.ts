@@ -2,7 +2,7 @@ import { stringify } from 'yaml';
 import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
 import { roles, type Issues } from './issues.ts';
-import type { Proposal } from './outputs.ts';
+import { humanOnlyPath, type Proposal } from './outputs.ts';
 import type { BotEvent } from './types.ts';
 
 /**
@@ -29,7 +29,8 @@ type Context = {
     proposal: Push,
     journal: { expected?: string; committed: (sha: string) => Promise<unknown> }
   ) => Promise<string>;
-  hubPr?: (pr: { path: string; content: string; title: string; body: string }) => Promise<string>;
+  /** Lands a hub change for a human to merge; resolves to where it waits, or nothing when it has nowhere to land. */
+  hubPr?: (change: HubChange) => Promise<string | undefined>;
   /** Keys are `<prefix>/<kind>-<n>`; the event id by default. */
   prefix?: string;
   /** Effects recorded by earlier runs of the same event and job. */
@@ -38,6 +39,9 @@ type Context = {
   record?: (results: ApplyResult[]) => Promise<unknown>;
 };
 type Created = { html_url: string };
+
+/** A change to hub files: `content` null deletes the file. */
+export type HubChange = { files: { path: string; content: string | null }[]; title: string; body: string };
 
 /** The hidden marker a written comment or issue carries, so applying it again finds it. */
 export const marker = (key: string) => `<!-- bothub:${key} -->`;
@@ -126,11 +130,18 @@ export const noteFile = ({ note, slug, title, body }: Extract<Proposal, { kind: 
   content: `---\n${stringify({ title, status: 'proposed' })}---\n\n${body.trim()}\n`,
 });
 
-const note = async ({ event, hubPr }: Context, proposal: Extract<Proposal, { kind: 'note' }>): Promise<Outcome> => {
-  if (!hubPr) return { status: 'skipped', reason: 'no hub repository to open a note pull request in' };
+/** Lands a hub change for a human to merge. A change to `hub.yaml`, `bots/` or `workflows/` is never landed. */
+const hubChange = async ({ hubPr }: Context, change: HubChange): Promise<Outcome> => {
+  const refused = change.files.map(file => humanOnlyPath(file.path)).find(Boolean);
+  if (refused) return { status: 'failed', reason: refused };
+  const url = hubPr && (await hubPr(change));
+  return url ? { status: 'applied', url } : { status: 'skipped', reason: 'the hub has no repository to land it in' };
+};
+
+const note = (ctx: Context, proposal: Extract<Proposal, { kind: 'note' }>) => {
   const file = noteFile(proposal);
-  const body = `Proposed ${proposal.note} note from ${event.url ?? event.repo}.`;
-  return { status: 'applied', url: await hubPr({ ...file, title: `note: ${proposal.title}`, body }) };
+  const body = `Proposed ${proposal.note} note from ${ctx.event.url ?? ctx.event.repo}.`;
+  return hubChange(ctx, { files: [file], title: `note: ${proposal.title}`, body });
 };
 
 type Journal = { key: string; earlier: ApplyResult | undefined; committed: (sha: string) => Promise<unknown> };
@@ -159,6 +170,12 @@ const applyOne = async (proposal: Proposal, journal: Journal, ctx: Context): Pro
       return push(ctx, proposal, journal);
     case 'note':
       return note(ctx, proposal);
+    case 'hub':
+      return hubChange(ctx, {
+        title: proposal.title,
+        body: proposal.body,
+        files: proposal.files.map(file => ({ path: file.path, content: 'content' in file ? file.content : null })),
+      });
     case 'close':
       return { status: 'skipped', reason: 'a closure is not a write' };
   }

@@ -136,6 +136,7 @@ export const serveHub = async ({
       issues,
       mcp: tools => bothubServer({ dir, tools, repo, data: root }),
       hub: dir,
+      data: root,
       ...(adapters && { adapters }),
       ...(launch && { launch }),
       onEvent: (run, { event: e }) => {

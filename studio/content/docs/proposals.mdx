@@ -1,10 +1,11 @@
 ---
 title: Proposals
-description: The only write path from a bot to GitHub.
+description: What a run returns, and the only write path from a bot to GitHub or the hub.
 ---
 
-A bot never holds a GitHub token. It ends its final message with a fenced `bothub` block, and
-bothub reads proposals from the last such block (<Sym name="extractProposals" />): a JSON array or
+A bot never holds a GitHub token and never writes the hub, which is mounted read-only. Its run
+ends when it returns: it ends its final message with a fenced `bothub` block, and bothub reads
+proposals from the last such block (<Sym name="extractProposals" />): a JSON array or
 one JSON object per line. The full type is <Sym name="Proposal" />.
 
 ````md
@@ -16,25 +17,51 @@ one JSON object per line. The full type is <Sym name="Proposal" />.
 
 ## Kinds
 
-| Kind      | Fields                                   | Effect                                                      |
-| --------- | ---------------------------------------- | ----------------------------------------------------------- |
-| `reply`   | `body`                                   | Comments on the issue or pull request                       |
-| `label`   | `add`, `remove`                          | Changes labels                                              |
-| `push`    | `branch`, `files`                        | Pushes the run's branch                                     |
-| `open-pr` | `title`, `body`, `head`, `base`, `draft` | Opens a pull request                                        |
-| `note`    | `note`, `slug`, `title`, `body`          | Opens a pull request on the hub repo adding a proposed note |
-| `ask`     | `question`                               | Asks a human and waits                                      |
-| `close`   | `as`, `reason`                           | Not a write: says the job stopped short of done, and why    |
+| Kind      | Fields                                   | Effect                                                   |
+| --------- | ---------------------------------------- | -------------------------------------------------------- |
+| `reply`   | `body`                                   | Comments on the issue or pull request                    |
+| `label`   | `add`, `remove`                          | Changes labels                                           |
+| `push`    | `branch`, `files`                        | Pushes the run's branch                                  |
+| `open-pr` | `title`, `body`, `head`, `base`, `draft` | Opens a pull request                                     |
+| `note`    | `note`, `slug`, `title`, `body`          | Proposes a note under `notes/` with status `proposed`    |
+| `hub`     | `title`, `body`, `files`                 | Proposes whole hub files, or deletes them                |
+| `ask`     | `question`                               | Asks a human and waits                                   |
+| `close`   | `as`, `reason`                           | Not a write: says the job stopped short of done, and why |
+
+## Returns
+
+`returns` on a bot is the most it may return, and a job narrows it. Each entry is a kind from the
+table, or `hub(<globs>)` for changes to hub files matching the globs.
+
+```yaml
+returns: [reply, open-pr, note, hub(notes/**, skills/**)]
+```
+
+`note` is the convenient form of a hub change: one new note, which an opencode run can also
+propose while it works with the `notes_add` tool. A run that returns a hub change ends there;
+checks then judge the run, and a failing check sends it back through `until`.
+
+## Hub changes
+
+The hub is code. A `note` or `hub` proposal lands as a commit on a new branch of the hub's own
+repository, `bothub/hub/<slug>-<sha>`, for a human to review and merge. The working tree and the
+checked-out branch are never touched, and a change that would leave the hub invalid is refused.
+A hub that is not the top of its own repository gets nothing, and the proposal is skipped.
+
+`hub.yaml`, `bots/` and `workflows/` change only by a human. A `hub(...)` glob that could reach
+them is a config error, and a proposal that touches them is rejected and never applied, whatever
+the bot returns.
 
 ## Validation
 
 Every proposal is checked by <Sym name="validate" /> before anything happens, and anything not
 explicitly allowed is rejected with a reason.
 
-- The kind must be in the job's effective `can` (the job's own `can`, narrowed by the bot's).
+- The kind must be in the job's effective `returns` (the job's own `returns`, narrowed by the bot's).
+- Every file of a `hub` proposal must match one of the returned globs.
 - A push must be to the job's rendered `branch`, and every file it changed since the run started
   must be listed in `files` and match the job's `paths`.
-- At most three replies and one of every other kind per run.
+- At most three replies, three notes and one of every other kind per run.
 
 Accepted proposals are applied by <Sym name="apply" /> only after the job's checks pass, only when the job is not in
 `shadow`, and only when bothub has a GitHub App to act as. Pushes go first, then the rest in

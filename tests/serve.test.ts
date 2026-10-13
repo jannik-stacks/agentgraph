@@ -19,7 +19,7 @@ const bareOrigin = () => {
 const files: Record<string, string> = {
   'hub.yaml': 'issues: local\n',
   'bots/helper.md':
-    '---\nharness: opencode\nmodel: fast\ntools: [read]\nmax-turns: 5\ncan: [reply]\nskills: [answer]\n---\nYou help.\n',
+    '---\nharness: opencode\nmodel: fast\ntools: [read]\nmax-turns: 5\nreturns: [reply]\nskills: [answer]\n---\nYou help.\n',
   'skills/answer.md': '---\ndescription: Answer the issue.\n---\nAnswer it.\n',
   'workflows/issue.md': [
     '---',
@@ -34,7 +34,7 @@ const files: Record<string, string> = {
     '    type: bot',
     '    bot: helper',
     '    skill: answer',
-    '    can: [reply]',
+    '    returns: [reply]',
     '    mode: warn',
     '---',
     'Answers.',

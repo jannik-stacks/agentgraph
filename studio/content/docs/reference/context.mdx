@@ -12,11 +12,18 @@ bot could not answer alone. One interface has two backends, <Sym name="githubIss
 
 ## Context
 
-A run reads in two ways, and neither writes. Preload is rendered into the prompt before the run:
-the notes that match its kinds and paths, and the triggering issue (<Sym name="issueContext" />).
+A run reads in three ways, and none writes. Preload is rendered into the prompt before the run:
+the triggering issue and its links (<Sym name="issueContext" />). What a run takes in, uses and
+returns is worked out by one function, shared by the pipeline and the studio.
 
-<Source file="src/preload.ts" symbol="relevantNotes" />
+<Source file="src/preload.ts" symbol="runContext" />
+
+While the run works, the opencode <Sym name="surfacer" /> plugin surfaces accepted notes and
+summaries of earlier runs. <Sym name="recall" /> ranks them with BM25, then a small local model
+scores the top hits and keeps those above the cutoff.
+
+<Source file="src/recall.ts" symbol="recall" />
 
 Tools are served on demand by the bothub MCP server, <Sym name="serveMcp" />, which opencode starts
-as an MCP entry. pi has no MCP client, so a pi bot only gets preload. The concepts are on
-[Context](/docs/context).
+as an MCP entry. pi has no MCP client and no plugins, so a pi bot only gets preload. The concepts
+are on [Context](/docs/context).

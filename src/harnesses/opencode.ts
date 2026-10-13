@@ -46,6 +46,11 @@ const plugins = (spec: RunSpec) => [
   ...(spec.decider?.questions.length ? [[plugin('./opencode-decider.ts'), spec.decider]] : []),
 ];
 
+const pluginIds = (spec: RunSpec) => [
+  ...(spec.surfacer ? ['bothub-surfacer'] : []),
+  ...(spec.decider?.questions.length ? ['bothub-decider'] : []),
+];
+
 /** Harness memory is off: no sharing, no snapshots, no compaction or pruning; bothub's surfacer is the memory. */
 const config = (spec: RunSpec) => ({
   $schema: 'https://opencode.ai/config.json',
@@ -161,4 +166,4 @@ const parseLine = (raw: string): AgentEvent[] => {
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's
  * tool allowlist and project config is ignored.
  */
-export const opencode: HarnessAdapter = { name: 'opencode', command, parseLine };
+export const opencode: HarnessAdapter = { name: 'opencode', command, parseLine, plugins: pluginIds };

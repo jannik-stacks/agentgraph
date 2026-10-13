@@ -3,18 +3,18 @@ title: Vocabulary
 description: The few words that describe every hub.
 ---
 
-| Word         | What it is                                                                              | Where it lives                            |
-| ------------ | --------------------------------------------------------------------------------------- | ----------------------------------------- |
-| **trigger**  | Something that happened: a GitHub event, a comment command, a schedule                  | `on:` in a workflow or job                |
-| **bot**      | Who acts. Harness, model alias, tools, what it may write (`can`). Only bots run a model | `bots/<name>.md`, body is the role        |
-| **skill**    | What to do. A prompt the job forces or the bot is offered                               | `skills/<name>.md`, body is the prompt    |
-| **workflow** | A small graph from triggers to jobs                                                     | `workflows/<name>.md`                     |
-| **job**      | One step in a workflow: it casts a bot and hands it a skill, or runs a plain script     | inside a workflow                         |
-| **check**    | A script, a bot or a decide question that returns a verdict, pass or fail with findings | `checks/<name>.md`                        |
-| **branch**   | Where work happens. One worktree per run, never the default branch                      | runtime                                   |
-| **proposal** | The only way a bot changes anything on GitHub                                           | runtime, see [Proposals](/docs/proposals) |
-| **run**      | One bot or script executing one job attempt, with events, cost and an outcome           | the run store                             |
-| **note**     | What the hub knows                                                                      | `notes/<kind>/<slug>.md`                  |
+| Word         | What it is                                                                                | Where it lives                            |
+| ------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------- |
+| **trigger**  | Something that happened: a GitHub event, a comment command, a schedule                    | `on:` in a workflow or job                |
+| **bot**      | Who acts. Harness, model alias, tools, what it returns (`returns`). Only bots run a model | `bots/<name>.md`, body is the role        |
+| **skill**    | What to do. A prompt the job forces or the bot is offered                                 | `skills/<name>.md`, body is the prompt    |
+| **workflow** | A small graph from triggers to jobs                                                       | `workflows/<name>.md`                     |
+| **job**      | One step in a workflow: it casts a bot and hands it a skill, or runs a plain script       | inside a workflow                         |
+| **check**    | A script, a bot or a decide question that returns a verdict, pass or fail with findings   | `checks/<name>.md`                        |
+| **branch**   | Where work happens. One worktree per run, never the default branch                        | runtime                                   |
+| **proposal** | What a run returns: the only way a bot changes anything on GitHub or in the hub           | runtime, see [Proposals](/docs/proposals) |
+| **run**      | One bot or script executing one job attempt, with events, cost and an outcome             | the run store                             |
+| **note**     | What the hub knows, surfaced when relevant                                                | `notes/<kind>/<slug>.md`                  |
 
 Each file kind has a schema; the fields are listed on [Schema and config](/docs/reference/config).
 
@@ -29,12 +29,12 @@ repository (git)
   hub              hub.yaml, bots/, skills/, workflows/, checks/
     workflow       triggers and jobs
       job          a bot running a skill, or a script, gated by checks
-  notes/           decisions, conventions, patterns, caveats
+  notes/           decisions, style, caveats
   issues           issues/*.md locally, GitHub issues in GitHub mode
   code             the default branch, bot branches, pull requests
 
 data dir (not in git, object storage later)
-  runs/<id>/       run.json, events.jsonl, outcome.json, memory.md
+  runs/<id>/       run.json, events.jsonl, outcome.json, memory.md, summaries.jsonl
     home/          the harness's own sessions and transcripts
   queue, deliveries, locks
   repos/, work/    mirrors and worktrees, rebuilt when missing
@@ -46,16 +46,17 @@ as a proposal: a note, an issue or a commit.
 
 ## Notes
 
-There are four kinds of note, split into rules and knowledge.
+A note is what the hub knows, surfaced when relevant. There are three kinds.
 
-- **decision** and **convention** are rules. A rule note with `paths` is always loaded when a run
-  touches matching files. A decision changes only through a new decision that supersedes it.
-- **pattern** and **caveat** are knowledge. A pattern is a reusable solution worth copying, a
-  caveat is a known sharp edge in our own design. They load only when relevant.
+- **decision**: what was chosen and why. It changes only through a new decision that supersedes it.
+- **style**: how code and docs should look.
+- **caveat**: a known sharp edge in our own design.
 
-Bots and skills choose which kinds they read with `notes: [decision, convention]`. A note can name
-the `check` that enforces it, which is how a rule earns teeth (see the correction ladder in
-[The loop](/docs/loop)). Which notes a run loads is decided by <Sym name="relevantNotes" />.
+No bot or skill lists the notes it reads. While a run works, accepted notes that match what it is
+doing are surfaced into it (see [Context](/docs/context#surfacing)), and every run can search them
+with `notes_search`. A note's `status` is `proposed`, `accepted`, `superseded` or `retired`; only
+accepted notes are surfaced. A note can name the `check` that enforces it, which is how it earns
+teeth (see the correction ladder in [The loop](/docs/loop)).
 
 ## Issues as the work queue
 
@@ -69,20 +70,21 @@ Some things look like notes but are not.
 ## Memory
 
 Memory is not one thing in bothub, and most of it sits outside the hub on purpose. Only notes are
-reviewed and only notes are shared as rules.
+reviewed, and only notes reach every bot.
 
-| What               | Kept where                 | Who reads it                         |
-| ------------------ | -------------------------- | ------------------------------------ |
-| **note**           | `notes/` in the repository | every run it is relevant to, by rule |
-| **run memory**     | `runs/<id>/memory.md`      | humans                               |
-| **transcript**     | `runs/<id>/home/`          | humans only, for now                 |
-| **harness memory** | the harness's own files    | nobody, it is wiped with the sandbox |
+| What               | Kept where                  | Who reads it                                                   |
+| ------------------ | --------------------------- | -------------------------------------------------------------- |
+| **note**           | `notes/` in the repository  | every run, surfaced when relevant or by `notes_search`         |
+| **run summary**    | `runs/<id>/summaries.jsonl` | later runs as `session.share` allows, surfaced or by `history` |
+| **run memory**     | `runs/<id>/memory.md`       | humans                                                         |
+| **transcript**     | `runs/<id>/home/`           | humans only                                                    |
+| **harness memory** | the harness's own files     | nobody, it is wiped with the sandbox                           |
 
-Run memory is a short record the runner writes after each run: tools used, checks that failed and
-why, what was proposed and what landed. A retry does not read it; it gets the failing check findings
-directly. A transcript is the full conversation of a run; bots cannot search or resume earlier
-transcripts yet. Harnesses like opencode keep their own memory files; bothub starts every run from
-a clean home, so nothing carries over that way.
+A run summary is one line per message and tool call, written after every run. Run memory is a
+short record of the run: tools used, checks that failed and why, what was proposed and what
+landed. A retry gets the failing check findings, and with `session.resume: attempts` a summary of
+the attempt before it. Harnesses like opencode keep their own memory files; bothub starts every
+run from a clean home and a check can refuse a change that writes them into the repository.
 
-When something a run learned should outlast it, the bot proposes a note and a human accepts it.
+When something a run learned should outlast it, the bot returns a note and a human accepts it.
 That is the only path from memory to what the hub knows.

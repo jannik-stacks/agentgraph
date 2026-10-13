@@ -180,6 +180,27 @@ describe('runJob', () => {
     expect(await store.read(runId)).toEqual(run);
   });
 
+  it('fails a successful run when one of its plugins never marked itself loaded', async () => {
+    const mark = `const fs = require('fs'), path = require('path'); const f = path.join(process.env.HOME, '.bothub', 'loaded', 'bothub-surfacer'); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, '');`;
+    const withPlugins = (script: string): HarnessAdapter => ({
+      ...node(`${script} console.log(${JSON.stringify(end(true))})`),
+      plugins: () => ['bothub-surfacer', 'bothub-decider'],
+    });
+    const run = async (script: string, plugins = withPlugins(script)) => {
+      const { store, runId } = await setup();
+      return Effect.runPromise(
+        runJob({ adapter: plugins, spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
+      );
+    };
+    expect(await run(mark)).toMatchObject({ status: 'failed', error: 'plugin bothub-decider did not load' });
+    expect(await run('')).toMatchObject({
+      status: 'failed',
+      error: 'plugin bothub-surfacer, bothub-decider did not load',
+    });
+    const one = { ...withPlugins(mark), plugins: () => ['bothub-surfacer'] };
+    expect(await run(mark, one)).toMatchObject({ status: 'succeeded' });
+  });
+
   it('fails when the agent reports failure', async () => {
     const { store, runId } = await setup();
     const run = await Effect.runPromise(

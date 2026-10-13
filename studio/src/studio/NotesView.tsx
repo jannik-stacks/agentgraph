@@ -1,8 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
-import { useMemo } from 'react';
 import { accepted } from '../../../src/preload.ts';
 import { NoteKind } from '../../../src/schema.ts';
-import type { GraphModel } from '../graph-model.ts';
 import { editPathAtom, navigateAtom, sampleAtom } from '../state.ts';
 import { Badge, Chip, cx, Muted } from '../ui.tsx';
 import { ChangesTray } from './edit/ChangesTray.tsx';
@@ -12,24 +10,6 @@ import { useHubModel } from './hub-model.ts';
 import { StudioLayout } from './StudioLayout.tsx';
 import { KindIcon } from './icons.tsx';
 
-/** For each note path, the steps and the bots that load it. */
-const loaders = (model: GraphModel) => {
-  const found = new Map<string, { steps: Set<string>; bots: Set<string> }>();
-  for (const node of model.nodes)
-    for (const context of node.context ?? []) {
-      if (context.step !== node.id) continue;
-      for (const { note } of context.notes) {
-        const entry = found.get(note.path) ?? { steps: new Set(), bots: new Set() };
-        entry.steps.add(context.step);
-        entry.bots.add(context.bot);
-        found.set(note.path, entry);
-      }
-    }
-  return found;
-};
-
-const kindOf = (id: string) => (id.startsWith('bot:') ? 'bot' : id.startsWith('check:') ? 'check' : 'job');
-
 const add =
   'rounded border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300';
 
@@ -38,9 +18,7 @@ const Notes = () => {
   const edit = useAtomValue(editPathAtom);
   const navigate = useSetAtom(navigateAtom);
   const create = useSetAtom(createItemAtom);
-  const loaded = useMemo(() => (model ? loaders(model) : undefined), [model]);
   if (!model || !config) return <Muted>The hub does not compile yet; fix it under Graph.</Muted>;
-  const labelOf = (id: string) => model.nodes.find(n => n.id === id)?.label ?? id.replace(/^[a-z]+:/, '');
   const open = (id: string) => ({
     href: `/studio?node=${encodeURIComponent(id)}`,
     onClick: () => navigate({ path: '/studio', query: { node: id, edit: null } }),
@@ -52,9 +30,8 @@ const Notes = () => {
           <ItemEditor path={edit} model={model} />
         ) : (
           <p className="text-zinc-500">
-            Select a note to edit it; the change applies to every step that loads it. Notes are never set per job: a
-            step loads a decision or convention whenever its paths overlap the step's, or always when it names no paths,
-            and a pattern or caveat when its bot or skill lists the kind or its paths overlap the step's.
+            Select a note to edit it. Notes are what the hub knows. Accepted notes are surfaced by relevance while a bot
+            works, and every run can find them with notes_search; proposed ones wait for a human.
           </p>
         )
       }
@@ -80,7 +57,6 @@ const Notes = () => {
               {notes.length ? (
                 <ul className="divide-y divide-zinc-100 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
                   {notes.map(note => {
-                    const by = loaded?.get(note.path);
                     return (
                       <li
                         key={note.path}
@@ -98,32 +74,19 @@ const Notes = () => {
                           {note.status && (
                             <Badge tone={note.status === 'accepted' ? 'ok' : 'neutral'}>{note.status}</Badge>
                           )}
-                          {note.paths?.map(path => (
-                            <Chip key={path} mono>
-                              {path}
+                          {note.check && (
+                            <Chip
+                              icon={<KindIcon kind="check" className="size-3" title="check" />}
+                              title={`check ${note.check} keeps this note true`}
+                              {...open(`check:${note.check}`)}
+                            >
+                              {note.check}
                             </Chip>
-                          ))}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1 text-xs text-zinc-500">
-                          {by ? (
-                            <>
-                              loaded by
-                              {[...by.steps, ...by.bots].map(id => (
-                                <Chip
-                                  key={id}
-                                  icon={<KindIcon kind={kindOf(id)} className="size-3" title={kindOf(id)} />}
-                                  {...open(id)}
-                                >
-                                  {labelOf(id)}
-                                </Chip>
-                              ))}
-                            </>
-                          ) : !accepted(note) ? (
-                            `${note.status}, so no step loads it; notes_search finds it with that status`
-                          ) : (
-                            'loaded by no step; runs with notes_search can still find it'
                           )}
                         </div>
+                        {!accepted(note) && (
+                          <p className="text-xs text-zinc-500">{note.status}, so it is not surfaced</p>
+                        )}
                       </li>
                     );
                   })}
@@ -139,6 +102,6 @@ const Notes = () => {
   );
 };
 
-/** Every note by kind with the steps and bots that load it, each opening in the editor. */
+/** Every note by kind, each opening in the editor. */
 export const NotesView = () =>
   useAtomValue(sampleAtom) ? <Muted>The sample graph has no notes. Open a hub to browse them.</Muted> : <Notes />;

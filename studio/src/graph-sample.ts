@@ -48,16 +48,15 @@ export const sampleModel: GraphModel = {
     }),
     node('b:implementor', 'bot', 'implementor', {
       badges: [{ text: 'opencode', tone: 'info' }, { text: 'smart' }],
-      detail: { summary: 'can: reply, push, open-pr' },
+      detail: { summary: 'returns: reply, push, open-pr' },
     }),
     node('b:reviewer', 'bot', 'reviewer', {
       badges: [{ text: 'pi', tone: 'info' }],
-      detail: { summary: 'can: reply' },
+      detail: { summary: 'returns: reply' },
     }),
     node('s:implement', 'skill', 'implement', { detail: { summary: 'forced' } }),
     node('s:review-chunk', 'skill', 'review-hunk', { detail: { summary: 'forced' } }),
     node('n:decision', 'note', 'decisions', { detail: { summary: 'notes/decision' } }),
-    node('n:convention', 'note', 'conventions', { detail: { summary: 'notes/convention' } }),
   ],
   edges: [
     edge('t:command', 'j:implement', 'triggers'),
@@ -73,7 +72,5 @@ export const sampleModel: GraphModel = {
     edge('c:tests', 'j:open-pr', 'gates'),
     edge('c:chunk-review', 'j:open-pr', 'gates'),
     edge('c:chunk-review', 'j:implement', 'loops-back', 'retry with findings, max 3'),
-    edge('n:decision', 'b:implementor', 'reads-notes'),
-    edge('n:convention', 'b:implementor', 'reads-notes'),
   ],
 };

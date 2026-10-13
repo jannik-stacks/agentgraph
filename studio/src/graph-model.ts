@@ -1,6 +1,6 @@
-import { effectiveCan, hubFile, type Config } from '../../src/config.ts';
+import { hubFile, type Config } from '../../src/config.ts';
 import { hubGraph, type HubGraph } from '../../src/graph.ts';
-import { type NoteReason, runContext } from '../../src/preload.ts';
+import { runContext } from '../../src/preload.ts';
 import { Harness, Mode } from '../../src/schema.ts';
 
 type HubNode = HubGraph['nodes'][number];
@@ -11,15 +11,14 @@ export type Tone = 'neutral' | 'info' | 'ok' | 'warn' | 'danger';
 type RunContext = ReturnType<typeof runContext>;
 
 /**
- * What one step, a job or a check, hands the bot it casts: preload, tools, what it may propose, the notes with why,
- * the tracker.
+ * What one step, a job or a check, hands the bot it casts: what it looks at and sees first, the tools it uses, what
+ * it returns (a check returns a verdict), and the tracker.
  */
-export type StepContext = Omit<RunContext, 'notes'> & {
+export type StepContext = RunContext & {
   step: string;
   bot: string;
   skill?: string;
-  can: ReturnType<typeof effectiveCan>;
-  notes: (RunContext['notes'][number] & { because: string })[];
+  verdict?: true;
   issues?: Config['hub']['issues'];
 };
 
@@ -71,9 +70,9 @@ const summary = (node: HubNode): string | undefined => {
     case 'trigger':
       return show(d.workflow);
     case 'job':
-      return Array.isArray(d.can) ? `can: ${show(d.can)}` : undefined;
+      return Array.isArray(d.returns) ? `returns: ${show(d.returns)}` : undefined;
     case 'bot':
-      return `can: ${show(d.can)}`;
+      return `returns: ${show(d.returns)}`;
     case 'skill':
       return first(d.description);
     case 'check':
@@ -85,7 +84,7 @@ const summary = (node: HubNode): string | undefined => {
     case 'issues':
       return typeof d.issues === 'string' ? `${d.issues} issue tracker` : undefined;
     case 'tool':
-      return 'read-only hub tool, served over MCP';
+      return 'read-only hub tool';
   }
 };
 
@@ -137,19 +136,6 @@ export const retryLoops = (model: GraphModel): GraphModel => {
   };
 };
 
-const because = (
-  why: NoteReason,
-  note: RunContext['notes'][number]['note'],
-  listed: { name: string; kind: string; notes?: string[] | undefined }[],
-  paths: string[] | undefined
-) => {
-  const scope = !note.paths ? undefined : paths ? "its paths overlap the step's" : 'the step names no paths';
-  if (why === 'paths') return "its paths overlap the step's";
-  if (why === 'rule') return scope ? `rule, ${scope}` : 'rule, always loaded';
-  const by = listed.filter(item => item.notes?.includes(note.kind)).map(item => `${item.kind} ${item.name}`);
-  return [`${note.kind} listed by ${by.join(' and ')}`, scope].filter(Boolean).join(', ');
-};
-
 /** The context each step and each bot it casts would start with, by node id. */
 const contexts = (config: Config) => {
   const found = new Map<string, StepContext[]>();
@@ -158,21 +144,21 @@ const contexts = (config: Config) => {
     step: string,
     botName: string,
     skillName: string | undefined,
-    run: NonNullable<Parameters<typeof runContext>[1]['step']> & Parameters<typeof effectiveCan>[1]
+    run: NonNullable<Parameters<typeof runContext>[0]['step']>,
+    verdict = false
   ) => {
     const bot = config.bots[botName];
     if (!bot) return;
     const skill = skillName ? config.skills[skillName] : undefined;
-    const context = runContext(config.notes, { bot, skill, step: run });
-    const listed = [{ ...bot, kind: 'bot' }, ...(skill ? [{ ...skill, kind: 'skill' }] : [])];
-    const tracker = context.preload.some(p => p !== 'notes') || context.hubTools.some(t => t.startsWith('issues_'));
+    const context = runContext({ bot, step: run });
+    const tracker =
+      context.preload.some(p => p === 'issue' || p === 'links') || context.hubTools.some(t => t.startsWith('issues_'));
     const entry: StepContext = {
       ...context,
       step,
       bot: `bot:${bot.name}`,
       ...(skill && { skill: `skill:${skill.name}` }),
-      can: effectiveCan(bot, run),
-      notes: context.notes.map(loaded => ({ ...loaded, because: because(loaded.why, loaded.note, listed, run.paths) })),
+      ...(verdict && { verdict, returns: [] }),
       ...(tracker && { issues: config.hub.issues }),
     };
     add(step, entry);
@@ -183,11 +169,7 @@ const contexts = (config: Config) => {
       if (job.type === 'bot') cast(`job:${workflow.name}/${id}`, job.bot, job.skill, job);
   for (const check of Object.values(config.checks))
     if (check.type === 'bot')
-      cast(`check:${check.name}`, check.bot, check.skill, {
-        preload: ['notes'],
-        can: [],
-        ...(check.paths && { paths: check.paths }),
-      });
+      cast(`check:${check.name}`, check.bot, check.skill, { over: check.over, tools: undefined }, true);
   return found;
 };
 

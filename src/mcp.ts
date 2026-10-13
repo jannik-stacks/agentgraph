@@ -1,15 +1,25 @@
+import { appendFile, mkdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { z } from 'zod';
 import type { Config } from './config.ts';
 import type { Issues } from './issues.ts';
 import { accepted } from './preload.ts';
+import { NoteProposal } from './outputs.ts';
 import { HubTool, Note, NoteKind } from './schema.ts';
 import type { Store } from './store.ts';
 
 const protocolVersion = '2025-06-18';
 
-type Sources = { config: Config; issues?: Issues; store?: Store };
+/** The tools this server serves: the hub tools other than `history`, and `notes_add` for runs that return notes. */
+export const McpTool = z.enum([...HubTool.exclude(['history']).options, 'notes_add']);
+export type McpTool = z.infer<typeof McpTool>;
+
+/** Where `notes_add` records the notes a run proposes, under the run's home. */
+export const proposalsFile = (home: string) => join(home, '.bothub', 'proposals.jsonl');
+
+type Sources = { config: Config; issues?: Issues; store?: Store; home?: string };
 type Tool = { description: string; input: z.ZodObject; call: (input: never, s: Sources) => Promise<unknown> };
 
 const need = <T>(source: T | undefined, name: string): T => {
@@ -21,7 +31,9 @@ const State = z.enum(['open', 'closed', 'all']);
 const NoteStatus = Note.shape.status.unwrap();
 const runLimit = 200;
 
-const tools: Record<HubTool, Tool> = {
+const NoteInput = NoteProposal.omit({ kind: true });
+
+const tools: Record<McpTool, Tool> = {
   issues_list: {
     description: 'List issues without comments. Filter by label (plan, spec, unsure, ...), state and parent issue.',
     input: z.object({ label: z.string().optional(), state: State.optional(), parent: z.int().optional() }),
@@ -47,7 +59,7 @@ const tools: Record<HubTool, Tool> = {
       return config.notes
         .filter(n => wanted(n) && (!kind || n.kind === kind))
         .filter(n => words.every(w => `${n.title}\n${n.body}`.toLowerCase().includes(w)))
-        .map(({ kind, name, title, paths, status }) => ({ kind, slug: name, title, status, paths }));
+        .map(({ kind, name, title, status }) => ({ kind, slug: name, title, status }));
     },
   },
   notes_get: {
@@ -58,6 +70,17 @@ const tools: Record<HubTool, Tool> = {
       if (!note) return `no ${kind} note "${slug}"`;
       const { path: _, name, ...rest } = note;
       return { slug: name, ...rest };
+    },
+  },
+  notes_add: {
+    description:
+      'Propose a note for the hub: a decision (what was chosen and why), style (how code and docs should look) or caveat (a known sharp edge). A human accepts it before it is surfaced to anyone.',
+    input: NoteInput,
+    call: async (note: Omit<z.infer<typeof NoteProposal>, 'kind'>, { home }) => {
+      const file = proposalsFile(need(home, 'run home'));
+      await mkdir(dirname(file), { recursive: true });
+      await appendFile(file, `${JSON.stringify({ kind: 'note', ...note })}\n`);
+      return `proposed notes/${note.note}/${note.slug}.md; it lands when the run ends`;
     },
   },
   runs_read: {
@@ -73,7 +96,7 @@ const tools: Record<HubTool, Tool> = {
 };
 
 /** The MCP tool descriptors for `granted`, with JSON Schemas for their inputs. */
-export const toolList = (granted: HubTool[]) =>
+export const toolList = (granted: McpTool[]) =>
   granted.map(name => ({
     name,
     description: tools[name].description,
@@ -81,8 +104,8 @@ export const toolList = (granted: HubTool[]) =>
   }));
 
 /** Calls one granted tool and returns MCP tool-call content. Errors come back as `isError` results. */
-export const callTool = async (granted: HubTool[], name: string, args: unknown, sources: Sources) => {
-  const parsed = HubTool.safeParse(name);
+export const callTool = async (granted: McpTool[], name: string, args: unknown, sources: Sources) => {
+  const parsed = McpTool.safeParse(name);
   if (!parsed.success || !granted.includes(parsed.data))
     return { content: [{ type: 'text', text: `unknown tool "${name}"` }], isError: true };
   const tool = tools[parsed.data];
@@ -100,11 +123,11 @@ export const callTool = async (granted: HubTool[], name: string, args: unknown, 
 type Request = { jsonrpc: '2.0'; id?: string | number; method: string; params?: Record<string, unknown> };
 
 /**
- * A read-only MCP server over newline-delimited JSON-RPC on stdio: `initialize`, `ping`, `tools/list` and
- * `tools/call` for the granted tools. Writes never happen here; they go through proposals.
+ * An MCP server over newline-delimited JSON-RPC on stdio: `initialize`, `ping`, `tools/list` and
+ * `tools/call` for the granted tools. It writes nothing but a run's own proposals, which land only when the run ends.
  */
 export const serveMcp = (
-  granted: HubTool[],
+  granted: McpTool[],
   sources: Sources,
   { input = process.stdin, output = process.stdout }: { input?: Readable; output?: Writable } = {}
 ) => {

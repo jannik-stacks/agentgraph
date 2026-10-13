@@ -8,7 +8,7 @@ import {
   switchChoice,
   unionChoices,
 } from '../../../../src/hub-files.ts';
-import { Button, Chip, cx, Segmented, useCommittedText } from '../../ui.tsx';
+import { Button, Chip, cx, RemovableChip, Segmented, useCommittedText } from '../../ui.tsx';
 
 export type Path = (string | number)[];
 type Target = { href: string; onClick: () => void };
@@ -139,23 +139,14 @@ const EnumField = ({ options, value, onChange, path, required }: FieldProps & { 
 
 const RefChip = ({ path, value, onRemove }: { path: Path; value: string; onRemove?: () => void }) => {
   const target = useForm().link(path, value);
-  return (
-    <span className="inline-flex items-center">
-      <Chip mono={mono.has(String(lastKey(path)))} title={target ? `open ${value}` : value} {...target}>
+  const chip = { mono: mono.has(String(lastKey(path))), title: target ? `open ${value}` : value, ...target };
+  if (onRemove)
+    return (
+      <RemovableChip {...chip} label={value} onRemove={onRemove}>
         {value}
-      </Chip>
-      {onRemove && (
-        <button
-          type="button"
-          aria-label={`remove ${value}`}
-          onClick={onRemove}
-          className="-ml-px px-1 text-zinc-400 hover:text-red-600"
-        >
-          ×
-        </button>
-      )}
-    </span>
-  );
+      </RemovableChip>
+    );
+  return <Chip {...chip}>{value}</Chip>;
 };
 
 const TextField = ({ value, onChange, path, required, schema }: FieldProps) => {

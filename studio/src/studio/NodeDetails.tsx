@@ -43,7 +43,7 @@ const refs: Record<string, (value: string) => string | undefined> = {
   checks: v => `check:${v}`,
   notes: v => `note:${v}`,
   tools: v => `tool:${v}`,
-  preload: v => (v === 'notes' ? undefined : 'issues:issues'),
+  preload: v => (v === 'issue' || v === 'links' ? 'issues:issues' : undefined),
 };
 
 const mono = new Set(['branch', 'branches', 'command', 'cron', 'paths', 'tools', 'types']);
@@ -314,31 +314,7 @@ const Lead = ({ name, value }: { name: string; value: string }) => (
   </Section>
 );
 
-const contextEdges = new Set<string>(['reads-notes', 'preloads', 'calls']);
-
-const reasonTone = { rule: 'info', kind: 'ok', paths: 'warn' } as const;
-
-const NoteRow = ({ loaded }: { loaded: StepContext['notes'][number] }) => {
-  const navigate = useSetAtom(navigateAtom);
-  const { note } = loaded;
-  return (
-    <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1.5">
-      <Chip
-        icon={<KindIcon kind="note" className="size-3" title="note" />}
-        title={`Open ${note.path} in the Notes tab; an edit there changes it for every step that loads it`}
-        href={`/studio/notes?edit=${encodeURIComponent(note.path)}`}
-        onClick={() => navigate({ path: '/studio/notes', query: { edit: note.path } })}
-      >
-        {note.title}
-      </Chip>
-      <span className="text-[11px] text-zinc-500">{note.kind}</span>
-      {note.status && note.status !== 'accepted' && <Badge>{note.status}</Badge>}
-      <span className="ml-auto">
-        <Badge tone={reasonTone[loaded.why]}>{loaded.because}</Badge>
-      </span>
-    </li>
-  );
-};
+const contextEdges = new Set<string>(['preloads', 'calls']);
 
 const Labelled = ({ name, title, children }: { name: string; title?: string; children: ReactNode }) => (
   <>
@@ -353,38 +329,29 @@ const Labelled = ({ name, title, children }: { name: string; title?: string; chi
 
 const None = ({ children = 'none' }: { children?: ReactNode }) => <span className="text-zinc-400">{children}</span>;
 
-const preloadMeaning: Record<StepContext['preload'][number], string> = {
-  issue: 'the issue thread',
-  links: 'linked issues and PRs',
-  notes: 'notes below',
+type PreloadItem = StepContext['preload'][number];
+
+const preloadName = (item: PreloadItem) => (typeof item === 'string' ? item : 'recall');
+
+const preloadMeaning = (item: PreloadItem) => {
+  if (item === 'issue') return 'the issue thread';
+  if (item === 'links') return 'linked issues and PRs';
+  const { cutoff, budget } = typeof item === 'string' ? {} : item.recall;
+  return [
+    'relevant notes and earlier runs',
+    cutoff !== undefined && `cutoff ${cutoff}`,
+    budget !== undefined && `budget ${budget}`,
+  ]
+    .filter(Boolean)
+    .join(', ');
 };
 
-const Notes = ({ context }: { context: StepContext }) => (
-  <div className="space-y-1.5">
-    <p
-      className="flex items-center gap-1.5 text-xs text-zinc-500"
-      title="Never set per job. Decisions and conventions load when their paths overlap the step's, or always without paths; patterns and caveats load when the bot or skill lists their kind, or when their paths overlap."
-    >
-      <KindIcon kind="note" className="size-3" />
-      Notes loaded automatically by rule
-    </p>
-    {!context.preload.includes('notes') ? (
-      <p className="text-xs text-zinc-500">Notes are not preloaded for this step.</p>
-    ) : context.notes.length ? (
-      <ul className="divide-y divide-zinc-100 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-        {context.notes.map(loaded => (
-          <NoteRow key={loaded.note.path} loaded={loaded} />
-        ))}
-      </ul>
-    ) : (
-      <p className="text-xs text-zinc-500">No note matches this step.</p>
-    )}
-  </div>
-);
+const overText = (over: NonNullable<StepContext['over']>) =>
+  typeof over === 'string' ? over : 'run' in over ? `run: ${over.run}` : `each: ${over.each}`;
 
 /**
- * What one step hands its bot, in the order the run meets it: who acts, what it does, what it sees up front, what it
- * can use while working, what it may propose afterwards, then the notes it loads and why.
+ * What one step hands its bot, in the order the run meets it: who acts, what it does, what it takes in, what it uses
+ * while working, and what it returns.
  */
 const StepContextView = ({ context, from, heading }: { context: StepContext; from: string; heading?: ReactNode }) => {
   const links = useLinksContext();
@@ -404,11 +371,16 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
             {context.skill ? <NodeChip id={context.skill} /> : <None>no skill</None>}
           </Labelled>
         )}
-        <Labelled name="sees first" title="preloaded into the prompt before the run starts">
+        <Labelled name="in" title="what the run looks at, and what it sees first in its prompt">
+          {context.over && (
+            <Chip mono title="what the run looks at" {...docs}>
+              over {overText(context.over)}
+            </Chip>
+          )}
           {context.preload.map(item => (
-            <Chip key={item} mono title={`preloads ${preloadMeaning[item]}`} {...docs}>
-              {item}
-              <span className="ml-1 font-sans text-zinc-500">{preloadMeaning[item]}</span>
+            <Chip key={preloadName(item)} mono title={`preloads ${preloadMeaning(item)}`} {...docs}>
+              {preloadName(item)}
+              <span className="ml-1 font-sans text-zinc-500">{preloadMeaning(item)}</span>
             </Chip>
           ))}
           {context.issues && (
@@ -421,8 +393,9 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
               {context.issues}
             </Chip>
           )}
+          {!context.over && !context.preload.length && !context.issues && <None />}
         </Labelled>
-        <Labelled name="can use" title="harness tools and read-only hub tools while it works">
+        <Labelled name="uses" title="harness tools and read-only hub tools while it works">
           {context.harnessTools.map(tool => (
             <Chip key={tool} mono title="harness tool" {...links.page('/docs/reference/harnesses')}>
               {tool}
@@ -433,7 +406,7 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
               key={tool}
               icon={<KindIcon kind="tool" className="size-3" />}
               mono
-              title="read-only hub tool, served over MCP"
+              title="read-only hub tool"
               {...docs}
             >
               {tool}
@@ -441,22 +414,33 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
           ))}
           {!context.harnessTools.length && !context.hubTools.length && <None />}
         </Labelled>
-        <Labelled
-          name="may propose"
-          title="the proposal kinds the run may return; nothing applies until a check passes"
-        >
-          {context.can.length ? (
-            context.can.map(kind => (
+        <Labelled name="returns" title="what the run hands back when it ends; nothing applies until the checks pass">
+          {context.verdict ? (
+            <Chip mono>verdict</Chip>
+          ) : context.returns.length ? (
+            context.returns.map(kind => (
               <Chip key={kind} mono>
                 {kind}
               </Chip>
             ))
           ) : (
-            <None>nothing, it answers with a verdict</None>
+            <None />
           )}
         </Labelled>
       </dl>
-      <Notes context={context} />
+      <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+        <KindIcon kind="note" className="size-3" />
+        <a
+          {...links.page('/studio/notes')}
+          onClick={e => {
+            e.preventDefault();
+            links.page('/studio/notes').onClick();
+          }}
+          className="hover:text-sky-700 hover:underline dark:hover:text-sky-300"
+        >
+          Notes are surfaced by relevance while the bot works
+        </a>
+      </p>
     </div>
   );
 };

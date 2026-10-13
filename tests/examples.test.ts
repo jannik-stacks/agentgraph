@@ -46,7 +46,7 @@ describe('example hubs', () => {
 
 describe('bothub check', () => {
   it('rejects tool names the harness does not know, such as capitalised ones', async () => {
-    const dir = hub({ shouty: 'harness: opencode\ntools: [Read, Bash]\ncan: [reply]' });
+    const dir = hub({ shouty: 'harness: opencode\ntools: [Read, Bash]\nreturns: [reply]' });
     const io = capture();
     expect(await main(['check', '--dir', dir, '--json'])).toBe(2);
     const { errors } = JSON.parse(io.out.join('')) as { errors: { path: string; message: string }[] };
@@ -57,7 +57,7 @@ describe('bothub check', () => {
   });
 
   it('warns on stderr that pi ignores max-turns and gets no hub tools, and still passes', async () => {
-    const dir = hub({ quiet: 'harness: pi\ntools: [read, notes_search]\ncan: [reply]\nmax-turns: 4' });
+    const dir = hub({ quiet: 'harness: pi\ntools: [read, notes_search]\nreturns: [reply]\nmax-turns: 4' });
     const io = capture();
     expect(await main(['check', '--dir', dir, '--no-json'])).toBe(0);
     const warnings = io.err.join('');

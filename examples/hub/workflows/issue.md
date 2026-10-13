@@ -14,7 +14,7 @@ jobs:
     skill: implement
     branch: bothub/{issue}
     until: { checks: [types, review], max: 2 }
-    can: [reply, push, open-pr, ask]
+    returns: [reply, push, open-pr, ask]
     tools: [issues_get, notes_search]
     mode: warn
   review:
@@ -22,8 +22,8 @@ jobs:
     on: { pull_request: {} }
     bot: reviewer
     skill: review
-    preload: [issue, notes]
-    can: [reply]
+    preload: [issue, recall]
+    returns: [reply]
 ---
 
 A `/bothub` comment on an issue starts the implementor on its own branch. Its work reaches a pull
