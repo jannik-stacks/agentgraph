@@ -42,7 +42,7 @@ and only ask about size once the change you made still fails it.
 
 When a check asks for something the brief rules out, or your change still fails the hub's bounds
 after you tried, ask one question and add a `close` as `blocked`: the hub then stops, runs no more
-checks and sends nothing back. Your work so far is parked on the branch. When the prompt has a
+checks and sends nothing back. Your work so far is parked beside the branch. When the prompt has a
 `## Resuming` section, that work is already in your worktree: read the question and the answer
 there, continue from it and do not start over.
 
