@@ -78,19 +78,7 @@ const chipIdle = 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-700 da
 const chipLink =
   'cursor-pointer border-zinc-200 bg-white text-zinc-800 hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-sky-600 dark:hover:bg-sky-950 dark:hover:text-sky-200';
 
-/**
- * A small pill for a name, a link when `onClick` is given. It leads with `icon`, or with a color dot when `dot` names a
- * background class.
- */
-export const Chip = ({
-  children,
-  icon,
-  dot,
-  mono,
-  title,
-  href,
-  onClick,
-}: {
+type ChipProps = {
   children: ReactNode;
   icon?: ReactNode;
   dot?: string | undefined;
@@ -98,7 +86,19 @@ export const Chip = ({
   title?: string | undefined;
   href?: string | undefined;
   onClick?: (() => void) | undefined;
-}) => {
+};
+
+/** The chip's content, inside a span or a link that the caller styles. */
+const ChipInner = ({
+  children,
+  icon,
+  dot,
+  mono,
+  title,
+  href,
+  onClick,
+  className,
+}: ChipProps & { className: string }) => {
   const body = (
     <>
       {icon ?? (dot && <span className={cx('size-1.5 shrink-0 rounded-full', dot)} />)}
@@ -107,7 +107,7 @@ export const Chip = ({
   );
   if (!onClick)
     return (
-      <span className={cx(chipBase, chipIdle)} title={title}>
+      <span className={className} title={title}>
         {body}
       </span>
     );
@@ -115,7 +115,7 @@ export const Chip = ({
     <a
       href={href}
       title={title}
-      className={cx(chipBase, chipLink)}
+      className={className}
       onClick={e => {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
         e.preventDefault();
@@ -126,6 +126,46 @@ export const Chip = ({
     </a>
   );
 };
+
+/**
+ * A small pill for a name, a link when `onClick` is given. It leads with `icon`, or with a color dot when `dot` names a
+ * background class.
+ */
+export const Chip = (chip: ChipProps) => (
+  <ChipInner {...chip} className={cx(chipBase, chip.onClick ? chipLink : chipIdle)} />
+);
+
+/** A {@link Chip} with a remove button inside its border, for editable lists. */
+export const RemovableChip = ({ label, onRemove, ...chip }: ChipProps & { label: string; onRemove: () => void }) => (
+  <span
+    className={cx(
+      chipBase,
+      chipIdle,
+      'gap-0 pr-0',
+      chip.onClick &&
+        'has-[a:hover]:border-sky-400 has-[a:hover]:bg-sky-50 dark:has-[a:hover]:border-sky-600 dark:has-[a:hover]:bg-sky-950'
+    )}
+  >
+    <ChipInner
+      {...chip}
+      className={cx(
+        'inline-flex min-w-0 items-center gap-1.5',
+        chip.onClick && 'cursor-pointer hover:text-sky-800 dark:hover:text-sky-200'
+      )}
+    />
+    <button
+      type="button"
+      aria-label={`Remove ${label}`}
+      title={`Remove ${label}`}
+      onClick={onRemove}
+      className="-my-px ml-1.5 flex items-center self-stretch rounded-r-[5px] border-l border-zinc-200 px-1 text-zinc-400 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-inset dark:border-zinc-700 dark:text-zinc-500 dark:hover:bg-red-950 dark:hover:text-red-400"
+    >
+      <svg viewBox="0 0 12 12" className="size-2.5" aria-hidden="true">
+        <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </button>
+  </span>
+);
 
 export const Chips = ({ children }: { children: ReactNode }) => <div className="flex flex-wrap gap-1">{children}</div>;
 
