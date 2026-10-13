@@ -125,9 +125,21 @@ describe('decideCheck', () => {
     expect(sent(fetch).state).toBe(`${'a'.repeat(2000)}\n[…]\n${'z'.repeat(2000)}`);
   });
 
-  it('fails closed when the model is unreachable', async () => {
+  it('is blocked when no answer comes', async () => {
     stub(reply(500, { error: 'boom' }));
-    expect(await decideCheck('q', 'x', env)).toEqual({ pass: false, findings: 'decide: 500: boom' });
+    expect(await decideCheck('q', 'x', env)).toEqual({ pass: false, findings: 'decide: 500: boom', blocked: true });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Promise.reject(new TypeError('fetch failed')))
+    );
+    expect(await decideCheck('q', 'x', env)).toMatchObject({ pass: false, blocked: true });
+    stub(reply(200, { answers: {} }));
+    expect(await decideCheck('q', 'x', env)).toMatchObject({ pass: false, blocked: true });
+  });
+
+  it('fails when the call is rejected', async () => {
+    stub(reply(404, { error: 'model not found' }));
+    expect(await decideCheck('q', 'x', env)).toEqual({ pass: false, findings: 'decide: 404: model not found' });
   });
 });
 
@@ -153,6 +165,8 @@ const CHAT_REPLIES = [
   { name: 'numeric strings', reply: '{"a": "0.25"}', answers: { a: 0.25 } },
   { name: 'out-of-range numbers, clamped', reply: '{"a": 3, "b": -1}', answers: { a: 1, b: 0 } },
   { name: 'unreadable values, left out', reply: '{"a": "maybe", "b": null, "c": "", "d": 0.5}', answers: { d: 0.5 } },
+  { name: 'reasoning before the object', reply: 'It says {x}, so no.\n{"a": 0.1}', answers: { a: 0.1 } },
+  { name: 'the last of several objects', reply: '{"a": 0.9} On reflection: {"a": 0.2}', answers: { a: 0.2 } },
   { name: 'no object', reply: 'Yes.', answers: {} },
   { name: 'broken JSON', reply: '{"a": 0.5', answers: {} },
   { name: 'an array', reply: '[0.5]', answers: {} },
@@ -225,5 +239,18 @@ describe('decide through a chat model', () => {
       findings: 'Probability of yes 0.900, no threshold. Fine?',
     });
     expect(fetch.mock.calls[0]?.[0]).toBe('http://litellm:4000/v1/chat/completions');
+  });
+
+  const env = { BOTHUB_DECIDE_MODEL: 'luna', BOTHUB_LLM_BASE_URL: llm.url };
+
+  it.each([
+    { name: 'an unreadable reply', fetch: chat('Probably yes.'), blocked: true },
+    { name: 'a server error', fetch: reply(503, {}), blocked: true },
+    { name: 'a rejected key', fetch: reply(401, {}), blocked: undefined },
+  ])('marks a decide check on $name blocked: $blocked', async ({ fetch, blocked }) => {
+    stub(fetch);
+    const verdict = await decideCheck('Fine?', 'x', env);
+    expect(verdict.pass).toBe(false);
+    expect(verdict.blocked).toBe(blocked);
   });
 });

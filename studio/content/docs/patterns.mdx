@@ -31,8 +31,8 @@ The same goes for deliveries: the store records every event id it has dispatched
 
 Nothing passes by default. A check that cannot decide fails with the reason. A check that applies
 to nothing in the change is skipped, but fails once no gating check ran at all. An `over` script
-that fails or prints more than `max` items fails its check, and a `decide` check fails when the
-model cannot be reached.
+that fails or prints more than `max` items fails its check. A `decide` check that gets no answer,
+because the model is unreachable, fails with a server error or says nothing readable, is blocked.
 
 <Source file="src/decide.ts" symbol="decideCheck" />
 

@@ -249,6 +249,8 @@ type ChatReply = {
 /**
  * Asks `model` at `endpoint` one system and user message pair and resolves to the trimmed reply. Every call, failed or
  * not, goes to `onUsage` with the tokens the endpoint reported and the cost the model proxy reported.
+ *
+ * @throws when the call fails, with the HTTP `status` on an error response.
  */
 export const complete = (
   { url, apiKey, timeoutMs = 60_000 }: Endpoint,
@@ -274,7 +276,10 @@ export const complete = (
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) throw new Error(`${model}: ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    if (!response.ok) {
+      const message = `${model}: ${response.status}: ${(await response.text()).slice(0, 200)}`;
+      throw Object.assign(new Error(message), { status: response.status });
+    }
     const { choices, usage: u } = (await response.json()) as ChatReply;
     const cost = Number(response.headers.get('x-litellm-response-cost'));
     return {

@@ -65,7 +65,10 @@ type Answers<Q extends Record<string, Question>> = { [K in keyof Q]: Extract<Ans
 export const viaChat = (model: string) => !model.includes(':');
 
 const chatSystem =
-  'You answer yes-or-no questions about the state the user gives. Reply with only a JSON object that maps each question id to the probability, from 0 to 1, that the answer is yes.';
+  'You answer yes-or-no questions about the state the user gives. Reason in at most two sentences, then end your reply with a JSON object that maps each question id to the probability, from 0 to 1, that the answer is yes.';
+
+/** The decision model gave no answer: it was unreachable, failed with a server error, or said nothing readable. */
+class Unanswered extends Error {}
 
 const probability = (value: unknown) => {
   if (typeof value === 'boolean') return value ? 1 : 0;
@@ -76,16 +79,22 @@ const probability = (value: unknown) => {
   return Math.min(1, Math.max(0, n));
 };
 
-/** The probability of yes for each question id in a chat model's reply; unreadable answers are left out. */
-export const chatAnswers = (reply: string): Record<string, number> => {
-  const json = /\{[\s\S]*\}/.exec(reply)?.[0];
-  if (!json) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    return {};
+const lastObject = (reply: string): unknown => {
+  const end = reply.lastIndexOf('}') + 1;
+  for (const { index } of [...reply.matchAll(/\{/g)].reverse()) {
+    try {
+      return JSON.parse(reply.slice(index, end));
+    } catch {}
   }
+  return undefined;
+};
+
+/**
+ * The probability of yes for each question id in the last JSON object of a chat model's reply, after any reasoning.
+ * Unreadable answers are left out.
+ */
+export const chatAnswers = (reply: string): Record<string, number> => {
+  const parsed = lastObject(reply);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
   return Object.fromEntries(
     Object.entries(parsed).flatMap(([id, value]) => {
@@ -108,7 +117,12 @@ const askChat = async (
   if (other) throw new Error(`decide: ${model} answers only noul questions, "${other[0]}" is ${other[1].type}`);
   const asked = Object.entries(questions).map(([id, q]) => `${id}: ${text(q.instructions)}`);
   const user = `<state>\n${text(state)}\n</state>\n\nQuestions:\n${asked.join('\n')}`;
-  const reply = await complete({ ...llm, timeoutMs }, model, chatSystem, user, 256 + 16 * asked.length, onUsage);
+  const reply = await complete({ ...llm, timeoutMs }, model, chatSystem, user, 384 + 16 * asked.length, onUsage).catch(
+    (e: unknown) => {
+      if (((e as { status?: number }).status ?? 500) < 500) throw e;
+      throw new Unanswered(`decide: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  );
   return Object.fromEntries(
     Object.entries(chatAnswers(reply)).map(([id, noul]) => [id, { type: 'noul' as const, noul }])
   );
@@ -132,7 +146,7 @@ const askDecisionApi = (url: string, timeoutMs: number, request: DecideRequest, 
           : e instanceof Error
             ? e.message
             : String(e);
-      throw new Error(`decide: ${endpoint}: ${reason}`);
+      throw new Unanswered(`decide: ${endpoint}: ${reason}`);
     }
     const body = await response.text();
     const json = (() => {
@@ -144,10 +158,12 @@ const askDecisionApi = (url: string, timeoutMs: number, request: DecideRequest, 
     })();
     if (!response.ok) {
       const message = (json as { error?: unknown } | undefined)?.error;
-      throw new Error(`decide: ${response.status}: ${typeof message === 'string' ? message : body.slice(0, 200)}`);
+      throw new (response.status >= 500 ? Unanswered : Error)(
+        `decide: ${response.status}: ${typeof message === 'string' ? message : body.slice(0, 200)}`
+      );
     }
     const parsed = DecideResponse.safeParse(json);
-    if (!parsed.success) throw new Error(`decide: unexpected response: ${z.prettifyError(parsed.error)}`);
+    if (!parsed.success) throw new Unanswered(`decide: unexpected response: ${z.prettifyError(parsed.error)}`);
     const { answers, usage, prompt_eval_cached_count: cached } = parsed.data;
     return {
       value: answers,
@@ -165,7 +181,7 @@ const askDecisionApi = (url: string, timeoutMs: number, request: DecideRequest, 
  * longer than 4,000 characters keeps its head and tail. The model call, failed or not, goes to `onUsage`. A chat
  * model's unreadable answers are left out.
  *
- * @throws when the request is invalid, the call times out or the server answers with an error.
+ * @throws when the request is invalid or the server answers with an error, and `Unanswered` when no answer comes.
  */
 export const ask = async ({
   url = defaultDecideUrl,
@@ -192,7 +208,7 @@ export const ask = async ({
 /**
  * `ask`, with every question answered.
  *
- * @throws as `ask` does, and when an answer is missing.
+ * @throws as `ask` does, and `Unanswered` when an answer is missing.
  * @example
  * const { ok } = await decide({ url, model: 'tev1:0.8b', state: 'Message: fix typo', questions: { ok: { type: 'noul', instructions: 'Is the message exactly "update"?' } } });
  * ok.noul; // probability of yes
@@ -202,16 +218,16 @@ export const decide = async <Q extends Record<string, Question>>(
 ): Promise<Answers<Q>> => {
   const answers = await ask(request);
   for (const [key, question] of Object.entries(request.questions)) {
-    if (answers[key]?.type !== question.type) throw new Error(`decide: no ${question.type} answer for "${key}"`);
+    if (answers[key]?.type !== question.type) throw new Unanswered(`decide: no ${question.type} answer for "${key}"`);
   }
   return answers as Answers<Q>;
 };
 
 /**
  * Asks the decision model one yes-or-no `question` about `state` and passes when the probability of yes is at or
- * above `threshold`, or always without one, which only records the probability. Fails closed when the model cannot be
- * reached. Reads `BOTHUB_DECIDE_URL`, `BOTHUB_DECIDE_MODEL` and, for a chat model, `BOTHUB_LLM_BASE_URL` and
- * `BOTHUB_LLM_API_KEY` from `env`. The model call goes to `onUsage`.
+ * above `threshold`, or always without one, which only records the probability. Fails when the call is rejected, and
+ * is `blocked` when no answer comes (see `Unanswered`). Reads `BOTHUB_DECIDE_URL`, `BOTHUB_DECIDE_MODEL` and, for a
+ * chat model, `BOTHUB_LLM_BASE_URL` and `BOTHUB_LLM_API_KEY` from `env`. The model call goes to `onUsage`.
  */
 export const decideCheck = async (
   question: string,
@@ -219,7 +235,7 @@ export const decideCheck = async (
   env: Record<string, string | undefined>,
   threshold?: number,
   onUsage?: (usage: Usage) => void
-): Promise<Pick<Verdict, 'pass' | 'findings'>> => {
+): Promise<Pick<Verdict, 'pass' | 'findings' | 'blocked'>> => {
   try {
     const { answer } = await decide({
       url: env.BOTHUB_DECIDE_URL || defaultDecideUrl,
@@ -235,6 +251,10 @@ export const decideCheck = async (
       findings: `Probability of yes ${answer.noul.toFixed(3)}, ${against}. ${question}`,
     };
   } catch (e) {
-    return { pass: false, findings: e instanceof Error ? e.message : String(e) };
+    return {
+      pass: false,
+      findings: e instanceof Error ? e.message : String(e),
+      ...(e instanceof Unanswered && { blocked: true }),
+    };
   }
 };

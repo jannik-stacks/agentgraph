@@ -34,8 +34,8 @@ waits for it, up to its own timeout, and is deferred only after that.
 
 A check is a script (exit code), a bot that replies `PASS` or `FAIL`, or a `decide` check that asks
 its body as a yes or no question to a small local model (<Sym name="decideCheck" />). A bot that
-does not answer clearly fails. A check that fans out over files, hunks or script items passes only
-when every item passes, and its findings are labelled by item.
+does not answer clearly fails; a `decide` check that gets no answer from its model is blocked. A
+check that fans out over files, hunks or script items passes only when every item passes, and its findings are labelled by item.
 
 <Source file="src/pipeline/checks.ts" symbol="verdictOf" />
 
