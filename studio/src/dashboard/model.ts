@@ -275,6 +275,7 @@ export const turnsOf = (records: EventRecord[]) => {
         break;
       }
       case 'usage': {
+        if (event.source && event.source !== 'harness') break;
         turn(seq).usage = event;
         current = undefined;
         break;

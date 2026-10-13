@@ -156,7 +156,14 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       Effect.promise(async (): Promise<Judged> => scriptVerdict(await runOnItem(check.run, item, scope, p, true)));
   if (check.type === 'decide')
     return (item: Item) =>
-      Effect.promise(() => decideCheck(check.body.trim(), item.text, p.env, check.threshold) as Promise<Judged>);
+      Effect.promise(async (): Promise<Judged> => {
+        const recorded: Promise<void>[] = [];
+        const verdict = await decideCheck(check.body.trim(), item.text, p.env, check.threshold, usage =>
+          recorded.push(p.store.add(a.parent.id, { ...usage, source: 'decide-check' }))
+        );
+        await Promise.all(recorded).catch(() => {});
+        return verdict;
+      });
   const bot = p.config.bots[check.bot];
   const skill = check.skill ? p.config.skills[check.skill] : undefined;
   const preload = bot ? effectivePreload(bot, {}) : [];

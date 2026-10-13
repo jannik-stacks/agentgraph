@@ -7,6 +7,41 @@ import { runScript, unsandboxed } from '../src/runner.ts';
 import { depsMounts } from '../src/sandbox.ts';
 import { commit, git, sourceRepo, temp } from './kit.ts';
 
+const FLAKY_INSTALLS = [
+  {
+    case: 'again after a dropped proxy connection, in a cleared worktree',
+    fails: 2,
+    output: 'npm error code FETCH_ERROR: Proxy connection ended before receiving CONNECT response',
+    delays: [0, 0, 0],
+    installs: 3,
+    error: undefined,
+  },
+  {
+    case: 'again after a reset connection',
+    fails: 1,
+    output: 'npm error code ECONNRESET',
+    delays: [0],
+    installs: 2,
+    error: undefined,
+  },
+  {
+    case: 'no more than its delays allow',
+    fails: 9,
+    output: 'npm error code ETIMEDOUT',
+    delays: [0, 0],
+    installs: 3,
+    error: 'installing dependencies failed: npm error code ETIMEDOUT',
+  },
+  {
+    case: 'once when the install fails for a reason other than the network',
+    fails: 9,
+    output: 'npm error code ERESOLVE',
+    delays: [0, 0],
+    installs: 1,
+    error: 'installing dependencies failed: npm error code ERESOLVE',
+  },
+] as const;
+
 const setup = () => {
   const { dir } = sourceRepo();
   commit(dir, { 'deps.lock': 'v1\n' });
@@ -92,6 +127,18 @@ describe('prepareDeps', () => {
     const plain = temp('deps-plain');
     await prepareDeps(plain, deps, cache, unsandboxed);
     expect(await depsMounts(plain)).toEqual([]);
+  });
+
+  it.each(FLAKY_INSTALLS)('tries $case', async ({ fails, output, delays, installs, error }) => {
+    const { deps, worktree, cache } = setup();
+    const count = join(temp('deps-count'), 'count');
+    const flaky = `n=$(cat ${count} 2>/dev/null || echo 0); echo $((n+1)) > ${count}; [ ! -e vendor/stale ] || exit 7; [ "$n" -ge ${fails} ] || { mkdir -p vendor/stale; echo "${output}"; exit 1; }; ${deps.install}`;
+    const tree = worktree('a');
+    const prepared = prepareDeps(tree, { ...deps, install: flaky }, cache, unsandboxed, undefined, delays);
+    if (error) await expect(prepared).rejects.toThrow(error);
+    else await prepared;
+    expect(Number(readFileSync(count, 'utf8'))).toBe(installs);
+    if (!error) expect(readdirSync(join(tree, 'vendor')).sort()).toEqual(['.bothub-deps', 'pkg']);
   });
 
   it('readies a worktree before a script starts in it', async () => {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { proseLine } from './outputs.ts';
 import { fold, type Op, type Pull } from './pulls.ts';
 import type { EventRecord, Outcome, Run } from './store.ts';
-import { count, emptyTally, type Tally } from './usage.ts';
+import { count, emptyTally, sum, type Tally } from './usage.ts';
 
 /** What the run list needs from an outcome: no bodies or findings, just what landed and how checks went. */
 export const briefOf = (outcome: Outcome) => ({
@@ -203,7 +203,7 @@ export const watchRuns = (dir: string, { pollMs = 1000, sweepEvery = 15, useWatc
       if (size < offset) [offset, total, activity] = [0, emptyTally(), undefined];
       const read = await tail(join(base, 'events.jsonl'), offset);
       if (read.lines.length) {
-        total = { ...total };
+        total = sum([total]);
         for (const line of read.lines) {
           const record = parse<EventRecord>(line);
           if (!record) continue;

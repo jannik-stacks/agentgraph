@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { Effect } from 'effect';
 import { effectivePreload, returnKinds, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
+import { harnesses } from '../harnesses/index.ts';
 import { fanOut, type Item } from '../over.ts';
 import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
@@ -11,7 +12,7 @@ import type { Run, Store } from '../store.ts';
 import type { RunSpec } from '../types.ts';
 import { unresolved } from '../workspace.ts';
 import { type JobResult, type Pipeline, agent, issuesOf, pullsOf } from './context.ts';
-import { type Handoff, type Target, buildSpec, defaultMinutes, handoffEnv } from './prompt.ts';
+import { type Handoff, type Target, buildSpec, defaultMinutes, fenced, handoffEnv } from './prompt.ts';
 import {
   type Attempt,
   type Scope,
@@ -24,7 +25,7 @@ import {
   itemSection,
   runChecks,
 } from './checks.ts';
-import { carried } from './continue.ts';
+import { carried, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
 
@@ -55,6 +56,24 @@ export const proposalProblems = (
     ];
   return [];
 };
+
+/** Whether a finished reply has text but no readable proposals block, which a format-only follow-up can fix. */
+const unformatted = (extracted: ReturnType<typeof extractProposals>, final: string) =>
+  Boolean(final.trim()) && (extracted.errors.length > 0 || !extracted.proposals.length);
+
+/**
+ * The follow-up that asks only for the proposals block of the last reply, with why the block could not be read and,
+ * when the session is not continued, the reply itself.
+ */
+const formatOnly = (errors: string[], last?: string) =>
+  [
+    errors.length
+      ? `The \`\`\`bothub block in your last message could not be read:\n\n${errors.map(error => `- ${error}`).join('\n')}\n\nReply with only the corrected block for what you wrote, nothing else.`
+      : 'Your last message has no ```bothub block. Reply with only the block for what you wrote, nothing else.',
+    last && `Your last message:\n\n${fenced(last)}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 
 /** The notes a run proposed with `notes_add`, ahead of those in its final message. */
 const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Run, p: Pipeline) => {
@@ -106,7 +125,9 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
  * Runs the job's bot, then its `until` checks, sending failing findings back as new attempts in the same worktree.
  * While it resolves a merge, conflict markers left in the conflicting files count as a failing check. The loop stops
  * at `until.max` follow-ups, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a
- * fan-out adds its section to the prompt.
+ * fan-out adds its section to the prompt. A reply with text but no readable proposals block first gets one
+ * format-only follow-up attempt, in the same session when the harness can continue it, which `until.max` does not
+ * count.
  */
 const attempts = (
   planned: PlannedJob,
@@ -151,6 +172,8 @@ const attempts = (
       .join('\n\n');
     let prompt = task;
     let session = worktree.session;
+    let reformats = 0;
+    let reformatting = false;
     for (let attempt = 1; ; attempt++) {
       const current =
         attempt === 1
@@ -189,9 +212,12 @@ const attempts = (
       };
       const succeeded = run.status === 'succeeded';
       const problems = succeeded ? proposalProblems(extracted, validated, kinds) : [];
+      const reformat = !reformatting && succeeded && problems.length > 0 && unformatted(extracted, final);
+      reformatting = false;
       if (problems.length) {
         const error = problems.join('; ');
-        if (attempt > max) {
+        const tries = attempt - reformats;
+        if (!reformat && tries > max) {
           const failed = yield* Effect.promise(() =>
             p.store.update(run.id, {
               status: 'failed',
@@ -203,10 +229,19 @@ const attempts = (
         }
         const failed = yield* Effect.promise(() => p.store.update(run.id, { status: 'failed', error }));
         yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
+        parent = failed;
+        if (reformat) {
+          const resumes = (p.adapters ?? harnesses)[bot.harness].sessions !== undefined;
+          const resumed = resumes ? yield* Effect.promise(() => sessionOf(run, p)) : undefined;
+          session = resumed;
+          prompt = formatOnly(extracted.errors, resumed ? undefined : final);
+          reformats++;
+          reformatting = true;
+          continue;
+        }
         const next = yield* Effect.promise(() => carried(bot.resume, run, p));
         session = next.session;
-        prompt = followUp(task, [], [], attempt + 1, max + 1, problems, next.summary);
-        parent = failed;
+        prompt = followUp(task, [], [], tries + 1, max + 1, problems, next.summary);
         continue;
       }
       const left = succeeded && merging ? yield* Effect.promise(() => unresolved(cwd, worktree.conflicts)) : [];
@@ -248,7 +283,7 @@ const attempts = (
       const holding = failing.filter(v => holds(v, p));
       const fixable = failing.filter(v => !v.blocked);
       const broke = cap !== undefined && spent >= cap;
-      const exhausted = attempt > max || broke;
+      const exhausted = attempt - reformats > max || broke;
       const verdicts = job.until ? checks : undefined;
       if (!holding.length && !left.length && (exhausted || !fixable.length)) {
         const outcome = yield* Effect.promise(() =>
@@ -300,7 +335,7 @@ const attempts = (
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
       const next = yield* Effect.promise(() => carried(bot.resume, run, p));
       session = next.session;
-      prompt = followUp(task, fixable, validated.rejected, attempt + 1, max + 1, [], next.summary, left);
+      prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], next.summary, left);
       parent = run;
     }
   });

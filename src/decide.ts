@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Verdict } from './store.ts';
 import { complete, endpointOf, type Endpoint } from './summaries.ts';
+import { meter, type Usage } from './usage.ts';
 
 const instructions = z.union([z.string().min(1), z.record(z.string(), z.unknown()), z.array(z.unknown()).min(1)]);
 
@@ -46,6 +47,7 @@ export type DecideRequest = z.infer<typeof DecideRequest>;
 const DecideResponse = z.object({
   answers: z.record(z.string(), Answer),
   usage: z.object({ input_tokens: z.number(), output_tokens: z.number() }).optional(),
+  prompt_eval_cached_count: z.number().optional(),
 });
 
 export const defaultDecideUrl = 'http://127.0.0.1:11434';
@@ -93,58 +95,69 @@ const text = (value: unknown) => (typeof value === 'string' ? value : JSON.strin
 const askChat = async (
   llm: Endpoint | undefined,
   timeoutMs: number,
-  { model, state, questions }: DecideRequest
+  { model, state, questions }: DecideRequest,
+  onUsage?: (usage: Usage) => void
 ): Promise<Record<string, Answer>> => {
   if (!llm) throw new Error(`decide: ${model} is a chat model and BOTHUB_LLM_BASE_URL is not set`);
   const other = Object.entries(questions).find(([, q]) => q.type !== 'noul');
   if (other) throw new Error(`decide: ${model} answers only noul questions, "${other[0]}" is ${other[1].type}`);
   const asked = Object.entries(questions).map(([id, q]) => `${id}: ${text(q.instructions)}`);
   const user = `<state>\n${text(state)}\n</state>\n\nQuestions:\n${asked.join('\n')}`;
-  const reply = await complete({ ...llm, timeoutMs }, model, chatSystem, user, 256 + 16 * asked.length);
+  const reply = await complete({ ...llm, timeoutMs }, model, chatSystem, user, 256 + 16 * asked.length, onUsage);
   return Object.fromEntries(
     Object.entries(chatAnswers(reply)).map(([id, noul]) => [id, { type: 'noul' as const, noul }])
   );
 };
 
-const askDecisionApi = async (url: string, timeoutMs: number, request: DecideRequest) => {
-  const endpoint = `${url.replace(/\/+$/, '')}/v1/systemone`;
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (e) {
-    const reason =
-      e instanceof Error && e.name === 'TimeoutError'
-        ? `timed out after ${timeoutMs} ms`
-        : e instanceof Error
-          ? e.message
-          : String(e);
-    throw new Error(`decide: ${endpoint}: ${reason}`);
-  }
-  const body = await response.text();
-  const json = (() => {
+const askDecisionApi = (url: string, timeoutMs: number, request: DecideRequest, onUsage?: (usage: Usage) => void) =>
+  meter(request.model, onUsage && (usage => onUsage({ ...usage, direct: true })), async () => {
+    const endpoint = `${url.replace(/\/+$/, '')}/v1/systemone`;
+    let response: Response;
     try {
-      return JSON.parse(body) as unknown;
-    } catch {
-      return undefined;
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      const reason =
+        e instanceof Error && e.name === 'TimeoutError'
+          ? `timed out after ${timeoutMs} ms`
+          : e instanceof Error
+            ? e.message
+            : String(e);
+      throw new Error(`decide: ${endpoint}: ${reason}`);
     }
-  })();
-  if (!response.ok) {
-    const message = (json as { error?: unknown } | undefined)?.error;
-    throw new Error(`decide: ${response.status}: ${typeof message === 'string' ? message : body.slice(0, 200)}`);
-  }
-  const parsed = DecideResponse.safeParse(json);
-  if (!parsed.success) throw new Error(`decide: unexpected response: ${z.prettifyError(parsed.error)}`);
-  return parsed.data.answers;
-};
+    const body = await response.text();
+    const json = (() => {
+      try {
+        return JSON.parse(body) as unknown;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (!response.ok) {
+      const message = (json as { error?: unknown } | undefined)?.error;
+      throw new Error(`decide: ${response.status}: ${typeof message === 'string' ? message : body.slice(0, 200)}`);
+    }
+    const parsed = DecideResponse.safeParse(json);
+    if (!parsed.success) throw new Error(`decide: unexpected response: ${z.prettifyError(parsed.error)}`);
+    const { answers, usage, prompt_eval_cached_count: cached } = parsed.data;
+    return {
+      value: answers,
+      tokens: {
+        inputTokens: usage?.input_tokens ?? 0,
+        outputTokens: usage?.output_tokens ?? 0,
+        ...(cached && { cachedInputTokens: cached }),
+      },
+    };
+  });
 
 /**
  * Asks the decision model about `state`: Ollama's decision API (`/v1/systemone`) at the base URL `url`, or, for a
- * model without a `:tag` (see `viaChat`), the chat model at `llm`, which answers only `noul` questions.
+ * model without a `:tag` (see `viaChat`), the chat model at `llm`, which answers only `noul` questions. The model call,
+ * failed or not, goes to `onUsage`.
  *
  * @throws when the request is invalid, the call times out, the server answers with an error, or an answer is missing.
  * @example
@@ -155,18 +168,20 @@ export const decide = async <Q extends Record<string, Question>>({
   url = defaultDecideUrl,
   llm,
   timeoutMs = 60_000,
+  onUsage,
   ...request
 }: Omit<DecideRequest, 'questions'> & {
   questions: Q;
   url?: string;
   llm?: Endpoint | undefined;
   timeoutMs?: number;
+  onUsage?: ((usage: Usage) => void) | undefined;
 }): Promise<Answers<Q>> => {
   const body = DecideRequest.safeParse(request);
   if (!body.success) throw new Error(`decide: invalid request: ${z.prettifyError(body.error)}`);
   const answers = viaChat(body.data.model)
-    ? await askChat(llm, timeoutMs, body.data)
-    : await askDecisionApi(url, timeoutMs, body.data);
+    ? await askChat(llm, timeoutMs, body.data, onUsage)
+    : await askDecisionApi(url, timeoutMs, body.data, onUsage);
   for (const [key, question] of Object.entries(request.questions)) {
     if (answers[key]?.type !== question.type) throw new Error(`decide: no ${question.type} answer for "${key}"`);
   }
@@ -180,19 +195,21 @@ const clipped = (text: string) => (text.length > maxState ? `${text.slice(0, max
 /**
  * Asks the decision model one yes-or-no `question` about `state` and passes when the probability of yes is at or
  * above `threshold`. Fails closed when the model cannot be reached. Reads `BOTHUB_DECIDE_URL`, `BOTHUB_DECIDE_MODEL`
- * and, for a chat model, `BOTHUB_LLM_BASE_URL` and `BOTHUB_LLM_API_KEY` from `env`.
+ * and, for a chat model, `BOTHUB_LLM_BASE_URL` and `BOTHUB_LLM_API_KEY` from `env`. The model call goes to `onUsage`.
  */
 export const decideCheck = async (
   question: string,
   state: string,
   env: Record<string, string | undefined>,
-  threshold = defaultThreshold
+  threshold = defaultThreshold,
+  onUsage?: (usage: Usage) => void
 ): Promise<Pick<Verdict, 'pass' | 'findings'>> => {
   try {
     const { answer } = await decide({
       url: env.BOTHUB_DECIDE_URL || defaultDecideUrl,
       model: env.BOTHUB_DECIDE_MODEL || defaultDecideModel,
       llm: endpointOf(env),
+      onUsage,
       state: clipped(state),
       questions: { answer: { type: 'noul', instructions: question } },
     });

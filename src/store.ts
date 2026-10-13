@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFile, mkdir, open, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import type { ApplyResult } from './apply.ts';
 import type { PlannedJob } from './dispatch.ts';
@@ -219,6 +219,27 @@ export const openStore = (dir: string, owner: Owner = self) => {
       .filter(record => record.seq >= from);
   };
 
+  const ends = new Map<string, { size: number; seq: number; queue: Promise<unknown> }>();
+  /**
+   * Appends `added` after the last event of a run whose session has ended, numbered on from it. Appends to one run go
+   * one at a time.
+   */
+  const add = (id: string, ...added: AgentEvent[]) => {
+    const file = join(runDir(id), 'events.jsonl');
+    const end = ends.get(id) ?? { size: -1, seq: -1, queue: Promise.resolve() };
+    const next = end.queue.then(async () => {
+      const size = (await stat(file).catch(() => undefined))?.size ?? 0;
+      let seq = size === end.size ? end.seq : ((await events(id)).at(-1)?.seq ?? -1);
+      const ts = new Date().toISOString();
+      const text = added.map(event => `${JSON.stringify({ ts, seq: ++seq, event } satisfies EventRecord)}\n`).join('');
+      await appendFile(file, text);
+      Object.assign(end, { size: size + Buffer.byteLength(text), seq });
+    });
+    end.queue = next.catch(() => {});
+    ends.set(id, end);
+    return next;
+  };
+
   const saveOutcome = (id: string, outcome: Outcome) => writeJson(outcomeFile(id), outcome);
   const outcome = (id: string) => readJson<Outcome>(outcomeFile(id));
   const memoryFile = (id: string) => join(runDir(id), 'memory.md');
@@ -307,6 +328,7 @@ export const openStore = (dir: string, owner: Owner = self) => {
     create,
     update,
     append,
+    add,
     read,
     list,
     runs,

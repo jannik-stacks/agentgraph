@@ -25,9 +25,46 @@ export const depsKey = async (worktree: string, deps: Deps) => {
     .slice(0, 24);
 };
 
+/** Output of an install that failed on the network: a dropped connection, a timeout or a proxy that gave up. */
+const network =
+  /\b(FETCH_ERROR|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|socket hang up)\b|CONNECT response|tunneling socket/i;
+
+/** How long an install that failed on the network waits before each try again. */
+const installDelays = [2_000, 10_000, 30_000];
+
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Runs the install in a worktree cleared of its dirs, again after each of `delays` while it fails on the network. */
+const installing = async (
+  worktree: string,
+  deps: Deps,
+  launch: Launcher,
+  hub: string | undefined,
+  delays: readonly number[]
+) => {
+  const run = async () => {
+    for (const dir of deps.dirs) await rm(join(worktree, dir), { recursive: true, force: true });
+    return runScript(deps.install, worktree, deps['timeout-minutes'], {}, launch, { hub });
+  };
+  let result = await run();
+  for (const delay of delays) {
+    if (result.ok || !network.test(result.output)) break;
+    await pause(delay);
+    result = await run();
+  }
+  return result;
+};
+
 /** Runs the install in the worktree and moves the dirs it leaves to `entry`. */
-const install = async (worktree: string, deps: Deps, entry: string, launch: Launcher, hub?: string) => {
-  const { ok, output } = await runScript(deps.install, worktree, deps['timeout-minutes'], {}, launch, { hub });
+const install = async (
+  worktree: string,
+  deps: Deps,
+  entry: string,
+  launch: Launcher,
+  hub: string | undefined,
+  delays: readonly number[]
+) => {
+  const { ok, output } = await installing(worktree, deps, launch, hub, delays);
   if (!ok) throw new Error(`installing dependencies failed: ${output.split('\n').slice(-10).join('\n')}`);
   const staged = `${entry}.${randomBytes(4).toString('hex')}.tmp`;
   try {
@@ -80,7 +117,14 @@ const once = (key: string, work: () => Promise<void>) => {
   return started;
 };
 
-const ready = async (worktree: string, deps: Deps, cache: string, launch: Launcher, hub?: string) => {
+const ready = async (
+  worktree: string,
+  deps: Deps,
+  cache: string,
+  launch: Launcher,
+  hub: string | undefined,
+  delays: readonly number[]
+) => {
   const git = await gitDirs(worktree);
   if (!git) return;
   const entry = join(cache, await depsKey(worktree, deps));
@@ -93,8 +137,7 @@ const ready = async (worktree: string, deps: Deps, cache: string, launch: Launch
     await once(entry, async () => {
       if (await exists(entry)) return;
       await mkdir(cache, { recursive: true });
-      for (const dir of deps.dirs) await rm(join(worktree, dir), { recursive: true, force: true });
-      await install(worktree, deps, entry, launch, hub);
+      await install(worktree, deps, entry, launch, hub, delays);
     });
   await link(worktree, deps, entry);
   await exclude(git.common, deps);
@@ -104,10 +147,17 @@ const ready = async (worktree: string, deps: Deps, cache: string, launch: Launch
 /**
  * Makes the worktree's dependencies ready: installs them under `cache` once per key, then links each dir into the
  * worktree and records the install in its admin dir, where the sandbox finds it to mount read-only. Concurrent calls
- * for one worktree, or for one install, share the work.
+ * for one worktree, or for one install, share the work. An install that fails on the network is tried again after
+ * each of `delays`.
  */
-export const prepareDeps = (worktree: string, deps: Deps, cache: string, launch: Launcher, hub?: string) =>
-  once(worktree, () => ready(worktree, deps, cache, launch, hub));
+export const prepareDeps = (
+  worktree: string,
+  deps: Deps,
+  cache: string,
+  launch: Launcher,
+  hub?: string,
+  delays: readonly number[] = installDelays
+) => once(worktree, () => ready(worktree, deps, cache, launch, hub, delays));
 
 /** A launcher that makes a worktree's dependencies ready before anything starts in it. */
 export const withDeps = (launch: Launcher, deps: Deps, cache: string, hub?: string): Launcher => ({

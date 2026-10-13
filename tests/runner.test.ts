@@ -342,7 +342,9 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.
 
   it('withdraws a run once its work is abandoned, and stops the process', async () => {
     const { store, runId } = await setup();
-    const until = Effect.succeed('#1 was closed').pipe(Effect.delay('100 millis'));
+    const until = Effect.promise(() => waitFor(async () => (await store.events(runId)).length > 0)).pipe(
+      Effect.as('#1 was closed')
+    );
     const run = await Effect.runPromise(
       runJob({ adapter: node(hang, asText), spec, timeoutMinutes: 1, until, store, runId, launch: unsandboxed })
     );

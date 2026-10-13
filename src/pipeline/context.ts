@@ -108,9 +108,12 @@ const summarize = async (bot: Defined<Bot>, run: string, p: Pipeline) => {
   const settings = bot.summarizer ?? Summarizer.parse('extractive');
   if (!p.data || settings.mode === 'off') return;
   const { BOTHUB_LLM_BASE_URL: url, BOTHUB_LLM_API_KEY: apiKey } = secretsFor(bot, p.env);
-  await summarizeRun(p.data, run, settings, url ? { endpoint: { url, ...(apiKey && { apiKey }) } } : {}).catch(
-    () => {}
-  );
+  const recorded: Promise<void>[] = [];
+  await summarizeRun(p.data, run, settings, {
+    ...(url && { endpoint: { url, ...(apiKey && { apiKey }) } }),
+    onUsage: usage => recorded.push(p.store.add(run, { ...usage, source: 'summarizer' })),
+  }).catch(() => {});
+  await Promise.all(recorded).catch(() => {});
 };
 
 /** Resolves with a reason once the work `p.event` started is abandoned (see `abandoned`); never without an issue tracker. */

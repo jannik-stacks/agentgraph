@@ -506,3 +506,88 @@ describe('decider plugin', () => {
     expect(chat.requests).toMatchObject([{ model: 'luna', authorization: 'Bearer sk-run' }]);
   });
 });
+
+const usages = () =>
+  printed
+    .flatMap(line => opencode.parseLine(line.trimEnd()))
+    .filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage');
+
+/** A decision model that says yes to everything and reports the tokens it read. */
+const countingTev = () =>
+  serve(body => ({
+    answers: Object.fromEntries(
+      Object.keys((body as Systemone).questions).map(key => [key, { type: 'noul', noul: 0.9 }])
+    ),
+    usage: { input_tokens: 50, output_tokens: 0 },
+  }));
+
+const PLUGIN_CALLS = [
+  {
+    source: 'recall',
+    make: async () => turn((await start({ url: await countingTev() })).hooks, task),
+    expected: { model: 'tev1:0.8b', inputTokens: 50, direct: true },
+  },
+  {
+    source: 'decider',
+    make: async () => call(await startDecider([inScope], await countingTev()), 'bash', { command: 'npm test' }),
+    expected: { model: 'tev1:0.8b', inputTokens: 50, direct: true },
+  },
+  {
+    source: 'summarizer',
+    make: async () => {
+      const llm = await serve(() => ({
+        choices: [{ message: { content: 'tool: npm test failed' } }],
+        usage: { prompt_tokens: 120, completion_tokens: 6 },
+      }));
+      const { hooks } = await start({
+        summarizer: { mode: 'model', model: 'small', 'max-bytes': 64 },
+        llm: { url: llm },
+      });
+      await hooks['tool.execute.after'](
+        { tool: 'bash', callID: 'c1', args: { command: 'npm test' } },
+        { output: 'x'.repeat(500) }
+      );
+    },
+    expected: { model: 'small', inputTokens: 120, outputTokens: 6 },
+  },
+] as const;
+
+const PLUGIN_LINES = [
+  {
+    name: 'a usage with a source',
+    event: { type: 'usage', inputTokens: 1, outputTokens: 1, source: 'decider' },
+    kept: 1,
+  },
+  { name: 'a usage without a source', event: { type: 'usage', inputTokens: 1, outputTokens: 1 }, kept: 0 },
+  {
+    name: 'a usage posing as the harness',
+    event: { type: 'usage', inputTokens: 1, outputTokens: 1, source: 'harness' },
+    kept: 0,
+  },
+  {
+    name: 'a usage from an unknown source',
+    event: { type: 'usage', inputTokens: 1, outputTokens: 1, source: 'other' },
+    kept: 0,
+  },
+  { name: 'an end', event: { type: 'end', ok: true }, kept: 0 },
+];
+
+describe('plugin model calls', () => {
+  it.each(PLUGIN_CALLS)(
+    'reports each $source call as a usage event the harness keeps',
+    async ({ source, make, expected }) => {
+      await make();
+      await expect.poll(() => usages().length, { timeout: 5000 }).toBeGreaterThan(0);
+      expect(usages()[0]).toMatchObject({ type: 'usage', source, ms: expect.any(Number), ...expected });
+    }
+  );
+
+  it('reports a decision call that never answered as failed', async () => {
+    await call(await startDecider([inScope], offline), 'bash', { command: 'ls' }).catch(() => {});
+    expect(usages()).toMatchObject([{ source: 'decider', inputTokens: 0, error: true }]);
+  });
+
+  it.each(PLUGIN_LINES)('keeps $kept of $name from a plugin line', ({ event, kept }) => {
+    expect(opencode.parseLine(JSON.stringify({ type: 'bothub', event }))).toHaveLength(kept);
+  });
+});

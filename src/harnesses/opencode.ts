@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { opencodeMcpConfig } from '../mcp-config.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
+import { sources } from '../usage.ts';
 
 type ToolState =
   | { status: 'completed'; input?: unknown; output?: string }
@@ -149,13 +150,19 @@ const step = (part: Extract<Part, { type: 'step-finish' }>): AgentEvent[] => {
   return [...usage, { type: 'end', ok: part.reason === 'stop' }];
 };
 
-/** Event types bothub's own plugins may print to opencode's stdout as `{"type":"bothub","event":…}` lines. */
-const pluginEvents: AgentEvent['type'][] = ['recall'];
+/**
+ * Whether a plugin may print `e` to opencode's stdout as a `{"type":"bothub","event":…}` line: a `recall`, or the
+ * `usage` of a model call bothub's own code made.
+ */
+const fromPlugin = (e: AgentEvent | null | undefined): e is AgentEvent =>
+  typeof e === 'object' &&
+  e !== null &&
+  (e.type === 'recall' || (e.type === 'usage' && sources.includes(e.source!) && e.source !== 'harness'));
 
 const event = (line: Line): AgentEvent[] => {
   if (line.type === 'bothub' && 'event' in line) {
     const e = line.event as AgentEvent | null | undefined;
-    return typeof e === 'object' && e !== null && pluginEvents.includes(e.type) ? [e] : [];
+    return fromPlugin(e) ? [e] : [];
   }
   if (line.type === 'error' && 'error' in line)
     return [{ type: 'error', message: line.error?.data?.message ?? line.error?.name ?? 'opencode error' }];

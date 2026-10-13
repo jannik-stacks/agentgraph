@@ -5,7 +5,8 @@ import { localIssues } from '../src/issues-local.ts';
 import { localPulls } from '../src/pulls.ts';
 import { checkLine, laneOf, localOrigin, serveHub, warmDeps } from '../src/serve.ts';
 import { fileQueue } from '../src/queue.ts';
-import { unsandboxed } from '../src/runner.ts';
+import { unsandboxed, type Launcher } from '../src/runner.ts';
+import { SandboxError } from '../src/sandbox.ts';
 import { openStore } from '../src/store.ts';
 import { workspaces } from '../src/workspace.ts';
 import type { JobResult } from '../src/pipeline.ts';
@@ -209,6 +210,59 @@ describe('serveHub', () => {
       expect(failed).toMatchObject({ item: { body: '/bothub why' }, tries: 2 });
       expect(failed?.error).toMatch(/^the hub does not compile/);
       expect(await queue.list()).toEqual([]);
+    } finally {
+      await served.stop();
+    }
+  });
+
+  it('runs an event again when a job did not start', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    let starts = 0;
+    const flaky: Launcher = {
+      ...unsandboxed,
+      agent: async (...args) => {
+        if (++starts === 1) throw new SandboxError('installing dependencies failed: FETCH_ERROR');
+        return unsandboxed.agent(...args);
+      },
+    };
+    const lines: string[] = [];
+    const done: JobResult[][] = [];
+    const data = temp('serve-data');
+    const served = await serveHub({
+      hub,
+      data,
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 20,
+      log: line => lines.push(line),
+      adapters,
+      launch: flaky,
+      onResults: (_event, results) => done.push(results),
+      retry: { backoff: () => 10 },
+    });
+    try {
+      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
+      while (done.length < 2) await new Promise(r => setTimeout(r, 20));
+      await served.idle();
+      expect(done.map(results => results.map(r => [r.run.status, r.run.closure]))).toEqual([
+        [['failed', 'deferred']],
+        [['succeeded', 'done']],
+      ]);
+      expect(lines).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /issue\/answer did not start: sandbox-failed: installing dependencies failed: FETCH_ERROR; trying again/
+          ),
+        ])
+      );
+      const queue = fileQueue<BotEvent>(join(data, 'queue'));
+      expect([await queue.list(), await queue.failed()]).toEqual([[], []]);
     } finally {
       await served.stop();
     }

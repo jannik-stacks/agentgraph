@@ -1,7 +1,7 @@
 import { decide, defaultDecideModel, defaultDecideUrl, defaultThreshold } from '../decide.ts';
 import type { agentTriggers } from '../schema.ts';
 import { endpointOf, items, type Endpoint } from '../summaries.ts';
-import { markLoaded } from './opencode-surfacer.ts';
+import { markLoaded, report } from './opencode-surfacer.ts';
 
 /**
  * One yes-or-no question for the decision model at a hook point. Yes means all is well; below `threshold` the
@@ -32,7 +32,10 @@ const maxState = 6000;
 const clip = (text: string) =>
   text.length > maxState ? `${text.slice(0, maxState / 2)}\n[…]\n${text.slice(-maxState / 2)}` : text;
 
-/** opencode server plugin: asks the decision model its questions at tool calls, tool results and final messages. */
+/**
+ * opencode server plugin: asks the decision model its questions at tool calls, tool results and final messages, and
+ * reports each model call as a `usage` event.
+ */
 export const decider = async (_input: unknown, raw?: Record<string, unknown>) => {
   const o = raw as DeciderOptions;
   await markLoaded(deciderId);
@@ -59,6 +62,7 @@ export const decider = async (_input: unknown, raw?: Record<string, unknown>) =>
         model,
         llm,
         timeoutMs,
+        onUsage: usage => report({ ...usage, source: 'decider' }),
         state: clip(state),
         questions: Object.fromEntries(
           questions.map((q, i) => [`q${i}`, { type: 'noul' as const, instructions: q.ask }])

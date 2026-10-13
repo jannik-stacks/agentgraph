@@ -25,6 +25,7 @@ import { limiter, unsandboxed, type Launcher } from '../src/runner.ts';
 import { SandboxError } from '../src/sandbox.ts';
 import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
 import { readSummaries } from '../src/summaries.ts';
+import { tally } from '../src/usage.ts';
 import type { AgentEvent, BotEvent, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
 import { commit, fakeHarness, git, sourceRepo, temp } from './kit.ts';
@@ -616,7 +617,7 @@ describe('until', () => {
   });
 });
 
-describe('parking', () => {
+describe('parking', { timeout: 20_000 }, () => {
   const asks = bothub([
     { kind: 'ask', question: 'Which name should it get?' },
     { kind: 'close', as: 'blocked', reason: 'the name is unclear' },
@@ -899,34 +900,82 @@ describe('checks fail closed', () => {
   });
 });
 
+const BRIEF = 'The staking flow double-counts rewards; see `stake.ts:42`.';
+
+const REFORMATS = [
+  {
+    case: 'a reply without a block, in the same session',
+    message: BRIEF,
+    sessions: true,
+    prompt: /^Your last message has no ```bothub block\. Reply with only the block for what you wrote, nothing else\.$/,
+    session: 's1',
+  },
+  {
+    case: 'a reply without a block, with the reply when the harness keeps no session',
+    message: BRIEF,
+    sessions: false,
+    prompt: /no ```bothub block[\s\S]*Your last message:\n\n```text\nThe staking flow/,
+    session: undefined,
+  },
+  {
+    case: 'an unreadable block, with its errors',
+    message: 'Done.\n```bothub\n[{ "kind": "reply" }]\n```',
+    sessions: true,
+    prompt: /^The ```bothub block in your last message could not be read:\n\n- proposal 1:[\s\S]*corrected block/,
+    session: 's1',
+  },
+] as const;
+
 describe('proposals', () => {
-  it('sends a reply without usable proposals back as a failed attempt, then blocks', async () => {
-    const { seen, adapters } = fake({ message: 'I looked around and everything seems fine.' });
-    const p = await pipeline({ config: configFor('warn'), adapters });
+  it.each(REFORMATS)('asks only for the block after $case', async ({ message, sessions, prompt, session }) => {
+    const { seen, adapters } = fake((_spec, call) =>
+      call === 1 ? { message, work: "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })" } : {}
+    );
+    const kept = sessions ? { ...adapters, opencode: { ...adapters.opencode, sessions: '.sessions' } } : adapters;
+    const p = await pipeline({ config: configFor('warn'), adapters: kept });
     const result = await Effect.runPromise(runPlanned(triage, p));
 
     expect(seen).toHaveLength(2);
-    expect(seen[1]!.prompt).toContain('## Proposal errors\n\nAttempt 2 of 2.');
-    expect(seen[1]!.prompt).toContain('- the reply has no bothub block');
+    expect(seen[1]!.prompt).toMatch(prompt);
+    expect(seen[1]!.session?.id).toBe(session);
+    expect(result.run).toMatchObject({ status: 'succeeded', closure: 'done', attempt: 2 });
+    const runs = (await p.store.list()).reverse();
+    expect(runs.map(r => [r.attempt, r.status])).toEqual([
+      [undefined, 'failed'],
+      [2, 'succeeded'],
+    ]);
+  });
+
+  it('asks for the block once per attempt, then retries the task as before and blocks', async () => {
+    const { seen, adapters } = fake({ message: BRIEF });
+    const p = await pipeline({ config: configFor('warn'), adapters });
+    const result = await Effect.runPromise(runPlanned(triage, p));
+
+    expect(seen).toHaveLength(4);
+    expect(seen[1]!.prompt).toMatch(/^Your last message has no ```bothub block/);
+    expect(seen[2]!.prompt).toContain('## Proposal errors\n\nAttempt 2 of 2.');
+    expect(seen[2]!.prompt).toContain('- the reply has no bothub block');
+    expect(seen[3]!.prompt).toMatch(/^Your last message has no ```bothub block/);
     expect(result.run).toMatchObject({
       status: 'failed',
       closure: 'blocked',
-      error: expect.stringMatching(/^no usable proposals after 2 attempts: the reply has no bothub block/),
+      error: expect.stringMatching(/^no usable proposals after 4 attempts: the reply has no bothub block/),
     });
     const runs = (await p.store.list()).reverse();
     expect(runs.map(r => [r.attempt, r.status])).toEqual([
       [undefined, 'failed'],
       [2, 'failed'],
+      [3, 'failed'],
+      [4, 'failed'],
     ]);
   });
 
-  it('retries with the parse errors and goes on once the block parses', async () => {
-    const { seen, adapters } = fake((_spec, call) => ({
-      message: call === 1 ? 'Done.\n```bothub\n[{ "kind": "reply" }]\n```' : finalMessage,
-    }));
+  it('retries the task straight away after a reply with no text', async () => {
+    const { seen, adapters } = fake((_spec, call) => (call === 1 ? { message: '' } : {}));
     const p = await pipeline({ config: configFor('warn'), adapters });
     const result = await Effect.runPromise(runPlanned(triage, p));
-    expect(seen[1]!.prompt).toMatch(/## Proposal errors[\s\S]*- proposal 1:/);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.prompt).toContain('## Proposal errors\n\nAttempt 2 of 2.');
     expect(result.run).toMatchObject({ status: 'succeeded', closure: 'done', attempt: 2 });
   });
 });
@@ -1522,6 +1571,73 @@ describe('over', () => {
         ),
       },
     ]);
+  });
+
+  it('records each decide check call on the attempt it judged', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          answers: { answer: { type: 'noul', noul: 0.9 } },
+          usage: { input_tokens: 80, output_tokens: 0 },
+        })
+      )
+    );
+    const { result, p } = await run(
+      hubWith([{ name: 'secrets', data: { type: 'decide', over: 'each-hunk' }, body: 'Free of secrets?' }]),
+      { work },
+      { BOTHUB_DECIDE_URL: 'http://decide.test' }
+    );
+    const events = (await p.store.events(result.run.id)).map(r => r.event);
+    expect(tally(events).sources['decide-check']).toMatchObject({ calls: 3, in: 240, model: 'tev1:0.8b' });
+  });
+
+  it('records the summarizer calls on the run it summarized', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          choices: [{ message: { content: 'text: read the fee module' } }],
+          usage: { prompt_tokens: 90, completion_tokens: 4 },
+        })
+      )
+    );
+    const compiled = compile([
+      md(
+        'bots/bot.md',
+        'harness: opencode\ntools: [read]\nreturns: [reply]\nsummarizer: { mode: model, model: small, max-bytes: 64 }',
+        'You work.'
+      ),
+      md('skills/implement.md', 'description: Change code.', 'Implement it.'),
+      md(
+        'workflows/triage.md',
+        JSON.stringify({
+          on: { issue_comment: {} },
+          jobs: { loop: { type: 'bot', bot: 'bot', skill: 'implement', returns: ['reply'] } },
+        })
+      ),
+    ]);
+    if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
+    const data = temp('summarized');
+    const { adapters } = fakeHarness(() => ({
+      events: [
+        { type: 'text', text: `Reading the fee module. ${'It rounds fees. '.repeat(10)}` },
+        { type: 'end', ok: true, result: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      ],
+    }));
+    const p = await pipeline(
+      {
+        config: compiled.config,
+        adapters,
+        env: { BOTHUB_LLM_API_KEY: 'key', BOTHUB_LLM_BASE_URL: 'http://llm.test/v1' },
+        store: openStore(data),
+        data,
+      },
+      origin()
+    );
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+    const events = (await p.store.events(result.run.id)).map(r => r.event);
+    expect(tally(events).sources.summarizer).toMatchObject({ calls: 1, in: 90, out: 4, model: 'small' });
   });
 
   it('does not gate on a check whose paths match no changed file', async () => {

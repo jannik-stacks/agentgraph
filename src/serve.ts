@@ -202,11 +202,20 @@ export const eventQueue = async (
   };
 };
 
-/** Runs `handleEvent` for each queued event and hands the results to `onResults`. */
+/**
+ * Runs `handleEvent` for each queued event and hands the results to `onResults`. A job whose sandbox never started,
+ * such as one whose dependencies did not install, fails the event so the queue runs it again; the jobs that closed
+ * done are reused then.
+ */
 export const handled =
   (hub: Hub, onResults?: (event: BotEvent, results: JobResult[]) => void) => async (event: BotEvent) => {
     const results = await handleEvent(event, hub);
     if (results.length) onResults?.(event, results);
+    const unstarted = results.filter(r => r.run.stopped === 'sandbox');
+    if (unstarted.length)
+      throw new Error(
+        `${unstarted.map(r => `${r.workflow}/${r.job}`).join(', ')} did not start: ${unstarted[0]!.run.error}`
+      );
   };
 
 /** Options every served hub takes. */

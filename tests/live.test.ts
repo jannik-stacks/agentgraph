@@ -283,9 +283,13 @@ describe('usage', () => {
       cached: 800,
       reasoning: 50,
       usd: 0.5,
+      ms: 0,
       tools: 1,
       toolChars: 8,
       errors: 1,
+      sources: {
+        harness: { calls: 1, in: 1000, out: 100, cached: 800, reasoning: 50, usd: 0.5, ms: 0, errors: 0 },
+      },
     });
   });
 

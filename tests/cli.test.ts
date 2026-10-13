@@ -42,7 +42,11 @@ const capture = () => {
   return { out, err };
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe('cli', () => {
   it('check passes on the example hub and fails closed on an empty one', async () => {
@@ -170,6 +174,43 @@ describe('cli', () => {
     }, 100);
     expect(await main(['logs', id, '--data', data, '--follow', '--json'])).toBe(0);
     expect(io.out.map(line => JSON.parse(line).seq)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('logs --spend compares the calls recorded per key with the model proxy, which it needs', async () => {
+    const data = temp('cli');
+    const store = openStore(data);
+    const run = await store.create({
+      workflow: 'w',
+      job: 'j',
+      bot: 'reviewer',
+      event,
+      startedAt: new Date().toISOString(),
+    });
+    await store.add(run.id, {
+      type: 'usage',
+      inputTokens: 30,
+      outputTokens: 2,
+      source: 'decide-check',
+      model: 'luna',
+      ms: 40,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json([]))
+    );
+    const io = capture();
+    vi.stubEnv('BOTHUB_LLM_BASE_URL', 'http://proxy.test/v1');
+    vi.stubEnv('LITELLM_MASTER_KEY', 'sk-master');
+    expect(await main(['logs', '--spend', '--data', data, '--no-json'])).toBe(0);
+    expect(io.out.slice(1)).toEqual([
+      'shared: bothub 1 calls, 30 in, 2 out, $0.00; proxy 0 calls, 0 in, 0 out, $0.00; missing -1 calls, -30 in, -2 out, $0.00\n',
+      'keys no bot holds: proxy 0 calls, 0 in, 0 out, $0.00\n',
+    ]);
+    expect(await main(['logs', run.id, '--data', data, '--no-json'])).toBe(0);
+    expect(io.out.at(-1)).toMatch(/ usage decide-check luna 30 in, 2 out, 40 ms\n$/);
+    vi.stubEnv('LITELLM_MASTER_KEY', '');
+    expect(await main(['logs', '--spend', '--data', data])).toBe(1);
+    expect(io.err).toEqual(['bothub: comparing spend needs BOTHUB_LLM_BASE_URL and LITELLM_MASTER_KEY\n']);
   });
 });
 

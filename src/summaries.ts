@@ -3,6 +3,7 @@ import { appendFile, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EventRecord, Run } from './store.ts';
 import type { AgentEvent } from './types.ts';
+import { meter, type Usage } from './usage.ts';
 import { Summarizer, type Granularity, type History } from './schema.ts';
 
 export { Granularity, History, Summarizer } from './schema.ts';
@@ -148,51 +149,84 @@ export const endpointOf = (env: Record<string, string | undefined>): Endpoint | 
     ? { url: env.BOTHUB_LLM_BASE_URL, ...(env.BOTHUB_LLM_API_KEY && { apiKey: env.BOTHUB_LLM_API_KEY }) }
     : undefined;
 
-/** Asks `model` at `endpoint` one system and user message pair and resolves to the trimmed reply. */
-export const complete = async (
+type ChatReply = {
+  choices?: { message?: { content?: string } }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
+  };
+};
+
+/**
+ * Asks `model` at `endpoint` one system and user message pair and resolves to the trimmed reply. Every call, failed or
+ * not, goes to `onUsage` with the tokens the endpoint reported and the cost the model proxy reported.
+ */
+export const complete = (
   { url, apiKey, timeoutMs = 60_000 }: Endpoint,
   model: string,
   system: string,
   user: string,
-  maxTokens: number
-) => {
-  const response = await fetch(`${url.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(apiKey && { authorization: `Bearer ${apiKey}` }) },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature: 0,
-      reasoning_effort: 'none',
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
+  maxTokens: number,
+  onUsage?: (usage: Usage) => void
+) =>
+  meter(model, onUsage, async () => {
+    const response = await fetch(`${url.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(apiKey && { authorization: `Bearer ${apiKey}` }) },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        temperature: 0,
+        reasoning_effort: 'none',
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) throw new Error(`${model}: ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    const { choices, usage: u } = (await response.json()) as ChatReply;
+    const cost = Number(response.headers.get('x-litellm-response-cost'));
+    return {
+      value: choices?.[0]?.message?.content?.trim() ?? '',
+      tokens: {
+        inputTokens: u?.prompt_tokens ?? 0,
+        outputTokens: u?.completion_tokens ?? 0,
+        ...(u?.prompt_tokens_details?.cached_tokens && { cachedInputTokens: u.prompt_tokens_details.cached_tokens }),
+        ...(u?.completion_tokens_details?.reasoning_tokens && {
+          reasoningTokens: u.completion_tokens_details.reasoning_tokens,
+        }),
+        ...(cost > 0 && { costUsd: cost }),
+      },
+    };
   });
-  if (!response.ok) throw new Error(`${model}: ${response.status}: ${(await response.text()).slice(0, 200)}`);
-  const json = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-  return json.choices?.[0]?.message?.content?.trim() ?? '';
-};
 
 /**
  * Asks the configured model for one line about `source`. A source within `max-bytes` is its own summary. An over-long
- * answer gets one retry, then is cut at the last separator.
+ * answer gets one retry, then is cut at the last separator. Each call goes to `onUsage`.
  */
-export const modelLine = async (settings: Summarizer, endpoint: Endpoint, source: string) => {
+export const modelLine = async (
+  settings: Summarizer,
+  endpoint: Endpoint,
+  source: string,
+  onUsage?: (usage: Usage) => void
+) => {
   const max = settings['max-bytes'];
   if (bytes(source) <= max || !settings.model) return fit(source, max);
   const system = settings.prompt ?? defaultPrompt;
   const user = `Limit: ${max} bytes.\n<input>\n${clip(source)}\n</input>`;
-  let line = await complete(endpoint, settings.model, system, user, Math.ceil(max / 2));
+  let line = await complete(endpoint, settings.model, system, user, Math.ceil(max / 2), onUsage);
   if (bytes(line) > max)
     line = await complete(
       endpoint,
       settings.model,
       system,
       `${user}\n\nYour line was ${bytes(line)} bytes. Write it again within ${max} bytes, dropping the least valuable items.`,
-      Math.ceil(max / 2)
+      Math.ceil(max / 2),
+      onUsage
     );
   return fit(line, max);
 };
@@ -228,13 +262,18 @@ const readJsonl = async <T>(file: string): Promise<T[]> => {
 /**
  * Writes the summaries of run `run` under data dir `dir` to `runs/<id>/summaries.jsonl`: the extractive lines at once,
  * then, in model mode, a model line for each unit as it arrives (at most `concurrency` calls at a time). Originals are
- * never touched; a model line is a later record for the same id. Resolves to every record it wrote.
+ * never touched; a model line is a later record for the same id. Each model call goes to `onUsage`. Resolves to every
+ * record it wrote.
  */
 export const summarizeRun = async (
   dir: string,
   run: string,
   settings: Summarizer,
-  { endpoint, concurrency = 4 }: { endpoint?: Endpoint; concurrency?: number } = {}
+  {
+    endpoint,
+    concurrency = 4,
+    onUsage,
+  }: { endpoint?: Endpoint; concurrency?: number; onUsage?: (usage: Usage) => void } = {}
 ) => {
   const records = await readJsonl<EventRecord>(join(dir, 'runs', run, 'events.jsonl'));
   const all = units(run, records, settings);
@@ -245,7 +284,7 @@ export const summarizeRun = async (
   const written: SummaryRecord[] = [...extractive];
   await pool(all, concurrency, async ({ record, source }) => {
     try {
-      const line = await modelLine(settings, endpoint, source);
+      const line = await modelLine(settings, endpoint, source, onUsage);
       const next = { ...record, line, by: settings.model!, prompt };
       await append(dir, run, [next]);
       written.push(next);

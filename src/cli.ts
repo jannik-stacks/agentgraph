@@ -21,6 +21,7 @@ import { sandboxConfig, sandboxNetwork } from './sandbox.ts';
 import { handleEvent, localOrigin, serveHub } from './serve.ts';
 import { serveGitHub } from './serve-github.ts';
 import { simulate } from './sim.ts';
+import { compareSpend } from './spend.ts';
 import { openStore, runId, type Run } from './store.ts';
 import type { AgentEvent, BotEvent } from './types.ts';
 import { workspaces, worktreePath } from './workspace.ts';
@@ -101,7 +102,15 @@ const describe = (e: AgentEvent): string => {
     case 'tool_result':
       return `${e.ok ? 'ok' : 'fail'} ${oneLine(e.output ?? '')}`.trim();
     case 'usage':
-      return `usage ${e.inputTokens} in, ${e.outputTokens} out`;
+      return [
+        ['usage', e.source, e.model, `${e.inputTokens} in`].filter(Boolean).join(' '),
+        `${e.outputTokens} out`,
+        e.ms !== undefined && `${e.ms} ms`,
+        e.direct && 'direct',
+        e.error && 'failed',
+      ]
+        .filter(Boolean)
+        .join(', ');
     case 'end':
       return [
         `end ${e.ok ? 'ok' : 'failed'}`,
@@ -292,16 +301,53 @@ const runTable = (list: Run[]) => {
     );
 };
 
+const totals = ({ calls, in: input, out, usd }: { calls: number; in: number; out: number; usd: number }) =>
+  `${calls} calls, ${input} in, ${out} out, $${usd.toFixed(2)}`;
+
+const printSpend = (spend: Awaited<ReturnType<typeof compareSpend>>) => {
+  print(
+    `model calls from ${spend.since} to ${spend.until}, as bothub recorded them and as the model proxy logged them`
+  );
+  for (const k of spend.keys)
+    print(`${k.key}: bothub ${totals(k.bothub)}; proxy ${totals(k.proxy)}; missing ${totals(k.missing)}`);
+  print(`keys no bot holds: proxy ${totals(spend.other)}`);
+  for (const [bot, t] of Object.entries(spend.direct))
+    print(`${bot}: straight to Ollama, outside the proxy, ${totals(t)}`);
+};
+
 const logs = defineCommand({
-  meta: { name: 'logs', description: "List runs, newest first, or print one run's events" },
+  meta: {
+    name: 'logs',
+    description:
+      "List runs, newest first, or print one run's events; with --spend, compare recorded model calls with the model proxy's logs",
+  },
   args: {
     id: { type: 'positional', description: 'Run id', required: false },
     data,
     follow: { type: 'boolean', description: 'Keep printing until the run finishes' },
+    spend: {
+      type: 'boolean',
+      description: "Compare the model calls recorded per bot key with the model proxy's spend logs",
+    },
+    hours: { type: 'string', description: 'With --spend: how many hours back to compare', default: '24' },
     json,
   },
   async run({ args }) {
-    const store = openStore(dataDir(args.data));
+    const root = dataDir(args.data);
+    const store = openStore(root);
+    if (args.spend) {
+      const hours = positive('hours', args.hours);
+      if (!hours) return 2;
+      try {
+        const spend = await compareSpend({ store, env: await loadEnv(root), since: Date.now() - hours * 3_600_000 });
+        if (asJson(args.json)) print(JSON.stringify(spend));
+        else printSpend(spend);
+        return 0;
+      } catch (e) {
+        fail((e as Error).message);
+        return 1;
+      }
+    }
     if (!args.id) {
       const list = await store.list();
       if (asJson(args.json)) print(JSON.stringify(list));

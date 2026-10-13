@@ -2,6 +2,7 @@ import type { DeciderOptions } from './harnesses/opencode-decider.ts';
 import type { SurfacerOptions } from './harnesses/opencode-surfacer.ts';
 import type { McpServer } from './mcp-config.ts';
 import type { Association, Harness, Trigger } from './schema.ts';
+import type { Source } from './usage.ts';
 
 /**
  * A trigger from GitHub, a local issue tracker or the CLI, normalised so workflows never see raw payloads. `label` is
@@ -60,6 +61,15 @@ export type AgentEvent =
       reasoningTokens?: number;
       /** What the harness says this call cost. */
       costUsd?: number;
+      /** What made the call; a harness's own calls leave it out. */
+      source?: Source;
+      model?: string;
+      /** How long the call took, when bothub made it. */
+      ms?: number;
+      /** The call failed; its tokens are what the provider reported, often none. */
+      error?: true;
+      /** The call went straight to Ollama's decision API, not through the model proxy. */
+      direct?: true;
     }
   | { type: 'end'; ok: boolean; turns?: number; result?: string; costUsd?: number }
   | { type: 'error'; message: string }

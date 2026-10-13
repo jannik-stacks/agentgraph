@@ -80,7 +80,7 @@ const itemOf = (doc: Doc): Omit<RecallItem, 'fate'> => ({ pointer: doc.pointer, 
 /**
  * opencode server plugin: surfaces relevant past-run summaries and accepted hub notes before model turns, writes a
  * one-line summary of each assistant message and tool call, and offers a `history` tool when allowed. Every lookup is
- * reported as a `recall` event with each candidate's scores and fate.
+ * reported as a `recall` event with each candidate's scores and fate, and every model call as a `usage` event.
  */
 export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) => {
   const o = raw as SurfacerOptions;
@@ -134,7 +134,8 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         ...(o.budget !== undefined && { budget: o.budget }),
         url,
         model,
-        decide: request => decide({ ...request, llm, timeoutMs }),
+        decide: request =>
+          decide({ ...request, llm, timeoutMs, onUsage: usage => report({ ...usage, source: 'recall' }) }),
       });
       const items: RecallItem[] = weighed.map(({ doc, score, p, fate }) => {
         const line = hitLine(doc);
@@ -186,7 +187,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
     };
     write(record);
     if (settings.mode === 'model' && llm)
-      modelLine(settings, llm, item.source).then(
+      modelLine(settings, llm, item.source, usage => report({ ...usage, source: 'summarizer' })).then(
         line => write({ ...record, line, by: settings.model! }),
         () => {}
       );
