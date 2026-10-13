@@ -142,6 +142,7 @@ export type Worktree = {
   replace?: string;
   resume?: string;
   session?: RunSpec['session'];
+  recheck?: string;
 };
 
 /** The default branch, when the job may open merge requests and there is a backend to ask. */
@@ -159,7 +160,9 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
  * files count as a failing check. Attempts number on from `first`'s, and the loop stops past `until.max` follow-ups
  * in that count, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a fan-out adds its
  * section to the prompt. A reply with text but no readable proposals block first gets one format-only follow-up
- * attempt, in the same session when the harness can continue it, which `until.max` does not count. An agent that died before doing anything runs once more (see `retried`).
+ * attempt, in the same session when the harness can continue it, which `until.max` does not count. An agent that
+ * died before doing anything runs once more (see `retried`). With a `recheck` reply, the first attempt takes that
+ * reply instead of running the bot, so only the checks run again.
  */
 const attempts = (
   planned: PlannedJob,
@@ -225,7 +228,17 @@ const attempts = (
               })
             );
       const spec = { ...built.spec, prompt, ...(session && { session }) };
-      const { run, final } = yield* retried(on => agent(bot, spec, timeoutMinutes, on, p, env), current, p);
+      const recheck = attempt === start && !item ? worktree.recheck : undefined;
+      const now = new Date().toISOString();
+      const { run, final } =
+        recheck === undefined
+          ? yield* retried(on => agent(bot, spec, timeoutMinutes, on, p, env), current, p)
+          : {
+              run: yield* Effect.promise(() =>
+                p.store.update(current.id, { status: 'succeeded', startedAt: now, endedAt: now })
+              ),
+              final: recheck,
+            };
       spent += run.costUsd ?? 0;
       const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
       const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
@@ -373,7 +386,7 @@ const attempts = (
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
-      const next = yield* Effect.promise(() => carried(bot.resume, run, p));
+      const next = recheck === undefined ? yield* Effect.promise(() => carried(bot.resume, run, p)) : { session, summary: undefined };
       session = next.session;
       prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], next.summary, left);
       parent = run;

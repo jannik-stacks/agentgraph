@@ -13,7 +13,7 @@ import type { Run, Store } from '../store.ts';
 import type { BotEvent } from '../types.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
-import { type Attempt, failingChecks, findingsFor, issueEnv, runOnItem } from './checks.ts';
+import { type Attempt, failingChecks, findingsFor, holds, issueEnv, runOnItem } from './checks.ts';
 import { continuing, saidSince, sessionOf } from './continue.ts';
 import { closed, finish, remember, settle } from './landing.ts';
 import { type Worktree, defaultBranchFor, fanned, jobItems, proposalProblems, requestsEnv } from './attempt.ts';
@@ -332,10 +332,22 @@ const resumption = async ({ run, outcome }: Unfinished, planned: PlannedJob, p: 
     .join('\n\n');
 };
 
+/** The reply `run` held back only because some of its checks could not run, with its work parked. */
+const heldReply = async ({ run, outcome }: Unfinished, p: Pipeline) => {
+  const failing = failingChecks(outcome?.checks ?? []);
+  if (!run.parked || !failing.some(v => v.blocked) || failing.some(v => !v.blocked && holds(v, p))) return;
+  let reply = '';
+  for (const { event } of await p.store.events(run.id))
+    if (event.type === 'text' || event.type === 'end')
+      reply = (event.type === 'text' ? event.text : event.result) ?? reply;
+  return reply;
+};
+
 /**
  * The worktree with the job's earlier work on the issue picked up, unless it starts over or resolves a merge: resumed
  * when its last run stopped unfinished (see `unfinished`), in that run's session with `resume: session`, otherwise
  * continued when the worktree started at the job's branch. Picked-up work is measured from where the branch forked, so the checks see the whole change.
+ * A run held only by checks that could not run hands its reply on as `recheck`.
  */
 const picked = async (
   worktree: Worktree,
@@ -357,7 +369,8 @@ const picked = async (
   const from = startOf(target, handoff, p);
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
-  return { ...worktree, base, resume: section, ...(session && { session }) };
+  const recheck = last && (await heldReply(last, p));
+  return { ...worktree, base, resume: section, ...(session && { session }), ...(recheck && { recheck }) };
 };
 
 /**

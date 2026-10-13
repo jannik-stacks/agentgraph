@@ -58,7 +58,9 @@ retry. After a provider limit that retry waits for the reset the error names, or
 names none, and is skipped when the reset is more than 5 minutes away. Nothing goes back to the
 bot for it. The job holds its proposals and asks a human once, even when the check is in `warn`
 mode, in plain words: which checks could not run and why, until when a provider limit lasts, and
-that a `/bothub` comment runs them again.
+that a `/bothub` comment runs them again. When no other check held the change, that comment runs
+only the checks, on the parked work and without a bot turn; when they pass, the held proposals land
+as the bot wrote them, its merge request text included.
 
 ## Parked work
 

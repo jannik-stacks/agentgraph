@@ -822,6 +822,32 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(resume).not.toContain('No answer was found');
   });
 
+  it('runs only the checks again on work held by checks that could not run, then hands off its reply', async () => {
+    const config = configFor();
+    const until = { checks: ['judged'], max: 1 };
+    Object.assign(config.workflows.triage!.jobs.parking!, { returns: ['push', 'merge-request', 'ask'], until });
+    const request = { kind: 'merge-request', title: 'Add a', body: 'Closes #7', branch: 'bothub/7', into: 'main' };
+    let down = true;
+    const { seen, adapters } = fake(spec =>
+      spec.prompt.startsWith('Judge this file.')
+        ? { ok: !down, message: bothub([{ kind: 'reply', body: 'PASS' }]) }
+        : { message: bothub([{ kind: 'push', branch: 'bothub/7', files: ['src/a.ts'] }, request]), work: writeA }
+    );
+    const { calls, gh } = fakeGitHub();
+    const p = await pipeline({ config, issues: trackedIssues(), gh, adapters });
+    const held = await Effect.runPromise(runPlanned(planned('parking'), p));
+    expect(held.run).toMatchObject({ closure: 'blocked', parked: 'bothub/7-parked' });
+    down = false;
+    const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
+
+    expect(seen.filter(spec => !spec.prompt.startsWith('Judge this file.'))).toHaveLength(1);
+    expect(next.run).toMatchObject({ closure: 'handed-off', attempt: 2 });
+    expect(calls.find(c => c.path.endsWith('/pulls'))?.body).toMatchObject({
+      title: 'Add a',
+      body: expect.stringMatching(/^Closes #7/),
+    });
+  });
+
   it('leaves work outside the job paths unparked and says why', async () => {
     const origin = sourceRepo();
     const { adapters } = fake({ message: asks, work: "fs.writeFileSync('notes.md', 'n')" });
