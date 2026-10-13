@@ -1002,6 +1002,7 @@ describe('checks fail closed', () => {
       blocked: true,
     });
     expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').blocked).toBe(true);
+    expect(verdictOf(ok({ status: 'failed', error: 'exited with code 137' }), '').blocked).toBe(true);
     expect(verdictOf(ok({ status: 'failed', stopped: 'stuck', error: 'stuck: a loop' }), '').blocked).toBeUndefined();
   });
 
