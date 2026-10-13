@@ -1,14 +1,16 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import { checkLine, laneOf, localOrigin, serveHub } from '../src/serve.ts';
+import { localPulls } from '../src/pulls.ts';
+import { checkLine, laneOf, localOrigin, serveHub, warmDeps } from '../src/serve.ts';
 import { fileQueue } from '../src/queue.ts';
 import { unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
+import { workspaces } from '../src/workspace.ts';
 import type { JobResult } from '../src/pipeline.ts';
 import type { BotEvent } from '../src/types.ts';
-import { git, sourceRepo, temp } from './git.ts';
+import { commit, git, sourceRepo, temp } from './git.ts';
 
 const bareOrigin = () => {
   const { dir } = sourceRepo();
@@ -308,6 +310,153 @@ describe('serveHub', () => {
     } finally {
       await served.stop();
     }
+  });
+
+  it('queues a merge request event once however often it scans', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    writeFileSync(
+      join(hub, 'workflows/pr.md'),
+      [
+        '---',
+        'name: pr',
+        'on:',
+        '  pull_request:',
+        '    types: [opened]',
+        '    guard: { associations: [NONE] }',
+        'jobs:',
+        '  note:',
+        '    type: script',
+        '    run: echo seen',
+        '    mode: warn',
+        '---',
+        'Notes.',
+        '',
+      ].join('\n')
+    );
+    const data = temp('serve-data');
+    const origin = bareOrigin();
+    await localPulls({ origin, file: join(data, 'pulls.jsonl'), repo: 'acme/app' }).open({
+      title: 'Feature',
+      body: '',
+      branch: 'feature',
+      into: 'main',
+    });
+    const done: BotEvent[] = [];
+    const served = await serveHub({
+      hub,
+      data,
+      origin,
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 10,
+      log: () => {},
+      launch: unsandboxed,
+      onResults: event => done.push(event),
+    });
+    try {
+      while (!done.length) await new Promise(r => setTimeout(r, 20));
+      await new Promise(r => setTimeout(r, 100));
+      await served.idle();
+      expect(done.map(e => [e.trigger, e.action, e.id])).toEqual([['pull_request', 'opened', 'local-pull-1-opened']]);
+      expect(await fileQueue(join(data, 'queue')).list()).toEqual([]);
+    } finally {
+      await served.stop();
+    }
+  });
+
+  it('logs a merge request log it cannot read and keeps serving', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    const data = temp('serve-data');
+    writeFileSync(join(data, 'pulls.jsonl'), 'not json\n');
+    const lines: string[] = [];
+    const done: BotEvent[] = [];
+    const served = await serveHub({
+      hub,
+      data,
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 20,
+      log: line => lines.push(line),
+      adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      launch: unsandboxed,
+      onResults: event => done.push(event),
+    });
+    try {
+      expect(lines.some(line => line.startsWith('error: ') && line.includes('JSON'))).toBe(true);
+      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
+      while (!done.length) await new Promise(r => setTimeout(r, 20));
+      expect(done.map(e => e.body)).toEqual(['/bothub why']);
+    } finally {
+      await served.stop();
+    }
+  });
+});
+
+describe('warmDeps', () => {
+  const setup = (install: string) => {
+    const { dir } = sourceRepo();
+    commit(dir, { 'deps.lock': 'v1\n' });
+    const origin = join(temp('bare'), 'app.git');
+    git(dir, 'clone', '-q', '--bare', dir, origin);
+    const ran = join(temp('deps-log'), 'log');
+    const hub = temp('serve-hub');
+    const script = JSON.stringify(`echo ran >> ${ran}; ${install}`);
+    writeFileSync(
+      join(hub, 'hub.yaml'),
+      `issues: local\ndeps:\n  install: ${script}\n  lockfiles: [deps.lock]\n  dirs: [vendor]\n`
+    );
+    const data = temp('serve-data');
+    const lines: string[] = [];
+    const warm = () =>
+      warmDeps({
+        hub,
+        data,
+        repo: 'acme/app',
+        workspaces: workspaces({ dataDir: data, cloneUrl: () => origin }),
+        launch: unsandboxed,
+        log: line => lines.push(line),
+      });
+    const runs = () => (existsSync(ran) ? readFileSync(ran, 'utf8').split('\n').filter(Boolean).length : 0);
+    return { hub, data, lines, warm, runs };
+  };
+
+  it('installs the deps once in a worktree it removes afterwards', async () => {
+    const { data, lines, warm, runs } = setup('mkdir -p vendor/pkg');
+    await warm();
+    await warm();
+    expect(runs()).toBe(1);
+    expect(lines).toEqual(['deps ready', 'deps ready']);
+    expect(readdirSync(join(data, 'deps'))).toHaveLength(1);
+    expect(readdirSync(join(data, 'work'))).toEqual([]);
+  });
+
+  it('logs a failed install and still removes its worktree', async () => {
+    const { data, lines, warm, runs } = setup('echo broken; exit 3');
+    await expect(warm()).resolves.toBeUndefined();
+    expect(runs()).toBe(1);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^deps not prewarmed: installing dependencies failed: [\s\S]*broken/);
+    expect(readdirSync(join(data, 'work'))).toEqual([]);
+  });
+
+  it('does nothing for a hub without deps', async () => {
+    const { hub, data, lines, warm, runs } = setup('true');
+    writeFileSync(join(hub, 'hub.yaml'), 'issues: local\n');
+    await warm();
+    expect(runs()).toBe(0);
+    expect(lines).toEqual([]);
+    expect(existsSync(join(data, 'work'))).toBe(false);
   });
 });
 
