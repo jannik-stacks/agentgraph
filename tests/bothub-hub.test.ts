@@ -1008,7 +1008,7 @@ describe('slicers for the narrow judges', () => {
     ]);
   });
 
-  it('criteria: the change holds only the src files the test imports, followed through their imports', () => {
+  it('criteria: the change holds only the changed files the test file names, else the whole change', () => {
     const criteriaFor = (test: string) => {
       const repo = change(
         {
@@ -1029,8 +1029,9 @@ describe('slicers for the narrow judges', () => {
     };
     const narrow = criteriaFor("import { labelId } from '../src/labels.ts';\n");
     expect(narrow).toContain('+export const labelId');
-    expect(narrow).toContain('+export const u = 2;');
+    expect(narrow).not.toContain('src/util.ts');
     expect(narrow).not.toContain('src/other.ts');
+    expect(criteriaFor("run('other.ts');\n")).toMatch(/^diff --git a\/src\/other\.ts[^]*\+export const o = 2;$/);
     expect(criteriaFor("import { gone } from '../src/gone.ts';\n")).toContain('+export const o = 2;');
   });
 

@@ -316,13 +316,20 @@ const checkFields = {
  * `checks/<name>.md`: what a check looks at (`over`) and who judges it. A `script` passes when it exits 0; a `bot`
  * replies PASS or FAIL to the body, added after the skill when there is one; `decide` asks the local decision model
  * the body as a yes-or-no question and passes on yes. A check whose `paths` match no changed file does not apply.
- * `concurrency` is how many of its items are judged at once.
+ * `concurrency` is how many of its items are judged at once. A bot check's `max-turns` limits each item's run in place
+ * of the bot's own.
  */
 export const Check = z.discriminatedUnion(
   'type',
   [
     variant('a script check', { type: z.literal('script'), run: script, ...checkFields }),
-    variant('a bot check', { type: z.literal('bot'), bot: name, skill: name.optional(), ...checkFields }),
+    variant('a bot check', {
+      type: z.literal('bot'),
+      bot: name,
+      skill: name.optional(),
+      'max-turns': z.int().positive().optional(),
+      ...checkFields,
+    }),
     variant('a decide check', {
       type: z.literal('decide'),
       threshold: z.number().min(0).max(1).optional(),

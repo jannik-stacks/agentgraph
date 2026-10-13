@@ -1608,6 +1608,14 @@ describe('over', () => {
     ]);
   });
 
+  it("limits a bot check's runs to its own max-turns", async () => {
+    const { seen } = await run(
+      hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', 'max-turns': 1 }, body: 'Small?' }]),
+      judged
+    );
+    expect(seen.map(spec => spec.maxTurns)).toEqual([3, 1]);
+  });
+
   it('marks a script check red on base when it fails there too, only in files the change did not touch', async () => {
     const script = (name: string, run: string) => ({ name, data: { type: 'script', run, mode: 'block' } });
     const { result } = await run(

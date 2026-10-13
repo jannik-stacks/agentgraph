@@ -224,7 +224,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         });
       const spec = session({
         config: p.config,
-        bot,
+        bot: check['max-turns'] ? { ...bot, 'max-turns': check['max-turns'] } : bot,
         returns: ['reply'],
         prompt,
         cwd: a.cwd,
