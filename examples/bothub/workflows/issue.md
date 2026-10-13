@@ -47,6 +47,7 @@ jobs:
         - docs-prose
         - docs-sync
         - code-shape
+        - studio-ui
         - react-hints
         - unused-exports
         - risky

@@ -18,7 +18,7 @@ merges.
 |---|---|---|---|---|
 | safety | script | | block | The change stays in bounds and adds no secrets, by prefix and by entropy |
 | harness-memory | script | | block | No harness memory files |
-| size | script | | block | At most 300 added lines and 8 files outside `tests/` |
+| size | script | | block | At most 300 added lines and 8 files outside `tests/`, files that only make one rename aside |
 | test-integrity | script | | block | No deleted, fewer, skipped, focused or slowed tests, no setup edits |
 | docs-style, comments | script | | block | The written style rules, on added lines |
 | lint | script | | block | oxlint plus the suspicious rules, errors on added lines only |
@@ -26,13 +26,13 @@ merges.
 | tests-bite | script | | block | Every new test fails on the base code |
 | coverage | script | | block | Every added line in `src/` runs in a test; the changed area meets the thresholds |
 | criteria-tests | script | | block | Each criterion's named test is added with its exact title |
-| triage-brief | script | | warn | The triage reply follows the template (in triage's `until`) |
+| triage-brief | script | | block | The triage reply follows the template and names only files the change may touch (in triage's `until`) |
 | risky | decide | each risky added line | shadow | Can an attacker or a bot reach this call unchecked? |
 | scope | decide | each file the brief does not name | shadow | Does this file serve the task? |
 | near-duplicate | bot, `fast` | each new export | shadow | Does an existing export already do this? |
 | criterion-met | bot, `review` | each criterion | warn | Is there a sequence of events that breaks it? |
 | design | bot, `review` | the whole src change | warn | Does every path that changes this state keep the invariant? |
-| review-src | bot, `review` | each code hunk in `src/` | block | Does the hunk mishandle an input or break a caller? |
+| review-src | bot, `review` | each code hunk in `src/`, rename-only hunks left out | block | Does the hunk mishandle an input or break a caller? |
 | review-tests, review-docs | bot, `fast` | each test or docs hunk | shadow | Does each assertion bite; does each docs statement hold? |
 | docs-tone-* | decide | each docs hunk | shadow | One tone question each: taglines, selling, repeats, provenance |
 

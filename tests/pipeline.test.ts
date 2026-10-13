@@ -547,6 +547,26 @@ describe('until', () => {
     ]);
   });
 
+  it('stops when the bot closes without finishing, runs no checks and asks once', async () => {
+    const issues = trackedIssues();
+    const stop = bothub([
+      { kind: 'reply', body: 'Partly done.' },
+      { kind: 'ask', question: 'May the change touch studio?' },
+      { kind: 'close', as: 'blocked', reason: 'the gates forbid studio' },
+    ]);
+    const { seen, adapters } = fake({ message: stop });
+    const p = await pipeline({ config: configFor(), issues, adapters });
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+    if (!('run' in result)) throw new Error('skipped');
+    expect(seen).toHaveLength(1);
+    expect(result.outcome?.checks).toBeUndefined();
+    expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked', reason: 'the gates forbid studio' });
+    expect(result.outcome?.rejected).toEqual([
+      { proposal: { kind: 'reply', body: 'Partly done.' }, reason: 'the bot stopped: the gates forbid studio' },
+    ]);
+    expect((await issues.list({ label: 'unsure' })).map(i => i.title)).toEqual(['May the change touch studio?']);
+  });
+
   it('fans a bot check out over changed files and reads PASS or FAIL from its reply', async () => {
     const write =
       "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/a.ts', 'a'); fs.writeFileSync('src/b.ts', 'b')";
@@ -687,6 +707,18 @@ describe('checks fail closed', () => {
     expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: '**FAIL**\na.ts:3 is wrong' }]))).toEqual({
       pass: false,
       findings: 'a.ts:3 is wrong',
+    });
+  });
+
+  it('reads a final message without a bothub block as the reply', () => {
+    expect(verdictOf(ok({}), 'PASS')).toEqual({ pass: true });
+    expect(verdictOf(ok({}), 'FAIL\n/docs/a.mdx:96\n\nThe example omits a field.')).toEqual({
+      pass: false,
+      findings: '/docs/a.mdx:96\n\nThe example omits a field.',
+    });
+    expect(verdictOf(ok({}), bothub([{ kind: 'ask', question: 'Which file?' }]))).toEqual({
+      pass: false,
+      findings: 'run r gave no verdict',
     });
   });
 

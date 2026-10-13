@@ -1,12 +1,13 @@
 // Runs the tests related to the changed source files with coverage, under the repository's own thresholds, and
-// fails every added line that no test runs. Reports go to a temporary directory, never the worktree.
+// fails every added line that no test runs, except lines that only make the change's rename. Reports go to a
+// temporary directory, never the worktree.
 //
 //   node coverage.mjs <root>...      e.g. node coverage.mjs src/
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addedLines, base, changedFiles, report } from './changes.mjs';
+import { ownLines, base, changedFiles, report } from './changes.mjs';
 
 const roots = process.argv.slice(2);
 if (!roots.length) throw new Error('usage: coverage.mjs <root>...');
@@ -50,7 +51,7 @@ else {
         `--coverage.reportsDirectory=${tmp}`,
         ...files.map(file => `--coverage.include=${file}`),
       ],
-      { encoding: 'utf8', timeout: 10 * 60_000 }
+      { encoding: 'utf8', timeout: 10 * 60_000, env: { ...process.env, HOME: process.env.HOME || tmp } }
     );
     const findings = [];
     if (run.status !== 0)
@@ -62,7 +63,7 @@ else {
       const data = byPath.get(realpathSync(file));
       if (!data) continue;
       const hits = lineHits(data);
-      const missed = addedLines(sha, file)
+      const missed = ownLines(sha, file)
         .map(({ line }) => line)
         .filter(line => hits.get(line) === 0);
       for (const [from, to] of ranges(missed))

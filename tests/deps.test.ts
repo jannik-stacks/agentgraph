@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { compile } from '../src/config.ts';
@@ -57,6 +57,18 @@ describe('prepareDeps', () => {
     expect(readFileSync(join(b, 'vendor', 'pkg', 'index.js'), 'utf8')).toBe('v2\n');
     expect(readFileSync(join(a, 'vendor', 'pkg', 'index.js'), 'utf8')).toBe('v1\n');
     expect(git(b, 'status', '--porcelain')).toBe('M deps.lock');
+  });
+
+  it('links .bin but not a cache dir a tool left in the install, so every worktree can write its own', async () => {
+    const { deps, worktree, cache } = setup();
+    const a = worktree('a');
+    await prepareDeps(a, deps, cache, unsandboxed);
+    const entry = join(cache, await depsKey(a, deps));
+    mkdirSync(join(entry, 'vendor', '.vite-temp'));
+    mkdirSync(join(entry, 'vendor', '.bin'));
+    const b = worktree('b');
+    await prepareDeps(b, deps, cache, unsandboxed);
+    expect(readdirSync(join(b, 'vendor')).sort()).toEqual(['.bin', '.bothub-deps', 'pkg']);
   });
 
   it('installs once for worktrees that ask at the same time', async () => {

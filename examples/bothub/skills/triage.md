@@ -32,5 +32,9 @@ more than five criteria, it is two tasks: say so and ask which comes first.
 If you can't tell what is being asked, or the fix needs a choice the code does not settle, ask
 one focused question and stop.
 
+The change may touch only `src/`, `tests/`, `studio/src/`, `studio/seed.ts` and
+`studio/content/docs/`, and at most 8 files outside `tests/`; files that only make the task's one
+rename do not count. A task that needs more is two tasks: say so and ask which comes first.
+
 Apply the label `ready` when the criteria are complete, or `needs-input` when you asked. End with
 exactly one `reply` holding the brief plus the label, or an `ask` when you stopped to ask.

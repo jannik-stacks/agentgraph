@@ -101,7 +101,8 @@ over:
 concurrency: 4
 ```
 
-A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by <Sym name="verdictOf" />.
+A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by <Sym name="verdictOf" />;
+a final message with no `bothub` block counts as that reply, since small models often leave it out.
 Its prompt starts with what every item shares, the skill, the body, the issue the bot preloads, the
 event and the verdict format, and ends with the item, so a provider can cache everything before it.
 A decide check passes when the probability of yes reaches its `threshold`, 0.5 unless set; see

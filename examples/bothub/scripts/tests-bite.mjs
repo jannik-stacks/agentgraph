@@ -44,7 +44,7 @@ else {
     const run = spawnSync(
       join(tree, 'node_modules/.bin/vitest'),
       ['run', ...fresh, '--reporter=json', `--outputFile=${out}`, '--includeTaskLocation', '--coverage.enabled=false'],
-      { cwd: tree, encoding: 'utf8', timeout: 10 * 60_000 }
+      { cwd: tree, encoding: 'utf8', timeout: 10 * 60_000, env: { ...process.env, HOME: process.env.HOME || tmp } }
     );
     if (!existsSync(out)) throw new Error(`vitest did not run on the base code:\n${`${run.stdout}${run.stderr}`.trim()}`);
     const results = JSON.parse(readFileSync(out, 'utf8')).testResults;

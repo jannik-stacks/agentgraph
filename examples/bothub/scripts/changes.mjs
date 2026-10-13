@@ -92,3 +92,57 @@ export const changeText = (sha, roots, context = 3) => {
   });
   return [diff.trimEnd(), ...added].filter(Boolean).join('\n');
 };
+
+const words = text => text.match(/\w+|[^\w\s]/g) ?? [];
+
+/** The one word swap every changed line of a diff makes, as `old → new`, or undefined when it changes more. */
+export const swapIn = diff => {
+  const swaps = new Set();
+  for (const hunk of diff.split(/^@@.*$/m).slice(1)) {
+    const rows = hunk.split('\n');
+    const removed = rows.filter(row => row.startsWith('-')).map(row => words(row.slice(1)));
+    const added = rows.filter(row => row.startsWith('+')).map(row => words(row.slice(1)));
+    if (removed.length !== added.length) return;
+    for (const [i, before] of removed.entries()) {
+      const after = added[i];
+      if (before.length !== after.length) return;
+      for (const [j, word] of before.entries()) if (word !== after[j]) swaps.add(`${word} → ${after[j]}`);
+    }
+  }
+  return swaps.size === 1 ? [...swaps][0] : undefined;
+};
+
+/** The change's rename: the swap the most of `files` make with every line they change, and those files. */
+export const renameOf = (sha, files) => {
+  const swaps = new Map();
+  for (const { path, deleted } of files) {
+    const swap = !deleted && inBase(sha, path) ? swapIn(diffOf(sha, [path], 0)) : undefined;
+    if (swap) swaps.set(swap, [...(swaps.get(swap) ?? []), path]);
+  }
+  const [rename, renamed = []] = [...swaps].sort((a, b) => b[1].length - a[1].length)[0] ?? [];
+  return { rename, renamed };
+};
+
+let changeRename;
+
+/**
+ * The lines a file gains that do more than the change's rename. A line whose only difference from the line it
+ * replaces is that swap was there before, so a check that blames new code leaves it alone.
+ */
+export const ownLines = (sha, path) => {
+  changeRename ??= renameOf(sha, changedFiles(sha)).rename;
+  const lines = addedLines(sha, path);
+  if (!changeRename || !inBase(sha, path)) return lines;
+  const renamedAt = new Set();
+  for (const hunk of diffOf(sha, [path], 0).split(/^(?=@@ )/m).slice(1)) {
+    const at = Number(/^@@ -\S+ \+(\d+)/.exec(hunk)?.[1] ?? 0);
+    const rows = hunk.split('\n').slice(1);
+    const removed = rows.filter(row => row.startsWith('-')).map(row => row.slice(1));
+    const added = rows.filter(row => row.startsWith('+')).map(row => row.slice(1));
+    if (removed.length !== added.length) continue;
+    added.forEach((text, i) => {
+      if (swapIn(`@@\n-${removed[i]}\n+${text}`) === changeRename) renamedAt.add(at + i);
+    });
+  }
+  return lines.filter(({ line }) => !renamedAt.has(line));
+};

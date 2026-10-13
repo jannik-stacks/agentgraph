@@ -24,6 +24,10 @@ build, the suite, tests that must fail on the base, coverage of the lines you ad
 criteria's tests), then narrow reviewers, each with one question. A review finding is about
 behavior: fix the cause it names, not only the example.
 
+When a check asks for something the brief rules out, or the task cannot be done within the hub's
+bounds, ask one question and add a `close` as `blocked`: the hub then stops, runs no more checks
+and sends nothing back.
+
 End with a `push` of your branch listing every file you changed, a `merge-request` from that
 branch whose body says which issue it closes, and a reply that lists each criterion with the test
 that proves it.

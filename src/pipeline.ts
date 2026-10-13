@@ -518,9 +518,10 @@ const outsideWork = (run: Run) =>
   run.status === 'skipped' || run.status === 'timed-out' || sandboxFailed(run) || providerLimit.test(run.error ?? '');
 
 /**
- * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A check
- * that cannot decide (the run failed, there is no reply, or the first line is neither word) fails with the reason; a
- * run that ended for a reason outside its work (see `outsideWork`) is `blocked` as well.
+ * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A final
+ * message without any `bothub` block is read as the reply. A check that cannot decide (the run failed, there is no
+ * reply, or the first line is neither word) fails with the reason; a run that ended for a reason outside its work (see
+ * `outsideWork`) is `blocked` as well.
  */
 export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'findings' | 'blocked'> => {
   if (run.status !== 'succeeded') {
@@ -528,12 +529,15 @@ export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'find
     const findings = `run ${run.id} ${run.status}${why ? `: ${why}` : ''}`;
     return { pass: false, findings, ...(outsideWork(run) && { blocked: true }) };
   }
-  const reply = extractProposals(final).proposals.find(proposal => proposal.kind === 'reply');
-  if (!reply) return { pass: false, findings: `run ${run.id} gave no verdict` };
-  const [first = '', ...rest] = reply.body.trim().split('\n');
+  const { proposals } = extractProposals(final);
+  const reply = proposals.find(proposal => proposal.kind === 'reply');
+  const [first = '', ...rest] = (reply?.body ?? (proposals.length ? '' : final)).trim().split('\n');
   const word = first.replace(/[\s*_]/g, '').toUpperCase();
   if (word !== 'PASS' && word !== 'FAIL')
-    return { pass: false, findings: `run ${run.id} gave no verdict: its first line is neither PASS nor FAIL` };
+    return {
+      pass: false,
+      findings: `run ${run.id} gave no verdict${reply ? ': its first line is neither PASS nor FAIL' : ''}`,
+    };
   const findings = rest.join('\n').trim();
   return { pass: word === 'PASS', ...(findings && { findings }) };
 };
@@ -1288,6 +1292,26 @@ const attempts = (
       if (!succeeded || (!job.until && !left.length)) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, succeeded ? validated.accepted : undefined, a, p)
+        );
+        return yield* finish(planned, run, outcome, kinds, p, merging);
+      }
+
+      const stopped = validated.accepted.find(proposal => proposal.kind === 'close');
+      if (stopped) {
+        const stays = (proposal: Proposal) => proposal.kind === 'ask' || proposal.kind === 'close';
+        const kept = validated.accepted.filter(stays);
+        const held = validated.accepted
+          .filter(proposal => !stays(proposal))
+          .map(proposal => ({ proposal, reason: `the bot stopped: ${stopped.reason}` }));
+        const outcome = yield* Effect.promise(() =>
+          settle(
+            run,
+            extracted,
+            { ...validated, accepted: kept, rejected: [...validated.rejected, ...held] },
+            kept,
+            a,
+            p
+          )
         );
         return yield* finish(planned, run, outcome, kinds, p, merging);
       }

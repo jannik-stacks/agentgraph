@@ -1,6 +1,6 @@
 // An export a change adds under src/ or studio/src that no other file uses: code nobody needs yet.
 import { execFileSync } from 'node:child_process';
-import { addedLines, base, changedFiles, report } from './changes.mjs';
+import { ownLines, base, changedFiles, report } from './changes.mjs';
 
 const declaration =
   /^export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|function\*?|type|interface|class|enum)\s+([A-Za-z_$][\w$]*)/;
@@ -22,7 +22,7 @@ const sha = base();
 const findings = [];
 for (const { path, deleted } of changedFiles(sha)) {
   if (deleted || !code.test(path)) continue;
-  for (const { line, text } of addedLines(sha, path)) {
+  for (const { line, text } of ownLines(sha, path)) {
     const name = declaration.exec(text)?.[1];
     if (name && !users(name).some(user => user !== path)) {
       findings.push(`${path}:${line}: ${name} is exported but no other file uses it; drop the export or the code`);

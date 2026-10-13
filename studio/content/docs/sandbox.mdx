@@ -56,7 +56,8 @@ and `bothub serve --prewarm` runs it at startup, so the first event does not wai
 
 Each worktree then gets its directories back as plain folders of links into the cache, which is
 mounted read-only at the same path. The packages cannot be changed, while tools can still write
-their own caches next to the links. The directories are added to the repository's
+their own caches next to the links. A dot directory other than `.bin` left in the cache, such as
+`.vite-temp`, is a tool's cache and gets no link, so a worktree never finds it read-only. The directories are added to the repository's
 `info/exclude`, so they never show up in a change. A change to a lockfile gets a fresh install
 before its checks run, and a failed install fails the run with the end of its output.
 

@@ -9,4 +9,5 @@ over:
 paths: [src/**]
 mode: block
 ---
-Hunks that only change comments are left out; the comments check covers them.
+Hunks that only change comments are left out; the comments check covers them. So are hunks that only
+make the change-wide rename; the types and tests checks cover those.

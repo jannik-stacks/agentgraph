@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { git, temp } from './git.ts';
@@ -225,6 +225,33 @@ describe('coverage', () => {
   });
 });
 
+describe('scripts that run vitest', () => {
+  /** A vitest that fails without HOME, as the real one does for a sandbox user with no passwd entry. */
+  const needsHome = [
+    '#!/bin/sh',
+    '[ -n "$HOME" ] || exit 1',
+    'for a; do case "$a" in --outputFile=*) echo \'{"testResults":[]}\' > "${a#--outputFile=}";; esac; done',
+    '',
+  ].join('\n');
+  const withStub = (repo: { dir: string; base: string }) => {
+    write(repo.dir, { 'node_modules/.bin/vitest': needsHome });
+    chmodSync(join(repo.dir, 'node_modules/.bin/vitest'), 0o755);
+    return repo;
+  };
+  const changed = () =>
+    withStub(
+      change(
+        { 'src/add.ts': adder, 'tests/add.test.ts': addTest() },
+        { 'src/add.ts': clamped, 'tests/add.test.ts': addTest("it('clamps', () => expect(add(-3, 1)).toBe(0));") }
+      )
+    );
+
+  it('gives vitest a HOME when the caller has none', () => {
+    expect(run('tests-bite.mjs', changed())).toEqual({ ok: true, out: 'tests-bite: ok' });
+    expect(run('coverage.mjs', changed(), ['src/'])).toEqual({ ok: true, out: 'coverage: ok' });
+  });
+});
+
 describe('lint on added lines', () => {
   const config = { '.oxlintrc.json': '{ "rules": { "no-debugger": "error" } }\n' };
 
@@ -324,6 +351,53 @@ describe('size', () => {
   it('does not count tests', () => {
     const repo = change({ 'src/a.ts': '' }, { 'src/a.ts': lines(10), 'tests/a.test.ts': lines(500) });
     expect(run('size.mjs', repo, ['15', '3'])).toEqual({ ok: true, out: 'size: ok' });
+  });
+
+  it('does not count files that only make the change-wide word swap toward the file cap', () => {
+    const uses = (key: string) => `if (p.${key} === 'reply') send(p);\nconst { ${key} } = p;\n`;
+    const before = { 'src/a.ts': uses('kind'), 'src/b.ts': uses('kind'), 'src/c.ts': uses('kind'), 'src/d.ts': '1\n' };
+    const renamed = { 'src/a.ts': uses('type'), 'src/b.ts': uses('type'), 'src/c.ts': uses('type') };
+    expect(run('size.mjs', change(before, { ...renamed, 'src/d.ts': '2\n' }), ['15', '1'])).toEqual({
+      ok: true,
+      out: 'size: ok',
+    });
+    const { ok, out } = run(
+      'size.mjs',
+      change(before, { ...renamed, 'src/c.ts': uses('variant'), 'src/d.ts': '2\n' }),
+      ['15', '1']
+    );
+    expect(ok).toBe(false);
+    expect(findings(out)).toEqual([
+      '2 files changed outside tests/ besides 2 that only rename kind → type, more than 1: src/c.ts, src/d.ts',
+    ]);
+  });
+});
+
+describe('unused-exports', () => {
+  const pull = (key: string) =>
+    `export type NewPull = { ${key}: 'merge-request' };\nexport const open = (p: NewPull) => p;\n`;
+  const use = (key: string) => `import { open } from './pull.ts';\nopen({ ${key}: 'merge-request' });\n`;
+
+  it('leaves alone an export the change only renames in, and fails one it adds', () => {
+    const before = { 'src/pull.ts': pull('kind'), 'src/use.ts': use('kind'), 'src/other.ts': use('kind') };
+    expect(
+      run(
+        'unused-exports.mjs',
+        change(before, { 'src/pull.ts': pull('type'), 'src/use.ts': use('type'), 'src/other.ts': use('type') })
+      )
+    ).toEqual({ ok: true, out: 'unused-exports: ok' });
+    const { ok, out } = run(
+      'unused-exports.mjs',
+      change(before, {
+        'src/pull.ts': `${pull('type')}export const close = 1;\n`,
+        'src/use.ts': use('type'),
+        'src/other.ts': use('type'),
+      })
+    );
+    expect(ok).toBe(false);
+    expect(findings(out)).toEqual([
+      'src/pull.ts:3: close is exported but no other file uses it; drop the export or the code',
+    ]);
   });
 });
 
@@ -437,6 +511,23 @@ describe('triage-brief', () => {
       '7 criteria; split the task to keep at most 5',
       'two criteria share the test title "t0"',
     ]);
+  });
+
+  it('fails a file outside the roots the change may touch', () => {
+    const dir = temp('brief');
+    const text = brief.replace(
+      '- `tests/labels.test.ts`',
+      '- `studio/src/App.tsx`: the view\n- `tests/labels.test.ts`'
+    );
+    writeFileSync(join(dir, 'reply.md'), text);
+    const { ok, out } = run('triage-brief.mjs', { dir, base: '' }, ['--within', 'src/,tests/', join(dir, 'reply.md')]);
+    expect(ok).toBe(false);
+    expect(findings(out)).toEqual([
+      'studio/src/App.tsx is outside what the change may touch (src/, tests/); leave it out of scope or ask',
+    ]);
+    expect(
+      run('triage-brief.mjs', { dir, base: '' }, ['--within', 'src/,studio/src/,tests/', join(dir, 'reply.md')]).ok
+    ).toBe(true);
   });
 
   it('passes with a note when there is no reply to read', () => {
@@ -636,5 +727,17 @@ describe('slicers for the narrow judges', () => {
     expect(found[0]!.hunk).toContain('+export const v3 = 33;');
     const docs = items(run('hunks.mjs', repo, ['studio/content/docs/']).out);
     expect(docs.map(i => i.file)).toEqual(['studio/content/docs/a.mdx']);
+  });
+
+  it('hunks: leaves out hunks that only make the change-wide rename, keeps the rest of a file', () => {
+    const uses = (key: string) => `if (p.${key} === 'reply') send(p);\nconst { ${key} } = p;\n`;
+    const filler = Array.from({ length: 20 }, (_, i) => `export const v${i} = ${i};`).join('\n');
+    const repo = change(
+      { 'src/a.ts': uses('kind'), 'src/b.ts': uses('kind'), 'src/c.ts': `${uses('kind')}${filler}\nconst x = 1;\n` },
+      { 'src/a.ts': uses('type'), 'src/b.ts': uses('type'), 'src/c.ts': `${uses('type')}${filler}\nconst x = 2;\n` }
+    );
+    const found = items(run('hunks.mjs', repo, ['src/']).out);
+    expect(found.map(i => [i.file, i.line])).toEqual([['src/c.ts', 15]]);
+    expect(found[0]!.hunk).toContain('+const x = 2;');
   });
 });

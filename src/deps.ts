@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { runScript, type Launcher } from './runner.ts';
 import { depsMarker, gitDirs } from './sandbox.ts';
@@ -43,13 +44,17 @@ const install = async (worktree: string, deps: Deps, entry: string, launch: Laun
   }
 };
 
-/** Replaces each dir with a writable one holding a link per entry of the installed dir. */
+/** A dot directory other than `.bin` is a tool's cache, which each worktree keeps for itself. */
+const shared = (entry: Dirent) => !(entry.isDirectory() && entry.name.startsWith('.') && entry.name !== '.bin');
+
+/** Replaces each dir with a writable one holding a link per entry of the installed dir, caches left out. */
 const link = async (worktree: string, deps: Deps, entry: string) => {
   for (const dir of deps.dirs) {
     const at = join(worktree, dir);
     await rm(at, { recursive: true, force: true });
     await mkdir(at, { recursive: true });
-    for (const name of await readdir(join(entry, dir))) await symlink(join(entry, dir, name), join(at, name));
+    for (const { name } of (await readdir(join(entry, dir), { withFileTypes: true })).filter(shared))
+      await symlink(join(entry, dir, name), join(at, name));
     await writeFile(join(at, linked), entry);
   }
 };
