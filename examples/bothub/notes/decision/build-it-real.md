@@ -2,7 +2,7 @@
 title: Build it real, never fake it
 status: accepted
 source: bothub sessions
-check: unfinished
+check: rules
 human: user feedback no fake, build it out, feedback rule 5
 ---
 Shipped code calls the real harness, the real model and the real store. When something is missing,

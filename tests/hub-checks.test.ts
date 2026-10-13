@@ -1,41 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { git, temp } from './git.ts';
+import { change, runScript, temp } from './kit.ts';
 
 const hub = resolve(import.meta.dirname, '../examples/acme-app');
 const scripts = join(hub, 'scripts');
 const bothubScripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const bin = resolve(import.meta.dirname, '../node_modules/.bin');
 
-const write = (root: string, files: Record<string, string>) => {
-  for (const [path, content] of Object.entries(files)) {
-    mkdirSync(dirname(join(root, path)), { recursive: true });
-    writeFileSync(join(root, path), content);
-  }
-};
-
-/** A repository with `before` committed as the base, then `after` written on top without committing. */
-const change = (before: Record<string, string>, after: Record<string, string> = {}) => {
-  const dir = temp('change');
-  git(dir, 'init', '-q', '-b', 'main');
-  write(dir, { '.gitignore': 'node_modules/\n', ...before });
-  git(dir, 'add', '.');
-  git(dir, 'commit', '-qm', 'base');
-  const base = git(dir, 'rev-parse', 'HEAD');
-  write(dir, after);
-  return { dir, base };
-};
-
-const check = (script: string, { dir, base }: { dir: string; base?: string }, ...args: string[]) => {
-  const result = spawnSync(process.execPath, [resolve(scripts, script), ...args], {
-    cwd: dir,
-    encoding: 'utf8',
-    env: { PATH: `${bin}:${process.env.PATH}`, ...(base && { BOTHUB_BASE: base }) },
-  });
-  return { ok: result.status === 0, out: `${result.stdout}${result.stderr}`.trim() };
-};
+const check = (script: string, repo: { dir: string; base?: string }, ...args: string[]) =>
+  runScript(resolve(scripts, script), repo, args, { PATH: `${bin}:${process.env.PATH}` });
 
 describe('safety check', () => {
   it('passes a change inside the allowed paths', () => {
@@ -107,7 +82,7 @@ describe('safety check', () => {
   });
 });
 
-describe('style check', () => {
+describe('rules check', () => {
   it('passes plain prose and plain comments', () => {
     const repo = change(
       { 'docs/a.mdx': '# Title\n' },
@@ -116,7 +91,7 @@ describe('style check', () => {
         'kit/a.ts': '/** Sends a call. */\nexport const send = () => 1; // returns one\n',
       }
     );
-    expect(check('style.mjs', repo)).toEqual({ ok: true, out: 'style: ok' });
+    expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
   });
 
   it('flags the written rules on added lines only', () => {
@@ -137,7 +112,7 @@ describe('style check', () => {
         'kit/new.ts': '/**\n * Added for Morgan on 2026-09-22.\n */\nexport const s = "a · b";\n',
       }
     );
-    const { ok, out } = check('style.mjs', repo);
+    const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
     expect(out.split('\n').slice(0, -1)).toEqual(
       expect.arrayContaining([
@@ -154,7 +129,7 @@ describe('style check', () => {
       ])
     );
     expect(out).not.toMatch(/docs\/old\.mdx:1|kit\/old\.ts:1|docs\/new\.mdx:3|docs\/new\.mdx:6|kit\/new\.ts:4/);
-    expect(out).toContain('style: 10 findings');
+    expect(out).toContain('rules: 10 findings');
   });
 });
 
@@ -174,9 +149,8 @@ describe('lint check', () => {
     );
     const { ok, out } = check('lint.mjs', repo);
     expect(ok).toBe(false);
-    expect(out).toContain('oxlint found errors');
-    expect(out).toContain('no-var');
-    expect(out).toContain('new files are not formatted');
+    expect(out).toContain('kit/old.ts:1: eslint(no-var)');
+    expect(out).toContain('files are not formatted');
     expect(out).toContain('kit/new.ts');
   });
 
@@ -220,18 +194,15 @@ describe('bothub hub checks', () => {
         'studio/content/docs/a.mdx': '# A\n\n## Sending — the golden path\n\nFast · simple.\n',
       }
     );
-    const comments = check(at('comments.mjs'), repo);
-    expect(comments.ok).toBe(false);
-    expect(comments.out).toContain('src/a.ts:2: a date in a comment');
-    expect(comments.out).toContain('src/a.ts:2: history in a comment');
-    const docs = check(at('docs-style.mjs'), repo);
-    expect(docs.ok).toBe(false);
-    expect(docs.out).toContain('studio/content/docs/a.mdx:3: a heading with an em-dash suffix');
-    expect(docs.out).toContain('studio/content/docs/a.mdx:5: a middle dot separator');
+    const { ok, out } = check(at('rules.mjs'), repo);
+    expect(ok).toBe(false);
+    expect(out).toContain('src/a.ts:2: a date');
+    expect(out).toContain('src/a.ts:2: history in a comment');
+    expect(out).toContain('studio/content/docs/a.mdx:3: a heading with an em-dash suffix');
+    expect(out).toContain('studio/content/docs/a.mdx:5: a middle dot separator');
 
     const clean = change({ 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': '// Plain.\nexport const a = 2;\n' });
-    expect(check(at('comments.mjs'), clean)).toEqual({ ok: true, out: 'comments: ok' });
-    expect(check(at('docs-style.mjs'), clean)).toEqual({ ok: true, out: 'docs-style: ok' });
+    expect(check(at('rules.mjs'), clean)).toEqual({ ok: true, out: 'rules: ok' });
   });
 
   it('lints and format-checks the code files a change touches', () => {
@@ -242,12 +213,58 @@ describe('bothub hub checks', () => {
     const lint = check(at('lint.mjs'), repo);
     expect(lint.ok).toBe(false);
     expect(lint.out).toContain('src/a.ts:2: eslint(no-debugger)');
-    const messy = change({}, { 'src/b.ts': 'export   const b=2\n' });
-    const format = check(at('format.mjs'), messy);
+    const config = { '.oxfmtrc.json': '{ "singleQuote": true }\n', 'src/a.ts': "export const a = 'a';\n" };
+    const messy = change(config, { 'src/a.ts': "export   const a='b'\n" });
+    const format = check(at('lint.mjs'), messy);
     expect(format.ok).toBe(false);
-    expect(format.out).toContain('oxfmt src/b.ts');
-    const tidy = change({}, { 'src/b.ts': 'export const b = 2;\n' });
+    expect(format.out).toContain('oxfmt src/a.ts');
+    const tidy = change(config, { 'src/a.ts': "export const a = 'b';\n", 'src/b.ts': 'export const b = 2;\n' });
     expect(check(at('lint.mjs'), tidy)).toEqual({ ok: true, out: 'lint: ok' });
-    expect(check(at('format.mjs'), tidy)).toEqual({ ok: true, out: 'format: ok' });
+  });
+
+  it('ships the same safety, lint and changes scripts in both hubs', () => {
+    for (const script of ['safety.mjs', 'lint.mjs', 'changes.mjs'])
+      expect(readFileSync(at(script), 'utf8')).toBe(readFileSync(join(scripts, script), 'utf8'));
+  });
+});
+
+describe('safety check, repository hygiene', () => {
+  it('fails harness memory, working notes, markdown outside the docs roots, a long file and a seed phrase', () => {
+    const words = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
+    const repo = change(
+      { 'CHAT.md': 'short\n', 'kit/a.ts': 'export const a = 1;\n' },
+      {
+        'CHAT.md': `${'line\n'.repeat(120)}`,
+        'kit/AGENTS.md': 'remember\n',
+        'kit/.opencode/memory.json': '{}\n',
+        'docs/review-notes.md': 'notes\n',
+        'docs/scratch.mdx': 'scratch\n',
+        'kit/src/wallet.ts': `const mnemonic = '${words}';\n`,
+        'kit/src/wallet.test.ts': `const mnemonic = '${words}';\n`,
+        'docs/content/docs/page.mdx': '# Page\n',
+      }
+    );
+    const { ok, out } = check(
+      'safety.mjs',
+      repo,
+      'kit/',
+      'docs/',
+      'CHAT.md',
+      '--markdown',
+      'docs/content/',
+      '--max-lines',
+      'CHAT.md:100'
+    );
+    expect(ok).toBe(false);
+    expect(out.split('\n').slice(0, -1).sort()).toEqual([
+      'CHAT.md: 120 lines; keep it under 100',
+      'docs/review-notes.md: a new report or tracking file; put the outcome where the project keeps its records',
+      'docs/scratch.mdx: a new markdown file outside docs/content/; keep working notes out of the repository',
+      'kit/.opencode/memory.json: writes harness memory (.opencode/); propose a note instead',
+      'kit/AGENTS.md: a new markdown file outside docs/content/; keep working notes out of the repository',
+      'kit/AGENTS.md: writes harness memory (AGENTS.md); propose a note instead',
+      'kit/src/wallet.ts:1: adds a seed phrase',
+    ]);
+    expect(out).not.toContain('legal winner');
   });
 });

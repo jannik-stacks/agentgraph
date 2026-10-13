@@ -1,7 +1,7 @@
 ---
 title: An identity must survive every path that changes its state
 status: accepted
-check: design
+check: criterion-met
 human: dogfood round 2 run 2 review finding, safety-checks
 ---
 A key or id derived from state is only as good as the paths that keep that state. A label's

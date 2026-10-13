@@ -20,9 +20,9 @@ root, one command at a time, never chained with `&&`:
 
 Never run the full test suite or a full `git diff`, and never `npm install`, `npm ci` or `npx`. The
 hub runs every check after you finish and sends back what fails: the scripts first (safety,
-size, test integrity, docs style, comments, lint on the lines you add, format, types, the studio
-build, the suite, tests that must fail on the base, coverage of the lines you add and the
-criteria's tests), then narrow reviewers, each with one question. A review finding is about
+size, the written rules, lint and format on the lines you add, types, the studio build, the
+suite, test guards that keep the suite whole and make the criteria's tests fail on the base,
+coverage of the lines you add and code shape), then narrow reviewers, each with one question. A review finding is about
 behavior: fix the cause it names, not only the example.
 
 When a check asks for something the brief rules out, or the task cannot be done within the hub's

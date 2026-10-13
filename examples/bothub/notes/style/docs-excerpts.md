@@ -2,7 +2,7 @@
 title: Docs show excerpts tied to symbols
 status: accepted
 source: docs review
-check: docs-prose
+check: rules
 human: user feedback on excerpts, feedback rule 10
 ---
 A docs page shows the few lines a reader needs, through `<Source file="..." symbol="..." />`, so

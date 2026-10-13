@@ -2,7 +2,7 @@
 title: Code comments are minimal and timeless
 status: accepted
 source: CLAUDE.md
-check: comments
+check: rules
 human: user rule in CLAUDE.md, feedback rule 4
 ---
 A comment reads as if the code was always this way: no dates, decision numbers, names, renames or

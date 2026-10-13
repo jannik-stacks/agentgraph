@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const root = join(import.meta.dirname, '..');
 const skip = new Set(['node_modules', 'dist', 'coverage', 'research', 'tests', '.git']);
-const allowed = new Set(['src/runner.ts', 'src/sim.ts', 'examples/bothub/scripts/escape-hatches.mjs']);
+const allowed = new Set(['src/runner.ts', 'src/sim.ts', 'examples/bothub/scripts/rules.mjs']);
 
 const sources = (dir = ''): string[] =>
   readdirSync(join(root, dir), { withFileTypes: true }).flatMap(entry => {

@@ -2,7 +2,7 @@
 title: Docs prose uses words, not symbols
 status: accepted
 source: CLAUDE.md
-check: docs-style
+check: rules
 human: user rule in CLAUDE.md, feedback rule 4
 ---
 Write "contains", "then" and "to and from" instead of math or logic symbols, and commas, "and" or

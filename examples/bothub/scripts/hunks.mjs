@@ -1,5 +1,5 @@
 // One JSON line per hunk the change makes under the given roots, with surrounding code so it reads on its own. Hunks
-// that only touch comments or blank lines are left out: the comments check covers them. So are hunks that only make
+// that only touch comments or blank lines are left out: the rules check covers them. So are hunks that only make
 // the change's rename (see size.mjs): the types and tests checks cover a rename, and it would crowd out the rest. A new
 // file is one item.
 //

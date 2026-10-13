@@ -2,7 +2,7 @@
 title: Motion only for what is new
 status: accepted
 source: dashboard review
-check: studio-ui
+check: code-shape
 human: user dashboard feedback, feedback rule 16
 ---
 A row animates in once, when it first arrives. A re-render, a filter change, a reconnect or a page

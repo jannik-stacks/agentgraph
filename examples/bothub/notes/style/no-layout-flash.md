@@ -2,7 +2,7 @@
 title: Nothing flashes or jumps while it loads
 status: accepted
 source: dashboard and docs review
-check: studio-ui
+check: code-shape
 human: user dashboard feedback, feedback rule 8
 ---
 Opening a tab, a docs page or a source view is static and fast. A Suspense fallback keeps the

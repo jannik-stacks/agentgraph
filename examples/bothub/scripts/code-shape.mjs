@@ -1,10 +1,10 @@
 // Structure rules on the TypeScript a change adds under src/ and studio/src: components defined at module level,
-// routes loaded lazily, and schema unions told apart by `type`. With `--hints` it reports the softer rules instead:
-// state copied in an effect, and type unions told apart by another field.
+// routes loaded lazily, schema unions told apart by `type`, and the studio's UI rules on its TSX. Softer hints, state
+// copied in an effect and type unions told apart by another field, are printed without failing the check.
 import { lineIndex, parse, reporter, sources, walk } from './ast.mjs';
 import { report } from './changes.mjs';
+import { studioFile, studioUi } from './studio-ui.mjs';
 
-const hints = process.argv.includes('--hints');
 const code = path => /^(src|studio\/src)\/.*\.(ts|tsx|mts)$/.test(path) && !path.startsWith('studio/src/lab/');
 const entries = new Set(['studio/src/App.tsx', 'studio/src/main.tsx']);
 
@@ -33,6 +33,7 @@ const valueImports = program =>
   });
 
 const { findings, add } = reporter();
+const hinted = reporter();
 for (const source of sources(code)) {
   const { path, code: text } = source;
   const { program, error } = parse(path, text);
@@ -42,7 +43,9 @@ for (const source of sources(code)) {
     continue;
   }
 
-  if (!hints && entries.has(path)) {
+  if (studioFile(path)) studioUi(source, program, lineOf, add);
+
+  if (entries.has(path)) {
     for (const node of valueImports(program)) {
       const specifier = node.source.value;
       if (/(View\.tsx|\/lab\/)/.test(specifier)) {
@@ -54,24 +57,21 @@ for (const source of sources(code)) {
   walk(program, (node, parents) => {
     const line = lineOf(node.start);
     const inFunction = parents.some(p => functions.has(p.type));
-    if (!hints) {
-      if (node.type === 'VariableDeclarator' && inFunction && /^[A-Z]/.test(node.id?.name ?? '')) {
-        const init = node.init;
-        const component =
-          (init && functions.has(init.type) && hasJsx(init.body)) ||
-          (init?.type === 'CallExpression' && wrappers.has(calleeName(init)));
-        if (component) add(source, line, `component ${node.id.name} defined inside a function; move it to module level`);
+    if (node.type === 'VariableDeclarator' && inFunction && /^[A-Z]/.test(node.id?.name ?? '')) {
+      const init = node.init;
+      const component =
+        (init && functions.has(init.type) && hasJsx(init.body)) ||
+        (init?.type === 'CallExpression' && wrappers.has(calleeName(init)));
+      if (component) add(source, line, `component ${node.id.name} defined inside a function; move it to module level`);
+    }
+    if (node.type === 'FunctionDeclaration' && inFunction && /^[A-Z]/.test(node.id?.name ?? '')) {
+      add(source, line, `component ${node.id.name} defined inside a function; move it to module level`);
+    }
+    if (node.type === 'CallExpression' && calleeName(node) === 'discriminatedUnion') {
+      const key = node.arguments[0];
+      if (key?.type === 'Literal' && key.value !== 'type') {
+        add(source, line, `a union told apart by "${key.value}"; use "type"`);
       }
-      if (node.type === 'FunctionDeclaration' && inFunction && /^[A-Z]/.test(node.id?.name ?? '')) {
-        add(source, line, `component ${node.id.name} defined inside a function; move it to module level`);
-      }
-      if (node.type === 'CallExpression' && calleeName(node) === 'discriminatedUnion') {
-        const key = node.arguments[0];
-        if (key?.type === 'Literal' && key.value !== 'type') {
-          add(source, line, `a union told apart by "${key.value}"; use "type"`);
-        }
-      }
-      return;
     }
 
     if (
@@ -81,7 +81,7 @@ for (const source of sources(code)) {
       node.typeAnnotation?.typeAnnotation?.type === 'TSLiteralType' &&
       parents.at(-2)?.type === 'TSUnionType'
     ) {
-      add(source, line, `a union told apart by "${node.key.name}"; prefer "type"`);
+      hinted.add(source, line, `hint: a union told apart by "${node.key.name}"; prefer "type"`);
     }
     if (node.type === 'CallExpression' && node.callee.name === 'useEffect') {
       const body = node.arguments[0]?.body;
@@ -89,8 +89,9 @@ for (const source of sources(code)) {
       const setsOnly =
         statements.length > 0 &&
         statements.every(s => s?.type === 'CallExpression' && /^set[A-Z]/.test(s.callee.name ?? ''));
-      if (setsOnly) add(source, line, 'an effect that only sets state; derive the value while rendering');
+      if (setsOnly) hinted.add(source, line, 'hint: an effect that only sets state; derive the value while rendering');
     }
   });
 }
-report(hints ? 'react-hints' : 'code-shape', findings);
+for (const hint of hinted.findings) console.log(hint);
+report('code-shape', findings);

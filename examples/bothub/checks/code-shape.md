@@ -1,11 +1,8 @@
 ---
 type: script
-description: Added code defines components at module level, loads routes lazily and tells schema unions apart by type.
+description: Added code defines components at module level, loads routes lazily, tells schema unions apart by type, and added studio TSX follows the studio's UI rules; hints about state copied in effects are printed without failing.
 run: node "$BOTHUB_HUB/scripts/code-shape.mjs"
 paths: [src/**, studio/src/**]
 mode: block
-human: mined from user feedback, feedback rules 9 and 14
+human: mined from user feedback, feedback rules 9 and 14; mined from user dashboard feedback, feedback rules 6 7 8 11 15 16 17 18 19
 ---
-A component defined inside another function is a new component on every render and loses its
-state. `App.tsx` and `main.tsx` import views and the lab with `lazy(() => import(...))`. A zod
-`discriminatedUnion` uses `type` as its key, like every hub file kind.

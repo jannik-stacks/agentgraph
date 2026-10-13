@@ -2,7 +2,7 @@
 title: The sandbox fails closed
 status: accepted
 source: bothub sessions
-check: escape-hatches
+check: rules
 human: user feedback no accidental secure holes, feedback rule 2
 ---
 A bot always runs in the sandbox. There is no setting that turns it off or to none, and a sandbox

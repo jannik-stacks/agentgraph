@@ -1,48 +1,28 @@
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { mkdirSync, symlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { git, temp } from './git.ts';
+import { change, runScript } from './kit.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const studioModules = resolve(import.meta.dirname, '../studio/node_modules');
 
-const write = (root: string, files: Record<string, string>) => {
-  for (const [path, content] of Object.entries(files)) {
-    mkdirSync(dirname(join(root, path)), { recursive: true });
-    writeFileSync(join(root, path), content);
-  }
+/** A change with the studio parser linked in. */
+const studioChange = (before: Record<string, string>, after: Record<string, string> = {}) => {
+  const repo = change(before, after);
+  mkdirSync(join(repo.dir, 'studio'), { recursive: true });
+  symlinkSync(studioModules, join(repo.dir, 'studio/node_modules'), 'dir');
+  return repo;
 };
 
-/** A repository with `before` committed as the base and `after` written on top, the studio parser linked in. */
-const change = (before: Record<string, string>, after: Record<string, string> = {}) => {
-  const dir = temp('ui-change');
-  git(dir, 'init', '-q', '-b', 'main');
-  write(dir, { '.gitignore': 'node_modules/\n', ...before });
-  git(dir, 'add', '.');
-  git(dir, 'commit', '-qm', 'base');
-  const base = git(dir, 'rev-parse', 'HEAD');
-  write(dir, after);
-  mkdirSync(join(dir, 'studio'), { recursive: true });
-  symlinkSync(studioModules, join(dir, 'studio/node_modules'), 'dir');
-  return { dir, base };
-};
-
-const check = (script: string, { dir, base }: { dir: string; base: string }, ...args: string[]) => {
-  const result = spawnSync(process.execPath, [join(scripts, script), ...args], {
-    cwd: dir,
-    encoding: 'utf8',
-    env: { PATH: process.env.PATH, BOTHUB_BASE: base },
-  });
-  return { ok: result.status === 0, out: `${result.stdout}${result.stderr}`.trim() };
-};
+const check = (script: string, repo: { dir: string; base: string }, ...args: string[]) =>
+  runScript(join(scripts, script), repo, args);
 
 const silenced = '@ts-' + 'ignore';
 const loose = 'as ' + 'any';
 
-describe('studio-ui check', () => {
+describe('code-shape check, studio UI rules', () => {
   it('fails the cost tilde, the arrow before its number and the native title the dashboard first shipped with', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'studio/src/dashboard/bits.tsx': `export const Io = ({ tally }) => (
@@ -67,16 +47,16 @@ export const Cost = ({ billed, estimated }) => {
 `,
       }
     );
-    const { ok, out } = check('studio-ui.mjs', repo);
+    const { ok, out } = check('code-shape.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('studio/src/dashboard/bits.tsx:2: a native title on <span>');
     expect(out).toContain('studio/src/dashboard/bits.tsx:4: an arrow before its number');
     expect(out).toContain('studio/src/dashboard/bits.tsx:15: a tilde on a value');
-    expect(out).toContain('studio-ui: 3 findings');
+    expect(out).toContain('code-shape: 3 findings');
   });
 
   it('fails the summary strip button that explained its icon with a native title', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'studio/src/dashboard/SummaryStrip.tsx': `const Stat = ({ on, title, onClick, children }) => (
@@ -92,14 +72,14 @@ const Refresh = ({ onClick }) => (
 `,
       }
     );
-    const { ok, out } = check('studio-ui.mjs', repo);
+    const { ok, out } = check('code-shape.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('SummaryStrip.tsx:2: a native title on <button>');
     expect(out).toContain('SummaryStrip.tsx:7: <button> shows only an icon');
   });
 
   it('fails the native select, the remove button beside its chip, a loading fallback and a lazy Markdown', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'studio/src/dashboard/DashboardView.tsx': `const Markdown = lazy(() => import('../Markdown.tsx'));
@@ -123,7 +103,7 @@ const RefChip = ({ value, onRemove, target }) => (
 `,
       }
     );
-    const { ok, out } = check('studio-ui.mjs', repo);
+    const { ok, out } = check('code-shape.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('DashboardView.tsx:1: Markdown loaded lazily');
     expect(out).toContain('DashboardView.tsx:3: a "Loading" fallback');
@@ -132,7 +112,7 @@ const RefChip = ({ value, onRemove, target }) => (
   });
 
   it('fails a second spinner and rows that all animate in', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'studio/src/dashboard/Groups.tsx': `export const Jobs = ({ jobs }) => (
@@ -148,14 +128,14 @@ const RefChip = ({ value, onRemove, target }) => (
 `,
       }
     );
-    const { ok, out } = check('studio-ui.mjs', repo);
+    const { ok, out } = check('code-shape.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('Groups.tsx:4: enter animation "bhm-enter" on every row of a list');
     expect(out).toContain('Groups.tsx:5: animate-spin outside the status icons');
   });
 
   it('passes the shared primitives used the way the dashboard uses them now', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'studio/src/dashboard/Clean.tsx': `const Amount = ({ value, glyph }) => (
@@ -189,19 +169,19 @@ export const Strip = ({ s, onClick, onRemove }) => (
 `,
       }
     );
-    expect(check('studio-ui.mjs', repo)).toEqual({ ok: true, out: 'studio-ui: ok' });
+    expect(check('code-shape.mjs', repo)).toEqual({ ok: true, out: 'code-shape: ok' });
   });
 
   it('counts only the lines a change adds, and reports a file it cannot parse', () => {
     const old = '<select className="x">\n  <option>a</option>\n</select>';
-    const repo = change(
+    const repo = studioChange(
       { 'studio/src/Old.tsx': `export const A = () => (\n  ${old}\n);\n` },
       {
         'studio/src/Old.tsx': `export const A = () => (\n  ${old}\n);\nexport const B = () => <span className="text-xs" />;\n`,
         'studio/src/Broken.tsx': 'export const C = () => <div>;\n',
       }
     );
-    const { ok, out } = check('studio-ui.mjs', repo);
+    const { ok, out } = check('code-shape.mjs', repo);
     expect(ok).toBe(false);
     expect(out).not.toContain('Old.tsx');
     expect(out).toContain('studio/src/Broken.tsx:1: does not parse');
@@ -210,7 +190,7 @@ export const Strip = ({ s, onClick, onRemove }) => (
 
 describe('code-shape check', () => {
   it('fails an inline component, an eager route and a union keyed on kind', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/outputs.ts': "export const Proposal = z.discriminatedUnion('kind', [reply, label]);\n",
@@ -233,7 +213,7 @@ export const App = () => {
   });
 
   it('passes module-level components and lazy routes', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/schema.ts': "export const Check = z.discriminatedUnion('type', [script, bot]);\n",
@@ -250,8 +230,8 @@ export const App = () => {
     expect(check('code-shape.mjs', repo)).toEqual({ ok: true, out: 'code-shape: ok' });
   });
 
-  it('hints at state copied in an effect and a type union keyed on kind', () => {
-    const repo = change(
+  it('hints at state copied in an effect and a type union keyed on kind, without failing', () => {
+    const repo = studioChange(
       {},
       {
         'studio/src/Field.tsx': `export const Field = ({ value }) => {
@@ -263,16 +243,17 @@ type Item = { kind: 'text'; text: string } | { kind: 'tool'; name: string };
 `,
       }
     );
-    const { ok, out } = check('code-shape.mjs', repo, '--hints');
-    expect(ok).toBe(false);
-    expect(out).toContain('studio/src/Field.tsx:3: an effect that only sets state');
-    expect(out).toContain('studio/src/Field.tsx:6: a union told apart by "kind"; prefer "type"');
+    const { ok, out } = check('code-shape.mjs', repo);
+    expect(ok).toBe(true);
+    expect(out).toContain('studio/src/Field.tsx:3: hint: an effect that only sets state');
+    expect(out).toContain('studio/src/Field.tsx:6: hint: a union told apart by "kind"; prefer "type"');
+    expect(out.split('\n').at(-1)).toBe('code-shape: ok');
   });
 });
 
-describe('escape-hatches check', () => {
+describe('rules check, guards', () => {
   it('fails a skip switch, the sandbox off, a self-approving harness and a silenced type error', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/schema.ts': 'export const Workflow = z.strictObject({ allowSkip: z.boolean().optional() });\n',
@@ -282,7 +263,7 @@ describe('escape-hatches check', () => {
         'src/workspace.ts': "await run(['push', '--force', 'origin', branch]);\n",
       }
     );
-    const { ok, out } = check('escape-hatches.mjs', repo);
+    const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('src/schema.ts:1: a way to skip checks');
     expect(out).toContain('examples/hub/hub.yaml:1: the sandbox switched off');
@@ -293,7 +274,7 @@ describe('escape-hatches check', () => {
   });
 
   it('passes the unsandboxed launcher in tests, removal with force and raw HTML', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'tests/runner.test.ts':
@@ -303,20 +284,20 @@ describe('escape-hatches check', () => {
           'export const H = ({ html }) => <code dangerouslySetInnerHTML={{ __html: html }} />;\n',
       }
     );
-    expect(check('escape-hatches.mjs', repo)).toEqual({ ok: true, out: 'escape-hatches: ok' });
+    expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
   });
 });
 
-describe('unfinished check', () => {
+describe('rules check, unfinished code', () => {
   it('fails markers for later and fakes in shipped code', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/harnesses/opencode.ts': "// TODO wire the real model\nexport const reply = () => 'fake answer';\n",
         'bin/bothub.mjs': "throw new Error('not implemented');\n",
       }
     );
-    const { ok, out } = check('unfinished.mjs', repo);
+    const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('src/harnesses/opencode.ts:1: a marker for later');
     expect(out).toContain('src/harnesses/opencode.ts:2: a fake in shipped code');
@@ -324,7 +305,7 @@ describe('unfinished check', () => {
   });
 
   it('passes fakes in the simulator and tests, and placeholder text', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/sim.ts': 'export const fake = () => 1;\n',
@@ -332,13 +313,13 @@ describe('unfinished check', () => {
         'studio/src/Search.tsx': 'export const S = () => <input placeholder="a dummy name" />;\n',
       }
     );
-    expect(check('unfinished.mjs', repo)).toEqual({ ok: true, out: 'unfinished: ok' });
+    expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
   });
 });
 
-describe('retired-names check', () => {
+describe('rules check, retired names', () => {
   it('fails replaced names in code, docs and hub files', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/executors/pi.ts': 'export const executor = 1;\n',
@@ -346,7 +327,7 @@ describe('retired-names check', () => {
         'studio/content/docs/loop.mdx': 'Each check runs for-each changed file.\n',
       }
     );
-    const { ok, out } = check('retired-names.mjs', repo);
+    const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('src/executors/pi.ts:1: executor; say harness');
     expect(out).toContain('examples/hub/bots/triager.md:2: soul; say role');
@@ -355,22 +336,22 @@ describe('retired-names check', () => {
   });
 
   it('passes a hint that rejects the old name', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/schema.ts': `issue.input === 'open-pr'\n  ? 'there is no "open-pr"; a request to merge a branch is "merge-request"'\n`,
         'tests/schema.test.ts': "expect(parse({ soul: 'x' })).toThrow();\n",
       }
     );
-    expect(check('retired-names.mjs', repo)).toEqual({ ok: true, out: 'retired-names: ok' });
+    expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
   });
 });
 
-describe('docs-prose check', () => {
+describe('rules check, docs prose', () => {
   const fence = '```';
   it('fails dates, internal references, filler words, whole-file sources and long code blocks', () => {
     const long = Array.from({ length: 35 }, (_, i) => `const line${i} = ${i};`).join('\n');
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'studio/content/docs/runs.mdx': `Since 2026-09-21 a run keeps its log.
@@ -384,30 +365,30 @@ ${fence}
 `,
       }
     );
-    const { ok, out } = check('docs-prose.mjs', repo);
+    const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('runs.mdx:1: a date');
     expect(out).toContain('runs.mdx:2: an internal reference');
-    expect(out).toContain('runs.mdx:3: a filler word');
-    expect(out).toContain('runs.mdx:4: <Source> shows all of src/runner.ts');
+    expect(out).toContain('runs.mdx:3: a marketing or filler word');
+    expect(out).toContain('runs.mdx:4: <Source> shows a whole file');
     expect(out).toContain('runs.mdx:6: a 35-line code block');
   });
 
   it('passes plain prose and a source excerpt', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'studio/content/docs/runs.mdx': `A run keeps its log in the store.\n<Source file="src/runner.ts" symbol="output" />\n<Source file="package.json" />\n`,
       }
     );
-    expect(check('docs-prose.mjs', repo)).toEqual({ ok: true, out: 'docs-prose: ok' });
+    expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
   });
 });
 
 describe('docs-sync check', () => {
   it('fails a new schema no docs page names, and passes once one does', () => {
     const schema = 'export const Budget = z.strictObject({ usd: z.number() });\n';
-    const missing = change(
+    const missing = studioChange(
       { 'studio/content/docs/reference/config.mdx': '<Fields name="Bot" />\n' },
       { 'src/schema.ts': schema }
     );
@@ -415,7 +396,7 @@ describe('docs-sync check', () => {
     expect(ok).toBe(false);
     expect(out).toContain('src/schema.ts:1: Budget is in no docs page');
 
-    const named = change(
+    const named = studioChange(
       { 'studio/content/docs/reference/config.mdx': '<Fields name="Bot" />\n' },
       { 'src/schema.ts': schema, 'studio/content/docs/reference/config.mdx': '<Fields name="Budget" />\n' }
     );
@@ -425,7 +406,7 @@ describe('docs-sync check', () => {
 
 describe('unused-exports check', () => {
   it('fails an export no other file uses and passes one that is imported', () => {
-    const repo = change(
+    const repo = studioChange(
       {},
       {
         'src/usage.ts': 'export const sum = (a: number) => a;\nexport const spare = 1;\n',
@@ -442,7 +423,7 @@ describe('unused-exports check', () => {
 
 describe('tooltips slicer', () => {
   it('prints one item per tooltip the change adds', () => {
-    const repo = change(
+    const repo = studioChange(
       { 'studio/src/A.tsx': 'export const A = () => <Tooltip tip="old">a</Tooltip>;\n' },
       {
         'studio/src/A.tsx':

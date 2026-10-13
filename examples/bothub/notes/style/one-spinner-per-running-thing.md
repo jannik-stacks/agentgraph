@@ -2,7 +2,7 @@
 title: One spinner per running thing
 status: accepted
 source: dashboard review
-check: studio-ui
+check: code-shape
 human: user dashboard feedback, feedback rule 6
 ---
 A running run shows one spinner. Its jobs breathe and its events show a dot, so the levels look

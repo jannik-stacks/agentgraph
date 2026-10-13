@@ -1,13 +1,13 @@
 ---
 type: bot
 description: Each assertion a test hunk adds checks a value the change produces.
-bot: checker
+bot: reviewer
 over:
   each: node "$BOTHUB_HUB/scripts/hunks.mjs" tests/
-  max: 30
+  max: 10
 paths: [tests/**]
-mode: shadow
-human: split of the broad review, narrow-bots W1
+mode: log
+human: split of the broad review, narrow-bots W1; qwen3.5 separates 3 of 6 calibration hunks and smart 5 of 6, so it logs until more hunks confirm it
 ---
 The item is one hunk of a test file. Does every assertion it adds compare against a value that
 would be different if the code under test had not changed? FAIL naming an assertion that holds

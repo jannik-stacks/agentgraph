@@ -1,31 +1,10 @@
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { chmodSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { git, temp } from './git.ts';
+import { change, git, runScript, temp, write } from './kit.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');
-
-const write = (root: string, files: Record<string, string>) => {
-  for (const [path, content] of Object.entries(files)) {
-    mkdirSync(dirname(join(root, path)), { recursive: true });
-    writeFileSync(join(root, path), content);
-  }
-};
-
-/** A repository with `before` committed as the base, then `after` written on top without committing. */
-const change = (before: Record<string, string>, after: Record<string, string> = {}, remove: string[] = []) => {
-  const dir = temp('hub');
-  git(dir, 'init', '-q', '-b', 'main');
-  write(dir, { '.gitignore': 'node_modules\n', ...before });
-  git(dir, 'add', '.');
-  git(dir, 'commit', '-qm', 'base');
-  const base = git(dir, 'rev-parse', 'HEAD');
-  write(dir, after);
-  for (const path of remove) rmSync(join(dir, path));
-  return { dir, base };
-};
 
 /** Links bothub's own dependencies into a repository, the way the hub links them into a worktree. */
 const withModules = <T extends { dir: string }>(repo: T) => {
@@ -35,19 +14,20 @@ const withModules = <T extends { dir: string }>(repo: T) => {
 
 const run = (
   script: string,
-  { dir, base }: { dir: string; base: string },
+  repo: { dir: string; base: string },
   args: string[] = [],
   env: Record<string, string> = {}
-) => {
-  const result = spawnSync(process.execPath, [join(scripts, script), ...args], {
-    cwd: dir,
-    encoding: 'utf8',
-    env: { PATH: `${modules}/.bin:${process.env.PATH}`, BOTHUB_BASE: base, ...env },
-  });
-  return { ok: result.status === 0, out: `${result.stdout}${result.stderr}`.trim() };
-};
+) => runScript(join(scripts, script), repo, args, { PATH: `${modules}/.bin:${process.env.PATH}`, ...env });
 
 const findings = (out: string) => out.split('\n').slice(0, -1);
+
+const noBrief = 'test-guards: no triage brief found for this run, so no criterion tests to look for';
+const guardsOk = { ok: true, out: `${noBrief}\ntest-guards: ok` };
+/** Runs test-guards with an empty hub, so the criteria part finds no brief unless `env` points at one. */
+const guards = (repo: { dir: string; base: string }, env: Record<string, string> = {}) => {
+  const { ok, out } = run('test-guards.mjs', repo, [], { BOTHUB_HUB: temp('empty'), ...env });
+  return { ok, out, found: findings(out).filter(line => line !== noBrief) };
+};
 const items = (out: string) => (out ? out.split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []);
 
 const adder = 'export const add = (a: number, b: number) => a + b;\n';
@@ -62,7 +42,7 @@ const addTest = (...tests: string[]) =>
     '',
   ].join('\n');
 
-describe('tests-bite', () => {
+describe('test-guards: new tests bite', () => {
   it('fails a new test that passes on the base code, and leaves the worktree alone', () => {
     const repo = withModules(
       change(
@@ -78,9 +58,9 @@ describe('tests-bite', () => {
       )
     );
     const status = git(repo.dir, 'status', '--porcelain');
-    const { ok, out } = run('tests-bite.mjs', repo);
+    const { ok, found } = guards(repo);
     expect(ok).toBe(false);
-    expect(findings(out)).toEqual([
+    expect(found).toEqual([
       "tests/add.test.ts:5: 'adds a negative and a positive' passes on the base code, so it would not catch the change being reverted",
     ]);
     expect(git(repo.dir, 'status', '--porcelain')).toBe(status);
@@ -96,7 +76,7 @@ describe('tests-bite', () => {
         }
       )
     );
-    expect(run('tests-bite.mjs', repo)).toEqual({ ok: true, out: 'tests-bite: ok' });
+    expect(guards(repo)).toMatchObject(guardsOk);
   });
 
   it('counts a new test file that cannot load on the base code as failing there', () => {
@@ -110,19 +90,16 @@ describe('tests-bite', () => {
         }
       )
     );
-    expect(run('tests-bite.mjs', repo)).toEqual({ ok: true, out: 'tests-bite: ok' });
+    expect(guards(repo)).toMatchObject(guardsOk);
   });
 
   it('has nothing to bite when only tests change', () => {
     const repo = change({ 'tests/a.test.ts': '' }, { 'tests/a.test.ts': "it('x', () => {});\n" });
-    expect(run('tests-bite.mjs', repo)).toEqual({
-      ok: true,
-      out: 'tests-bite: the change is only tests; nothing to bite',
-    });
+    expect(guards(repo)).toMatchObject(guardsOk);
   });
 });
 
-describe('test-integrity', () => {
+describe('test-guards: the suite stays whole', () => {
   const suite = [
     "describe('a', () => {",
     "  it('one', () => { expect(1).toBe(1); expect(2).toBe(2); });",
@@ -148,9 +125,9 @@ describe('test-integrity', () => {
       },
       ['tests/gone.test.ts']
     );
-    const { ok, out } = run('test-integrity.mjs', repo);
+    const { ok, found } = guards(repo);
     expect(ok).toBe(false);
-    expect(findings(out).sort()).toEqual([
+    expect(found.sort()).toEqual([
       'tests/a.test.ts: 1 fewer tests than the base (2 to 1)',
       'tests/a.test.ts: 2 fewer expect( calls than the base (3 to 1)',
       'tests/b.test.ts:5: an added .skip, .only or .todo',
@@ -176,7 +153,7 @@ describe('test-integrity', () => {
         ].join('\n'),
       }
     );
-    expect(run('test-integrity.mjs', repo)).toEqual({ ok: true, out: 'test-integrity: ok' });
+    expect(guards(repo)).toMatchObject(guardsOk);
   });
 });
 
@@ -280,7 +257,7 @@ describe('scripts that run vitest', () => {
     );
 
   it('gives vitest a HOME when the caller has none', () => {
-    expect(run('tests-bite.mjs', changed())).toEqual({ ok: true, out: 'tests-bite: ok' });
+    expect(guards(changed())).toMatchObject(guardsOk);
     expect(run('coverage.mjs', changed(), ['src/'])).toEqual({ ok: true, out: 'coverage: ok' });
   });
 });
@@ -623,7 +600,7 @@ const hubWith = (text: string) => {
   return hub;
 };
 
-describe('criteria-tests', () => {
+describe('test-guards: criterion tests', () => {
   const tests = (...titles: string[]) =>
     ["import { it } from 'vitest';", ...titles.map(t => `it('${t}', () => {});`), ''].join('\n');
 
@@ -638,8 +615,7 @@ describe('criteria-tests', () => {
         ),
       }
     );
-    const env = { BOTHUB_HUB: hubWith(brief) };
-    expect(run('criteria-tests.mjs', repo, [], env)).toEqual({ ok: true, out: 'criteria-tests: ok' });
+    expect(guards(repo, { BOTHUB_HUB: hubWith(brief) })).toMatchObject({ ok: true, out: 'test-guards: ok' });
   });
 
   it('fails a criterion whose test is missing or renamed', () => {
@@ -647,9 +623,9 @@ describe('criteria-tests', () => {
       { 'tests/labels.test.ts': tests('replays a label added while stopped') },
       { 'tests/labels.test.ts': tests('replays a label added while stopped', 'replays labels after a restart') }
     );
-    const { ok, out } = run('criteria-tests.mjs', repo, [], { BOTHUB_HUB: hubWith(brief), BOTHUB_ISSUE: '1' });
+    const { ok, found } = guards(repo, { BOTHUB_HUB: hubWith(brief), BOTHUB_ISSUE: '1' });
     expect(ok).toBe(false);
-    expect(findings(out)).toEqual([
+    expect(found).toEqual([
       "criterion 1: no test titled 'replays a label added while stopped' added in tests/labels.test.ts; add it with that exact title",
       "criterion 2: no test titled 'replays a label re-added by hand' added in tests/labels.test.ts; add it with that exact title",
       "criterion 3: no test titled 'still replays comments' in tests/labels.test.ts; add it with that exact title",
@@ -658,10 +634,7 @@ describe('criteria-tests', () => {
 
   it('says so when there is no brief to read', () => {
     const repo = change({ 'a.txt': '' });
-    expect(run('criteria-tests.mjs', repo, [], { BOTHUB_HUB: temp('empty') })).toEqual({
-      ok: true,
-      out: 'criteria-tests: no triage brief found for this run',
-    });
+    expect(guards(repo)).toMatchObject(guardsOk);
   });
 });
 
@@ -707,18 +680,6 @@ describe('slicers for the narrow judges', () => {
       criterion: 'A label removed and added again by hand runs again.',
     });
     expect(found[1]!.change).toContain('+export const labelId');
-  });
-
-  it('design: the task, then every changed function in full, so the remove path is in view', () => {
-    const repo = change({ 'src/labels.ts': labels.before }, { 'src/labels.ts': labels.after });
-    const { ok, out } = run('design.mjs', repo, [], { BOTHUB_HUB: hubWith(brief) });
-    expect(ok).toBe(true);
-    expect(out.startsWith('Task: Replay labels added while serve was stopped, once each.')).toBe(true);
-    expect(out).toContain('2. A label removed and added again by hand runs again.');
-    expect(out).toContain(' export const remove = ');
-    expect(out).toContain('+export const labelId');
-    const untouched = change({ 'src/labels.ts': labels.before }, { 'tests/a.test.ts': 'x\n' });
-    expect(run('design.mjs', untouched, [], { BOTHUB_HUB: hubWith(brief) }).out).toBe('');
   });
 
   it('scope: only the changed files the brief does not name', () => {

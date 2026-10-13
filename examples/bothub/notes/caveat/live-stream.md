@@ -1,7 +1,7 @@
 ---
 title: The dashboard streams from the run files as they are written
 status: accepted
-check: live-stream
+check: tests
 human: dashboard work, live stream contract
 ---
 `GET /api/stream` watches the data directory and tails each run's `events.jsonl` by byte offset,

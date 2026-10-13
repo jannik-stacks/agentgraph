@@ -1,10 +1,9 @@
-// The studio's UI rules on the TSX a change adds under studio/src: shared primitives instead of native controls,
-// icons explained by a tooltip, numbers before their muted arrows, one kind of spinner per level, motion only for
-// new items, and nothing that flashes while it loads.
-import { attrOf, attrText, isNative, lineIndex, meaningful, parse, reporter, sources, tagOf, walk } from './ast.mjs';
-import { report } from './changes.mjs';
+// The studio's UI rules on TSX under studio/src: shared primitives instead of native controls, icons explained by a
+// tooltip, numbers before their muted arrows, one kind of spinner per level, motion only for new items, and nothing
+// that flashes while it loads. code-shape runs them.
+import { attrOf, attrText, isNative, meaningful, tagOf, walk } from './ast.mjs';
 
-const studio = path => /^studio\/src\/.*\.tsx$/.test(path) && !path.startsWith('studio/src/lab/');
+export const studioFile = path => /^studio\/src\/.*\.tsx$/.test(path) && !path.startsWith('studio/src/lab/');
 const primitives = path => path === 'studio/src/ui.tsx';
 const statusDrawing = path => path === 'studio/src/dashboard/bits.tsx' || path === 'studio/src/studio/icons.tsx';
 const markdownHome = path =>
@@ -42,15 +41,9 @@ const inList = parents =>
 
 const isTilde = text => /^\s*[~≈]\s*$/.test(text) || /[~≈]\s*\$/.test(text);
 
-const { findings, add } = reporter();
-for (const source of sources(studio)) {
+/** Reports every studio UI rule a source breaks through `add(source, line, message)`. */
+export const studioUi = (source, program, lineOf, add) => {
   const { path, code } = source;
-  const { program, error } = parse(path, code);
-  const lineOf = lineIndex(code);
-  if (error) {
-    add({ ...source, lines: null }, 1, `does not parse: ${error}`);
-    continue;
-  }
   walk(program, (node, parents) => {
     const line = lineOf(node.start);
 
@@ -129,5 +122,4 @@ for (const source of sources(studio)) {
       }
     });
   });
-}
-report('studio-ui', findings);
+};

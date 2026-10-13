@@ -58,7 +58,7 @@ describe('the bothub hub', () => {
       if (job?.type !== 'bot' || !job.until) return [];
       const judges = job.until.checks
         .map(name => checks[name])
-        .filter(check => check?.type === 'bot' && check.mode !== 'shadow');
+        .filter(check => check?.type === 'bot' && check.mode !== 'log');
       return samples
         .filter(file => !judges.some(check => check?.paths?.some(glob => matchGlob(glob, file))))
         .map(file => `${workflow.name}: ${file}`);
