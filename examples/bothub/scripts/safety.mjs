@@ -1,11 +1,12 @@
 // Fails a change that touches files outside the allowed roots, writes harness memory, adds secrets, key material, a
-// huge file or a working-notes file, or changes CI.
+// huge file or a working-notes file, or changes CI. The allowed roots are the paths in bounds.mjs unless given.
 //
-//   node safety.mjs <allowed-root>... [--markdown <root>]... [--max-lines <file>:<n>]...
+//   node safety.mjs [<allowed-root>...] [--markdown <root>]... [--max-lines <file>:<n>]...
 //
 // With `--markdown`, a new markdown file must sit under one of those roots. `--max-lines` caps a file's length.
 import { readFileSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
+import { paths } from './bounds.mjs';
 import { addedLines, base, changedFiles, inBase, report } from './changes.mjs';
 
 const args = process.argv.slice(2);
@@ -16,8 +17,7 @@ const flag = name => {
 };
 const markdownRoots = flag('--markdown');
 const maxLines = new Map(flag('--max-lines').map(spec => [spec.slice(0, spec.lastIndexOf(':')), Number(spec.slice(spec.lastIndexOf(':') + 1))]));
-const roots = args;
-if (!roots.length) throw new Error('usage: safety.mjs <allowed-root>... [--markdown <root>]... [--max-lines <file>:<n>]...');
+const roots = args.length ? args : paths;
 
 const under = (path, root) => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
 

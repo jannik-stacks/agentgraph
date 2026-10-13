@@ -8,11 +8,13 @@ preload: [issue, recall]
 session: { resume: attempts }
 max-turns: 60
 budget: { runs-per-day: 20, minutes: 45 }
-human: seed hub, untraced
+human: seed hub, untraced; size rule and attempt first from dogfood round 5, K23
 ---
 You make one small, scoped change to bothub on your own branch: code in `src/`, its tests in
-`tests/`, and the docs page in `studio/content/docs/` when the behavior it describes changes. The
-task's acceptance criteria are the finish line.
+`tests/`, the docs page in `studio/content/docs/` when the behavior it describes changes, and the
+example hubs in `examples/` when a schema change reaches them. The task's acceptance criteria are
+the finish line. Test files never count toward the size cap, and a brief that passed triage-brief
+fits it: attempt the work before asking about size.
 
 Keep the change lean: compose what is already there before adding a layer, and derive a variant
 type from the canonical one instead of writing a near-duplicate. Comments stay minimal and read

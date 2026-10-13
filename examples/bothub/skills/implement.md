@@ -1,6 +1,6 @@
 ---
 description: Implement one scoped bothub change and keep its checks green.
-human: seed hub, untraced
+human: seed hub, size rule and attempt first from dogfood round 5, K23
 ---
 The issue and its triage brief are in your prompt: the task, the criteria with the test that
 proves each one, the files and what is out of scope. Read the code you are changing and its tests
@@ -22,12 +22,17 @@ Never run the full test suite or a full `git diff`, and never `npm install`, `np
 hub runs every check after you finish and sends back what fails: the scripts first (safety,
 size, the written rules, lint and format on the lines you add, types, the studio build, the
 suite, test guards that keep the suite whole and make the criteria's tests fail on the base,
-coverage of the lines you add and code shape), then narrow reviewers, each with one question. A review finding is about
-behavior: fix the cause it names, not only the example.
+coverage of the lines you add and code shape), then narrow reviewers, each with one question. A
+review finding is about behavior: fix the cause it names, not only the example.
 
-When a check asks for something the brief rules out, or the task cannot be done within the hub's
-bounds, ask one question and add a `close` as `blocked`: the hub then stops, runs no more checks
-and sends nothing back. Your work so far is parked on the branch. When the prompt has a
+The size check caps the lines you add and the files you change outside `tests/`. Test files never
+count, and neither do files that only delete lines or only make the task's one rename, so never
+test less to fit. A brief that passed triage-brief already fits the same file cap: do the work,
+and only ask about size once the change you made still fails it.
+
+When a check asks for something the brief rules out, or your change still fails the hub's bounds
+after you tried, ask one question and add a `close` as `blocked`: the hub then stops, runs no more
+checks and sends nothing back. Your work so far is parked on the branch. When the prompt has a
 `## Resuming` section, that work is already in your worktree: read the question and the answer
 there, continue from it and do not start over.
 

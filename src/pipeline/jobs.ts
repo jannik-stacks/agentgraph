@@ -351,14 +351,35 @@ export const runPlanned = (
 
 export const proceeds = (closure: Closure | undefined) => closure === 'done' || closure === 'handed-off';
 
+const reused = async (planned: PlannedJob, run: Run, p: Pipeline): Promise<JobResult> => {
+  const outcome = await p.store.outcome(run.id);
+  return { ...planned, run, ...(outcome && { outcome }) };
+};
+
 /** The latest run of this event's job that already closed done or handed off, so a retry does not redo it. */
 const reuse = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | undefined> => {
   const { workflow, job } = planned;
   const earlier = await p.store.runs({ event: p.event.id, workflow, job, check: false });
   const run = earlier.find(r => r.status === 'succeeded' && proceeds(r.closure));
-  if (!run) return;
-  const outcome = await p.store.outcome(run.id);
-  return { ...planned, run, ...(outcome && { outcome }) };
+  return run && reused(planned, run, p);
+};
+
+/**
+ * The job's latest run on the event's issue when it closed done or handed off and a job that needs it blocked after
+ * it, so a comment that answers that job resumes it without redoing this one.
+ */
+const answered = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | undefined> => {
+  const { repo, number } = p.event;
+  const jobs = p.config.workflows[planned.workflow]?.jobs;
+  if (number === undefined || !jobs) return;
+  const runs = (await p.store.runs({ repo, number, workflow: planned.workflow, check: false })).filter(
+    r => r.status !== 'skipped'
+  );
+  const at = runs.findIndex(r => r.job === planned.job);
+  const run = runs[at];
+  if (run?.status !== 'succeeded' || !proceeds(run.closure)) return;
+  const next = runs.slice(0, at).find(r => jobs[r.job]?.needs.includes(planned.job));
+  return next?.closure === 'blocked' ? reused(planned, run, p) : undefined;
 };
 
 /**
@@ -411,7 +432,8 @@ export const approvals = async (event: BotEvent, store: Store, issues: Issues): 
 /**
  * Runs planned jobs workflow by workflow, each in dependency order. A job starts only when every job it needs closed
  * `done` or `handed-off`, and starts from the branch and pull request they handed off. A job of this event that
- * already closed that way is reused rather than run again, and a job with an `environment` waits for approval.
+ * already closed that way is reused rather than run again, as is one on the same issue whose dependent blocked after
+ * it, and a job with an `environment` waits for approval.
  */
 /** The pipeline with the event's parent issue filled in, when a planned job's `branch` or `into` names it. */
 const withParent = async (planned: PlannedJob[], p: Pipeline): Promise<Pipeline> => {
@@ -450,6 +472,7 @@ const runWorkflows = (planned: PlannedJob[], p: Pipeline): Effect.Effect<JobResu
           const result = blocked.length
             ? yield* Effect.promise(() => skip(job, reason, p))
             : ((yield* Effect.promise(() => reuse(job, p))) ??
+              (yield* Effect.promise(() => answered(job, p))) ??
               (yield* Effect.promise(() => gate(job, definition, p))) ??
               (yield* runPlanned(job, p, handoff)));
           closures.set(id, result.run.closure);

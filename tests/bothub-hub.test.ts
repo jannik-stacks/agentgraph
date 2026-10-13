@@ -389,6 +389,19 @@ describe('size', () => {
     expect(run('size.mjs', repo, ['15', '3'])).toEqual({ ok: true, out: 'size: ok' });
   });
 
+  it('does not count files that only delete lines toward the file cap', () => {
+    const before = { 'src/a.ts': 'a\nb\n', 'src/b.ts': 'a\nb\n', 'src/c.ts': 'a\n', 'src/d.ts': '1\n' };
+    const repo = change(before, { 'src/a.ts': 'a\n', 'src/b.ts': 'a\n', 'src/d.ts': '2\n' }, ['src/c.ts']);
+    expect(run('size.mjs', repo, ['15', '1'])).toEqual({ ok: true, out: 'size: ok' });
+  });
+
+  it('reads its caps from the bounds file', () => {
+    const repo = change({ 'src/a.ts': '' }, { 'src/a.ts': lines(301) });
+    expect(findings(run('size.mjs', repo).out)).toEqual([
+      '301 added lines outside tests/, more than 300; split the task',
+    ]);
+  });
+
   it('does not count files that only make the change-wide word swap toward the file cap', () => {
     const uses = (key: string) => `if (p.${key} === 'reply') send(p);\nconst { ${key} } = p;\n`;
     const before = { 'src/a.ts': uses('kind'), 'src/b.ts': uses('kind'), 'src/c.ts': uses('kind'), 'src/d.ts': '1\n' };
@@ -564,6 +577,27 @@ describe('triage-brief', () => {
     expect(
       run('triage-brief.mjs', { dir, base: '' }, ['--within', 'src/,studio/src/,tests/', join(dir, 'reply.md')]).ok
     ).toBe(true);
+  });
+
+  it('allows the example hubs by default, so a schema change can migrate them', () => {
+    const text = brief.replace('- `tests/labels.test.ts`', '- `examples/bothub/hub.yaml`\n- `tests/labels.test.ts`');
+    expect(check(text)).toEqual({ ok: true, out: 'triage-brief: ok' });
+    const outside = brief.replace('- `tests/labels.test.ts`', '- `bin/bothub.mjs`\n- `tests/labels.test.ts`');
+    expect(findings(check(outside).out)).toEqual([
+      'bin/bothub.mjs is outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, studio/content/docs/, examples/); leave it out of scope or ask',
+    ]);
+  });
+
+  it('fails a brief naming more files outside tests/ than the size cap, and says to split it', () => {
+    const named = (n: number) => Array.from({ length: n }, (_, i) => `- \`src/f${i}.ts\``).join('\n');
+    const tests = Array.from({ length: 4 }, (_, i) => `- \`tests/t${i}.test.ts\``).join('\n');
+    const withFiles = (n: number) => brief.replace(/## Files\n[\s\S]*?\n\n/, `## Files\n${named(n)}\n${tests}\n\n`);
+    expect(check(withFiles(8))).toEqual({ ok: true, out: 'triage-brief: ok' });
+    const { ok, out } = check(withFiles(9));
+    expect(ok).toBe(false);
+    expect(findings(out)).toEqual([
+      "9 files outside tests/, more than the size check's cap of 8; split the task into tasks that each fit and ask which comes first",
+    ]);
   });
 
   it('passes with a note when there is no reply to read', () => {

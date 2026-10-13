@@ -734,6 +734,28 @@ describe('runPlan', () => {
       ['summarize', 'needs "triage" (blocked) to be done'],
     ]);
   });
+
+  it('reuses a done job on the same issue when a later event answers the job that needs it', async () => {
+    const { seen, adapters } = fake((spec, call) => ({
+      ok: !(spec.system.includes('Summarize the thread.') && call < 3),
+    }));
+    const p = await pipeline({ config: configFor(), adapters });
+    const jobs = [triage, planned('summarize')];
+    const first = await Effect.runPromise(runPlan(jobs, p));
+    expect(first.map(r => [r.job, r.run.status])).toEqual([
+      ['triage', 'succeeded'],
+      ['summarize', 'failed'],
+    ]);
+
+    const second = await Effect.runPromise(runPlan(jobs, { ...p, event: { ...event, id: 'd2' } }));
+    expect(second[0]!.run.id).toBe(first[0]!.run.id);
+    expect(second[1]!.run.status).toBe('succeeded');
+    expect(seen).toHaveLength(3);
+
+    const third = await Effect.runPromise(runPlan(jobs, { ...p, event: { ...event, id: 'd3' } }));
+    expect(third[0]!.run.id).not.toBe(first[0]!.run.id);
+    expect(seen).toHaveLength(5);
+  });
 });
 
 describe('closure', () => {

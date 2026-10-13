@@ -70,7 +70,7 @@ describe('safety check', () => {
     expect(out.split('\n').slice(0, -1)).toEqual(['docs/blob.json: a new file larger than 512 KB']);
   });
 
-  it('ignores gitignored files and fails without a base or allowed paths', () => {
+  it('ignores gitignored files and fails without a base', () => {
     const repo = change({ 'kit/a.ts': 'x\n' }, { 'node_modules/.env': 'X=1\n' });
     expect(check('safety.mjs', repo, 'kit/').ok).toBe(true);
     expect(check('safety.mjs', { dir: repo.dir }, 'kit/')).toMatchObject({
@@ -78,7 +78,13 @@ describe('safety check', () => {
       out: expect.stringContaining('BOTHUB_BASE is not set'),
     });
     expect(check('safety.mjs', { dir: repo.dir, base: 'f'.repeat(40) }, 'kit/').ok).toBe(false);
-    expect(check('safety.mjs', repo).out).toContain('usage: safety.mjs');
+  });
+
+  it('allows the paths in the bounds file when none are given', () => {
+    const repo = change({ 'kit/a.ts': 'x\n' }, { 'kit/a.ts': 'y\n', 'CHAT.md': 'hi\n', 'other/b.ts': 'z\n' });
+    expect(check('safety.mjs', repo).out.split('\n').slice(0, -1)).toEqual([
+      'other/b.ts: outside the allowed paths (kit/, docs/, CHAT.md)',
+    ]);
   });
 });
 

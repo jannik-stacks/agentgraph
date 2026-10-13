@@ -56,7 +56,8 @@ The next run of that job on the same issue starts from the branch. Its prompt ge
 section with what the blocked run asked and what the human answered: the text of the comment that
 started the run, and comments on the `unsure` issues it opened. The checks measure the change from
 where the branch forked, so the parked work is checked with the rest. A resumed `push` lists the
-files it changed on top of the branch.
+files it changed on top of the branch. The jobs it needs that already closed done on the issue before
+it blocked are not run again: their runs are reused, so answering the implementor does not redo triage.
 
 ## Check modes
 
