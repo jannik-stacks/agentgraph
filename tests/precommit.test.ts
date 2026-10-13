@@ -16,7 +16,8 @@ const repo = (files: Record<string, string>, after: Record<string, string>) => {
   write(dir, after);
   return dir;
 };
-const precommit = (dir: string) => spawnSync('sh', [join(dir, 'bin/precommit.sh')], { encoding: 'utf8' });
+const precommit = (dir: string) =>
+  spawnSync('sh', [join(dir, 'bin/precommit.sh')], { encoding: 'utf8', env: { ...process.env, BOTHUB_BASE: '' } });
 
 describe('precommit', () => {
   it('fails on a finding of a block check', () => {
