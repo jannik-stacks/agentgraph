@@ -1609,7 +1609,7 @@ describe('over', () => {
     const { result } = await run(
       hubWith([
         {
-          name: 'items',
+          name: 'lint',
           data: {
             type: 'script',
             over: { each: "printf 'a\\nb\\nc\\n'" },
@@ -1623,7 +1623,7 @@ describe('over', () => {
       { launch, issues: trackedIssues() }
     );
     const question =
-      'Checks could not run, so the change is held: 1 of 3 items items could not run (sandbox-failed: the sandbox is down). Nothing went back to the bot. Comment `/bothub` to run them again.';
+      'Checks could not run, so the change is held: 1 of 3 lint items could not run (sandbox-failed: the sandbox is down). Nothing went back to the bot. Comment `/bothub` to run them again.';
     expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
     expect(result.outcome?.checks?.[0]?.findings).toContain('item 1:\nbad a');
   });
