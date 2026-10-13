@@ -347,6 +347,32 @@ describe('rules check, retired names', () => {
   });
 });
 
+describe('rules check, new checks', () => {
+  const checkFile = (mode: string, human: string) =>
+    `---\ntype: script\nrun: node x.mjs\n${mode}human: ${human}\n---\n`;
+
+  it('fails a new check in block mode whose human line names no calibration', () => {
+    const repo = change({}, { 'examples/hub/checks/new.md': checkFile('mode: block\n', 'issue 3') });
+    expect(check('rules.mjs', repo)).toEqual({
+      ok: false,
+      out: 'examples/hub/checks/new.md:1: a new check in block mode with no calibration; start it in warn or log mode, or say in human: which replay calibrated it\nrules: 1 finding',
+    });
+  });
+
+  it('passes a calibrated, warn or unset new check and an existing block check', () => {
+    const repo = change(
+      { 'examples/hub/checks/old.md': checkFile('mode: block\n', 'seed hub') },
+      {
+        'examples/hub/checks/old.md': checkFile('mode: block\n', 'seed hub, tightened'),
+        'examples/hub/checks/calibrated.md': checkFile('mode: block\n', 'replay of 60 commits flagged 3, all real'),
+        'examples/hub/checks/warned.md': checkFile('mode: warn\n', 'issue 3'),
+        'examples/hub/checks/unset.md': checkFile('', 'issue 3'),
+      }
+    );
+    expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
+  });
+});
+
 describe('rules check, docs prose', () => {
   const fence = '```';
   it('fails dates, internal references, filler words, whole-file sources and long code blocks', () => {

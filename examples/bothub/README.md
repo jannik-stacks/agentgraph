@@ -26,7 +26,7 @@ invariant that found it.
 |---|---|---|---|---|
 | safety | script | | block | The change stays in the paths `scripts/bounds.mjs` lists, writes no harness memory and adds no secrets, by prefix and by entropy |
 | size | script | | block | The added lines and the files outside `tests/` that add or change lines stay within `scripts/bounds.mjs`, files that only make one rename aside |
-| rules | script | | block | The written rules on added lines: timeless comments, docs style, no way around the guards, nothing unfinished, current names |
+| rules | script | | block | The written rules on added lines: timeless comments, docs style, no way around the guards, nothing unfinished, current names; a new check in block mode names the replay that calibrated it |
 | lint | script | | block | oxlint plus the suspicious rules, errors on added lines only, and oxfmt formatting |
 | types, studio-build, tests | script | | block | Types, the studio build and the suite, the live stream tests among them; tests also fails when its output reports a module that could not load |
 | test-guards | script | | block | No deleted, fewer, skipped, focused or slowed tests; each criterion's named test is added; no `Closes` when the brief lists follow-ups; every new test fails on the base code with the change's new files added |
