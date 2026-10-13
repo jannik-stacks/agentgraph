@@ -2,6 +2,7 @@ import { CodeBlock, Pre } from 'fumadocs-ui/components/codeblock';
 import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { ReactNode } from 'react';
 import { css, refs, root } from 'virtual:bothub-code';
+import { Tooltip } from '../ui.tsx';
 import { type Ref, refKey, type Tag, type Target } from './model.ts';
 
 type Found = Exclude<Ref, { error: string }>;
@@ -27,9 +28,11 @@ const lookup = (tag: Tag, target: Target, render: (r: Found) => ReactNode) => {
 };
 
 const Where = ({ r, children }: { r: Found; children?: ReactNode }) => (
-  <a href={editorHref(r)} title="Open in VS Code" className="font-mono hover:text-fd-primary">
-    {children ?? `${r.path}:${lines(r)}`}
-  </a>
+  <Tooltip action="Open in VS Code">
+    <a href={editorHref(r)} className="font-mono hover:text-fd-primary">
+      {children ?? `${r.path}:${lines(r)}`}
+    </a>
+  </Tooltip>
 );
 
 /**
@@ -51,13 +54,14 @@ export const Source = (t: Target) =>
 /** A symbol name in prose, showing its summary and location on hover. */
 export const Sym = ({ name, file, children }: { name: string; file?: string; children?: ReactNode }) =>
   lookup('Sym', { file, symbol: name }, r => (
-    <a
-      href={editorHref(r)}
-      title={[r.summary, `${r.path}:${lines(r)}`].filter(Boolean).join('\n')}
-      className="not-prose rounded-md border border-fd-border bg-fd-secondary/60 px-1 py-px font-mono text-[0.85em] text-fd-secondary-foreground no-underline transition-colors hover:border-fd-primary/60 hover:text-fd-primary"
-    >
-      {children ?? name}
-    </a>
+    <Tooltip tip={[r.summary, `${r.path}:${lines(r)}`].filter(Boolean).join('\n')} action="Open in VS Code">
+      <a
+        href={editorHref(r)}
+        className="not-prose rounded-md border border-fd-border bg-fd-secondary/60 px-1 py-px font-mono text-[0.85em] text-fd-secondary-foreground no-underline transition-colors hover:border-fd-primary/60 hover:text-fd-primary"
+      >
+        {children ?? name}
+      </a>
+    </Tooltip>
   ));
 
 /** The fields of a zod object schema or a TypeScript object type, with types, defaults and doc comments. */

@@ -37,7 +37,6 @@ const Card = ({
 }) => (
   <div
     style={size}
-    title={[node.label, node.detail?.summary].filter(Boolean).join('\n')}
     className={cx(
       'flex flex-col justify-center gap-0.5 border border-l-4 border-zinc-200 bg-white px-2.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100',
       nodeStyle[node.kind],
@@ -71,10 +70,16 @@ const Meta = ({ children }: { children: ReactNode }) => (
   <div className="flex min-w-0 items-center gap-1 overflow-hidden font-sans">{children}</div>
 );
 
+const Label = ({ node, className }: { node: GraphNode; className: string }) => (
+  <Tooltip tip={[node.label, node.detail?.summary].filter(Boolean).join('\n')} action="Show details">
+    <span className={cx('truncate', className)}>{node.label}</span>
+  </Tooltip>
+);
+
 const Title = ({ node }: { node: GraphNode }) => (
   <div className="flex min-w-0 items-center gap-1.5">
     <KindIcon kind={node.kind} />
-    <span className="truncate text-[13px] font-semibold">{node.label}</span>
+    <Label node={node} className="text-[13px] font-semibold" />
   </div>
 );
 
@@ -101,21 +106,22 @@ const castChip = {
 const CastChip = ({ node, kind }: { node: GraphNode; kind: keyof typeof castChip }) => {
   const select = use(SelectNode);
   return (
-    <button
-      type="button"
-      title={`${kindTitle[kind]}\n${kind} ${node.label}`}
-      onClick={e => {
-        e.stopPropagation();
-        select(node.id);
-      }}
-      className={cx(
-        'nodrag inline-flex min-w-0 items-center gap-1 rounded border px-1 font-sans text-[11px] leading-4',
-        castChip[kind]
-      )}
-    >
-      <KindIcon kind={kind} className="size-3" title={kind} />
-      <span className="truncate">{node.label}</span>
-    </button>
+    <Tooltip tip={kindTitle[kind]} action={`Show ${kind} ${node.label}`} className="min-w-0">
+      <button
+        type="button"
+        onClick={e => {
+          e.stopPropagation();
+          select(node.id);
+        }}
+        className={cx(
+          'nodrag inline-flex min-w-0 items-center gap-1 rounded border px-1 font-sans text-[11px] leading-4',
+          castChip[kind]
+        )}
+      >
+        <KindIcon kind={kind} className="size-3" title="" />
+        <span className="truncate">{node.label}</span>
+      </button>
+    </Tooltip>
   );
 };
 
@@ -141,7 +147,7 @@ export const CastCard = memo(({ data: { node }, selected }: NodeProps<FlowNode>)
   <Card node={node} selected={selected} size={castSize}>
     <div className="flex min-w-0 items-center gap-1">
       <KindIcon kind={node.kind} className="size-3" />
-      <span className="truncate text-xs font-semibold leading-4">{node.label}</span>
+      <Label node={node} className="text-xs font-semibold leading-4" />
     </div>
     {node.badges?.length ? (
       <div className="truncate font-sans text-[10px] leading-3 text-zinc-500 dark:text-zinc-400">
@@ -187,10 +193,7 @@ export const StackCard = memo(({ data: { node, held }, selected }: NodeProps<Sta
     <Meta>
       <FacetBadges facet={node.stack?.facets[0]} />
     </Meta>
-    <Tooltip
-      tip={`${held.length} more ${plural(node.kind)}, click to list them`}
-      className="absolute top-1.5 right-1.5"
-    >
+    <Tooltip tip={`${held.length} more ${plural(node.kind)}`} action="List them" className="absolute top-1.5 right-1.5">
       <span className="inline-flex items-center gap-0.5 rounded-full bg-zinc-100 px-1.5 text-[10px] leading-4 font-medium text-zinc-500 tabular-nums dark:bg-zinc-800 dark:text-zinc-400">
         {held.length}
         <Icon name="more" className="size-3" />
@@ -208,7 +211,7 @@ export const WorkflowFrame = memo(({ data: { name, path } }: NodeProps<FrameFlow
   const editing = useAtomValue(editPathAtom) === path;
   const title = (
     <>
-      <KindIcon kind="workflow" />
+      <KindIcon kind="workflow" title="" />
       <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{name}</span>
       {path && <span className="truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{path}</span>}
     </>
@@ -221,17 +224,18 @@ export const WorkflowFrame = memo(({ data: { name, path } }: NodeProps<FrameFlow
       )}
     >
       {path ? (
-        <button
-          type="button"
-          title={`${kindTitle.workflow}\nEdit ${path}`}
-          onClick={e => {
-            e.stopPropagation();
-            navigate({ query: { edit: path, node: null } });
-          }}
-          className="nodrag pointer-events-auto absolute left-2 top-1.5 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50"
-        >
-          {title}
-        </button>
+        <Tooltip tip={kindTitle.workflow} action={`Edit ${path}`}>
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              navigate({ query: { edit: path, node: null } });
+            }}
+            className="nodrag pointer-events-auto absolute left-2 top-1.5 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50"
+          >
+            {title}
+          </button>
+        </Tooltip>
       ) : (
         <div className="absolute left-2 top-1.5 flex items-center gap-1.5 px-1.5 py-0.5">{title}</div>
       )}

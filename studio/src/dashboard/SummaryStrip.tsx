@@ -68,7 +68,7 @@ const Stat = ({
   onClick: () => void;
   children: ReactNode;
 }) => (
-  <Tooltip tip={`${tip}\n${on ? 'Click to clear the filter' : 'Click to filter'}`}>
+  <Tooltip tip={tip} action={on ? 'Clear the filter' : 'Filter the list'}>
     <button
       type="button"
       aria-pressed={on}
@@ -84,7 +84,8 @@ const Stat = ({
 );
 
 const runs = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'run' : 'runs'}`;
-const usd = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 10 });
+const usd = (n: number) =>
+  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: n >= 1 ? 2 : 4 });
 
 /** One line of live totals; each one filters or sorts the list below. */
 export const SummaryStrip = ({ runs: rows }: { runs: RunRow[] }) => {
@@ -128,7 +129,8 @@ export const SummaryStrip = ({ runs: rows }: { runs: RunRow[] }) => {
         {s.passRate === undefined ? '-' : <Num value={s.passRate} format={percent} />}
       </Stat>
       <Tooltip
-        tip={`${s.tally.in.toLocaleString()} tokens sent to models today: prompts, context and tool results${s.tally.cached ? `, ${s.tally.cached.toLocaleString()} of them cached` : ''}\n${(s.tally.out + s.tally.reasoning).toLocaleString()} tokens generated\n${usd(Math.max(estimated, s.cost.billed))} today, of which ${usd(s.cost.billed)} billed and ${usd(estimated)} estimated at list prices\nBars: cost per hour over the last 24 hours\n${sort === 'cost' ? 'Click to stop sorting by cost' : 'Click to sort by cost'}`}
+        tip={`${s.tally.in.toLocaleString()} tokens sent to models today: prompts, context and tool results${s.tally.cached ? `, ${s.tally.cached.toLocaleString()} of them cached` : ''}\n${(s.tally.out + s.tally.reasoning).toLocaleString()} tokens generated\n${usd(Math.max(estimated, s.cost.billed))} today, of which ${usd(s.cost.billed)} billed and ${usd(estimated)} estimated at list prices\nBars: cost per hour over the last 24 hours`}
+        action={sort === 'cost' ? 'Stop sorting by cost' : 'Sort by cost'}
       >
         <button
           type="button"

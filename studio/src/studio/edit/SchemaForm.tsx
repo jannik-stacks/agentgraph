@@ -8,7 +8,17 @@ import {
   switchChoice,
   unionChoices,
 } from '../../../../src/hub-files.ts';
-import { Button, Chip, cx, Disclosure, RemovableChip, Segmented, Select, useCommittedText } from '../../ui.tsx';
+import {
+  Button,
+  Chip,
+  cx,
+  Disclosure,
+  RemovableChip,
+  Segmented,
+  Select,
+  Tooltip,
+  useCommittedText,
+} from '../../ui.tsx';
 import { mono } from '../hub-refs.ts';
 
 export type Path = (string | number)[];
@@ -542,7 +552,9 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
                 />
               )}
               {issuesAt(ctx.issues, [...path, key], true).length > 0 && (
-                <span className="size-1.5 rounded-full bg-red-500" title="has problems" />
+                <Tooltip tip="Has problems">
+                  <span className="size-1.5 rounded-full bg-red-500" />
+                </Tooltip>
               )}
               <button
                 type="button"

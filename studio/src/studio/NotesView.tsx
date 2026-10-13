@@ -75,8 +75,9 @@ export const NotesView = () => {
                           )}
                           {note.check && (
                             <Chip
-                              icon={<KindIcon kind="check" className="size-3" title="check" />}
-                              title={`check ${note.check} keeps this note true`}
+                              icon={<KindIcon kind="check" className="size-3" title="" />}
+                              title="The check that keeps this note true"
+                              action="Show the check"
                               href={href(nodeTarget(`check:${note.check}`))}
                             >
                               {note.check}

@@ -18,7 +18,8 @@ export const NeedsHuman = () => {
       )}
       summary={
         <Tooltip
-          tip={`${items.length} ${items.length === 1 ? 'run needs' : 'runs need'} a human: a question to answer or a failure to look at\nClick to list them`}
+          tip={`${items.length} ${items.length === 1 ? 'run needs' : 'runs need'} a human: a question to answer or a failure to look at`}
+          action="List them"
         >
           <span className="inline-flex items-center gap-1">
             <Icon name="question" className="size-3.5" />

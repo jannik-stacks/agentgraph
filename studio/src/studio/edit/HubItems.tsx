@@ -46,7 +46,7 @@ export const HubItems = () => {
           <>
             {kind === 'note' && <span className="text-[11px] text-zinc-500">{noteKindOf(f.path)}</span>}
             {drafts[f.path] && (
-              <Tooltip tip="pending change" className="ml-auto shrink-0">
+              <Tooltip tip="Unsaved change" className="ml-auto shrink-0">
                 <span className="size-1.5 rounded-full bg-amber-500" />
               </Tooltip>
             )}

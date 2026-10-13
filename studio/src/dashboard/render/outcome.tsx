@@ -3,6 +3,7 @@ import type { ApplyResult } from '../../../../src/apply.ts';
 import { Proposal } from '../../../../src/outputs.ts';
 import type { Outcome, Run, Verdict } from '../../../../src/store.ts';
 import type { Tone } from '../../graph-model.ts';
+import { Code } from '../../Markdown.tsx';
 import { Icon, KindIcon } from '../../studio/icons.tsx';
 import { Badge, Chip, Chips, closureTones, cx, Field, Fields, statusTone, Tooltip } from '../../ui.tsx';
 import { JsonView, Label, Text, WithRaw } from './core.tsx';
@@ -30,12 +31,12 @@ const views: { [K in Proposal['kind']]: ComponentType<Of<K>> } = {
   label: ({ proposal }) => (
     <Chips>
       {proposal.add?.map(label => (
-        <Chip key={`+${label}`} dot="bg-emerald-500" title="add">
+        <Chip key={`+${label}`} dot="bg-emerald-500" title="Label to add">
           + {label}
         </Chip>
       ))}
       {proposal.remove?.map(label => (
-        <Chip key={`-${label}`} dot="bg-red-500" title="remove">
+        <Chip key={`-${label}`} dot="bg-red-500" title="Label to remove">
           - {label}
         </Chip>
       ))}
@@ -150,7 +151,10 @@ const verdictLook = (v: Pick<Verdict, 'pass' | 'gating' | 'skipped'>) =>
       ? { icon: 'ok' as const, tint: 'text-emerald-600 dark:text-emerald-400' }
       : { icon: 'fail' as const, tint: v.gating ? 'text-red-600 dark:text-red-400' : 'text-amber-600' };
 
-/** A check's verdict: pass, fail or skipped, and its findings. */
+/**
+ * A check's verdict: pass, fail or skipped, and its findings. Findings a check bot wrote are markdown; any other
+ * check's are its raw output, shown as is.
+ */
 export const VerdictView = ({ verdict }: { verdict: Verdict }) => {
   const look = verdictLook(verdict);
   const found = verdict.findings ? locations(verdict.findings) : undefined;
@@ -177,7 +181,7 @@ export const VerdictView = ({ verdict }: { verdict: Verdict }) => {
       ) : (
         verdict.findings && (
           <div className="pl-5">
-            <Text text={verdict.findings} />
+            {verdict.runs?.length ? <Text text={verdict.findings} /> : <Code code={verdict.findings} />}
           </div>
         )
       )}

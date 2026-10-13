@@ -91,9 +91,11 @@ const Where = () => {
 
 const Header = ({ route }: { route: Route | undefined }) => (
   <header className="sticky top-0 z-40 flex h-12 items-center gap-3 border-b border-zinc-200 bg-white/90 px-3 backdrop-blur sm:gap-5 sm:px-4 dark:border-zinc-800 dark:bg-zinc-950/90">
-    <Link href="/studio" title="bothub manager" className="shrink-0 text-zinc-900 dark:text-zinc-100">
-      <Logo />
-    </Link>
+    <Tooltip tip="bothub manager" action="Go to the studio" className="shrink-0">
+      <Link href="/studio" className="shrink-0 text-zinc-900 dark:text-zinc-100">
+        <Logo />
+      </Link>
+    </Tooltip>
     <Nav route={route} />
     {import.meta.env.DEV && <Where />}
   </header>

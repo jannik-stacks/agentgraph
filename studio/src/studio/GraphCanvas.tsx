@@ -14,7 +14,7 @@ import '@xyflow/react/dist/style.css';
 import { useAtom } from 'jotai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type EdgeKind, type GraphEdge, type GraphModel, type Layer, retryLoops } from '../graph-model.ts';
-import { cx } from '../ui.tsx';
+import { cx, Tooltip } from '../ui.tsx';
 import { heldBy } from './collapse.ts';
 import {
   type Box,
@@ -314,17 +314,18 @@ const GraphControls = ({ moved, onReset }: { moved: boolean; onReset: () => void
   const flow = useReactFlow();
   return (
     <Controls showInteractive={false}>
-      <ControlButton
-        title="Reset layout"
-        aria-label="Reset layout"
-        disabled={!moved}
-        onClick={() => {
-          onReset();
-          requestAnimationFrame(() => void flow.fitView({ ...fitViewOptions, duration: 300 }));
-        }}
-      >
-        <ResetIcon />
-      </ControlButton>
+      <Tooltip action="Reset layout">
+        <ControlButton
+          aria-label="Reset layout"
+          disabled={!moved}
+          onClick={() => {
+            onReset();
+            requestAnimationFrame(() => void flow.fitView({ ...fitViewOptions, duration: 300 }));
+          }}
+        >
+          <ResetIcon />
+        </ControlButton>
+      </Tooltip>
     </Controls>
   );
 };
@@ -341,21 +342,24 @@ const Layers = ({ layer, onChange }: { layer: Layer; onChange: (layer: Layer) =>
       className="flex items-center gap-1 rounded-md border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
     >
       <span className="px-1 text-[10px] uppercase tracking-wide text-zinc-500">layers</span>
-      <button type="button" className={cx(toggle, 'cursor-default')} aria-pressed title="The flow is always shown">
-        Flow
-      </button>
-      <button
-        type="button"
-        className={toggle}
-        aria-pressed={layer === 'cast'}
-        title="Show the bot and skill each step casts"
-        onClick={() => {
-          onChange(layer === 'cast' ? 'flow' : 'cast');
-          requestAnimationFrame(() => void flow.fitView({ ...fitViewOptions, duration: 300 }));
-        }}
-      >
-        Bots and skills
-      </button>
+      <Tooltip tip="The flow is always shown">
+        <button type="button" className={cx(toggle, 'cursor-default')} aria-pressed>
+          Flow
+        </button>
+      </Tooltip>
+      <Tooltip tip="The bot and skill each step casts" action={layer === 'cast' ? 'Hide them' : 'Show them'}>
+        <button
+          type="button"
+          className={toggle}
+          aria-pressed={layer === 'cast'}
+          onClick={() => {
+            onChange(layer === 'cast' ? 'flow' : 'cast');
+            requestAnimationFrame(() => void flow.fitView({ ...fitViewOptions, duration: 300 }));
+          }}
+        >
+          Bots and skills
+        </button>
+      </Tooltip>
     </Panel>
   );
 };

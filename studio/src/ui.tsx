@@ -16,6 +16,7 @@ import type { Closure } from '../../src/schema.ts';
 import type { RunStatus } from '../../src/store.ts';
 import type { Tone } from './graph-model.ts';
 import { Link } from './Providers.tsx';
+import { Icon } from './studio/icons.tsx';
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
 
@@ -121,11 +122,21 @@ type ChipProps = {
   dot?: string | undefined;
   mono?: boolean | undefined;
   title?: string | undefined;
+  action?: string | undefined;
   href?: string | undefined;
 };
 
-/** The chip's content, inside a span or a link that the caller styles, with `title` as its tooltip. */
-const ChipInner = ({ children, icon, dot, mono, title, href, className }: ChipProps & { className: string }) => {
+/** The chip's content, inside a span or a link that the caller styles, with `title` and `action` as its tooltip. */
+const ChipInner = ({
+  children,
+  icon,
+  dot,
+  mono,
+  title,
+  action,
+  href,
+  className,
+}: ChipProps & { className: string }) => {
   const body = (
     <>
       {icon ?? (dot && <span className={cx('size-1.5 shrink-0 rounded-full', dot)} />)}
@@ -139,7 +150,13 @@ const ChipInner = ({ children, icon, dot, mono, title, href, className }: ChipPr
   ) : (
     <span className={className}>{body}</span>
   );
-  return title ? <Tooltip tip={title}>{chip}</Tooltip> : chip;
+  return title || action ? (
+    <Tooltip tip={title} action={action}>
+      {chip}
+    </Tooltip>
+  ) : (
+    chip
+  );
 };
 
 /**
@@ -263,6 +280,40 @@ const place = (tip: HTMLElement, anchor: DOMRect) => {
   tip.style.left = `${left}px`;
 };
 
+/** What a tooltip says: `tip` explains the element, `action` says what clicking it does, `keys` its shortcut. */
+type TipProps = {
+  tip?: ReactNode;
+  action?: ReactNode;
+  keys?: string | undefined;
+};
+
+/** The tooltip body: the explanation, then the action on its own muted line under a hairline. */
+const TipContent = ({ tip, action, keys }: TipProps) => {
+  const info = tip !== undefined && tip !== null && tip !== '';
+  return (
+    <>
+      {info && tip}
+      {action && (
+        <span
+          className={cx(
+            'flex items-center gap-1.5 whitespace-normal',
+            info &&
+              'mt-1 border-t border-zinc-700 pt-1 text-[10px] text-zinc-400 dark:border-zinc-300 dark:text-zinc-500'
+          )}
+        >
+          <Icon name="click" className="size-3" />
+          <span className="min-w-0">{action}</span>
+          {keys && (
+            <kbd className="ml-auto rounded border border-zinc-600 px-1 font-mono text-[10px] leading-4 dark:border-zinc-400">
+              {keys}
+            </kbd>
+          )}
+        </span>
+      )}
+    </>
+  );
+};
+
 /**
  * Explains what it wraps on hover and on keyboard focus, as the wrapped element's description. The tip sits in the
  * top layer, so scrolling containers never clip it. `focusable` lets keyboard users reach content that is not
@@ -270,11 +321,12 @@ const place = (tip: HTMLElement, anchor: DOMRect) => {
  */
 export const Tooltip = ({
   tip,
+  action,
+  keys,
   children,
   focusable = false,
   className,
-}: {
-  tip: ReactNode;
+}: TipProps & {
   children: ReactNode;
   focusable?: boolean;
   className?: string | undefined;
@@ -316,11 +368,27 @@ export const Tooltip = ({
         popover="manual"
         className="pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
       >
-        {tip}
+        <TipContent tip={tip} action={action} keys={keys} />
       </span>
     </span>
   );
 };
+
+/** A muted question mark that exists only to explain what sits next to it. */
+export const InfoTip = ({ tip, className }: { tip: ReactNode; className?: string }) => (
+  <Tooltip
+    tip={tip}
+    focusable
+    className={cx(
+      'items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300',
+      className
+    )}
+  >
+    <span role="img" aria-label="More about this" className="inline-flex">
+      <Icon name="question" className="size-3" />
+    </span>
+  </Tooltip>
+);
 
 export const Button = ({
   variant = 'default',
@@ -334,9 +402,14 @@ export const Button = ({
   />
 );
 
-/** A button showing only an icon; `tip` is both its tooltip and its accessible name. */
-export const IconButton = ({ tip, variant = 'small', ...props }: ComponentProps<typeof Button> & { tip: string }) => (
-  <Tooltip tip={tip}>
+/** A button showing only an icon; `tip` names what it does, as its tooltip action and its accessible name. */
+export const IconButton = ({
+  tip,
+  keys,
+  variant = 'small',
+  ...props
+}: ComponentProps<typeof Button> & { tip: string; keys?: string }) => (
+  <Tooltip action={tip} keys={keys}>
     <Button variant={variant} aria-label={tip} {...props} />
   </Tooltip>
 );

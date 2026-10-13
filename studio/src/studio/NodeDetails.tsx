@@ -7,7 +7,7 @@ import { type GraphModel, type GraphNode, modeTone, type StepContext } from '../
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
 import { Link } from '../Providers.tsx';
 import { filesAtom, hrefAtom, navigateAtom } from '../state.ts';
-import { Badge, Chip, Chips, cx, Disclosure, Field, Fields, Pre, Section } from '../ui.tsx';
+import { Badge, Chip, Chips, cx, Disclosure, Field, Fields, InfoTip, Pre, Section, Tooltip } from '../ui.tsx';
 import { mono, nodeTarget, refId, refKind } from './hub-refs.ts';
 import { KindIcon, kindTitle } from './icons.tsx';
 
@@ -53,8 +53,9 @@ const NodeChip = ({ id, label, title }: { id: string; label?: string | undefined
   const kind = node?.kind ?? (id.split(':')[0] as GraphNode['kind']);
   return (
     <Chip
-      icon={<KindIcon kind={kind} className="size-3" title={kind} />}
-      title={title ?? `${kind} ${node?.label ?? id}`}
+      icon={<KindIcon kind={kind} className="size-3" title="" />}
+      title={title ?? kindTitle[kind]}
+      action="Show details"
       href={links.node(id)}
     >
       {label ?? node?.label ?? id.replace(/^[a-z]+:/, '')}
@@ -74,8 +75,9 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
     if (file)
       return (
         <Chip
-          icon={<KindIcon kind="workflow" className="size-3" title="workflow" />}
-          title={`workflow ${value}, ${file.path}`}
+          icon={<KindIcon kind="workflow" className="size-3" title="" />}
+          title={`Workflow in ${file.path}`}
+          action="Open the file"
           href={links.file(file)}
         >
           {value}
@@ -84,7 +86,7 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
   }
   if (key === 'harness')
     return (
-      <Chip dot="bg-sky-500" title="harness reference" href="/docs/reference/harnesses">
+      <Chip dot="bg-sky-500" title="Harness" action="Read the harness reference" href="/docs/reference/harnesses">
         {value}
       </Chip>
     );
@@ -93,7 +95,8 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
     return alias ? (
       <Chip
         dot="bg-violet-500"
-        title={`model alias for ${alias.upstream}, in ${alias.file.path}`}
+        title={`Model alias for ${alias.upstream}`}
+        action={`Open ${alias.file.path}`}
         href={links.file(alias.file)}
       >
         {value}
@@ -121,7 +124,7 @@ const Code = ({ text }: { text: string }) => {
       {mentioned.length > 0 && (
         <Chips>
           {mentioned.map(f => (
-            <Chip key={`${f.root}:${f.path}`} dot="bg-slate-500" mono title="open in setup" href={links.file(f)}>
+            <Chip key={`${f.root}:${f.path}`} dot="bg-slate-500" mono action="Open in setup" href={links.file(f)}>
               {f.path}
             </Chip>
           ))}
@@ -248,7 +251,9 @@ const Header = ({ node, data }: { node: GraphNode; data: Record<string, unknown>
     <header className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
         <KindIcon kind={node.kind} className="size-4" />
-        <span title={kindTitle[node.kind]}>{node.kind}</span>
+        <Tooltip tip={kindTitle[node.kind]}>
+          <span>{node.kind}</span>
+        </Tooltip>
         {node.badges
           ?.filter(badge => !values.has(badge.text))
           .map(badge => (
@@ -316,8 +321,9 @@ const contextEdges = new Set<string>(['preloads', 'calls']);
 
 const Labelled = ({ name, title, children }: { name: string; title?: string; children: ReactNode }) => (
   <>
-    <dt className="text-zinc-500" title={title}>
+    <dt className="inline-flex items-center gap-1 text-zinc-500">
       {name}
+      {title && <InfoTip tip={title} />}
     </dt>
     <dd className="min-w-0">
       <Chips>{children}</Chips>
@@ -365,23 +371,29 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
       {heading}
       <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5">
         {context.bot !== from && (
-          <Labelled name="who" title="the bot the step casts">
+          <Labelled name="who" title="The bot the step casts">
             <NodeChip id={context.bot} />
           </Labelled>
         )}
         {context.skill !== from && (
-          <Labelled name="does" title="the skill the step hands the bot">
+          <Labelled name="does" title="The skill the step hands the bot">
             {context.skill ? <NodeChip id={context.skill} /> : <None>no skill</None>}
           </Labelled>
         )}
-        <Labelled name="in" title="what the run looks at, and what it sees first in its prompt">
+        <Labelled name="in" title="What the run looks at, and what it sees first in its prompt">
           {context.over && (
-            <Chip mono title="what the run looks at" href={docs}>
+            <Chip mono title="What the run looks at" action="Read about context" href={docs}>
               over {overText(context.over)}
             </Chip>
           )}
           {context.preload.map(item => (
-            <Chip key={preloadName(item)} mono title={`preloads ${preloadMeaning(item)}`} href={docs}>
+            <Chip
+              key={preloadName(item)}
+              mono
+              title={`Preloads ${preloadMeaning(item)}`}
+              action="Read about context"
+              href={docs}
+            >
               {preloadName(item)}
               <span className="ml-1 font-sans text-zinc-500">{preloadMeaning(item)}</span>
             </Chip>
@@ -389,7 +401,8 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
           {context.issues && (
             <Chip
               icon={<KindIcon kind="issues" className="size-3" />}
-              title={`${context.issues} issue tracker, set in ${hubFile}`}
+              title={`${context.issues} issue tracker`}
+              action={`Edit ${hubFile}`}
               href={links.edit(hubFile)}
             >
               {context.issues}
@@ -397,9 +410,15 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
           )}
           {!context.over && !context.preload.length && !context.issues && <None />}
         </Labelled>
-        <Labelled name="uses" title="harness tools and read-only hub tools while it works">
+        <Labelled name="uses" title="Harness tools and read-only hub tools the run can call">
           {context.harnessTools.map(tool => (
-            <Chip key={tool} mono title="harness tool" href="/docs/reference/harnesses">
+            <Chip
+              key={tool}
+              mono
+              title="Harness tool"
+              action="Read the harness reference"
+              href="/docs/reference/harnesses"
+            >
               {tool}
             </Chip>
           ))}
@@ -408,7 +427,8 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
               key={tool}
               icon={<KindIcon kind="tool" className="size-3" />}
               mono
-              title="read-only hub tool"
+              title="Read-only hub tool"
+              action="Read about context"
               href={docs}
             >
               {tool}
@@ -416,7 +436,7 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
           ))}
           {!context.harnessTools.length && !context.hubTools.length && <None />}
         </Labelled>
-        <Labelled name="returns" title="what the run hands back when it ends; nothing applies until the checks pass">
+        <Labelled name="returns" title="What the run hands back when it ends; nothing applies until the checks pass">
           {context.verdict ? (
             <Chip mono>verdict</Chip>
           ) : context.returns.length ? (
