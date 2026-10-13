@@ -6,10 +6,10 @@ import { fanOut } from '../over.ts';
 import { roles, type Issues } from '../issues.ts';
 import { approved, extractProposals, validate } from '../outputs.ts';
 import { runScript, type ScriptResult } from '../runner.ts';
-import type { Closure, Job, Return } from '../schema.ts';
+import type { Closure, Job, ProposalKind, Return } from '../schema.ts';
 import type { Run, Store } from '../store.ts';
 import type { BotEvent } from '../types.ts';
-import { type JobResult, type Pipeline, issuesOf, launcher, skip } from './context.ts';
+import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, issueEnv, runOnItem } from './checks.ts';
 import { continuing, lastPushed, saidSince } from './continue.ts';
@@ -122,6 +122,29 @@ const scriptJob = (
     });
   });
 
+/**
+ * Where a job's worktree starts when its own branch does not exist yet: the handed-off branch, the `into` of a job
+ * whose branch goes into one, so every job into it forks from the same place, or the event's ref.
+ */
+const startOf = (target: Target, handoff: Handoff, p: Pipeline) =>
+  handoff.branch ?? (target.branch && target.into && pullsOf(p) ? target.into : p.event.ref);
+
+/**
+ * Whether a merging job has nothing to do: no open request from a `bothub/` branch into its `into`, and no request
+ * from `into` into the default branch left to open, because `into` is the default branch, the job may not open one
+ * or one is already open.
+ */
+const nothingToMerge = async (kinds: ProposalKind[], target: Target, p: Pipeline) => {
+  const pulls = pullsOf(p);
+  if (!kinds.includes('merge') || !pulls) return false;
+  const main = await pulls.defaultBranch();
+  const into = target.into ?? main;
+  if ((await pulls.list({ into })).some(pull => pull.branch.startsWith('bothub/'))) return false;
+  return (
+    into === main || !kinds.includes('merge-request') || (await pulls.list({ branch: into, into: main })).length > 0
+  );
+};
+
 /** The branch a job locks while it runs: its own, or the `into` it merges into. */
 const lockOf = (target: Target, returns: Return[]) =>
   target.branch ?? (returnKinds(returns).includes('merge') ? target.into : undefined);
@@ -137,10 +160,10 @@ const waitForLock = async (name: string, run: string, minutes: number, p: Pipeli
 };
 
 /**
- * Runs `use` in a fresh worktree for `created`, at the job's branch when it exists, otherwise the handed-off branch or
- * the event's ref, holding the lock on `lock`. With `fresh`, it starts from the handed-off branch or the event's ref
- * even when the job's branch exists, to replace it. With `merge`, that branch is merged in for the job to resolve. The
- * commit the worktree starts from is stored as the run's `base`; the worktree is always removed. A branch another
+ * Runs `use` in a fresh worktree for `created`, at the job's branch when it exists, otherwise at `startOf`, an `into`
+ * that does not exist yet created from the default branch first, holding the lock on `lock`. With `fresh`, it starts
+ * from `startOf` even when the job's branch exists, to replace it. With `merge`, that branch is merged in for the job
+ * to resolve. The commit the worktree starts from is stored as the run's `base`; the worktree is always removed. A branch another
  * live run holds is waited for, at most `wait` minutes, then defers the job.
  */
 const withWorktree = (
@@ -161,7 +184,7 @@ const withWorktree = (
     job: created.job,
     ...(created.bot && { bot: created.bot }),
   };
-  const ref = handoff.branch ?? p.event.ref;
+  const ref = startOf(target, handoff, p);
   const fail = (error: string) =>
     Effect.promise(async (): Promise<JobResult> => {
       const run = await p.store.update(created.id, {
@@ -192,6 +215,7 @@ const withWorktree = (
           })
         : Effect.acquireUseRelease(
             Effect.tryPromise(async (): Promise<Worktree> => {
+              if (ref && ref === target.into) await pullsOf(p)?.ensureBranch(ref);
               const worktree = await p.workspaces.create(start, created.id);
               await p.store.update(created.id, { base: worktree.base });
               const { path: cwd, base, conflicts, branch, replace } = worktree;
@@ -255,7 +279,14 @@ const answers = async (run: Run, questions: string[], planned: PlannedJob, p: Pi
  * it asked and what the human answered, and, when it parked its work on the branch this worktree started from, the
  * change measured from where that branch forked.
  */
-const resumed = async (worktree: Worktree, planned: PlannedJob, created: Run, handoff: Handoff, p: Pipeline) => {
+const resumed = async (
+  worktree: Worktree,
+  planned: PlannedJob,
+  created: Run,
+  handoff: Handoff,
+  target: Target,
+  p: Pipeline
+) => {
   const last = await lastBlocked(planned, created, p);
   if (!last || worktree.merging) return worktree;
   const { run, outcome } = last;
@@ -274,7 +305,7 @@ const resumed = async (worktree: Worktree, planned: PlannedJob, created: Run, ha
     .filter(Boolean)
     .join('\n\n');
   if (!run.parked) return { ...worktree, resume };
-  const from = handoff.branch ?? p.event.ref;
+  const from = startOf(target, handoff, p);
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
   return { ...worktree, base, resume };
@@ -285,9 +316,16 @@ const resumed = async (worktree: Worktree, planned: PlannedJob, created: Run, ha
  * blocked, otherwise continued when the worktree started at the job's branch. A continued job's change is measured
  * from the head its last run pushed, or with `all` from where the branch forked.
  */
-const picked = async (worktree: Worktree, planned: PlannedJob, created: Run, handoff: Handoff, p: Pipeline) => {
+const picked = async (
+  worktree: Worktree,
+  planned: PlannedJob,
+  created: Run,
+  handoff: Handoff,
+  target: Target,
+  p: Pipeline
+) => {
   if (planned.rerun === 'fresh') return worktree;
-  const resuming = await resumed(worktree, planned, created, handoff, p);
+  const resuming = await resumed(worktree, planned, created, handoff, target, p);
   if (resuming.resume || !worktree.branch || worktree.merging) return resuming;
   const bot = planned.bot === undefined ? undefined : p.config.bots[planned.bot];
   const resume = bot?.resume;
@@ -295,7 +333,7 @@ const picked = async (worktree: Worktree, planned: PlannedJob, created: Run, han
   if (!continued) return worktree;
   const { section, session } = continued;
   const carried = { ...worktree, resume: section, ...(session && { session }) };
-  const from = planned.rerun === 'all' ? (handoff.branch ?? p.event.ref) : await lastPushed(planned, created, p);
+  const from = planned.rerun === 'all' ? startOf(target, handoff, p) : await lastPushed(planned, created, p);
   if (from === undefined && planned.rerun !== 'all') return carried;
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
@@ -341,7 +379,8 @@ const park = async (
  * attempt is stored as its own run, linked to the one before by `parent`; the worktree is always removed. A job
  * that needs another starts from the branch handed to it, which scripts and harnesses also get as `handoffEnv`. With
  * `merge`, the job runs again on its branch with that branch merged in, to resolve the conflicts. A `branch` or
- * `into` naming a value the event does not have blocks the job.
+ * `into` naming a value the event does not have blocks the job, and a merging script job with nothing to do (see
+ * `nothingToMerge`) is skipped.
  */
 export const runPlanned = (
   planned: PlannedJob,
@@ -363,6 +402,11 @@ export const runPlanned = (
       return yield* Effect.promise(() =>
         skip(planned, `"${unfilled}" names a value this event does not have`, p, 'blocked')
       );
+    if (
+      job.type === 'script' &&
+      (yield* Effect.promise(() => nothingToMerge(returnKinds(job.returns ?? []), target, p)))
+    )
+      return yield* Effect.promise(() => skip(planned, 'nothing to merge or propose', p, 'no-op'));
     if (job.type === 'script') return yield* scriptJob(planned, job, handoff, target, p);
     const bot = p.config.bots[job.bot];
     if (!bot) return yield* Effect.promise(() => skip(planned, 'the job has no bot', p));
@@ -381,7 +425,7 @@ export const runPlanned = (
       created,
       started =>
         Effect.gen(function* () {
-          const worktree = yield* Effect.promise(() => picked(started, planned, created, handoff, p));
+          const worktree = yield* Effect.promise(() => picked(started, planned, created, handoff, target, p));
           const result = yield* fanned(planned, workflow, job, created, worktree, handoff, p);
           return yield* Effect.promise(() => park(result, worktree, job, target, returns, p));
         }),

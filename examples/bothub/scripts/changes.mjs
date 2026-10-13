@@ -80,6 +80,11 @@ export const diffOf = (sha, paths, context = 3) =>
 /** A vitest test file. */
 export const isTestFile = path => /^tests\/.*\.test\.(ts|tsx|mts|js|mjs)$/.test(path);
 
+const call = /\b(it|test)(\.each\([^)]*\))?\(\s*(['"`])(.+?)\3/;
+
+/** The title of the `it` or `test` call that starts on `line`, if one does. */
+export const titleOf = line => call.exec(line)?.[4];
+
 /** The change under `roots` as one diff text, new untracked files included as added lines. */
 export const changeText = (sha, roots, context = 3) => {
   const files = changedFiles(sha).filter(({ path }) => roots.some(root => path.startsWith(root)));

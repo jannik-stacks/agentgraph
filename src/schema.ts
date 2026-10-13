@@ -194,7 +194,8 @@ const unknownBotKeys = (keys: string[], input: unknown) => {
  * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any hub tools (see
  * `HubTool`) the bot may call during a run; `returns` is the most it may return, which a job can only narrow.
  * `resume` is what a new run or attempt starts with besides its task; `history` how far back `history` and recall
- * reach, `bot` by default.
+ * reach, `bot` by default. `concurrency` caps how many of the bot's sessions, jobs and checks together, run at once,
+ * within the hub's own limit; unset, only that limit applies.
  */
 export const Bot = z
   .strictObject(
@@ -209,6 +210,7 @@ export const Bot = z
       history: History.optional(),
       summarizer: Summarizer.optional(),
       'max-turns': z.int().positive().optional(),
+      concurrency: z.int().positive().optional(),
       budget: z
         .strictObject({
           'runs-per-day': z.int().positive().optional(),

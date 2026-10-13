@@ -128,7 +128,7 @@ const abandonment = (p: Pipeline) => {
 };
 
 /**
- * Runs one agent session through the limiter and resolves to the finished run and its final message, with the
+ * Runs one agent session through the limiter, in the check pool for a check run, and resolves to the finished run and its final message, with the
  * worktree read-only when `readonly`. A bot out of runs for the day is skipped instead; the model the harness reports
  * is recorded on the run. A silent harness is stopped after `stallMinutes`, and a run whose issue was abandoned is
  * withdrawn.
@@ -172,7 +172,8 @@ export const agent = (
           if (record.event.type === 'end') result = record.event.result;
           p.onEvent?.(run, record);
         },
-      })
+      }),
+      { bot, check: run.check !== undefined }
     );
     const reported: string | undefined = model;
     const recorded = reported ? yield* Effect.promise(() => p.store.update(run.id, { model: reported })) : finished;

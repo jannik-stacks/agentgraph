@@ -55,13 +55,17 @@ const pluginIds = (spec: RunSpec) => [
   ...(spec.decider?.questions.length ? ['bothub-decider'] : []),
 ];
 
-/** Harness memory is off: no sharing, no snapshots, no compaction or pruning; bothub's surfacer is the memory. */
+/**
+ * Harness memory is off: no sharing, no snapshots, no compaction or pruning; bothub's surfacer is the memory. Tool
+ * output past 300 lines or 16 KiB comes back cut short, since every later call re-sends it.
+ */
 const config = (spec: RunSpec) => ({
   $schema: 'https://opencode.ai/config.json',
   autoupdate: false,
   share: 'disabled',
   snapshot: false,
   compaction: { auto: false, prune: false },
+  tool_output: { max_lines: 300, max_bytes: 16_384 },
   enabled_providers: [provider],
   provider: {
     [provider]: {

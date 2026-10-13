@@ -19,6 +19,8 @@ import {
   sandboxReady,
   specInside,
 } from './sandbox.ts';
+import type { Defined } from './config.ts';
+import type { Bot } from './schema.ts';
 import type { EventRecord, Run, Stopped, Store } from './store.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from './types.ts';
 
@@ -575,5 +577,26 @@ export const runScript = async (
   };
 };
 
-/** A limiter allowing at most `n` wrapped effects to run at once (4 by default); waiting runs stay `queued`. */
-export const limiter = (n = 4) => Effect.map(Effect.makeSemaphore(n), semaphore => semaphore.withPermits(1));
+/**
+ * A limiter for agent sessions: at most `n` job sessions run at once (4 by default), and at most `n` check sessions in
+ * a pool of their own, so an attempt's checks never wait behind other jobs' sessions. A bot with a `concurrency` also
+ * runs at most that many sessions at once, jobs and checks together. Waiting runs stay `queued`.
+ */
+export const limiter = (n = 4) =>
+  Effect.sync(() => {
+    const pools = { job: Effect.unsafeMakeSemaphore(n), check: Effect.unsafeMakeSemaphore(n) };
+    const bots = new Map<string, Effect.Semaphore>();
+    const capOf = ({ name, concurrency }: Pick<Defined<Bot>, 'name' | 'concurrency'>) => {
+      const key = `${name}:${concurrency}`;
+      const cap = bots.get(key) ?? Effect.unsafeMakeSemaphore(concurrency ?? n);
+      bots.set(key, cap);
+      return cap;
+    };
+    return <A, E, R>(
+      effect: Effect.Effect<A, E, R>,
+      { bot, check = false }: { bot?: Pick<Defined<Bot>, 'name' | 'concurrency'>; check?: boolean } = {}
+    ) => {
+      const pooled = pools[check ? 'check' : 'job'].withPermits(1)(effect);
+      return bot?.concurrency ? capOf(bot).withPermits(1)(pooled) : pooled;
+    };
+  });

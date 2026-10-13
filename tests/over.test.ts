@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addedLines, fanOut, fileDiffs, hunks, itemsOf, scriptItems } from '../src/over.ts';
+import { addedLines, fanOut, fileDiffs, hunks, itemsOf, positionless, scriptItems } from '../src/over.ts';
 
 const diff = [
   'diff --git a/src/a.ts b/src/a.ts',
@@ -92,5 +92,26 @@ describe('over', () => {
     expect(fanOut({ run: 'x' })).toBeUndefined();
     expect(fanOut('diff')).toBeUndefined();
     expect(fanOut(undefined)).toBeUndefined();
+  });
+});
+
+const SHIFTED = [
+  ['hunk headers', '@@ -1,2 +1,2 @@ f\n+a', '@@ -40,2 +41 @@ f\n+a'],
+  ['a script line field', '{"file":"a.ts","line":3,"hunk":"+a"}', '{"file":"a.ts","line":30,"hunk":"+a"}'],
+  ['blob ids', 'index 1111111..2222222 100644\n+a', 'index 3333333..4444444 100644\n+a'],
+] as const;
+
+const CHANGED = [
+  ['an added line', '@@ -1 +1 @@\n+a', '@@ -1 +1 @@\n+b'],
+  ['the file', '{"file":"a.ts","line":3}', '{"file":"b.ts","line":3}'],
+] as const;
+
+describe('positionless', () => {
+  it.each(SHIFTED)('reads the same item on another base: %s', (_, before, after) => {
+    expect(positionless(before)).toBe(positionless(after));
+  });
+
+  it.each(CHANGED)('tells a changed item apart: %s', (_, before, after) => {
+    expect(positionless(before)).not.toBe(positionless(after));
   });
 });

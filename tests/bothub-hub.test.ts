@@ -1,4 +1,4 @@
-import { chmodSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, temp, write } from './kit.ts';
@@ -650,6 +650,14 @@ describe('triage-brief', () => {
     ]);
   });
 
+  it('still matches the bounds file in the triage skill, which names them because the bot cannot read the hub', async () => {
+    const { paths, maxFiles } = await import(join(scripts, 'bounds.mjs'));
+    const skill = readFileSync(join(scripts, '../skills/triage.md'), 'utf8').replace(/\s+/g, ' ');
+    const named = skill.match(/may touch only (.+?), the paths the safety check allows/)?.[1] ?? '';
+    expect(named.match(/`[^`]+`/g)?.map(path => path.slice(1, -1))).toEqual(paths);
+    expect(skill).toContain(`at most ${maxFiles} files outside \`tests/\``);
+  });
+
   it('fails a brief naming more files outside tests/ than the size cap, and says to split it', () => {
     const named = (n: number) => Array.from({ length: n }, (_, i) => `- \`src/f${i}.ts\``).join('\n');
     const tests = Array.from({ length: 4 }, (_, i) => `- \`tests/t${i}.test.ts\``).join('\n');
@@ -776,6 +784,33 @@ describe('slicers for the narrow judges', () => {
       criterion: 'A label removed and added again by hand runs again.',
     });
     expect(found[1]!.change).toContain('+export const labelId');
+  });
+
+  it('criteria: carries the code of each criterion test the worktree has', () => {
+    const test = [
+      "it('replays a label added while stopped', () => {",
+      "  expect(add({ labels: [] }, 'a (b)')).toBe(')');",
+      '});',
+    ].join('\n');
+    const file = [
+      "import { expect, it } from 'vitest';",
+      '',
+      test,
+      '',
+      "it('replays a label re-added by hand', () => expect(1).toBe(1));",
+    ].join('\n');
+    const repo = change(
+      { 'src/labels.ts': labels.before },
+      { 'src/labels.ts': labels.after, 'tests/labels.test.ts': `${file}\n` }
+    );
+    const env = { BOTHUB_BRIEF: join(hubWith(brief), 'issues/1-labels.md') };
+    writeFileSync(env.BOTHUB_BRIEF, brief);
+    const found = items(run('criteria.mjs', repo, [], env).out);
+    expect(found.map(i => i['test code'])).toEqual([
+      test,
+      "it('replays a label re-added by hand', () => expect(1).toBe(1));",
+      undefined,
+    ]);
   });
 
   it('scope: only the changed files the brief does not name', () => {

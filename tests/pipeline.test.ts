@@ -582,7 +582,7 @@ describe('until', () => {
     expect((await issues.list({ label: 'unsure' })).map(i => i.title)).toEqual(['May the change touch studio?']);
   });
 
-  it('fans a bot check out over changed files and reads PASS or FAIL from its reply', async () => {
+  it('fans a bot check out over changed files, reads PASS or FAIL and judges again only what did not pass', async () => {
     const write =
       "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/a.ts', 'a'); fs.writeFileSync('src/b.ts', 'b')";
     const verdicts: string[] = [];
@@ -599,7 +599,7 @@ describe('until', () => {
     const result = await Effect.runPromise(runPlanned(planned('judged'), p));
 
     expect(verdicts.slice(0, 2).sort()).toEqual(['FAIL b', 'PASS a']);
-    expect(verdicts.slice(2).sort()).toEqual(['PASS a', 'PASS b']);
+    expect(verdicts.slice(2)).toEqual(['PASS b']);
     const judge = seen.find(s => s.prompt.includes('## Changes to src/a.ts'))!;
     expect(judge.system.startsWith('You judge.')).toBe(true);
     expect(judge.prompt.startsWith('Judge this file.\n\nBe strict.\n\n## Event\n')).toBe(true);
@@ -609,10 +609,17 @@ describe('until', () => {
     expect(seen[3]!.prompt).toContain('### judged\n\n```text\nsrc/b.ts:\nsrc/b.ts:1 is wrong\n```');
     expect(result.run).toMatchObject({ status: 'succeeded', attempt: 2 });
     expect(untimed(result.outcome?.checks)).toEqual([
-      { check: 'judged', gating: true, pass: true, runs: [expect.any(String), expect.any(String)] },
+      {
+        check: 'judged',
+        gating: true,
+        pass: true,
+        runs: [expect.any(String)],
+        findings: expect.stringMatching(/^src\/a\.ts:\nunchanged since run \S+, which passed it$/),
+      },
     ]);
     const checkRuns = (await p.store.list()).filter(r => r.check === 'judged');
-    expect(checkRuns).toHaveLength(4);
+    expect(checkRuns).toHaveLength(3);
+    expect(checkRuns.filter(r => r.passed)).toHaveLength(2);
     expect(checkRuns.every(r => r.bot === 'judge' && r.parent !== undefined)).toBe(true);
   });
 });
@@ -1440,7 +1447,7 @@ describe('over', () => {
     const attempts = seen.filter(spec => spec.system.startsWith('You work.'));
     expect(attempts).toHaveLength(2);
     expect(attempts[1]!.prompt).toContain('### style\n\n```text\nnit\n```');
-    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(2);
+    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(1);
     expect(result.run).toMatchObject({ status: 'succeeded', attempt: 2 });
     expect(result.outcome?.accepted).toEqual([{ kind: 'reply', body: 'Done.' }]);
     expect(result.outcome?.checks?.map(v => [v.check, v.pass])).toEqual([

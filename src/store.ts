@@ -51,6 +51,8 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     base?: string;
     approval?: number;
     parked?: string;
+    /** On a check run that passed, the key of the check and the item it judged (see `judgeWith`). */
+    passed?: string;
     startedAt?: string;
     endedAt?: string;
     error?: string;

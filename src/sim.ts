@@ -49,7 +49,8 @@ const Start = z.strictObject({
 });
 
 /**
- * A simulation: human actions on local issues, taken one after another, the files the repository starts with, the
+ * A simulation: human actions on local issues, taken one after another, or with `parallel` all before any event they
+ * cause runs, as if their jobs ran at once; the files the repository starts with, the
  * verdict of each check, the scripted steps of each job's bot and the faults to seed. Steps are keyed
  * `<workflow>/<job>`, or `<workflow>/<job>#<issue>` for one issue, with `/conflict` added for the run that resolves
  * merge conflicts. A job without steps ends at once with no proposals; a `write` step writes files into the
@@ -62,6 +63,7 @@ export const Scenario = z.strictObject({
   repo: z.string().default('acme/app'),
   files: z.record(z.string(), z.string()).default({}),
   start: list(Start),
+  parallel: z.boolean().default(false),
   checks: z.record(z.string(), z.enum(['pass', 'fail'])).default({}),
   jobs: z.record(z.string(), z.array(Step)).default({}),
   faults: Faults.default({}),
@@ -393,8 +395,9 @@ export const simulate = async (file: string, out: (line: string) => void): Promi
       const [event] = events as [BotEvent];
       started.push(event);
       await handle(event);
-      await drain();
+      if (!scenario.parallel) await drain();
     }
+    await drain();
     const [first] = started;
     if (faults.redeliver && first) {
       const again = await dispatch(first, config, store);

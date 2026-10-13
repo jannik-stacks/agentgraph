@@ -10,6 +10,7 @@ import type { Closure, ProposalKind } from '../schema.ts';
 import type { Outcome, Run, Verdict } from '../store.ts';
 import { type JobResult, type Pipeline, issuesOf, pullsOf } from './context.ts';
 import type { Handoff } from './prompt.ts';
+import { stepsInto } from './attempt.ts';
 import { type Attempt, failingChecks, runChecks } from './checks.ts';
 import { openerOf } from './continue.ts';
 import { runPlanned } from './jobs.ts';
@@ -83,7 +84,8 @@ const priorEffects = async (run: Run, p: Pipeline) => {
 
 /**
  * Stores and returns an attempt's outcome, applying `toApply` when the mode and a GitHub client allow it. The planned
- * effects are journalled in the outcome before the first one is applied.
+ * effects are journalled in the outcome before the first one is applied. A run that lands a merge reads `running`
+ * until the merge has landed; `finish` stores its status and end then.
  */
 export const settle = async (
   run: Run,
@@ -102,6 +104,8 @@ export const settle = async (
   if (!applied) return p.store.saveOutcome(run.id, base);
   const folds = (proposal: Proposal) => a.fold !== undefined && proposal.kind === 'reply';
   const writes = toApply.filter(proposal => proposal.kind !== 'close' && !folds(proposal));
+  if (run.status === 'succeeded' && writes.some(proposal => proposal.kind === 'merge'))
+    await p.store.update(run.id, { status: 'running' });
   const push: Parameters<typeof apply>[1]['push'] = ({ kind: _, ...proposal }, journal) =>
     workspaces.publish(event.repo, a.worktree, {
       ...proposal,
@@ -206,9 +210,28 @@ const resolveConflicts = async (pull: Pull, p: Pipeline) => {
 };
 
 /**
+ * Merges `into` forward into the other open requests from `bothub/` branches into it that merge cleanly, so their
+ * checks and merges see what landed. A branch a live run holds is left alone, and so is one that conflicts.
+ */
+const refreshSiblings = async (landed: Pull, pulls: Pulls, p: Pipeline) => {
+  const open = await pulls.list({ into: landed.into });
+  const siblings = open.filter(pull => pull.number !== landed.number && pull.branch.startsWith('bothub/'));
+  for (const pull of siblings) {
+    const held = await p.store.lock(`${p.event.repo}:${pull.branch}`, `refresh-${landed.number}`);
+    if (!('release' in held)) continue;
+    try {
+      await pulls.refresh(pull.number).catch(() => false);
+    } finally {
+      await held.release();
+    }
+  }
+};
+
+/**
  * Lands merge request `number` for an attempt's job: only an open request from a `bothub/` branch into the job's
  * `into`, and into the default branch only when `hub.yaml` lets bots merge there. A conflicting request goes back to
- * the job that opened it once; the job's `requires` checks then run on the merged tree before the merge lands.
+ * the job that opened it once; the job's `requires` checks then run on the merged tree before the merge lands. Once
+ * it lands, the other open requests into `into` are brought up to date (see `refreshSiblings`).
  */
 const landMerge = async (number: number, a: Attempt, p: Pipeline): Promise<Omit<ApplyResult, 'kind' | 'key'>> => {
   const pulls = pullsOf(p);
@@ -227,7 +250,22 @@ const landMerge = async (number: number, a: Attempt, p: Pipeline): Promise<Omit<
     landed = await tryMerge(pull, 2, a, pulls, p);
   }
   if ('conflicts' in landed) throw new Error(`merge request #${number} conflicts in ${landed.conflicts.join(', ')}`);
+  await refreshSiblings(pull, pulls, p);
+  await stepLanded(pull, pulls, p).catch(() => undefined);
   return { status: 'applied', url: pull.url, sha: landed.sha };
+};
+
+/** Closes the step issue whose request landed and tells its plan how many of its steps have landed. */
+const stepLanded = async (pull: Pull, pulls: Pulls, p: Pipeline) => {
+  const issues = issuesOf(p);
+  const number = (await openerOf(pull, p.store))?.event.number;
+  if (!issues || number === undefined) return;
+  const issue = await issues.get(number);
+  if (issue?.state === 'open') await issues.close(number);
+  if (issue?.parent === undefined) return;
+  const steps = (await stepsInto(pull.into, pulls, p)).filter(step => step.parent === issue.parent);
+  const landed = steps.filter(step => step.merged).length;
+  await issues.comment(issue.parent, `#${number} landed on ${pull.into}, ${landed} of ${steps.length} steps.`);
 };
 
 /** Saves the memory of a job's final run; a memory that cannot be written never fails the job. */
@@ -248,7 +286,9 @@ export const finish = (
   Effect.promise(async (): Promise<JobResult> => {
     const jobs = Object.values(p.config.workflows[planned.workflow]?.jobs ?? {});
     const taken = merging || jobs.some(job => job.needs.includes(planned.job));
-    const final = await p.store.update(run.id, closureOf(run, outcome, kinds, taken));
+    const landed = outcome?.results.some(result => result.kind === 'merge');
+    const ended = landed && { status: run.status, endedAt: new Date().toISOString() };
+    const final = await p.store.update(run.id, { ...ended, ...closureOf(run, outcome, kinds, taken) });
     await remember(final, outcome, p);
     return { ...planned, run: final, ...(outcome && { outcome }) };
   });

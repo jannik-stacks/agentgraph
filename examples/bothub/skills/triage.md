@@ -33,10 +33,11 @@ more than five criteria, it is two tasks: say so and ask which comes first.
 If you can't tell what is being asked, or the fix needs a choice the code does not settle, ask
 one focused question and stop.
 
-The change may touch only the paths the hub keeps in `scripts/bounds.mjs`, the ones the safety
-check allows; triage-brief lists them when the brief names a file elsewhere. The files section
-names at most as many files outside `tests/` as the size check's file cap, which triage-brief reads
-from the same place; test files never count. For a rename, name the files that do more than the
+The change may touch only `src/`, `tests/`, `studio/src/`, `studio/seed.ts`,
+`studio/content/docs/` and `examples/`, the paths the safety check allows (the hub keeps them in its
+own `scripts/bounds.mjs`, which is not in this repository); triage-brief lists them when the brief
+names a file elsewhere. The files section names at most 8 files outside `tests/`, the size check's
+file cap; test files never count. For a rename, name the files that do more than the
 rename and say in the task that the rename reaches every use. A task that needs more is two tasks:
 say so and ask which comes first.
 

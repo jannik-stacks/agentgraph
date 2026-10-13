@@ -9,10 +9,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
-import { addedLines, base, baseText, changedFiles, isTestFile, report } from './changes.mjs';
-
-const call = /\b(it|test)(\.each\([^)]*\))?\(\s*(['"`])(.+?)\3/;
-const titleOf = text => call.exec(text)?.[4];
+import { addedLines, base, baseText, changedFiles, isTestFile, report, titleOf } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
 const testCalls = /\b(it|test)(\.each\([^)]*\))?\(/g;

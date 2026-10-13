@@ -116,5 +116,6 @@ Moving an alias from an API key to a subscription is a proxy config change; no b
 
 A bot's `budget` is enforced by the [pipeline](/docs/reference/pipeline): `runs-per-day` skips a
 run once the bot has started that many in the last 24 hours, `minutes` is the run timeout, and `usd-per-run` stops the until
-loop once attempts and checks have spent it. A job with an `environment` waits until a human adds
+loop once attempts and checks have spent it. A bot's `concurrency` caps how many of its sessions
+run at once. A job with an `environment` waits until a human adds
 the `approved` label to the approval issue bothub opens for it.

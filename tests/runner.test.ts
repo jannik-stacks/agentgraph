@@ -566,4 +566,46 @@ describe('limiter', () => {
     expect([first.status, second.status]).toEqual(['succeeded', 'succeeded']);
     expect(second.startedAt! >= first.endedAt!).toBe(true);
   });
+
+  /** The most sessions that ran at once among `sessions`, each a 20 ms session run through `limiter(n)`. */
+  const peaks = (n: number, sessions: Parameters<Effect.Effect.Success<ReturnType<typeof limiter>>>[1][]) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const limit = yield* limiter(n);
+        let running = 0;
+        let peak = 0;
+        const session = Effect.gen(function* () {
+          peak = Math.max(peak, ++running);
+          yield* Effect.sleep('20 millis');
+          running--;
+        });
+        yield* Effect.all(
+          sessions.map(who => limit(session, who)),
+          { concurrency: 'unbounded' }
+        );
+        return peak;
+      })
+    );
+
+  const SESSIONS = [
+    ['job sessions share the pool', 1, [{}, {}], 1],
+    ['a check does not wait behind a job', 1, [{}, { check: true }], 2],
+    ['a bot without concurrency only has the pool', 4, [{ bot: { name: 'b' } }, { bot: { name: 'b' } }], 2],
+    [
+      'a bot with concurrency 1 runs one session at a time, jobs and checks together',
+      4,
+      [{ bot: { name: 'b', concurrency: 1 } }, { bot: { name: 'b', concurrency: 1 }, check: true }],
+      1,
+    ],
+    [
+      'other bots are not held by a capped one',
+      4,
+      [{ bot: { name: 'b', concurrency: 1 } }, { bot: { name: 'c', concurrency: 1 } }],
+      2,
+    ],
+  ] as const;
+
+  it.each(SESSIONS)('%s', async (_, n, sessions, peak) => {
+    expect(await peaks(n, [...sessions])).toBe(peak);
+  });
 });

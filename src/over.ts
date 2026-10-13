@@ -54,6 +54,16 @@ export const scriptItems = (output: string): Item[] =>
     .filter(line => line.trim())
     .map((line, i) => ({ label: labelOf(line, i), text: line }));
 
+/**
+ * An item's text without what shifts when only the base under it moves: hunk line numbers, a `line` field and blob
+ * ids, so the same change judged on another base reads the same.
+ */
+export const positionless = (text: string) =>
+  text
+    .replace(/@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/g, '@@ @@')
+    .replace(/"line":\d+/g, '"line":0')
+    .replace(/index [0-9a-f]{7,}\.\.[0-9a-f]{7,}/g, 'index');
+
 /** How many hunks an `each-hunk` takes and how much code around each it shows, or `undefined` for any other `over`. */
 export const hunkOptions = (over: Over | undefined) =>
   over === 'each-hunk' ? { max: 30 } : typeof over === 'object' && 'each-hunk' in over ? over['each-hunk'] : undefined;

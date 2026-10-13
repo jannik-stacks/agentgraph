@@ -15,3 +15,10 @@ export const fingerprint = (dir: string = srcDir) => {
   for (const file of files) hash.update(`${relative(dir, file).split(sep).join('/')}\0`).update(readFileSync(file));
   return hash.digest('hex').slice(0, 16);
 };
+
+/** A short hash of `parts`, each kept apart from the next, so the same parts in the same order give the same key. */
+export const digest = (...parts: string[]) => {
+  const hash = createHash('sha256');
+  for (const part of parts) hash.update(`${part}\0`);
+  return hash.digest('hex').slice(0, 16);
+};

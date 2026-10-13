@@ -39,7 +39,9 @@ export type NewPull = Omit<Extract<Proposal, { kind: 'merge-request' }>, 'kind' 
 
 /**
  * Merge requests behind one interface. `list` returns open requests unless `state` says otherwise; `get` adds whether
- * the request merges cleanly. `open` creates `into` from the default branch when it does not exist yet. `merge` lands
+ * the request merges cleanly. `ensureBranch` creates a branch from the default branch when it does not exist yet, and
+ * `open` does so for `into`. `refresh` merges a request's `into` into its branch when the branch is behind and the
+ * merge is clean, and resolves to whether the branch moved. `merge` lands
  * a request only while `into` and the branch are still at the commits in `expected`, and throws otherwise. `comments`
  * lists what was said on a request, oldest first.
  */
@@ -48,6 +50,8 @@ export type Pulls = {
   list: (filter?: PullFilter) => Promise<Pull[]>;
   get: (number: number) => Promise<(Pull & { mergeable?: boolean }) | undefined>;
   comments: (number: number) => Promise<PullComment[]>;
+  ensureBranch: (branch: string) => Promise<void>;
+  refresh: (number: number) => Promise<boolean>;
   open: (request: NewPull) => Promise<Pull>;
   merge: (number: number, expected: { head: string; into: string }) => Promise<{ sha: string }>;
 };
@@ -109,6 +113,16 @@ export const githubPulls = (gh: GitHub, repo: string): Pulls => {
   const defaultBranch = async () => (await gh<{ default_branch: string }>('GET', `/repos/${repo}`)).default_branch;
   const ref = (branch: string) =>
     gh<{ object: { sha: string } }>('GET', `/repos/${repo}/git/ref/heads/${branch}`).catch(notFound);
+  const ensureBranch = async (branch: string) => {
+    if (await ref(branch)) return;
+    const from = await ref(await defaultBranch());
+    if (!from) throw new Error('the default branch has no commit to start from');
+    await gh('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: from.object.sha }).catch(
+      async (e: unknown) => {
+        if (!(await ref(branch))) throw e;
+      }
+    );
+  };
   const get = async (number: number) => {
     const found = await gh<RestPull>('GET', `/repos/${repo}/pulls/${number}`).catch(notFound);
     return found && toPull(found);
@@ -146,12 +160,17 @@ export const githubPulls = (gh: GitHub, repo: string): Pulls => {
       return pulls.map(toPull).filter(pull => matches(pull, filter));
     },
     get,
+    ensureBranch,
+    refresh: async number => {
+      const pull = await get(number);
+      if (pull?.state !== 'open') return false;
+      return gh('PUT', `/repos/${repo}/pulls/${number}/update-branch`, { expected_head_sha: pull.head }).then(
+        () => true,
+        () => false
+      );
+    },
     open: async ({ branch, into, title, body, draft, origin }) => {
-      if (!(await ref(into))) {
-        const from = await ref(await defaultBranch());
-        if (!from) throw new Error('the default branch has no commit to start from');
-        await gh('POST', `/repos/${repo}/git/refs`, { ref: `refs/heads/${into}`, sha: from.object.sha });
-      }
+      await ensureBranch(into);
       const marked = origin ? `${body}\n\n<!-- bothub:request ${origin.job} ${origin.event} -->` : body;
       const created = await gh<RestPull>('POST', `/repos/${repo}/pulls`, {
         title,
@@ -297,9 +316,17 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
   const defaultBranch = async () => (await git(['symbolic-ref', '--short', 'HEAD'])).stdout;
   const mergeTree = (into: string, head: string) =>
     git(['merge-tree', '--write-tree', '--name-only', '--no-messages', into, head]);
+  const ensureBranch = async (branch: string) => {
+    if (await tip(branch)) return;
+    const from = await tip(await defaultBranch());
+    if (!from) throw new Error('the default branch has no commit to start from');
+    const created = await git(['update-ref', `refs/heads/${branch}`, from, '']);
+    if (created.code !== 0 && !(await tip(branch))) throw new Error(`branch "${branch}" could not be created`);
+  };
 
   const pulls: Pulls = {
     defaultBranch,
+    ensureBranch,
     comments: async number => commentsIn(await ops(), number, url),
     list: async (filter = {}) => (await all()).filter(pull => matches(pull, filter)).map(plain),
     get: async number => {
@@ -313,11 +340,7 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
       serial(async () => {
         const sha = await tip(request.branch);
         if (!sha) throw new Error(`branch "${request.branch}" does not exist`);
-        if (!(await tip(request.into))) {
-          const from = await tip(await defaultBranch());
-          if (!from) throw new Error('the default branch has no commit to start from');
-          await git(['update-ref', `refs/heads/${request.into}`, from, '']);
-        }
+        await ensureBranch(request.into);
         const number = Math.max(0, ...(await ops()).map(op => op.number)) + 1;
         const { origin: from, draft, ...rest } = request;
         await record({
@@ -330,6 +353,19 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
         });
         await git(['update-ref', `refs/pull/${number}/head`, sha]);
         return { number, url: url(number), ...rest, state: 'open', head: sha, ...(from && { origin: from }) };
+      }),
+    refresh: number =>
+      serial(async () => {
+        const pull = (await all()).find(p => p.number === number);
+        const into = pull?.state === 'open' ? await tip(pull.into) : undefined;
+        if (!pull?.head || !into) return false;
+        if ((await git(['merge-base', '--is-ancestor', into, pull.head])).code === 0) return false;
+        const merged = await mergeTree(pull.head, into);
+        if (merged.code !== 0) return false;
+        const tree = merged.stdout.split('\n')[0] ?? '';
+        const message = `Merge ${pull.into} into ${pull.branch}`;
+        const { stdout: sha } = await git(['commit-tree', tree, '-p', pull.head, '-p', into, '-m', message], botEnv);
+        return (await git(['update-ref', `refs/heads/${pull.branch}`, sha, pull.head])).code === 0;
       }),
     merge: (number, expected) =>
       serial(async () => {

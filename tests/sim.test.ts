@@ -87,11 +87,12 @@ describe('simulate', { timeout: 20_000 }, () => {
     expect(trace).toContain(
       'requests\n  #1 bothub/5-6 into bothub/5: merged\n  #2 bothub/5-7 into bothub/5: merged\n  #3 bothub/5 into main: open'
     );
-    expect(results.filter(r => r.job === 'merge').map(r => r.run.closure)).toEqual([
-      'done',
-      'no-op',
-      'done',
-      'handed-off',
+    const merges = results.filter(r => r.job === 'merge').map(r => [r.run.status, r.run.closure]);
+    expect(merges).toEqual([
+      ['succeeded', 'done'],
+      ['succeeded', 'done'],
+      ['succeeded', 'handed-off'],
+      ['skipped', 'no-op'],
     ]);
   });
 });

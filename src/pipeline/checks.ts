@@ -2,7 +2,8 @@ import { Effect } from 'effect';
 import { effectivePreload, effectiveTools, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import { decideCheck } from '../decide.ts';
-import { fanOut, hunkOptions, itemsOf, type Item } from '../over.ts';
+import { digest } from '../fingerprint.ts';
+import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.ts';
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
 import { issueContext } from '../preload.ts';
 import { runScript, type ScriptResult } from '../runner.ts';
@@ -150,6 +151,11 @@ const scriptVerdict = ({ ok, output, stopped }: ScriptResult): Judged => {
   return { pass: true, ...(tail && { findings: tail }) };
 };
 
+/**
+ * How a check judges one item. A bot check passes an item without a run when an earlier check run of the same job on
+ * the same issue passed it for the same check, bot and skill, with the item unchanged but for where it sits (see
+ * `positionless`): a later attempt or a conflict resolution judges only the items that changed.
+ */
 const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline) => {
   if (check.type === 'script')
     return (item: Item) =>
@@ -168,9 +174,22 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
   const skill = check.skill ? p.config.skills[check.skill] : undefined;
   const preload = bot ? effectivePreload(bot, {}) : [];
   let preloaded: Promise<string | undefined> | undefined;
+  let earlier: Promise<Run[]> | undefined;
+  const { repo, number, id } = p.event;
+  const judged = () =>
+    (earlier ??= p.store.runs({
+      repo,
+      ...(number === undefined ? { event: id } : { number }),
+      workflow: a.planned.workflow,
+      job: a.planned.job,
+      check: true,
+    }));
   return (item: Item): Effect.Effect<Judged> =>
     Effect.gen(function* () {
       if (!bot) return { pass: false, findings: `unknown bot "${check.bot}"` };
+      const key = digest(check.name, bot.name, check.body, skill?.body ?? '', positionless(item.text));
+      const same = (yield* Effect.promise(judged)).find(run => run.passed === key);
+      if (same) return { pass: true, findings: `unchanged since run ${same.id}, which passed it` };
       const context = yield* Effect.promise(() => (preloaded ??= issueContext(issuesOf(p), p.event, preload)));
       const prompt = [
         skill?.body,
@@ -204,7 +223,9 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         access: p,
       });
       const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
-      return { ...verdictOf(run, final), run: run.id };
+      const verdict = verdictOf(run, final);
+      if (verdict.pass) yield* Effect.promise(() => p.store.update(run.id, { passed: key }));
+      return { ...verdict, run: run.id };
     });
 };
 

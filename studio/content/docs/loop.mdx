@@ -35,6 +35,12 @@ checks run after that, also all at once, and only when no `block` script failed,
 never pays for a review. A check left out this way is skipped with the reason in its findings.
 Verdicts keep the order of the `checks` list, and each records when it started and ended.
 
+A bot check judges an item only once it changed. When an earlier check run of the same job on the
+same issue passed the same item for the same check, bot and skill, the item passes again without a
+run, with that run named in its findings. Line numbers and blob ids do not count as a change, so a
+later attempt, or the run that resolves a merge conflict, pays only for the items it changed.
+Script checks always run again.
+
 `max` counts retries after the first attempt and defaults to 2. The loop also stops once the
 attempts and checks have spent the bot's `usd-per-run`. When `block` checks still fail after
 the last one, the run is marked failed, every proposal except `ask` is held back, and bothub adds

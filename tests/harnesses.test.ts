@@ -89,6 +89,7 @@ describe('opencode', () => {
     const { args, env } = command(spec);
     const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? '');
     expect(config).toMatchObject({ share: 'disabled', snapshot: false, compaction: { auto: false, prune: false } });
+    expect(config.tool_output).toEqual({ max_lines: 300, max_bytes: 16_384 });
     expect(config.instructions).toBeUndefined();
     expect(config.plugin).toBeUndefined();
     expect(env).toMatchObject({

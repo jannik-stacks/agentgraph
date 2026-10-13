@@ -52,8 +52,11 @@ carry the owning process, so two processes on one data directory never run the s
 item a stopped process had taken goes back to waiting when the queue is next opened.
 
 <Sym name="worker" /> runs up to `--concurrency` items at once, 4 unless set, and never two for the same issue or pull
-request, so the events of one issue run in the order they came. The same number caps the agent sessions running at once
-across all events. An event a bot made that starts no job is logged and never queued.
+request, so the events of one issue run in the order they came. The same number caps the job sessions running at once
+across all events, and check sessions have a pool of the same size of their own, so an attempt's reviewers never wait
+behind other issues' implementors. A bot's `concurrency` caps its own sessions, jobs and checks together, within those
+pools; several sessions on one provider key can set it to queue in bothub rather than at the model. An event a bot made
+that starts no job is logged and never queued.
 
 A hub edit that does not compile is logged once, and events keep running with the last version
 that compiled until it is fixed; `/api/info` lists its errors as `hubErrors` meanwhile. A hub that

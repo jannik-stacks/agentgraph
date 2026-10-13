@@ -119,6 +119,41 @@ describe('merge', { timeout: 20_000 }, () => {
     expect(await pulls.list()).toMatchObject([{ branch: 'bothub/5', into: 'main' }]);
   });
 
+  it('brings the other requests into the plan up to date once one lands, unless they conflict', async () => {
+    const { origin, pulls, p } = await setup();
+    const step = (name: string, files: Record<string, string>) => {
+      git(origin.dir, 'checkout', '-q', '-B', name, 'main');
+      const sha = commit(origin.dir, files);
+      git(origin.dir, 'checkout', '-q', 'main');
+      return sha;
+    };
+    step('bothub/5-6', { 'a.ts': 'six\n' });
+    const clean = step('bothub/5-7', { 'b.ts': 'seven\n' });
+    const conflicting = step('bothub/5-8', { 'a.ts': 'eight\n' });
+    for (const branch of ['bothub/5-6', 'bothub/5-7', 'bothub/5-8'])
+      await pulls.open({ title: branch, body: '', branch, into: 'bothub/5' });
+
+    const result = await Effect.runPromise(runPlanned({ workflow: 'merge', job: 'merge' }, p));
+    expect(results(result)).toMatchObject([{ kind: 'merge', status: 'applied' }]);
+    expect(git(origin.dir, 'rev-parse', 'bothub/5-7^1')).toBe(clean);
+    expect(git(origin.dir, 'rev-parse', 'bothub/5-7^2')).toBe(git(origin.dir, 'rev-parse', 'bothub/5'));
+    expect(git(origin.dir, 'show', 'bothub/5-7:a.ts')).toBe('six');
+    expect(git(origin.dir, 'rev-parse', 'bothub/5-8')).toBe(conflicting);
+  });
+
+  it('skips a merge job with nothing to merge and its plan request already open', async () => {
+    const { pulls, p, branch } = await setup();
+    branch('bothub/5', 'five\n');
+    const merge = () => Effect.runPromise(runPlanned({ workflow: 'merge', job: 'merge' }, p));
+    expect((await merge()).run).toMatchObject({ status: 'succeeded', closure: 'handed-off' });
+    expect((await merge()).run).toMatchObject({
+      status: 'skipped',
+      closure: 'no-op',
+      reason: 'nothing to merge or propose',
+    });
+    expect(await pulls.list({ into: 'main' })).toHaveLength(1);
+  });
+
   it('refuses a merge whose required checks fail, or one into the default branch', async () => {
     const { pulls, p, branch } = await setup();
     branch('bothub/5-6', 'six\n');
@@ -172,7 +207,6 @@ describe('merge', { timeout: 20_000 }, () => {
     const { origin, pulls, p, branch } = await setup(configFor(), adapters);
     const issues = temp('issues');
     writeFileSync(join(issues, '6-step.md'), '---\ntitle: Step\nparent: 5\n---\n\nDo it.\n');
-    branch('bothub/5', 'five\n');
 
     const [implemented] = await Effect.runPromise(
       runPlan([{ workflow: 'plan', job: 'implement', bot: 'bot' }], {
@@ -185,6 +219,8 @@ describe('merge', { timeout: 20_000 }, () => {
       { kind: 'push', status: 'applied' },
       { kind: 'merge-request', status: 'applied' },
     ]);
+    expect(git(origin.dir, 'rev-parse', 'bothub/5-6^')).toBe(origin.main);
+    branch('bothub/5', 'five\n', 'bothub/5');
     expect(await pulls.get(1)).toMatchObject({ into: 'bothub/5', mergeable: false, origin: { job: 'plan/implement' } });
 
     const result = await Effect.runPromise(runPlanned({ workflow: 'merge', job: 'merge' }, p));
@@ -201,15 +237,16 @@ describe('merge', { timeout: 20_000 }, () => {
         { kind: 'merge-request', title: 'Step', body: 'Closes #6', branch: 'bothub/5-6' },
       ],
     }));
-    const { pulls, p: base, branch } = await setup(configFor(), adapters);
+    const { origin, pulls, p: base, branch } = await setup(configFor(), adapters);
     const dir = temp('issues');
     writeFileSync(join(dir, '5-plan.md'), '---\ntitle: Plan\n---\n\nPlan it.\n');
     writeFileSync(join(dir, '6-step.md'), '---\ntitle: Step\nparent: 5\n---\n\nDo it.\n');
     writeFileSync(join(dir, '7-other.md'), '---\ntitle: Other\nparent: 5\n---\n\nDo that.\n');
     const issues = localIssues(dir, { repo: 'acme/app' });
     const p = { ...base, issues };
-    branch('bothub/5', 'five\n');
+    const plan5 = branch('bothub/5', 'five\n');
     await Effect.runPromise(runPlan([{ workflow: 'plan', job: 'implement', bot: 'bot' }], { ...p, event: step }));
+    expect(git(origin.dir, 'rev-parse', 'bothub/5-6^')).toBe(plan5);
     const merge = () => Effect.runPromise(runPlanned({ workflow: 'merge', job: 'merge' }, p));
     expect(results(await merge())).toMatchObject([{ kind: 'merge', status: 'applied' }]);
 
@@ -230,5 +267,41 @@ describe('merge', { timeout: 20_000 }, () => {
     await p.store.update(running.id, { status: 'succeeded' });
     expect(results(await merge())).toMatchObject([{ kind: 'merge-request', status: 'applied' }]);
     expect(await plan()).toMatchObject([{ branch: 'bothub/5', into: 'main' }]);
+  });
+
+  it('closes a landed step, tells its plan, and stores the merge run as running until it landed', async () => {
+    const { adapters } = harness(() => ({
+      content: 'six\n',
+      proposals: [
+        { kind: 'push', branch: 'bothub/5-6', files: ['a.ts'] },
+        { kind: 'merge-request', title: 'Step', body: 'Closes #6', branch: 'bothub/5-6' },
+      ],
+    }));
+    const { pulls, p: base, branch } = await setup(configFor(), adapters);
+    const dir = temp('issues');
+    writeFileSync(join(dir, '5-plan.md'), '---\ntitle: Plan\nlabels: [plan]\n---\n\nPlan it.\n');
+    writeFileSync(join(dir, '6-step.md'), '---\ntitle: Step\nparent: 5\n---\n\nDo it.\n');
+    writeFileSync(join(dir, '7-other.md'), '---\ntitle: Other\nparent: 5\n---\n\nDo that.\n');
+    const issues = localIssues(dir, { repo: 'acme/app' });
+    const statuses: string[] = [];
+    const watched = {
+      ...pulls,
+      merge: async (...args: Parameters<typeof pulls.merge>) => {
+        statuses.push(...(await base.store.runs({ workflow: 'merge' })).map(run => run.status));
+        return pulls.merge(...args);
+      },
+    };
+    const p = { ...base, issues, pulls: watched };
+    branch('bothub/5', 'five\n');
+    await Effect.runPromise(runPlan([{ workflow: 'plan', job: 'implement', bot: 'bot' }], { ...p, event: step }));
+
+    const landed = await Effect.runPromise(runPlanned({ workflow: 'merge', job: 'merge' }, p));
+    expect(results(landed)).toMatchObject([{ kind: 'merge', status: 'applied' }]);
+    expect(statuses).toEqual(['running']);
+    expect(landed.run).toMatchObject({ status: 'succeeded', closure: 'done' });
+    expect(await p.store.read(landed.run.id)).toMatchObject({ status: 'succeeded', closure: 'done' });
+    expect((await issues.get(6))?.state).toBe('closed');
+    expect((await issues.get(7))?.state).toBe('open');
+    expect((await issues.get(5))?.comments.map(c => c.body)).toEqual(['#6 landed on bothub/5, 1 of 2 steps.']);
   });
 });

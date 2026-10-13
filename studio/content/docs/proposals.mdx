@@ -75,8 +75,9 @@ branch is found instead of opened twice. Pushes never force.
 ## Merging
 
 A job that returns `merge` lands requests into its `into`. Requests go into a branch that is
-created from the default branch when the first one opens, so a plan's steps can each have a
-branch of their own and still meet on one:
+created from the default branch when the first step starts or the first request opens, so a
+plan's steps can each have a branch of their own and still meet on one. A step's new branch
+starts from its `into`, so it builds on the steps that already landed:
 
 ```yaml
 implement:
@@ -109,7 +110,17 @@ tree, and moves `into` only if neither tip moved since; on GitHub that is the pu
 merge with the head it checked. A request whose merge conflicts goes back once to the job that
 opened it: the job runs again on its branch with `into` merged in and the conflict markers in
 place, its bot gets a `## Merge conflicts` section listing the files, and its push commits the
-merge. Markers left in a conflicting file count as a failing check.
+merge. Markers left in a conflicting file count as a failing check. Once a request lands, `into`
+is merged forward into every other open request into it that merges cleanly, so their checks and
+merges see the current plan; a branch a running job holds, or one that conflicts, is left as it is.
+
+A landed request also closes the step issue its job ran for and posts one line on the plan, such
+as `#3 landed on bothub/1, 2 of 4 steps.` The merging run reads `running` until the merge has
+landed or failed, and only then stores its status and closure.
+
+A script job that returns `merge` is skipped as a no-op, without a worktree, when no request from
+a `bothub/` branch is open into its `into` and there is no request left to open from `into`: it
+is the default branch, the job cannot return `merge-request`, or that request is already open.
 
 Only a human merges into the default branch. `hub.yaml` can hand that to bots, and a job that
 returns `merge` without `into` is a config error until it does:
@@ -121,10 +132,10 @@ merge:
 
 A script job that returns `merge` gets the open requests into its `into` as JSON in
 `BOTHUB_REQUESTS`, along with `BOTHUB_INTO` and `BOTHUB_DEFAULT_BRANCH`. `BOTHUB_STEPS` lists the
-sub-issues of the plans whose requests go into `into`, each with its `state`, whether a request it
-opened was `merged` there and whether a job on it is `running` (queued or running), so a script can
-wait for the whole plan before asking to merge it. A script proposes by printing a `bothub` block,
-the same way a bot does.
+sub-issues of the plans whose requests go into `into`, each with its `state`, its plan as `parent`,
+whether a request it opened was `merged` there and whether a job on it is `running` (queued or
+running), so a script can wait for the whole plan before asking to merge it. A script proposes by
+printing a `bothub` block, the same way a bot does.
 
 Every outcome, accepted, rejected and applied, is stored in the run's `outcome.json` as an
 

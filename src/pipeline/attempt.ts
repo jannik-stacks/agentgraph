@@ -424,10 +424,10 @@ export const fanned = (
   });
 
 /**
- * The steps whose work lands on `into`: every sub-issue of the plans behind the requests into it, each with whether
- * a request it opened was merged there and whether a job on it is queued or running.
+ * The steps whose work lands on `into`: every sub-issue of the plans behind the requests into it, each with its plan,
+ * whether a request it opened was merged there and whether a job on it is queued or running.
  */
-const stepsInto = async (into: string, pulls: Pulls, p: Pipeline) => {
+export const stepsInto = async (into: string, pulls: Pulls, p: Pipeline) => {
   const issues = issuesOf(p);
   if (!issues) return [];
   const requests = await pulls.list({ into, state: 'all' });
@@ -436,10 +436,10 @@ const stepsInto = async (into: string, pulls: Pulls, p: Pipeline) => {
   const merged = new Set(openers.flatMap(({ pull, run }) => (pull.state === 'merged' && run?.event.number) || []));
   const steps = (await Promise.all([...plans].map(parent => issues.list({ parent, state: 'all' })))).flat();
   return Promise.all(
-    steps.map(async ({ number, title, state }) => {
+    steps.map(async ({ number, title, state, parent }) => {
       const runs = await p.store.runs({ repo: p.event.repo, number, check: false });
       const running = runs.some(r => !onRequest(r.event) && (r.status === 'queued' || r.status === 'running'));
-      return { number, title, state, merged: merged.has(number), running };
+      return { number, title, state, parent, merged: merged.has(number), running };
     })
   );
 };
