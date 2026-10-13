@@ -29,6 +29,7 @@ invariant that found it.
 | rules | script | | block | The written rules on added lines: timeless comments, docs style, no way around the guards, nothing unfinished, current names |
 | lint | script | | block | oxlint plus the suspicious rules, errors on added lines only, and oxfmt formatting |
 | types, studio-build, tests | script | | block | Types, the studio build and the suite, the live stream tests among them |
+| load-errors | script | | warn | The suite's output reports no module that could not load, `PARSE_ERROR` among them, even when every test passes |
 | test-guards | script | | block | No deleted, fewer, skipped, focused or slowed tests; each criterion's named test is added; no `Closes` when the brief lists follow-ups; every new test fails on the base code with the change's new files added |
 | coverage | script | | block | The related tests pass and every added line in `src/` runs in one of them |
 | code-shape | script | | block | Code structure and the studio's UI rules, with React hints printed but never failing |
