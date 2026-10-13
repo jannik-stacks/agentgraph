@@ -10,6 +10,7 @@ import {
   sortAtom,
   statusFilterAtom,
 } from '../state.ts';
+import { infoAtom } from '../info.ts';
 import { Muted, RemovableChip, Select, Tooltip } from '../ui.tsx';
 import { GroupList } from './Groups.tsx';
 import { connectedAtom, failureAtom, noticeAtom, pricesAtom, pullsAtom, runRowsAtom, useLiveStream } from './live.ts';
@@ -154,6 +155,19 @@ const Waiting = () => {
   );
 };
 
+/** The empty run list, naming the data directory it reads so a dashboard on the wrong server is obvious. */
+const NoRuns = () => {
+  const info = useAtomValue(infoAtom);
+  return (
+    <div className="space-y-1 p-4 text-sm text-zinc-500">
+      <p>
+        No runs in {info ? <code className="font-mono">{info.dataReal ?? info.data}</code> : 'this data directory'}.
+      </p>
+      <p>Run npm run seed in studio/ to add an example run.</p>
+    </div>
+  );
+};
+
 export const DashboardView = () => {
   const page = useAtomValue(dashboardPageAtom);
   const selected = useAtomValue(runIdAtom);
@@ -194,11 +208,7 @@ export const DashboardView = () => {
       </div>
       <div className="flex min-h-0">
         <div className="w-[36rem] shrink-0 overflow-y-auto border-r border-zinc-200 dark:border-zinc-800">
-          {rows.length ? (
-            <Runs rows={rows} />
-          ) : (
-            <Muted>No runs yet. Run npm run seed in studio/ to add an example run.</Muted>
-          )}
+          {rows.length ? <Runs rows={rows} /> : <NoRuns />}
         </div>
         <div className="min-w-0 flex-1">
           {selected ? <RunView key={selected} id={selected} /> : <Muted>Select a run to follow it.</Muted>}
