@@ -63,6 +63,7 @@ describe('GET /api/build', () => {
   });
 
   it('drives the studio banner, which also treats an API without the route as out of date', async () => {
+    Object.assign(globalThis, { location: new URL('http://127.0.0.1/'), addEventListener: () => {} });
     const { isStale } = await studioModule<{ isStale: (get: typeof fetch) => Promise<boolean> }>('StaleApi.tsx');
     const dir = tree();
     const h = handler(dir);

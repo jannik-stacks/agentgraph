@@ -2,7 +2,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { useMemo } from 'react';
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
 import { filesAtom, selectedFileAtom } from '../state.ts';
-import { cx, Muted } from '../ui.tsx';
+import { cx, Disclosure, Muted } from '../ui.tsx';
 
 type Dir = { name: string; dirs: Dir[]; files: SourceFile[] };
 
@@ -25,8 +25,7 @@ const buildTree = (files: SourceFile[]) => {
 };
 
 const Tree = ({ dir, selected, onSelect }: { dir: Dir; selected: string | null; onSelect: (key: string) => void }) => (
-  <details open>
-    <summary className="cursor-pointer select-none py-0.5 text-zinc-500">{dir.name}/</summary>
+  <Disclosure open summary={`${dir.name}/`} summaryClassName="py-0.5 text-zinc-500">
     <ul className="ml-3 border-l border-zinc-200 pl-2 dark:border-zinc-800">
       {dir.dirs.map(child => (
         <li key={child.name}>
@@ -49,7 +48,7 @@ const Tree = ({ dir, selected, onSelect }: { dir: Dir; selected: string | null; 
         </li>
       ))}
     </ul>
-  </details>
+  </Disclosure>
 );
 
 /** Every file the setup needs, per root, with the selected file's source. */

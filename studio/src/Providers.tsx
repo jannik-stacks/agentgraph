@@ -19,7 +19,7 @@ export const Link = ({ href, prefetch: _, onClick, ...props }: ComponentProps<'a
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0 || props.target) return;
         e.preventDefault();
         const url = new URL(href, location.origin);
-        navigate({ path: url.pathname });
+        navigate({ href: `${url.pathname}${url.search}` });
         if (url.hash) document.getElementById(decodeURIComponent(url.hash.slice(1)))?.scrollIntoView();
         else scrollTo(0, 0);
       }}

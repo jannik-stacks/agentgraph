@@ -15,12 +15,11 @@ import {
 import type { RunRow } from '../../../src/live.ts';
 import type { EventRecord } from '../../../src/store.ts';
 import { estimate, type Price, sum, tokensOf } from '../../../src/usage.ts';
-import { infoAtom } from '../info.ts';
-import { navigateAtom } from '../state.ts';
+import { infoAtom, navigateAtom, runIdAtom, runPageAtom } from '../state.ts';
 import { Icon, KindIcon } from '../studio/icons.tsx';
-import { Button, cx, Tooltip } from '../ui.tsx';
+import { cx, IconButton, Tooltip } from '../ui.tsx';
 import { age, Cost, Elapsed, formatTokens, Io, StatusIcon, useEnter } from './bits.tsx';
-import { fetchEvents, fetchOutcome, followedAtom, pricesAtom, recordKey, runRowsAtom } from './live.ts';
+import { fetchEvents, fetchOutcome, live, pricesAtom, recordKey } from './live.ts';
 import {
   attemptsOf,
   checksOf,
@@ -41,10 +40,9 @@ import { OutcomeView, RunFields, Text, ToolBody, toolSummary, VerdictView } from
 
 type Mode = 'auto' | 'all' | 'none';
 const Steps = createContext<{
-  mode: Mode;
-  overrides: Record<string, boolean>;
+  isOpen: (id: string, auto: boolean, stay: boolean) => boolean;
   toggle: (id: string, open: boolean) => void;
-}>({ mode: 'auto', overrides: {}, toggle: () => {} });
+}>({ isOpen: (_id, auto) => auto, toggle: () => {} });
 
 /**
  * A collapsible step. Its body renders only while open; `auto` says whether it starts open. `head` may depend on
@@ -69,11 +67,9 @@ const Step = ({
   fresh?: string;
   stay?: boolean;
 }) => {
-  const { mode, overrides, toggle } = useContext(Steps);
+  const { isOpen, toggle } = useContext(Steps);
   const enter = useEnter(fresh);
-  const [opened, setOpened] = useState(auto);
-  if (stay && auto && !opened) setOpened(true);
-  const open = overrides[id] ?? (mode === 'all' ? true : mode === 'none' ? false : stay ? opened : auto);
+  const open = isOpen(id, auto, stay);
   return (
     <li className={cx('[contain-intrinsic-size:auto_1.75rem] [content-visibility:auto]', enter)}>
       <button
@@ -120,15 +116,16 @@ const ToolLine = memo(function ToolLine({
       fresh={recordKey(runId, tool.seq)}
       head={
         <Row>
-          <Tooltip tip="Tool call">
-            <KindIcon kind="tool" className="size-3" title="" />
-          </Tooltip>
+          <StatusIcon
+            kind="tool"
+            status={!tool.result ? 'running' : failed ? 'failed' : 'succeeded'}
+            className="size-3"
+            tip={!tool.result ? 'Tool running' : failed ? 'Tool failed' : 'Tool call'}
+          />
           <span className="font-mono">{tool.call.tool.replace(/^bothub_/, '')}</span>
           <span className="min-w-0 truncate font-mono text-zinc-500">
             {toolSummary(tool.call.tool, tool.call.input)}
           </span>
-          {!tool.result && <StatusIcon status="running" className="size-3" tip="Tool running" />}
-          {failed && <StatusIcon status="failed" className="size-3" tip="Tool failed" />}
           <Right>
             <Tooltip
               tip={`Result: ${tool.resultChars.toLocaleString()} characters, about ${formatTokens(cost.result)} tokens\nRead again by ${tool.carried} later ${tool.carried === 1 ? 'call' : 'calls'}: ${formatTokens(cost.carried)} tokens in all`}
@@ -309,7 +306,7 @@ const FetchedTranscript = ({ run, price }: { run: RunRow; price: Price | undefin
 
 /** The records of `run`: streamed when it is the followed run, fetched once otherwise. */
 const RunTranscript = ({ run, prices }: { run: RunRow; prices: Prices }) => {
-  const followed = useAtomValue(followedAtom);
+  const followed = useAtomValue(live.followed);
   const price = run.model ? prices[run.model] : undefined;
   if (followed?.id === run.id) return <Transcript run={run} records={followed.records} price={price} />;
   return (
@@ -337,7 +334,7 @@ const RunHead = ({ run, label, prices, open }: { run: RunRow; label: ReactNode; 
 };
 
 const useOutcome = (run: RunRow) => {
-  const followed = useAtomValue(followedAtom);
+  const followed = useAtomValue(live.followed);
   return followed?.id === run.id ? followed.outcome : undefined;
 };
 
@@ -369,7 +366,10 @@ const CheckStep = ({
       head={
         <Row>
           {brief ? (
-            <Tooltip
+            <StatusIcon
+              kind="check"
+              status={brief.skipped ? 'skipped' : brief.pass ? 'succeeded' : 'failed'}
+              {...(!brief.pass && !brief.skipped && !brief.gating && { tone: 'warn' })}
               tip={
                 brief.skipped
                   ? 'Check skipped'
@@ -377,31 +377,16 @@ const CheckStep = ({
                     ? 'Check passed'
                     : brief.gating
                       ? 'Check failed and blocked the attempt'
-                      : 'Check failed; shadow checks only report'
+                      : 'Check failed; log checks only report'
               }
-            >
-              <Icon
-                name={brief.skipped ? 'skipped' : brief.pass ? 'ok' : 'fail'}
-                className={cx(
-                  'size-3.5',
-                  brief.skipped
-                    ? 'text-zinc-400'
-                    : brief.pass
-                      ? 'text-emerald-500'
-                      : brief.gating
-                        ? 'text-red-500'
-                        : 'text-amber-500'
-                )}
-              />
-            </Tooltip>
+            />
+          ) : last ? (
+            <StatusIcon kind="check" status={last.status} level="job" tip={`Check, ${last.status}`} />
           ) : (
-            last && <StatusIcon status={last.status} level="job" />
+            <KindIcon kind="check" />
           )}
-          <Tooltip tip="Check">
-            <KindIcon kind="check" className="size-3" title="" />
-          </Tooltip>
           <span className="font-medium">{name}</span>
-          {brief && !brief.gating && <span className="text-zinc-500">shadow</span>}
+          {brief && !brief.gating && <span className="text-zinc-500">log</span>}
           {runs.length > 1 && <span className="text-zinc-500">{runs.length} runs</span>}
           <Right>{runs.length > 0 && <Io tally={sum(runs.map(r => r.tally))} />}</Right>
         </Row>
@@ -576,7 +561,12 @@ const Breakdown = ({ runs, records, prices }: { runs: RunRow[]; records: EventRe
           const cost = costOf(run.tally, run.model, prices);
           return (
             <li key={run.id} className="flex items-center gap-2">
-              <StatusIcon status={run.status} level="job" className="size-3" />
+              <StatusIcon
+                status={run.status}
+                level="job"
+                {...(run.check && { kind: 'check' as const })}
+                className="size-3"
+              />
               <span>{run.check ?? `attempt ${run.attempt ?? 1}`}</span>
               <span className="ml-auto flex items-center gap-3">
                 <Io tally={run.tally} />
@@ -607,18 +597,14 @@ const pinnedSlack = 48;
 /** A run id the run list does not have, with where the list comes from and the way back to it. */
 const Missing = ({ id }: { id: string }) => {
   const info = useAtomValue(infoAtom);
-  const navigate = useSetAtom(navigateAtom);
+  const select = useSetAtom(runIdAtom);
   return (
     <div className="space-y-2 p-4 text-sm text-zinc-600 dark:text-zinc-400">
       <p>
         Run <code className="font-mono">{id}</code> is not in{' '}
         {info ? <code className="font-mono">{info.dataReal ?? info.data}</code> : 'this data directory'}.
       </p>
-      <button
-        type="button"
-        className="underline"
-        onClick={() => navigate({ path: '/dashboard', query: { run: null } })}
-      >
+      <button type="button" className="underline" onClick={() => select(null)}>
         Back to the run list
       </button>
     </div>
@@ -629,25 +615,39 @@ const Missing = ({ id }: { id: string }) => {
  * A job execution as GitHub Actions-like steps: each attempt with its model and tool calls, then its checks, then
  * the outcome. Live and failed steps start open; the view keeps to the bottom while live unless scrolled up.
  */
-export const RunView = ({ id, page, follow }: { id: string; page?: boolean; follow?: boolean }) => {
-  const rows = useAtomValue(runRowsAtom);
+export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'panel' | 'page' | 'follow' }) => {
+  const follow = variant === 'follow';
+  const rows = useAtomValue(live.rows);
   const prices = useAtomValue(pricesAtom);
-  const followed = useAtomValue(followedAtom);
+  const followed = useAtomValue(live.followed);
   const navigate = useSetAtom(navigateAtom);
+  const select = useSetAtom(runIdAtom);
+  const setRunPage = useSetAtom(runPageAtom);
   const [mode, setMode] = useState<Mode>('auto');
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [pinned, setPinned] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
   const toggle = useCallback((step: string, open: boolean) => setOverrides(o => ({ ...o, [step]: open })), []);
-  const steps = useMemo(() => ({ mode, overrides, toggle }), [mode, overrides, toggle]);
+  const opened = useRef(new Set<string>());
+  const steps = useMemo(
+    () => ({
+      isOpen: (step: string, auto: boolean, stay: boolean) => {
+        if (stay && auto) opened.current.add(step);
+        const fallback = stay ? opened.current.has(step) : auto;
+        return overrides[step] ?? (mode === 'all' ? true : mode === 'none' ? false : fallback);
+      },
+      toggle,
+    }),
+    [mode, overrides, toggle]
+  );
   const execution = useMemo(() => (rows ? executionOf(rows, id) : undefined), [rows, id]);
-  const live = execution?.runs.some(r => isLive(r.status)) ?? false;
+  const running = execution?.runs.some(r => isLive(r.status)) ?? false;
   const streamed = followed?.records.length ?? 0;
 
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && pinned && live) el.scrollTop = el.scrollHeight;
-  }, [streamed, pinned, live, execution]);
+    if (el && pinned && running) el.scrollTop = el.scrollHeight;
+  }, [streamed, pinned, running, execution]);
 
   if (!rows) return <p className="p-4 text-zinc-500">Loading runs.</p>;
   if (!execution)
@@ -662,16 +662,16 @@ export const RunView = ({ id, page, follow }: { id: string; page?: boolean; foll
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-3 py-2 text-xs dark:border-zinc-800">
-        {page && (
-          <Tooltip tip="Back to the run list">
-            <Button
-              variant="small"
-              aria-label="Back to the run list"
-              onClick={() => navigate({ path: '/dashboard', query: { run: run.id } })}
-            >
-              <Icon name="chevron" className="size-3 rotate-180" />
-            </Button>
-          </Tooltip>
+        {variant !== 'panel' && (
+          <IconButton
+            tip="Back to the run list"
+            onClick={() => {
+              setRunPage(false);
+              if (follow) select(run.id);
+            }}
+          >
+            <Icon name="chevron" className="size-3 rotate-180" />
+          </IconButton>
         )}
         <StatusIcon status={last.status} level="job" />
         <span className="font-medium">
@@ -682,44 +682,24 @@ export const RunView = ({ id, page, follow }: { id: string; page?: boolean; foll
           {eventTitle(run.event)}
         </span>
         <span className="ml-auto flex items-center gap-1">
-          <Tooltip tip="Expand every step">
-            <Button variant="small" aria-label="Expand all" onClick={() => setAll('all')}>
-              <Icon name="expand" className="size-3" />
-            </Button>
-          </Tooltip>
-          <Tooltip tip="Collapse every step">
-            <Button variant="small" aria-label="Collapse all" onClick={() => setAll('none')}>
-              <Icon name="collapse" className="size-3" />
-            </Button>
-          </Tooltip>
-          <Tooltip
+          <IconButton tip="Expand every step" onClick={() => setAll('all')}>
+            <Icon name="expand" className="size-3" />
+          </IconButton>
+          <IconButton tip="Collapse every step" onClick={() => setAll('none')}>
+            <Icon name="collapse" className="size-3" />
+          </IconButton>
+          <IconButton
             tip={follow ? 'Following the latest run; click to stay on this one' : 'Follow the latest run as runs start'}
+            aria-pressed={!!follow}
+            className={cx(follow && 'border-sky-400 text-sky-700 dark:border-sky-600 dark:text-sky-300')}
+            onClick={() => (follow ? select(run.id) : navigate({ path: '/dashboard/follow' }))}
           >
-            <Button
-              variant="small"
-              aria-label="Follow the latest run"
-              aria-pressed={!!follow}
-              className={cx(follow && 'border-sky-400 text-sky-700 dark:border-sky-600 dark:text-sky-300')}
-              onClick={() =>
-                navigate({
-                  path: follow ? `/dashboard/runs/${encodeURIComponent(run.id)}` : '/dashboard/follow',
-                  query: {},
-                })
-              }
-            >
-              <Icon name="follow" className="size-3" />
-            </Button>
-          </Tooltip>
-          {!page && (
-            <Tooltip tip="Open this run on its own page">
-              <Button
-                variant="small"
-                aria-label="Open as its own page"
-                onClick={() => navigate({ path: `/dashboard/runs/${encodeURIComponent(run.id)}` })}
-              >
-                <Icon name="open" className="size-3" />
-              </Button>
-            </Tooltip>
+            <Icon name="follow" className="size-3" />
+          </IconButton>
+          {variant === 'panel' && (
+            <IconButton tip="Open this run on its own page" onClick={() => setRunPage(true)}>
+              <Icon name="open" className="size-3" />
+            </IconButton>
           )}
         </span>
       </header>
@@ -780,7 +760,7 @@ export const RunView = ({ id, page, follow }: { id: string; page?: boolean; foll
           </ul>
         </Steps>
       </div>
-      {!pinned && live && (
+      {!pinned && running && (
         <button
           type="button"
           onClick={() => {

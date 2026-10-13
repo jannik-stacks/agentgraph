@@ -11,19 +11,13 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.1",
-    "@terrastruct/d2": "0.1.33",
-    "@viz-js/viz": "3.30.0",
     "@xyflow/react": "12.12.0",
-    "elkjs": "0.12.0",
     "fumadocs-core": "16.15.15",
     "fumadocs-mdx": "15.4.5",
     "fumadocs-ui": "16.15.15",
     "jotai": "3.0.1",
-    "mermaid": "12.0.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "state-machine-cat": "15.0.9",
-    "xstate": "5.33.2"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",
@@ -37,9 +31,5 @@
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.3.2"
-  },
-  "overrides": {
-    "katex": "0.18.9",
-    "lodash-es": "4.18.1"
   }
 }

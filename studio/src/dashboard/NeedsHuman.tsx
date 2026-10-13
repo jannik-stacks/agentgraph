@@ -1,7 +1,7 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { needsHumanAtom, runIdAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
-import { Badge, cx, Tooltip } from '../ui.tsx';
+import { Badge, cx, Disclosure, Tooltip } from '../ui.tsx';
 import { age } from './bits.tsx';
 
 /** Runs waiting on a human, folded behind their count. */
@@ -10,14 +10,13 @@ export const NeedsHuman = () => {
   const select = useSetAtom(runIdAtom);
   if (!items) return <span />;
   return (
-    <details className="min-w-0 flex-1 text-xs">
-      <summary
-        className={cx(
-          'inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 hover:bg-zinc-100 dark:hover:bg-zinc-900',
-          items.length ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-500'
-        )}
-        aria-label={`${items.length} runs need a human`}
-      >
+    <Disclosure
+      className="min-w-0 flex-1 text-xs"
+      summaryClassName={cx(
+        'inline-flex gap-1 rounded px-1.5 py-0.5 hover:bg-zinc-100 dark:hover:bg-zinc-900',
+        items.length ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-500'
+      )}
+      summary={
         <Tooltip
           tip={`${items.length} ${items.length === 1 ? 'run needs' : 'runs need'} a human: a question to answer or a failure to look at\nClick to list them`}
         >
@@ -26,7 +25,8 @@ export const NeedsHuman = () => {
             {items.length}
           </span>
         </Tooltip>
-      </summary>
+      }
+    >
       <ul className="mt-1 space-y-0.5">
         {items.map(({ run, reason, questions }) => (
           <li key={run.id}>
@@ -45,6 +45,6 @@ export const NeedsHuman = () => {
           </li>
         ))}
       </ul>
-    </details>
+    </Disclosure>
   );
 };

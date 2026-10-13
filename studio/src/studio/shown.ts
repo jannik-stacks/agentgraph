@@ -1,29 +1,10 @@
-import { atom, useAtomValue } from 'jotai';
+import { useAtomValue } from 'jotai';
+import { atomWithStorage } from 'jotai/utils';
 import { type GraphModel, type Layer, layerModel } from '../graph-model.ts';
 import { collapse } from './collapse.ts';
 
-const layerKey = 'bhm.studio.layer';
-
-const loadLayer = (): Layer => {
-  try {
-    return localStorage.getItem(layerKey) === 'cast' ? 'cast' : 'flow';
-  } catch {
-    return 'flow';
-  }
-};
-
-const storedLayer = atom<Layer>(loadLayer());
-
 /** The layer the graph draws, remembered per browser. */
-export const layerAtom = atom(
-  get => get(storedLayer),
-  (_get, set, next: Layer) => {
-    set(storedLayer, next);
-    try {
-      localStorage.setItem(layerKey, next);
-    } catch {}
-  }
-);
+export const layerAtom = atomWithStorage<Layer>('bhm.studio.layer', 'flow', undefined, { getOnInit: true });
 
 const cache = new WeakMap<GraphModel, Partial<Record<Layer, GraphModel>>>();
 

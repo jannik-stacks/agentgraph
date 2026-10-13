@@ -1,9 +1,20 @@
 import type { ReactNode } from 'react';
-import type { NodeKind } from '../graph-model.ts';
-import { cx } from '../ui.tsx';
+import type { NodeKind, Tone } from '../graph-model.ts';
+import { cx, tones } from '../ui.tsx';
 
 /** Every kind of hub item the studio draws: the graph's node kinds, the workflow file that holds them and the hub. */
 export type IconKind = NodeKind | 'workflow' | 'hub';
+
+const shield = 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z';
+
+/** The marks a check's shield can carry, one per outcome. */
+export const checkMarks = {
+  ok: 'm9 12 2 2 4-4',
+  fail: 'm9.5 9.5 5 5m0-5-5 5',
+  halt: 'M12 8v4m0 3.5v.01',
+  skipped: 'M9 12h6',
+  queued: 'M12 8.5V12l2 1.5',
+};
 
 const paths: Record<IconKind, ReactNode> = {
   trigger: <path d="M13 2 4 14h7l-1 8 9-12h-7z" />,
@@ -34,8 +45,8 @@ const paths: Record<IconKind, ReactNode> = {
   ),
   check: (
     <>
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="m9 12 2 2 4-4" />
+      <path d={shield} />
+      <path d={checkMarks.ok} />
     </>
   ),
   script: (
@@ -96,15 +107,22 @@ export const kindText: Record<IconKind, string> = {
   hub: 'text-zinc-500',
 };
 
-/** The icon of a kind in its color, with what the kind is as the tooltip. */
+/**
+ * The icon of a kind in its color, with what the kind is as the tooltip. A status takes the icon's place in the same
+ * shape: `tone` recolors it, and a check given `mark` carries that outcome on its shield instead of the tick.
+ */
 export const KindIcon = ({
   kind,
   className = 'size-3.5',
   title = kindTitle[kind],
+  mark,
+  tone,
 }: {
   kind: IconKind;
   className?: string;
   title?: string;
+  mark?: keyof typeof checkMarks | undefined;
+  tone?: Tone | undefined;
 }) => (
   <svg
     viewBox="0 0 24 24"
@@ -114,10 +132,17 @@ export const KindIcon = ({
     strokeLinecap="round"
     strokeLinejoin="round"
     {...(title ? { role: 'img', 'aria-label': title } : { 'aria-hidden': true })}
-    className={cx('shrink-0', kindText[kind], className)}
+    className={cx('shrink-0 transition-colors duration-300', tone ? tones[tone].text : kindText[kind], className)}
   >
     {title && <title>{title}</title>}
-    {paths[kind]}
+    {mark && kind === 'check' ? (
+      <>
+        <path d={shield} />
+        <path d={checkMarks[mark]} />
+      </>
+    ) : (
+      paths[kind]
+    )}
   </svg>
 );
 
@@ -214,6 +239,13 @@ const glyphs = {
     </>
   ),
   link: <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />,
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </>
+  ),
   model: (
     <>
       <path d="M12 3 4 7.5v9L12 21l8-4.5v-9z" />

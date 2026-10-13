@@ -2,7 +2,7 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Fragment, memo, useState } from 'react';
 import type { RunRow } from '../../../src/live.ts';
 import { navigateAtom, runIdAtom } from '../state.ts';
-import { Icon, KindIcon } from '../studio/icons.tsx';
+import { Icon } from '../studio/icons.tsx';
 import { cx, Tooltip } from '../ui.tsx';
 import { age, Cost, Elapsed, Io, StatusIcon, useEnter } from './bits.tsx';
 import { pricesAtom } from './live.ts';
@@ -28,15 +28,14 @@ const RunLine = memo(function RunLine({ run, job }: { run: RunRow; job: JobNode 
           run.id === selected ? 'bg-sky-50 dark:bg-sky-950/40' : run.status === 'running' && 'bhm-live-row'
         )}
       >
-        <StatusIcon status={run.status} />
+        <StatusIcon
+          status={run.status}
+          {...(run.check && {
+            kind: 'check' as const,
+            tip: `Check ${run.check}, ${run.status}, judging attempt ${job.attempts.findIndex(a => a.id === run.parent) + 1 || 1}`,
+          })}
+        />
         <span className="flex min-w-0 items-center gap-1.5">
-          {run.check && (
-            <Tooltip
-              tip={`Check ${run.check}, judging attempt ${job.attempts.findIndex(a => a.id === run.parent) + 1 || 1}`}
-            >
-              <KindIcon kind="check" className="size-3" title="" />
-            </Tooltip>
-          )}
           <span className="truncate">{run.check ?? run.job}</span>
           {run.bot !== job.attempts[0]?.bot && <span className="truncate text-zinc-500">{run.bot}</span>}
           {attempts > 1 && !run.check && (
@@ -96,7 +95,7 @@ const Node = ({ job, onSelect }: { job: JobNode; onSelect: (id: string) => void 
           }}
           className="inline-flex items-center gap-1 rounded border border-dashed border-zinc-200 px-1 text-[10px] leading-4 text-zinc-600 hover:border-sky-400 dark:border-zinc-700 dark:text-zinc-400"
         >
-          <StatusIcon status={runs.at(-1)!.status} level="job" className="size-2.5" />
+          <StatusIcon status={runs.at(-1)!.status} level="job" kind="check" className="size-2.5" />
           {name}
           {runs.length > 1 && <span className="text-zinc-500">{runs.length}</span>}
         </button>

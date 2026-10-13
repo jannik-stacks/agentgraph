@@ -1,10 +1,9 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, type ComponentType, lazy, type ReactNode, Suspense, useEffect } from 'react';
-import { infoAtom } from './info.ts';
 import { Logo } from './Logo.tsx';
 import { Link } from './Providers.tsx';
 import { StaleApi } from './StaleApi.tsx';
-import { navigateAtom, type Route, routeAtom, routes } from './state.ts';
+import { infoAtom, navigateAtom, type Route, routeAtom, routes } from './state.ts';
 import { cx, Muted, Segmented, Tooltip } from './ui.tsx';
 
 const StudioView = lazy(() => import('./studio/StudioView.tsx').then(m => ({ default: m.StudioView })));
@@ -36,24 +35,17 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 
 const labels: Record<Route, string> = { studio: 'Studio', dashboard: 'Dashboard', docs: 'Docs' };
 
-const Nav = ({ route }: { route: Route | undefined }) => {
-  const navigate = useSetAtom(navigateAtom);
-  return (
-    <nav>
-      <Segmented
-        options={routes}
-        value={route}
-        label={r => labels[r]}
-        href={r => `/${r}`}
-        onChange={r => {
-          navigate({ path: `/${r}` });
-          scrollTo(0, 0);
-        }}
-        className="text-[13px] leading-5"
-      />
-    </nav>
-  );
-};
+const Nav = ({ route }: { route: Route | undefined }) => (
+  <nav>
+    <Segmented
+      options={routes}
+      value={route}
+      label={r => labels[r]}
+      href={r => `/${r}`}
+      className="text-[13px] leading-5"
+    />
+  </nav>
+);
 
 const hubDir: string | undefined = import.meta.env.VITE_BHM_HUB;
 const dataDir: string | undefined = import.meta.env.VITE_BHM_DATA;
@@ -103,7 +95,7 @@ const Header = ({ route }: { route: Route | undefined }) => (
       <Logo />
     </Link>
     <Nav route={route} />
-    <Where />
+    {import.meta.env.DEV && <Where />}
   </header>
 );
 
@@ -116,7 +108,7 @@ export const App = () => {
   return (
     <div className="min-h-full">
       <Header route={route} />
-      <StaleApi />
+      {import.meta.env.DEV && <StaleApi />}
       <main className={route === 'docs' ? undefined : 'h-[calc(100dvh-3rem)] min-h-0'}>
         <Boundary key={route}>
           <Suspense fallback={<Muted>Loading.</Muted>}>

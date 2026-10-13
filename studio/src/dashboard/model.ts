@@ -2,28 +2,15 @@ import type { PullRow, RunRow } from '../../../src/live.ts';
 import type { EventRecord, RunStatus } from '../../../src/store.ts';
 import type { AgentEvent, BotEvent } from '../../../src/types.ts';
 import { chars, estimate, type Price, sum, type Tally, tokensOf } from '../../../src/usage.ts';
-import type { Tone } from '../graph-model.ts';
 import type { Glyph } from '../studio/icons.tsx';
+import { statusTone } from '../ui.tsx';
 
 export type Prices = Record<string, Price & { model: string }>;
 
 const live: RunStatus[] = ['queued', 'running'];
-const failed: RunStatus[] = ['failed', 'timed-out', 'interrupted'];
 
 export const isLive = (status: RunStatus) => live.includes(status);
-export const isFailed = (status: RunStatus) => failed.includes(status);
-
-/** The icon and tone of a status: a spinner while running. */
-export const statusLook = (status: RunStatus): { glyph: Glyph; tone: Tone } =>
-  status === 'running'
-    ? { glyph: 'live', tone: 'info' }
-    : status === 'queued'
-      ? { glyph: 'queued', tone: 'neutral' }
-      : status === 'succeeded'
-        ? { glyph: 'ok', tone: 'ok' }
-        : isFailed(status)
-          ? { glyph: 'fail', tone: 'danger' }
-          : { glyph: 'skipped', tone: 'neutral' };
+export const isFailed = (status: RunStatus) => statusTone(status) === 'danger';
 
 /** Billed cost as the harness reported it, and the list-price estimate when the model has a price. */
 export const costOf = (tally: Tally, model: string | undefined, prices: Prices) => ({

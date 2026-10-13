@@ -1,33 +1,36 @@
 import { atom, useAtomValue, useSetAtom } from 'jotai';
-import { atomWithRefresh, unwrap } from 'jotai/utils';
+import { atomWithReducer } from 'jotai/utils';
 import { startTransition, useEffect, useState } from 'react';
 import type { PullRow, RunRow } from '../../../src/live.ts';
 import type { EventRecord, Outcome } from '../../../src/store.ts';
-import type { Price } from '../../../src/usage.ts';
-import { refreshInfoAtom } from '../info.ts';
+import { apiAtom, infoQueryAtom, latest } from '../state.ts';
 import { usePolling } from '../ui.tsx';
 import { noteSeen } from './bits.tsx';
+import type { Prices } from './model.ts';
 
-export const runRowsAtom = atom<RunRow[] | undefined>(undefined);
-export const pullsAtom = atom<PullRow[]>([]);
-export const connectedAtom = atom(false);
+type Live = {
+  rows: RunRow[] | undefined;
+  pulls: PullRow[];
+  connected: boolean;
+  /** Why the run list cannot be loaded, while neither the stream nor the fallback poll gets an answer. */
+  failure: string | undefined;
+  /** A short-lived message about something that changed under the dashboard, like the data directory moving. */
+  notice: { text: string; at: number } | undefined;
+  /** The run whose events stream in, with every record so far and its outcome once it has one. */
+  followed: { id: string; records: EventRecord[]; outcome: Outcome | null } | undefined;
+};
 
-/** Why the run list cannot be loaded, while neither the stream nor the fallback poll gets an answer. */
-export const failureAtom = atom<string | undefined>(undefined);
-
-/** A short-lived message about something that changed under the dashboard, like the data directory moving. */
-export const noticeAtom = atom<{ text: string; at: number } | undefined>(undefined);
-
-/** The run whose events stream in, with every record so far and its outcome once it has one. */
-export const followedAtom = atom<{ id: string; records: EventRecord[]; outcome: Outcome | null } | undefined>(
-  undefined
-);
-
-const pricesQueryAtom = atomWithRefresh(async () => {
-  const response = await fetch('/api/prices');
-  return response.ok ? ((await response.json()) as Record<string, Price & { model: string }>) : {};
-});
-export const pricesAtom = unwrap(pricesQueryAtom, previous => previous ?? {});
+type Action =
+  | { type: 'follow'; run: string | undefined }
+  | { type: 'link'; connected: boolean }
+  | { type: 'failure'; failure: string }
+  | { type: 'notice'; text: string }
+  | { type: 'snapshot'; runs: RunRow[]; pulls: PullRow[] }
+  | { type: 'run'; row: RunRow }
+  | { type: 'removed'; id: string }
+  | { type: 'pulls'; pulls: PullRow[] }
+  | { type: 'outcome'; id: string; outcome: Outcome | null }
+  | { type: 'records'; run: string; records: EventRecord[] };
 
 const upsert = (rows: RunRow[] | undefined, row: RunRow) => {
   const list = rows ?? [];
@@ -35,6 +38,61 @@ const upsert = (rows: RunRow[] | undefined, row: RunRow) => {
   if (at >= 0) return list.with(at, row);
   return [row, ...list].sort((a, b) => (a.id < b.id ? 1 : -1));
 };
+
+const append = (followed: Live['followed'], run: string, records: EventRecord[]) => {
+  if (followed?.id !== run) return followed;
+  const last = followed.records.at(-1)?.seq ?? -1;
+  const fresh = records.filter(r => r.seq > last);
+  return fresh.length ? { ...followed, records: [...followed.records, ...fresh] } : followed;
+};
+
+const reduce = (live: Live, action: Action): Live => {
+  switch (action.type) {
+    case 'follow':
+      return { ...live, followed: action.run ? { id: action.run, records: [], outcome: null } : undefined };
+    case 'link':
+      return action.connected ? { ...live, connected: true, failure: undefined } : { ...live, connected: false };
+    case 'failure':
+      return { ...live, failure: action.failure };
+    case 'notice':
+      return { ...live, notice: { text: action.text, at: Date.now() } };
+    case 'snapshot':
+      return { ...live, rows: action.runs, pulls: action.pulls, failure: undefined };
+    case 'run':
+      return { ...live, rows: upsert(live.rows, action.row) };
+    case 'removed':
+      return { ...live, rows: live.rows?.filter(r => r.id !== action.id) };
+    case 'pulls':
+      return { ...live, pulls: action.pulls };
+    case 'outcome':
+      return live.followed?.id === action.id
+        ? { ...live, followed: { ...live.followed, outcome: action.outcome } }
+        : live;
+    case 'records': {
+      const followed = append(live.followed, action.run, action.records);
+      return followed === live.followed ? live : { ...live, followed };
+    }
+  }
+};
+
+const liveAtom = atomWithReducer<Live, Action>(
+  { rows: undefined, pulls: [], connected: false, failure: undefined, notice: undefined, followed: undefined },
+  reduce
+);
+
+const field = <K extends keyof Live>(key: K) => atom(get => get(liveAtom)[key]);
+
+/** The dashboard's live state, one read per field so a view only renders again when its field changes. */
+export const live = {
+  rows: field('rows'),
+  pulls: field('pulls'),
+  connected: field('connected'),
+  failure: field('failure'),
+  notice: field('notice'),
+  followed: field('followed'),
+};
+
+export const pricesAtom = latest(apiAtom<Prices>('/api/prices'), {});
 
 const keysOf = (rows: RunRow[]) => rows.flatMap(row => [`run:${row.id}`, `event:${row.event.id}`]);
 let loaded = false;
@@ -56,75 +114,52 @@ const parse = <T>(message: MessageEvent) => JSON.parse(message.data as string) a
 /**
  * Keeps the run list, merge requests and, when `run` is given, that run's records live from `/api/stream`. The
  * browser reconnects on its own and resumes after the last record; when it gives up, the stream is reopened every few
- * seconds. While it is disconnected the snapshot is polled, and a poll that fails says why in `failureAtom`.
+ * seconds. While it is disconnected the snapshot is polled, and a poll that fails says why in `live.failure`.
  */
 export const useLiveStream = (run: string | undefined) => {
-  const setRows = useSetAtom(runRowsAtom);
-  const setPulls = useSetAtom(pullsAtom);
-  const setConnected = useSetAtom(connectedAtom);
-  const setFollowed = useSetAtom(followedAtom);
-  const setFailure = useSetAtom(failureAtom);
-  const setNotice = useSetAtom(noticeAtom);
-  const refreshInfo = useSetAtom(refreshInfoAtom);
-  const connected = useAtomValue(connectedAtom);
+  const dispatch = useSetAtom(liveAtom);
+  const refreshInfo = useSetAtom(infoQueryAtom);
+  const connected = useAtomValue(live.connected);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    setFollowed(run ? { id: run, records: [], outcome: null } : undefined);
+    dispatch({ type: 'follow', run });
     const source = new EventSource(run ? `/api/stream?run=${encodeURIComponent(run)}` : '/api/stream');
     const opened = Date.now();
     let buffer: EventRecord[] = [];
     let frame = 0;
     const flush = () => {
       frame = 0;
-      const batch = buffer;
+      if (run) dispatch({ type: 'records', run, records: buffer });
       buffer = [];
-      setFollowed(f => {
-        if (!f || f.id !== run) return f;
-        const last = f.records.at(-1)?.seq ?? -1;
-        const fresh = batch.filter(r => r.seq > last);
-        return fresh.length ? { ...f, records: [...f.records, ...fresh] } : f;
-      });
     };
+    const later = (action: Action) => startTransition(() => dispatch(action));
     let retry: ReturnType<typeof setTimeout> | undefined;
-    source.onopen = () => {
-      setConnected(true);
-      setFailure(undefined);
-    };
+    source.onopen = () => dispatch({ type: 'link', connected: true });
     source.onerror = () => {
-      setConnected(source.readyState === EventSource.OPEN);
+      dispatch({ type: 'link', connected: source.readyState === EventSource.OPEN });
       if (source.readyState === EventSource.CLOSED) retry ??= setTimeout(() => setAttempt(n => n + 1), 3000);
     };
     source.addEventListener('reset', message => {
       const { dir, real } = parse<{ dir: string; real: string | null }>(message);
-      setNotice({ text: `The data directory changed: ${dir} now points to ${real ?? 'nothing'}`, at: Date.now() });
+      dispatch({ type: 'notice', text: `The data directory changed: ${dir} now points to ${real ?? 'nothing'}` });
       refreshInfo();
     });
     source.addEventListener('snapshot', message => {
       const { runs, pulls } = parse<{ runs: RunRow[]; pulls: PullRow[] }>(message);
       noteList(runs);
-      startTransition(() => {
-        setRows(runs);
-        setPulls(pulls);
-      });
+      later({ type: 'snapshot', runs, pulls });
     });
     source.addEventListener('run', message => {
       const row = parse<RunRow>(message);
       noteSeen(keysOf([row]), false);
-      startTransition(() => setRows(rows => upsert(rows, row)));
+      later({ type: 'run', row });
     });
-    source.addEventListener('removed', message => {
-      const { id } = parse<{ id: string }>(message);
-      startTransition(() => setRows(rows => rows?.filter(r => r.id !== id)));
-    });
-    source.addEventListener('pulls', message => {
-      const pulls = parse<PullRow[]>(message);
-      startTransition(() => setPulls(pulls));
-    });
-    source.addEventListener('outcome', message => {
-      const { id, outcome } = parse<{ id: string; outcome: Outcome | null }>(message);
-      setFollowed(f => (f?.id === id ? { ...f, outcome } : f));
-    });
+    source.addEventListener('removed', message => later({ type: 'removed', id: parse<{ id: string }>(message).id }));
+    source.addEventListener('pulls', message => later({ type: 'pulls', pulls: parse<PullRow[]>(message) }));
+    source.addEventListener('outcome', message =>
+      dispatch({ type: 'outcome', ...parse<{ id: string; outcome: Outcome | null }>(message) })
+    );
     source.addEventListener('record', message => {
       const record = parse<EventRecord>(message);
       if (run) noteSeen([recordKey(run, record.seq)], new Date(record.ts).getTime() < opened - replayed);
@@ -135,9 +170,9 @@ export const useLiveStream = (run: string | undefined) => {
       source.close();
       clearTimeout(retry);
       cancelAnimationFrame(frame);
-      setConnected(false);
+      dispatch({ type: 'link', connected: false });
     };
-  }, [run, attempt, setRows, setPulls, setConnected, setFollowed, setFailure, setNotice, refreshInfo]);
+  }, [run, attempt, dispatch, refreshInfo]);
 
   usePolling(
     () => {
@@ -146,16 +181,15 @@ export const useLiveStream = (run: string | undefined) => {
           if (r.ok) return r.json() as Promise<{ runs: RunRow[]; pulls: PullRow[] }>;
           throw new Error(`the API answered ${r.status} ${r.statusText}`.trim());
         })
-        .then(body => {
-          setFailure(undefined);
-          noteList(body.runs);
-          startTransition(() => {
-            setRows(body.runs);
-            setPulls(body.pulls);
-          });
+        .then(({ runs, pulls }) => {
+          noteList(runs);
+          startTransition(() => dispatch({ type: 'snapshot', runs, pulls }));
         })
         .catch((e: Error) =>
-          setFailure(e.message === 'Failed to fetch' ? 'the API server does not answer' : e.message)
+          dispatch({
+            type: 'failure',
+            failure: e.message === 'Failed to fetch' ? 'the API server does not answer' : e.message,
+          })
         );
     },
     connected ? null : 3000

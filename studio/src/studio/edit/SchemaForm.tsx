@@ -8,16 +8,16 @@ import {
   switchChoice,
   unionChoices,
 } from '../../../../src/hub-files.ts';
-import { Button, Chip, cx, RemovableChip, Segmented, Select, useCommittedText } from '../../ui.tsx';
+import { Button, Chip, cx, Disclosure, RemovableChip, Segmented, Select, useCommittedText } from '../../ui.tsx';
+import { mono } from '../hub-refs.ts';
 
 export type Path = (string | number)[];
-type Target = { href: string; onClick: () => void };
 
 /** What the form knows about the hub around it: suggestions for a field, links for a referenced name, open paths. */
 export type FormContext = {
   issues: FieldIssue[];
   suggest: (path: Path) => string[] | undefined;
-  link: (path: Path, value: string) => (Target & { icon?: ReactNode }) | undefined;
+  link: (path: Path, value: string) => { href: string; icon: ReactNode } | undefined;
   open: (path: Path) => boolean;
 };
 
@@ -98,18 +98,6 @@ const shapeOf = (schema: JsonSchema): Shape => {
 const field =
   'rounded border border-zinc-300 bg-white px-2 py-1 text-[13px] outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-900';
 const input = `${field} w-full`;
-const mono = new Set([
-  'run',
-  'branch',
-  'command',
-  'cron',
-  'paths',
-  'tools',
-  'types',
-  'branches',
-  'environment',
-  'source',
-]);
 
 const EnumField = ({ options, value, onChange, path, required }: FieldProps & { options: string[] }) => {
   const set = (v: string | undefined) => onChange(v === undefined && required ? value : v);
@@ -533,38 +521,40 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
   return (
     <div className="space-y-2">
       {Object.entries(data).map(([key, v]) => (
-        <details
+        <Disclosure
           key={key}
-          open={ctx.open([...path, key]) || opened.includes(key) || undefined}
-          className="group rounded-md border border-zinc-200 dark:border-zinc-800"
+          open={ctx.open([...path, key]) || opened.includes(key)}
+          className="rounded-md border border-zinc-200 dark:border-zinc-800"
+          summaryClassName="gap-2 px-2 py-1 text-xs"
+          summary={
+            <>
+              {names?.enum ? (
+                <span className="font-medium">{key}</span>
+              ) : (
+                <KeyInput
+                  value={key}
+                  pattern={pattern}
+                  taken={Object.keys(data)}
+                  onRename={to => {
+                    setOpened([...opened, to]);
+                    onChange(renameKey(data, key, to));
+                  }}
+                />
+              )}
+              {issuesAt(ctx.issues, [...path, key], true).length > 0 && (
+                <span className="size-1.5 rounded-full bg-red-500" title="has problems" />
+              )}
+              <button
+                type="button"
+                className="ml-auto text-zinc-400 hover:text-red-600"
+                aria-label={`remove ${key}`}
+                onClick={() => remove(key)}
+              >
+                ×
+              </button>
+            </>
+          }
         >
-          <summary className="flex cursor-pointer select-none items-center gap-2 px-2 py-1 text-xs marker:content-none [&::-webkit-details-marker]:hidden">
-            <span className="inline-block text-zinc-400 transition-transform group-open:rotate-90">›</span>
-            {names?.enum ? (
-              <span className="font-medium">{key}</span>
-            ) : (
-              <KeyInput
-                value={key}
-                pattern={pattern}
-                taken={Object.keys(data)}
-                onRename={to => {
-                  setOpened([...opened, to]);
-                  onChange(renameKey(data, key, to));
-                }}
-              />
-            )}
-            {issuesAt(ctx.issues, [...path, key], true).length > 0 && (
-              <span className="size-1.5 rounded-full bg-red-500" title="has problems" />
-            )}
-            <button
-              type="button"
-              className="ml-auto text-zinc-400 hover:text-red-600"
-              aria-label={`remove ${key}`}
-              onClick={() => remove(key)}
-            >
-              ×
-            </button>
-          </summary>
           <div className="border-t border-zinc-200 p-2.5 dark:border-zinc-800">
             <Value
               schema={item}
@@ -575,7 +565,7 @@ const RecordField = ({ schema, value, onChange, path }: FieldProps) => {
             />
             <Issues path={[...path, key]} />
           </div>
-        </details>
+        </Disclosure>
       ))}
       <div className="flex items-center gap-1.5">
         {free ? (

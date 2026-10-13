@@ -38,7 +38,7 @@ export type GraphNode = Omit<HubNode, 'badges' | 'detail'> & {
 export type GraphEdge = HubGraph['edges'][number];
 export type GraphModel = { nodes: GraphNode[]; edges: GraphEdge[] };
 
-export const modeTone: Record<Mode, Tone> = { shadow: 'neutral', warn: 'warn', block: 'danger' };
+export const modeTone: Record<Mode, Tone> = { log: 'neutral', warn: 'warn', block: 'danger' };
 const tone = (text: string): Tone | undefined => {
   const mode = Mode.safeParse(text);
   if (mode.success) return modeTone[mode.data];

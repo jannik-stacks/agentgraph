@@ -161,7 +161,7 @@ export const VerdictView = ({ verdict }: { verdict: Verdict }) => {
           <Icon name={look.icon} className={cx('size-3.5', look.tint)} />
         </Tooltip>
         <span className="font-mono">{verdict.check}</span>
-        {!verdict.gating && <Label>shadow</Label>}
+        {!verdict.gating && <Label>log</Label>}
       </div>
       {found ? (
         <ul className="space-y-0.5 pl-5 font-mono text-[11px]">

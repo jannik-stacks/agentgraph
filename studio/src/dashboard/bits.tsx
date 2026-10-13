@@ -2,17 +2,8 @@ import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { RunStatus } from '../../../src/store.ts';
 import type { Tally } from '../../../src/usage.ts';
 import type { Tone } from '../graph-model.ts';
-import { type Glyph, Icon } from '../studio/icons.tsx';
-import { cx, Tooltip } from '../ui.tsx';
-import { statusLook } from './model.ts';
-
-export const toneText: Record<Tone, string> = {
-  neutral: 'text-zinc-400 dark:text-zinc-500',
-  info: 'text-sky-600 dark:text-sky-400',
-  ok: 'text-emerald-600 dark:text-emerald-400',
-  warn: 'text-amber-600 dark:text-amber-400',
-  danger: 'text-red-600 dark:text-red-400',
-};
+import { checkMarks, type Glyph, Icon, KindIcon } from '../studio/icons.tsx';
+import { cx, statusTone, tones, Tooltip } from '../ui.tsx';
 
 export const formatTokens = (n: number) =>
   n < 1000 ? String(Math.round(n)) : n < 1e6 ? `${(n / 1000).toFixed(n < 1e4 ? 1 : 0)}k` : `${(n / 1e6).toFixed(2)}M`;
@@ -98,11 +89,32 @@ export const Num = memo(function Num({ value, format }: { value: number; format:
   );
 });
 
+const statusGlyph: Record<RunStatus, Glyph> = {
+  queued: 'queued',
+  running: 'live',
+  succeeded: 'ok',
+  failed: 'fail',
+  'timed-out': 'fail',
+  interrupted: 'fail',
+  cancelled: 'skipped',
+  skipped: 'skipped',
+};
+
+const checkMark: Record<RunStatus, keyof typeof checkMarks> = {
+  queued: 'queued',
+  running: 'queued',
+  succeeded: 'ok',
+  failed: 'fail',
+  'timed-out': 'halt',
+  interrupted: 'halt',
+  cancelled: 'skipped',
+  skipped: 'skipped',
+};
+
 const marks: Partial<Record<Glyph, string>> = { ok: 'm8 12 3 3 5-6', fail: 'm9 9 6 6m0-6-6 6', queued: 'M12 7v5l3 2' };
 
 /** The run spinner. When the run ends the arc closes into a ring and the mark draws in, in the same element. */
-const RunStatusIcon = ({ status, className }: { status: RunStatus; className: string }) => {
-  const { glyph, tone } = statusLook(status);
+const RunStatusIcon = ({ status, tone, className }: { status: RunStatus; tone: Tone; className: string }) => {
   const running = status === 'running';
   return (
     <svg
@@ -112,9 +124,8 @@ const RunStatusIcon = ({ status, className }: { status: RunStatus; className: st
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      role="img"
-      aria-label={status}
-      className={cx('shrink-0 transition-colors duration-300', toneText[tone], className)}
+      aria-hidden
+      className={cx('shrink-0 transition-colors duration-300', tones[tone].text, className)}
     >
       <circle
         cx="12"
@@ -128,7 +139,7 @@ const RunStatusIcon = ({ status, className }: { status: RunStatus; className: st
         style={{ strokeDasharray: running ? '28 100' : '100 0' }}
       />
       <path
-        d={marks[glyph] ?? 'M8 12h8'}
+        d={marks[statusGlyph[status]] ?? 'M8 12h8'}
         pathLength={1}
         className="transition-[stroke-dashoffset] delay-300 duration-300"
         style={{ strokeDasharray: 1, strokeDashoffset: running ? 1 : 0 }}
@@ -137,32 +148,17 @@ const RunStatusIcon = ({ status, className }: { status: RunStatus; className: st
   );
 };
 
-const dotColor: Record<Tone, string> = {
-  neutral: 'bg-zinc-300 dark:bg-zinc-600',
-  info: 'bg-sky-500',
-  ok: 'bg-emerald-500',
-  warn: 'bg-amber-500',
-  danger: 'bg-red-500',
-};
-
-/** An event's status: a dot, softly pulsing while anything under it runs. */
-const EventDot = ({ status }: { status: RunStatus }) => {
-  const { tone } = statusLook(status);
-  return (
-    <span role="img" aria-label={status} className="relative inline-flex size-3.5 shrink-0 items-center justify-center">
-      {status === 'running' && <span className="bhm-halo absolute size-2 rounded-full bg-sky-500" />}
-      <span className={cx('relative size-2 rounded-full transition-colors duration-300', dotColor[tone])} />
-    </span>
-  );
-};
+/** A status dot in its tone, with a halo pulsing out of it while `pulse` is set. */
+export const Dot = ({ tone, pulse = false }: { tone: Tone; pulse?: boolean }) => (
+  <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center">
+    {pulse && <span className={cx('bhm-halo absolute size-2 rounded-full', tones[tone].dot)} />}
+    <span className={cx('relative size-2 rounded-full transition-colors duration-300', tones[tone].dot)} />
+  </span>
+);
 
 /** A job at work: three grey dots breathing in turn. */
 const Breathing = ({ className }: { className: string }) => (
-  <span
-    role="img"
-    aria-label="running"
-    className={cx('inline-flex shrink-0 items-center justify-center gap-px', className)}
-  >
+  <span aria-hidden className={cx('inline-flex shrink-0 items-center justify-center gap-px', className)}>
     {[0, 1, 2].map(i => (
       <span
         key={i}
@@ -184,33 +180,62 @@ const statusTip: Record<RunStatus, string> = {
   skipped: 'Skipped',
 };
 
+const Look = ({
+  status,
+  level,
+  kind,
+  tone,
+  className,
+}: {
+  status: RunStatus;
+  level: 'run' | 'job' | 'event';
+  kind: 'check' | 'tool' | undefined;
+  tone: Tone;
+  className: string;
+}) => {
+  if (level === 'event') return <Dot tone={tone} pulse={status === 'running'} />;
+  if (status === 'running' && level === 'job') return <Breathing className={className} />;
+  if (kind === 'check' && status !== 'running') {
+    const mark = checkMark[status];
+    return (
+      <KindIcon kind="check" title="" mark={mark} tone={mark === 'halt' ? 'neutral' : tone} className={className} />
+    );
+  }
+  if (kind === 'tool' && status !== 'running')
+    return <KindIcon kind="tool" title="" {...(status !== 'succeeded' && { tone })} className={className} />;
+  if (level === 'job')
+    return (
+      <span className={cx('inline-flex', tones[tone].text)}>
+        <Icon name={statusGlyph[status]} className={className} />
+      </span>
+    );
+  return <RunStatusIcon status={status} tone={tone} className={className} />;
+};
+
 /**
- * A status, drawn per level so one running run shows one spinner: the run spins and turns into its result, a job
- * breathes, an event shows a dot that pulses while anything under it runs.
+ * A status as one icon, drawn per level so one running run shows one spinner: the run spins and turns into its result,
+ * a job breathes, an event shows a dot that pulses while anything under it runs. With `kind`, the kind's own icon takes
+ * the status's shape and tone, so a status never sits next to a kind icon.
  */
 export const StatusIcon = ({
   status,
   level = 'run',
+  kind,
+  tone = statusTone(status),
   className = 'size-3.5',
   tip,
 }: {
   status: RunStatus;
   level?: 'run' | 'job' | 'event';
+  kind?: 'check' | 'tool' | undefined;
+  tone?: Tone | undefined;
   className?: string;
-  tip?: string;
+  tip?: string | undefined;
 }) => (
   <Tooltip tip={tip ?? `${statusTip[status]}${level === 'run' ? '' : level === 'job' ? ', this job' : ', this event'}`}>
-    {level === 'event' ? (
-      <EventDot status={status} />
-    ) : level === 'job' && status === 'running' ? (
-      <Breathing className={className} />
-    ) : level === 'job' ? (
-      <span className={cx('inline-flex', toneText[statusLook(status).tone])}>
-        <Icon name={statusLook(status).glyph} className={className} />
-      </span>
-    ) : (
-      <RunStatusIcon status={status} className={className} />
-    )}
+    <span role="img" aria-label={status} className="inline-flex shrink-0">
+      <Look status={status} level={level} kind={kind} tone={tone} className={className} />
+    </span>
   </Tooltip>
 );
 

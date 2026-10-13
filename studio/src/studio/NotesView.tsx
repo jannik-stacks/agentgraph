@@ -1,28 +1,27 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { accepted } from '../../../src/preload.ts';
 import { NoteKind } from '../../../src/schema.ts';
-import { editPathAtom, navigateAtom, sampleAtom } from '../state.ts';
+import { editPathAtom, hrefAtom, navigateAtom } from '../state.ts';
 import { Badge, Chip, cx, Muted } from '../ui.tsx';
 import { ChangesTray } from './edit/ChangesTray.tsx';
 import { createItemAtom } from './edit/hub-edits.ts';
 import { ItemEditor } from './edit/ItemEditor.tsx';
 import { useHubModel } from './hub-model.ts';
 import { StudioLayout } from './StudioLayout.tsx';
+import { nodeTarget } from './hub-refs.ts';
 import { KindIcon } from './icons.tsx';
 
 const add =
   'rounded border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300';
 
-const Notes = () => {
+/** Every note by kind, each opening in the editor. */
+export const NotesView = () => {
   const { model, config } = useHubModel();
   const edit = useAtomValue(editPathAtom);
   const navigate = useSetAtom(navigateAtom);
   const create = useSetAtom(createItemAtom);
   if (!model || !config) return <Muted>The hub does not compile yet; fix it under Graph.</Muted>;
-  const open = (id: string) => ({
-    href: `/studio?node=${encodeURIComponent(id)}`,
-    onClick: () => navigate({ path: '/studio', query: { node: id, edit: null } }),
-  });
+  const href = useAtomValue(hrefAtom);
   return (
     <StudioLayout
       aside={
@@ -78,7 +77,7 @@ const Notes = () => {
                             <Chip
                               icon={<KindIcon kind="check" className="size-3" title="check" />}
                               title={`check ${note.check} keeps this note true`}
-                              {...open(`check:${note.check}`)}
+                              href={href(nodeTarget(`check:${note.check}`))}
                             >
                               {note.check}
                             </Chip>
@@ -101,7 +100,3 @@ const Notes = () => {
     </StudioLayout>
   );
 };
-
-/** Every note by kind, each opening in the editor. */
-export const NotesView = () =>
-  useAtomValue(sampleAtom) ? <Muted>The sample graph has no notes. Open a hub to browse them.</Muted> : <Notes />;

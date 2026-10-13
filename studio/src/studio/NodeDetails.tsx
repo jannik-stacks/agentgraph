@@ -1,53 +1,38 @@
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { atomWithStorage } from 'jotai/utils';
 import { createContext, lazy, type ReactNode, Suspense, use, useMemo } from 'react';
 import { hubFile } from '../../../src/config.ts';
 import { Mode } from '../../../src/schema.ts';
 import { type GraphModel, type GraphNode, modeTone, type StepContext } from '../graph-model.ts';
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
-import { filesAtom, navigateAtom, sampleAtom } from '../state.ts';
-import { Badge, Chip, Chips, cx, Field, Fields, Pre, Section, useStoredFlag } from '../ui.tsx';
+import { Link } from '../Providers.tsx';
+import { filesAtom, hrefAtom, navigateAtom } from '../state.ts';
+import { Badge, Chip, Chips, cx, Disclosure, Field, Fields, Pre, Section } from '../ui.tsx';
+import { mono, nodeTarget, refId, refKind } from './hub-refs.ts';
 import { KindIcon, kindTitle } from './icons.tsx';
 
 const Markdown = lazy(() => import('../Markdown.tsx'));
 
-type Target = { href: string; onClick: () => void };
-
 const useLinks = (model: GraphModel) => {
-  const navigate = useSetAtom(navigateAtom);
+  const href = useAtomValue(hrefAtom);
   const files = useAtomValue(filesAtom);
   return useMemo(() => {
     const nodes = new Map(model.nodes.map(n => [n.id, n]));
-    const go = (path: string, query?: Record<string, string>): Target => ({
-      href: query ? `${path}?${new URLSearchParams(query)}` : path,
-      onClick: () => navigate({ path, ...(query && { query }) }),
-    });
     return {
       nodes,
       files: files ?? [],
-      node: (id: string) => (nodes.has(id) ? go('/studio', { node: id }) : undefined),
-      file: (file: Pick<SourceFile, 'root' | 'path'>) => go('/studio/setup', { file: `${file.root}:${file.path}` }),
-      page: (path: string) => go(path),
+      node: (id: string) => (nodes.has(id) ? href(nodeTarget(id)) : undefined),
+      file: (file: Pick<SourceFile, 'root' | 'path'>) =>
+        href({ path: '/studio/setup', query: { file: `${file.root}:${file.path}` } }),
+      edit: (path: string) => href({ query: { edit: path } }),
     };
-  }, [model, files, navigate]);
+  }, [model, files, href]);
 };
 
 type Links = ReturnType<typeof useLinks>;
 const LinksContext = createContext<Links | null>(null);
 const useLinksContext = () => use(LinksContext)!;
 
-const refs: Record<string, (value: string) => string | undefined> = {
-  bot: v => `bot:${v}`,
-  skill: v => `skill:${v}`,
-  skills: v => `skill:${v}`,
-  check: v => `check:${v}`,
-  checks: v => `check:${v}`,
-  requires: v => `check:${v}`,
-  notes: v => `note:${v}`,
-  tools: v => `tool:${v}`,
-  preload: v => (v === 'issue' || v === 'links' ? 'issues:issues' : undefined),
-};
-
-const mono = new Set(['branch', 'branches', 'command', 'cron', 'into', 'paths', 'tools', 'types']);
 const lead = new Set(['role', 'prompt', 'run']);
 const identity = ['harness', 'model', 'mode'] as const;
 
@@ -70,7 +55,7 @@ const NodeChip = ({ id, label, title }: { id: string; label?: string | undefined
     <Chip
       icon={<KindIcon kind={kind} className="size-3" title={kind} />}
       title={title ?? `${kind} ${node?.label ?? id}`}
-      {...links.node(id)}
+      href={links.node(id)}
     >
       {label ?? node?.label ?? id.replace(/^[a-z]+:/, '')}
     </Chip>
@@ -81,8 +66,8 @@ const NodeChip = ({ id, label, title }: { id: string; label?: string | undefined
 const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: boolean }) => {
   const links = useLinksContext();
   const key = path.at(-1) ?? '';
-  const ref = path.toReversed().find(k => k in refs);
-  const id = ref && refs[ref]?.(value);
+  const ref = path.findLast(k => k in refKind || k === 'preload');
+  const id = ref && refId(ref, value);
   if (id && links.nodes.has(id)) return <NodeChip id={id} label={value} />;
   if (key === 'workflow') {
     const file = links.files.find(f => f.root === 'hub' && f.path.replace(/\.md$/, '') === `workflows/${value}`);
@@ -91,7 +76,7 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
         <Chip
           icon={<KindIcon kind="workflow" className="size-3" title="workflow" />}
           title={`workflow ${value}, ${file.path}`}
-          {...links.file(file)}
+          href={links.file(file)}
         >
           {value}
         </Chip>
@@ -99,7 +84,7 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
   }
   if (key === 'harness')
     return (
-      <Chip dot="bg-sky-500" title="harness reference" {...links.page('/docs/reference/harnesses')}>
+      <Chip dot="bg-sky-500" title="harness reference" href="/docs/reference/harnesses">
         {value}
       </Chip>
     );
@@ -109,7 +94,7 @@ const Scalar = ({ path, value, chip }: { path: string[]; value: string; chip?: b
       <Chip
         dot="bg-violet-500"
         title={`model alias for ${alias.upstream}, in ${alias.file.path}`}
-        {...links.file(alias.file)}
+        href={links.file(alias.file)}
       >
         {value}
       </Chip>
@@ -136,7 +121,7 @@ const Code = ({ text }: { text: string }) => {
       {mentioned.length > 0 && (
         <Chips>
           {mentioned.map(f => (
-            <Chip key={`${f.root}:${f.path}`} dot="bg-slate-500" mono title="open in setup" {...links.file(f)}>
+            <Chip key={`${f.root}:${f.path}`} dot="bg-slate-500" mono title="open in setup" href={links.file(f)}>
               {f.path}
             </Chip>
           ))}
@@ -220,16 +205,12 @@ const NoteList = ({ kind, notes }: { kind: string; notes: Note[] }) => {
         return (
           <li key={note.slug} className="flex flex-wrap items-center gap-2 px-2 py-1.5">
             {file ? (
-              <a
-                {...links.file(file)}
-                onClick={e => {
-                  e.preventDefault();
-                  links.file(file).onClick();
-                }}
+              <Link
+                href={links.file(file)}
                 className="font-medium hover:text-sky-700 hover:underline dark:hover:text-sky-300"
               >
                 {note.title ?? note.slug}
-              </a>
+              </Link>
             ) : (
               <span className="font-medium">{note.title ?? note.slug}</span>
             )}
@@ -251,7 +232,6 @@ const editButton =
 
 const EditButton = ({ path, label = 'Edit' }: { path: string; label?: string }) => {
   const navigate = useSetAtom(navigateAtom);
-  if (useAtomValue(sampleAtom)) return null;
   return (
     <button type="button" className={editButton} onClick={() => navigate({ query: { edit: path } })}>
       {label}
@@ -379,8 +359,7 @@ const overText = (over: NonNullable<StepContext['over']>) =>
  */
 const StepContextView = ({ context, from, heading }: { context: StepContext; from: string; heading?: ReactNode }) => {
   const links = useLinksContext();
-  const navigate = useSetAtom(navigateAtom);
-  const docs = links.page('/docs/context');
+  const docs = '/docs/context';
   return (
     <div className="space-y-3 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
       {heading}
@@ -397,12 +376,12 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
         )}
         <Labelled name="in" title="what the run looks at, and what it sees first in its prompt">
           {context.over && (
-            <Chip mono title="what the run looks at" {...docs}>
+            <Chip mono title="what the run looks at" href={docs}>
               over {overText(context.over)}
             </Chip>
           )}
           {context.preload.map(item => (
-            <Chip key={preloadName(item)} mono title={`preloads ${preloadMeaning(item)}`} {...docs}>
+            <Chip key={preloadName(item)} mono title={`preloads ${preloadMeaning(item)}`} href={docs}>
               {preloadName(item)}
               <span className="ml-1 font-sans text-zinc-500">{preloadMeaning(item)}</span>
             </Chip>
@@ -411,8 +390,7 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
             <Chip
               icon={<KindIcon kind="issues" className="size-3" />}
               title={`${context.issues} issue tracker, set in ${hubFile}`}
-              href={`?edit=${hubFile}`}
-              onClick={() => navigate({ query: { edit: hubFile } })}
+              href={links.edit(hubFile)}
             >
               {context.issues}
             </Chip>
@@ -421,7 +399,7 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
         </Labelled>
         <Labelled name="uses" title="harness tools and read-only hub tools while it works">
           {context.harnessTools.map(tool => (
-            <Chip key={tool} mono title="harness tool" {...links.page('/docs/reference/harnesses')}>
+            <Chip key={tool} mono title="harness tool" href="/docs/reference/harnesses">
               {tool}
             </Chip>
           ))}
@@ -431,7 +409,7 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
               icon={<KindIcon kind="tool" className="size-3" />}
               mono
               title="read-only hub tool"
-              {...docs}
+              href={docs}
             >
               {tool}
             </Chip>
@@ -454,16 +432,9 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
       </dl>
       <p className="flex items-center gap-1.5 text-xs text-zinc-500">
         <KindIcon kind="note" className="size-3" />
-        <a
-          {...links.page('/studio/notes')}
-          onClick={e => {
-            e.preventDefault();
-            links.page('/studio/notes').onClick();
-          }}
-          className="hover:text-sky-700 hover:underline dark:hover:text-sky-300"
-        >
+        <Link href="/studio/notes" className="hover:text-sky-700 hover:underline dark:hover:text-sky-300">
           Notes are surfaced by relevance while the bot works
-        </a>
+        </Link>
       </p>
     </div>
   );
@@ -540,37 +511,33 @@ const Connections = ({ node, model }: { node: GraphNode; model: GraphModel }) =>
   );
 };
 
+const sourceOpenAtom = atomWithStorage('bhm.studio.source-open', false, undefined, { getOnInit: true });
+
 const NodeSource = ({ source }: { source: NonNullable<GraphNode['source']> }) => {
   const links = useLinksContext();
-  const [open, setOpen] = useStoredFlag('bhm.studio.source-open', false);
+  const [open, setOpen] = useAtom(sourceOpenAtom);
   const file = links.files.find(f => f.root === source.root && f.path === source.path);
   if (!file) return null;
-  const setup = links.file(file);
   return (
-    <details
+    <Disclosure
       open={open}
-      onToggle={e => setOpen(e.currentTarget.open)}
-      className="group rounded border border-zinc-200 dark:border-zinc-800"
+      onToggle={setOpen}
+      summaryClassName="gap-2 py-1.5 text-xs text-zinc-600 dark:text-zinc-400"
+      summary={
+        <>
+          <span className="font-semibold uppercase tracking-wide text-zinc-500">source</span>
+          <span className="truncate font-mono text-zinc-500">{file.path}</span>
+          <Link
+            href={links.file(file)}
+            className="ml-auto shrink-0 hover:text-sky-700 hover:underline dark:hover:text-sky-300"
+          >
+            open in setup
+          </Link>
+        </>
+      }
     >
-      <summary className="flex cursor-pointer select-none items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-600 marker:content-none hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-900 [&::-webkit-details-marker]:hidden">
-        <span className="inline-block transition-transform group-open:rotate-90">›</span>
-        <span className="font-semibold uppercase tracking-wide text-zinc-500">source</span>
-        <span className="truncate font-mono text-zinc-500">{file.path}</span>
-        <a
-          href={setup.href}
-          onClick={e => {
-            e.preventDefault();
-            setup.onClick();
-          }}
-          className="ml-auto shrink-0 hover:text-sky-700 hover:underline dark:hover:text-sky-300"
-        >
-          open in setup
-        </a>
-      </summary>
-      <div className="border-t border-zinc-200 p-2 dark:border-zinc-800">
-        <SourceView file={file} />
-      </div>
-    </details>
+      <SourceView file={file} />
+    </Disclosure>
   );
 };
 

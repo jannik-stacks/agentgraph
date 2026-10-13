@@ -15,19 +15,52 @@ import {
 import type { Closure } from '../../src/schema.ts';
 import type { RunStatus } from '../../src/store.ts';
 import type { Tone } from './graph-model.ts';
+import { Link } from './Providers.tsx';
 
 export const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ');
 
-const tones: Record<Tone, string> = {
-  neutral: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
-  info: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
-  ok: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-  warn: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-  danger: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+/** The classes of each tone: a badge's fill, an icon's or text's color, and a status dot's fill. */
+export const tones: Record<Tone, { badge: string; text: string; dot: string }> = {
+  neutral: {
+    badge: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
+    text: 'text-zinc-400 dark:text-zinc-500',
+    dot: 'bg-zinc-300 dark:bg-zinc-600',
+  },
+  info: {
+    badge: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
+    text: 'text-sky-600 dark:text-sky-400',
+    dot: 'bg-sky-500',
+  },
+  ok: {
+    badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    dot: 'bg-emerald-500',
+  },
+  warn: {
+    badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+    text: 'text-amber-600 dark:text-amber-400',
+    dot: 'bg-amber-500',
+  },
+  danger: {
+    badge: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
+    text: 'text-red-600 dark:text-red-400',
+    dot: 'bg-red-500',
+  },
 };
 
-const statusTones: Partial<Record<RunStatus, Tone>> = { queued: 'neutral', running: 'info', succeeded: 'ok' };
-export const statusTone = (status: RunStatus): Tone => statusTones[status] ?? 'danger';
+const statusTones: Record<RunStatus, Tone> = {
+  queued: 'neutral',
+  running: 'info',
+  succeeded: 'ok',
+  failed: 'danger',
+  'timed-out': 'danger',
+  interrupted: 'danger',
+  cancelled: 'neutral',
+  skipped: 'neutral',
+};
+
+/** The tone of a run status: failures are danger, cancelled and skipped runs neutral. */
+export const statusTone = (status: RunStatus) => statusTones[status];
 
 export const closureTones: Record<Closure, Tone> = {
   done: 'ok',
@@ -41,7 +74,7 @@ export const Badge = ({ tone = 'neutral', children }: { tone?: Tone; children: R
   <span
     className={cx(
       'inline-block rounded px-1.5 py-px text-[10px] font-medium normal-case leading-4 tracking-normal',
-      tones[tone]
+      tones[tone].badge
     )}
   >
     {children}
@@ -89,54 +122,32 @@ type ChipProps = {
   mono?: boolean | undefined;
   title?: string | undefined;
   href?: string | undefined;
-  onClick?: (() => void) | undefined;
 };
 
-/** The chip's content, inside a span or a link that the caller styles. */
-const ChipInner = ({
-  children,
-  icon,
-  dot,
-  mono,
-  title,
-  href,
-  onClick,
-  className,
-}: ChipProps & { className: string }) => {
+/** The chip's content, inside a span or a link that the caller styles, with `title` as its tooltip. */
+const ChipInner = ({ children, icon, dot, mono, title, href, className }: ChipProps & { className: string }) => {
   const body = (
     <>
       {icon ?? (dot && <span className={cx('size-1.5 shrink-0 rounded-full', dot)} />)}
       <span className={cx('truncate', mono && 'font-mono text-[11px]')}>{children}</span>
     </>
   );
-  if (!onClick)
-    return (
-      <span className={className} title={title}>
-        {body}
-      </span>
-    );
-  return (
-    <a
-      href={href}
-      title={title}
-      className={className}
-      onClick={e => {
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-        e.preventDefault();
-        onClick();
-      }}
-    >
+  const chip = href ? (
+    <Link href={href} className={className}>
       {body}
-    </a>
+    </Link>
+  ) : (
+    <span className={className}>{body}</span>
   );
+  return title ? <Tooltip tip={title}>{chip}</Tooltip> : chip;
 };
 
 /**
- * A small pill for a name, a link when `onClick` is given. It leads with `icon`, or with a color dot when `dot` names a
+ * A small pill for a name, a link when `href` is given. It leads with `icon`, or with a color dot when `dot` names a
  * background class.
  */
 export const Chip = (chip: ChipProps) => (
-  <ChipInner {...chip} className={cx(chipBase, chip.onClick ? chipLink : chipIdle)} />
+  <ChipInner {...chip} className={cx(chipBase, chip.href ? chipLink : chipIdle)} />
 );
 
 /** A {@link Chip} with a remove button inside its border, for editable lists. */
@@ -146,7 +157,7 @@ export const RemovableChip = ({ label, onRemove, ...chip }: ChipProps & { label:
       chipBase,
       chipIdle,
       'gap-0 pr-0',
-      chip.onClick &&
+      chip.href &&
         'has-[a:hover]:border-sky-400 has-[a:hover]:bg-sky-50 dark:has-[a:hover]:border-sky-600 dark:has-[a:hover]:bg-sky-950'
     )}
   >
@@ -154,13 +165,12 @@ export const RemovableChip = ({ label, onRemove, ...chip }: ChipProps & { label:
       {...chip}
       className={cx(
         'inline-flex min-w-0 items-center gap-1.5',
-        chip.onClick && 'cursor-pointer hover:text-sky-800 dark:hover:text-sky-200'
+        chip.href && 'cursor-pointer hover:text-sky-800 dark:hover:text-sky-200'
       )}
     />
     <button
       type="button"
       aria-label={`Remove ${label}`}
-      title={`Remove ${label}`}
       onClick={onRemove}
       className="-my-px ml-1.5 flex items-center self-stretch rounded-r-[5px] border-l border-zinc-200 px-1 text-zinc-400 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-inset dark:border-zinc-700 dark:text-zinc-500 dark:hover:bg-red-950 dark:hover:text-red-400"
     >
@@ -173,28 +183,60 @@ export const RemovableChip = ({ label, onRemove, ...chip }: ChipProps & { label:
 
 export const Chips = ({ children }: { children: ReactNode }) => <div className="flex flex-wrap gap-1">{children}</div>;
 
-const readFlag = (key: string, fallback: boolean) => {
-  try {
-    const value = localStorage.getItem(key);
-    return value === null ? fallback : value === '1';
-  } catch {
-    return fallback;
+/**
+ * A summary row with a turning chevron that folds its content, which renders only while open. It opens as `open` says
+ * and again whenever `open` changes; `onToggle` reports the reader's clicks.
+ */
+export const Disclosure = ({
+  summary,
+  open = false,
+  onToggle,
+  className,
+  summaryClassName,
+  children,
+}: {
+  summary: ReactNode;
+  open?: boolean;
+  onToggle?: (open: boolean) => void;
+  className?: string;
+  summaryClassName?: string;
+  children: ReactNode;
+}) => {
+  const [state, setState] = useState({ open, shown: open });
+  let shown = state.shown;
+  if (state.open !== open) {
+    shown = open;
+    setState({ open, shown });
   }
-};
-
-/** A boolean remembered per browser in localStorage. */
-export const useStoredFlag = (key: string, fallback: boolean) => {
-  const [value, setValue] = useState(() => readFlag(key, fallback));
-  const set = useCallback(
-    (next: boolean) => {
-      setValue(next);
-      try {
-        localStorage.setItem(key, next ? '1' : '0');
-      } catch {}
-    },
-    [key]
+  return (
+    <details
+      open={shown}
+      onToggle={e => {
+        const next = e.currentTarget.open;
+        if (next === shown) return;
+        setState({ open, shown: next });
+        onToggle?.(next);
+      }}
+      className={cx('group/disclosure', className)}
+    >
+      <summary
+        className={cx(
+          'flex cursor-pointer select-none items-center gap-1.5 marker:content-none [&::-webkit-details-marker]:hidden',
+          summaryClassName
+        )}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          className="size-3 shrink-0 text-zinc-400 transition-transform group-open/disclosure:rotate-90"
+        >
+          <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        {summary}
+      </summary>
+      {shown && children}
+    </details>
   );
-  return [value, set] as const;
 };
 
 const buttons = {
@@ -204,6 +246,7 @@ const buttons = {
     'rounded px-2.5 py-0.5 text-xs font-medium text-white bg-sky-600 hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-600',
   small:
     'whitespace-nowrap rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-sky-600 dark:hover:text-sky-300',
+  ghost: 'rounded p-0.5 text-zinc-400 hover:text-sky-600 dark:hover:text-sky-400',
   dashed:
     'rounded-md border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300',
 };
@@ -291,6 +334,13 @@ export const Button = ({
   />
 );
 
+/** A button showing only an icon; `tip` is both its tooltip and its accessible name. */
+export const IconButton = ({ tip, variant = 'small', ...props }: ComponentProps<typeof Button> & { tip: string }) => (
+  <Tooltip tip={tip}>
+    <Button variant={variant} aria-label={tip} {...props} />
+  </Tooltip>
+);
+
 /** A native select with its own chevron, spaced from the text, in place of the browser's arrow. */
 export const Select = ({
   className,
@@ -323,12 +373,10 @@ export const Segmented = <T extends string>({
 }: {
   options: readonly T[];
   value: T | null | undefined;
-  onChange: (option: T) => void;
   label?: (option: T) => ReactNode;
-  href?: (option: T) => string;
   className?: string;
   'aria-label'?: string;
-}) => (
+} & ({ href: (option: T) => string; onChange?: never } | { onChange: (option: T) => void; href?: never })) => (
   <div
     role="group"
     aria-label={ariaLabel}
@@ -343,21 +391,11 @@ export const Segmented = <T extends string>({
           : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
       );
       return href ? (
-        <a
-          key={option}
-          href={href(option)}
-          aria-current={on ? 'page' : undefined}
-          className={style}
-          onClick={e => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-            e.preventDefault();
-            onChange(option);
-          }}
-        >
+        <Link key={option} href={href(option)} aria-current={on ? 'page' : undefined} className={style}>
           {label(option)}
-        </a>
+        </Link>
       ) : (
-        <button key={option} type="button" aria-pressed={on} className={style} onClick={() => onChange(option)}>
+        <button key={option} type="button" aria-pressed={on} className={style} onClick={() => onChange?.(option)}>
           {label(option)}
         </button>
       );

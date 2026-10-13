@@ -1,6 +1,8 @@
 import type { ComponentType } from 'react';
+import { langOf } from '../../source/lang.ts';
 import { Badge, Chip, Chips, cx } from '../../ui.tsx';
-import { Highlighted, JsonView, json, Label, parseJson, Text, WithRaw } from './core.tsx';
+import { Code } from '../../Markdown.tsx';
+import { JsonView, json, Label, parseJson, Text, WithRaw } from './core.tsx';
 
 type Input = Record<string, unknown>;
 type ToolProps = { input: Input; output?: string | undefined; ok?: boolean | undefined };
@@ -8,27 +10,6 @@ type ToolProps = { input: Input; output?: string | undefined; ok?: boolean | und
 const str = (value: unknown) => (typeof value === 'string' ? value : value === undefined ? '' : String(value));
 const rel = (path: unknown) => str(path).replace(/^\/work\/?/, '') || '.';
 const clip = (text: string, max = 80) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
-
-const languages: Record<string, string> = {
-  ts: 'ts',
-  mts: 'ts',
-  tsx: 'tsx',
-  js: 'js',
-  mjs: 'js',
-  jsx: 'jsx',
-  json: 'json',
-  jsonl: 'json',
-  md: 'markdown',
-  mdx: 'mdx',
-  yaml: 'yaml',
-  yml: 'yaml',
-  sh: 'bash',
-  css: 'css',
-  html: 'html',
-  py: 'python',
-  toml: 'toml',
-};
-const langOf = (path: unknown) => languages[/\.(\w+)$/.exec(str(path))?.[1] ?? ''] ?? 'text';
 
 const range = (input: Input) => {
   const offset = typeof input.offset === 'number' ? input.offset : undefined;
@@ -53,7 +34,7 @@ const Output = ({ output, ok }: Pick<ToolProps, 'output' | 'ok'>) => {
   if (output === undefined || output === '') return null;
   const parsed = parseJson(output);
   if (parsed !== undefined) return <JsonView value={parsed} label="output" />;
-  return <Highlighted code={output} className={cx(ok === false && 'text-red-700 dark:text-red-300')} />;
+  return <Code code={output} className={cx(ok === false && 'text-red-700 dark:text-red-300')} />;
 };
 
 const Path = ({ path, suffix = '' }: { path: unknown; suffix?: string }) => (
@@ -69,7 +50,7 @@ const Read = ({ input, output, ok }: ToolProps) => (
     {ok === false || output === undefined ? (
       <Output output={output} ok={ok} />
     ) : (
-      <Highlighted code={fileText(output)} lang={langOf(input.filePath ?? input.path)} />
+      <Code code={fileText(output)} lang={langOf(str(input.filePath ?? input.path))} />
     )}
   </>
 );
@@ -140,7 +121,7 @@ const Glob = ({ input, output, ok }: ToolProps) => (
 const Bash = ({ input, output, ok }: ToolProps) => (
   <>
     {input.description !== undefined && <div className="text-zinc-500">{str(input.description)}</div>}
-    <Highlighted code={str(input.command)} lang="bash" />
+    <Code code={str(input.command)} lang="bash" />
     <Output output={output} ok={ok} />
   </>
 );
@@ -192,7 +173,7 @@ const Edit = ({ input, output, ok }: ToolProps) => (
 const Write = ({ input, output, ok }: ToolProps) => (
   <>
     <Path path={input.filePath} />
-    <Highlighted code={str(input.content)} lang={langOf(input.filePath)} />
+    <Code code={str(input.content)} lang={langOf(str(input.filePath))} />
     {ok === false && <Output output={output} ok={ok} />}
   </>
 );

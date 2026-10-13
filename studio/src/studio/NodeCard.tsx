@@ -3,10 +3,11 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { createContext, memo, type ReactNode, use } from 'react';
 import { fanOut } from '../../../src/over.ts';
 import { type GraphNode, modeTone } from '../graph-model.ts';
-import { editPathAtom, navigateAtom, sampleAtom } from '../state.ts';
+import { editPathAtom, navigateAtom } from '../state.ts';
 import { Badge, cx, Tooltip } from '../ui.tsx';
+import { plural } from './collapse.ts';
 import { castSize, nodeSize, stackSize } from './layout.ts';
-import { KindIcon, kindTitle } from './icons.tsx';
+import { Icon, KindIcon, kindTitle } from './icons.tsx';
 import { nodeStyle } from './styles.ts';
 
 export type FlowNode = Node<{ node: GraphNode }, 'graph' | 'cast'>;
@@ -150,15 +151,6 @@ export const CastCard = memo(({ data: { node }, selected }: NodeProps<FlowNode>)
   </Card>
 ));
 
-const previewCount = 8;
-
-const preview = (held: GraphNode[]) =>
-  [
-    ...held.slice(0, previewCount).map(n => n.label),
-    ...(held.length > previewCount ? [`${held.length - previewCount} more`] : []),
-    'Click to list them all',
-  ].join('\n');
-
 export const FacetBadges = ({ facet }: { facet: NonNullable<GraphNode['stack']>['facets'][number] | undefined }) =>
   facet?.counts.map(([value, count]) => {
     const tone = facet.key === 'mode' ? modeTone[value as keyof typeof modeTone] : undefined;
@@ -173,27 +165,39 @@ export const FacetBadges = ({ facet }: { facet: NonNullable<GraphNode['stack']>[
 
 /** The nodes a crowded group folds away, as one short stacked card counting them by their first facet. */
 export const StackCard = memo(({ data: { node, held }, selected }: NodeProps<StackFlowNode>) => (
-  <Tooltip tip={preview(held)}>
-    <div
-      style={stackSize}
-      className={cx(
-        'flex cursor-pointer flex-col justify-center gap-1 border border-l-4 border-zinc-200 bg-white px-2.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100',
-        nodeStyle[node.kind],
-        stacked,
-        selected && 'ring-2 ring-sky-400'
-      )}
-    >
-      <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
-      <div className="flex min-w-0 items-center gap-1.5">
-        <KindIcon kind={node.kind} />
-        <span className="truncate text-[13px] font-semibold tabular-nums">{node.label}</span>
-      </div>
-      <Meta>
-        <FacetBadges facet={node.stack?.facets[0]} />
-      </Meta>
-      <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
+  <div
+    style={stackSize}
+    className={cx(
+      'relative flex cursor-pointer flex-col justify-center gap-1 border border-l-4 border-zinc-200 bg-white px-2.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100',
+      nodeStyle[node.kind],
+      stacked,
+      selected && 'ring-2 ring-sky-400'
+    )}
+  >
+    <span
+      aria-hidden
+      className="absolute -top-px -bottom-px -left-1 w-1 rounded-l-[inherit] [--tint:rgb(255_255_255/0.7)] dark:[--tint:rgb(24_24_27/0.75)]"
+      style={{ background: 'repeating-linear-gradient(45deg, transparent 0 3px, var(--tint) 3px 6px)' }}
+    />
+    <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
+    <div className="flex min-w-0 items-center gap-1.5 pr-10">
+      <KindIcon kind={node.kind} />
+      <span className="truncate text-[13px] font-semibold tabular-nums">{node.label}</span>
     </div>
-  </Tooltip>
+    <Meta>
+      <FacetBadges facet={node.stack?.facets[0]} />
+    </Meta>
+    <Tooltip
+      tip={`${held.length} more ${plural(node.kind)}, click to list them`}
+      className="absolute top-1.5 right-1.5"
+    >
+      <span className="inline-flex items-center gap-0.5 rounded-full bg-zinc-100 px-1.5 text-[10px] leading-4 font-medium text-zinc-500 tabular-nums dark:bg-zinc-800 dark:text-zinc-400">
+        {held.length}
+        <Icon name="more" className="size-3" />
+      </span>
+    </Tooltip>
+    <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
+  </div>
 ));
 
 export type FrameFlowNode = Node<{ name: string; path?: string | undefined }, 'workflow'>;
@@ -202,7 +206,6 @@ export type FrameFlowNode = Node<{ name: string; path?: string | undefined }, 'w
 export const WorkflowFrame = memo(({ data: { name, path } }: NodeProps<FrameFlowNode>) => {
   const navigate = useSetAtom(navigateAtom);
   const editing = useAtomValue(editPathAtom) === path;
-  const sample = useAtomValue(sampleAtom);
   const title = (
     <>
       <KindIcon kind="workflow" />
@@ -217,7 +220,7 @@ export const WorkflowFrame = memo(({ data: { name, path } }: NodeProps<FrameFlow
         editing ? 'border-violet-400 dark:border-violet-500' : 'border-violet-200 dark:border-violet-900'
       )}
     >
-      {path && !sample ? (
+      {path ? (
         <button
           type="button"
           title={`${kindTitle.workflow}\nEdit ${path}`}

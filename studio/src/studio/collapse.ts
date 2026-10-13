@@ -4,7 +4,7 @@ import type { GraphEdge, GraphModel, GraphNode, NodeKind } from '../graph-model.
 export const fanLimit = 5;
 
 const spine = new Set<NodeKind>(['trigger', 'job', 'script']);
-const modes = ['block', 'warn', 'shadow'];
+const modes = ['block', 'warn', 'log'];
 const facetKeys = ['mode', 'type'] as const;
 
 const modeRank = (mode: unknown) => {
@@ -12,7 +12,7 @@ const modeRank = (mode: unknown) => {
   return at < 0 ? modes.length : at;
 };
 
-const plural = (kind: string) => (kind.endsWith('s') ? kind : `${kind}s`);
+export const plural = (kind: string) => (kind.endsWith('s') ? kind : `${kind}s`);
 
 /** Splits items at the fan limit: all of them while they fit, else one fewer than the limit and the rest. */
 export const fold = <T>(items: T[]) =>
@@ -20,7 +20,7 @@ export const fold = <T>(items: T[]) =>
     ? { shown: items, rest: [] as T[] }
     : { shown: items.slice(0, fanLimit - 1), rest: items.slice(fanLimit - 1) };
 
-/** How many of `nodes` share each mode and each type, modes from block to shadow, types most common first. */
+/** How many of `nodes` share each mode and each type, modes from block to log, types most common first. */
 const facets = (nodes: GraphNode[]): NonNullable<GraphNode['stack']>['facets'] =>
   facetKeys.flatMap(key => {
     const counts = new Map<string, number>();
@@ -53,7 +53,7 @@ const owners = ({ nodes, edges }: GraphModel) => {
 };
 
 /**
- * Groups the nodes that hang off one parent by kind, block checks before warn before shadow, and folds every group
+ * Groups the nodes that hang off one parent by kind, block checks before warn before log, and folds every group
  * past the fan limit into a stack node holding the rest. Edges of the held nodes lead to the stack, one per kind and
  * end. Triggers, jobs and scripts are the flow itself and never fold.
  */

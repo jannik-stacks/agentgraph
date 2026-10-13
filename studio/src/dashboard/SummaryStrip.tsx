@@ -5,7 +5,7 @@ import { sum } from '../../../src/usage.ts';
 import { sinceFilterAtom, sortAtom, statusFilterAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
 import { cx, Tooltip } from '../ui.tsx';
-import { age, formatTokens, formatUsd, Num } from './bits.tsx';
+import { age, Dot, formatTokens, formatUsd, Num } from './bits.tsx';
 import { pricesAtom } from './live.ts';
 import { costOfRuns, isFailed, isLive, type Prices } from './model.ts';
 
@@ -104,12 +104,7 @@ export const SummaryStrip = ({ runs: rows }: { runs: RunRow[] }) => {
         tip={`${runs(s.live)} running or queued now`}
         onClick={() => toggle('running', status, setStatus)}
       >
-        <span className="relative inline-flex size-3.5 items-center justify-center">
-          {s.live > 0 && <span className="bhm-halo absolute size-2 rounded-full bg-sky-500" />}
-          <span
-            className={cx('relative size-2 rounded-full', s.live > 0 ? 'bg-sky-500' : 'bg-zinc-300 dark:bg-zinc-600')}
-          />
-        </span>
+        <Dot tone={s.live > 0 ? 'info' : 'neutral'} pulse={s.live > 0} />
         <Num value={s.live} format={count} />
       </Stat>
       <span className="pl-2 text-zinc-400 dark:text-zinc-500">today</span>

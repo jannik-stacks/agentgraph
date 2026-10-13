@@ -1,23 +1,19 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
 import type { ConfigError } from '../../../src/config.ts';
 import type { GraphModel } from '../graph-model.ts';
-import { sampleModel } from '../graph-sample.ts';
-import { editPathAtom, navigateAtom, sampleAtom, selectedNodeAtom, studioTabAtom, studioTabs } from '../state.ts';
-import { Link } from '../Providers.tsx';
-import { cx, Muted } from '../ui.tsx';
+import { editPathAtom, navigateAtom, selectedNodeAtom, studioTabAtom, studioTabs } from '../state.ts';
+import { Muted, Segmented } from '../ui.tsx';
 import { GraphCanvas } from './GraphCanvas.tsx';
 import { ChangesTray } from './edit/ChangesTray.tsx';
 import { HubItems } from './edit/HubItems.tsx';
 import { ItemEditor } from './edit/ItemEditor.tsx';
 import { useHubModel } from './hub-model.ts';
-import { layerAtom, shownModel, useShownModel } from './shown.ts';
+import { useShownModel } from './shown.ts';
 import { Selection } from './StackDetails.tsx';
 import { NotesView } from './NotesView.tsx';
 import { SetupView } from './SetupView.tsx';
 import { StudioLayout } from './StudioLayout.tsx';
-
-const LabView = lazy(() => import('../lab/LabView.tsx'));
 
 const Errors = ({ errors }: { errors: ConfigError[] }) => {
   const navigate = useSetAtom(navigateAtom);
@@ -56,22 +52,6 @@ const useSelect = (model: GraphModel | undefined) => {
   return { selected, select, edit };
 };
 
-const SampleStudio = () => {
-  const { selected, select } = useSelect(sampleModel);
-  const shown = shownModel(sampleModel, useAtomValue(layerAtom));
-  return (
-    <StudioLayout
-      aside={
-        <Selection model={sampleModel} shown={shown} selected={selected} onSelect={select}>
-          <p className="text-zinc-500">Select a node to see its details.</p>
-        </Selection>
-      }
-    >
-      <GraphCanvas model={sampleModel} selected={selected} onSelect={select} layoutKey="sample" />
-    </StudioLayout>
-  );
-};
-
 const HubStudio = () => {
   const { model, errors } = useHubModel();
   const { selected, select, edit } = useSelect(model);
@@ -107,30 +87,19 @@ const HubStudio = () => {
   );
 };
 
-const Graph = () => (useAtomValue(sampleAtom) ? <SampleStudio /> : <HubStudio />);
+const Tabs = () => (
+  <nav className="border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-800">
+    <Segmented
+      options={studioTabs}
+      value={useAtomValue(studioTabAtom)}
+      href={t => (t === 'graph' ? '/studio' : `/studio/${t}`)}
+      className="text-xs capitalize"
+      aria-label="studio views"
+    />
+  </nav>
+);
 
-const Tabs = () => {
-  const tab = useAtomValue(studioTabAtom);
-  return (
-    <nav className="flex gap-1 border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-800">
-      {studioTabs.map(t => (
-        <Link
-          key={t}
-          href={t === 'graph' ? '/studio' : `/studio/${t}`}
-          aria-current={t === tab ? 'page' : undefined}
-          className={cx(
-            'rounded px-2 py-0.5 text-xs capitalize',
-            t === tab ? 'bg-zinc-200 dark:bg-zinc-800' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900'
-          )}
-        >
-          {t}
-        </Link>
-      ))}
-    </nav>
-  );
-};
-
-const tabs = { graph: Graph, notes: NotesView, setup: SetupView, lab: LabView } satisfies Record<
+const tabs = { graph: HubStudio, notes: NotesView, setup: SetupView } satisfies Record<
   (typeof studioTabs)[number],
   unknown
 >;

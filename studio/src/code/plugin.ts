@@ -3,6 +3,7 @@ import { join, relative, resolve as resolvePath, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHighlighter, type Highlighter } from 'shiki';
 import { parseSync, type Plugin, type ViteDevServer } from 'vite';
+import { langOf, languages } from '../source/lang.ts';
 import {
   type Decl,
   type Field,
@@ -22,26 +23,11 @@ const rootFiles = ['package.json', 'tsconfig.json'];
 const secret = /(^|\/)\.|\.env\b|secret|\.pem$|\.key$/i;
 const skipDirs = new Set(['node_modules', 'dist', '.git']);
 
-const langs: [RegExp, string][] = [
-  [/\.tsx$/, 'tsx'],
-  [/\.ts$/, 'typescript'],
-  [/\.m?js$/, 'javascript'],
-  [/\.jsonc$/, 'jsonc'],
-  [/\.json$/, 'json'],
-  [/\.ya?ml$/, 'yaml'],
-  [/\.sh$/, 'shellscript'],
-  [/(^|\/)Dockerfile$/, 'dockerfile'],
-  [/\.md$/, 'markdown'],
-  [/\.html$/, 'html'],
-  [/\.(service|timer|conf|ini)$/, 'ini'],
-];
-const langOf = (path: string) => langs.find(([re]) => re.test(path))?.[1] ?? 'text';
-
 let highlighter: Promise<Highlighter> | undefined;
 const highlight = async (code: string, lang: string) => {
   highlighter ??= createHighlighter({
     themes: ['github-light', 'github-dark'],
-    langs: [...new Set(langs.map(([, l]) => l))],
+    langs: languages,
   });
   const h = await highlighter;
   const { tokens } = h.codeToTokens(code, {

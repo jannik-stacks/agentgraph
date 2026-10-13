@@ -65,7 +65,7 @@ describe('studio navigation', () => {
   });
 
   it('links every studio tab, and each link opens its tab', () => {
-    expect(studioTabs).toContain('lab');
+    expect(studioTabs).toContain('notes');
     for (const tab of studioTabs) {
       const [, tabs = ''] = navs(render(tabPath(tab)));
       expect(links(tabs)).toEqual(studioTabs.map(other => ({ href: tabPath(other), current: other === tab })));

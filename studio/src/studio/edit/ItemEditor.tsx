@@ -11,9 +11,10 @@ import {
   type ItemKind,
 } from '../../../../src/hub-files.ts';
 import { Harness, HubTool, NoteKind } from '../../../../src/schema.ts';
-import type { GraphModel, NodeKind } from '../../graph-model.ts';
-import { filesAtom, navigateAtom, selectedNodeAtom } from '../../state.ts';
+import type { GraphModel } from '../../graph-model.ts';
+import { filesAtom, hrefAtom, navigateAtom, selectedNodeAtom } from '../../state.ts';
 import { Button, cx, Segmented, useCommittedText } from '../../ui.tsx';
+import { nodeTarget, refId } from '../hub-refs.ts';
 import { type IconKind, KindIcon } from '../icons.tsx';
 import {
   bodyLabel,
@@ -30,16 +31,6 @@ import {
 import { type FormContext, type Path, SchemaForm } from './SchemaForm.tsx';
 
 const Markdown = lazy(() => import('../../Markdown.tsx'));
-
-const refKinds: Record<string, NodeKind> = {
-  bot: 'bot',
-  skill: 'skill',
-  skills: 'skill',
-  check: 'check',
-  checks: 'check',
-  tools: 'tool',
-  subagents: 'bot',
-};
 
 /** The icon kind of a hub file kind. */
 export const itemIcon = (kind: ItemKind): IconKind => (kind === 'issue' ? 'issues' : kind);
@@ -146,6 +137,7 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
   const remove = useSetAtom(deleteItemAtom);
   const discard = useSetAtom(discardAtom);
   const navigate = useSetAtom(navigateAtom);
+  const href = useAtomValue(hrefAtom);
   const kind = itemKind(path);
   const draft = drafts[path];
   const item = useMemo(() => {
@@ -175,7 +167,7 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
     const jobs = Object.keys((item.data.jobs as Record<string, unknown> | undefined) ?? {});
     const workflowName = String(item.data.name ?? itemName(path));
     const [, focusWorkflow, focusJob] = /^(?:job|script):([^/]+)\/(.+)$/.exec(selected ?? '') ?? [];
-    const nodes = new Set(model?.nodes.map(n => n.id));
+    const nodes = new Map(model?.nodes.map(n => [n.id, n]));
     return {
       issues: fieldIssues(path, item.data),
       suggest: p => {
@@ -190,20 +182,15 @@ export const ItemEditor = ({ path, model }: { path: string; model: GraphModel | 
         if (key === 'subagents') return [...bots.filter(b => b !== itemName(path)), 'explore', 'general'];
       },
       link: (p, value) => {
-        const k = refKinds[lastKey(p)];
-        if (k === 'tool' && !HubTool.safeParse(value).success) return;
-        const id = k && `${k}:${value}`;
-        if (!id || !nodes.has(id)) return;
-        return {
-          href: `/studio?node=${encodeURIComponent(id)}`,
-          onClick: () => navigate({ path: '/studio', query: { node: id, edit: null } }),
-          icon: <KindIcon kind={k} className="size-3" />,
-        };
+        const id = refId(lastKey(p), value);
+        const node = id && nodes.get(id);
+        if (!node) return;
+        return { href: href(nodeTarget(node.id)), icon: <KindIcon kind={node.kind} className="size-3" /> };
       },
       open: p =>
         kind === 'workflow' && p.length === 2 && p[0] === 'jobs' && p[1] === focusJob && workflowName === focusWorkflow,
     };
-  }, [hub, item, kind, path, files, selected, model, navigate]);
+  }, [hub, item, kind, path, files, selected, model, href]);
 
   if (!hub) return <p className="text-zinc-500">Loading the hub.</p>;
   if (!kind) return <p className="text-zinc-500">{path} is not a hub item.</p>;

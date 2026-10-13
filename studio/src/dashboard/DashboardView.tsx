@@ -4,16 +4,18 @@ import type { RunRow } from '../../../src/live.ts';
 import {
   botFilterAtom,
   dashboardPageAtom,
+  infoAtom,
+  locationAtom,
   needsHumanQueryAtom,
   runIdAtom,
+  runPageAtom,
   sinceFilterAtom,
   sortAtom,
   statusFilterAtom,
 } from '../state.ts';
-import { infoAtom } from '../info.ts';
 import { Muted, RemovableChip, Select, Tooltip } from '../ui.tsx';
 import { GroupList } from './Groups.tsx';
-import { connectedAtom, failureAtom, noticeAtom, pricesAtom, pullsAtom, runRowsAtom, useLiveStream } from './live.ts';
+import { live, pricesAtom, useLiveStream } from './live.ts';
 import { costOfRuns, groupRuns, isFailed, isLive } from './model.ts';
 import { NeedsHuman } from './NeedsHuman.tsx';
 import { executionOf, RunView } from './RunView.tsx';
@@ -73,7 +75,7 @@ const Runs = ({ rows }: { rows: RunRow[] }) => {
   const bot = useAtomValue(botFilterAtom);
   const since = useAtomValue(sinceFilterAtom);
   const sort = useAtomValue(sortAtom);
-  const pulls = useAtomValue(pullsAtom);
+  const pulls = useAtomValue(live.pulls);
   const prices = useAtomValue(pricesAtom);
   const selected = useAtomValue(runIdAtom);
   const { groups, hidden } = useMemo(() => {
@@ -106,9 +108,9 @@ const noticeFor = 8000;
 
 /** The stream's state when it is not plainly live: reconnecting, failing, or a change it just noticed. */
 const Connection = () => {
-  const connected = useAtomValue(connectedAtom);
-  const failure = useAtomValue(failureAtom);
-  const notice = useAtomValue(noticeAtom);
+  const connected = useAtomValue(live.connected);
+  const failure = useAtomValue(live.failure);
+  const notice = useAtomValue(live.notice);
   const [dismissed, setDismissed] = useState(0);
   useEffect(() => {
     if (!notice) return;
@@ -145,7 +147,7 @@ const Connection = () => {
 
 /** The page while no run list has arrived: loading, or why it cannot load. */
 const Waiting = () => {
-  const failure = useAtomValue(failureAtom);
+  const failure = useAtomValue(live.failure);
   if (!failure) return <Muted>Loading runs.</Muted>;
   return (
     <div role="alert" className="space-y-1 p-4 text-sm">
@@ -170,19 +172,25 @@ const NoRuns = () => {
 
 export const DashboardView = () => {
   const page = useAtomValue(dashboardPageAtom);
-  const selected = useAtomValue(runIdAtom);
-  const rows = useAtomValue(runRowsAtom);
+  const [selected, select] = useAtom(runIdAtom);
+  const runPage = useAtomValue(runPageAtom);
+  const moved = useAtomValue(locationAtom).query.get('run');
+  const rows = useAtomValue(live.rows);
   const refreshNeedsHuman = useSetAtom(needsHumanQueryAtom);
-  const shown = 'run' in page ? page.run : 'follow' in page ? latest(rows)?.id : (selected ?? undefined);
+  const shown = 'follow' in page ? latest(rows)?.id : (selected ?? undefined);
   const stream = (shown && rows && executionOf(rows, shown)?.stream.id) || shown;
   useLiveStream(stream);
+
+  useEffect(() => {
+    if (moved) select(moved, true);
+  }, [moved, select]);
 
   const statuses = rows?.map(r => `${r.id}:${r.status}:${r.closure ?? ''}`).join() ?? '';
   useEffect(() => {
     if (statuses) refreshNeedsHuman();
   }, [statuses, refreshNeedsHuman]);
 
-  if ('run' in page || 'follow' in page)
+  if ('follow' in page || (selected && runPage))
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-2 px-3 empty:hidden">
@@ -190,7 +198,11 @@ export const DashboardView = () => {
         </div>
         <div className="min-h-0 flex-1">
           {shown ? (
-            <RunView key={'follow' in page ? 'follow' : shown} id={shown} page follow={'follow' in page} />
+            <RunView
+              key={'follow' in page ? 'follow' : shown}
+              id={shown}
+              variant={'follow' in page ? 'follow' : 'page'}
+            />
           ) : rows ? (
             <Muted>Waiting for a run to start.</Muted>
           ) : (
