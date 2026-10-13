@@ -1,5 +1,6 @@
 import type { Config, Defined } from './config.ts';
 import type { Issues } from './issues.ts';
+import { matchGlob } from './outputs.ts';
 import type { Association, Workflow } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
@@ -38,7 +39,8 @@ const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[
   const filter = workflow.on[event.trigger];
   if (!filter) return [];
   if (filter.types && !(event.action && filter.types.includes(event.action))) return [];
-  if (filter.branches && !(event.branch && filter.branches.includes(event.branch))) return [];
+  const { branch } = event;
+  if (filter.branches && !(branch && filter.branches.some(glob => matchGlob(glob, branch)))) return [];
   if (filter.labels && !(event.label && filter.labels.includes(event.label))) return [];
   const allowed = filter.guard?.associations ?? (humanText.has(event.trigger) ? trusted : undefined);
   if (allowed && !allowed.includes(event.actor.association)) return [];

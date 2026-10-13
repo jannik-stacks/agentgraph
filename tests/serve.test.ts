@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import { localOrigin, localPulls, serveHub } from '../src/serve.ts';
+import { localOrigin, serveHub } from '../src/serve.ts';
 import { unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import type { JobResult } from '../src/pipeline.ts';
@@ -55,21 +55,6 @@ describe('localOrigin', () => {
     expect(await localOrigin(bare)).toBe(bare);
     await expect(localOrigin(sourceRepo().dir)).rejects.toThrow('not a bare repository');
     await expect(localOrigin('https://github.com/a/b.git')).rejects.toThrow('not a local directory');
-  });
-});
-
-describe('localPulls', () => {
-  it("answers the default branch from the origin's HEAD and records pull requests", async () => {
-    const bare = bareOrigin();
-    const file = join(temp('pulls'), 'pulls.jsonl');
-    const gh = localPulls(bare, file);
-    expect(await gh('GET', '/repos/a/b')).toEqual({ default_branch: 'main' });
-    const pull = await gh<{ number: number; html_url: string }>('POST', '/repos/a/b/pulls', { title: 't', head: 'x' });
-    expect(pull).toMatchObject({ number: 1, html_url: `${bare}#pull/1` });
-    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ number: 1, title: 't', head: 'x' });
-    expect(await gh('GET', '/repos/a/b/pulls?head=a%3Ax&state=open')).toMatchObject([{ number: 1, head: 'x' }]);
-    expect(await gh('GET', '/repos/a/b/pulls?head=a%3Ay&state=open')).toEqual([]);
-    await expect(gh('DELETE', '/repos/a/b')).rejects.toThrow('no local equivalent');
   });
 });
 

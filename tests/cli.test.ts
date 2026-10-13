@@ -111,7 +111,7 @@ describe('cli', () => {
       until: { checks: ['types', 'review'], max: 2 },
     });
     expect(job.spec.cwd.startsWith(join(data, 'work'))).toBe(true);
-    expect(job.spec.system).toContain('"kind": "open-pr"');
+    expect(job.spec.system).toContain('"kind": "merge-request"');
     expect(job.spec.system).not.toContain('## Notes');
     expect(job.spec.surfacer).toMatchObject({ bot: 'implementor', hub: join(examples, 'hub'), data });
     expect(job.spec.prompt).toContain('```text\nadd a /health endpoint with a test\n```');

@@ -66,13 +66,13 @@ describe('matchGlob', () => {
 });
 
 describe('validate', () => {
-  const allowed = { returns: ['reply', 'push', 'open-pr', 'note'] as Return[], paths: ['src/**', 'README.md'] };
+  const allowed = { returns: ['reply', 'push', 'merge-request', 'note'] as Return[], paths: ['src/**', 'README.md'] };
 
   it('accepts allowed proposals and applies outside shadow mode', () => {
     const proposals: Proposal[] = [
       { kind: 'reply', body: 'a' },
       { kind: 'push', branch: 'bothub/7-fix', files: ['src/a.ts', 'README.md'] },
-      { kind: 'open-pr', title: 't', body: 'b', head: 'bothub/7-fix' },
+      { kind: 'merge-request', title: 't', body: 'b', branch: 'bothub/7-fix' },
       { kind: 'note', note: 'caveat', slug: 'fork-prs', title: 'Fork PRs?', body: 'Which repo?' },
     ];
     expect(validate(proposals, allowed, 'warn')).toEqual({ accepted: proposals, rejected: [], apply: true });
@@ -92,8 +92,8 @@ describe('validate', () => {
     const { accepted, rejected } = validate(replies, allowed, 'warn');
     expect(accepted).toHaveLength(3);
     expect(rejected).toEqual([{ proposal: replies[3], reason: 'more than 3 "reply" proposals' }]);
-    const pr: Proposal = { kind: 'open-pr', title: 't', body: '', head: 'bothub/x' };
-    expect(validate([pr, pr], allowed, 'warn').rejected[0]?.reason).toBe('more than 1 "open-pr" proposals');
+    const pr: Proposal = { kind: 'merge-request', title: 't', body: '', branch: 'bothub/x' };
+    expect(validate([pr, pr], allowed, 'warn').rejected[0]?.reason).toBe('more than 1 "merge-request" proposals');
   });
 
   it('rejects files outside paths or the repository', () => {
@@ -127,8 +127,43 @@ describe('validate', () => {
     expect(reason('bothub/7/fix')).toBeUndefined();
     expect(reason('bothub/7-a', 'bothub/7-a')).toBeUndefined();
     expect(reason('bothub/8-b', 'bothub/7-a')).toBe('branch "bothub/8-b" is not the job\'s branch "bothub/7-a"');
-    const pr: Proposal = { kind: 'open-pr', title: 't', body: '', head: 'feature' };
+    const pr: Proposal = { kind: 'merge-request', title: 't', body: '', branch: 'feature' };
     expect(validate([pr], allowed, 'warn').rejected[0]?.reason).toMatch(/must be a plain name/);
+  });
+
+  it("accepts a merge request only into the job's into or the default branch", () => {
+    const request = (into?: string): Proposal => ({
+      kind: 'merge-request',
+      title: 't',
+      body: '',
+      branch: 'bothub/5-6',
+      ...(into && { into }),
+    });
+    const reason = (
+      into: string | undefined,
+      allowance: Partial<typeof allowed> & { into?: string; defaultBranch?: string }
+    ) => validate([request(into)], { ...allowed, ...allowance }, 'warn').rejected[0]?.reason;
+    expect(reason(undefined, {})).toBeUndefined();
+    expect(reason('main', { defaultBranch: 'main' })).toBeUndefined();
+    expect(reason('release', { defaultBranch: 'main' })).toBe(
+      'merge request into "release", but this job\'s requests go into the default branch'
+    );
+    expect(reason('release', {})).toMatch(/go into the default branch/);
+    expect(reason('bothub/5', { into: 'bothub/5', defaultBranch: 'main' })).toBeUndefined();
+    expect(reason('main', { into: 'bothub/5', defaultBranch: 'main' })).toBeUndefined();
+    expect(reason('bothub/9', { into: 'bothub/5', defaultBranch: 'main' })).toBe(
+      'merge request into "bothub/9", but this job\'s requests go into the job\'s "bothub/5"'
+    );
+    expect(reason('bothub/5-6', { into: 'bothub/5-6' })).toBe('a branch cannot be merged into itself');
+    expect(reason(undefined, { into: 'bothub/5-6' })).toBe('a branch cannot be merged into itself');
+  });
+
+  it('accepts a merge only from a job that returns it, once', () => {
+    const merge: Proposal = { kind: 'merge', request: 3 };
+    expect(validate([merge], allowed, 'warn').rejected[0]?.reason).toBe('"merge" is not allowed for this job');
+    const { accepted, rejected } = validate([merge, merge], { returns: ['merge'] }, 'warn');
+    expect(accepted).toEqual([merge]);
+    expect(rejected[0]?.reason).toBe('more than 1 "merge" proposals');
   });
 
   it('takes hub file changes only inside the returned globs, and never to hub.yaml, bots or workflows', () => {

@@ -27,7 +27,7 @@ describe('simulate', () => {
     expect(trace).toContain(
       'tool  notes_search {"query":"hex 0x"}\n         ->  [ { "kind": "caveat", "slug": "hex-no-0x"'
     );
-    expect(trace).toContain('applied  open-pr: applied sim://github/repos/acme/app/pulls/1');
+    expect(trace).toContain('applied  merge-request: applied sim://origin.git#pull/1');
     expect(trace).toContain('    - labels: []\n    + labels: [ready]');
     expect(trace).toContain('    + No blocking findings.');
     expect(readFileSync(join(sims, '../issues/6-add-cvtojson-for-every-clarity-type.md'), 'utf8')).not.toContain(
@@ -53,9 +53,9 @@ describe('simulate', () => {
     const { results, trace } = await run('crash-mid-apply.yaml');
     expect(trace).toContain('reconcile issue/implement: interrupted, the process running it stopped while applying');
     expect(trace.match(/git push bothub\/6/g)).toHaveLength(1);
-    expect(trace.match(/github POST \/repos\/stacks\/acme-app\/pulls /g)).toHaveLength(1);
+    expect(trace.match(/request #\d+ opened/g)).toHaveLength(1);
     expect(trace.match(/^job {4}issue\/triage/gm)).toHaveLength(1);
-    expect(trace).toContain('applied  push: applied sim://acme/app/tree/bothub/6 (applied by an earlier run)');
+    expect(trace).toContain('applied  push: applied sim://origin.git#bothub/6 (applied by an earlier run)');
     expect(results.map(r => [r.job, 'skipped' in r ? r.closure : r.run.closure])).toEqual([
       ['triage', 'done'],
       ['implement', 'handed-off'],
@@ -71,7 +71,9 @@ describe('simulate', () => {
 
   it('blocks a job whose pull request failed to open and holds back the job that needs it', async () => {
     const { trace } = await run('pull-request-fails.yaml');
-    expect(trace).toContain('issue/implement: succeeded, blocked (open-pr failed: open-pr failed in this scenario)');
+    expect(trace).toContain(
+      'issue/implement: succeeded, blocked (merge-request failed: merge-request failed in this scenario)'
+    );
     expect(trace).toContain('issue/review: skipped, deferred (needs "implement" (blocked) to be done)');
   });
 
@@ -80,5 +82,20 @@ describe('simulate', () => {
     expect(trace).toContain('issue/implement: failed, deferred (429 Too Many Requests: usage limit reached');
     expect(trace).toContain('issue/review: skipped, deferred (needs "implement" (deferred) to be done)');
     expect(trace).not.toContain('labels: [unsure]\n    | author: bothub[bot]');
+  });
+
+  it('lands two steps on the plan branch one at a time, sending a conflict back to its author', async () => {
+    const { results, trace } = await run('split-merge.yaml');
+    expect(trace).toContain('request #1 opened: bothub/5-6 into bothub/5');
+    expect(trace).toContain('merge bothub/5 into bothub/5-7 conflicts in kit/src/clarity/json.ts');
+    expect(trace).toContain(
+      'requests\n  #1 bothub/5-6 into bothub/5: merged\n  #2 bothub/5 into main: open\n  #3 bothub/5-7 into bothub/5: merged'
+    );
+    expect(results.filter(r => r.job === 'merge').map(r => ('skipped' in r ? r.closure : r.run.closure))).toEqual([
+      'done',
+      'handed-off',
+      'done',
+      'handed-off',
+    ]);
   });
 });

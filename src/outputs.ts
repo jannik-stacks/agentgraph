@@ -21,13 +21,14 @@ export const Proposal = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('label'), add: z.array(text).optional(), remove: z.array(text).optional() }),
   z.strictObject({ kind: z.literal('push'), branch: text, files: z.array(text).optional() }),
   z.strictObject({
-    kind: z.literal('open-pr'),
+    kind: z.literal('merge-request'),
     title: text,
     body: z.string(),
-    head: text,
-    base: text.optional(),
+    branch: text,
+    into: text.optional(),
     draft: z.boolean().optional(),
   }),
+  z.strictObject({ kind: z.literal('merge'), request: z.int().positive() }),
   NoteProposal,
   z.strictObject({
     kind: z.literal('hub'),
@@ -123,7 +124,8 @@ const caps: Record<Proposal['kind'], number> = {
   reply: 3,
   label: 1,
   push: 1,
-  'open-pr': 1,
+  'merge-request': 1,
+  merge: 1,
   note: 3,
   hub: 1,
   ask: 1,
@@ -141,17 +143,33 @@ export const humanOnlyPath = (path: string) => {
 
 const kindOf = (entry: Return) => (hubGlobs(entry) ? 'hub' : entry);
 
-const check = (
-  proposal: Proposal,
-  { paths, branch, returns }: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'> & { returns: Return[] }
-): string | undefined => {
+/**
+ * What a job may write: its effective `returns`, its `paths`, and its rendered `branch` and `into`. `defaultBranch` is
+ * the repository's, when known.
+ */
+export type Allowance = Pick<Job, 'paths' | 'branch' | 'into'> & { returns: Return[]; defaultBranch?: string };
+
+/** Why a merge request may not target `into`: it is neither the job's `into` nor the default branch. */
+const checkInto = (into: string | undefined, allowance: Allowance) => {
+  if (into === undefined || into === allowance.into || into === allowance.defaultBranch) return;
+  const job = allowance.into ? `the job's "${allowance.into}"` : 'the default branch';
+  return `merge request into "${into}", but this job's requests go into ${job}`;
+};
+
+const check = (proposal: Proposal, allowance: Allowance): string | undefined => {
+  const { paths, branch, returns } = allowance;
   const pinned = (name: string) =>
     branch && name !== branch ? `branch "${name}" is not the job's branch "${branch}"` : undefined;
   switch (proposal.kind) {
     case 'push':
       return checkBranch(proposal.branch) ?? pinned(proposal.branch) ?? checkPaths(proposal.files ?? [], paths);
-    case 'open-pr':
-      return checkBranch(proposal.head) ?? pinned(proposal.head);
+    case 'merge-request':
+      return (
+        checkBranch(proposal.branch) ??
+        pinned(proposal.branch) ??
+        (proposal.branch === (proposal.into ?? allowance.into) ? 'a branch cannot be merged into itself' : undefined) ??
+        checkInto(proposal.into, allowance)
+      );
     case 'label':
       return proposal.add?.includes(approved) ? `only a human adds the "${approved}" label` : undefined;
     case 'hub': {
@@ -167,15 +185,12 @@ const check = (
 
 /**
  * Checks proposals against what a job allows: its effective `returns`, its `paths` for pushed files, its rendered
- * `branch`, the `hub(<globs>)` it returns for hub file changes, at most 3 replies and 1 of every other kind. A
- * `close` is always allowed. Fails closed: every proposal that is not explicitly allowed is rejected with a reason.
- * `apply` says whether the job's mode lets accepted proposals land.
+ * `branch` for pushes and merge requests, its rendered `into` (or the default branch) as the only targets of a merge
+ * request, the `hub(<globs>)` it returns for hub file changes, at most 3 replies and 1 of every other kind. A `close`
+ * is always allowed. Fails closed: every proposal that is not explicitly allowed is rejected with a reason. `apply`
+ * says whether the job's mode lets accepted proposals land. A `merge` is checked against the request when it lands.
  */
-export const validate = (
-  proposals: Proposal[],
-  allowance: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'> & { returns: Return[] },
-  mode: Mode
-): Validated => {
+export const validate = (proposals: Proposal[], allowance: Allowance, mode: Mode): Validated => {
   const kinds = new Set(allowance.returns.map(kindOf));
   const accepted: Proposal[] = [];
   const rejected: Rejection[] = [];

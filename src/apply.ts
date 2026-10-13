@@ -3,6 +3,7 @@ import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
 import { roles, type Issues } from './issues.ts';
 import { humanOnlyPath, type Proposal } from './outputs.ts';
+import { githubPulls, type Pull, type Pulls } from './pulls.ts';
 import type { BotEvent } from './types.ts';
 
 /**
@@ -29,6 +30,15 @@ type Context = {
     proposal: Push,
     journal: { expected?: string; committed: (sha: string) => Promise<unknown> }
   ) => Promise<string>;
+  /**
+   * Where merge requests are opened (GitHub's when only `gh` is given), by the job and event in `origin`, into `into`
+   * unless they name another.
+   */
+  pulls?: Pulls;
+  origin?: Pull['origin'];
+  into?: string;
+  /** Lands a merge request; without it, a `merge` is skipped. */
+  merge?: (request: number) => Promise<Outcome>;
   /** Lands a hub change for a human to merge; resolves to where it waits, or nothing when it has nowhere to land. */
   hubPr?: (change: HubChange) => Promise<string | undefined>;
   /** Keys are `<prefix>/<kind>-<n>`; the event id by default. */
@@ -38,7 +48,6 @@ type Context = {
   /** Persists the journal: once before anything is applied, then after every effect. */
   record?: (results: ApplyResult[]) => Promise<unknown>;
 };
-type Created = { html_url: string };
 
 /** A change to hub files: `content` null deletes the file. */
 export type HubChange = { files: { path: string; content: string | null }[]; title: string; body: string };
@@ -54,9 +63,11 @@ const tracker = ({ issues, gh, event }: Context) => {
   throw new Error('no issue tracker to write to');
 };
 
-const target = ({ number }: BotEvent) => {
-  if (number === undefined) throw new Error('the event has no issue or pull request to write to');
-  return number;
+const target = ({ event, issues }: Context) => {
+  if (event.number === undefined) throw new Error('the event has no issue or pull request to write to');
+  if (issues?.backend === 'local' && event.trigger === 'pull_request')
+    throw new Error('a local merge request has no conversation to write to');
+  return event.number;
 };
 
 const found = (url: string | undefined, reason: string): Outcome => ({
@@ -67,7 +78,7 @@ const found = (url: string | undefined, reason: string): Outcome => ({
 
 const comment = async (ctx: Context, body: string, key: string): Promise<Outcome> => {
   const issues = tracker(ctx);
-  const number = target(ctx.event);
+  const number = target(ctx);
   const posted = (await issues.get(number))?.comments.find(c => c.body.includes(marker(key)));
   if (posted) return found(posted.url, 'already posted');
   const { url } = await issues.comment(number, marked(body, key));
@@ -75,7 +86,7 @@ const comment = async (ctx: Context, body: string, key: string): Promise<Outcome
 };
 
 const label = async (ctx: Context, { kind: _, ...change }: Extract<Proposal, { kind: 'label' }>) => {
-  await tracker(ctx).label(target(ctx.event), change);
+  await tracker(ctx).label(target(ctx), change);
   return { status: 'applied' } as const;
 };
 
@@ -112,16 +123,18 @@ const ask = async (ctx: Context, question: string, key: string): Promise<Outcome
   return { status: 'applied', ...(created.url && { url: created.url }) };
 };
 
-/** Opens the pull request, or finds the one already open for its head. */
-const openPr = async ({ event, gh }: Context, { kind: _, ...pr }: Extract<Proposal, { kind: 'open-pr' }>) => {
-  if (!gh) return { status: 'skipped', reason: 'no GitHub client to open a pull request with' } as const;
-  const head = encodeURIComponent(`${event.repo.split('/')[0]}:${pr.head}`);
-  const open = await gh<Created[]>('GET', `/repos/${event.repo}/pulls?head=${head}&state=open`);
-  const existing = Array.isArray(open) ? open[0] : undefined;
-  if (existing) return found(existing.html_url, 'already open');
-  const base = pr.base ?? (await gh<{ default_branch: string }>('GET', `/repos/${event.repo}`)).default_branch;
-  const { html_url } = await gh<Created>('POST', `/repos/${event.repo}/pulls`, { ...pr, base });
-  return { status: 'applied', url: html_url } as const;
+/** Opens the merge request into its `into`, the job's or the default branch, or finds the one open for its branch. */
+const mergeRequest = async (
+  { pulls: given, gh, event, origin, into }: Context,
+  { kind: _, ...request }: Extract<Proposal, { kind: 'merge-request' }>
+): Promise<Outcome> => {
+  const pulls = given ?? (gh && githubPulls(gh, event.repo));
+  if (!pulls) return { status: 'skipped', reason: 'no backend to open a merge request with' };
+  const [existing] = await pulls.list({ branch: request.branch });
+  if (existing) return found(existing.url, 'already open');
+  const target = request.into ?? into ?? (await pulls.defaultBranch());
+  const { url } = await pulls.open({ ...request, into: target, ...(origin && { origin }) });
+  return { status: 'applied', url };
 };
 
 /** The hub-repo file a `note` proposal adds, as a proposed note. */
@@ -164,8 +177,10 @@ const applyOne = async (proposal: Proposal, journal: Journal, ctx: Context): Pro
       return ask(ctx, proposal.question, key);
     case 'label':
       return label(ctx, proposal);
-    case 'open-pr':
-      return openPr(ctx, proposal);
+    case 'merge-request':
+      return mergeRequest(ctx, proposal);
+    case 'merge':
+      return ctx.merge ? ctx.merge(proposal.request) : { status: 'skipped', reason: 'nothing here can merge' };
     case 'push':
       return push(ctx, proposal, journal);
     case 'note':
@@ -194,10 +209,10 @@ const effects = (accepted: Proposal[], prefix: string) => {
 
 /**
  * Applies accepted proposals: pushes first, then the rest in order. Replies, labels and questions go through
- * `issues` (or GitHub's issues when only `gh` is given); pushes and pull requests stay on git and GitHub. The planned
+ * `issues` (or GitHub's issues when only `gh` is given); pushes go to git and merge requests to `pulls`. The planned
  * effects are recorded as `pending` before the first one is applied, and each is recorded as it lands. An effect an
  * earlier run recorded as applied is not repeated; one it left pending is checked against what is already there. A
- * failure is reported and does not stop the rest, but a pull request whose head failed to push is skipped.
+ * failure is reported and does not stop the rest, but a merge request whose branch failed to push is skipped.
  */
 export const apply = async (accepted: Proposal[], ctx: Context): Promise<ApplyResult[]> => {
   const planned = effects(accepted, ctx.prefix ?? ctx.event.id);
@@ -218,8 +233,8 @@ export const apply = async (accepted: Proposal[], ctx: Context): Promise<ApplyRe
             ...(earlier.sha && { sha: earlier.sha }),
             reason: 'applied by an earlier run',
           }
-        : proposal.kind === 'open-pr' && unpushed.has(proposal.head)
-          ? { status: 'skipped', reason: `pushing ${proposal.head} failed` }
+        : proposal.kind === 'merge-request' && unpushed.has(proposal.branch)
+          ? { status: 'skipped', reason: `pushing ${proposal.branch} failed` }
           : await applyOne(proposal, { key, earlier, committed }, ctx).catch((e: Error): Outcome => ({
               status: 'failed',
               reason: e.message,

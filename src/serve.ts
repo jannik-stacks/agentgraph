@@ -1,17 +1,17 @@
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { Effect } from 'effect';
 import { api, serve } from './api.ts';
 import { compile } from './config.ts';
 import { plan, withdrawn, type PlannedJob } from './dispatch.ts';
-import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { approvals, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
+import { localPulls } from './pulls.ts';
 import { fileQueue, worker } from './queue.ts';
 import { limiter } from './runner.ts';
 import { openStore, reconcile } from './store.ts';
@@ -33,36 +33,6 @@ export const localOrigin = async (path: string) => {
 };
 
 /**
- * The few GitHub calls a pipeline makes about pull requests, answered by a local origin: the default branch is the
- * origin's HEAD, and opened pull requests are appended to `file` as JSON lines.
- */
-export const localPulls =
-  (origin: string, file: string): GitHub =>
-  async <T>(method: string, path: string, body?: unknown) => {
-    if (method === 'GET' && /^\/repos\/[^/]+\/[^/]+$/.test(path)) {
-      const { stdout } = await exec('git', ['-C', origin, 'symbolic-ref', '--short', 'HEAD']);
-      return { default_branch: stdout.trim() } as T;
-    }
-    const pulls = async () =>
-      (await readFile(file, 'utf8').catch(() => ''))
-        .split('\n')
-        .filter(Boolean)
-        .map(line => JSON.parse(line) as { head?: string });
-    const listing = /^\/repos\/[^/]+\/[^/]+\/pulls\?(.*)$/.exec(path);
-    if (method === 'GET' && listing) {
-      const head = new URLSearchParams(listing[1]).get('head')?.replace(/^[^:]*:/, '');
-      return (await pulls()).filter(pull => head === undefined || pull.head === head) as T;
-    }
-    if (method === 'POST' && /^\/repos\/[^/]+\/[^/]+\/pulls$/.test(path)) {
-      const count = (await pulls()).length;
-      const pull = { number: count + 1, ...(body as object), html_url: `${origin}#pull/${count + 1}` };
-      await appendFile(file, `${JSON.stringify({ ts: new Date().toISOString(), ...pull })}\n`);
-      return pull as T;
-    }
-    throw new Error(`${method} ${path} has no local equivalent`);
-  };
-
-/**
  * Runs an event's planned jobs, then every earlier event whose blocked jobs this one approves, planned again so the
  * jobs that already closed are reused.
  */
@@ -75,9 +45,9 @@ export const runEvent = async (jobs: PlannedJob[], p: Pipeline): Promise<JobResu
 };
 
 /**
- * A long-running local hub: watches `<hub>/issues`, runs the jobs each change starts through the pipeline (local
- * issues, the bothub MCP server, worktrees of the local `origin`, pull requests recorded in `<data>/pulls.jsonl`)
- * and serves the studio API on `port` (0 picks a free one). Each new event id waits in `<data>/queue` and runs one
+ * A long-running local hub: watches `<hub>/issues` and the merge requests in `<data>/pulls.jsonl`, runs the jobs
+ * each change starts through the pipeline (local issues, the bothub MCP server, worktrees and merge requests of the
+ * local `origin`) and serves the studio API on `port` (0 picks a free one). Each new event id waits in `<data>/queue` and runs one
  * after another; one whose label was removed before it ran is dropped. Runs a stopped process left unfinished are
  * marked interrupted at startup and their events run again. Changes made while it was stopped run at startup; on the
  * first start for a data directory, what is already there is recorded as seen instead. Resolves once listening.
@@ -111,7 +81,7 @@ export const serveHub = async ({
   const root = resolve(data);
   const store = openStore(root);
   const issues = localIssues(join(dir, 'issues'), { repo });
-  const gh = localPulls(origin, join(root, 'pulls.jsonl'));
+  const pulls = localPulls({ origin, file: join(root, 'pulls.jsonl'), repo });
   const spaces = workspaces({ dataDir: root, cloneUrl: () => origin });
   const limit = await Effect.runPromise(limiter(1));
 
@@ -132,7 +102,7 @@ export const serveHub = async ({
       workspaces: spaces,
       limit,
       env,
-      gh,
+      pulls,
       issues,
       mcp: tools => bothubServer({ dir, tools, repo, data: root }),
       hub: dir,
@@ -174,6 +144,23 @@ export const serveHub = async ({
     { interval, replay: true }
   );
   await watching.ready;
+  const seen = new Set<string>();
+  const scanPulls = () =>
+    pulls.events().then(
+      events => {
+        for (const event of events) {
+          if (seen.has(event.id)) continue;
+          seen.add(event.id);
+          enqueue(event);
+        }
+      },
+      (e: Error) => log(`error: ${e.message}`)
+    );
+  let scanning = scanPulls();
+  const timer = setInterval(() => {
+    scanning = scanning.then(scanPulls);
+  }, interval);
+  await scanning;
   await pushing;
   if (priming) {
     await mkdir(root, { recursive: true });
@@ -187,11 +174,19 @@ export const serveHub = async ({
   return {
     port: listening,
     idle: async () => {
+      for (let before; before !== seen.size;) {
+        before = seen.size;
+        await pushing;
+        await work.idle();
+        await (scanning = scanning.then(scanPulls));
+      }
       await pushing;
       await work.idle();
     },
     stop: async () => {
       watching.stop();
+      clearInterval(timer);
+      await scanning;
       await new Promise(done => server.close(done));
       await pushing;
       await work.stop();

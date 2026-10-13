@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { access, copyFile, mkdir, rm } from 'node:fs/promises';
+import { access, copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { checkPaths, type Proposal } from './outputs.ts';
@@ -9,6 +9,14 @@ import type { BotEvent } from './types.ts';
 const exec = promisify(execFile);
 const repoName = /^[\w-][\w.-]*\/[\w-][\w.-]*$/;
 const bot = { name: 'bothub[bot]', email: 'bothub[bot]@users.noreply.github.com' };
+
+/** Commits made on the host are authored and committed by the bot. */
+export const botEnv = {
+  GIT_AUTHOR_NAME: bot.name,
+  GIT_AUTHOR_EMAIL: bot.email,
+  GIT_COMMITTER_NAME: bot.name,
+  GIT_COMMITTER_EMAIL: bot.email,
+};
 
 /** Runs git without a shell; `env` extends the process environment and never appears in errors. */
 const git = async (args: string[], env: Record<string, string> = {}) => {
@@ -25,6 +33,16 @@ const git = async (args: string[], env: Record<string, string> = {}) => {
 };
 
 const names = (output: string) => output.split('\0').filter(Boolean);
+
+const conflictMarker = /^(<{7}|>{7})( |$)/m;
+
+/** The files among `files` in `cwd` that still hold a conflict marker. */
+export const unresolved = async (cwd: string, files: string[]) => {
+  const marked = await Promise.all(
+    files.map(async file => (conflictMarker.test(await readFile(join(cwd, file), 'utf8').catch(() => '')) ? file : ''))
+  );
+  return marked.filter(Boolean);
+};
 
 const exists = (path: string) =>
   access(path).then(
@@ -85,21 +103,39 @@ export const workspaces = ({
     });
 
   /**
-   * Refreshes the mirror and checks out the event's ref (or the default branch) for a run. Resolves to its path and
-   * the commit it starts from, which `publish` and `changes` take back as `base`.
+   * Refreshes the mirror and checks out a run's start: the job's `branch` when it exists, otherwise the event's ref
+   * (or the default branch). With `merge`, that branch is merged in without committing, conflict markers left in
+   * place. Resolves to the path, the commit the change is measured from (`base`, which `publish` and `changes` take
+   * back; the merged-in tip with `merge`), the commit checked out (`head`) and the files left conflicting.
    */
-  const create = async ({ repo, ref }: Pick<BotEvent, 'repo' | 'ref'>, runId: string) => {
+  const create = async (
+    { repo, ref, branch, merge }: Pick<BotEvent, 'repo' | 'ref'> & { branch?: string; merge?: string },
+    runId: string
+  ) => {
     const mirror = await sync(repo);
     const path = worktreePath(dataDir, runId);
-    const rev = !ref ? 'HEAD' : ref.startsWith('refs/') ? ref : `refs/heads/${ref}`;
-    await serial(repo, () => git(['-C', mirror, 'worktree', 'add', '--detach', path, `${rev}^{commit}`]));
-    return { path, base: await git(['-C', path, 'rev-parse', 'HEAD']) };
+    const at = (name: string) => `${name.startsWith('refs/') ? name : `refs/heads/${name}`}^{commit}`;
+    const verify = (name: string) => git(['-C', mirror, 'rev-parse', '--verify', '--quiet', at(name)]).catch(() => '');
+    const own = branch ? await verify(branch) : '';
+    const rev = own || (ref ? at(ref) : 'HEAD^{commit}');
+    await serial(repo, () => git(['-C', mirror, 'worktree', 'add', '--detach', path, rev]));
+    const head = await git(['-C', path, 'rev-parse', 'HEAD']);
+    if (!merge) return { path, base: head, head, conflicts: [] };
+    const base = await verify(merge);
+    if (!base) throw new Error(`branch "${merge}" does not exist`);
+    const merging = ['-c', 'commit.gpgsign=false', 'merge', '--no-commit', '--no-ff', '-q', base];
+    await git(['-C', path, ...merging], botEnv).catch(() => {});
+    const conflicts = names(await git(['-C', path, 'diff', '--name-only', '--diff-filter=U', '-z']));
+    return { path, base, head, conflicts };
   };
 
   /**
-   * Pushes a run's `branch` without forcing, after checking that every file it changes since `base` is listed in
-   * `files` and allowed by `paths`. Reports the commit to `committed` before pushing it; when the remote branch is
-   * already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it refused.
+   * Pushes a run's commit to `branch` without forcing, after checking that every file it changes since `base` is
+   * listed in `files` and allowed by `paths`; a run that started at the branch moves it forward. A merge in progress
+   * is committed whole with both parents once no conflicting file keeps a marker; then every file the branch changes
+   * against the merged-in tip must be allowed by `paths`. Reports the commit to `committed` before pushing it; when the
+   * remote branch is already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it
+   * refused.
    */
   const publish = async (
     repo: string,
@@ -133,44 +169,43 @@ export const workspaces = ({
       if (remote === expected) return url;
     }
 
-    const head = await run(['symbolic-ref', '-q', 'HEAD']).catch(() => '');
-    if (head !== ref) {
-      const taken = await run(['rev-parse', '--verify', '--quiet', ref]).then(
-        () => true,
-        () => false
-      );
-      if (taken) throw new Error(`branch "${branch}" exists but is not checked out`);
-      await run(['checkout', '-q', '-b', branch]);
-    }
+    const tip = await run(['rev-parse', '--verify', '--quiet', ref]).catch(() => '');
+    const ahead = await run(['merge-base', '--is-ancestor', tip || 'HEAD', 'HEAD']).then(
+      () => true,
+      () => false
+    );
+    if (!ahead) throw new Error(`branch "${branch}" exists and this run did not start from it`);
 
-    // Uncommitted changes are committed when the proposal lists every one of them; otherwise nothing is pushed.
+    // Uncommitted changes are committed when the proposal lists every one of them; a merge is committed whole.
+    const merging = await run(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']).catch(() => '');
     const dirty = [
       ...new Set([
         ...names(await run(['ls-files', '-z', '--modified', '--deleted', '--others', '--exclude-standard'])),
         ...names(await run(['diff', '--cached', '--name-only', '--no-renames', '-z'])),
       ]),
     ];
-    const stray = dirty.filter(file => !files.includes(file));
+    const stray = merging ? [] : dirty.filter(file => !files.includes(file));
     if (stray.length) throw new Error(`uncommitted changes not listed in the proposal: ${stray.join(', ')}`);
-    if (dirty.length) {
+    if (merging) {
+      const conflicted = names(await run(['diff', '--name-only', '--diff-filter=U', '-z']));
+      const marked = await unresolved(path, conflicted);
+      if (marked.length) throw new Error(`conflict markers left in ${marked.join(', ')}`);
+      await run(['add', '-A']);
+      await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', message], botEnv);
+    } else if (dirty.length) {
       await run(['add', '-A', '--', ...dirty]);
-      await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', message, '--', ...dirty], {
-        GIT_AUTHOR_NAME: bot.name,
-        GIT_AUTHOR_EMAIL: bot.email,
-        GIT_COMMITTER_NAME: bot.name,
-        GIT_COMMITTER_EMAIL: bot.email,
-      });
+      await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', message, '--', ...dirty], botEnv);
     }
 
-    const changed = names(await run(['diff', '--name-only', '--no-renames', '-z', `${base}...${ref}`]));
+    const changed = names(await run(['diff', '--name-only', '--no-renames', '-z', `${merging || base}...HEAD`]));
     if (!changed.length) throw new Error(`branch "${branch}" has no changes`);
-    const unlisted = changed.find(file => !files.includes(file));
+    const unlisted = merging ? undefined : changed.find(file => !files.includes(file));
     if (unlisted) throw new Error(`"${unlisted}" changed but is not listed in the proposal`);
     const outside = checkPaths(changed, paths);
     if (outside) throw new Error(outside);
 
-    await committed?.(await run(['rev-parse', ref]));
-    await run(['push', '-q', origin, `${ref}:${ref}`], await auth(repo));
+    await committed?.(await run(['rev-parse', 'HEAD']));
+    await run(['push', '-q', origin, `HEAD:${ref}`], await auth(repo));
     return url;
   };
 

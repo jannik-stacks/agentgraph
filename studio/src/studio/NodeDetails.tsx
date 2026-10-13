@@ -41,12 +41,13 @@ const refs: Record<string, (value: string) => string | undefined> = {
   skills: v => `skill:${v}`,
   check: v => `check:${v}`,
   checks: v => `check:${v}`,
+  requires: v => `check:${v}`,
   notes: v => `note:${v}`,
   tools: v => `tool:${v}`,
   preload: v => (v === 'issue' || v === 'links' ? 'issues:issues' : undefined),
 };
 
-const mono = new Set(['branch', 'branches', 'command', 'cron', 'paths', 'tools', 'types']);
+const mono = new Set(['branch', 'branches', 'command', 'cron', 'into', 'paths', 'tools', 'types']);
 const lead = new Set(['role', 'prompt', 'run']);
 const identity = ['harness', 'model', 'mode'] as const;
 

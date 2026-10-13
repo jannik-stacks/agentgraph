@@ -27,7 +27,7 @@ jobs:
     until:
       checks: [types, tests, review]
       max: 2
-    returns: [push, open-pr, reply]
+    returns: [push, merge-request, reply]
 ```
 
 `max` counts retries after the first attempt and defaults to 2. The loop also stops once the

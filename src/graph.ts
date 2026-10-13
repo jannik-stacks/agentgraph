@@ -22,8 +22,8 @@ export type HubGraph = {
 const badges = (...items: (string | false | undefined)[]) => items.filter((item): item is string => Boolean(item));
 
 /**
- * Builds the hub graph: triggers start jobs, jobs (or scripts) need jobs, run as bots with skills and loop back
- * from their `until` checks. Notes get one node per kind; they reach a run by relevance, so no edge leads to them.
+ * Builds the hub graph: triggers start jobs, jobs (or scripts) need jobs, run as bots with skills, loop back
+ * from their `until` checks and merge only past their `requires` checks. Notes get one node per kind; they reach a run by relevance, so no edge leads to them.
  * Other context is drawn from where it is declared: `preload` edges into the issue tracker, and `calls` edges to the
  * hub tools a run may call.
  */
@@ -69,12 +69,19 @@ export const hubGraph = (config: Config): HubGraph => {
         id: self,
         kind: job.type === 'script' ? 'script' : 'job',
         label: id,
-        badges: badges(job.mode, job.type === 'bot' && job.branch, job.environment && `environment ${job.environment}`),
+        badges: badges(
+          job.mode,
+          job.branch,
+          job.into && `into ${job.into}`,
+          job.environment && `environment ${job.environment}`
+        ),
         detail: { workflow: workflow.name, ...rest },
       });
       for (const trigger of Object.keys(on ?? (needs.length ? {} : workflow.on)))
         edge({ from: `trigger:${workflow.name}/${trigger}`, to: self, kind: 'triggers' });
       for (const need of needs) edge({ from: jobId(need), to: self, kind: 'needs' });
+      for (const check of job.requires ?? [])
+        edge({ from: `check:${check}`, to: self, kind: 'gates', label: 'requires' });
       if (job.type !== 'bot') continue;
       runsAs(self, job.bot, job.over);
       edge({ from: self, to: `skill:${job.skill}`, kind: 'uses-skill' });

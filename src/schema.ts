@@ -23,7 +23,7 @@ export type Association = z.infer<typeof Association>;
 export const Mode = z.enum(['shadow', 'warn', 'block']);
 export type Mode = z.infer<typeof Mode>;
 
-export const ProposalKind = z.enum(['reply', 'label', 'push', 'open-pr', 'note', 'hub', 'ask']);
+export const ProposalKind = z.enum(['reply', 'label', 'push', 'merge-request', 'merge', 'note', 'hub', 'ask']);
 export type ProposalKind = z.infer<typeof ProposalKind>;
 
 /** Hub files that change only by a human: no `hub(...)` return reaches them. */
@@ -48,7 +48,12 @@ export const Return = z.union(
       .regex(hubReturn)
       .transform(entry => `hub(${hubGlobs(entry)!.join(', ')})`),
   ],
-  { error: `must be one of ${ProposalKind.exclude(['hub']).options.join(', ')}, or hub(<globs>)` }
+  {
+    error: issue =>
+      issue.input === 'open-pr'
+        ? 'there is no "open-pr"; a request to merge a branch is "merge-request"'
+        : `must be one of ${ProposalKind.exclude(['hub']).options.join(', ')}, or hub(<globs>)`,
+  }
 );
 export type Return = z.output<typeof Return>;
 
@@ -198,12 +203,14 @@ const variant = <S extends z.ZodRawShape>(what: string, shape: S) =>
     },
   });
 
-const checkFields = {
-  over: Over.default('diff'),
+/** What checks and jobs share: what they look at, which files they cover and whether they gate. */
+const step = (over: 'diff' | 'event') => ({
+  over: Over.default(over),
   paths: z.array(z.string()).optional(),
   mode: Mode.default('shadow'),
-  description: z.string().optional(),
-};
+});
+
+const checkFields = { ...step('diff'), description: z.string().optional() };
 
 /**
  * `checks/<name>.md`: what a check looks at (`over`) and who judges it. A `script` passes when it exits 0; a `bot`
@@ -233,15 +240,24 @@ export const Check = z.discriminatedUnion(
 export type Check = z.infer<typeof Check>;
 
 const jobStart = { on: On.optional(), needs: list(z.string()).default([]) };
+const jobWrites = {
+  branch: z.string().optional(),
+  into: z.string().optional(),
+  requires: z.array(name).optional(),
+  returns: Returns.optional(),
+};
 const jobEnd = {
-  over: Over.default('event'),
-  paths: z.array(z.string()).optional(),
-  mode: Mode.default('shadow'),
+  ...step('event'),
   environment: z.string().optional(),
   'timeout-minutes': z.number().positive().optional(),
 };
 
-/** A workflow step: a `bot` running a skill, or a `script`. A job that fans out with `over` runs once per item. */
+/**
+ * A workflow step: a `bot` running a skill, or a `script`. A job that fans out with `over` runs once per item.
+ * `branch` is the branch it works on, `into` where its merge requests and merges go (the default branch when unset),
+ * and `requires` the checks a merge must pass on the merged tree before it lands. A script returns proposals by
+ * ending its output with a `bothub` block, like a bot.
+ */
 export const Job = z.discriminatedUnion(
   'type',
   [
@@ -250,14 +266,13 @@ export const Job = z.discriminatedUnion(
       ...jobStart,
       bot: name,
       skill: name,
-      branch: z.string().optional(),
+      ...jobWrites,
       until: z.strictObject({ checks: z.array(name).min(1), max: z.int().positive().default(2) }).optional(),
-      returns: Returns.optional(),
       preload: z.array(Preload).optional(),
       tools: z.array(HubTool).optional(),
       ...jobEnd,
     }),
-    variant('a script job', { type: z.literal('script'), ...jobStart, run: script, ...jobEnd }),
+    variant('a script job', { type: z.literal('script'), ...jobStart, run: script, ...jobWrites, ...jobEnd }),
   ],
   typeError(
     ['bot', 'script'],
@@ -298,6 +313,14 @@ export const IssueFile = z.strictObject({
   links: z.array(z.int().positive()).exactOptional(),
 });
 
-/** `hub.yaml`: hub-wide settings. `issues` picks where issues, plans, specs and open questions live. */
-export const Hub = z.strictObject({ issues: IssuesBackend.default('github') });
+/**
+ * `hub.yaml`: hub-wide settings. `issues` picks where issues, plans, specs and open questions live;
+ * `merge.default-branch` says who merges into the default branch: only a `human`, or `bots` too.
+ */
+export const Hub = z.strictObject({
+  issues: IssuesBackend.default('github'),
+  merge: z
+    .strictObject({ 'default-branch': z.enum(['human', 'bots']).default('human') })
+    .default({ 'default-branch': 'human' }),
+});
 export type Hub = z.infer<typeof Hub>;

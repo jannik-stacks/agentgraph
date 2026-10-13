@@ -42,13 +42,13 @@ export const sampleModel: GraphModel = {
       badges: [{ text: 'warn', tone: 'warn' }],
       detail: { summary: 'reviewer on each hunk' },
     }),
-    node('j:open-pr', 'job', 'open-pr', {
+    node('j:merge', 'job', 'merge', {
       badges: [{ text: 'block', tone: 'danger' }],
-      detail: { summary: 'open-pr, reply' },
+      detail: { summary: 'requires types, tests; returns merge, merge-request' },
     }),
     node('b:implementor', 'bot', 'implementor', {
       badges: [{ text: 'opencode', tone: 'info' }, { text: 'smart' }],
-      detail: { summary: 'returns: reply, push, open-pr' },
+      detail: { summary: 'returns: reply, push, merge-request' },
     }),
     node('b:reviewer', 'bot', 'reviewer', {
       badges: [{ text: 'pi', tone: 'info' }],
@@ -68,9 +68,9 @@ export const sampleModel: GraphModel = {
     edge('j:chunk', 'c:chunk-review', 'fans-out'),
     edge('c:chunk-review', 'b:reviewer', 'runs-as'),
     edge('c:chunk-review', 's:review-chunk', 'uses-skill'),
-    edge('c:types', 'j:open-pr', 'gates'),
-    edge('c:tests', 'j:open-pr', 'gates'),
-    edge('c:chunk-review', 'j:open-pr', 'gates'),
+    edge('c:types', 'j:merge', 'gates'),
+    edge('c:tests', 'j:merge', 'gates'),
+    edge('c:chunk-review', 'j:merge', 'gates'),
     edge('c:chunk-review', 'j:implement', 'loops-back', 'retry with findings, max 3'),
   ],
 };

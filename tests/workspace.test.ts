@@ -146,12 +146,12 @@ describe('workspaces.publish', () => {
     expect(() => git(origin.dir, 'rev-parse', '--verify', '--quiet', 'refs/heads/bothub/7')).toThrow();
   });
 
-  it('creates the branch at a detached head', async () => {
+  it('pushes a detached head to the branch', async () => {
     const { origin, path, publish } = await started();
     const head = commit(path, { 'a.ts': 'a\n' });
     await publish(['a.ts']);
     expect(git(origin.dir, 'rev-parse', 'bothub/7')).toBe(head);
-    expect(git(path, 'symbolic-ref', 'HEAD')).toBe('refs/heads/bothub/7');
+    expect(git(path, 'rev-parse', 'HEAD')).toBe(head);
   });
 
   it('refuses changes the proposal does not list or the job does not allow', async () => {
@@ -171,7 +171,7 @@ describe('workspaces.publish', () => {
     const push = () =>
       ws.publish('acme/app', 'run-2', { branch: 'bothub/8', files: ['c.ts', 'feature.txt'], message: 'm', base });
     commit(other, { 'c.ts': 'c\n' });
-    await expect(push()).rejects.toThrow('branch "bothub/8" exists but is not checked out');
+    await expect(push()).rejects.toThrow('branch "bothub/8" exists and this run did not start from it');
 
     git(other, 'checkout', '-q', 'bothub/8');
     commit(other, { 'c.ts': 'c\n' });
@@ -202,6 +202,39 @@ describe('workspaces.publish', () => {
     const { path, base } = await ws.create({ repo: 'acme/app', ref: 'feature' }, 'run-1');
     expect(base).toBe(origin.feature);
     expect(git(path, 'rev-parse', 'HEAD')).toBe(origin.feature);
+  });
+
+  it('starts a rerun at the job branch when it exists and moves it forward', async () => {
+    const { origin, ws } = setup();
+    git(origin.dir, 'branch', 'bothub/7', origin.feature);
+    const { path, base } = await ws.create({ repo: 'acme/app', branch: 'bothub/7' }, 'run-1');
+    expect(base).toBe(origin.feature);
+    writeFileSync(join(path, 'b.ts'), 'b\n');
+    await ws.publish('acme/app', 'run-1', { branch: 'bothub/7', files: ['b.ts'], message: 'm', base });
+    expect(git(origin.dir, 'rev-parse', 'bothub/7^')).toBe(origin.feature);
+    const fresh = await ws.create({ repo: 'acme/app', branch: 'bothub/8' }, 'run-2');
+    expect(fresh.head).toBe(origin.main);
+  });
+
+  it('merges a branch in with its conflicts and commits the resolved merge whole', async () => {
+    const { origin, ws } = setup();
+    git(origin.dir, 'checkout', '-q', 'feature');
+    const theirs = commit(origin.dir, { 'README.md': 'feature\n' });
+    git(origin.dir, 'checkout', '-qb', 'bothub/7', 'main');
+    const ours = commit(origin.dir, { 'README.md': 'ours\n' });
+    git(origin.dir, 'checkout', '-q', 'main');
+    await expect(ws.create({ repo: 'acme/app', branch: 'bothub/7', merge: 'nope' }, 'run-0')).rejects.toThrow(
+      'branch "nope" does not exist'
+    );
+    const created = await ws.create({ repo: 'acme/app', branch: 'bothub/7', merge: 'feature' }, 'run-1');
+    expect(created).toMatchObject({ head: ours, base: theirs, conflicts: ['README.md'] });
+    const publish = () =>
+      ws.publish('acme/app', 'run-1', { branch: 'bothub/7', files: [], message: 'merge', base: created.base });
+    await expect(publish()).rejects.toThrow('conflict markers left in README.md');
+    writeFileSync(join(created.path, 'README.md'), 'both\n');
+    await publish();
+    expect(git(origin.dir, 'rev-parse', 'bothub/7^1', 'bothub/7^2').split('\n')).toEqual([ours, theirs]);
+    expect(git(origin.dir, 'show', 'bothub/7:README.md')).toBe('both');
   });
 
   it('refuses GitHub workflow changes unless the job names them', async () => {

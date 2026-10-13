@@ -41,7 +41,7 @@ const schemas = { bots: Bot, skills: Skill, checks: Check, workflows: Workflow }
 const definition = /(?:^|\/)(bots|skills|checks|workflows)\/([^/]+)\.md$/;
 const noteFile = /(?:^|\/)notes\/([^/]+)\/([^/]+)\.md$/;
 export const hubFile = 'hub.yaml';
-const placeholders = new Set(['issue', 'slug', 'job', 'workflow']);
+const placeholders = new Set(['issue', 'parent', 'base', 'slug', 'job', 'workflow']);
 
 const quoted = (names: string[]) => names.map(n => `"${n}"`).join(', ');
 
@@ -196,12 +196,27 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
   return found;
 };
 
-const checkJob = (id: string, job: Job, workflow: Workflow, { bots, skills, checks }: Config): string[] => {
+const checkJob = (id: string, job: Job, workflow: Workflow, { hub, bots, skills, checks }: Config): string[] => {
   const errors: string[] = [];
   const fail = (message: string) => errors.push(`job "${id}" ${message}`);
   for (const need of job.needs) if (!(need in workflow.jobs)) fail(`needs unknown job "${need}"`);
   for (const trigger of Object.keys(job.on ?? {}))
     if (!(trigger in workflow.on)) fail(`triggers on "${trigger}", which the workflow does not listen to`);
+  if (job.branch && !job.branch.startsWith('bothub/')) fail(`branch "${job.branch}" must start with "bothub/"`);
+  for (const [field, template] of [
+    ['branch', job.branch],
+    ['into', job.into],
+  ] as const)
+    for (const [, key = ''] of template?.matchAll(/\{([^}]*)\}/g) ?? [])
+      if (!placeholders.has(key)) fail(`${field} uses unknown placeholder "{${key}}"`);
+  if (job.branch && job.into && `${job.branch}/`.startsWith(`${job.into}/`))
+    fail(`branch "${job.branch}" sits inside "${job.into}", and git cannot hold both; try "${job.into}-…"`);
+  for (const check of job.requires ?? []) if (!(check in checks)) fail(`requires unknown check "${check}"`);
+  for (const problem of returnProblems(job.returns ?? [])) fail(problem);
+  const bot = job.type === 'bot' ? bots[job.bot] : undefined;
+  const returns = job.returns ?? bot?.returns ?? [];
+  if (returns.includes('merge') && !job.into && hub.merge['default-branch'] === 'human')
+    fail('returns "merge" without "into", so it would merge into the default branch, which only a human does');
   if (job.type === 'script') {
     if (typeof job.over === 'object' && 'run' in job.over)
       fail('runs its own command, so "over: { run }" needs type bot');
@@ -209,17 +224,10 @@ const checkJob = (id: string, job: Job, workflow: Workflow, { bots, skills, chec
   }
   if (!(job.skill in skills)) fail(`uses unknown skill "${job.skill}"`);
   for (const check of job.until?.checks ?? []) if (!(check in checks)) fail(`waits for unknown check "${check}"`);
-  if (job.branch) {
-    if (!job.branch.startsWith('bothub/')) fail(`branch "${job.branch}" must start with "bothub/"`);
-    for (const [, key = ''] of job.branch.matchAll(/\{([^}]*)\}/g))
-      if (!placeholders.has(key)) fail(`branch uses unknown placeholder "{${key}}"`);
-  }
-  const bot = bots[job.bot];
   if (!bot) {
     fail(`uses unknown bot "${job.bot}"`);
     return errors;
   }
-  for (const problem of returnProblems(job.returns ?? [])) fail(problem);
   for (const entry of job.returns ?? [])
     if (!narrows(bot.returns, entry)) fail(`returns "${entry}", which bot "${bot.name}" does not return`);
   for (const tool of job.tools ?? [])

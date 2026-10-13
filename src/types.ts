@@ -5,7 +5,7 @@ import type { Association, Harness, Trigger } from './schema.ts';
 
 /**
  * A trigger from GitHub, a local issue tracker or the CLI, normalised so workflows never see raw payloads. `label` is
- * the label an `issues` `labeled` or `unlabeled` event is about.
+ * the label an `issues` `labeled` or `unlabeled` event is about, `parent` the parent of the event's issue when known.
  */
 export type BotEvent = {
   id: string;
@@ -21,6 +21,7 @@ export type BotEvent = {
   ref?: string;
   branch?: string;
   label?: string;
+  parent?: number;
 };
 
 /** What a run needs to start an agent session. */

@@ -35,10 +35,10 @@ const message = [
     files: ['src/health.ts', 'test/health.test.ts'],
   }),
   JSON.stringify({
-    kind: 'open-pr',
+    kind: 'merge-request',
     title: 'Add /health endpoint',
     body: 'Closes #7',
-    head: 'bothub/7-health-endpoint',
+    branch: 'bothub/7-health-endpoint',
   }),
   JSON.stringify({ kind: 'label', add: ['enhancement'] }),
   '```',
@@ -93,7 +93,7 @@ const { accepted, rejected } = validate(
 );
 const urls: Partial<Record<string, string>> = {
   reply: 'https://github.com/acme/app/issues/7#issuecomment-2',
-  'open-pr': 'https://github.com/acme/app/pull/8',
+  'merge-request': 'https://github.com/acme/app/pull/8',
 };
 const results = accepted.map(({ kind }) => ({
   kind,

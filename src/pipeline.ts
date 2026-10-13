@@ -35,6 +35,7 @@ import {
   type Validated,
 } from './outputs.ts';
 import { issueContext } from './preload.ts';
+import { githubPulls, type Pull, type Pulls } from './pulls.ts';
 import { runJob, runScript, type Launcher, type limiter } from './runner.ts';
 import {
   NoteKind,
@@ -53,7 +54,7 @@ import {
 import { items, Summarizer, summarizeRun } from './summaries.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from './store.ts';
 import type { BotEvent, HarnessAdapter, RunSpec } from './types.ts';
-import type { Workspaces } from './workspace.ts';
+import { unresolved, type Workspaces } from './workspace.ts';
 
 const defaultMinutes = 30;
 
@@ -61,22 +62,26 @@ const examples: Record<ProposalKind, string> = {
   reply: '{ "kind": "reply", "body": "Markdown comment on the issue or pull request" }',
   label: '{ "kind": "label", "add": ["bug"], "remove": ["needs-triage"] }',
   push: '{ "kind": "push", "branch": "<branch>", "files": ["src/changed.ts"] }',
-  'open-pr':
-    '{ "kind": "open-pr", "title": "…", "body": "Closes #<issue>", "head": "<branch>", "base": "main", "draft": true }',
+  'merge-request':
+    '{ "kind": "merge-request", "title": "…", "body": "Closes #<issue>", "branch": "<branch>", "into": "<into>", "draft": true }',
+  merge: '{ "kind": "merge", "request": 12 }',
   note: '{ "kind": "note", "note": "style", "slug": "short-kebab-name", "title": "…", "body": "The note, in Markdown" }',
   hub: '{ "kind": "hub", "title": "…", "body": "Why", "files": [{ "path": "<hub file>", "content": "The whole new file" }] }',
   ask: '{ "kind": "ask", "question": "What should happen when …?" }',
 };
 
-const proposing = (returns: Return[], branch: string | undefined, notesTool: boolean) => {
+const proposing = (returns: Return[], { branch, into }: Target, notesTool: boolean) => {
   const kinds = returnKinds(returns);
   const globs = returnGlobs(returns);
   const has = (kind: ProposalKind) => kinds.includes(kind);
-  const pushes = has('push') || has('open-pr');
+  const pushes = has('push') || has('merge-request');
+  const target = into ? `\`${into}\`` : 'the default branch';
   const notes = [
     pushes && (branch ? `Use the branch \`${branch}\`.` : 'Branches must start with `bothub/`.'),
     has('push') && '`files` lists every file you changed, as repository-relative paths.',
-    has('open-pr') && 'Leave out `base` to target the default branch.',
+    has('merge-request') && `A merge request goes into ${target}; leave out \`into\` for that. A human reviews it.`,
+    has('merge') &&
+      `A \`merge\` names one open request into ${target}; it lands only once the required checks pass on the merged result.`,
     has('note') &&
       `A note's kind is one of ${NoteKind.options.join(', ')}: what was chosen and why, how code and docs should look, or a known sharp edge.${notesTool ? ' The `notes_add` tool proposes one as well.' : ''}`,
     has('hub') &&
@@ -86,7 +91,10 @@ const proposing = (returns: Return[], branch: string | undefined, notesTool: boo
     'Include only the proposals you need.',
   ].filter(Boolean);
   const example = (kind: ProposalKind) =>
-    examples[kind].replaceAll('<branch>', branch ?? 'bothub/<issue>-<slug>').replaceAll('<hub file>', globs[0] ?? '');
+    examples[kind]
+      .replaceAll('<branch>', branch ?? 'bothub/<issue>-<slug>')
+      .replaceAll(into ? '<into>' : ', "into": "<into>"', into ?? '')
+      .replaceAll('<hub file>', globs[0] ?? '');
   return [
     '## What you return',
     '',
@@ -193,7 +201,7 @@ const session = ({
   config,
   bot,
   returns,
-  branch,
+  target = {},
   prompt,
   cwd,
   preload = ['recall'],
@@ -204,7 +212,7 @@ const session = ({
   config: Config;
   bot: Defined<Bot>;
   returns: Return[];
-  branch: string | undefined;
+  target?: Target;
   prompt: string;
   cwd: string;
   preload?: Preload[];
@@ -227,7 +235,7 @@ const session = ({
       ...pinned,
       offered(config, bot),
       offeredTools([...served, ...(surfacer?.history ? ['history' as const] : [])]),
-      returns.length ? proposing(returns, branch, served.includes('notes_add')) : undefined,
+      returns.length ? proposing(returns, target, served.includes('notes_add')) : undefined,
     ]
       .filter(Boolean)
       .join('\n\n'),
@@ -247,13 +255,19 @@ const slugify = (text: string) =>
     .slice(0, 40)
     .replace(/^-+|-+$/g, '');
 
-/** Fills a job's `branch` template: `{issue}`, `{slug}` (from the command or event text), `{job}` and `{workflow}`. */
+/**
+ * Fills a job's `branch` or `into` template: `{issue}`, `{parent}` (the issue's parent), `{base}` (the event's branch,
+ * a pull request's base), `{slug}` (from the command or event text), `{job}` and `{workflow}`. A value the event does
+ * not have stays as written.
+ */
 export const renderBranch = (
   template: string,
   { event, args, job, workflow }: { event: BotEvent; args: string | undefined; job: string; workflow: string }
 ) => {
-  const values: Record<string, string> = {
+  const values: Record<string, string | undefined> = {
     issue: String(event.number ?? 'new'),
+    parent: event.parent === undefined ? undefined : String(event.parent),
+    base: event.branch,
     slug: slugify(args || event.body?.split('\n')[0] || job) || job,
     job,
     workflow,
@@ -270,9 +284,15 @@ export const handoffEnv = ({ branch, pr }: Handoff = {}): Record<string, string>
   ...(pr !== undefined && { BOTHUB_PR: String(pr) }),
 });
 
-/** The branch a job works on: its own `branch` template, or the branch handed to it. */
-const branchFor = (job: Job, at: Parameters<typeof renderBranch>[1], from?: Handoff) =>
-  job.type === 'bot' && job.branch ? renderBranch(job.branch, at) : from?.branch;
+/** Where a job writes: the branch it works on and where its merge requests and merges go. */
+type Target = Pick<Job, 'branch' | 'into'>;
+
+/** A job's rendered `branch` (or the branch handed to it) and `into`. */
+const targetOf = (job: Job, at: Parameters<typeof renderBranch>[1], from?: Handoff): Target => {
+  const branch = job.branch ? renderBranch(job.branch, at) : from?.branch;
+  const into = job.into && renderBranch(job.into, at);
+  return { ...(branch && { branch }), ...(into && { into }) };
+};
 
 /**
  * The agent session for a planned job. The forced skill and any `preloaded` issue context are pinned in the system
@@ -304,7 +324,8 @@ export const buildSpec = ({
   const skill = config.skills[job.skill];
   if (!bot || !skill) throw new Error(`job "${id}" has no bot and skill`);
   const returns = effectiveReturns(bot, job);
-  const branch = branchFor(job, { event, args, job: id, workflow: workflow.name }, handoff);
+  const target = targetOf(job, { event, args, job: id, workflow: workflow.name }, handoff);
+  const { branch } = target;
   const prompt = eventContext(event, args, branch, handoff?.pr);
   const preload = effectivePreload(bot, job);
   const tools = effectiveTools(bot, job);
@@ -313,7 +334,7 @@ export const buildSpec = ({
       config,
       bot,
       returns,
-      branch,
+      target,
       prompt,
       cwd,
       preload,
@@ -325,6 +346,7 @@ export const buildSpec = ({
     job,
     returns,
     branch,
+    into: target.into,
     timeoutMinutes: job['timeout-minutes'] ?? bot.budget?.minutes ?? defaultMinutes,
   };
 };
@@ -346,8 +368,8 @@ export const secretsFor = ({ name }: Pick<Defined<Bot>, 'name'>, env: Record<str
   ]);
 
 /**
- * Everything a planned job needs to run. Without `gh` or `issues`, nothing is applied; without `gh`, pull requests
- * are skipped. Hub changes land through `hubPr`, by default on a branch of the `hub` directory's own repository.
+ * Everything a planned job needs to run. Without `gh` or `issues`, nothing is applied; merge requests go through
+ * `pulls`, GitHub's when only `gh` is given, and are skipped without either. Hub changes land through `hubPr`, by default on a branch of the `hub` directory's own repository.
  * `data` is the data directory: runs are summarized into it, and opencode runs surface what it holds. Scripts see the `hub` directory read-only as `BOTHUB_HUB` and the
  * commit their worktree started from as `BOTHUB_BASE`. `issues` defaults to GitHub's when `gh` is given and also feeds
  * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it. Harnesses and scripts
@@ -362,6 +384,7 @@ export type Pipeline = {
   env: Record<string, string | undefined>;
   gh?: GitHub;
   issues?: Issues;
+  pulls?: Pulls;
   mcp?: (tools: McpTool[]) => McpServer;
   hub?: string;
   data?: string;
@@ -370,6 +393,10 @@ export type Pipeline = {
   launch?: Launcher;
   onEvent?: (run: Run, record: EventRecord) => void;
 };
+
+const pullsOf = (p: Pipeline) => p.pulls ?? (p.gh && githubPulls(p.gh, p.event.repo));
+
+const issuesOf = (p: Pipeline) => p.issues ?? (p.gh && githubIssues(p.gh, p.event.repo));
 
 /** A planned job, either skipped with a stored reason and closure, or run with its final outcome. */
 export type JobResult = PlannedJob & ({ skipped: string; closure: Closure } | { run: Run; outcome?: Outcome });
@@ -492,15 +519,18 @@ const verdictContract = [
   'findings, most severe first, each naming the file and line.',
 ].join('\n');
 
+/** One attempt of a job in its worktree. `merging` is set while it resolves a merge of `base` into its branch. */
 type Attempt = {
   planned: PlannedJob;
-  job: Extract<Job, { type: 'bot' }>;
+  job: Job;
   worktree: string;
   cwd: string;
   base: string;
   parent: Run;
   handoff: Handoff;
+  target: Target;
   item?: number;
+  merging?: boolean;
 };
 
 /** Where `over` reads from: the worktree, the commit the change starts at, the files in scope and the script env. */
@@ -595,7 +625,6 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         config: p.config,
         bot,
         returns: ['reply'],
-        branch: undefined,
         prompt,
         cwd: a.cwd,
         preload: effectivePreload(bot, {}),
@@ -670,6 +699,14 @@ export const failingChecks = (verdicts: Verdict[]) => {
   return ran.length ? ran.filter(v => !v.pass) : gating.filter(v => v.skipped);
 };
 
+/** The files a merge left conflicting, as a prompt section; `attempt` marks a follow-up. */
+const conflictSection = (files: string[], attempt?: string) =>
+  [
+    '## Merge conflicts',
+    `${attempt ? `${attempt} These files still hold conflict markers.` : 'The branch your work goes into was merged into this worktree and conflicts with your change.'} Resolve each conflict keeping what both sides meant, remove every marker, then push your branch again; the merge is committed for you.`,
+    files.map(file => `- ${file}`).join('\n'),
+  ].join('\n\n');
+
 const followUp = (
   prompt: string,
   failing: Verdict[],
@@ -677,11 +714,13 @@ const followUp = (
   attempt: number,
   total: number,
   problems: string[] = [],
-  earlier?: string
+  earlier?: string,
+  conflicts: string[] = []
 ) =>
   [
     prompt,
     ...(earlier ? ['## Your earlier attempt', earlier] : []),
+    ...(conflicts.length ? [conflictSection(conflicts, `Attempt ${attempt} of ${total}.`)] : []),
     ...(problems.length
       ? [
           '## Proposal errors',
@@ -719,8 +758,8 @@ const closed = (closure: Closure, reason?: string): Pick<Run, 'closure' | 'reaso
 
 /**
  * What happened to a job's work, from its run and outcome. A closure the bot stated wins once the run succeeded. A
- * question is `blocked`, a pull request `handed-off`, any other write `done`. A push without a pull request is
- * `handed-off` when a later job needs this one, otherwise `blocked`. A job that may push but
+ * question is `blocked`, a merge request `handed-off`, any other write (a merge too) `done`. A push without a merge
+ * request is `handed-off` when a later job needs this one or it resolves a merge, otherwise `blocked`. A job that may push but
  * changed nothing, or one that wrote nothing at all, is `no-op`. A skipped run, a provider limit or a sandbox that
  * never started is `deferred`;
  * any other failure, or an effect that failed to apply, is `blocked`.
@@ -740,24 +779,24 @@ export const closureOf = (run: Run, outcome: Outcome | undefined, returns: Propo
   if (failed) return closed('blocked', `${failed.kind} failed: ${failed.reason ?? 'unknown error'}`);
   const kinds = kindsOf(outcome).filter(kind => kind !== 'close');
   if (asked) return closed('blocked', 'asked a human');
-  if (kinds.includes('open-pr')) return closed('handed-off');
+  if (kinds.includes('merge-request')) return closed('handed-off');
   if (kinds.includes('push'))
-    return taken ? closed('handed-off') : closed('blocked', 'pushed a branch without opening a pull request');
+    return taken ? closed('handed-off') : closed('blocked', 'pushed a branch without opening a merge request');
   if (returns.includes('push')) return closed('no-op', 'proposed no change');
   return kinds.length ? closed('done') : closed('no-op', 'proposed nothing');
 };
 
 const pullNumber = (url: string | undefined) => Number(url?.match(/\/(\d+)$/)?.[1]) || undefined;
 
-/** The branch that landed and the pull request that is open after applying. */
+/** The branch that landed and the merge request that is open after applying. */
 const handoffOf = (applied: Proposal[], results: ApplyResult[]): Handoff => {
   const landed = (kind: Proposal['kind']) => results.find(r => r.kind === kind && r.status === 'applied');
   const push = applied.find((proposal): proposal is Extract<Proposal, { kind: 'push' }> => proposal.kind === 'push');
-  const pr = applied.find(
-    (proposal): proposal is Extract<Proposal, { kind: 'open-pr' }> => proposal.kind === 'open-pr'
+  const request = applied.find(
+    (proposal): proposal is Extract<Proposal, { kind: 'merge-request' }> => proposal.kind === 'merge-request'
   );
-  const opened = landed('open-pr');
-  const branch = push && landed('push') ? push.branch : pr && opened ? pr.head : undefined;
+  const opened = landed('merge-request');
+  const branch = push && landed('push') ? push.branch : request && opened ? request.branch : undefined;
   const number = pullNumber(opened?.url);
   return { ...(branch && { branch }), ...(number && { pr: number }) };
 };
@@ -785,7 +824,8 @@ const settle = async (
   checks?: Verdict[]
 ): Promise<Outcome> => {
   const { gh, issues, event, workspaces, hubPr } = p;
-  const applied = toApply !== undefined && allowed && (gh !== undefined || issues !== undefined);
+  const pulls = pullsOf(p);
+  const applied = toApply !== undefined && allowed && (gh !== undefined || issues !== undefined || pulls !== undefined);
   const { paths } = a.job;
   const base: Outcome = { proposals, errors, accepted, rejected, results: [], applied, ...(checks && { checks }) };
   if (!applied) return p.store.saveOutcome(run.id, base);
@@ -801,17 +841,84 @@ const settle = async (
   const results = await apply(writes, {
     event,
     push,
-    prefix: `${event.id}/${run.workflow}/${run.job}${a.item ? `/item-${a.item + 1}` : ''}`,
+    prefix: `${event.id}/${run.workflow}/${run.job}${a.item ? `/item-${a.item + 1}` : ''}${a.merging ? `/merge-${a.base.slice(0, 12)}` : ''}`,
     prior: await priorEffects(run, p),
     record: results => p.store.saveOutcome(run.id, { ...base, results }),
     ...(gh && { gh }),
     ...(issues && { issues }),
+    ...(pulls && { pulls }),
+    origin: { job: `${run.workflow}/${run.job}`, event: event.id },
+    ...(a.target.into && { into: a.target.into }),
+    merge: request => landMerge(request, a, p),
     ...((hubPr ?? p.hub) && { hubPr: hubPr ?? hubProposal(p.hub!) }),
   });
   return p.store.saveOutcome(run.id, { ...base, results, ...handoffOf(writes, results) });
 };
 
-/** Records the closure of a job's final run. */
+type Landed = { conflicts: string[] } | { sha: string };
+
+/**
+ * Merges `pull` into a fresh worktree of its branch. When it merges cleanly, runs the job's `requires` checks on the
+ * merged tree and lands the merge while both branches are still where the checks saw them.
+ */
+const tryMerge = async (pull: Pull, round: number, a: Attempt, pulls: Pulls, p: Pipeline): Promise<Landed> => {
+  const id = `${a.parent.id}-merge-${pull.number}-${round}`;
+  const tree = await p.workspaces.create({ repo: p.event.repo, ref: pull.branch, merge: pull.into }, id);
+  try {
+    if (tree.conflicts.length) return { conflicts: tree.conflicts };
+    const at: Attempt = { ...a, worktree: id, cwd: tree.path, base: tree.base };
+    const verdicts = await Effect.runPromise(
+      Effect.forEach(a.job.requires ?? [], name => {
+        const check = p.config.checks[name];
+        return check ? runCheck(check, at, p) : Effect.succeed<Verdict>({ check: name, gating: true, pass: false });
+      })
+    );
+    const failing = failingChecks(verdicts);
+    if (failing.length)
+      throw new Error(
+        `required checks failed on the merged tree: ${failing.map(v => `${v.check}${v.findings ? ` (${v.findings.split('\n')[0]})` : ''}`).join(', ')}`
+      );
+    return await pulls.merge(pull.number, { head: tree.head, into: tree.base });
+  } finally {
+    await p.workspaces.remove(p.event.repo, id);
+  }
+};
+
+/** Runs the job that opened `pull` again, on its branch with `into` merged in, so its bot resolves the conflicts. */
+const resolveConflicts = async (pull: Pull, p: Pipeline) => {
+  const [workflow = '', job = ''] = pull.origin?.job.split('/') ?? [];
+  const definition = p.config.workflows[workflow]?.jobs[job];
+  const event = (await p.store.list()).find(run => run.event.id === pull.origin?.event)?.event;
+  if (!definition || !event) return;
+  const planned: PlannedJob = { workflow, job, ...(definition.type === 'bot' && { bot: definition.bot }) };
+  await Effect.runPromise(runPlanned(planned, { ...p, event }, {}, pull.into));
+};
+
+/**
+ * Lands merge request `number` for an attempt's job: only an open request from a `bothub/` branch into the job's
+ * `into`, and into the default branch only when `hub.yaml` lets bots merge there. A conflicting request goes back to
+ * the job that opened it once; the job's `requires` checks then run on the merged tree before the merge lands.
+ */
+const landMerge = async (number: number, a: Attempt, p: Pipeline): Promise<Omit<ApplyResult, 'kind' | 'key'>> => {
+  const pulls = pullsOf(p);
+  if (!pulls) return { status: 'skipped', reason: 'no merge requests to merge' };
+  const pull = await pulls.get(number);
+  if (pull?.state !== 'open') throw new Error(`merge request #${number} is not open`);
+  if (!pull.branch.startsWith('bothub/')) throw new Error(`merge request #${number} is not from a bothub/ branch`);
+  const main = await pulls.defaultBranch();
+  const into = a.target.into ?? main;
+  if (pull.into !== into) throw new Error(`merge request #${number} goes into "${pull.into}", not "${into}"`);
+  if (into === main && p.config.hub.merge['default-branch'] === 'human')
+    throw new Error(`only a human merges into the default branch "${main}"`);
+  let landed = await tryMerge(pull, 1, a, pulls, p);
+  if ('conflicts' in landed) {
+    await resolveConflicts(pull, p);
+    landed = await tryMerge(pull, 2, a, pulls, p);
+  }
+  if ('conflicts' in landed) throw new Error(`merge request #${number} conflicts in ${landed.conflicts.join(', ')}`);
+  return { status: 'applied', url: pull.url, sha: landed.sha };
+};
+
 /** Saves the memory of a job's final run; a memory that cannot be written never fails the job. */
 const remember = async (run: Run, outcome: Outcome | undefined, p: Pipeline) => {
   try {
@@ -819,10 +926,17 @@ const remember = async (run: Run, outcome: Outcome | undefined, p: Pipeline) => 
   } catch {}
 };
 
-const finish = (planned: PlannedJob, run: Run, outcome: Outcome | undefined, kinds: ProposalKind[], p: Pipeline) =>
+const finish = (
+  planned: PlannedJob,
+  run: Run,
+  outcome: Outcome | undefined,
+  kinds: ProposalKind[],
+  p: Pipeline,
+  merging = false
+) =>
   Effect.promise(async (): Promise<JobResult> => {
     const jobs = Object.values(p.config.workflows[planned.workflow]?.jobs ?? {});
-    const taken = jobs.some(job => job.needs.includes(planned.job));
+    const taken = merging || jobs.some(job => job.needs.includes(planned.job));
     const final = await p.store.update(run.id, closureOf(run, outcome, kinds, taken));
     await remember(final, outcome, p);
     return { ...planned, run: final, ...(outcome && { outcome }) };
@@ -833,7 +947,7 @@ const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: P
   const job = workflow.jobs[planned.job];
   const bot = job?.type === 'bot' ? p.config.bots[job.bot] : undefined;
   if (job?.type !== 'bot' || !bot) return;
-  return issueContext(p.issues ?? (p.gh && githubIssues(p.gh, p.event.repo)), p.event, effectivePreload(bot, job));
+  return issueContext(issuesOf(p), p.event, effectivePreload(bot, job));
 };
 
 /**
@@ -884,13 +998,25 @@ const attemptSummary = async (run: Run, p: Pipeline) => {
 const costOf = async (ids: string[], store: Store) =>
   (await Promise.all(ids.map(id => store.read(id)))).reduce((sum, run) => sum + (run?.costUsd ?? 0), 0);
 
-/** A run's worktree: the run that owns it, its path and the commit it started from. */
-type Worktree = { id: string; cwd: string; base: string };
+/**
+ * A run's worktree: the run that owns it, its path, the commit its change is measured from, and while it resolves a
+ * merge (`merging`), the files that merge left conflicting.
+ */
+type Worktree = { id: string; cwd: string; base: string; conflicts: string[]; merging: boolean };
+
+/** The default branch, when the job may open merge requests and there is a backend to ask. */
+const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
+  kinds.includes('merge-request')
+    ? pullsOf(p)
+        ?.defaultBranch()
+        .catch(() => undefined)
+    : undefined;
 
 /**
  * Runs the job's bot, then its `until` checks, sending failing findings back as new attempts in the same worktree.
- * The loop stops at `until.max` follow-ups, or once the attempts and checks have spent the bot's `usd-per-run`. An
- * `item` of a fan-out adds its section to the prompt.
+ * While it resolves a merge, conflict markers left in the conflicting files count as a failing check. The loop stops
+ * at `until.max` follow-ups, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a
+ * fan-out adds its section to the prompt.
  */
 const attempts = (
   planned: PlannedJob,
@@ -902,7 +1028,7 @@ const attempts = (
   item?: { index: number; section: string | undefined }
 ) =>
   Effect.gen(function* () {
-    const { cwd, base } = worktree;
+    const { cwd, base, merging } = worktree;
     const preloaded = yield* Effect.promise(() => preloadFor(planned, workflow, p));
     const built = buildSpec({
       ...planned,
@@ -916,14 +1042,18 @@ const attempts = (
       ...(p.hub && { hub: p.hub }),
       ...(p.data && { data: p.data }),
     });
-    const { bot, job, returns, branch, timeoutMinutes } = built;
+    const { bot, job, returns, branch, into, timeoutMinutes } = built;
+    const target: Target = { ...(branch && { branch }), ...(into && { into }) };
     const kinds = returnKinds(returns);
+    const defaultBranch = yield* Effect.promise(() => defaultBranchFor(kinds, p));
     const env = handoffEnv(handoff);
     const max = job.until?.max ?? 1;
     const cap = bot.budget?.['usd-per-run'];
     let spent = 0;
     let parent = first;
-    const task = [built.spec.prompt, item?.section].filter(Boolean).join('\n\n');
+    const task = [built.spec.prompt, item?.section, merging ? conflictSection(worktree.conflicts) : undefined]
+      .filter(Boolean)
+      .join('\n\n');
     let prompt = task;
     for (let attempt = 1; ; attempt++) {
       const current =
@@ -942,7 +1072,8 @@ const attempts = (
       const { run, final } = yield* agent(bot, { ...built.spec, prompt }, timeoutMinutes, current, p, env);
       spent += run.costUsd ?? 0;
       const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
-      const validated = validate(extracted.proposals, { returns, paths: job.paths, branch }, job.mode);
+      const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
+      const validated = validate(extracted.proposals, allowance, job.mode);
       const a: Attempt = {
         planned,
         job,
@@ -951,7 +1082,9 @@ const attempts = (
         base,
         parent: run,
         handoff,
+        target,
         ...(item && { item: item.index }),
+        ...(merging && { merging }),
       };
       const succeeded = run.status === 'succeeded';
       const problems = succeeded ? proposalProblems(extracted, validated, kinds) : [];
@@ -965,7 +1098,7 @@ const attempts = (
             })
           );
           const outcome = yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
-          return yield* finish(planned, failed, outcome, kinds, p);
+          return yield* finish(planned, failed, outcome, kinds, p, merging);
         }
         const failed = yield* Effect.promise(() => p.store.update(run.id, { status: 'failed', error }));
         yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
@@ -975,15 +1108,16 @@ const attempts = (
         parent = failed;
         continue;
       }
-      if (!succeeded || !job.until) {
+      const left = succeeded && merging ? yield* Effect.promise(() => unresolved(cwd, worktree.conflicts)) : [];
+      if (!succeeded || (!job.until && !left.length)) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, succeeded ? validated.accepted : undefined, a, p)
         );
-        return yield* finish(planned, run, outcome, kinds, p);
+        return yield* finish(planned, run, outcome, kinds, p, merging);
       }
 
       const checks: Verdict[] = [];
-      for (const name of job.until.checks) {
+      for (const name of job.until?.checks ?? []) {
         const check = p.config.checks[name];
         checks.push(
           check ? yield* runCheck(check, a, p) : { check: name, gating: true, pass: false, findings: 'unknown check' }
@@ -996,21 +1130,23 @@ const attempts = (
         )
       );
       const failing = failingChecks(checks);
-      if (!failing.length) {
+      const verdicts = job.until ? checks : undefined;
+      if (!failing.length && !left.length) {
         const outcome = yield* Effect.promise(() =>
-          settle(run, extracted, validated, validated.accepted, a, p, checks)
+          settle(run, extracted, validated, validated.accepted, a, p, verdicts)
         );
-        return yield* finish(planned, run, outcome, kinds, p);
+        return yield* finish(planned, run, outcome, kinds, p, merging);
       }
 
       const broke = cap !== undefined && spent >= cap;
       if (attempt > max || broke) {
+        const what = [failing.length && 'checks still failing', left.length && 'merge conflicts left'].filter(Boolean);
         const reason = broke
-          ? `spent $${spent.toFixed(2)} of the $${cap} budget in ${attempt} attempts with checks still failing`
-          : `checks still failing after ${attempt} attempts`;
+          ? `spent $${spent.toFixed(2)} of the $${cap} budget in ${attempt} attempts with ${what.join(' and ')}`
+          : `${what.join(' and ')} after ${attempt} attempts`;
         const ask: Proposal = {
           kind: 'ask',
-          question: `${reason}: ${failing.map(v => v.check).join(', ')}. The findings are in run ${run.id}.`,
+          question: `${reason}: ${[...failing.map(v => v.check), ...left].join(', ')}. The findings are in run ${run.id}.`,
         };
         const asks = [...validated.accepted.filter(proposal => proposal.kind === 'ask'), ask];
         const held = validated.accepted
@@ -1025,16 +1161,16 @@ const attempts = (
             asks,
             a,
             p,
-            checks
+            verdicts
           )
         );
-        return yield* finish(planned, failed, outcome, kinds, p);
+        return yield* finish(planned, failed, outcome, kinds, p, merging);
       }
 
-      yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, checks));
+      yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
       const earlier =
         bot.session?.resume === 'attempts' ? yield* Effect.promise(() => attemptSummary(run, p)) : undefined;
-      prompt = followUp(task, failing, validated.rejected, attempt + 1, max + 1, [], earlier);
+      prompt = followUp(task, failing, validated.rejected, attempt + 1, max + 1, [], earlier, left);
       parent = run;
     }
   });
@@ -1114,58 +1250,130 @@ const fanned = (
   });
 
 /**
- * Runs a script job: once, or once per item its `over` names with the item in `BOTHUB_ITEM` and on stdin. It fails
- * when any run fails; the output of every run is stored on the job's run.
+ * The open requests from `bothub/` branches into a merging job's `into`, as `BOTHUB_INTO`, `BOTHUB_REQUESTS` and
+ * `BOTHUB_DEFAULT_BRANCH`.
  */
-const scriptJob = (planned: PlannedJob, job: Extract<Job, { type: 'script' }>, handoff: Handoff, p: Pipeline) =>
+const requestsEnv = async (kinds: ProposalKind[], target: Target, p: Pipeline): Promise<Record<string, string>> => {
+  const pulls = pullsOf(p);
+  if (!kinds.includes('merge') || !pulls) return {};
+  const defaultBranch = await pulls.defaultBranch();
+  const into = target.into ?? defaultBranch;
+  const open = (await pulls.list({ into })).filter(pull => pull.branch.startsWith('bothub/'));
+  const requests = open.map(({ number, branch, title, url }) => ({ number, branch, into, title, url }));
+  return { BOTHUB_INTO: into, BOTHUB_REQUESTS: JSON.stringify(requests), BOTHUB_DEFAULT_BRANCH: defaultBranch };
+};
+
+/**
+ * Runs a script job: once, or once per item its `over` names with the item in `BOTHUB_ITEM` and on stdin. It fails
+ * when any run fails; the output of every run is stored on the job's run. A script that may return proposals ends
+ * its output with a `bothub` block, validated and applied like a bot's; a script that may merge also gets the open
+ * requests into its `into` from `requestsEnv`.
+ */
+const scriptJob = (
+  planned: PlannedJob,
+  job: Extract<Job, { type: 'script' }>,
+  handoff: Handoff,
+  target: Target,
+  p: Pipeline
+) =>
   Effect.gen(function* () {
     const { store, event } = p;
     const created = yield* Effect.promise(() => store.create({ workflow: planned.workflow, job: planned.job, event }));
     const timeout = job['timeout-minutes'] ?? defaultMinutes;
-    const once = (cwd: string, base: string) =>
-      runScript(job.run, cwd, timeout, { ...handoffEnv(handoff), BOTHUB_BASE: base }, p.launch, p.hub);
+    const returns = job.returns ?? [];
+    const kinds = returnKinds(returns);
+    const once = (cwd: string, env: Record<string, string>) => runScript(job.run, cwd, timeout, env, p.launch, p.hub);
     const each = async (worktree: Worktree) => {
       const { items, error, scope } = await jobItems(job, worktree, handoff, p);
-      if (error) return { ok: false, output: error };
+      if (error) return { ok: false, output: error, stdout: '' };
       const outputs: string[] = [];
+      let stdout = '';
       let ok = true;
       for (const item of items) {
         const result = await runOnItem(job.run, item, scope, p);
         ok &&= result.ok;
+        stdout += result.stdout;
         if (result.output) outputs.push(items.length > 1 ? `${item.label}:\n${result.output}` : result.output);
       }
-      return { ok, output: outputs.join('\n\n') };
+      return { ok, output: outputs.join('\n\n'), stdout };
     };
-    const execute = ({ cwd, base }: { cwd: string; base: string }) =>
-      Effect.promise(async (): Promise<JobResult> => {
-        await store.update(created.id, { status: 'running', startedAt: new Date().toISOString() });
-        const { ok, output } = fanOut(job.over) ? await each({ id: created.id, cwd, base }) : await once(cwd, base);
+    const execute = (worktree: Worktree) =>
+      Effect.gen(function* () {
+        yield* Effect.promise(() =>
+          store.update(created.id, { status: 'running', startedAt: new Date().toISOString() })
+        );
+        const env = {
+          ...handoffEnv(handoff),
+          BOTHUB_BASE: worktree.base,
+          ...(yield* Effect.promise(() => requestsEnv(kinds, target, p))),
+        };
+        const { ok, output, stdout } = yield* Effect.promise(() =>
+          fanOut(job.over) ? each(worktree) : once(worktree.cwd, env)
+        );
         const ts = new Date().toISOString();
-        if (output) await store.append(created.id, { ts, seq: 0, event: { type: 'text', text: output } });
-        await store.append(created.id, { ts, seq: output ? 1 : 0, event: { type: 'end', ok } });
-        const why = output.startsWith('sandbox-failed: ') ? output : 'the script exited non-zero';
-        const run = await store.update(created.id, {
-          status: ok ? 'succeeded' : 'failed',
-          ...(ok ? closed('done') : { error: why, ...closed('blocked', why) }),
-          endedAt: ts,
+        yield* Effect.promise(async () => {
+          if (output) await store.append(created.id, { ts, seq: 0, event: { type: 'text', text: output } });
+          await store.append(created.id, { ts, seq: output ? 1 : 0, event: { type: 'end', ok } });
         });
-        await remember(run, undefined, p);
-        return { ...planned, run };
+        const why = output.startsWith('sandbox-failed: ') ? output : 'the script exited non-zero';
+        if (!ok || !kinds.length) {
+          const run = yield* Effect.promise(() =>
+            store.update(created.id, {
+              status: ok ? 'succeeded' : 'failed',
+              ...(ok ? closed('done') : { error: why, ...closed('blocked', why) }),
+              endedAt: ts,
+            })
+          );
+          yield* Effect.promise(() => remember(run, undefined, p));
+          return { ...planned, run } satisfies JobResult;
+        }
+        const extracted = extractProposals(stdout);
+        const defaultBranch = yield* Effect.promise(() => defaultBranchFor(kinds, p));
+        const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
+        const validated = validate(extracted.proposals, allowance, job.mode);
+        const said = extracted.proposals.length || extracted.errors.length;
+        const problems = said ? proposalProblems(extracted, validated, kinds) : [];
+        const run = yield* Effect.promise(() =>
+          store.update(created.id, {
+            status: problems.length ? 'failed' : 'succeeded',
+            ...(problems.length && { error: problems.join('; ') }),
+            endedAt: ts,
+          })
+        );
+        const a: Attempt = {
+          planned,
+          job,
+          worktree: worktree.id,
+          cwd: worktree.cwd,
+          base: worktree.base,
+          parent: run,
+          handoff,
+          target,
+        };
+        const outcome = yield* Effect.promise(() =>
+          settle(run, extracted, validated, problems.length ? undefined : validated.accepted, a, p)
+        );
+        return yield* finish(planned, run, outcome, kinds, p);
       });
-    return yield* withWorktree(created, execute, handoff, p);
+    return yield* withWorktree(created, execute, handoff, p, { target, lock: lockOf(target, returns) });
   });
 
+/** The branch a job locks while it runs: its own, or the `into` it merges into. */
+const lockOf = (target: Target, returns: Return[]) =>
+  target.branch ?? (returnKinds(returns).includes('merge') ? target.into : undefined);
+
 /**
- * Runs `use` in a fresh worktree for `created`, at the handed-off branch or the event's ref, holding the lock on the
- * branch the job works on. The commit the worktree starts from is stored as the run's `base`; the worktree is always
- * removed. A branch another live run holds defers the job.
+ * Runs `use` in a fresh worktree for `created`, at the job's branch when it exists, otherwise the handed-off branch or
+ * the event's ref, holding the lock on `lock`. With `merge`, that branch is merged in for the job to resolve. The
+ * commit the worktree starts from is stored as the run's `base`; the worktree is always removed. A branch another
+ * live run holds defers the job.
  */
 const withWorktree = (
   created: Run,
-  use: (worktree: { cwd: string; base: string }) => Effect.Effect<JobResult>,
+  use: (worktree: Worktree) => Effect.Effect<JobResult>,
   handoff: Handoff,
   p: Pipeline,
-  branch = handoff.branch
+  { target, lock, merge }: { target: Target; lock: string | undefined; merge?: string }
 ): Effect.Effect<JobResult> => {
   const planned: PlannedJob = {
     workflow: created.workflow,
@@ -1183,43 +1391,66 @@ const withWorktree = (
       });
       return { ...planned, run };
     });
-  const locked = Effect.acquireUseRelease(
+  const start = {
+    repo: p.event.repo,
+    ...(ref && { ref }),
+    ...(target.branch && { branch: target.branch }),
+    ...(merge && { merge }),
+  };
+  return Effect.acquireUseRelease(
     Effect.promise(() =>
-      branch ? p.store.lock(`${p.event.repo}:${branch}`, created.id) : Promise.resolve({ release: async () => {} })
+      lock ? p.store.lock(`${p.event.repo}:${lock}`, created.id) : Promise.resolve({ release: async () => {} })
     ),
     held =>
       'holder' in held
         ? Effect.promise(async (): Promise<JobResult> => {
-            const reason = `branch "${branch}" is in use by run ${held.holder}`;
+            const reason = `branch "${lock}" is in use by run ${held.holder}`;
             const run = await p.store.update(created.id, { status: 'skipped', ...closed('deferred', reason) });
             return { ...planned, run };
           })
         : Effect.acquireUseRelease(
-            Effect.tryPromise(async () => {
-              const worktree = await p.workspaces.create({ repo: p.event.repo, ...(ref && { ref }) }, created.id);
+            Effect.tryPromise(async (): Promise<Worktree> => {
+              const worktree = await p.workspaces.create(start, created.id);
               await p.store.update(created.id, { base: worktree.base });
-              return { cwd: worktree.path, base: worktree.base };
+              const { path: cwd, base, conflicts } = worktree;
+              return { id: created.id, cwd, base, conflicts, merging: merge !== undefined };
             }),
             use,
             () => Effect.promise(() => p.workspaces.remove(p.event.repo, created.id))
           ).pipe(Effect.catchAll(e => fail(e.error instanceof Error ? e.error.message : String(e.error)))),
     held => Effect.promise(() => ('release' in held ? held.release() : Promise.resolve()))
   );
-  return locked;
 };
 
 /**
  * Runs one planned job in a fresh worktree: a script, or a bot running its skill until the job's checks pass.
  * Proposals are validated and applied only once the checks pass and the mode and a GitHub client allow it. Every
  * attempt is stored as its own run, linked to the one before by `parent`; the worktree is always removed. A job
- * that needs another starts from the branch handed to it, which scripts and harnesses also get as `handoffEnv`.
+ * that needs another starts from the branch handed to it, which scripts and harnesses also get as `handoffEnv`. With
+ * `merge`, the job runs again on its branch with that branch merged in, to resolve the conflicts. A `branch` or
+ * `into` naming a value the event does not have blocks the job.
  */
-export const runPlanned = (planned: PlannedJob, p: Pipeline, handoff: Handoff = {}): Effect.Effect<JobResult> =>
+export const runPlanned = (
+  planned: PlannedJob,
+  p: Pipeline,
+  handoff: Handoff = {},
+  merge?: string
+): Effect.Effect<JobResult> =>
   Effect.gen(function* () {
     const workflow = p.config.workflows[planned.workflow];
     const job = workflow?.jobs[planned.job];
     if (!workflow || !job) return yield* Effect.promise(() => skip(planned, 'the job is not in the config', p));
-    if (job.type === 'script') return yield* scriptJob(planned, job, handoff, p);
+    const target = targetOf(
+      job,
+      { event: p.event, args: planned.args, job: planned.job, workflow: workflow.name },
+      handoff
+    );
+    const unfilled = [target.branch, target.into].find(name => name?.includes('{'));
+    if (unfilled)
+      return yield* Effect.promise(() =>
+        skip(planned, `"${unfilled}" names a value this event does not have`, p, 'blocked')
+      );
+    if (job.type === 'script') return yield* scriptJob(planned, job, handoff, target, p);
     const bot = p.config.bots[job.bot];
     if (!bot) return yield* Effect.promise(() => skip(planned, 'the job has no bot', p));
     const created = yield* Effect.promise(() =>
@@ -1232,13 +1463,12 @@ export const runPlanned = (planned: PlannedJob, p: Pipeline, handoff: Handoff = 
         ...(job.until && { attempt: 1 }),
       })
     );
-    const at = { event: p.event, args: planned.args, job: planned.job, workflow: workflow.name };
     return yield* withWorktree(
       created,
-      worktree => fanned(planned, workflow, job, created, { id: created.id, ...worktree }, handoff, p),
+      worktree => fanned(planned, workflow, job, created, worktree, handoff, p),
       handoff,
       p,
-      branchFor(job, at, handoff)
+      { target, lock: lockOf(target, effectiveReturns(bot, job)), ...(merge && { merge }) }
     );
   });
 
@@ -1269,7 +1499,7 @@ const reuse = async (planned: PlannedJob, earlier: Run[], p: Pipeline): Promise<
 const gate = async (planned: PlannedJob, job: Job, p: Pipeline): Promise<JobResult | undefined> => {
   const { environment } = job;
   if (!environment) return;
-  const issues = p.issues ?? (p.gh && githubIssues(p.gh, p.event.repo));
+  const issues = issuesOf(p);
   if (!issues)
     return skip(planned, `environment "${environment}" needs an issue tracker to ask for approval`, p, 'blocked');
   const { number: parent, actor, repo, url } = p.event;
@@ -1318,7 +1548,25 @@ export const approvals = async (event: BotEvent, store: Store, issues: Issues): 
  * `done` or `handed-off`, and starts from the branch and pull request they handed off. A job of this event that
  * already closed that way is reused rather than run again, and a job with an `environment` waits for approval.
  */
-export const runPlan = (planned: PlannedJob[], p: Pipeline): Effect.Effect<JobResult[]> =>
+/** The pipeline with the event's parent issue filled in, when a planned job's `branch` or `into` names it. */
+const withParent = async (planned: PlannedJob[], p: Pipeline): Promise<Pipeline> => {
+  const { event } = p;
+  const named = planned.some(({ workflow, job }) => {
+    const definition = p.config.workflows[workflow]?.jobs[job];
+    return [definition?.branch, definition?.into].some(name => name?.includes('{parent}'));
+  });
+  if (!named || event.parent !== undefined || event.number === undefined) return p;
+  const parent = (await issuesOf(p)?.get(event.number))?.parent;
+  return parent === undefined ? p : { ...p, event: { ...event, parent } };
+};
+
+export const runPlan = (planned: PlannedJob[], pipeline: Pipeline): Effect.Effect<JobResult[]> =>
+  Effect.flatMap(
+    Effect.promise(() => withParent(planned, pipeline)),
+    p => runWorkflows(planned, p)
+  );
+
+const runWorkflows = (planned: PlannedJob[], p: Pipeline): Effect.Effect<JobResult[]> =>
   Effect.forEach(
     [...new Set(planned.map(j => j.workflow))],
     name =>

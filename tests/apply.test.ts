@@ -146,6 +146,14 @@ describe('apply', () => {
       if (url.endsWith('/repos/acme/app')) return { json: { default_branch: 'main' } };
       return { json: {} };
     };
+  const pull = (html_url: string) => ({
+    number: 1,
+    html_url,
+    title: 'Fix',
+    state: 'open',
+    head: { ref: 'bothub/7', sha: 'h', repo: { full_name: 'acme/app' } },
+    base: { ref: 'main', sha: 'm' },
+  });
   const writes = (calls: Call[]) =>
     calls.filter(c => c.method !== 'GET').map(c => [c.method, c.url.replace('https://api.github.com', ''), c.body]);
 
@@ -155,13 +163,15 @@ describe('apply', () => {
         json:
           method === 'POST' && url.endsWith('/issues')
             ? { id: 99, number: 12, title: 'Which database?', state: 'open', labels: ['unsure'], html_url: 'i12' }
-            : { html_url: `${url}#created` },
+            : url.endsWith('/pulls')
+              ? pull(`${url}#created`)
+              : { html_url: `${url}#created` },
       }))
     );
     const proposals: Proposal[] = [
       { kind: 'reply', body: 'done' },
       { kind: 'label', add: ['bot'], remove: ['needs triage'] },
-      { kind: 'open-pr', title: 'Fix', body: 'Closes #7', head: 'bothub/7', draft: true },
+      { kind: 'merge-request', title: 'Fix', body: 'Closes #7', branch: 'bothub/7', draft: true },
       { kind: 'ask', question: 'Which database?' },
       { kind: 'push', branch: 'bothub/7', files: ['a.ts'] },
       { kind: 'note', note: 'style', slug: 'x', title: 'X', body: 'Do x.' },
@@ -177,7 +187,7 @@ describe('apply', () => {
       ['push', 'd1/push-1', 'applied'],
       ['reply', 'd1/reply-1', 'applied'],
       ['label', 'd1/label-1', 'applied'],
-      ['open-pr', 'd1/open-pr-1', 'applied'],
+      ['merge-request', 'd1/merge-request-1', 'applied'],
       ['ask', 'd1/ask-1', 'applied'],
       ['note', 'd1/note-1', 'skipped'],
     ]);
@@ -202,7 +212,7 @@ describe('apply', () => {
       ['POST', '/repos/acme/app/issues/7/sub_issues', { sub_issue_id: 99 }],
       ['POST', '/repos/acme/app/issues/7/comments', { body: '@morgan needs a human: #12' }],
     ]);
-    expect(calls.some(c => c.url.endsWith('/pulls?head=acme%3Abothub%2F7&state=open'))).toBe(true);
+    expect(calls.some(c => c.url.includes('/pulls?') && c.url.includes('head=acme%3Abothub%2F7'))).toBe(true);
   });
 
   it('finds what an earlier attempt already wrote instead of writing it again', async () => {
@@ -214,17 +224,17 @@ describe('apply', () => {
       author_association: 'NONE',
       created_at: event.ts,
     };
-    const { calls, fetch } = fakeFetch(github({ comments: [posted], pulls: [{ html_url: 'pr1' }] }));
+    const { calls, fetch } = fakeFetch(github({ comments: [posted], pulls: [pull('pr1')] }));
     const results = await apply(
       [
         { kind: 'reply', body: 'done' },
-        { kind: 'open-pr', title: 'Fix', body: '', head: 'bothub/7' },
+        { kind: 'merge-request', title: 'Fix', body: '', branch: 'bothub/7' },
       ],
       { event, gh: gh('t', fetch), push }
     );
     expect(results).toEqual([
       { kind: 'reply', key: 'd1/reply-1', status: 'applied', url: 'c1', reason: 'already posted' },
-      { kind: 'open-pr', key: 'd1/open-pr-1', status: 'applied', url: 'pr1', reason: 'already open' },
+      { kind: 'merge-request', key: 'd1/merge-request-1', status: 'applied', url: 'pr1', reason: 'already open' },
     ]);
     expect(writes(calls)).toEqual([]);
   });
@@ -344,12 +354,12 @@ describe('apply', () => {
     );
     const results = await apply(
       [
-        { kind: 'open-pr', title: 't', body: '', head: 'bothub/x', base: 'dev' },
+        { kind: 'merge-request', title: 't', body: '', branch: 'bothub/x', into: 'dev' },
         { kind: 'reply', body: 'still here' },
       ],
       { event, gh: gh('t', fetch), push }
     );
-    expect(results[0]).toMatchObject({ kind: 'open-pr', status: 'failed', reason: expect.stringMatching(/422/) });
+    expect(results[0]).toMatchObject({ kind: 'merge-request', status: 'failed', reason: expect.stringMatching(/422/) });
     expect(results[1]).toEqual({ kind: 'reply', key: 'd1/reply-1', status: 'applied', url: 'u' });
   });
 
@@ -360,7 +370,7 @@ describe('apply', () => {
     };
     const results = await apply(
       [
-        { kind: 'open-pr', title: 't', body: '', head: 'bothub/x', base: 'main' },
+        { kind: 'merge-request', title: 't', body: '', branch: 'bothub/x', into: 'main' },
         { kind: 'push', branch: 'bothub/x', files: [] },
       ],
       { event, gh: gh('t', fetch), push: refuse }
@@ -372,7 +382,7 @@ describe('apply', () => {
         status: 'failed',
         reason: '"x.ts" changed but is not listed in the proposal',
       },
-      { kind: 'open-pr', key: 'd1/open-pr-1', status: 'skipped', reason: 'pushing bothub/x failed' },
+      { kind: 'merge-request', key: 'd1/merge-request-1', status: 'skipped', reason: 'pushing bothub/x failed' },
     ]);
     expect(calls).toEqual([]);
   });

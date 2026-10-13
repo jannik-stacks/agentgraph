@@ -35,7 +35,7 @@ const configFor = (mode = 'shadow'): Config => {
   const result = compile([
     md(
       'bots/bot.md',
-      'harness: opencode\nmodel: sonnet\ntools: [read, grep]\nreturns: [reply, label, push, open-pr, ask]\nskills: [triage, notify]\nmax-turns: 7\nbudget: { minutes: 30 }',
+      'harness: opencode\nmodel: sonnet\ntools: [read, grep]\nreturns: [reply, label, push, merge-request, ask]\nskills: [triage, notify]\nmax-turns: 7\nbudget: { minutes: 30 }',
       'You are a careful bot.'
     ),
     md('bots/judge.md', 'harness: opencode\ntools: [read]\nreturns: [reply]\nmax-turns: 3', 'You judge.'),
@@ -66,7 +66,7 @@ jobs:
     skill: implement
     branch: bothub/{issue}-{slug}
     paths: ['src/**']
-    returns: [push, open-pr]
+    returns: [push, merge-request]
   loop:
     type: bot
     mode: warn
@@ -148,10 +148,19 @@ const fakeGitHub = () => {
     if (method === 'GET') {
       if (path.includes('?')) return [];
       if (path === '/repos/acme/app') return { default_branch: 'main' };
+      if (path.includes('/git/ref/heads/')) return { object: { sha: 'm' } };
       throw Object.assign(new Error('Not Found'), { status: 404 });
     }
     calls.push({ method, path, body });
-    if (path.endsWith('/pulls')) return { html_url: `https://github.com/acme/app/pull/${calls.length}` };
+    if (path.endsWith('/pulls'))
+      return {
+        number: calls.length,
+        html_url: `https://github.com/acme/app/pull/${calls.length}`,
+        title: 't',
+        state: 'open',
+        head: { ref: 'bothub/7', sha: 'h', repo: { full_name: 'acme/app' } },
+        base: { ref: 'main', sha: 'm' },
+      };
     return { html_url: `https://github.com/acme/app/issues/7#c${calls.length}` };
   }) as GitHub;
   return { calls, gh };
@@ -212,7 +221,7 @@ describe('buildSpec', () => {
     expect(spec.system).toContain(
       '```bothub\n[\n  { "kind": "reply", "body": "Markdown comment on the issue or pull request" }\n]\n```'
     );
-    expect(spec.system).not.toMatch(/"kind": "(label|open-pr)"/);
+    expect(spec.system).not.toMatch(/"kind": "(label|merge-request)"/);
     expect(spec.system).toMatch(
       /\n\nWhen you stop without finishing, add .*no-op\. Include only the proposals you need\.$/
     );
@@ -242,9 +251,9 @@ describe('buildSpec', () => {
   it('renders the job branch into the event and the proposal examples', () => {
     const { spec, branch, returns } = buildSpec({ config, workflow, job: 'implement', event, cwd: '/w' });
     expect(branch).toBe('bothub/7-please-look-at-this');
-    expect(returns).toEqual(['push', 'open-pr']);
+    expect(returns).toEqual(['push', 'merge-request']);
     expect(spec.prompt).toContain('Branch: bothub/7-please-look-at-this');
-    expect(spec.system).toContain('"head": "bothub/7-please-look-at-this"');
+    expect(spec.system).toContain('"branch": "bothub/7-please-look-at-this"');
     expect(spec.system).toContain('Use the branch `bothub/7-please-look-at-this`.');
   });
 });
@@ -254,6 +263,10 @@ describe('renderBranch', () => {
     const at = { event, args: 'Add /health, quickly!', job: 'j', workflow: 'w' };
     expect(renderBranch('bothub/{issue}-{slug}', at)).toBe('bothub/7-add-health-quickly');
     expect(renderBranch('bothub/{workflow}/{job}', at)).toBe('bothub/w/j');
+    const pr = { ...at, event: { ...event, parent: 5, branch: 'bothub/5' } };
+    expect(renderBranch('bothub/{parent}-{issue}', pr)).toBe('bothub/5-7');
+    expect(renderBranch('{base}', pr)).toBe('bothub/5');
+    expect(renderBranch('bothub/{parent}', at)).toBe('bothub/{parent}');
     const { number: _, body: __, ...bare } = event;
     expect(renderBranch('bothub/{issue}-{slug}', { ...at, event: bare, args: undefined })).toBe('bothub/new-j');
   });
@@ -414,7 +427,7 @@ describe('runPlanned', () => {
     const origin = sourceRepo();
     const branch = 'bothub/7-please-look-at-this';
     const message = bothub([
-      { kind: 'open-pr', title: 'Add a', body: 'Closes #7', head: branch, base: 'main' },
+      { kind: 'merge-request', title: 'Add a', body: 'Closes #7', branch, into: 'main' },
       { kind: 'push', branch, files: ['src/a.ts'] },
       { kind: 'push', branch: 'bothub/other' },
     ]);
@@ -430,8 +443,8 @@ describe('runPlanned', () => {
         sha: git(origin.dir, 'rev-parse', branch),
       },
       {
-        kind: 'open-pr',
-        key: 'd1/triage/implement/open-pr-1',
+        kind: 'merge-request',
+        key: 'd1/triage/implement/merge-request-1',
         status: 'applied',
         url: 'https://github.com/acme/app/pull/1',
       },
@@ -610,7 +623,7 @@ describe('closure', () => {
     applied: results.length > 0,
   });
   const push: Proposal = { kind: 'push', branch: 'bothub/x', files: ['a.ts'] };
-  const pr: Proposal = { kind: 'open-pr', title: 't', body: '', head: 'bothub/x' };
+  const pr: Proposal = { kind: 'merge-request', title: 't', body: '', branch: 'bothub/x' };
 
   it('says what happened to the work, not how the process ended', () => {
     expect(closure(run({ status: 'skipped', reason: 'later' }), undefined, [])).toEqual({
@@ -632,14 +645,14 @@ describe('closure', () => {
       closure: 'no-op',
       reason: 'proposed no change',
     });
-    expect(closure(run(), outcome([push, pr]), ['push', 'open-pr']).closure).toBe('handed-off');
+    expect(closure(run(), outcome([push, pr]), ['push', 'merge-request']).closure).toBe('handed-off');
   });
 
   it('hands off a pushed branch without a pull request only to a job that takes it', () => {
     expect(closure(run(), outcome([push]), ['push'], true).closure).toBe('handed-off');
     expect(closure(run(), outcome([push]), ['push'])).toEqual({
       closure: 'blocked',
-      reason: 'pushed a branch without opening a pull request',
+      reason: 'pushed a branch without opening a merge request',
     });
     const failed = outcome([push], [{ kind: 'push', status: 'failed', reason: 'rejected' }]);
     expect(closure(run(), failed, ['push'], true)).toEqual({ closure: 'blocked', reason: 'push failed: rejected' });
@@ -858,7 +871,7 @@ describe('handoff', () => {
     const result = compile([
       md(
         'bots/bot.md',
-        'harness: opencode\ntools: [read]\nreturns: [reply, push, open-pr]\nmax-turns: 5',
+        'harness: opencode\ntools: [read]\nreturns: [reply, push, merge-request]\nmax-turns: 5',
         'You are a careful bot.'
       ),
       md('skills/implement.md', 'description: Change code.', 'Implement it.'),
@@ -867,7 +880,7 @@ describe('handoff', () => {
         'workflows/flow.md',
         `on: { issue_comment: {} }
 jobs:
-  implement: { type: bot, mode: warn, bot: bot, skill: implement, branch: 'bothub/{issue}-{slug}', paths: ['src/**'], returns: [push, open-pr] }
+  implement: { type: bot, mode: warn, bot: bot, skill: implement, branch: 'bothub/{issue}-{slug}', paths: ['src/**'], returns: [push, merge-request] }
   verify:
     type: script
     needs: implement
@@ -889,7 +902,7 @@ jobs:
       ? {
           message: bothub([
             { kind: 'push', branch, files: ['src/a.ts'] },
-            { kind: 'open-pr', title: 'Add a', body: 'Closes #7', head: branch },
+            { kind: 'merge-request', title: 'Add a', body: 'Closes #7', branch },
           ]),
           work: "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')",
         }

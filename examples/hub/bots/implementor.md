@@ -2,7 +2,7 @@
 harness: opencode
 model: writer
 tools: [read, edit, write, bash, grep, glob, issues_get, notes_search, notes_get]
-returns: [reply, push, open-pr, note, ask]
+returns: [reply, push, merge-request, note, ask]
 skills: [implement]
 preload: [issue, links, recall]
 max-turns: 40

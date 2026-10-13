@@ -42,10 +42,21 @@ What a check or job looks at, and whether it runs once or once per item; see
 ## Job
 
 A workflow is a set of triggers and a map of jobs. A `bot` job casts a bot with a skill and takes
-`branch`, `until`, `returns`, `preload` and `tools`; a `script` job takes `run`. Both take `on`,
-`needs`, `over`, `paths`, `mode`, `environment` and `timeout-minutes`.
+`until`, `preload` and `tools`; a `script` job takes `run`. Both take `on`, `needs`, `branch`,
+`into`, `requires`, `returns`, `over`, `paths`, `mode`, `environment` and `timeout-minutes`.
+
+`branch` and `into` are filled from the event: `{issue}`, `{slug}`, `{parent}` (the issue's parent
+plan), `{base}` (the branch a pull request goes into), `{workflow}` and `{job}`. A job whose event
+has no value for one of them is blocked. `branch` must start with `bothub/` and cannot sit inside
+`into`. Merging is on [Proposals](/docs/proposals#merging).
 
 <Source file="src/schema.ts" symbol="Job" />
+
+## Hub
+
+`hub.yaml` says where issues live and who merges into the default branch.
+
+<Source file="src/schema.ts" symbol="Hub" />
 
 ## Config
 

@@ -1,27 +1,35 @@
+import { execFile } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { Cause, Effect, Exit } from 'effect';
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { compile, type Config } from './config.ts';
+import { compile, returnKinds, type Config } from './config.ts';
 import { dispatch, plan, type PlannedJob } from './dispatch.ts';
-import type { GitHub } from './github-app.ts';
 import type { Issues } from './issues.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { runPlan, type JobResult } from './pipeline.ts';
+import { localPulls, type Pulls } from './pulls.ts';
 import { limiter, unsandboxed } from './runner.ts';
 import { Harness, HubTool } from './schema.ts';
-import { openStore, reconcile, type Owner, type Store } from './store.ts';
+import { openStore, reconcile, type Owner, type Run, type Store } from './store.ts';
 import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from './types.ts';
-import type { Workspaces } from './workspace.ts';
+import { botEnv, workspaces, type Workspaces } from './workspace.ts';
+
+const exec = promisify(execFile);
+
+const list = <T extends z.ZodType>(item: T) =>
+  z.union([item, z.array(item)]).transform(v => (Array.isArray(v) ? v : [v]));
 
 const Step = z.union([
   z.strictObject({ say: z.string() }),
   z.strictObject({ call: HubTool, with: z.record(z.string(), z.unknown()).optional() }),
+  z.strictObject({ write: z.record(z.string(), z.string()) }),
   z.strictObject({ propose: z.array(z.unknown()) }),
   z.strictObject({ fail: z.string() }),
   z.strictObject({ limit: z.string() }),
@@ -30,35 +38,50 @@ export type SimStep = z.infer<typeof Step>;
 
 /**
  * Faults to seed. `crash` stops the process once `after` effects of the job have landed (0: before any), then the sim
- * restarts, reconciles and retries the event. `redeliver` delivers the event a second time at the end.
- * `apply-fails` makes the first push, pull request or reply fail to apply.
+ * restarts, reconciles and retries the event. `redeliver` delivers the first event a second time at the end.
+ * `apply-fails` makes the first push, merge request or reply fail to apply.
  */
 const Faults = z.strictObject({
   crash: z.strictObject({ job: z.string(), after: z.int().nonnegative().default(0) }).optional(),
   redeliver: z.boolean().optional(),
-  'apply-fails': z.array(z.enum(['push', 'open-pr', 'reply'])).optional(),
+  'apply-fails': z.array(z.enum(['push', 'merge-request', 'reply'])).optional(),
+});
+
+const Start = z.strictObject({
+  comment: z.strictObject({ issue: z.int().positive(), as: z.string(), body: z.string() }),
 });
 
 /**
- * A simulation: a human action on a local issue, the verdict of each check, the scripted steps of each job's bot,
- * keyed `<workflow>/<job>`, and the faults to seed. A job without steps ends at once with no proposals; a `limit`
- * step ends it the way a provider usage limit does.
+ * A simulation: human actions on local issues, taken one after another, the files the repository starts with, the
+ * verdict of each check, the scripted steps of each job's bot and the faults to seed. Steps are keyed
+ * `<workflow>/<job>`, or `<workflow>/<job>#<issue>` for one issue, with `/conflict` added for the run that resolves
+ * merge conflicts. A job without steps ends at once with no proposals; a `write` step writes files into the
+ * worktree; a `limit` step ends the job the way a provider usage limit does. `expect` lists merge requests the sim
+ * must end with.
  */
 export const Scenario = z.strictObject({
   title: z.string(),
   hub: z.string().default('..'),
   repo: z.string().default('acme/app'),
-  start: z.strictObject({
-    comment: z.strictObject({ issue: z.int().positive(), as: z.string(), body: z.string() }),
-  }),
+  files: z.record(z.string(), z.string()).default({}),
+  start: list(Start),
   checks: z.record(z.string(), z.enum(['pass', 'fail'])).default({}),
   jobs: z.record(z.string(), z.array(Step)).default({}),
   faults: Faults.default({}),
+  expect: z
+    .strictObject({
+      requests: z.array(
+        z.strictObject({ branch: z.string(), into: z.string(), state: z.enum(['open', 'closed', 'merged']) })
+      ),
+    })
+    .optional(),
 });
 export type Scenario = z.infer<typeof Scenario>;
 
 const harness = fileURLToPath(new URL('./sim-harness.ts', import.meta.url));
-const stepsFile = '.bothub-sim.json';
+
+/** Where the scripted steps of the run in worktree `cwd` are kept: next to the worktree, so they are not a change. */
+const stepsFile = (cwd: string) => `${cwd}.sim.json`;
 
 /** Runs every harness as the scripted sim harness; the run's MCP server is handed over in the environment. */
 export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): HarnessAdapter => ({
@@ -69,7 +92,7 @@ export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): Harnes
       cmd: process.execPath,
       args: [harness],
       env: {
-        BOTHUB_SIM_STEPS: join(spec.cwd, stepsFile),
+        BOTHUB_SIM_STEPS: stepsFile(spec.cwd),
         ...(spec.mcp && { BOTHUB_SIM_MCP: JSON.stringify(spec.mcp) }),
       },
     };
@@ -78,8 +101,8 @@ export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): Harnes
 });
 
 /**
- * Checks become scripts with the scenario's verdict, script jobs become stubs and jobs run once over the event, so
- * nothing outside the sim runs.
+ * Checks become scripts with the scenario's verdict, script jobs become stubs unless they merge, and jobs run once
+ * over the event, so nothing outside the sim runs.
  */
 const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
   ...config,
@@ -106,7 +129,7 @@ const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
         jobs: Object.fromEntries(
           Object.entries(workflow.jobs).map(([id, job]) => [
             id,
-            job.type === 'script'
+            job.type === 'script' && !returnKinds(job.returns ?? []).includes('merge')
               ? { ...job, over: 'event' as const, run: `echo "script ${id} is stubbed in the sim"` }
               : { ...job, over: 'event' as const },
           ])
@@ -115,6 +138,26 @@ const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
     ])
   ),
 });
+
+const git = (cwd: string, args: string[]) => exec('git', ['-C', cwd, ...args], { env: { ...process.env, ...botEnv } });
+
+/** A bare repository with a README and `files` committed on `main`. */
+const seed = async (root: string, files: Record<string, string>) => {
+  const origin = join(root, 'origin.git');
+  const work = join(root, 'seed');
+  await mkdir(work, { recursive: true });
+  await git(root, ['init', '-q', '--bare', '-b', 'main', origin]);
+  await git(work, ['init', '-q', '-b', 'main']);
+  for (const [path, content] of Object.entries({ 'README.md': '# sim\n', ...files })) {
+    await mkdir(dirname(join(work, path)), { recursive: true });
+    await writeFile(join(work, path), content);
+  }
+  await git(work, ['add', '-A']);
+  await git(work, ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start']);
+  await git(work, ['push', '-q', origin, 'main']);
+  await rm(work, { recursive: true, force: true });
+  return origin;
+};
 
 const snapshot = async (dir: string) =>
   new Map(
@@ -154,15 +197,27 @@ const describe = (e: AgentEvent) => {
   if (e.type === 'end' && !e.ok) return `end   failed: ${e.result ?? ''}`;
 };
 
+/** The steps scripted for `run`: for its issue's conflict run, its issue, or its job, whichever is given first. */
+const stepsFor = (jobs: Scenario['jobs'], run: Run | undefined, merging: boolean) => {
+  if (!run) return [];
+  const job = `${run.workflow}/${run.job}`;
+  const issue = `${job}#${run.event.number}`;
+  const keys = merging ? [`${issue}/conflict`, issue, job] : [issue, job];
+  return keys.map(key => jobs[key]).find(Boolean) ?? [];
+};
+
 /**
- * Runs a scenario end to end in a temporary copy of its hub: the human action goes through the local issues
- * backend, the watched change is dispatched, every job runs with the sim harness and the bothub MCP server, and the
- * accepted proposals are applied to the copy's `issues/`. Prints a readable trace and resolves to the job results.
+ * Runs a scenario end to end in a temporary copy of its hub, against a local bare origin and local merge requests:
+ * each human action goes through the local issues backend, the watched change is dispatched, every job runs with the
+ * sim harness and the bothub MCP server, accepted proposals land in the copy's `issues/`, the origin and
+ * `pulls.jsonl`, and the `pull_request` events that follow run until none are left. Prints a readable trace and
+ * resolves to the job results; throws when `expect` does not hold.
  */
-export const simulate = async (file: string, print: (line: string) => void): Promise<JobResult[]> => {
+export const simulate = async (file: string, out: (line: string) => void): Promise<JobResult[]> => {
   const scenario = Scenario.parse(parse(await readFile(file, 'utf8')));
   const source = resolve(dirname(file), scenario.hub);
   const root = await mkdtemp(join(tmpdir(), 'bothub-sim-'));
+  const print = (line: string) => out(line.replaceAll(`${root}/`, 'sim://'));
   const hub = join(root, 'hub');
   const data = join(root, 'data');
   try {
@@ -175,23 +230,14 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
     const dir = join(hub, 'issues');
     const issues = localIssues(dir, { repo });
     const before = await snapshot(dir);
+    const origin = await seed(root, scenario.files);
     print(`sim: ${scenario.title}`);
-
-    const { comment } = scenario.start;
-    const events: BotEvent[] = [];
-    const watching = issues.watch(event => events.push(event), { interval: 20 });
-    await watching.ready;
-    await localIssues(dir, { repo, as: comment.as }).comment(comment.issue, comment.body);
-    while (!events.length) await new Promise(done => setTimeout(done, 10));
-    watching.stop();
-    const [event] = events as [BotEvent];
-    print(`\nevent  ${event.trigger} (${event.action}) on #${event.number} by @${event.actor.login}: ${event.body}`);
 
     const { faults } = scenario;
     const crashed = new Error('the sim stopped the process');
     let crash = faults.crash;
     const failing = new Set(faults['apply-fails'] ?? []);
-    const failOnce = (kind: 'push' | 'open-pr' | 'reply') => {
+    const failOnce = (kind: 'push' | 'merge-request' | 'reply') => {
       if (!failing.delete(kind)) return;
       print(`      fault  ${kind} fails to apply`);
       throw new Error(`${kind} failed in this scenario`);
@@ -225,33 +271,46 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
     const adapters = Object.fromEntries(
       Harness.options.map(name => [name, simAdapter(name, s => (spec = s))])
     ) as Record<Harness, HarnessAdapter>;
-    const workspaces: Workspaces = {
-      create: async (_, runId) => {
-        const cwd = join(data, 'work', runId);
+    const real = workspaces({ dataDir: data, cloneUrl: () => origin });
+    const spaces: Workspaces = {
+      ...real,
+      create: async (start, runId) => {
+        const created = await real.create(start, runId);
         const run = await store.read(runId);
-        await mkdir(cwd, { recursive: true });
-        await writeFile(join(cwd, stepsFile), JSON.stringify(scenario.jobs[`${run?.workflow}/${run?.job}`] ?? []));
-        return { path: cwd, base: 'sim' };
+        await writeFile(
+          stepsFile(created.path),
+          JSON.stringify(stepsFor(scenario.jobs, run, start.merge !== undefined))
+        );
+        if (run && created.conflicts.length)
+          print(`      merge ${start.merge} into ${start.branch} conflicts in ${created.conflicts.join(', ')}`);
+        return created;
       },
-      publish: async (target, _, { branch, committed }) => {
+      publish: async (target, runId, push) => {
         failOnce('push');
-        await committed?.('sim');
-        print(`      git push ${branch} (simulated)`);
-        return `sim://${target}/tree/${branch}`;
+        const url = await real.publish(target, runId, push);
+        print(`      git push ${push.branch}`);
+        return url;
       },
-      changes: async () => ({ files: [], diff: '' }),
-      forkPoint: async () => 'sim',
-      remove: async (_, runId) => rm(join(data, 'work', runId), { recursive: true, force: true }),
     };
-    const opened: string[] = [];
-    const gh: GitHub = async <T>(method: string, path: string) => {
-      print(`      github ${method} ${path} (simulated)`);
-      if (path === `/repos/${repo}`) return { default_branch: 'main' } as T;
-      if (method === 'GET' && path.includes('/pulls?')) return opened.map(html_url => ({ html_url })) as T;
-      if (method === 'POST' && path.endsWith('/pulls')) failOnce('open-pr');
-      const url = `sim://github${path}/${opened.length + 1}`;
-      if (method === 'POST' && path.endsWith('/pulls')) opened.push(url);
-      return { html_url: url } as T;
+    const local = localPulls({ origin, file: join(data, 'pulls.jsonl'), repo });
+    const pulls: Pulls = {
+      ...local,
+      open: async request => {
+        failOnce('merge-request');
+        const pull = await local.open(request);
+        print(`      request #${pull.number} opened: ${pull.branch} into ${pull.into}`);
+        return pull;
+      },
+      merge: async (number, expected) => {
+        try {
+          const merged = await local.merge(number, expected);
+          print(`      request #${number} merged`);
+          return merged;
+        } catch (e) {
+          print(`      request #${number} not merged: ${(e as Error).message}`);
+          throw e;
+        }
+      },
     };
     const tracker: Issues = {
       ...issues,
@@ -262,17 +321,17 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
     };
 
     let current = '';
-    const runOnce = async (jobs: PlannedJob[]) => {
+    const runOnce = async (jobs: PlannedJob[], event: BotEvent) => {
       const exit = await Effect.runPromiseExit(
         Effect.flatMap(limiter(1), limit =>
           runPlan(jobs, {
             config,
             event,
             store,
-            workspaces,
+            workspaces: spaces,
             limit,
             env: {},
-            gh,
+            pulls,
             issues: tracker,
             adapters,
             launch: unsandboxed,
@@ -301,23 +360,54 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
       if (error !== crashed) throw error;
     };
 
-    const jobs = await dispatch(event, config, store);
-    print(`plan   ${jobs.map(j => `${j.workflow}/${j.job}`).join(', ') || 'no jobs'}`);
-    let results = await runOnce(jobs);
-    if (!results) {
+    const results: JobResult[] = [];
+    const handle = async (event: BotEvent) => {
+      const by = `#${event.number} by @${event.actor.login}`;
+      print(`\nevent  ${event.trigger} (${event.action}) on ${by}: ${oneLine(event.body ?? '')}`);
+      const jobs = await dispatch(event, config, store);
+      print(`plan   ${jobs.map(j => `${j.workflow}/${j.job}`).join(', ') || 'no jobs'}`);
+      current = '';
+      const done = await runOnce(jobs, event);
+      if (done) return void results.push(...done);
       print(`\ncrash  the process stopped during ${faults.crash?.job}`);
       const restarted = { pid: process.pid, token: 'restarted' };
       store = storeFor(restarted);
-      for (const run of await reconcile(store, workspaces, restarted))
+      for (const run of await reconcile(store, spaces, restarted))
         print(`reconcile ${run.workflow}/${run.job}: ${run.status}, ${run.error}`);
       print(`retry  ${event.id}`);
       current = '';
-      results = (await runOnce(plan(event, config))) ?? [];
+      results.push(...((await runOnce(plan(event, config), event)) ?? []));
+    };
+    const handled = new Set<string>();
+    const drain = async () => {
+      for (;;) {
+        const fresh = (await local.events()).filter(event => !handled.has(event.id));
+        if (!fresh.length) return;
+        for (const event of fresh) {
+          handled.add(event.id);
+          await handle(event);
+        }
+      }
+    };
+
+    const started: BotEvent[] = [];
+    for (const { comment } of scenario.start) {
+      const events: BotEvent[] = [];
+      const watching = issues.watch(event => events.push(event), { interval: 20 });
+      await watching.ready;
+      await localIssues(dir, { repo, as: comment.as }).comment(comment.issue, comment.body);
+      while (!events.length) await new Promise(done => setTimeout(done, 10));
+      watching.stop();
+      const [event] = events as [BotEvent];
+      started.push(event);
+      await handle(event);
+      await drain();
     }
-    if (faults.redeliver) {
-      const again = await dispatch(event, config, store);
-      print(`\nredeliver ${event.id}: ${again.length ? 'planned again' : 'dropped, already delivered'}`);
-      if (again.length) results.push(...((await runOnce(again)) ?? []));
+    const [first] = started;
+    if (faults.redeliver && first) {
+      const again = await dispatch(first, config, store);
+      print(`\nredeliver ${first.id}: ${again.length ? 'planned again' : 'dropped, already delivered'}`);
+      if (again.length) results.push(...((await runOnce(again, first)) ?? []));
     }
 
     print('\nresults');
@@ -342,6 +432,10 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
         );
     }
 
+    const requests = await local.list({ state: 'all' });
+    if (requests.length) print('\nrequests');
+    for (const r of requests) print(`  #${r.number} ${r.branch} into ${r.into}: ${r.state}`);
+
     print('\nissues/');
     const after = await snapshot(dir);
     for (const [name, text] of after) {
@@ -350,6 +444,14 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
       if (old === undefined) print(`  + ${name} (new)\n${indent(text, '    | ')}`);
       else print(`  ~ ${name}\n${lineDiff(old, text)}`);
     }
+
+    const missing = (scenario.expect?.requests ?? []).filter(
+      want => !requests.some(r => r.branch === want.branch && r.into === want.into && r.state === want.state)
+    );
+    if (missing.length)
+      throw new Error(
+        `expected requests missing: ${missing.map(r => `${r.branch} into ${r.into} ${r.state}`).join(', ')}`
+      );
     return results;
   } finally {
     await rm(root, { recursive: true, force: true });

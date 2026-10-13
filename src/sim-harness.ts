@@ -1,9 +1,11 @@
 /**
  * A scripted stand-in for a harness, used by `bothub sim`. It reads its steps from the file in `BOTHUB_SIM_STEPS`,
- * calls hub tools through the MCP server in `BOTHUB_SIM_MCP`, and prints one `AgentEvent` per line.
+ * calls hub tools through the MCP server in `BOTHUB_SIM_MCP`, writes files into its working directory, and prints
+ * one `AgentEvent` per line.
  */
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { McpServer } from './mcp-config.ts';
 import type { SimStep } from './sim.ts';
@@ -64,6 +66,11 @@ const run = async () => {
         ? await mcp.call(step.call, step.with ?? {})
         : { ok: false, text: 'no hub tools are mounted for this run' };
       emit({ type: 'tool_result', id, ok: result.ok, output: result.text });
+    } else if ('write' in step) {
+      for (const [path, content] of Object.entries(step.write)) {
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, content);
+      }
     } else if ('propose' in step) {
       final = ['Done.', '```bothub', JSON.stringify(step.propose, null, 2), '```'].join('\n');
       emit({ type: 'text', text: final });

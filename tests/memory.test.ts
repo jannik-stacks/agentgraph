@@ -33,7 +33,7 @@ const events = (...list: AgentEvent[]): EventRecord[] =>
 const outcome: Outcome = {
   proposals: [
     { kind: 'push', branch: 'bothub/7-fix', files: ['src/b.ts'] },
-    { kind: 'open-pr', title: 'Fix the thing', body: 'Closes #7', head: 'bothub/7-fix' },
+    { kind: 'merge-request', title: 'Fix the thing', body: 'Closes #7', branch: 'bothub/7-fix' },
     { kind: 'label', add: ['bug'] },
   ],
   errors: [],
@@ -41,7 +41,7 @@ const outcome: Outcome = {
   rejected: [{ proposal: { kind: 'label', add: ['bug'] }, reason: 'the job may not label' }],
   results: [
     { kind: 'push', status: 'applied', sha: 'abcdef0123456789' },
-    { kind: 'open-pr', status: 'applied', url: 'https://github.com/acme/app/pull/8' },
+    { kind: 'merge-request', status: 'applied', url: 'https://github.com/acme/app/pull/8' },
   ],
   applied: true,
   checks: [
@@ -73,14 +73,14 @@ describe('summarize', () => {
       closure: 'done',
       attempt: 2,
       tools: { Read: 1, Edit: 2, apply_patch: 1 },
-      proposed: ['push bothub/7-fix (1 files)', 'open-pr "Fix the thing"', 'label +bug'],
+      proposed: ['push bothub/7-fix (1 files)', 'merge-request bothub/7-fix "Fix the thing"', 'label +bug'],
       failed: [
         { check: 'tests', gating: true, findings: 'src/b.ts:3 expected 1\nreceived 2' },
         { check: 'style', gating: false, findings: 'failed without output' },
       ],
       landed: [
         { kind: 'push', sha: 'abcdef0123456789' },
-        { kind: 'open-pr', url: 'https://github.com/acme/app/pull/8' },
+        { kind: 'merge-request', url: 'https://github.com/acme/app/pull/8' },
       ],
       rejected: ['label +bug: the job may not label'],
       files: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
@@ -120,7 +120,7 @@ describe('renderMemory', () => {
         '## Tried',
         '- Tools: Read (1), Edit (2), apply_patch (1)',
         '- Proposed push bothub/7-fix (1 files)',
-        '- Proposed open-pr "Fix the thing"',
+        '- Proposed merge-request bothub/7-fix "Fix the thing"',
         '- Proposed label +bug',
         '',
         '## Failed',
@@ -132,7 +132,7 @@ describe('renderMemory', () => {
         '',
         '## Landed',
         '- push abcdef012345',
-        '- open-pr https://github.com/acme/app/pull/8',
+        '- merge-request https://github.com/acme/app/pull/8',
         '',
         '## Files',
         '- src/a.ts',

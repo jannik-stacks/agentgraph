@@ -144,7 +144,7 @@ describe('plan with a branches filter', () => {
 name: release
 on:
   push: { branches: [main] }
-  pull_request: { branches: [main] }
+  pull_request: { branches: [main, 'bothub/*'] }
 jobs:
   go: { type: bot, bot: bot, skill: go }
 ---
@@ -171,6 +171,8 @@ jobs:
     const pr: BotEvent = { ...base, trigger: 'pull_request', number: 9, ref: 'refs/pull/9/head' };
     expect(plan({ ...pr, branch: 'main' }, filtered)).toEqual(go);
     expect(plan({ ...pr, branch: 'dev' }, filtered)).toEqual([]);
+    expect(plan({ ...pr, branch: 'bothub/5' }, filtered)).toEqual(go);
+    expect(plan({ ...pr, branch: 'bothub/5/x' }, filtered)).toEqual([]);
   });
 });
 

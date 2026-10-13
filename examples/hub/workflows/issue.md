@@ -14,7 +14,7 @@ jobs:
     skill: implement
     branch: bothub/{issue}
     until: { checks: [types, review], max: 2 }
-    returns: [reply, push, open-pr, ask]
+    returns: [reply, push, merge-request, ask]
     tools: [issues_get, notes_search]
     mode: warn
   review:

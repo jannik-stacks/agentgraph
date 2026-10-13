@@ -82,7 +82,7 @@ describe('compile', () => {
     expect(errorsOf([bot('p', '[hub(../x/**)]')])).toEqual(['returns "hub(../x/**)": "../x/**" leaves the hub']);
     expect(errorsOf([bot('p', '[hub(/etc/**)]')])).toEqual(['returns "hub(/etc/**)": "/etc/**" leaves the hub']);
     expect(errorsOf([bot('p', '[hub()]')]).join()).toMatch(
-      /must be one of reply, label, push, open-pr, note, ask, or hub\(<globs>\)/
+      /must be one of reply, label, push, merge-request, merge, note, ask, or hub\(<globs>\)/
     );
   });
 
@@ -122,26 +122,36 @@ describe('compile', () => {
         [
           'on: { pull_request: }',
           'jobs:',
-          '  a: { type: bot, needs: missing, bot: p, skill: s, returns: [open-pr], until: { checks: [ghost] } }',
+          '  a: { type: bot, needs: missing, bot: p, skill: s, returns: [merge-request], until: { checks: [ghost] } }',
           '  b: { type: bot, bot: ghost, skill: s }',
           '  c: { type: script, on: { issue_comment: {} }, run: echo }',
           '  e: { type: bot, bot: p, skill: nope }',
           '  f: { type: bot, bot: p, skill: s, branch: "main-{x}" }',
           '  g: { type: script, run: echo, over: { run: ls } }',
+          '  h: { type: script, run: echo, returns: [merge] }',
+          '  i: { type: script, run: echo, branch: bothub/5/x, into: bothub/5 }',
+          '  j: { type: script, run: echo, into: "bothub/{nope}", requires: [ghost] }',
         ].join('\n')
       ),
     ]);
     expect(errors).toEqual([
       'job "a" needs unknown job "missing"',
       'job "a" waits for unknown check "ghost"',
-      'job "a" returns "open-pr", which bot "p" does not return',
+      'job "a" returns "merge-request", which bot "p" does not return',
       'job "b" uses unknown bot "ghost"',
       'job "c" triggers on "issue_comment", which the workflow does not listen to',
       'job "e" uses unknown skill "nope"',
       'job "f" branch "main-{x}" must start with "bothub/"',
       'job "f" branch uses unknown placeholder "{x}"',
       'job "g" runs its own command, so "over: { run }" needs type bot',
+      'job "h" returns "merge" without "into", so it would merge into the default branch, which only a human does',
+      'job "i" branch "bothub/5/x" sits inside "bothub/5", and git cannot hold both; try "bothub/5-…"',
+      'job "j" into uses unknown placeholder "{nope}"',
+      'job "j" requires unknown check "ghost"',
     ]);
+    expect(errorsOf([bot('p', '[open-pr]')]).join()).toMatch(
+      'there is no "open-pr"; a request to merge a branch is "merge-request"'
+    );
   });
 
   it('names the missing or wrong type and guesses it from the fields', () => {
@@ -210,9 +220,9 @@ describe('compile', () => {
   it('reads hub.yaml and checks preload and tools grants', () => {
     const tooled = file('bots/t.md', 'harness: opencode\ntools: [read, issues_get]\nreturns: [reply]\nmax-turns: 5');
     const result = compile([{ path: 'hub.yaml', source: 'issues: local\n' }, tooled]);
-    expect(result.ok && result.config.hub).toEqual({ issues: 'local' });
+    expect(result.ok && result.config.hub).toEqual({ issues: 'local', merge: { 'default-branch': 'human' } });
     const empty = compile([]);
-    expect(empty.ok && empty.config.hub).toEqual({ issues: 'github' });
+    expect(empty.ok && empty.config.hub).toEqual({ issues: 'github', merge: { 'default-branch': 'human' } });
     expect(errorsOf([{ path: 'hub.yaml', source: 'issues: jira\n' }])[0]).toMatch(/issues/);
     expect(
       errorsOf([

@@ -52,10 +52,36 @@ once it starts, its runs carry their status and closure.
 
 <Source file="src/queue.ts" symbol="Queue" />
 
+## Merge requests
+
+Locally, the bare origin plays GitHub's part for merge requests too (<Sym name="localPulls" />).
+Each request is a line appended to `<data>/pulls.jsonl`, one per change, and the current state is
+folded from them on read:
+
+```jsonl
+{"ts":"…","number":1,"op":"open","branch":"bothub/5-6","into":"bothub/5","title":"Add cvToJson","body":"Closes #6.","job":"plan/implement","event":"local-6-comment-1-…","sha":"9dd7e50…"}
+{"ts":"…","number":1,"op":"update","sha":"41c2a07…"}
+{"ts":"…","number":1,"op":"merge","sha":"c03b1f2…","into-sha":"5e0d9aa…"}
+```
+
+Opening a request creates its `into` from the default branch when it does not exist yet and
+mirrors the branch to `refs/pull/<n>/head`, like GitHub. A request's head is its branch's live
+commit, whether it merges cleanly is answered by `git merge-tree`, and a merge is `merge-tree`,
+`commit-tree` and an `update-ref` that only succeeds while `into` is still where the merge was
+checked. `serve` turns the log into `pull_request` events, `opened`, `synchronize` when a branch
+moved and `closed` once merged, by `bothub[bot]`, so a workflow can trigger on them just as on
+GitHub. Comments and labels on those requests have nowhere to go and are refused.
+
+GitHub's pull requests sit behind the same <Sym name="Pulls" /> interface (<Sym name="githubPulls" />),
+so the pipeline never knows which one it talks to. What GitHub adds is the review UI, comments and
+labels on pull requests, and requests from forks.
+
 ## Sim
 
-`bothub sim <scenario>` runs a hub against a scripted human action. Bots are replaced by a scripted
-harness and checks by scripts that pass or fail as told; dispatch, the pipeline, the MCP server,
-validation and apply are real. <Sym name="simulate" /> runs one.
+`bothub sim <scenario>` runs a hub against scripted human actions, one after another. Bots are
+replaced by a scripted harness and checks by scripts that pass or fail as told; the repository is
+a real local bare origin, and dispatch, the pipeline, the MCP server, validation, apply and the
+local merge requests are real. The `pull_request` events that follow run until none are left, and
+`expect` names the merge requests the scenario must end with. <Sym name="simulate" /> runs one.
 
 <Fields name="Scenario" />
