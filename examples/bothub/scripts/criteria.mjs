@@ -1,7 +1,9 @@
 // One JSON line per acceptance criterion in the triage brief, carrying the task, the criterion, the test that proves
-// it with its code, the change to src/ and studio/src/ and the brief's out-of-scope list, so a reviewer judges one
-// criterion against the code without fetching anything.
+// it with its code, the change to the src/ and studio/src/ files that test imports (the whole change when they cannot
+// be resolved) and the brief's out-of-scope list, so a reviewer judges one criterion against the code without
+// fetching anything, and a criterion whose files did not change keeps its earlier verdict.
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
 import { base, changeText, titleOf } from './changes.mjs';
 
@@ -33,11 +35,36 @@ const testCode = (file, title) => {
   return [...lines.slice(start, start + maxTestLines), '[clipped]'].join('\n');
 };
 
+const roots = ['src/', 'studio/src/'];
+const imports = /^\s*(?:import|export)\b[^'"]*?['"](\.[^'"]+)['"]/gm;
+
+/** The files under `roots` that `file` imports, following their own imports, or nothing when one cannot be read. */
+const sourcesOf = file => {
+  const seen = new Set();
+  const visit = path => {
+    let code;
+    try {
+      code = readFileSync(path, 'utf8');
+    } catch {
+      return false;
+    }
+    for (const [, spec] of code.matchAll(imports)) {
+      const target = join(dirname(path), spec);
+      if (seen.has(target) || !roots.some(root => target.startsWith(root))) continue;
+      seen.add(target);
+      if (!visit(target)) return false;
+    }
+    return true;
+  };
+  return visit(file) && seen.size ? [...seen] : undefined;
+};
+
+const clip = change => (change.length > maxChars ? `${change.slice(0, maxChars)}\n[clipped]` : change);
+
 const text = findBrief();
 if (text) {
   const { task, criteria, outOfScope } = parseBrief(text);
-  const change = changeText(base(), ['src/', 'studio/src/'], 'function');
-  const clipped = change.length > maxChars ? `${change.slice(0, maxChars)}\n[clipped]` : change;
+  const sha = base();
   for (const { n, text: criterion, title, file } of criteria) {
     const code = testCode(file, title);
     console.log(
@@ -47,7 +74,7 @@ if (text) {
         criterion,
         test: `it('${title}') in ${file}`,
         ...(code && { 'test code': code }),
-        change: clipped,
+        change: clip(changeText(sha, sourcesOf(file) ?? roots, 'function')),
         ...(outOfScope.length && { 'out of scope': outOfScope }),
       })
     );

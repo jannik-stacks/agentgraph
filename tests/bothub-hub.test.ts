@@ -814,6 +814,32 @@ describe('slicers for the narrow judges', () => {
     ]);
   });
 
+  it('criteria: the change holds only the src files the test imports, followed through their imports', () => {
+    const criteriaFor = (test: string) => {
+      const repo = change(
+        {
+          'src/labels.ts': labels.before,
+          'src/util.ts': 'export const u = 1;\n',
+          'src/other.ts': 'export const o = 1;\n',
+        },
+        {
+          'src/labels.ts': `import { u } from './util.ts';\n${labels.after}`,
+          'src/util.ts': 'export const u = 2;\n',
+          'src/other.ts': 'export const o = 2;\n',
+          'tests/labels.test.ts': test,
+        }
+      );
+      const env = { BOTHUB_BRIEF: join(hubWith(brief), 'issues/1-labels.md') };
+      writeFileSync(env.BOTHUB_BRIEF, brief);
+      return items(run('criteria.mjs', repo, [], env).out)[0]!.change as string;
+    };
+    const narrow = criteriaFor("import { labelId } from '../src/labels.ts';\n");
+    expect(narrow).toContain('+export const labelId');
+    expect(narrow).toContain('+export const u = 2;');
+    expect(narrow).not.toContain('src/other.ts');
+    expect(criteriaFor("import { gone } from '../src/gone.ts';\n")).toContain('+export const o = 2;');
+  });
+
   it('scope: only the changed files the brief does not name', () => {
     const repo = change(
       { 'src/labels.ts': labels.before, 'src/serve.ts': 'export const s = 1;\n' },
