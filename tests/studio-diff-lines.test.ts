@@ -104,6 +104,13 @@ describe('changedSpans', () => {
     expect(changedSpans('say red fox now', 'say blue cat now')).toEqual({ del: [[4, 11]], add: [[4, 12]] });
   });
 
+  it('marks no change in leading or trailing whitespace, but keeps inner whitespace changes', () => {
+    expect(changedSpans('  tools: z.string(),', '    tools: z.string(),')).toEqual({ del: [], add: [] });
+    expect(changedSpans('return x;', 'return x;   ')).toEqual({ del: [], add: [] });
+    expect(changedSpans('  {name}', '    <span>{name}')).toEqual({ del: [], add: [[4, 10]] });
+    expect(changedSpans('a = b', 'a  = b')).toEqual({ del: [[1, 2]], add: [[1, 3]] });
+  });
+
   it('marks nothing on identical lines', () => {
     expect(changedSpans('same', 'same')).toEqual({ del: [], add: [] });
   });

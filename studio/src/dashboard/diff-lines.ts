@@ -78,12 +78,16 @@ const changedTokens = (a: Token[], b: Token[]) => {
   return [changedA, changedB] as const;
 };
 
-/** The changed tokens as spans, joining two changes that only a single whitespace token separates. */
+/**
+ * The changed tokens as spans, joining two changes that only a single whitespace token separates. Whitespace at the
+ * start or end of the line is never marked, so re-indenting a line does not light it up.
+ */
 const spansOf = (tokens: Token[], changed: boolean[]) => {
   const spans: Span[] = [];
+  const edge = (k: number) => (k === 0 || k === tokens.length - 1) && isSpace(tokens[k]!);
   let previous = -2;
   tokens.forEach((token, k) => {
-    if (!changed[k]) return;
+    if (!changed[k] || edge(k)) return;
     const last = spans.at(-1);
     if (last && (previous === k - 1 || (previous === k - 2 && isSpace(tokens[k - 1]!)))) last[1] = token.end;
     else spans.push([token.start, token.end]);
