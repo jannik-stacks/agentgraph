@@ -24,7 +24,27 @@ const secret = [
   [/\bAKIA[0-9A-Z]{16}\b/, 'an AWS access key'],
   [/\bxox[abprs]-[A-Za-z0-9-]{10,}/, 'a Slack token'],
   [/\b(BOTHUB_LLM_API_KEY|LITELLM_MASTER_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY)\w*\s*[=:]\s*['"]?[A-Za-z0-9_-]{12,}/, 'a key assignment'],
+  [/\bBearer\s+[A-Za-z0-9._~+/-]{20,}/, 'a bearer token'],
+  [/\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@'"]+:[^\s/@'"]{3,}@/i, 'a URL with credentials'],
 ];
+
+/** Bits per character of `token`. */
+const entropy = token => {
+  const counts = new Map();
+  for (const ch of token) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let bits = 0;
+  for (const n of counts.values()) bits -= (n / token.length) * Math.log2(n / token.length);
+  return bits;
+};
+
+/**
+ * A long token of mixed case and digits as random as a generated key. Hex digests and identifiers stay below it;
+ * recorded ids in tests/fixtures/ are not scanned.
+ */
+const randomToken = text =>
+  (text.match(/[A-Za-z0-9+/_-]{24,}={0,2}/g) ?? []).some(
+    token => /[a-z]/.test(token) && /[A-Z]/.test(token) && /\d/.test(token) && entropy(token) >= 4.2
+  );
 
 const maxBytes = 512 * 1024;
 const sha = base();
@@ -35,7 +55,10 @@ for (const { path, deleted } of changedFiles(sha)) {
   for (const [pattern, what] of forbiddenPath) if (pattern.test(path)) findings.push(`${path}: ${what} must not change`);
   if (deleted) continue;
   if (!inBase(sha, path) && statSync(path).size > maxBytes) findings.push(`${path}: a new file larger than ${maxBytes / 1024} KB`);
-  for (const { line, text } of addedLines(sha, path))
-    for (const [pattern, what] of secret) if (pattern.test(text)) findings.push(`${path}:${line}: adds ${what}`);
+  for (const { line, text } of addedLines(sha, path)) {
+    const random = !path.startsWith('tests/fixtures/') && randomToken(text);
+    const what = secret.find(([pattern]) => pattern.test(text))?.[1] ?? (random && 'a high-entropy token');
+    if (what) findings.push(`${path}:${line}: adds ${what}`);
+  }
 }
 report('safety', findings);

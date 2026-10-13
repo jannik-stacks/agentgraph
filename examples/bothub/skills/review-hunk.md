@@ -1,16 +1,10 @@
 ---
-description: Review one hunk of a bothub change and answer PASS or FAIL with findings.
+description: Answer one question about one hunk of a bothub change, PASS or FAIL.
 ---
-A hunk is one contiguous block of changed lines. Read the task and its acceptance criteria in the
-issue, then enough surrounding code to know what the hunk does.
+A hunk is one block of changed lines with the code around it. Other checks judge the criteria,
+the tests, the scope and duplicated code, so ask only this: is there an input that reaches this
+hunk, or a caller of what it changes, that it now handles wrongly? Read the callers when the hunk
+changes a signature or a return value.
 
-Look for, in this order:
-1. Behavior that doesn't meet an acceptance criterion, or breaks a caller.
-2. A test that would pass even if the change were reverted.
-3. Changes outside the task's scope.
-4. A new layer or near-duplicate type where existing code already does the work.
-
-Each finding gives file and line, what is wrong, a suggested fix and whether it blocks.
-
-Answer `PASS` when nothing blocks, with any findings that don't block after it, and `FAIL` when
-something does. A failing verdict goes back to the implementor, so name the smallest fix.
+Answer `PASS` when you cannot name one. Answer `FAIL` with the input or caller, the line it goes
+wrong on and the smallest fix.

@@ -241,7 +241,7 @@ describe('bothub hub checks', () => {
     );
     const lint = check(at('lint.mjs'), repo);
     expect(lint.ok).toBe(false);
-    expect(lint.out).toContain('oxlint found errors');
+    expect(lint.out).toContain('src/a.ts:2: eslint(no-debugger)');
     const messy = change({}, { 'src/b.ts': 'export   const b=2\n' });
     const format = check(at('format.mjs'), messy);
     expect(format.ok).toBe(false);

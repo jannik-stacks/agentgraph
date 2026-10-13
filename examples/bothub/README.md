@@ -1,25 +1,55 @@
 # bothub hub
 
 The hub bothub runs on its own repository. It is kept narrow: scripts slice the change and decide
-everything a rule can decide, and a bot only gets the judgement that is left.
+everything a rule can decide, and a bot only gets the judgement that is left, one question per
+item.
 
 ## The loop
 
-`/bothub` on an issue starts `workflows/issue.md`. The triager writes a scoped task, the
-implementor works on `bothub/<issue>` until every check passes, at most three rounds: the
-scripts, then the reviewer, who reads each hunk for what the scripts cannot judge. A blocking
-review finding goes back to the implementor like a failing script. A human merges.
+`/bothub` on an issue starts `workflows/issue.md`. The triager writes a brief in a fixed template,
+with at most five criteria that each name the test proving them. The implementor works on
+`bothub/<issue>` until every check passes, at most three rounds: the scripts first, then the
+narrow judges. A failing gating check goes back to the implementor with its findings. A human
+merges.
+
+## Checks
+
+| Check | Type | Over | Mode | What it asks |
+|---|---|---|---|---|
+| safety | script | | block | The change stays in bounds and adds no secrets, by prefix and by entropy |
+| harness-memory | script | | block | No harness memory files |
+| size | script | | block | At most 300 added lines and 8 files outside `tests/` |
+| test-integrity | script | | block | No deleted, fewer, skipped, focused or slowed tests, no setup edits |
+| docs-style, comments | script | | block | The written style rules, on added lines |
+| lint | script | | block | oxlint plus the suspicious rules, errors on added lines only |
+| format, types, studio-build, live-stream, tests | script | | block | Formatting, types, the studio build and the suite |
+| tests-bite | script | | block | Every new test fails on the base code |
+| coverage | script | | block | Every added line in `src/` runs in a test; the changed area meets the thresholds |
+| criteria-tests | script | | block | Each criterion's named test is added with its exact title |
+| triage-brief | script | | warn | The triage reply follows the template (in triage's `until`) |
+| risky | decide | each risky added line | shadow | Can an attacker or a bot reach this call unchecked? |
+| scope | decide | each file the brief does not name | shadow | Does this file serve the task? |
+| near-duplicate | bot, `fast` | each new export | shadow | Does an existing export already do this? |
+| criterion-met | bot, `review` | each criterion | warn | Is there a sequence of events that breaks it? |
+| design | bot, `review` | the whole src change | warn | Does every path that changes this state keep the invariant? |
+| review-src | bot, `review` | each code hunk in `src/` | block | Does the hunk mishandle an input or break a caller? |
+| review-tests, review-docs | bot, `fast` | each test or docs hunk | shadow | Does each assertion bite; does each docs statement hold? |
+| docs-tone-* | decide | each docs hunk | shadow | One tone question each: taglines, selling, repeats, provenance |
 
 ## Files
 
 | Path | What |
 |---|---|
-| `bots/` | triager, implementor, reviewer |
+| `bots/` | triager, implementor, reviewer (the `review` model) and checker (the `fast` model) |
 | `skills/` | triage, implement, review-hunk |
-| `checks/` | scripts for safety, harness-memory, docs-style, comments, lint, format, types, studio-build and tests; docs-tone, a per-hunk decide check in shadow; review, the reviewer bot per hunk |
-| `scripts/` | what the checks run, mounted read-only at `$BOTHUB_HUB` (`/hub`) in the sandbox |
+| `checks/` | the checks above |
+| `scripts/` | what the checks run, mounted read-only at `$BOTHUB_HUB` (`/hub`) in the sandbox; `brief.mjs` parses the triage brief, `hunks.mjs`, `criteria.mjs`, `scope.mjs`, `exports.mjs`, `risky.mjs` and `design.mjs` slice the change for the judges |
 | `hub.yaml` | local issues in `issues/`, and `deps`: bothub's and studio's locked dependencies, installed in the sandbox once per lockfile and linked into every run's worktree |
-| `notes/` | style, decision and caveat notes |
+| `notes/` | style, decision and caveat notes, each naming the check that enforces it |
+
+Scripts that need the brief read it from `BOTHUB_BRIEF` (a file), or from the local issue that
+`BOTHUB_ISSUE` or a `bothub/<n>` `BOTHUB_BRANCH` names, or else from the one open issue labeled
+`ready`. tests-bite and coverage write only to a temporary directory, never the worktree.
 
 ## Running it
 

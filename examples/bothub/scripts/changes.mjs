@@ -13,7 +13,7 @@ export const base = () => {
 
 /** Changed and new files, repository-relative, with whether each one was deleted. */
 export const changedFiles = sha => {
-  const tracked = git('diff', '--name-status', '--no-renames', sha)
+  const tracked = git('diff', '--name-status', '--relative', '--no-renames', sha)
     .split('\n')
     .filter(Boolean)
     .map(line => {
@@ -30,7 +30,7 @@ export const changedFiles = sha => {
 /** Whether `path` exists in the commit `sha`. */
 export const inBase = (sha, path) => {
   try {
-    execFileSync('git', ['cat-file', '-e', `${sha}:${path}`], { stdio: 'ignore' });
+    execFileSync('git', ['cat-file', '-e', `${sha}:./${path}`], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -42,6 +42,7 @@ export const addedLines = (sha, path) => {
   if (!inBase(sha, path)) {
     if (statSync(path).size > 2 * 1024 * 1024) return [];
     return readFileSync(path, 'utf8')
+      .replace(/\n$/, '')
       .split('\n')
       .map((text, i) => ({ line: i + 1, text }));
   }
@@ -64,4 +65,30 @@ export const report = (name, findings) => {
   for (const finding of findings) console.log(finding);
   console.log(`${name}: ${findings.length} finding${findings.length === 1 ? '' : 's'}`);
   process.exitCode = 1;
+};
+
+/** A file's text in the commit `sha`, or `undefined` when it does not exist there. */
+export const baseText = (sha, path) => (inBase(sha, path) ? git('show', `${sha}:./${path}`) : undefined);
+
+/**
+ * The diff of `paths` against `sha`, with `context` lines around each change, or the whole enclosing function for
+ * `'function'`. Untracked files are not in it.
+ */
+export const diffOf = (sha, paths, context = 3) =>
+  git('diff', context === 'function' ? '-W' : `-U${context}`, '--no-color', '--no-renames', sha, '--', ...paths);
+
+/** A vitest test file. */
+export const isTestFile = path => /^tests\/.*\.test\.(ts|tsx|mts|js|mjs)$/.test(path);
+
+/** The change under `roots` as one diff text, new untracked files included as added lines. */
+export const changeText = (sha, roots, context = 3) => {
+  const files = changedFiles(sha).filter(({ path }) => roots.some(root => path.startsWith(root)));
+  const tracked = files.filter(({ path }) => inBase(sha, path) || git('ls-files', path).trim());
+  const fresh = files.filter(f => !f.deleted && !tracked.includes(f));
+  const diff = tracked.length ? diffOf(sha, tracked.map(f => f.path), context) : '';
+  const added = fresh.map(({ path }) => {
+    const lines = addedLines(sha, path).map(({ text }) => `+${text}`);
+    return `diff --git a/${path} b/${path}\nnew file\n+++ b/${path}\n${lines.join('\n')}`;
+  });
+  return [diff.trimEnd(), ...added].filter(Boolean).join('\n');
 };
