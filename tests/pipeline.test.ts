@@ -992,7 +992,7 @@ describe('checks fail closed', () => {
     expect(verdictOf(ok({ status: 'failed', stopped: 'sandbox', error: 'no network' }), '')).toMatchObject({
       blocked: true,
     });
-    expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').blocked).toBeUndefined();
+    expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').blocked).toBe(true);
     expect(verdictOf(ok({ status: 'failed', stopped: 'stuck', error: 'stuck: a loop' }), '').blocked).toBeUndefined();
   });
 
@@ -1545,6 +1545,18 @@ describe('over', () => {
     const question = `checks could not run: tests (sandbox-failed: the sandbox is down). The change waits in run ${result.run.id}; nothing went back to the bot.`;
     expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
     expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
+  });
+
+  it('retries a crashed check run once, then asks a human instead of handing off', async () => {
+    const { seen, result } = await run(
+      hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'warn' }, body: 'Small?' }]),
+      spec => (spec.system.startsWith('You judge.') ? { ok: false, message: '' } : { work }),
+      {},
+      { issues: trackedIssues() }
+    );
+    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(2);
+    expect(result.outcome?.checks?.[0]).toMatchObject({ blocked: true, runs: [expect.any(String), expect.any(String)] });
+    expect(result.run).toMatchObject({ closure: 'blocked' });
   });
 
   it('names the items that could not run first, even after other items found something', async () => {

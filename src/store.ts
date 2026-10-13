@@ -66,7 +66,7 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
 /**
  * One check's result after an attempt. Only gating checks (not in `log` mode) can fail the attempt; a `skipped`
  * check matched no changed file and passes only when the check allows it. A `blocked` check could not run (budget,
- * timeout, sandbox): it pauses the job for a human instead of going back to the bot.
+ * timeout, sandbox, a run that crashed twice): it pauses the job for a human instead of going back to the bot.
  */
 export type Verdict = {
   check: string;

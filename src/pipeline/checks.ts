@@ -12,20 +12,19 @@ import type { Run, Verdict } from '../store.ts';
 import { type Pipeline, agent, issuesOf, launcher } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, eventContext, fenced, handoffEnv, session } from './prompt.ts';
 
-/** Whether a run ended for a reason outside the bot's work: skipped, or stopped for anything but a loop. */
-const outsideWork = (run: Run) => run.status === 'skipped' || (run.stopped !== undefined && run.stopped !== 'stuck');
+/** Whether a check run crashed: it failed without a reason outside its work. */
+const crashed = (run: Run) => run.status === 'failed' && run.stopped === undefined;
 
 /**
  * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A final
- * message without any `bothub` block is read as the reply. A check that cannot decide (the run failed, there is no
- * reply, or the first line is neither word) fails with the reason; a run that ended for a reason outside its work (see
- * `outsideWork`) is `blocked` as well.
+ * message without any `bothub` block is read as the reply. A check that cannot decide (there is no reply, or the first
+ * line is neither word) fails with the reason; a run that did not succeed is `blocked`, unless it was stopped in a loop.
  */
 export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'findings' | 'blocked'> => {
   if (run.status !== 'succeeded') {
     const why = run.error ?? run.reason;
     const findings = `run ${run.id} ${run.status}${why ? `: ${why}` : ''}`;
-    return { pass: false, findings, ...(outsideWork(run) && { blocked: true }) };
+    return { pass: false, findings, ...(run.stopped !== 'stuck' && { blocked: true }) };
   }
   const { proposals } = extractProposals(final);
   const reply = proposals.find(proposal => proposal.kind === 'reply');
@@ -137,7 +136,7 @@ export const runOnItem = (script: string, item: Item, scope: Scope, p: Pipeline,
     readonly,
   });
 
-type Judged = Pick<Verdict, 'pass' | 'findings' | 'blocked'> & { run?: string };
+type Judged = Pick<Verdict, 'pass' | 'findings' | 'blocked' | 'runs'>;
 
 const passTail = 10;
 
@@ -201,7 +200,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       ]
         .filter(Boolean)
         .join('\n\n');
-      const created = yield* Effect.promise(() =>
+      const create = () =>
         p.store.create({
           workflow: a.planned.workflow,
           job: a.planned.job,
@@ -210,8 +209,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
           event: p.event,
           parent: a.parent.id,
           check: check.name,
-        })
-      );
+        });
       const spec = session({
         config: p.config,
         bot,
@@ -222,10 +220,15 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         tools: effectiveTools(bot, {}),
         access: p,
       });
-      const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
+      const judge = Effect.gen(function* () {
+        const created = yield* Effect.promise(create);
+        return yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
+      });
+      const first = yield* judge;
+      const { run, final } = crashed(first.run) ? yield* judge : first;
       const verdict = verdictOf(run, final);
       if (verdict.pass) yield* Effect.promise(() => p.store.update(run.id, { passed: key }));
-      return { ...verdict, run: run.id };
+      return { ...verdict, runs: [...new Set([first.run.id, run.id])] };
     });
 };
 
@@ -285,7 +288,7 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
     const judged = yield* Effect.forEach(items, judgeWith(check, a, scope, p), {
       concurrency: check.concurrency ?? itemConcurrency,
     });
-    const runs = judged.flatMap(verdict => (verdict.run ? [verdict.run] : []));
+    const runs = judged.flatMap(verdict => verdict.runs ?? []);
     const findings = judged.flatMap(({ findings }, i) =>
       findings ? [items.length > 1 ? `${items[i]?.label}:\n${findings}` : findings] : []
     );

@@ -292,9 +292,10 @@ const attempts = (
       const failing = failingChecks(checks);
       const holding = failing.filter(v => holds(v, p));
       const fixable = failing.filter(v => !v.blocked);
+      const blocked = failing.filter(v => v.blocked);
       const exhausted = attempt - reformats > max || broke();
       const verdicts = job.until ? checks : undefined;
-      if (!holding.length && !left.length) {
+      if (!holding.length && !blocked.length && !left.length) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, validated.accepted, a, p, verdicts)
         );
@@ -326,7 +327,6 @@ const attempts = (
           return yield* finish(planned, ended, outcome, kinds, p, merging);
         });
 
-      const blocked = holding.filter(v => v.blocked);
       if (blocked.length) {
         const reason = `checks could not run: ${blocked.map(v => `${v.check} (${v.findings?.split('\n')[0] ?? 'no output'})`).join(', ')}`;
         return yield* askHuman(reason, `${reason}. The change waits in run ${run.id}; nothing went back to the bot.`);
