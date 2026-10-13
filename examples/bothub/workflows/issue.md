@@ -22,7 +22,7 @@ jobs:
     skill: implement
     branch: bothub/{issue}
     until:
-      checks: [safety, harness-memory, docs-style, comments, lint, format, types, tests, docs-tone]
+      checks: [safety, harness-memory, docs-style, comments, lint, format, types, studio-build, tests, docs-tone]
       max: 3
     returns: [reply, push, merge-request, note, ask]
     tools: [issues_get, notes_search]
