@@ -142,7 +142,14 @@ const hash = (text: string) => createHash('sha256').update(text).digest('hex').s
 /** An OpenAI-compatible chat endpoint: LiteLLM, or Ollama's `/v1`. */
 export type Endpoint = { url: string; apiKey?: string; timeoutMs?: number };
 
-const complete = async (
+/** The endpoint `BOTHUB_LLM_BASE_URL` and `BOTHUB_LLM_API_KEY` name in `env`, if there is one. */
+export const endpointOf = (env: Record<string, string | undefined>): Endpoint | undefined =>
+  env.BOTHUB_LLM_BASE_URL
+    ? { url: env.BOTHUB_LLM_BASE_URL, ...(env.BOTHUB_LLM_API_KEY && { apiKey: env.BOTHUB_LLM_API_KEY }) }
+    : undefined;
+
+/** Asks `model` at `endpoint` one system and user message pair and resolves to the trimmed reply. */
+export const complete = async (
   { url, apiKey, timeoutMs = 60_000 }: Endpoint,
   model: string,
   system: string,
@@ -164,7 +171,7 @@ const complete = async (
     }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!response.ok) throw new Error(`summarize: ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  if (!response.ok) throw new Error(`${model}: ${response.status}: ${(await response.text()).slice(0, 200)}`);
   const json = (await response.json()) as { choices?: { message?: { content?: string } }[] };
   return json.choices?.[0]?.message?.content?.trim() ?? '';
 };

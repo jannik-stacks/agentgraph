@@ -103,11 +103,14 @@ spent what.
 | Alias             | Route                                                       |
 | ----------------- | ----------------------------------------------------------- |
 | `smart`, `writer` | A ChatGPT subscription through LiteLLM's `chatgpt` provider |
+| `luna`            | The same subscription, a small chat model for decide calls  |
 | `review`          | An Anthropic key, a different family from the authors       |
 | `fast`            | Ollama running `qwen3.5:4b` locally                         |
 
 Ollama also serves `tev1:0.8b` through its decision API, for small yes, no and scoring questions
-that `decide` checks ask directly (<Sym name="decideCheck" />). An offline config points every alias at Ollama.
+that `decide` checks, the decider and the surfacer ask directly (<Sym name="decideCheck" />). That is the default
+`BOTHUB_DECIDE_MODEL`. Set it to a LiteLLM alias without a `:tag`, such as `luna`, and the same yes-or-no questions go
+to that chat model through LiteLLM instead, with the run's own key. An offline config points every alias at Ollama.
 
 Moving an alias from an API key to a subscription is a proxy config change; no bot file changes.
 

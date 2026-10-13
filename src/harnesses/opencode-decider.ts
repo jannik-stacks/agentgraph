@@ -1,6 +1,6 @@
 import { decide, defaultDecideModel, defaultDecideUrl, defaultThreshold } from '../decide.ts';
 import type { agentTriggers } from '../schema.ts';
-import { items } from '../summaries.ts';
+import { endpointOf, items, type Endpoint } from '../summaries.ts';
 import { markLoaded } from './opencode-surfacer.ts';
 
 /**
@@ -17,10 +17,11 @@ export type DeciderQuestion = {
   unreachable?: 'act' | 'skip';
 };
 
-/** What the decider plugin gets from bothub, as opencode plugin options. */
+/** What the decider plugin gets from bothub, as opencode plugin options. `llm` serves a chat decision model. */
 export type DeciderOptions = {
   questions: DeciderQuestion[];
   decide?: { url?: string; model?: string; timeoutMs?: number };
+  llm?: Endpoint;
 };
 
 type Part = { type: string; text?: string; synthetic?: boolean };
@@ -38,6 +39,7 @@ export const decider = async (_input: unknown, raw?: Record<string, unknown>) =>
   const url = o.decide?.url ?? (process.env.BOTHUB_DECIDE_URL || defaultDecideUrl);
   const model = o.decide?.model ?? (process.env.BOTHUB_DECIDE_MODEL || defaultDecideModel);
   const timeoutMs = o.decide?.timeoutMs ?? 20_000;
+  const llm = o.llm ?? endpointOf(process.env);
 
   const sessions = new Map<string, Session>();
   const session = (id: string) => {
@@ -55,6 +57,7 @@ export const decider = async (_input: unknown, raw?: Record<string, unknown>) =>
       const answers = await decide({
         url,
         model,
+        llm,
         timeoutMs,
         state: clip(state),
         questions: Object.fromEntries(

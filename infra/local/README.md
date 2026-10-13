@@ -14,7 +14,7 @@ throwaway container per agent run. Every port binds to 127.0.0.1. Commands run f
 3. `docker compose up -d` (LiteLLM and Postgres), then `docker compose --profile sandbox up -d`.
 4. `docker build -t bothub-sandbox:local sandbox` (opencode and pi).
 
-## ChatGPT login for smart and writer
+## ChatGPT login for smart, writer and luna
 
 The admin UI has no ChatGPT login, so it runs once from the CLI, before the proxy starts: with
 `chatgpt/` models configured and no token, LiteLLM startup waits for the login. The tokens

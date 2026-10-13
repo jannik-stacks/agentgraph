@@ -8,6 +8,7 @@ import { allowedFor, index, loadSynonyms, noteDocs, summaryDocs, weigh, type Doc
 import type { EventRecord } from '../store.ts';
 import {
   askerOf,
+  endpointOf,
   fit,
   history,
   items,
@@ -90,14 +91,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
   const url = o.decide?.url ?? (process.env.BOTHUB_DECIDE_URL || defaultDecideUrl);
   const model = o.decide?.model ?? (process.env.BOTHUB_DECIDE_MODEL || defaultDecideModel);
   const timeoutMs = o.decide?.timeoutMs ?? 20_000;
-  const llm =
-    o.llm ??
-    (process.env.BOTHUB_LLM_BASE_URL
-      ? {
-          url: process.env.BOTHUB_LLM_BASE_URL,
-          ...(process.env.BOTHUB_LLM_API_KEY && { apiKey: process.env.BOTHUB_LLM_API_KEY }),
-        }
-      : undefined);
+  const llm = o.llm ?? endpointOf(process.env);
   const file = o.summaries ?? join(process.env.HOME ?? '/tmp', '.bothub', 'summaries.jsonl');
 
   let corpus: Promise<Index> | undefined;
@@ -140,7 +134,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         ...(o.budget !== undefined && { budget: o.budget }),
         url,
         model,
-        decide: request => decide({ ...request, timeoutMs }),
+        decide: request => decide({ ...request, llm, timeoutMs }),
       });
       const items: RecallItem[] = weighed.map(({ doc, score, p, fate }) => {
         const line = hitLine(doc);

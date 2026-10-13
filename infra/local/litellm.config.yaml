@@ -18,6 +18,12 @@ model_list:
     litellm_params:
       model: os.environ/BOTHUB_MODEL_WRITER
 
+  # A small, fast chat model for decide calls (BOTHUB_DECIDE_MODEL=luna). No tools and no
+  # streaming, so plain chat completions work.
+  - model_name: luna
+    litellm_params:
+      model: chatgpt/gpt-6-luna
+
   # A different model family, so review does not share the author's blind spots. Without an
   # Anthropic key the call fails and the fallback below routes it to smart.
   - model_name: review

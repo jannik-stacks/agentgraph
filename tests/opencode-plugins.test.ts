@@ -64,6 +64,20 @@ const fakeTev = async (score: (instructions: string, state: string) => number) =
   return { url, requests };
 };
 
+type ChatRequest = { model: string; messages: { role: string; content: string }[] };
+
+/** A fake chat endpoint: answers every question id in the user message with `p`. */
+const fakeChat = async (p: number) => {
+  const requests: (ChatRequest & { authorization?: string })[] = [];
+  const url = await serve((body, req) => {
+    const request = body as ChatRequest;
+    requests.push({ ...request, ...(req.headers.authorization && { authorization: req.headers.authorization }) });
+    const ids = [...request.messages[1]!.content.matchAll(/^(\w+): /gm)].map(m => m[1]!);
+    return { choices: [{ message: { content: JSON.stringify(Object.fromEntries(ids.map(id => [id, p]))) } }] };
+  });
+  return { url, requests };
+};
+
 /** Scores a question by the first keyword its instructions contain. */
 const keywords = (scores: Record<string, number>) => (instructions: string) =>
   Object.entries(scores).find(([word]) => instructions.includes(word))?.[1] ?? 0.05;
@@ -193,6 +207,14 @@ describe('surfacer plugin', () => {
     expect(block).not.toContain('middle dots');
     expect(block).not.toContain('r-private');
     expect(block).not.toContain('Retry FeeEstimateError');
+  });
+
+  it('judges candidates with a chat model through the LLM endpoint when the decide model is an alias', async () => {
+    const chat = await fakeChat(0.9);
+    const { hooks } = await start({ decide: { url: offline, model: 'luna' }, llm: { url: chat.url } });
+    const [block] = await turn(hooks, task);
+    expect(block).toMatch(/^Possibly relevant/);
+    expect(chat.requests).toMatchObject([{ model: 'luna' }]);
   });
 
   it('keeps the block within the token budget, best first', async () => {
@@ -470,5 +492,17 @@ describe('decider plugin', () => {
     await hooks['experimental.text.complete']({ sessionID: 'other' }, { text: 'hi' });
     expect(tev.requests).toEqual([]);
     expect(result.output).toBe('x');
+  });
+
+  it('asks a chat model through the LLM endpoint when the decide model is an alias', async () => {
+    const tev = await fakeTev(() => 0.9);
+    const chat = await fakeChat(0.1);
+    const hooks = await decider(
+      {},
+      { questions: [inScope], decide: { url: tev.url, model: 'luna' }, llm: { url: chat.url, apiKey: 'sk-run' } }
+    );
+    await expect(call(hooks, 'bash', { command: 'ls' })).rejects.toThrow('outside the task');
+    expect(tev.requests).toEqual([]);
+    expect(chat.requests).toMatchObject([{ model: 'luna', authorization: 'Bearer sk-run' }]);
   });
 });
