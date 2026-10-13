@@ -2,28 +2,66 @@ import { createMarkdownRenderer } from 'fumadocs-core/content/md';
 import { remarkGfm } from 'fumadocs-core/mdx-plugins/remark-gfm';
 import { CodeBlock, Pre } from 'fumadocs-ui/components/codeblock';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
-import { type ComponentProps, type CSSProperties, memo, type ReactElement, type ReactNode, useMemo } from 'react';
+import {
+  type ComponentProps,
+  type CSSProperties,
+  memo,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useHighlighted } from './source/highlight.tsx';
-import { cx } from './ui.tsx';
+import { Icon } from './studio/icons.tsx';
+import { cx, IconButton } from './ui.tsx';
 
 const { Markdown: Render } = createMarkdownRenderer({ remarkPlugins: [remarkGfm] });
 
 const compact = { '--padding-left': 'calc(var(--spacing) * 3)' } as CSSProperties;
 
-/** A code block in the docs' style, colored in place once shiki has loaded. */
+/** Copies `code`, showing a tick for a moment after. */
+const CopyCode = ({ code }: { code: string }) => {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <IconButton
+      tip={copied ? 'Copied' : 'Copy'}
+      variant="quiet"
+      onClick={() => navigator.clipboard.writeText(code).then(() => setCopied(true))}
+    >
+      <Icon name={copied ? 'tick' : 'copy'} className="size-3" />
+    </IconButton>
+  );
+};
+
+/** A code block in the docs' style, colored in place once shiki has loaded. `actions` sit beside the copy button. */
 export const Code = memo(function Code({
   code,
   lang = 'text',
   className,
+  actions,
 }: {
   code: string;
   lang?: string | undefined;
   className?: string | undefined;
+  actions?: ReactNode;
 }) {
   return (
     <CodeBlock
       className={cx('my-2 rounded-md shadow-none', className)}
       style={compact}
+      allowCopy={false}
+      Actions={() => (
+        <div className="absolute top-1 right-1 z-2 flex items-center gap-0.5 rounded bg-fd-card/80 backdrop-blur-sm">
+          {actions}
+          <CopyCode code={code} />
+        </div>
+      )}
       viewportProps={{ className: 'py-2 text-[11.5px] leading-[1.6] max-h-96' }}
     >
       <Pre>{useHighlighted(code, lang)}</Pre>

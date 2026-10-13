@@ -14,12 +14,12 @@ import {
 } from 'react';
 import type { RunRow } from '../../../src/live.ts';
 import type { EventRecord } from '../../../src/store.ts';
-import { estimate, type Price, sum, tokensOf } from '../../../src/usage.ts';
-import { infoAtom, navigateAtom, runIdAtom, runPageAtom } from '../state.ts';
-import { Icon, KindIcon } from '../studio/icons.tsx';
+import { estimate, type Price, tokensOf } from '../../../src/usage.ts';
+import { eventIdAtom, infoAtom, navigateAtom, runIdAtom, runPageAtom } from '../state.ts';
+import { Icon } from '../studio/icons.tsx';
 import { Link } from '../Providers.tsx';
 import { cx, IconButton, Tooltip } from '../ui.tsx';
-import { age, Cost, Elapsed, formatTokens, Io, StatusIcon, useEnter } from './bits.tsx';
+import { Cost, Elapsed, formatTokens, Io, paneHeader, StatusIcon, useEnter } from './bits.tsx';
 import { fetchEvents, fetchOutcome, live, pricesAtom, recordKey } from './live.ts';
 import {
   attemptsOf,
@@ -38,9 +38,10 @@ import {
   turnsOf,
 } from './model.ts';
 import { DiffFiles, DiffSummary, WhitespaceToggle } from './DiffView.tsx';
+import { CheckLines, FetchedFindings, VerdictIcon } from './EventView.tsx';
 import { fetchRunDiff, hideWhitespaceAtom } from './pulls.ts';
 import { AnswerBox } from './Review.tsx';
-import { OutcomeView, RunFields, Text, ToolBody, toolSummary, VerdictView } from './render/index.tsx';
+import { OutcomeView, RunFields, Text, ToolBody, toolSummary } from './render/index.tsx';
 import { RecalledHead, RecalledRows, recallsOf } from './render/recall.tsx';
 
 type Mode = 'auto' | 'all' | 'none';
@@ -257,21 +258,28 @@ const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord
   const first = turns.find(t => t.usage)?.usage;
   return (
     <ul className="py-0.5">
-      <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
-        <Tooltip tip="Model">
-          <Icon name="model" className="size-3" />
-        </Tooltip>
-        <span>{start?.model ?? run.model ?? run.harness}</span>
-        {first && (
+      {start?.model && start.model !== run.model && (
+        <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
+          <Tooltip tip="Model the harness reported">
+            <Icon name="model" className="size-3" />
+          </Tooltip>
+          <span>{start.model}</span>
+        </li>
+      )}
+      {first && (
+        <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
           <Tooltip tip="Setup: the first call's input, system prompt, preloaded notes, task and tool definitions">
-            <span className="inline-flex items-center text-fd-muted-foreground tabular-nums">
-              {formatTokens(first.inputTokens)}
-              <Icon name="in" className="size-3" />
-              <span className="ml-1">setup</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="file" className="size-3 text-zinc-400" />
+              setup
+              <span className="inline-flex items-center text-fd-muted-foreground tabular-nums">
+                {formatTokens(first.inputTokens)}
+                <Icon name="in" className="size-3" />
+              </span>
             </span>
           </Tooltip>
-        )}
-      </li>
+        </li>
+      )}
       {recalls.length > 0 && (
         <Step id={`${run.id}:recalled`} auto={false} head={<RecalledHead recalls={recalls} />}>
           {() => <RecalledRows recalls={recalls} />}
@@ -292,13 +300,10 @@ const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord
           {message}
         </li>
       ))}
-      {end && (
-        <li className="flex items-center gap-2 px-2 py-1 text-xs">
-          <StatusIcon
-            status={end.ok ? 'succeeded' : 'failed'}
-            tip={end.ok ? 'The harness finished' : 'The harness failed'}
-          />
-          {end.turns !== undefined && <span className="text-zinc-500">{end.turns} turns</span>}
+      {end && (!end.ok || end.turns !== undefined) && (
+        <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
+          {!end.ok && <StatusIcon status="failed" tip="The harness failed" />}
+          {end.ok ? `finished after ${end.turns} turns` : 'the harness failed'}
         </li>
       )}
       {!records.length && (
@@ -321,148 +326,66 @@ const RunTranscript = ({ run, prices }: { run: RunRow; prices: Prices }) => {
   const price = run.model ? prices[run.model] : undefined;
   if (followed?.id === run.id) return <Transcript run={run} records={followed.records} price={price} />;
   return (
-    <Suspense fallback={<p className="px-2 py-1 text-xs text-zinc-500">Loading.</p>}>
+    <Suspense fallback={<div className="min-h-7" />}>
       <FetchedTranscript run={run} price={price} />
     </Suspense>
   );
 };
 
-/** A run's step head. Open, it leaves the spinner to the call inside that is running. */
-const RunHead = ({ run, label, prices, open }: { run: RunRow; label: ReactNode; prices: Prices; open: boolean }) => {
+/** The transcript's step head: who ran it on which model, and its totals. Open, it leaves the spinner to the call inside. */
+const TranscriptHead = ({ run, prices, open }: { run: RunRow; prices: Prices; open: boolean }) => {
   const cost = costOf(run.tally, run.model, prices);
   return (
     <Row>
       <StatusIcon status={run.status} level={open && run.status === 'running' ? 'job' : 'run'} />
-      <span className="font-medium">{label}</span>
+      <span className="font-medium">transcript</span>
       <span className="truncate text-zinc-500">{[run.bot, run.model].filter(Boolean).join(', ')}</span>
       <Right>
         <Elapsed startedAt={run.startedAt} endedAt={run.endedAt ?? (isLive(run.status) ? undefined : run.startedAt)} />
         <Io tally={run.tally} />
-        <Cost billed={cost.billed} estimated={cost.estimated} tally={run.tally} className="w-14 justify-end" />
+        <Cost billed={cost.billed} estimated={cost.estimated} tally={run.tally} className="w-12 justify-end" />
       </Right>
     </Row>
   );
 };
+
+const TranscriptStep = ({ run, prices, auto }: { run: RunRow; prices: Prices; auto: boolean }) => (
+  <Step
+    id={`${run.id}:transcript`}
+    fresh={`run:${run.id}`}
+    stay
+    auto={auto}
+    head={open => <TranscriptHead run={run} prices={prices} open={open} />}
+  >
+    {() => <RunTranscript run={run} prices={prices} />}
+  </Step>
+);
 
 const useOutcome = (run: RunRow) => {
   const followed = useAtomValue(live.followed);
   return followed?.id === run.id ? followed.outcome : undefined;
 };
 
-const FetchedVerdict = ({ attempt, name }: { attempt: RunRow; name: string }) => {
-  const outcome = use(fetchOutcome(attempt.id, attempt.status));
-  const verdict = outcome?.checks?.find(v => v.check === name);
-  return verdict ? <VerdictView verdict={verdict} /> : null;
-};
-
-const CheckStep = ({
-  attempt,
-  name,
-  runs,
-  prices,
-}: {
-  attempt: RunRow;
-  name: string;
-  runs: RunRow[];
-  prices: Prices;
-}) => {
+/** The verdict a check run's check gave its attempt: one line, then its findings. */
+const VerdictStep = ({ attempt, name, runs }: { attempt: RunRow; name: string; runs: RunRow[] }) => {
   const brief = attempt.brief?.checks?.find(v => v.check === name);
-  const last = runs.at(-1);
-  const failed = brief ? !brief.pass && !brief.skipped : last ? isFailed(last.status) : false;
+  if (!brief) return null;
   return (
-    <Step
-      id={`${attempt.id}:check:${name}`}
-      auto={failed || (last !== undefined && isLive(last.status))}
-      {...(runs[0] && { fresh: `run:${runs[0].id}` })}
-      head={
-        <Row>
-          {brief ? (
-            <StatusIcon
-              kind="check"
-              status={brief.skipped ? 'skipped' : brief.pass ? 'succeeded' : 'failed'}
-              {...(!brief.pass && !brief.skipped && !brief.gating && { tone: 'warn' })}
-              tip={
-                brief.skipped
-                  ? 'Check skipped'
-                  : brief.pass
-                    ? 'Check passed'
-                    : brief.gating
-                      ? 'Check failed and blocked the attempt'
-                      : 'Check failed; log checks only report'
-              }
-            />
-          ) : last ? (
-            <StatusIcon kind="check" status={last.status} level="job" tip={`Check, ${last.status}`} />
-          ) : (
-            <KindIcon kind="check" />
-          )}
-          <span className="font-medium">{name}</span>
-          {brief && !brief.gating && <span className="text-zinc-500">log</span>}
-          {runs.length > 1 && <span className="text-zinc-500">{runs.length} runs</span>}
-          <Right>{runs.length > 0 && <Io tally={sum(runs.map(r => r.tally))} />}</Right>
-        </Row>
-      }
-    >
-      {() => (
-        <div className="space-y-1 py-1 pr-2">
-          {brief && (
-            <Suspense fallback={null}>
-              <div className="pl-1">
-                <FetchedVerdict attempt={attempt} name={name} />
-              </div>
-            </Suspense>
-          )}
-          <ul className="-ml-1">
-            {runs.map(run => (
-              <Step
-                key={run.id}
-                id={run.id}
-                fresh={`run:${run.id}`}
-                stay
-                auto={isLive(run.status) || isFailed(run.status)}
-                head={open => (
-                  <RunHead run={run} label={age(run.startedAt ?? run.event.ts)} prices={prices} open={open} />
-                )}
-              >
-                {() => <RunTranscript run={run} prices={prices} />}
-              </Step>
-            ))}
-          </ul>
-        </div>
-      )}
-    </Step>
-  );
-};
-
-const AttemptStep = ({
-  attempt,
-  total,
-  runs,
-  prices,
-}: {
-  attempt: RunRow;
-  total: number;
-  runs: RunRow[];
-  prices: Prices;
-}) => {
-  const checks = checksOf(attempt, runs);
-  for (const verdict of attempt.brief?.checks ?? []) if (!checks.has(verdict.check)) checks.set(verdict.check, []);
-  const label = total > 1 ? `attempt ${attempt.attempt ?? 1}/${total}` : attempt.job;
-  return (
-    <>
-      <Step
-        id={attempt.id}
-        fresh={`run:${attempt.id}`}
-        stay
-        auto={isLive(attempt.status) || isFailed(attempt.status)}
-        head={open => <RunHead run={attempt} label={label} prices={prices} open={open} />}
-      >
-        {() => <RunTranscript run={attempt} prices={prices} />}
-      </Step>
-      {[...checks].map(([name, list]) => (
-        <CheckStep key={name} attempt={attempt} name={name} runs={list} prices={prices} />
-      ))}
-    </>
+    <li className="space-y-1 px-2 py-1 text-xs">
+      <div className="flex items-center gap-2 pl-5">
+        <VerdictIcon attempt={attempt} name={name} runs={runs} />
+        <span className="font-medium">verdict</span>
+        <span className="text-zinc-500">
+          {brief.skipped ? 'skipped' : brief.pass ? 'passed' : 'failed'}
+          {!brief.gating && ', log only'}
+        </span>
+      </div>
+      <div className="pl-10">
+        <Suspense fallback={null}>
+          <FetchedFindings attempt={attempt} name={name} />
+        </Suspense>
+      </div>
+    </li>
   );
 };
 
@@ -478,18 +401,18 @@ const OutcomeStep = ({ run }: { run: RunRow }) => {
     <Step
       id={`${run.id}:outcome`}
       auto={!isLive(run.status)}
-      head={
+      head={open => (
         <Row>
           <Tooltip tip={run.brief?.applied ? 'What the run proposed was applied' : 'Nothing was applied'}>
             <Icon name={run.brief?.applied ? 'ok' : 'skipped'} className="size-3.5 text-zinc-500" />
           </Tooltip>
           <span className="font-medium">outcome</span>
-          <span className="truncate text-zinc-500">{run.brief?.kinds.join(', ')}</span>
+          {!open && <span className="truncate text-zinc-500">{run.brief?.kinds.join(', ')}</span>}
         </Row>
-      }
+      )}
     >
       {() => (
-        <div className="py-1 pr-2">
+        <div className="space-y-2 py-1 pr-2">
           {streamed ? (
             <OutcomeView outcome={streamed} />
           ) : (
@@ -657,16 +580,20 @@ const Breakdown = ({ runs, records, prices }: { runs: RunRow[]; records: EventRe
   );
 };
 
-/** The run whose job execution a view shows, and which of its runs should stream: the newest live one. */
+/**
+ * Where a run sits: its job's attempts, the attempt it is or judges, and, for a check run, the runs of the same check
+ * on that attempt.
+ */
 export const executionOf = (rows: RunRow[], id: string) => {
   const byId = new Map(rows.map(r => [r.id, r]));
   const run = byId.get(id);
   if (!run) return;
   const root = rootOf(run, byId);
   const attempts = attemptsOf(root, rows);
+  const attempt = (run.check && run.parent ? byId.get(run.parent) : undefined) ?? run;
+  const siblings = run.check ? (checksOf(attempt, rows).get(run.check) ?? [run]) : [run];
   const runs = attempts.flatMap(a => [a, ...[...checksOf(a, rows).values()].flat()]);
-  const stream = runs.filter(r => isLive(r.status)).at(-1) ?? run;
-  return { run, root, attempts, runs, stream };
+  return { run, root, attempts, attempt, siblings, runs };
 };
 
 const pinnedSlack = 48;
@@ -688,9 +615,107 @@ const Missing = ({ id }: { id: string }) => {
   );
 };
 
+const crumb =
+  'min-w-0 truncate rounded px-1 hover:bg-zinc-100 hover:text-sky-700 dark:hover:bg-zinc-800 dark:hover:text-sky-300';
+
+const Sep = () => <Icon name="chevron" className="size-3 shrink-0 text-zinc-400" />;
+
+/** `noun i/n` with buttons to the one before and after; the noun selects the current one when `onOpen` is given. */
+const Stepper = ({
+  noun,
+  list,
+  at,
+  onOpen,
+}: {
+  noun: string;
+  list: RunRow[];
+  at: number;
+  onOpen?: (() => void) | undefined;
+}) => {
+  const select = useSetAtom(runIdAtom);
+  const label = (
+    <span className="tabular-nums">
+      {noun} {at + 1}/{list.length}
+    </span>
+  );
+  return (
+    <span className="inline-flex shrink-0 items-center">
+      {onOpen ? (
+        <button type="button" className={crumb} onClick={onOpen}>
+          {label}
+        </button>
+      ) : (
+        <span className="px-1">{label}</span>
+      )}
+      <IconButton tip={`Previous ${noun}`} variant="quiet" disabled={at === 0} onClick={() => select(list[at - 1]!.id)}>
+        <Icon name="chevron" className="size-3 rotate-180" />
+      </IconButton>
+      <IconButton
+        tip={`Next ${noun}`}
+        variant="quiet"
+        disabled={at === list.length - 1}
+        onClick={() => select(list[at + 1]!.id)}
+      >
+        <Icon name="chevron" className="size-3" />
+      </IconButton>
+    </span>
+  );
+};
+
+/** Where the shown run sits: event, job, attempt, check and check run, each a way to the view above it. */
+const Crumbs = ({ execution }: { execution: NonNullable<ReturnType<typeof executionOf>> }) => {
+  const { run, root, attempts, attempt, siblings } = execution;
+  const select = useSetAtom(runIdAtom);
+  const selectEvent = useSetAtom(eventIdAtom);
+  const at = attempts.indexOf(attempt);
+  const onJob = !run.check && attempt === attempts.at(-1);
+  return (
+    <nav aria-label="Where this run sits" className="flex min-w-0 flex-1 items-center gap-0.5">
+      <Tooltip
+        tip={`Event: ${run.event.trigger}${run.event.action ? ` ${run.event.action}` : ''}`}
+        action="Show the event and all its jobs"
+        className="min-w-0"
+      >
+        <button type="button" className={cx(crumb, 'text-zinc-500')} onClick={() => selectEvent(run.event.id)}>
+          {run.event.number !== undefined && `#${run.event.number} `}
+          {eventTitle(run.event)}
+        </button>
+      </Tooltip>
+      <Sep />
+      <Tooltip
+        tip={`Job ${root.job} in workflow ${root.workflow}`}
+        {...(!onJob && { action: 'Show its latest attempt' })}
+        className="shrink-0"
+      >
+        {onJob ? (
+          <span className="px-1 font-medium">{root.job}</span>
+        ) : (
+          <button type="button" className={cx(crumb, 'font-medium')} onClick={() => select(attempts.at(-1)!.id)}>
+            {root.job}
+          </button>
+        )}
+      </Tooltip>
+      {attempts.length > 1 && (
+        <>
+          <Sep />
+          <Stepper noun="attempt" list={attempts} at={at} {...(run.check && { onOpen: () => select(attempt.id) })} />
+        </>
+      )}
+      {run.check && (
+        <>
+          <Sep />
+          <span className="shrink-0 px-1 font-medium">{run.check}</span>
+          {siblings.length > 1 && <Stepper noun="run" list={siblings} at={siblings.indexOf(run)} />}
+        </>
+      )}
+    </nav>
+  );
+};
+
 /**
- * A job execution as GitHub Actions-like steps: each attempt with its model and tool calls, then its checks, then
- * the outcome. Live and failed steps start open; the view keeps to the bottom while live unless scrolled up.
+ * One run, with its place shown above it. An attempt shows its record, its cost, its transcript, the checks that judged
+ * it, its outcome and its changes; a check run shows its verdict, its transcript and its record. Live and failed steps
+ * start open; the view keeps to the bottom while live unless scrolled up.
  */
 export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'panel' | 'page' | 'follow' }) => {
   const follow = variant === 'follow';
@@ -718,7 +743,7 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
     [mode, overrides, toggle]
   );
   const execution = useMemo(() => (rows ? executionOf(rows, id) : undefined), [rows, id]);
-  const running = execution?.runs.some(r => isLive(r.status)) ?? false;
+  const running = execution ? isLive(execution.run.status) : false;
   const streamed = followed?.records.length ?? 0;
 
   useLayoutEffect(() => {
@@ -729,17 +754,35 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
   if (!rows) return <p className="p-4 text-zinc-500">Loading runs.</p>;
   if (!execution)
     return follow ? <p className="p-4 text-zinc-500">Waiting for a run to start.</p> : <Missing id={id} />;
-  const { run, root, attempts, runs } = execution;
-  const last = attempts.at(-1)!;
-  const changed = attempts.findLast(committed);
+  const { run, attempt, siblings, runs } = execution;
   const setAll = (next: Mode) => {
     setMode(next);
     setOverrides({});
   };
+  const record = (
+    <Step
+      id="run"
+      auto={false}
+      head={
+        <Row>
+          <Tooltip tip="The run record: ids, harness, model, timing">
+            <Icon name="file" className="size-3.5 text-zinc-400" />
+          </Tooltip>
+          <span className="font-medium">record</span>
+        </Row>
+      }
+    >
+      {() => (
+        <div className="py-1 pr-2 text-xs">
+          <RunFields run={run} />
+        </div>
+      )}
+    </Step>
+  );
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-3 py-2 text-xs dark:border-zinc-800">
+      <header className={paneHeader}>
         {variant !== 'panel' && (
           <IconButton
             tip="Back to the run list"
@@ -751,15 +794,9 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
             <Icon name="chevron" className="size-3 rotate-180" />
           </IconButton>
         )}
-        <StatusIcon status={last.status} level="job" />
-        <span className="font-medium">
-          {root.workflow} / {root.job}
-        </span>
-        <span className="min-w-0 truncate text-zinc-500">
-          {run.event.number !== undefined && `#${run.event.number} `}
-          {eventTitle(run.event)}
-        </span>
-        <span className="ml-auto flex items-center gap-1">
+        <StatusIcon status={run.status} level="job" />
+        <Crumbs execution={execution} />
+        <span className="flex shrink-0 items-center gap-1">
           <IconButton tip="Expand every step" onClick={() => setAll('all')}>
             <Icon name="expand" className="size-3" />
           </IconButton>
@@ -791,52 +828,41 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
         className="min-h-0 flex-1 overflow-y-auto py-1"
       >
         <Steps value={steps}>
-          <ul>
-            <Step
-              id="run"
-              auto={false}
-              head={
-                <Row>
-                  <Tooltip tip="The run record: ids, harness, model, timing">
-                    <Icon name="file" className="size-3.5 text-zinc-400" />
-                  </Tooltip>
-                  <span className="font-medium">run</span>
-                  <span className="truncate text-zinc-500">{run.id}</span>
-                </Row>
-              }
-            >
-              {() => (
-                <div className="py-1 pr-2 text-xs">
-                  <RunFields run={run} />
-                </div>
-              )}
-            </Step>
-            <Step
-              id="cost"
-              auto={false}
-              head={
-                <Row>
-                  <Tooltip tip="Where the tokens and cost of this job went">
-                    <Icon name="cost" className="size-3.5 text-zinc-400" />
-                  </Tooltip>
-                  <span className="font-medium">cost</span>
-                </Row>
-              }
-            >
-              {() => (
-                <Breakdown
-                  runs={runs}
-                  records={followed && runs.some(r => r.id === followed.id) ? followed.records : []}
-                  prices={prices}
-                />
-              )}
-            </Step>
-            {attempts.map(attempt => (
-              <AttemptStep key={attempt.id} attempt={attempt} total={attempts.length} runs={rows} prices={prices} />
-            ))}
-            <OutcomeStep run={last} />
-            {changed && <ChangesStep key={changed.id} run={changed} />}
-          </ul>
+          {run.check ? (
+            <ul>
+              <VerdictStep attempt={attempt} name={run.check} runs={siblings} />
+              <TranscriptStep run={run} prices={prices} auto />
+              {record}
+            </ul>
+          ) : (
+            <ul>
+              {record}
+              <Step
+                id="cost"
+                auto={false}
+                head={
+                  <Row>
+                    <Tooltip tip="Where the tokens and cost of this job went">
+                      <Icon name="cost" className="size-3.5 text-zinc-400" />
+                    </Tooltip>
+                    <span className="font-medium">cost</span>
+                  </Row>
+                }
+              >
+                {() => (
+                  <Breakdown
+                    runs={runs}
+                    records={followed && runs.some(r => r.id === followed.id) ? followed.records : []}
+                    prices={prices}
+                  />
+                )}
+              </Step>
+              <TranscriptStep run={run} prices={prices} auto={isLive(run.status) || isFailed(run.status)} />
+              <CheckLines attempt={run} rows={rows} depth={1} />
+              <OutcomeStep run={run} />
+              {committed(run) && <ChangesStep key={run.id} run={run} />}
+            </ul>
+          )}
         </Steps>
       </div>
       {!pinned && running && (

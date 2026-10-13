@@ -1,159 +1,78 @@
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { memo, useLayoutEffect, useRef, useState } from 'react';
-import type { RunRow } from '../../../src/live.ts';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { memo } from 'react';
 import { Link as Anchor } from '../Providers.tsx';
-import { navigateAtom, runIdAtom } from '../state.ts';
+import { eventIdAtom, navigateAtom, runIdAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
-import { cx, IconButton, Tooltip } from '../ui.tsx';
-import { age, Cost, Elapsed, Io, StatusIcon, useEnter } from './bits.tsx';
+import { cx, Tooltip } from '../ui.tsx';
+import { age, Cost, Io, StatusIcon, useEnter } from './bits.tsx';
 import { live, pricesAtom } from './live.ts';
-import { costOf, costOfRuns, eventTitle, type Group, isLive, type JobNode, type Link, triggerGlyph } from './model.ts';
+import { costOfRuns, eventTitle, type Group, type JobNode, type Link, triggerGlyph } from './model.ts';
 
-/**
- * One run on one line: status, job or check, the bot when it is not the job's own, attempt, tokens, cost, duration
- * and age. The group above already names the event and workflow.
- */
-const RunLine = memo(function RunLine({ run, job }: { run: RunRow; job: JobNode }) {
-  const prices = useAtomValue(pricesAtom);
-  const [selected, select] = useAtom(runIdAtom);
-  const enter = useEnter(`run:${run.id}`);
-  const cost = costOf(run.tally, run.model, prices);
+const chip =
+  'inline-flex h-5 shrink-0 items-center gap-1 whitespace-nowrap rounded border px-1 text-[11px] hover:border-sky-400 dark:hover:border-sky-600';
+const chipIdle = 'border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400';
+const chipOn = 'border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-600 dark:bg-sky-950 dark:text-sky-200';
+
+/** A job and the checks that gate it, each selecting its latest run; `after` puts an arrow in front. */
+const Node = ({ job, after, run }: { job: JobNode; after: boolean; run: string | null }) => {
+  const select = useSetAtom(runIdAtom);
   const attempts = job.attempts.length;
   return (
-    <li className={enter}>
-      <button
-        type="button"
-        onClick={() => select(run.id)}
-        className={cx(
-          'grid w-full grid-cols-[1rem_minmax(0,1fr)_auto_3.5rem_3rem_3.5rem] items-center gap-2 py-1 pr-3 pl-8 text-left text-xs hover:bg-zinc-50 dark:hover:bg-zinc-900',
-          run.id === selected ? 'bg-sky-50 dark:bg-sky-950/40' : run.status === 'running' && 'bhm-live-row'
-        )}
-      >
-        <StatusIcon
-          status={run.status}
-          {...(run.check && {
-            kind: 'check' as const,
-            tip: `Check ${run.check}, ${run.status}, judging attempt ${job.attempts.findIndex(a => a.id === run.parent) + 1 || 1}`,
-          })}
-        />
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{run.check ?? run.job}</span>
-          {run.bot !== job.attempts[0]?.bot && <span className="truncate text-zinc-500">{run.bot}</span>}
-          {attempts > 1 && !run.check && (
-            <Tooltip tip={`Attempt ${run.attempt ?? 1} of ${attempts}`}>
-              <span className="text-zinc-500">
-                {run.attempt ?? 1}/{attempts}
-              </span>
-            </Tooltip>
-          )}
-        </span>
-        <Io tally={run.tally} />
-        <Cost billed={cost.billed} estimated={cost.estimated} tally={run.tally} className="justify-end" />
-        <span className="text-right">
-          <Elapsed
-            startedAt={run.startedAt}
-            endedAt={run.endedAt ?? (isLive(run.status) ? undefined : run.startedAt)}
-          />
-        </span>
-        <Tooltip tip={`Started ${new Date(run.startedAt ?? run.event.ts).toLocaleString()}`} className="justify-end">
-          <span className="text-zinc-500">{age(run.startedAt ?? run.event.ts)}</span>
-        </Tooltip>
-      </button>
-    </li>
-  );
-});
-
-/** A job and the checks that gate it; `after` puts an arrow in front, kept on one line with the job. */
-const Node = ({ job, after, onSelect }: { job: JobNode; after: boolean; onSelect: (id: string) => void }) => (
-  <>
-    <Tooltip
-      tip={`Job ${job.job}${job.attempts.length > 1 ? `, ${job.attempts.length} attempts` : ''}`}
-      action="Open the latest attempt"
-      className="shrink-0 items-center gap-1"
-    >
-      {after && <Icon name="chevron" className="size-3 text-zinc-400" />}
-      <button
-        type="button"
-        onClick={e => {
-          e.stopPropagation();
-          onSelect(job.attempts.at(-1)!.id);
-        }}
-        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-1.5 text-[11px] leading-5 hover:border-sky-400 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-sky-600"
-      >
-        <StatusIcon status={job.status} level="job" className="size-3" />
-        {job.job}
-        {job.attempts.length > 1 && (
-          <span className="inline-flex items-center gap-0.5 text-zinc-500">
-            <Icon name="retry" className="size-2.5" />
-            {job.attempts.length}
-          </span>
-        )}
-      </button>
-    </Tooltip>
-    {[...job.checks].map(([name, runs]) => (
+    <>
       <Tooltip
-        key={name}
-        tip={`Check ${name}${runs.length > 1 ? `, ${runs.length} runs` : ''}`}
-        action="Open the latest run"
-        className="shrink-0"
+        tip={`Job ${job.job}${attempts > 1 ? `, ${attempts} attempts` : ''}`}
+        action="Show the latest attempt"
+        className="shrink-0 items-center gap-1"
       >
+        {after && <Icon name="chevron" className="size-3 text-zinc-400" />}
         <button
           type="button"
           onClick={e => {
             e.stopPropagation();
-            onSelect(runs.at(-1)!.id);
+            select(job.attempts.at(-1)!.id);
           }}
-          className="inline-flex items-center gap-1 rounded border border-dashed border-zinc-200 px-1 text-[10px] leading-4 text-zinc-600 hover:border-sky-400 dark:border-zinc-700 dark:text-zinc-400"
+          className={cx(
+            chip,
+            'gap-1.5 bg-white dark:bg-zinc-900',
+            job.attempts.some(a => a.id === run) ? chipOn : chipIdle
+          )}
         >
-          <StatusIcon status={runs.at(-1)!.status} level="job" kind="check" className="size-2.5" />
-          {name}
-          {runs.length > 1 && <span className="text-zinc-500">{runs.length}</span>}
+          <StatusIcon status={job.status} level="job" className="size-3" />
+          {job.job}
+          {attempts > 1 && (
+            <span className="inline-flex items-center gap-0.5 text-zinc-500">
+              <Icon name="retry" className="size-2.5" />
+              {attempts}
+            </span>
+          )}
         </button>
       </Tooltip>
-    ))}
-  </>
-);
-
-/**
- * The jobs an event started, left to right in the order they started, each followed by the checks that gate it. It
- * keeps to one line; when that cuts it off, a caret opens every job and check in place.
- */
-const JobGraph = ({ jobs }: { jobs: JobNode[] }) => {
-  const select = useSetAtom(runIdAtom);
-  const [open, setOpen] = useState(false);
-  const [cut, setCut] = useState(false);
-  const line = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const element = line.current;
-    if (!element) return;
-    const measure = () => setCut(element.scrollWidth > element.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [jobs, open]);
-  return (
-    <div className="flex items-start gap-1 pr-3 pb-1.5 pl-8">
-      <div ref={line} className={cx('flex min-w-0 flex-1 items-center gap-1', open ? 'flex-wrap' : 'overflow-hidden')}>
-        {jobs.map((job, i) => (
-          <Node key={job.key} job={job} after={i > 0} onSelect={select} />
-        ))}
-      </div>
-      {(cut || open) && (
-        <IconButton
-          tip={open ? 'Show on one line' : 'Show every job and check'}
-          variant="ghost"
-          aria-expanded={open}
-          onClick={e => {
-            e.stopPropagation();
-            setOpen(!open);
-          }}
-          onKeyDown={e => e.stopPropagation()}
+      {[...job.checks].map(([name, runs]) => (
+        <Tooltip
+          key={name}
+          tip={`Check ${name}${runs.length > 1 ? `, ${runs.length} runs` : ''}`}
+          action="Show the latest run"
+          className="shrink-0"
         >
-          <Icon name="chevron" className={cx('size-3', open ? '-rotate-90' : 'rotate-90')} />
-        </IconButton>
-      )}
-    </div>
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              select(runs.at(-1)!.id);
+            }}
+            className={cx(
+              chip,
+              'border-dashed text-[10px] leading-4',
+              runs.some(r => r.id === run) ? chipOn : chipIdle
+            )}
+          >
+            <StatusIcon status={runs.at(-1)!.status} level="job" kind="check" className="size-2.5" />
+            {name}
+            {runs.length > 1 && <span className="text-zinc-500 tabular-nums">{runs.length}</span>}
+          </button>
+        </Tooltip>
+      ))}
+    </>
   );
 };
 
@@ -163,7 +82,7 @@ const LinkChip = ({ link, direction }: { link: Link; direction: 'from' | 'to' })
     <Tooltip
       className="shrink-0"
       tip={`${direction === 'from' ? 'Started by' : 'Started'} ${link.label}${link.likely ? ', matched by issue and time' : ''}`}
-      action="Open that run"
+      action="Show that run"
     >
       <button
         type="button"
@@ -171,7 +90,7 @@ const LinkChip = ({ link, direction }: { link: Link; direction: 'from' | 'to' })
           e.stopPropagation();
           select(link.run);
         }}
-        className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 px-1 text-[11px] text-zinc-600 hover:border-sky-400 dark:border-zinc-700 dark:text-zinc-400"
+        className={cx(chip, 'shrink-0', chipIdle)}
       >
         <Icon name="link" className="size-3" />
         {direction === 'from' ? 'by ' : ''}
@@ -195,7 +114,7 @@ const PullChips = ({ event }: { event: string }) => {
       <Anchor
         href={`/dashboard/pulls/${pull.number}`}
         onClick={e => e.stopPropagation()}
-        className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 px-1 text-[11px] text-zinc-600 hover:border-sky-400 dark:border-zinc-700 dark:text-zinc-400"
+        className={cx(chip, 'shrink-0', chipIdle)}
       >
         <Icon name="pull" className="size-3" />#{pull.number}
       </Anchor>
@@ -203,85 +122,112 @@ const PullChips = ({ event }: { event: string }) => {
   ));
 };
 
-/**
- * A triggering event: what, where, who and when, its totals and its links, with its jobs as a small graph below.
- * Expanded, it lists every run.
- */
-export const GroupRow = memo(function GroupRow({ group, open: initiallyOpen }: { group: Group; open: boolean }) {
-  const [open, setOpen] = useState(initiallyOpen);
+/** The header line of an event: status, trigger, issue, title, actor, links, totals and age. */
+export const EventLine = ({ group, links = true }: { group: Group; links?: boolean }) => {
   const prices = useAtomValue(pricesAtom);
-  const enter = useEnter(`event:${group.event.id}`);
   const { event } = group;
   const cost = costOfRuns(group.runs, prices);
   const running = group.runs.filter(r => r.status === 'running').length;
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <StatusIcon
+        status={group.status}
+        level="event"
+        {...(running > 0 && { tip: `${running} ${running === 1 ? 'run' : 'runs'} running for this event` })}
+      />
+      {running > 1 && <span className="text-xs text-sky-600 dark:text-sky-400">{running}</span>}
+      <Tooltip tip={`Triggered by ${event.trigger}${event.action ? ` ${event.action}` : ''}`}>
+        <Icon name={triggerGlyph(event)} className="size-3.5 text-zinc-500" />
+      </Tooltip>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+        {event.number !== undefined && <span className="text-zinc-500">#{event.number}</span>}
+        <span className="truncate font-medium">{eventTitle(event)}</span>
+        <span className="shrink-0 text-xs text-zinc-500">{event.actor.login}</span>
+        {links && group.causedBy && <LinkChip link={group.causedBy} direction="from" />}
+        {links && group.caused.map(link => <LinkChip key={link.event} link={link} direction="to" />)}
+        {links && <PullChips event={event.id} />}
+      </span>
+      <Io tally={group.tally} className="shrink-0 text-xs" />
+      <Cost billed={cost.billed} estimated={cost.estimated} tally={group.tally} className="w-12 justify-end text-xs" />
+      <Tooltip tip={`Started ${new Date(group.startedAt).toLocaleString()}`} className="w-14 shrink-0 justify-end">
+        <span className="text-xs text-zinc-500">{age(group.startedAt)}</span>
+      </Tooltip>
+    </div>
+  );
+};
+
+const chipLimit = 8;
+
+/** The jobs whose chips fit in about two lines, and how many chips are left over. */
+const fit = (jobs: JobNode[]) => {
+  const chips = (job: JobNode) => 1 + job.checks.size;
+  const shown: JobNode[] = [];
+  let used = 0;
+  for (const job of jobs) {
+    if (shown.length && used + chips(job) > chipLimit) break;
+    shown.push(job);
+    used += chips(job);
+  }
+  return { shown, more: jobs.reduce((n, job) => n + chips(job), 0) - used };
+};
+
+/** A triggering event as one selectable row: its line, then its jobs and checks, each selecting its own run. */
+export const GroupRow = memo(function GroupRow({
+  group,
+  selected,
+  run,
+}: {
+  group: Group;
+  selected: boolean;
+  run: string | null;
+}) {
+  const select = useSetAtom(eventIdAtom);
+  const enter = useEnter(`event:${group.event.id}`);
+  const { shown, more } = fit(group.jobs);
   return (
     <li className={cx('border-b border-zinc-100 dark:border-zinc-900', enter)}>
       <div
         role="button"
         tabIndex={0}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        aria-current={selected || undefined}
+        onClick={() => select(group.event.id)}
         onKeyDown={e => {
-          if (e.key !== 'Enter' && e.key !== ' ') return;
+          if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
           e.preventDefault();
-          setOpen(!open);
+          select(group.event.id);
         }}
-        className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900"
+        className={cx(
+          'cursor-pointer border-l-2 py-1.5 pr-3 pl-2.5',
+          selected
+            ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/40'
+            : 'border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-900'
+        )}
       >
-        <div className="flex items-center gap-2 px-3 py-1.5">
-          <Icon name="chevron" className={cx('size-3 text-zinc-400 transition-transform', open && 'rotate-90')} />
-          <StatusIcon
-            status={group.status}
-            level="event"
-            {...(running > 0 && { tip: `${running} ${running === 1 ? 'run' : 'runs'} running for this event` })}
-          />
-          {running > 1 && <span className="text-xs text-sky-600 dark:text-sky-400">{running}</span>}
-          <Tooltip tip={`Triggered by ${event.trigger}${event.action ? ` ${event.action}` : ''}`}>
-            <Icon name={triggerGlyph(event)} className="size-3.5 text-zinc-500" />
-          </Tooltip>
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            {event.number !== undefined && <span className="text-zinc-500">#{event.number}</span>}
-            <span className="truncate font-medium">{eventTitle(event)}</span>
-            <span className="shrink-0 text-xs text-zinc-500">{event.actor.login}</span>
-            {group.causedBy && <LinkChip link={group.causedBy} direction="from" />}
-            {group.caused.map(link => (
-              <LinkChip key={link.event} link={link} direction="to" />
-            ))}
-            <PullChips event={event.id} />
-          </span>
-          <Io tally={group.tally} className="shrink-0 text-xs" />
-          <Cost
-            billed={cost.billed}
-            estimated={cost.estimated}
-            tally={group.tally}
-            className="w-14 justify-end text-xs"
-          />
-          <Tooltip tip={`Started ${new Date(group.startedAt).toLocaleString()}`} className="w-14 justify-end">
-            <span className="text-xs text-zinc-500">{age(group.startedAt)}</span>
-          </Tooltip>
-        </div>
-        <JobGraph jobs={group.jobs} />
-      </div>
-      {open && (
-        <ul className="pb-1">
-          {group.jobs.flatMap(job =>
-            [...job.attempts, ...[...job.checks.values()].flat()]
-              .toSorted((a, b) => (a.id < b.id ? -1 : 1))
-              .map(run => <RunLine key={run.id} run={run} job={job} />)
+        <EventLine group={group} />
+        <div className="mt-1 flex flex-wrap items-center gap-1 pl-[2.75rem]">
+          {shown.map((job, i) => (
+            <Node key={job.key} job={job} after={i > 0} run={run} />
+          ))}
+          {more > 0 && (
+            <Tooltip tip={`${more} more jobs and checks`} action="Show the event with all of them" focusable>
+              <span className="text-[11px] text-zinc-500 tabular-nums">+{more}</span>
+            </Tooltip>
           )}
-        </ul>
-      )}
+        </div>
+      </div>
     </li>
   );
 });
 
 export const GroupList = ({
   groups,
-  selected,
+  event,
+  run,
   hidden,
 }: {
   groups: Group[];
-  selected: string | null;
+  event: string | null;
+  run: string | null;
   hidden: number;
 }) => {
   const navigate = useSetAtom(navigateAtom);
@@ -304,7 +250,8 @@ export const GroupList = ({
         <GroupRow
           key={group.event.id}
           group={group}
-          open={selected !== null && group.runs.some(r => r.id === selected)}
+          selected={group.event.id === event || (run !== null && group.runs.some(r => r.id === run))}
+          run={run}
         />
       ))}
     </ul>

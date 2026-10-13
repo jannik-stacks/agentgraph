@@ -277,6 +277,8 @@ const buttons = {
   small:
     'whitespace-nowrap rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-sky-600 dark:hover:text-sky-300',
   ghost: 'rounded p-0.5 text-zinc-400 hover:text-sky-600 dark:hover:text-sky-400',
+  quiet:
+    'inline-flex size-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:text-sky-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:text-sky-400',
   dashed:
     'rounded-md border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300',
 };

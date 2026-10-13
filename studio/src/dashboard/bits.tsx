@@ -5,6 +5,10 @@ import type { Tone } from '../graph-model.ts';
 import { checkMarks, type Glyph, Icon, KindIcon } from '../studio/icons.tsx';
 import { cx, statusTone, tones, Tooltip } from '../ui.tsx';
 
+/** The header of the right pane: one line at a fixed height, whatever the selection puts in it. */
+export const paneHeader =
+  'flex h-10 shrink-0 items-center gap-2 overflow-hidden border-b border-zinc-200 px-3 text-xs dark:border-zinc-800';
+
 export const formatTokens = (n: number) =>
   n < 1000 ? String(Math.round(n)) : n < 1e6 ? `${(n / 1000).toFixed(n < 1e4 ? 1 : 0)}k` : `${(n / 1e6).toFixed(2)}M`;
 
@@ -322,12 +326,7 @@ export const Cost = ({
   ];
   return (
     <Tooltip tip={lines.filter(Boolean).join('\n')} className={className}>
-      <span
-        className={cx(
-          'inline-flex w-full items-center justify-[inherit] tabular-nums',
-          shown === billed ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-500'
-        )}
-      >
+      <span className="inline-flex w-full items-center justify-[inherit] text-fd-muted-foreground tabular-nums">
         <Num value={shown} format={formatUsd} />
       </span>
     </Tooltip>

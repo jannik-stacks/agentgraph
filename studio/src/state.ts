@@ -1,4 +1,4 @@
-import { type Atom, atom } from 'jotai';
+import { type Atom, atom, type Getter, type Setter } from 'jotai';
 import { atomWithRefresh, atomWithStorage, unwrap } from 'jotai/utils';
 import type { ApiInfo, needsHuman, readFiles } from '../../src/api.ts';
 import type { Config, ConfigError } from '../../src/config.ts';
@@ -64,12 +64,14 @@ export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segm
 export const docsSlugAtom = atom(get => get(segments).slice(1));
 
 /**
- * The dashboard page: the run list, one run's page at `/dashboard/runs/<id>`, `/dashboard/follow`, or the merge
- * requests at `/dashboard/pulls` and one of them at `/dashboard/pulls/<n>`.
+ * The dashboard page: the run list, one run at `/dashboard/runs/<id>`, one event and its jobs at
+ * `/dashboard/events/<id>`, `/dashboard/follow`, or the merge requests at `/dashboard/pulls` and one of them at
+ * `/dashboard/pulls/<n>`.
  */
 export const dashboardPageAtom = atom(get => {
   const [, page, id] = get(segments);
   if (page === 'runs' && id) return { run: decodeURIComponent(id) };
+  if (page === 'events' && id) return { event: decodeURIComponent(id) };
   if (page === 'follow') return { follow: true as const };
   if (page === 'pulls') return { pulls: id && /^\d+$/.test(id) ? Number(id) : null };
   return {};
@@ -81,16 +83,19 @@ const queryParam = (key: string) =>
     (_get, set, value: string | null) => set(navigateAtom, { query: { [key]: value } })
   );
 
-/** The selected run, at `/dashboard/runs/<id>`; selecting one keeps the list's filters. */
-export const runIdAtom = atom(
-  get => get(dashboardPageAtom).run ?? null,
-  (get, set, id: string | null, replace?: boolean) => {
-    const query = new URLSearchParams(get(locationAtom).query);
-    query.delete('run');
-    const path = id ? `/dashboard/runs/${encodeURIComponent(id)}` : '/dashboard';
-    set(navigateAtom, { href: query.size ? `${path}?${query}` : path, replace: !!replace });
-  }
-);
+/** Selects what sits under `/dashboard/<page>/`, keeping the list's filters. */
+const selectAt = (page: string) => (get: Getter, set: Setter, id: string | null, replace?: boolean) => {
+  const query = new URLSearchParams(get(locationAtom).query);
+  query.delete('run');
+  const path = id ? `/dashboard/${page}/${encodeURIComponent(id)}` : '/dashboard';
+  set(navigateAtom, { href: query.size ? `${path}?${query}` : path, replace: !!replace });
+};
+
+/** The selected run, at `/dashboard/runs/<id>`. */
+export const runIdAtom = atom(get => get(dashboardPageAtom).run ?? null, selectAt('runs'));
+
+/** The selected event, at `/dashboard/events/<id>`. */
+export const eventIdAtom = atom(get => get(dashboardPageAtom).event ?? null, selectAt('events'));
 
 /** Whether a selected run takes the whole page instead of sitting beside the run list. */
 export const runPageAtom = atomWithStorage('bhm.dashboard.run-page', false, undefined, { getOnInit: true });

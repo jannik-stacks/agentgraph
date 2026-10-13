@@ -4,6 +4,7 @@ import type { RunRow } from '../../../src/live.ts';
 import {
   botFilterAtom,
   dashboardPageAtom,
+  eventIdAtom,
   infoAtom,
   locationAtom,
   needsHumanQueryAtom,
@@ -19,7 +20,8 @@ import { live, pricesAtom, useLiveStream } from './live.ts';
 import { costOfRuns, groupRuns, isFailed, isLive } from './model.ts';
 import { NeedsHuman } from './NeedsHuman.tsx';
 import { ChangesLink, PullsView } from './PullsView.tsx';
-import { executionOf, RunView } from './RunView.tsx';
+import { EventView } from './EventView.tsx';
+import { RunView } from './RunView.tsx';
 import { SummaryStrip } from './SummaryStrip.tsx';
 
 /** The run follow mode shows: the newest running one, else the newest. */
@@ -78,7 +80,8 @@ const Runs = ({ rows }: { rows: RunRow[] }) => {
   const sort = useAtomValue(sortAtom);
   const pulls = useAtomValue(live.pulls);
   const prices = useAtomValue(pricesAtom);
-  const selected = useAtomValue(runIdAtom);
+  const run = useAtomValue(runIdAtom);
+  const event = useAtomValue(eventIdAtom);
   const { groups, hidden } = useMemo(() => {
     const from = since === 'today' ? new Date().setHours(0, 0, 0, 0) : undefined;
     const shown = rows.filter(run => matches(run, status, bot, from));
@@ -100,7 +103,7 @@ const Runs = ({ rows }: { rows: RunRow[] }) => {
         <BotFilter bots={bots} />
       </div>
       <Filters />
-      <GroupList groups={groups} selected={selected} hidden={hidden} />
+      <GroupList groups={groups} event={event} run={run} hidden={hidden} />
     </>
   );
 };
@@ -174,13 +177,13 @@ const NoRuns = () => {
 export const DashboardView = () => {
   const page = useAtomValue(dashboardPageAtom);
   const [selected, select] = useAtom(runIdAtom);
+  const event = useAtomValue(eventIdAtom);
   const runPage = useAtomValue(runPageAtom);
   const moved = useAtomValue(locationAtom).query.get('run');
   const rows = useAtomValue(live.rows);
   const refreshNeedsHuman = useSetAtom(needsHumanQueryAtom);
   const shown = 'follow' in page ? latest(rows)?.id : (selected ?? undefined);
-  const stream = (shown && rows && executionOf(rows, shown)?.stream.id) || shown;
-  useLiveStream(stream);
+  useLiveStream(shown);
 
   useEffect(() => {
     if (moved) select(moved, true);
@@ -192,6 +195,7 @@ export const DashboardView = () => {
   }, [statuses, refreshNeedsHuman]);
 
   if ('pulls' in page && page.pulls !== undefined) return <PullsView number={page.pulls} />;
+  if (event && runPage) return <EventView key={event} id={event} variant="page" />;
   if ('follow' in page || (selected && runPage))
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -226,7 +230,13 @@ export const DashboardView = () => {
           {rows.length ? <Runs rows={rows} /> : <NoRuns />}
         </div>
         <div className="min-w-0 flex-1">
-          {selected ? <RunView key={selected} id={selected} /> : <Muted>Select a run to follow it.</Muted>}
+          {selected ? (
+            <RunView key={selected} id={selected} />
+          ) : event ? (
+            <EventView key={event} id={event} />
+          ) : (
+            <Muted>Select an event or a run to see it here.</Muted>
+          )}
         </div>
       </div>
     </div>
