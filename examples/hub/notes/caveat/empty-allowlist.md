@@ -2,6 +2,7 @@
 title: An empty tool allowlist denies reads too
 status: accepted
 evidence: [examples/hub/bots/reviewer.md]
+human: note evidence points at examples/hub/bots/reviewer.md, otherwise untraced
 ---
 
 A bot with `tools: []` cannot even read files. Give review bots `read`, `grep` and `glob`

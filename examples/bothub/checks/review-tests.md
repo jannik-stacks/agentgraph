@@ -7,6 +7,7 @@ over:
   max: 30
 paths: [tests/**]
 mode: shadow
+human: split of the broad review, narrow-bots W1
 ---
 The item is one hunk of a test file. Does every assertion it adds compare against a value that
 would be different if the code under test had not changed? FAIL naming an assertion that holds

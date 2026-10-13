@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+/**
+ * `human`: notes for humans on any hub item, as plain text or a map of strings. Never shown to a model and never
+ * changing the flow.
+ */
+export const Human = z.union([z.string(), z.record(z.string(), z.string())]);
+export type Human = z.infer<typeof Human>;
+
+const human = Human.optional();
+
 export const Granularity = z.enum(['item', 'turn', 'run']);
 export type Granularity = z.infer<typeof Granularity>;
 
@@ -185,11 +194,12 @@ export const Bot = z.strictObject({
       'usd-per-run': z.number().positive().optional(),
     })
     .optional(),
+  human,
 });
 export type Bot = z.infer<typeof Bot>;
 
 /** `skills/<name>.md`: what to do. The body is the prompt. */
-export const Skill = z.strictObject({ description: z.string().min(1) });
+export const Skill = z.strictObject({ description: z.string().min(1), human });
 export type Skill = z.infer<typeof Skill>;
 
 const script = z.string().min(1);
@@ -246,7 +256,12 @@ const step = (over: 'diff' | 'event') => ({
   mode: Mode.default('shadow'),
 });
 
-const checkFields = { ...step('diff'), description: z.string().optional(), concurrency: z.int().positive().optional() };
+const checkFields = {
+  ...step('diff'),
+  description: z.string().optional(),
+  concurrency: z.int().positive().optional(),
+  human,
+};
 
 /**
  * `checks/<name>.md`: what a check looks at (`over`) and who judges it. A `script` passes when it exits 0; a `bot`
@@ -287,6 +302,7 @@ const jobEnd = {
   ...step('event'),
   environment: z.string().optional(),
   'timeout-minutes': z.number().positive().optional(),
+  human,
 };
 
 /**
@@ -327,6 +343,7 @@ export const Workflow = z.strictObject({
   description: z.string().optional(),
   on: On,
   jobs: z.record(name, Job),
+  human,
 });
 export type Workflow = z.infer<typeof Workflow>;
 
@@ -337,6 +354,7 @@ export const Note = z.strictObject({
   source: z.string().optional(),
   evidence: z.array(z.string()).optional(),
   check: name.optional(),
+  human,
 });
 export type Note = z.infer<typeof Note>;
 
@@ -354,6 +372,7 @@ export const IssueFile = z.strictObject({
   changes: z
     .array(z.strictObject({ by: z.string(), action: z.enum(['labeled', 'closed']), label: z.string().exactOptional() }))
     .exactOptional(),
+  human: Human.exactOptional(),
 });
 export type IssueFile = z.infer<typeof IssueFile>;
 
@@ -380,5 +399,6 @@ export const Hub = z.strictObject({
       'timeout-minutes': z.int().positive().default(15),
     })
     .optional(),
+  human,
 });
 export type Hub = z.infer<typeof Hub>;

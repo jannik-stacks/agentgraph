@@ -2,6 +2,7 @@
 title: Timers fire early and shared files are read mid-write
 status: accepted
 check: tests
+human: flaky serve test fix, retry timer fired early and queue files were read mid-write
 ---
 A `setTimeout` runs on the event loop clock, so it can fire a millisecond before the `Date.now()`
 deadline it was armed for. Code that sleeps until something is due must check again when it wakes

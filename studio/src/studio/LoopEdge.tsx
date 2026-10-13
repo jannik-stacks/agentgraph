@@ -3,7 +3,7 @@ import {
   type Edge,
   EdgeLabelRenderer,
   type EdgeProps,
-  getBezierPath,
+  getSmoothStepPath,
   type InternalNode,
   Position,
   useStore,
@@ -61,7 +61,9 @@ const anchor = (box: Box, side: Position): Point =>
         ? { x: box.x + box.width / 2, y: box.y }
         : { x: box.x + box.width / 2, y: box.y + box.height };
 
-/** A smooth curve between the facing sides of two boxes. */
+const corner = 8;
+
+/** A right-angled path with rounded corners between the facing sides of two boxes. */
 const between = (s: Box, t: Box) => {
   const dx = t.x - (s.x + s.width);
   const dy = t.y - (s.y + s.height);
@@ -78,36 +80,50 @@ const between = (s: Box, t: Box) => {
             : [Position.Left, Position.Right];
   const a = anchor(s, from);
   const b = anchor(t, to);
-  const [path, x, y] = getBezierPath({
+  const [path, x, y] = getSmoothStepPath({
     sourceX: a.x,
     sourceY: a.y,
     sourcePosition: from,
     targetX: b.x,
     targetY: b.y,
     targetPosition: to,
+    borderRadius: corner,
   });
   return { path, label: { x, y } };
 };
 
-/** A smooth curve through every point, leaving and entering the nodes horizontally. */
-const curve = (points: Point[]) => {
-  const [start, ...rest] = points;
+/** Turns each step between two points into horizontal, vertical, horizontal runs that turn halfway across. */
+const elbows = (points: Point[]) =>
+  points.flatMap((p, i) => {
+    const prev = points[i - 1];
+    if (!prev || Math.abs(prev.y - p.y) < 0.5) return [p];
+    const x = (prev.x + p.x) / 2;
+    return [{ x, y: prev.y }, { x, y: p.y }, p];
+  });
+
+const toward = (from: Point, to: Point, by: number) => {
+  const length = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+  return { x: from.x + ((to.x - from.x) * by) / length, y: from.y + ((to.y - from.y) * by) / length };
+};
+
+/** A right-angled path through every point with rounded corners, leaving and entering the nodes horizontally. */
+const orthogonal = (points: Point[]) => {
+  const runs = elbows(points);
+  const [start] = runs;
   if (!start) return '';
   let d = `M ${start.x} ${start.y}`;
-  for (let i = 0; i < rest.length; i++) {
-    const p0 = points[i - 1] ?? points[i]!;
-    const p1 = points[i]!;
-    const p2 = points[i + 1]!;
-    const p3 = points[i + 2] ?? p2;
-    const half = (p2.x - p1.x) / 2;
-    const c1 = i === 0 ? { x: p1.x + half, y: p1.y } : { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
-    const c2 =
-      i === rest.length - 1
-        ? { x: p2.x - half, y: p2.y }
-        : { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
-    d += ` C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
+  for (let i = 1; i < runs.length - 1; i++) {
+    const [prev, at, next] = [runs[i - 1]!, runs[i]!, runs[i + 1]!];
+    const r = Math.min(
+      corner,
+      Math.hypot(at.x - prev.x, at.y - prev.y) / 2,
+      Math.hypot(next.x - at.x, next.y - at.y) / 2
+    );
+    const [a, b] = [toward(at, prev, r), toward(at, next, r)];
+    d += ` L ${a.x} ${a.y} Q ${at.x} ${at.y}, ${b.x} ${b.y}`;
   }
-  return d;
+  const end = runs.at(-1)!;
+  return `${d} L ${end.x} ${end.y}`;
 };
 
 const Label = ({ at, text, color, dim }: { at: Point; text: string; color: string; dim?: boolean | undefined }) => (
@@ -141,8 +157,8 @@ const merge = (stack: Box[], to: Box) => {
 };
 
 /**
- * An edge along the route the layout found while both ends stay where the layout put them, otherwise a smooth
- * curve between the nodes. With `via`, the edge gathers that stack of nodes and leads from it instead of its source.
+ * An edge along the route the layout found, in right angles, while both ends stay where the layout put them,
+ * otherwise a right-angled path between the nodes. With `via`, the edge gathers that stack of nodes and leads from it instead of its source.
  */
 export const RoutedEdge = ({ source, target, data, style, markerEnd }: EdgeProps<RoutedFlowEdge>) => {
   const via = data?.via ?? [];
@@ -155,7 +171,11 @@ export const RoutedEdge = ({ source, target, data, style, markerEnd }: EdgeProps
   const at = placed ? data.labelAt : free?.label;
   return (
     <>
-      <BaseEdge path={free?.path ?? curve(data.points!)} {...(s && { style: s })} {...(markerEnd && { markerEnd })} />
+      <BaseEdge
+        path={free?.path ?? orthogonal(data.points!)}
+        {...(s && { style: s })}
+        {...(markerEnd && { markerEnd })}
+      />
       {data.label && !data.quiet && at && <Label at={at} text={data.label} color={data.color} dim={data.dim} />}
     </>
   );

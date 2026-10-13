@@ -315,6 +315,23 @@ const Lead = ({ name, value }: { name: string; value: string }) => (
   </Section>
 );
 
+/** The item's `human` notes, read-only: plain text, or one row per key. */
+const Human = ({ value }: { value: unknown }) => (
+  <Section title="human">
+    {typeof value === 'string' ? (
+      <p className="text-zinc-700 dark:text-zinc-300">{value}</p>
+    ) : (
+      <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2">
+        {Object.entries(value ?? {}).map(([key, text]) => (
+          <Field key={key} name={key}>
+            <span className="text-zinc-700 dark:text-zinc-300">{String(text)}</span>
+          </Field>
+        ))}
+      </dl>
+    )}
+  </Section>
+);
+
 const contextEdges = new Set<string>(['preloads', 'calls']);
 
 const Labelled = ({ name, title, children }: { name: string; title?: string; children: ReactNode }) => (
@@ -584,7 +601,8 @@ export const NodeDetails = ({ node, model }: { node: GraphNode; model: GraphMode
   const links = useLinks(model);
   const data = node.data;
   const entries = Object.entries(data ?? {}).filter(
-    ([key]) => key !== 'description' && !identity.some(k => k === key && typeof data?.[k] === 'string')
+    ([key]) =>
+      key !== 'description' && key !== 'human' && !identity.some(k => k === key && typeof data?.[k] === 'string')
   );
   const isLead = ([key, value]: [string, unknown]) =>
     typeof value === 'string' && (lead.has(key) || value.includes('\n'));
@@ -607,6 +625,7 @@ export const NodeDetails = ({ node, model }: { node: GraphNode; model: GraphMode
         ) : (
           <Fallback node={node} />
         )}
+        {data?.human !== undefined && <Human value={data.human} />}
         <Connections node={node} model={model} />
         {node.source && <NodeSource source={node.source} />}
       </div>

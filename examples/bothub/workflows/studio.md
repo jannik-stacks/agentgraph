@@ -55,6 +55,7 @@ jobs:
     tools: [issues_get, notes_search]
     mode: warn
     timeout-minutes: 60
+human: studio twin of issue workflow, checks added
 ---
 The studio twin of the issue workflow. A maintainer comments `/bothub-studio` on an issue about
 the studio or the dashboard. The safety check lets the change reach `studio/src/`, and the UI

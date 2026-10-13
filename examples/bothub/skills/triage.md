@@ -1,5 +1,6 @@
 ---
 description: Turn a bothub issue into one scoped task with acceptance criteria a check can prove.
+human: seed hub, untraced
 ---
 The issue is in your prompt. Find the code it is about in `src/` and the tests that cover it in
 `tests/`, and work out the current behavior. A few files are enough.

@@ -2,6 +2,7 @@
 title: The studio runs parts of src in the browser
 status: accepted
 check: studio-build
+human: user feedback on the node:crypto browser error
 ---
 The studio imports `src/schema.ts`, `src/config.ts`, `src/graph.ts`, `src/preload.ts` and
 `src/over.ts`, and everything they import. Those modules must not import Node builtins, not even

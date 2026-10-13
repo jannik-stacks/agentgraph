@@ -24,6 +24,7 @@ jobs:
     skill: review
     preload: [issue, recall]
     returns: [reply]
+human: seed example, untraced
 ---
 
 A `/bothub` comment on an issue starts the implementor on its own branch. Its work reaches a pull

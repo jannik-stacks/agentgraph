@@ -32,6 +32,7 @@ export type GraphNode = Omit<HubNode, 'badges' | 'detail'> & {
   source?: { root: string; path: string };
   data?: Record<string, unknown>;
   context?: StepContext[];
+  stack?: { owner: string; members: string[]; facets: { key: string; counts: [value: string, count: number][] }[] };
 };
 
 export type GraphEdge = HubGraph['edges'][number];

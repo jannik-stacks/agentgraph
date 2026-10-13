@@ -8,9 +8,10 @@ item.
 
 `/bothub` on an issue starts `workflows/issue.md`. The triager writes a brief in a fixed template,
 with at most five criteria that each name the test proving them. The implementor works on
-`bothub/<issue>` until every check passes, at most three rounds: the scripts first, then the
-narrow judges. A failing gating check goes back to the implementor with its findings. A human
-merges.
+`bothub/<issue>` until every check passes, at most four attempts (`max: 3` follow-ups after the
+first): the scripts first, then the narrow judges. A failing gating check goes back to the
+implementor with its findings. A human merges. A job that blocks on a question parks its work on
+its branch, and the run that starts after the answer resumes from it.
 
 ## Checks
 
@@ -24,7 +25,7 @@ merges.
 | lint | script | | block | oxlint plus the suspicious rules, errors on added lines only |
 | format, types, studio-build, live-stream, tests | script | | block | Formatting, types, the studio build and the suite |
 | tests-bite | script | | block | Every new test fails on the base code |
-| coverage | script | | block | Every added line in `src/` runs in a test; the changed area meets the thresholds |
+| coverage | script | | block | The related tests pass and every added line in `src/` runs in one of them |
 | criteria-tests | script | | block | Each criterion's named test is added with its exact title |
 | triage-brief | script | | block | The triage reply follows the template and names only files the change may touch (in triage's `until`) |
 | risky | decide | each risky added line | shadow | Can an attacker or a bot reach this call unchecked? |
@@ -32,7 +33,7 @@ merges.
 | near-duplicate | bot, `fast` | each new export | shadow | Does an existing export already do this? |
 | criterion-met | bot, `review` | each criterion | warn | Is there a sequence of events that breaks it? |
 | design | bot, `review` | the whole src change | warn | Does every path that changes this state keep the invariant? |
-| review-src | bot, `review` | each code hunk in `src/`, rename-only hunks left out | block | Does the hunk mishandle an input or break a caller? |
+| review-src | bot, `review` | each code hunk in `src/` and `studio/src/`, rename-only hunks left out | block | Does the hunk mishandle an input or break a caller? |
 | review-tests, review-docs | bot, `fast` | each test or docs hunk | shadow | Does each assertion bite; does each docs statement hold? |
 | docs-tone-* | decide | each docs hunk | shadow | One tone question each: taglines, selling, repeats, provenance |
 

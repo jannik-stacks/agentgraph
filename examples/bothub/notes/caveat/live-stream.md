@@ -2,6 +2,7 @@
 title: The dashboard streams from the run files as they are written
 status: accepted
 check: live-stream
+human: dashboard work, live stream contract
 ---
 `GET /api/stream` watches the data directory and tails each run's `events.jsonl` by byte offset,
 so the dashboard only stays live while these hold:

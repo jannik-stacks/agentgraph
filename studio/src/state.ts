@@ -77,6 +77,7 @@ export const sinceFilterAtom = queryParam('since');
 export const sortAtom = queryParam('sort');
 export const selectedFileAtom = queryParam('file');
 export const editPathAtom = queryParam('edit');
+export const listKindAtom = queryParam('list');
 export const sampleAtom = atom(get => get(locationAtom).query.has('sample'));
 
 export const hubAtom = atomWithRefresh(() => getJson<{ config: Config } | { errors: ConfigError[] }>('/api/hub'));

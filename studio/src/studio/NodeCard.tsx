@@ -2,14 +2,15 @@ import { Handle, type Node, type NodeProps, Position } from '@xyflow/react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { createContext, memo, type ReactNode, use } from 'react';
 import { fanOut } from '../../../src/over.ts';
-import type { GraphNode } from '../graph-model.ts';
+import { type GraphNode, modeTone } from '../graph-model.ts';
 import { editPathAtom, navigateAtom, sampleAtom } from '../state.ts';
-import { Badge, cx } from '../ui.tsx';
-import { castSize, nodeSize } from './layout.ts';
+import { Badge, cx, Tooltip } from '../ui.tsx';
+import { castSize, nodeSize, stackSize } from './layout.ts';
 import { KindIcon, kindTitle } from './icons.tsx';
 import { nodeStyle } from './styles.ts';
 
 export type FlowNode = Node<{ node: GraphNode }, 'graph' | 'cast'>;
+export type StackFlowNode = Node<{ node: GraphNode; held: GraphNode[] }, 'stack'>;
 export type JobFlowNode = Node<{ node: GraphNode; bot?: GraphNode | undefined; skill?: GraphNode | undefined }, 'job'>;
 
 /** Selects a node by id; cards use it for the chips inside them. */
@@ -147,6 +148,52 @@ export const CastCard = memo(({ data: { node }, selected }: NodeProps<FlowNode>)
       </div>
     ) : null}
   </Card>
+));
+
+const previewCount = 8;
+
+const preview = (held: GraphNode[]) =>
+  [
+    ...held.slice(0, previewCount).map(n => n.label),
+    ...(held.length > previewCount ? [`${held.length - previewCount} more`] : []),
+    'Click to list them all',
+  ].join('\n');
+
+export const FacetBadges = ({ facet }: { facet: NonNullable<GraphNode['stack']>['facets'][number] | undefined }) =>
+  facet?.counts.map(([value, count]) => {
+    const tone = facet.key === 'mode' ? modeTone[value as keyof typeof modeTone] : undefined;
+    return (
+      <Badge key={value} {...(tone && { tone })}>
+        <span className="whitespace-nowrap tabular-nums">
+          {count} {value}
+        </span>
+      </Badge>
+    );
+  });
+
+/** The nodes a crowded group folds away, as one short stacked card counting them by their first facet. */
+export const StackCard = memo(({ data: { node, held }, selected }: NodeProps<StackFlowNode>) => (
+  <Tooltip tip={preview(held)}>
+    <div
+      style={stackSize}
+      className={cx(
+        'flex cursor-pointer flex-col justify-center gap-1 border border-l-4 border-zinc-200 bg-white px-2.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100',
+        nodeStyle[node.kind],
+        stacked,
+        selected && 'ring-2 ring-sky-400'
+      )}
+    >
+      <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
+      <div className="flex min-w-0 items-center gap-1.5">
+        <KindIcon kind={node.kind} />
+        <span className="truncate text-[13px] font-semibold tabular-nums">{node.label}</span>
+      </div>
+      <Meta>
+        <FacetBadges facet={node.stack?.facets[0]} />
+      </Meta>
+      <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
+    </div>
+  </Tooltip>
 ));
 
 export type FrameFlowNode = Node<{ name: string; path?: string | undefined }, 'workflow'>;

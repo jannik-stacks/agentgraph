@@ -2,6 +2,7 @@
 title: The triage brief has one template
 status: accepted
 check: triage-brief
+human: narrow-bots W3 triage checks
 ---
 A triage reply has exactly `## Task`, `## Criteria`, `## Files` and `## Out of scope`, in that
 order. Each criterion is one numbered line with one observable result and ends in

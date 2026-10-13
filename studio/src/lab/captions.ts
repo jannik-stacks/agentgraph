@@ -51,7 +51,7 @@ export const captions: Record<Lib, Caption> = {
       'Dagre with each composite laid out on its own, then placed as a block. Readable for the run lifecycle; notes become dark boxes beside the state.',
     interaction: 'Static SVG. State diagrams have no click callbacks, so the lab wrapper adds them.',
     compound:
-      'Composite and concurrent states are native, but a transition cannot join states in different composites. It is lifted to the composite, so the 3 attempts failed edge leaves implement instead of checking.',
+      'Composite and concurrent states are native, but a transition cannot join states in different composites. It is lifted to the composite, so the edge for failed attempts leaves implement instead of checking.',
   },
   d2: {
     name: 'd2',

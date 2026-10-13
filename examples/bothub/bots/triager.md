@@ -7,6 +7,7 @@ skills: [triage]
 preload: [issue, links, recall]
 max-turns: 10
 budget: { runs-per-day: 30, minutes: 10 }
+human: seed hub, untraced
 ---
 You turn one bothub issue into one scoped task. bothub is a TypeScript agent hub: `src/` is the
 runtime, `tests/` its vitest suite, `studio/content/docs/` the docs site's pages.

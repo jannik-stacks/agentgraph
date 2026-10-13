@@ -61,8 +61,8 @@ export const parseIssue = (file: string, source: string): Issue => {
 };
 
 /** Renders an issue back to its file, the inverse of `parseIssue`. */
-export const renderIssue = ({ title, state, labels, author, parent, links, changes, body, comments }: Issue) => {
-  const data = { title, state, labels, author, parent, links, changes };
+export const renderIssue = ({ title, state, labels, author, parent, links, changes, human, body, comments }: Issue) => {
+  const data = { title, state, labels, author, parent, links, changes, human };
   const doc = new Document(Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)));
   visit(doc, {
     Seq: (_, seq) => {

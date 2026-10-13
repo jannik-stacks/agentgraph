@@ -11,10 +11,23 @@ import {
   useStoreApi,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useAtom } from 'jotai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type GraphEdge, type GraphModel, type Layer, layerModel, retryLoops } from '../graph-model.ts';
+import { type EdgeKind, type GraphEdge, type GraphModel, type Layer, retryLoops } from '../graph-model.ts';
 import { cx } from '../ui.tsx';
-import { type Box, castSize, checkGroups, edgeId, frame, layout, loopRoom, nodeSize, type Point } from './layout.ts';
+import { heldBy } from './collapse.ts';
+import {
+  type Box,
+  castSize,
+  checkGroups,
+  edgeId,
+  frame,
+  layout,
+  loopRoom,
+  nodeSize,
+  type Point,
+  stackSize,
+} from './layout.ts';
 import { type LoopFlowEdge, LoopEdge, type RoutedFlowEdge, RoutedEdge } from './LoopEdge.tsx';
 import {
   CastCard,
@@ -24,12 +37,15 @@ import {
   type JobFlowNode,
   NodeCard,
   SelectNode,
+  StackCard,
+  type StackFlowNode,
   WorkflowFrame,
 } from './NodeCard.tsx';
 import { applyMoves, decorate, loadPositions, placeNodes, savePositions } from './placed.ts';
+import { layerAtom, shownModel } from './shown.ts';
 import { defaultEdgeLabel, edgeStyle } from './styles.ts';
 
-const nodeTypes = { graph: NodeCard, job: JobCard, cast: CastCard, workflow: WorkflowFrame };
+const nodeTypes = { graph: NodeCard, job: JobCard, cast: CastCard, stack: StackCard, workflow: WorkflowFrame };
 const edgeTypes = { routed: RoutedEdge, loop: LoopEdge };
 const fitViewOptions = { padding: 0.06 };
 
@@ -38,7 +54,13 @@ const label = (edge: GraphEdge) => edge.label ?? defaultEdgeLabel[edge.kind];
 const strokeOf = (edge: GraphEdge) => String(edgeStyle[edge.kind].style?.stroke ?? '#71717a');
 
 type FlowEdge = RoutedFlowEdge | LoopFlowEdge;
-type AnyNode = FlowNode | JobFlowNode;
+type AnyNode = FlowNode | JobFlowNode | StackFlowNode;
+
+/**
+ * Edges that only repeat what a card already names, drawn while one of their ends is selected or hovered. A check
+ * stacked beside one job gates any other job the same way.
+ */
+const onFocus = new Set<EdgeKind>(['runs-as', 'fans-out', 'uses-skill']);
 
 type Frame = { data: FrameFlowNode['data']; members: string[]; looped: Set<string> };
 
@@ -59,12 +81,13 @@ const workflowOf = (model: GraphModel) => {
 };
 
 const toFlow = (full: GraphModel, layer: Layer) => {
-  const shown = layerModel(full, layer);
+  const shown = shownModel(full, layer);
   const model = retryLoops(shown);
   const groups = checkGroups(shown);
-  const { boxes, routes, main: spine, clusters } = layout(model, label, groups, workflowOf(full));
+  const { boxes, routes, main: spine, clusters } = layout(model, label, groups, workflowOf(shown));
   const main = (id: string) => spine.has(id);
   const byId = new Map(full.nodes.map(n => [n.id, n]));
+  const stacked = new Set([...groups.values()].flat());
   const looped = new Set(
     model.edges.filter(e => e.from === e.to).flatMap(e => [e.from, ...(groups.get(e.from) ?? [])])
   );
@@ -80,6 +103,13 @@ const toFlow = (full: GraphModel, layer: Layer) => {
   const nodes = model.nodes.map((node): AnyNode => {
     const box = boxes.get(node.id);
     const position = box ? { x: box.x, y: box.y } : { x: 0, y: 0 };
+    if (node.stack)
+      return {
+        id: node.id,
+        type: 'stack',
+        position,
+        data: { node, held: node.stack.members.flatMap(id => byId.get(id) ?? []) },
+      };
     if (node.kind === 'job')
       return {
         id: node.id,
@@ -99,12 +129,14 @@ const toFlow = (full: GraphModel, layer: Layer) => {
     const text = label(edge);
     const faint = !main(edge.from) && !main(edge.to);
     const gate = edge.kind === 'gates' && !!groups.get(edge.to)?.includes(edge.from);
+    const elsewhere = edge.kind === 'gates' && stacked.has(edge.from) && !gate;
     const color = strokeOf(edge);
     const common = {
       id: edgeId(edge),
       source: gate ? edge.to : edge.from,
       target: gate ? edge.from : edge.to,
       focusable: false,
+      ...((onFocus.has(edge.kind) || elsewhere) && { hidden: true }),
       ...(style && {
         style: { ...style, ...(edge.kind === 'fans-out' && { strokeWidth: 2 }), ...(faint && { opacity: 0.45 }) },
       }),
@@ -141,7 +173,9 @@ const sizeOf = (node: AnyNode) =>
     ? { width: node.measured.width, height: node.measured.height }
     : node.type === 'cast'
       ? castSize
-      : nodeSize;
+      : node.type === 'stack'
+        ? stackSize
+        : nodeSize;
 
 /** The frame around a workflow's members where they are now, or nothing when none is placed. */
 const frameBox = ({ members, looped }: Frame, at: Map<string, AnyNode>): Box | undefined => {
@@ -208,26 +242,6 @@ const useFrames = (frames: Frame[], nodes: AnyNode[]) => {
 const isFrameChange = (change: NodeChange) => 'id' in change && change.id.startsWith('frame:');
 
 const storageKey = (graph: string) => `bhm:graph-layout:${import.meta.env.VITE_BHM_HUB ?? 'hub'}:${graph}`;
-const layerKey = 'bhm.studio.layer';
-
-const loadLayer = (): Layer => {
-  try {
-    return localStorage.getItem(layerKey) === 'cast' ? 'cast' : 'flow';
-  } catch {
-    return 'flow';
-  }
-};
-
-const useLayer = () => {
-  const [layer, setLayer] = useState(loadLayer);
-  const choose = useCallback((next: Layer) => {
-    setLayer(next);
-    try {
-      localStorage.setItem(layerKey, next);
-    } catch {}
-  }, []);
-  return [layer, choose] as const;
-};
 
 /**
  * The nodes React Flow draws, owned here so drags and measurements apply in place. They are placed again only when
@@ -381,15 +395,18 @@ export const GraphCanvas = ({
   onSelect: (id: string | null) => void;
   layoutKey: string;
 }) => {
-  const [layer, setLayer] = useLayer();
+  const [layer, setLayer] = useAtom(layerAtom);
+  const [hovered, setHovered] = useState<string | null>(null);
   const flow = useMemo(() => toFlow(model, layer), [model, layer]);
+  const held = useMemo(() => heldBy(shownModel(model, layer)), [model, layer]);
+  const focus = selected && (held.get(selected) ?? selected);
   const near = useMemo(() => {
-    if (!selected) return undefined;
-    const ids = new Set([selected]);
-    for (const e of flow.edges) if (e.source === selected || e.target === selected) ids.add(e.source).add(e.target);
+    if (!focus) return undefined;
+    const ids = new Set([focus]);
+    for (const e of flow.edges) if (e.source === focus || e.target === focus) ids.add(e.source).add(e.target);
     return ids;
-  }, [flow, selected]);
-  const placed = usePlaced(flow.nodes, storageKey(`${layoutKey}:${layer}`), selected, near);
+  }, [flow, focus]);
+  const placed = usePlaced(flow.nodes, storageKey(`${layoutKey}:${layer}`), focus, near);
   const frames = useFrames(flow.frames, placed.nodes);
   const nodes = useMemo(() => [...frames, ...placed.nodes], [frames, placed.nodes]);
   const { onNodesChange: moveNodes } = placed;
@@ -398,17 +415,16 @@ export const GraphCanvas = ({
       moveNodes(changes.filter((c): c is NodeChange<AnyNode> => !isFrameChange(c))),
     [moveNodes]
   );
-  const edges = useMemo(
-    () =>
-      near
-        ? flow.edges.map(e =>
-            e.source === selected || e.target === selected
-              ? ({ ...e, data: { ...e.data!, quiet: false } } as FlowEdge)
-              : ({ ...e, data: { ...e.data!, dim: true } } as FlowEdge)
-          )
-        : flow.edges,
-    [flow, selected, near]
-  );
+  const edges = useMemo(() => {
+    if (!focus && !hovered) return flow.edges;
+    const touches = (e: FlowEdge, id: string | null) => !!id && (e.source === id || e.target === id);
+    return flow.edges.map((e): FlowEdge => {
+      const lit = touches(e, focus);
+      const hidden = !!e.hidden && !lit && !touches(e, hovered);
+      if (!focus) return hidden === !!e.hidden ? e : { ...e, hidden };
+      return { ...e, hidden, data: lit ? { ...e.data!, quiet: false } : { ...e.data!, dim: true } } as FlowEdge;
+    });
+  }, [flow, focus, hovered]);
   const latest = useRef(onSelect);
   latest.current = onSelect;
   const select = useCallback((id: string | null) => latest.current(id), []);
@@ -417,6 +433,11 @@ export const GraphCanvas = ({
     [select]
   );
   const onPaneClick = useCallback(() => select(null), [select]);
+  const onNodeMouseEnter = useCallback(
+    (_: unknown, n: AnyNode | FrameFlowNode) => n.type !== 'workflow' && setHovered(n.id),
+    []
+  );
+  const onNodeMouseLeave = useCallback(() => setHovered(null), []);
   return (
     <SelectNode value={select}>
       <ReactFlow
@@ -429,6 +450,8 @@ export const GraphCanvas = ({
         onNodeDragStop={placed.onNodeDragStop}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
         colorMode="system"
         fitView
         fitViewOptions={fitViewOptions}
@@ -437,7 +460,7 @@ export const GraphCanvas = ({
         <Background />
         <Layers layer={layer} onChange={setLayer} />
         <GraphControls moved={placed.moved} onReset={placed.reset} />
-        <FocusSelected id={selected} />
+        <FocusSelected id={focus} />
       </ReactFlow>
     </SelectNode>
   );

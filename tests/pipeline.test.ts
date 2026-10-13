@@ -86,7 +86,16 @@ jobs:
     bot: bot
     skill: implement
     returns: [reply]
-    until: { checks: [judged], max: 1 }`
+    until: { checks: [judged], max: 1 }
+  parking:
+    type: bot
+    mode: warn
+    bot: bot
+    skill: implement
+    branch: bothub/{issue}
+    paths: ['src/**']
+    returns: [push, ask]
+    until: { checks: [exists], max: 1 }`
     ),
   ]);
   if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -252,6 +261,12 @@ describe('buildSpec', () => {
     expect(timeoutMinutes).toBe(30);
     expect(spec.prompt.endsWith('Text:\n\n````text\nplease look at ```this```\n````')).toBe(true);
     expect(spec.system).not.toContain('## What you return');
+  });
+
+  it('leaves out empty command arguments', () => {
+    const { spec } = buildSpec({ config, workflow, job: 'summarize', args: ' ', event, cwd: '/w' });
+    expect(spec.prompt).not.toContain('Command arguments');
+    expect(spec.prompt).not.toContain('Text:');
   });
 
   it('renders the job branch into the event and the proposal examples', () => {
@@ -599,6 +614,95 @@ describe('until', () => {
     const checkRuns = (await p.store.list()).filter(r => r.check === 'judged');
     expect(checkRuns).toHaveLength(4);
     expect(checkRuns.every(r => r.bot === 'judge' && r.parent !== undefined)).toBe(true);
+  });
+});
+
+describe('parking', () => {
+  const asks = bothub([
+    { kind: 'ask', question: 'Which name should it get?' },
+    { kind: 'close', as: 'blocked', reason: 'the name is unclear' },
+  ]);
+  const writeA = "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/a.ts', 'a')";
+  const continueB =
+    "if (fs.readFileSync('src/a.ts', 'utf8') !== 'a') process.exit(5); fs.writeFileSync('src/b.ts', 'b')";
+  const pushB = bothub([{ kind: 'push', branch: 'bothub/7', files: ['src/b.ts'] }]);
+  const answer: BotEvent = { ...event, id: 'd2', body: 'Call it short.' };
+
+  const blockedRun = async (issues = trackedIssues()) => {
+    const origin = sourceRepo();
+    const { seen, adapters } = fake(spec =>
+      spec.prompt.includes('## Resuming') ? { message: pushB, work: continueB } : { message: asks, work: writeA }
+    );
+    const p = await pipeline({ config: configFor(), issues, adapters }, origin);
+    const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+    if (!('run' in result)) throw new Error('skipped');
+    return { issues, origin, seen, p, result };
+  };
+
+  it('parks a blocked job on its branch without a merge request', async () => {
+    const { origin, result } = await blockedRun();
+    expect(result.run).toMatchObject({ closure: 'blocked', reason: 'the name is unclear', parked: 'bothub/7' });
+    expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
+    expect(git(origin.dir, 'rev-parse', 'bothub/7^')).toBe(origin.main);
+  });
+
+  it('resumes from the parked branch with the question and the answer', async () => {
+    const { issues, origin, seen, p, result } = await blockedRun();
+    const [asked] = await issues.list({ label: 'unsure' });
+    await issues.comment(asked!.number, 'Short, like the others.');
+    const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
+    if (!('run' in next)) throw new Error('skipped');
+    expect(seen).toHaveLength(2);
+    const resume = seen[1]!.prompt.slice(seen[1]!.prompt.indexOf('## Resuming'));
+    expect(resume).toContain(`Your earlier run ${result.run.id} stopped before finishing.`);
+    expect(resume).toContain('parked on `bothub/7`');
+    expect(resume).toContain('```text\nWhich name should it get?\n```');
+    expect(resume).toContain('```text\nCall it short.\n```');
+    expect(resume).toContain(`In #${asked!.number}: Short, like the others.`);
+    expect(next.run.base).toBe(origin.main);
+    expect(git(origin.dir, 'show', 'bothub/7:src/b.ts')).toBe('b');
+    expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
+  });
+
+  it('finds an answer given in an earlier comment on the issue when a bare command resumes', async () => {
+    const dir = temp('issues');
+    writeFileSync(join(dir, '7-task.md'), '---\ntitle: Task\n---\n\nDo it.\n');
+    const { seen, p } = await blockedRun(localIssues(dir, { repo: 'acme/app', as: 'octocat' }));
+    await localIssues(dir, { repo: 'acme/app', as: 'octocat' }).comment(7, '/bothub Call it short.');
+    await localIssues(dir, { repo: 'acme/app' }).comment(7, 'A bot status line.');
+    const bare: BotEvent = { ...event, id: 'd3', body: '/bothub' };
+    await Effect.runPromise(runPlanned({ ...planned('parking'), args: '' }, { ...p, event: bare }));
+    const resume = seen[1]!.prompt.slice(seen[1]!.prompt.indexOf('## Resuming'));
+    expect(resume).toContain('```text\nOn #7: /bothub Call it short.\n```');
+    expect(resume).not.toContain('A bot status line.');
+    expect(resume).not.toContain('No answer was found');
+  });
+
+  it('leaves work outside the job paths unparked and says why', async () => {
+    const origin = sourceRepo();
+    const { adapters } = fake({ message: asks, work: "fs.writeFileSync('notes.md', 'n')" });
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters }, origin);
+    const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+    if (!('run' in result)) throw new Error('skipped');
+    expect(result.run.parked).toBeUndefined();
+    expect(result.run.reason).toMatch(/^the name is unclear; not parked: .*notes\.md/);
+    expect(git(origin.dir, 'branch', '--list', 'bothub/7')).toBe('');
+  });
+
+  it('starts clean when nothing is parked', async () => {
+    const origin = sourceRepo();
+    const { seen, adapters } = fake({ message: asks });
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters }, origin);
+    const first = await Effect.runPromise(runPlanned(planned('parking'), p));
+    if (!('run' in first)) throw new Error('skipped');
+    expect(first.run.parked).toBeUndefined();
+    expect(seen[0]!.prompt).not.toContain('## Resuming');
+    expect(git(origin.dir, 'branch', '--list', 'bothub/7')).toBe('');
+    const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
+    if (!('run' in next)) throw new Error('skipped');
+    expect(seen[1]!.prompt).toContain('## Resuming');
+    expect(seen[1]!.prompt).not.toContain('parked on');
+    expect(next.run.base).toBe(origin.main);
   });
 });
 
@@ -1144,7 +1248,8 @@ describe('over', () => {
       },
       script: (script, cwd, env, access) => {
         calls.push(`script ${script} ${access?.readonly ? 'ro' : 'rw'}`);
-        if (script === down) return Promise.reject(new SandboxError('the sandbox is down'));
+        if (script === down || (down && env.BOTHUB_ITEM === down))
+          return Promise.reject(new SandboxError('the sandbox is down'));
         return unsandboxed.script(script, cwd, env, access);
       },
     };
@@ -1197,6 +1302,29 @@ describe('over', () => {
     const question = `checks could not run: tests (sandbox-failed: the sandbox is down). The change waits in run ${result.run.id}; nothing went back to the bot.`;
     expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
     expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
+  });
+
+  it('names the items that could not run first, even after other items found something', async () => {
+    const { launch } = recording('c');
+    const { result } = await run(
+      hubWith([
+        {
+          name: 'items',
+          data: {
+            type: 'script',
+            over: { each: "printf 'a\\nb\\nc\\n'" },
+            run: 'echo "bad $BOTHUB_ITEM"; exit 1',
+            mode: 'block',
+          },
+        },
+      ]),
+      { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      {},
+      { launch, issues: trackedIssues() }
+    );
+    const question = `checks could not run: items (1 of 3 items could not run, the first: sandbox-failed: the sandbox is down). The change waits in run ${result.run.id}; nothing went back to the bot.`;
+    expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
+    expect(result.outcome?.checks?.[0]?.findings).toContain('item 1:\nbad a');
   });
 
   it('sends warn findings back but lets the change through once the attempts are spent', async () => {

@@ -5,7 +5,8 @@ tools: [read, grep, glob, notes_search]
 returns: [reply]
 preload: [recall]
 max-turns: 20
-budget: { runs-per-day: 60, minutes: 15 }
+budget: { runs-per-day: 150, minutes: 15 }
+human: seed hub, untraced
 ---
 You answer one narrow question about a bothub change, from a different model family than the bot
 that wrote it: one hunk, one acceptance criterion, or the whole change followed through one piece

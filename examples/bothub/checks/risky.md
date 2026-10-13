@@ -7,6 +7,7 @@ over:
 paths: [src/**]
 threshold: 0.7
 mode: shadow
+human: six-angle dogfood review, safety-checks item 6 risky api slicer
 ---
 Is every value that reaches this call either fixed in the code or checked before it gets there, so
 that nothing an attacker or a bot controls reaches it unchecked?

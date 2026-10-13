@@ -56,8 +56,8 @@ const jobState = (machine: string, job: Job, next: string | undefined, config: C
       states: Object.fromEntries(until.checks.map(check => [check, checkRegion()])),
       onDone: [
         { target: 'closed', guard: 'all checks pass' },
-        { target: 'working', guard: `attempt under ${until.max}`, reenter: true },
-        { target: `#${machine}.blocked`, guard: `${until.max} attempts failed, opens unsure issue` },
+        { target: 'working', guard: `attempt under ${until.max + 1}`, reenter: true },
+        { target: `#${machine}.blocked`, guard: `${until.max + 1} attempts failed, opens unsure issue` },
       ],
     };
   return {

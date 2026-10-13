@@ -2,6 +2,7 @@
 title: One task, one small change
 status: accepted
 check: size
+human: safety-checks item 9, size caps, rename rule from dogfood round 2 kinks K7 and K10
 ---
 A change adds at most 300 lines and touches at most 8 files outside `tests/`. Tests don't count,
 so a change never has to test less to fit, and neither do files that only make the change's one

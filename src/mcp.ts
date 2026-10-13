@@ -38,13 +38,17 @@ const tools: Record<McpTool, Tool> = {
     description: 'List issues without comments. Filter by label (plan, spec, unsure, ...), state and parent issue.',
     input: z.object({ label: z.string().optional(), state: State.optional(), parent: z.int().optional() }),
     call: async (filter: { label?: string; state?: z.infer<typeof State>; parent?: number }, { issues }) =>
-      (await need(issues, 'issues').list(filter)).map(({ comments: _, body: __, ...issue }) => issue),
+      (await need(issues, 'issues').list(filter)).map(({ comments: _, body: __, human: ___, ...issue }) => issue),
   },
   issues_get: {
     description: 'Read one issue with its body and comments.',
     input: z.object({ number: z.int().positive() }),
-    call: async ({ number }: { number: number }, { issues }) =>
-      (await need(issues, 'issues').get(number)) ?? `no issue #${number}`,
+    call: async ({ number }: { number: number }, { issues }) => {
+      const issue = await need(issues, 'issues').get(number);
+      if (!issue) return `no issue #${number}`;
+      const { human: _, ...rest } = issue;
+      return rest;
+    },
   },
   notes_search: {
     description:
@@ -68,7 +72,7 @@ const tools: Record<McpTool, Tool> = {
     call: async ({ kind, slug }: { kind: NoteKind; slug: string }, { config }) => {
       const note = config.notes.find(n => n.kind === kind && n.name === slug);
       if (!note) return `no ${kind} note "${slug}"`;
-      const { path: _, name, ...rest } = note;
+      const { path: _, human: __, name, ...rest } = note;
       return { slug: name, ...rest };
     },
   },

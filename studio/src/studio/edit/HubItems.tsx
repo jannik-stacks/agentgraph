@@ -1,8 +1,10 @@
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { hubFile } from '../../../../src/config.ts';
 import { type ItemKind, itemKind, itemName, noteKindOf } from '../../../../src/hub-files.ts';
 import { NoteKind } from '../../../../src/schema.ts';
-import { Button } from '../../ui.tsx';
+import { listKindAtom } from '../../state.ts';
+import { Button, Tooltip } from '../../ui.tsx';
+import { ItemList, type Row, RowPreview } from '../ItemList.tsx';
 import { createItemAtom, draftHubAtom, draftsAtom, editItemAtom, parseCached } from './hub-edits.ts';
 import { KindIcon } from '../icons.tsx';
 import { itemIcon } from './ItemEditor.tsx';
@@ -21,13 +23,39 @@ const title = (path: string, source: string) => {
   return typeof t === 'string' && t ? t : undefined;
 };
 
-/** Every item in the hub by kind, each opening its editor, with a way to add one of each kind. */
+/**
+ * The items in the hub by kind, each opening its editor, with a way to add one of each kind. Long kinds show their
+ * first few and open in a full list of their own.
+ */
 export const HubItems = () => {
   const hub = useAtomValue(draftHubAtom);
   const drafts = useAtomValue(draftsAtom);
   const create = useSetAtom(createItemAtom);
   const edit = useSetAtom(editItemAtom);
+  const [list, setList] = useAtom(listKindAtom);
   if (!hub) return <p className="text-zinc-500">Loading the hub.</p>;
+  const rowsOf = (kind: ItemKind) =>
+    hub.files
+      .filter(f => itemKind(f.path) === kind)
+      .map((f): Row => ({
+        key: f.path,
+        label: title(f.path, f.source) ?? itemName(f.path),
+        icon: <KindIcon kind={itemIcon(kind)} />,
+        search: f.path,
+        meta: (
+          <>
+            {kind === 'note' && <span className="text-[11px] text-zinc-500">{noteKindOf(f.path)}</span>}
+            {drafts[f.path] && (
+              <Tooltip tip="pending change" className="ml-auto shrink-0">
+                <span className="size-1.5 rounded-full bg-amber-500" />
+              </Tooltip>
+            )}
+          </>
+        ),
+        onPick: () => edit(f.path),
+      }));
+  const open = groups.find(group => group.kind === list);
+  if (open) return <ItemList title={open.title} rows={rowsOf(open.kind)} onBack={() => setList(null)} />;
   const hasHub = hub.files.some(f => f.path === hubFile);
   return (
     <div className="space-y-4">
@@ -45,7 +73,7 @@ export const HubItems = () => {
         <span className="text-zinc-500">{hasHub ? 'hub settings' : 'add hub settings'}</span>
       </button>
       {groups.map(group => {
-        const files = hub.files.filter(f => itemKind(f.path) === group.kind);
+        const rows = rowsOf(group.kind);
         return (
           <section key={group.kind} className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -65,25 +93,8 @@ export const HubItems = () => {
                 )}
               </span>
             </div>
-            {files.length ? (
-              <ul className="divide-y divide-zinc-100 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-                {files.map(f => (
-                  <li key={f.path}>
-                    <button
-                      type="button"
-                      onClick={() => edit(f.path)}
-                      className="flex w-full items-center gap-2 px-2 py-1 text-left text-[13px] hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                    >
-                      <KindIcon kind={itemIcon(group.kind)} />
-                      <span className="truncate font-medium">{title(f.path, f.source) ?? itemName(f.path)}</span>
-                      {group.kind === 'note' && <span className="text-[11px] text-zinc-500">{noteKindOf(f.path)}</span>}
-                      {drafts[f.path] && (
-                        <span className="ml-auto size-1.5 shrink-0 rounded-full bg-amber-500" title="pending change" />
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            {rows.length ? (
+              <RowPreview rows={rows} onShowAll={() => setList(group.kind)} />
             ) : (
               <p className="text-xs text-zinc-400">None yet.</p>
             )}

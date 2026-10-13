@@ -7,6 +7,7 @@ over:
   max: 20
 paths: [studio/content/docs/**]
 mode: shadow
+human: split of the broad review, narrow-bots W1 and safety-checks item 8
 ---
 The item is one hunk of a docs page. Read the code it describes. Does every statement the hunk adds
 hold against that code? FAIL naming the statement and the code that contradicts it; otherwise

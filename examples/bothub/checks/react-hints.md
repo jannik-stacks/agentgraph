@@ -4,6 +4,7 @@ description: Added code derives values while rendering instead of copying them i
 run: node "$BOTHUB_HUB/scripts/code-shape.mjs" --hints
 paths: [src/**, studio/src/**]
 mode: warn
+human: mined from user feedback, feedback rule 9
 ---
 An effect that only calls a setter renders twice and shows the stale value in between. A plain
 TypeScript union told apart by `kind` or `tag` reads differently from the schemas; existing ones

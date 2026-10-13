@@ -1,5 +1,6 @@
 ---
 description: Implement one scoped bothub change and keep its checks green.
+human: seed hub, untraced
 ---
 The issue and its triage brief are in your prompt: the task, the criteria with the test that
 proves each one, the files and what is out of scope. Read the code you are changing and its tests
@@ -26,7 +27,9 @@ behavior: fix the cause it names, not only the example.
 
 When a check asks for something the brief rules out, or the task cannot be done within the hub's
 bounds, ask one question and add a `close` as `blocked`: the hub then stops, runs no more checks
-and sends nothing back.
+and sends nothing back. Your work so far is parked on the branch. When the prompt has a
+`## Resuming` section, that work is already in your worktree: read the question and the answer
+there, continue from it and do not start over.
 
 End with a `push` of your branch listing every file you changed, a `merge-request` from that
 branch whose body says which issue it closes, and a reply that lists each criterion with the test

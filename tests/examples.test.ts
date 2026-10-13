@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 import { main } from '../src/cli.ts';
 import { compile } from '../src/config.ts';
 import { readHub } from '../src/load.ts';
+import { matchGlob } from '../src/outputs.ts';
 
 const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');
@@ -43,6 +44,54 @@ describe('example hubs', () => {
     expect(compiled.ok ? [] : compiled.errors).toEqual([]);
     capture();
     expect(await main(['check', '--dir', dir, '--json'])).toBe(0);
+  });
+});
+
+describe('the bothub hub', () => {
+  it('has a gating bot judge for every code root each implement job may change', async () => {
+    const compiled = compile(await readHub(join(examples, 'bothub')));
+    if (!compiled.ok) throw new Error('the bothub hub does not compile');
+    const { checks, workflows } = compiled.config;
+    const samples = ['src/a.ts', 'studio/src/a.tsx'];
+    const uncovered = Object.values(workflows).flatMap(workflow => {
+      const job = workflow.jobs.implement;
+      if (job?.type !== 'bot' || !job.until) return [];
+      const judges = job.until.checks
+        .map(name => checks[name])
+        .filter(check => check?.type === 'bot' && check.mode !== 'shadow');
+      return samples
+        .filter(file => !judges.some(check => check?.paths?.some(glob => matchGlob(glob, file))))
+        .map(file => `${workflow.name}: ${file}`);
+    });
+    expect(uncovered).toEqual([]);
+  });
+
+  it('gives each bot a daily budget for the most runs one implement job can take', async () => {
+    const compiled = compile(await readHub(join(examples, 'bothub')));
+    if (!compiled.ok) throw new Error('the bothub hub does not compile');
+    const { bots, checks, workflows } = compiled.config;
+    const items = (over: unknown) => {
+      if (over === 'each-hunk') return 30;
+      if (typeof over !== 'object' || !over) return 1;
+      if ('each' in over && 'max' in over) return Number(over.max);
+      if ('each-hunk' in over) return Number((over['each-hunk'] as { max?: number }).max ?? 30);
+      return 1;
+    };
+    const short = Object.values(workflows).flatMap(workflow => {
+      const job = workflow.jobs.implement;
+      if (job?.type !== 'bot' || !job.until) return [];
+      const attempts = job.until.max + 1;
+      const needed = new Map<string, number>();
+      for (const name of job.until.checks) {
+        const check = checks[name];
+        if (check?.type !== 'bot') continue;
+        needed.set(check.bot, (needed.get(check.bot) ?? 0) + items(check.over) * attempts);
+      }
+      return [...needed]
+        .filter(([bot, runs]) => (bots[bot]?.budget?.['runs-per-day'] ?? Infinity) < runs)
+        .map(([bot, runs]) => `${workflow.name}: ${bot} needs ${runs}`);
+    });
+    expect(short).toEqual([]);
   });
 });
 

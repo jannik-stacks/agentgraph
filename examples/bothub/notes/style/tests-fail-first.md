@@ -2,6 +2,7 @@
 title: A new test fails on the code before the change
 status: accepted
 check: tests-bite
+human: narrow-bots W1 and W2 test first
 ---
 Write the test a criterion names before the code, and see it fail. A test that passes on the base
 code would still pass with the change reverted, so it proves nothing about the change. Assert the

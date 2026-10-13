@@ -2,6 +2,7 @@
 title: A failing test is fixed, never weakened
 status: accepted
 check: test-integrity
+human: safety-checks item 3, check test-integrity
 ---
 When a test fails, fix the code or the test's expectation of the new behavior. Never delete a test
 file or a test, drop an `expect(`, add `.skip`, `.only` or `.todo`, raise a test timeout above the

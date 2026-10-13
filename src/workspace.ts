@@ -131,7 +131,8 @@ export const workspaces = ({
 
   /**
    * Pushes a run's commit to `branch` without forcing, after checking that every file it changes since `base` is
-   * listed in `files` and allowed by `paths`; a run that started at the branch moves it forward. A merge in progress
+   * allowed by `paths` and every file it changes on top of the branch is listed in `files`; a run that started at the
+   * branch moves it forward. A merge in progress
    * is committed whole with both parents once no conflicting file keeps a marker; then every file the branch changes
    * against the merged-in tip must be allowed by `paths`. Reports the commit to `committed` before pushing it; when the
    * remote branch is already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it
@@ -197,9 +198,12 @@ export const workspaces = ({
       await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', message, '--', ...dirty], botEnv);
     }
 
-    const changed = names(await run(['diff', '--name-only', '--no-renames', '-z', `${merging || base}...HEAD`]));
+    const diffed = async (from: string) =>
+      names(await run(['diff', '--name-only', '--no-renames', '-z', `${from}...HEAD`]));
+    const changed = await diffed(merging || base);
     if (!changed.length) throw new Error(`branch "${branch}" has no changes`);
-    const unlisted = merging ? undefined : changed.find(file => !files.includes(file));
+    const own = tip && tip !== base && !merging ? await diffed(tip) : changed;
+    const unlisted = merging ? undefined : own.find(file => !files.includes(file));
     if (unlisted) throw new Error(`"${unlisted}" changed but is not listed in the proposal`);
     const outside = checkPaths(changed, paths);
     if (outside) throw new Error(outside);

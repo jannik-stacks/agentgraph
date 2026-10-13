@@ -60,6 +60,14 @@ a run needs are installed; see [Sandbox and models](/docs/sandbox#dependencies).
 
 <Source file="src/schema.ts" symbol="Hub" />
 
+## Human
+
+Every hub file, local issues included, takes an optional `human` field: notes for humans, never
+shown to a model and never changing the flow. It is plain text or a map of strings, such as where
+the item came from. The studio shows it in the node details.
+
+<Source file="src/schema.ts" symbol="Human" />
+
 ## Config
 
 <Source file="src/config.ts" symbol="Config" />

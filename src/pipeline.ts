@@ -132,12 +132,11 @@ const eventContext = (event: BotEvent, args: string | undefined, branch: string 
     branch && `Branch: ${branch}`,
     pr !== undefined && `Pull request: #${pr}`,
   ].filter(Boolean);
-  const quoted =
-    args !== undefined
-      ? `Command arguments:\n\n${fenced(args)}`
-      : event.body
-        ? `Text:\n\n${fenced(event.body)}`
-        : undefined;
+  const quoted = args?.trim()
+    ? `Command arguments:\n\n${fenced(args)}`
+    : args === undefined && event.body
+      ? `Text:\n\n${fenced(event.body)}`
+      : undefined;
   return ['## Event', facts.join('\n'), quoted].filter(Boolean).join('\n\n');
 };
 
@@ -766,9 +765,14 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
     const findings = judged.flatMap(({ findings }, i) =>
       findings ? [items.length > 1 ? `${items[i]?.label}:\n${findings}` : findings] : []
     );
+    const blocked = judged.filter(verdict => verdict.blocked);
+    if (blocked.length && items.length > 1) {
+      const why = blocked[0]?.findings?.split('\n')[0] ?? 'no output';
+      findings.unshift(`${blocked.length} of ${items.length} items could not run, the first: ${why}`);
+    }
     return done({
       pass: judged.every(verdict => verdict.pass),
-      ...(judged.some(verdict => verdict.blocked) && { blocked: true }),
+      ...(blocked.length && { blocked: true }),
       ...(runs.length && { runs }),
       ...(findings.length && { findings: findings.join('\n\n') }),
     });
@@ -1176,10 +1180,11 @@ const costOf = async (ids: string[], store: Store) =>
   (await Promise.all(ids.map(id => store.read(id)))).reduce((sum, run) => sum + (run?.costUsd ?? 0), 0);
 
 /**
- * A run's worktree: the run that owns it, its path, the commit its change is measured from, and while it resolves a
- * merge (`merging`), the files that merge left conflicting.
+ * A run's worktree: the run that owns it, its path, the commit its change is measured from, while it resolves a
+ * merge (`merging`) the files that merge left conflicting, and when it picks up an earlier run's work, the prompt
+ * section that says so.
  */
-type Worktree = { id: string; cwd: string; base: string; conflicts: string[]; merging: boolean };
+type Worktree = { id: string; cwd: string; base: string; conflicts: string[]; merging: boolean; resume?: string };
 
 /** The default branch, when the job may open merge requests and there is a backend to ask. */
 const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
@@ -1228,7 +1233,12 @@ const attempts = (
     const cap = bot.budget?.['usd-per-run'];
     let spent = 0;
     let parent = first;
-    const task = [built.spec.prompt, item?.section, merging ? conflictSection(worktree.conflicts) : undefined]
+    const task = [
+      built.spec.prompt,
+      worktree.resume,
+      item?.section,
+      merging ? conflictSection(worktree.conflicts) : undefined,
+    ]
       .filter(Boolean)
       .join('\n\n');
     let prompt = task;
@@ -1651,6 +1661,111 @@ const withWorktree = (
   );
 };
 
+/** The latest earlier run of this job on the event's issue, with its outcome, when it closed blocked. */
+const lastBlocked = async (planned: PlannedJob, created: Run, p: Pipeline) => {
+  const { repo, number } = p.event;
+  if (number === undefined) return;
+  const last = (await p.store.list()).find(
+    r =>
+      r.id !== created.id &&
+      r.event.repo === repo &&
+      r.event.number === number &&
+      r.workflow === planned.workflow &&
+      r.job === planned.job &&
+      !r.check &&
+      r.status !== 'skipped'
+  );
+  if (last?.closure !== 'blocked') return;
+  return { run: last, outcome: await p.store.outcome(last.id) };
+};
+
+/**
+ * What a human said after `run` ended: the text that started this run, other human comments on the event's issue,
+ * and comments on the issues it asked in.
+ */
+const answers = async (run: Run, questions: string[], planned: PlannedJob, p: Pipeline) => {
+  const said = (planned.args ?? p.event.body)?.trim();
+  const issues = issuesOf(p);
+  const { number, body } = p.event;
+  if (!issues || number === undefined) return said ? [said] : [];
+  const asked = questions.length
+    ? (await issues.list({ label: roles.unsure, state: 'all', parent: number })).filter(issue =>
+        questions.some(question => issue.body.startsWith(question.trim()))
+      )
+    : [];
+  const since = async (from: number) =>
+    ((await issues.get(from))?.comments ?? []).filter(comment => comment.ts > (run.endedAt ?? ''));
+  const earlier = (await since(number))
+    .filter(comment => !comment.author.endsWith('[bot]') && comment.body.trim() !== body?.trim())
+    .map(comment => `On #${number}: ${comment.body.trim()}`);
+  const comments = await Promise.all(
+    asked.map(async ({ number }) => (await since(number)).map(comment => `In #${number}: ${comment.body.trim()}`))
+  );
+  return [...(said ? [said] : []), ...earlier, ...comments.flat()];
+};
+
+/**
+ * The worktree with the work of the job's last blocked run on this issue picked up: the prompt section that says what
+ * it asked and what the human answered, and, when it parked its work on the branch this worktree started from, the
+ * change measured from where that branch forked.
+ */
+const resumed = async (worktree: Worktree, planned: PlannedJob, created: Run, handoff: Handoff, p: Pipeline) => {
+  const last = await lastBlocked(planned, created, p);
+  if (!last || worktree.merging) return worktree;
+  const { run, outcome } = last;
+  const questions = (outcome?.accepted ?? []).flatMap(proposal => (proposal.kind === 'ask' ? [proposal.question] : []));
+  const said = await answers(run, questions, planned, p);
+  const resume = [
+    '## Resuming',
+    run.parked
+      ? `Your earlier run ${run.id} stopped before finishing. Its work is parked on \`${run.parked}\` and already in this worktree: continue from it, do not start over.`
+      : `Your earlier run ${run.id} stopped before finishing.`,
+    questions.length
+      ? `It asked:\n\n${questions.map(fenced).join('\n\n')}`
+      : run.reason && `It stopped because ${run.reason}.`,
+    said.length ? `The human answered:\n\n${said.map(fenced).join('\n\n')}` : 'No answer was found; read the issue.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  if (!run.parked) return { ...worktree, resume };
+  const from = handoff.branch ?? p.event.ref;
+  const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
+  await p.store.update(created.id, { base });
+  return { ...worktree, base, resume };
+};
+
+/**
+ * Pushes a blocked job's work to its branch without a merge request, so the next run of the job on the issue resumes
+ * from it, and records the branch on the run as `parked`. Work the job may not push stays unparked, with the reason.
+ */
+const park = async (
+  result: JobResult,
+  worktree: Worktree,
+  job: Job,
+  target: Target,
+  returns: Return[],
+  p: Pipeline
+) => {
+  if (!('run' in result) || result.run.closure !== 'blocked' || worktree.merging) return result;
+  const { branch } = target;
+  if (!branch || !returnKinds(returns).includes('push')) return result;
+  try {
+    const { files } = await p.workspaces.changes(worktree.id, worktree.base);
+    if (!files.length) return result;
+    await p.workspaces.publish(p.event.repo, worktree.id, {
+      branch,
+      files,
+      ...(job.paths && { paths: job.paths }),
+      message: `bothub: ${result.job} (parked)`,
+      base: worktree.base,
+    });
+    return { ...result, run: await p.store.update(result.run.id, { parked: branch }) };
+  } catch (e) {
+    const reason = `${result.run.reason ?? 'blocked'}; not parked: ${(e as Error).message}`;
+    return { ...result, run: await p.store.update(result.run.id, { reason }) };
+  }
+};
+
 /**
  * Runs one planned job in a fresh worktree: a script, or a bot running its skill until the job's checks pass.
  * Proposals are validated and applied only once the checks pass and the mode and a GitHub client allow it. Every
@@ -1692,14 +1807,20 @@ export const runPlanned = (
         ...(job.until && { attempt: 1 }),
       })
     );
+    const returns = effectiveReturns(bot, job);
     return yield* withWorktree(
       created,
-      worktree => fanned(planned, workflow, job, created, worktree, handoff, p),
+      started =>
+        Effect.gen(function* () {
+          const worktree = yield* Effect.promise(() => resumed(started, planned, created, handoff, p));
+          const result = yield* fanned(planned, workflow, job, created, worktree, handoff, p);
+          return yield* Effect.promise(() => park(result, worktree, job, target, returns, p));
+        }),
       handoff,
       p,
       {
         target,
-        lock: lockOf(target, effectiveReturns(bot, job)),
+        lock: lockOf(target, returns),
         ...(merge && { merge }),
         wait: job['timeout-minutes'] ?? defaultMinutes,
       }

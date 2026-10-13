@@ -7,11 +7,12 @@ import { editPathAtom, navigateAtom, sampleAtom, selectedNodeAtom, studioTabAtom
 import { Link } from '../Providers.tsx';
 import { cx, Muted } from '../ui.tsx';
 import { GraphCanvas } from './GraphCanvas.tsx';
-import { NodeDetails } from './NodeDetails.tsx';
 import { ChangesTray } from './edit/ChangesTray.tsx';
 import { HubItems } from './edit/HubItems.tsx';
 import { ItemEditor } from './edit/ItemEditor.tsx';
 import { useHubModel } from './hub-model.ts';
+import { layerAtom, shownModel, useShownModel } from './shown.ts';
+import { Selection } from './StackDetails.tsx';
 import { NotesView } from './NotesView.tsx';
 import { SetupView } from './SetupView.tsx';
 import { StudioLayout } from './StudioLayout.tsx';
@@ -52,19 +53,18 @@ const useSelect = (model: GraphModel | undefined) => {
     if (edit && !keep) navigate({ query: { node: id, edit: null } });
     else setSelected(id);
   };
-  return { selected, select, node: model?.nodes.find(n => n.id === selected), edit };
+  return { selected, select, edit };
 };
 
 const SampleStudio = () => {
-  const { selected, select, node } = useSelect(sampleModel);
+  const { selected, select } = useSelect(sampleModel);
+  const shown = shownModel(sampleModel, useAtomValue(layerAtom));
   return (
     <StudioLayout
       aside={
-        node ? (
-          <NodeDetails node={node} model={sampleModel} />
-        ) : (
+        <Selection model={sampleModel} shown={shown} selected={selected} onSelect={select}>
           <p className="text-zinc-500">Select a node to see its details.</p>
-        )
+        </Selection>
       }
     >
       <GraphCanvas model={sampleModel} selected={selected} onSelect={select} layoutKey="sample" />
@@ -74,14 +74,17 @@ const SampleStudio = () => {
 
 const HubStudio = () => {
   const { model, errors } = useHubModel();
-  const { selected, select, node, edit } = useSelect(model);
+  const { selected, select, edit } = useSelect(model);
+  const shown = useShownModel(model);
   return (
     <StudioLayout
       aside={
         edit ? (
           <ItemEditor path={edit} model={model} />
-        ) : node && model ? (
-          <NodeDetails node={node} model={model} />
+        ) : model && shown ? (
+          <Selection model={model} shown={shown} selected={selected} onSelect={select}>
+            <HubItems />
+          </Selection>
         ) : (
           <HubItems />
         )

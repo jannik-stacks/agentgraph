@@ -45,6 +45,19 @@ A check that could not run is blocked, not failed: its sandbox did not start, it
 bot was over budget or hit a provider limit. Nothing goes back to the bot for it. The job holds its
 proposals and asks a human once, naming the check and the run where the change waits.
 
+## Parked work
+
+A job with a `branch` that may `push` and closes as blocked, whether it asked a question, stopped on
+its own or ran out of attempts, parks its work: bothub commits the worktree and pushes it to the
+branch without opening a merge request, and records the branch on the run as `parked`. Work outside
+the job's `paths` is not pushed, and the run's reason says why.
+
+The next run of that job on the same issue starts from the branch. Its prompt gets a `## Resuming`
+section with what the blocked run asked and what the human answered: the text of the comment that
+started the run, and comments on the `unsure` issues it opened. The checks measure the change from
+where the branch forked, so the parked work is checked with the rest. A resumed `push` lists the
+files it changed on top of the branch.
+
 ## Check modes
 
 | Mode     | Effect                                                              |

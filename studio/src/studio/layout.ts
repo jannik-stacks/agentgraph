@@ -3,6 +3,9 @@ import type { GraphEdge, GraphModel, NodeKind } from '../graph-model.ts';
 
 export const nodeSize = { width: 232, height: 72 };
 
+/** The size of a stack node, as wide as a step and shorter. */
+export const stackSize = { width: nodeSize.width, height: 48 };
+
 export type Point = { x: number; y: number };
 export type Box = Point & { width: number; height: number };
 export type EdgeRoute = { points: Point[]; label?: Point };
@@ -79,8 +82,12 @@ const spread = (ports: Port[], boxes: Map<string, Box>) => {
   }
 };
 
-/** The checks a job retries until they pass, stacked right after it; a check shared by jobs stays with the first. */
-export const checkGroups = ({ edges }: GraphModel) => {
+/**
+ * The checks a job retries until they pass, stacked right after it in the order of the model's nodes; a check shared
+ * by jobs stays with the first.
+ */
+export const checkGroups = ({ nodes, edges }: GraphModel) => {
+  const index = new Map(nodes.map((n, i) => [n.id, i]));
   const groups = new Map<string, string[]>();
   const placed = new Set<string>();
   for (const edge of edges) {
@@ -89,11 +96,19 @@ export const checkGroups = ({ edges }: GraphModel) => {
     placed.add(edge.from);
     groups.set(edge.to, [...(groups.get(edge.to) ?? []), edge.from]);
   }
+  for (const checks of groups.values()) checks.sort((a, b) => (index.get(a) ?? 0) - (index.get(b) ?? 0));
   return groups;
 };
 
 /** Places nodes in rows below `top`, each near the middle of what it links to, wrapping at `width`. */
-const lane = (ids: string[], near: (id: string) => number, left: number, top: number, width: number) => {
+const lane = (
+  ids: string[],
+  near: (id: string) => number,
+  size: (id: string) => typeof nodeSize,
+  left: number,
+  top: number,
+  width: number
+) => {
   const perRow = Math.max(3, Math.floor(width / laneCol));
   const sorted = ids.map(id => ({ id, at: near(id) })).sort((a, b) => a.at - b.at);
   const boxes = new Map<string, Box>();
@@ -103,7 +118,7 @@ const lane = (ids: string[], near: (id: string) => number, left: number, top: nu
     for (let i = 1; i < xs.length; i++) xs[i] = Math.max(xs[i]!, xs[i - 1]! + laneCol);
     const right = left + Math.max(width, perRow * laneCol) - nodeSize.width;
     for (let i = xs.length - 1; i >= 0; i--) xs[i] = Math.min(xs[i]!, (xs[i + 1] ?? right + laneCol) - laneCol);
-    items.forEach((item, i) => boxes.set(item.id, { x: xs[i]!, y: top + row * laneRow, ...nodeSize }));
+    items.forEach((item, i) => boxes.set(item.id, { x: xs[i]!, y: top + row * laneRow, ...size(item.id) }));
   }
   return { boxes, bottom: top + Math.ceil(sorted.length / perRow) * laneRow };
 };
@@ -127,6 +142,8 @@ export const layout = (
 ) => {
   const grouped = new Map([...groups].flatMap(([job, checks]) => checks.map(check => [check, job] as const)));
   const kinds = new Map(nodes.map(node => [node.id, node.kind]));
+  const stacks = new Set(nodes.filter(node => node.stack).map(node => node.id));
+  const size = (id: string) => (stacks.has(id) ? stackSize : nodeSize);
   const pipeline = (id: string) => spineKinds.has(kinds.get(id)!);
   const flowing = (id: string) =>
     kinds.get(id) === 'check' &&
@@ -158,14 +175,17 @@ export const layout = (
       const room = loop !== undefined && !groups.has(id);
       g.setNode(id, {
         width: room ? Math.max(nodeSize.width, labelWidth(loop)) : nodeSize.width,
-        height: nodeSize.height + (room ? loopRoom : 0),
+        height: size(id).height + (room ? loopRoom : 0),
       });
     }
     for (const [job, checks] of groups) {
       if (!inside.has(job)) continue;
       g.setNode(`group:${job}`, {
         width: nodeSize.width,
-        height: checks.length * nodeSize.height + (checks.length - 1) * stackGap + (loops.has(job) ? loopRoom : 0),
+        height:
+          checks.reduce((sum, check) => sum + size(check).height, 0) +
+          (checks.length - 1) * stackGap +
+          (loops.has(job) ? loopRoom : 0),
       });
       g.setEdge(job, `group:${job}`, { weight: 4 }, `gate:${job}`);
     }
@@ -188,18 +208,16 @@ export const layout = (
     laid.push({ g, dx, dy });
     for (const id of members.filter(id => inSpine.has(id))) {
       const { x, y, height } = g.node(id);
-      boxes.set(id, { x: dx + x - nodeSize.width / 2, y: dy + y - height / 2, ...nodeSize });
+      boxes.set(id, { x: dx + x - nodeSize.width / 2, y: dy + y - height / 2, ...size(id) });
     }
     for (const [job, checks] of groups) {
       if (!inside.has(job)) continue;
       const { x, y, height } = g.node(`group:${job}`);
-      checks.forEach((check, i) =>
-        boxes.set(check, {
-          x: dx + x - nodeSize.width / 2,
-          y: dy + y - height / 2 + i * (nodeSize.height + stackGap),
-          ...nodeSize,
-        })
-      );
+      let at = dy + y - height / 2;
+      for (const check of checks) {
+        boxes.set(check, { x: dx + x - nodeSize.width / 2, y: at, ...size(check) });
+        at += size(check).height + stackGap;
+      }
     }
     const graph = g.graph() as { width?: number; height?: number };
     width = Math.max(width, graph.width ?? 0);
@@ -222,6 +240,7 @@ export const layout = (
   const loose = lane(
     rest.filter(node => !castKinds.has(node.kind)).map(node => node.id),
     centre,
+    size,
     24,
     underSpine + (underSpine > castTop ? laneGap : 0),
     width

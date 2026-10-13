@@ -187,22 +187,55 @@ describe('coverage', () => {
   const signTest = (...cases: string[]) =>
     ["import { expect, it } from 'vitest';", "import { sign } from '../src/sign.ts';", ...cases, ''].join('\n');
 
-  it('fails added lines no test runs, and the thresholds of the changed area', () => {
+  it('fails added lines no test runs', () => {
     const repo = withModules(
       change(
         {
-          'vitest.config.mjs': 'export default { test: { coverage: { thresholds: { statements: 95 } } } };\n',
           'src/sign.ts': 'export const sign = (n: number) => 1;\n',
           'tests/sign.test.ts': signTest("it('is one for positives', () => expect(sign(2)).toBe(1));"),
         },
         { 'src/sign.ts': branchy }
       )
     );
+    expect(run('coverage.mjs', repo, ['src/'])).toEqual({
+      ok: false,
+      out: 'src/sign.ts:2: added code no test runs\ncoverage: 1 finding',
+    });
+  });
+
+  it('fails a failing related test', () => {
+    const repo = withModules(
+      change(
+        {
+          'src/sign.ts': 'export const sign = (n: number) => 1;\n',
+          'tests/sign.test.ts': signTest("it('is one for positives', () => expect(sign(2)).toBe(1));"),
+        },
+        {
+          'src/sign.ts': 'export const sign = (n: number) => 0 + 1;\n',
+          'tests/sign.test.ts': signTest("it('is one for positives', () => expect(sign(2)).toBe(2));"),
+        }
+      )
+    );
     const { ok, out } = run('coverage.mjs', repo, ['src/']);
     expect(ok).toBe(false);
-    expect(out).toContain('src/sign.ts:2: added code no test runs');
-    expect(out).toContain('the related tests or the coverage thresholds failed');
-    expect(git(repo.dir, 'status', '--porcelain')).toBe('M src/sign.ts');
+    expect(out).toContain('the related tests failed');
+  });
+
+  it('leaves old untested code under the whole-file thresholds alone', () => {
+    const old = ['export const unused = (n: number) => {', '  if (n > 1) return n * 2;', '  return n;', '};', ''].join(
+      '\n'
+    );
+    const repo = withModules(
+      change(
+        {
+          'vitest.config.mjs': 'export default { test: { coverage: { thresholds: { lines: 95 } } } };\n',
+          'src/sign.ts': `${old}export const sign = (n: number) => 1;\n`,
+          'tests/sign.test.ts': signTest("it('is one for positives', () => expect(sign(2)).toBe(1));"),
+        },
+        { 'src/sign.ts': `${old}export const sign = (n: number) => 2 - 1;\n` }
+      )
+    );
+    expect(run('coverage.mjs', repo, ['src/'])).toEqual({ ok: true, out: 'coverage: ok' });
   });
 
   it('passes when the related tests run every added line', () => {
@@ -249,6 +282,32 @@ describe('scripts that run vitest', () => {
   it('gives vitest a HOME when the caller has none', () => {
     expect(run('tests-bite.mjs', changed())).toEqual({ ok: true, out: 'tests-bite: ok' });
     expect(run('coverage.mjs', changed(), ['src/'])).toEqual({ ok: true, out: 'coverage: ok' });
+  });
+});
+
+describe('tests', () => {
+  const suite = (...tests: string[]) =>
+    withModules(change({ 'tests/a.test.ts': ["import { expect, it } from 'vitest';", ...tests, ''].join('\n') }));
+
+  it('passes in one line', () => {
+    expect(run('tests.mjs', suite("it('adds', () => expect(1 + 1).toBe(2));"))).toEqual({
+      ok: true,
+      out: 'tests: 1 passed',
+    });
+  });
+
+  it('names the failing tests first when the error log runs long', () => {
+    const repo = suite(
+      "it('adds', () => expect(1 + 1).toBe(2));",
+      ...Array.from({ length: 30 }, (_, i) => `it('breaks ${i}', () => expect('x'.repeat(4000)).toEqual({ n: ${i} }));`)
+    );
+    const { ok, out } = run('tests.mjs', repo);
+    expect(ok).toBe(false);
+    expect(out.length).toBeLessThan(8192);
+    const names = out.split('\n').slice(0, 30);
+    expect(names.every(line => line.startsWith('FAIL tests/a.test.ts > breaks '))).toBe(true);
+    expect(names[29]).toContain('breaks 29: AssertionError');
+    expect(out).toMatch(/Tests {2}30 failed \| 1 passed \(31\)\n[^]*\n\ntests: 30 failed$/);
   });
 });
 

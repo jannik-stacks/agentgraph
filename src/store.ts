@@ -27,7 +27,7 @@ export const self: Owner = { pid: process.pid, token: randomBytes(8).toString('h
 /**
  * One job execution, or a skipped job with its `reason`, persisted as `runs/<id>/run.json`. `closure` says what
  * happened to the work, `base` is the commit its worktree started from, `model` the model the harness reported and
- * `approval` the issue a gated job waits on.
+ * `approval` the issue a gated job waits on and `parked` the branch a blocked job left its work on.
  */
 export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
   Pick<Extract<AgentEvent, { type: 'end' }>, 'costUsd' | 'turns'> & {
@@ -43,6 +43,7 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     owner?: Owner;
     base?: string;
     approval?: number;
+    parked?: string;
     startedAt?: string;
     endedAt?: string;
     error?: string;

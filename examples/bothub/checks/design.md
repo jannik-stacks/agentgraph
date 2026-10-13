@@ -6,6 +6,7 @@ over:
   run: node "$BOTHUB_HUB/scripts/design.mjs"
 paths: [src/**]
 mode: warn
+human: label id hole in dogfood round 2 run 2 review, safety-checks item 2 edge-cases judge
 ---
 The command output is the task, its criteria and the whole change to `src/`, each changed function
 in full. A per-hunk review cannot see this one: list every code path that changes the state this

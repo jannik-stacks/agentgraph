@@ -2,6 +2,7 @@
 title: Runs never install dependencies
 status: accepted
 check: tests
+human: dogfood round 1 deps kinks and round 2 kink K9
 ---
 The hub installs bothub's and studio's locked dependencies in the sandbox, once per lockfile, and
 links `node_modules` and `studio/node_modules` into every worktree. The packages are read-only;

@@ -1,6 +1,7 @@
-// Runs the tests related to the changed source files with coverage, under the repository's own thresholds, and
-// fails every added line that no test runs, except lines that only make the change's rename. Reports go to a
-// temporary directory, never the worktree.
+// Runs the tests related to the changed source files with coverage and fails a failing test and every added line that
+// no test runs, except lines that only make the change's rename. The repository's whole-file thresholds are left
+// out: the related tests alone never reach them, and code the change did not write is not its to cover. Reports go to
+// a temporary directory, never the worktree.
 //
 //   node coverage.mjs <root>...      e.g. node coverage.mjs src/
 import { spawnSync } from 'node:child_process';
@@ -46,17 +47,22 @@ else {
         ...files,
         '--run',
         '--reporter=dot',
+        '--reporter=json',
+        `--outputFile.json=${join(tmp, 'tests.json')}`,
         '--coverage.enabled=true',
         '--coverage.reporter=json',
-        `--coverage.reportsDirectory=${tmp}`,
+        `--coverage.reportsDirectory=${join(tmp, 'coverage')}`,
         ...files.map(file => `--coverage.include=${file}`),
       ],
       { encoding: 'utf8', timeout: 10 * 60_000, env: { ...process.env, HOME: process.env.HOME || tmp } }
     );
     const findings = [];
-    if (run.status !== 0)
-      findings.push(`the related tests or the coverage thresholds failed:\n${`${run.stdout}${run.stderr}`.trim().split('\n').slice(-30).join('\n')}`);
-    const json = join(tmp, 'coverage-final.json');
+    const tests = join(tmp, 'tests.json');
+    const result = existsSync(tests) ? JSON.parse(readFileSync(tests, 'utf8')) : undefined;
+    const testsFailed = !result || result.numFailedTests > 0 || result.numFailedTestSuites > 0;
+    if (run.status !== 0 && testsFailed)
+      findings.push(`the related tests failed:\n${`${run.stdout}${run.stderr}`.trim().split('\n').slice(-30).join('\n')}`);
+    const json = join(tmp, 'coverage', 'coverage-final.json');
     const coverage = existsSync(json) ? JSON.parse(readFileSync(json, 'utf8')) : {};
     const byPath = new Map(Object.entries(coverage).map(([path, data]) => [realpathSync(path), data]));
     for (const file of files) {

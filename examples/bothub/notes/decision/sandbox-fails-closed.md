@@ -3,6 +3,7 @@ title: The sandbox fails closed
 status: accepted
 source: bothub sessions
 check: escape-hatches
+human: user feedback no accidental secure holes, feedback rule 2
 ---
 A bot always runs in the sandbox. There is no setting that turns it off or to none, and a sandbox
 that cannot start stops the run instead of running it bare. The unsandboxed launcher exists for

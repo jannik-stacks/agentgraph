@@ -178,7 +178,7 @@ describe('writeHub round trip', () => {
     const expected = parseItem(path, original).data as { jobs: Record<string, Record<string, unknown>> };
     expected.jobs.triage!.mode = 'block';
     expect(reloaded.data).toEqual(expected);
-    expect(Object.keys(reloaded.data)).toEqual(['name', 'description', 'on', 'jobs']);
+    expect(Object.keys(reloaded.data)).toEqual(['name', 'description', 'on', 'jobs', 'human']);
     const changed = saved.split('\n').filter((line, i) => line !== original.split('\n')[i]);
     expect(changed).toEqual(['    guard: {associations: [OWNER, MEMBER, COLLABORATOR]}', '    mode: block']);
     expect(validateHub(await readHubItems(dir)).ok).toBe(true);

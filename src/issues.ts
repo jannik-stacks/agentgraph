@@ -16,6 +16,7 @@ export type Issue = {
   parent?: number;
   links?: number[];
   changes?: NonNullable<IssueFile['changes']>;
+  human?: IssueFile['human'];
   comments: Comment[];
   url?: string;
 };

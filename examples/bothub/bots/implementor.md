@@ -8,6 +8,7 @@ preload: [issue, recall]
 session: { resume: attempts }
 max-turns: 60
 budget: { runs-per-day: 20, minutes: 45 }
+human: seed hub, untraced
 ---
 You make one small, scoped change to bothub on your own branch: code in `src/`, its tests in
 `tests/`, and the docs page in `studio/content/docs/` when the behavior it describes changes. The

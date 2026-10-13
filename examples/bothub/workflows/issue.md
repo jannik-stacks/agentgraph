@@ -67,10 +67,11 @@ jobs:
     tools: [issues_get, notes_search]
     mode: warn
     timeout-minutes: 60
+human: seed hub, until lists extended by each wave, untraced
 ---
 A maintainer comments `/bothub` on an issue. The triager replies with a brief in a fixed template:
 the task, at most five criteria that each name the test proving them, the files and what is out of
-scope. The implementor works on `bothub/<issue>` until every check passes, at most three rounds.
+scope. The implementor works on `bothub/<issue>` until every check passes, at most four attempts.
 
 The scripts run first and decide everything a rule can: the change stays small and in bounds,
 keeps the suite intact, adds the criteria's tests, those tests fail on the base code, and every
