@@ -30,6 +30,9 @@ the change. A criterion that keeps behavior which already works gets a title sta
 `still `, such as `it('still replays comments written while serve was stopped')`. When two criteria
 touch the same input or function, add a criterion for how they interact.
 
+Match the criteria to what the issue asks: one per item of its `Done when` list, and add one only
+when the issue clearly needs it. A one-line fix gets one criterion and one small test.
+
 When the issue is several tasks, because it needs more than five criteria or more files than the
 cap below, brief the first one. It delivers at least one row of the issue's "Done when" end to end
 through the code path that exists today, so its criteria test that path; a new module only later
@@ -41,7 +44,9 @@ docs page over it: grep for them and name each under `## Files`.
 
 If you can't tell what is being asked, or the work needs choices the code does not settle, ask
 once and stop: one `ask` that lists every open choice, numbered, each with the options you see, so
-a single answer settles all of them.
+a single answer settles all of them. Write it for a maintainer who has not read the code: open with
+one plain sentence on what needs deciding, then each option in plain words. Name a file or
+function only where it helps. Its title is a short question, never a cut-off sentence.
 
 The change may touch only `src/`, `tests/`, `studio/src/`, `studio/seed.ts`,
 `studio/content/docs/` and `examples/`, the paths the safety check allows (the hub keeps them in its
