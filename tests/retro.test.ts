@@ -253,6 +253,38 @@ describe('retro.mjs', () => {
     );
   });
 
+  it('flags a criterion test every passing tests run skipped, and a check over 5 minutes', () => {
+    const tests = (pass: boolean, findings: string) => ({ check: 'tests', gating: true, pass, findings });
+    const skipped = "tests: 8 passed; criterion tests skipped: 'loads, in the image', 'runs live'";
+    const dir = data([
+      {
+        id: id(1),
+        run: { status: 'succeeded', event, bot: 'implementor' },
+        outcome: { checks: [tests(true, skipped)] },
+      },
+      {
+        id: id(2),
+        run: { status: 'succeeded', event, bot: 'implementor' },
+        outcome: { checks: [tests(false, 'tests: 1 failed')] },
+      },
+      {
+        id: id(3),
+        run: { status: 'succeeded', closure: 'handed-off', event, bot: 'implementor' },
+        outcome: {
+          checks: [
+            tests(true, "tests: 9 passed; criterion tests skipped: 'loads, in the image'"),
+            { check: 'criterion-met', gating: true, pass: true, durationMs: 464_000 },
+            { check: 'review-src', gating: true, pass: true, durationMs: 53_000 },
+          ],
+        },
+      },
+    ]);
+    expect(keys(dir).filter(key => /^(skipped-criterion|slow-check)/.test(key))).toEqual([
+      'skipped-criterion: loads, in the image',
+      'slow-check: criterion-met',
+    ]);
+  });
+
   it('gives each item a stable id from its key, and reports nothing for a clean run', () => {
     const stopped = { id: id(1), run: { status: 'failed', error: 'boom', event } };
     const ids = [retro(data([stopped]))[0]?.id, retro(data([stopped]))[0]?.id];

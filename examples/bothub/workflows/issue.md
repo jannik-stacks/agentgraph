@@ -38,6 +38,7 @@ jobs:
         - code-shape
         - unused-exports
         - propagation
+        - enum-copy
         - docs-sync
         - criterion-met
         - state-transitions

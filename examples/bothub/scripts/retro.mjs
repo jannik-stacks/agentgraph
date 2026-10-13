@@ -382,6 +382,26 @@ const invariants = {
             .map(c => hit(r, c.check, c.findings))
         ),
   },
+  'skipped-criterion': {
+    means: "a criterion's test was skipped in every passing tests run of a job, so nothing ran it",
+    find: ({ chains }) =>
+      chains.flatMap(chain => {
+        const runs = chain.flatMap(r => (r.outcome.checks ?? []).filter(c => c.check === 'tests' && c.pass).map(c => [r, c]));
+        const note = c => /criterion tests skipped: (.*)$/m.exec(String(c.findings ?? ''))?.[1] ?? '';
+        const skipped = ([, c]) => [...note(c).matchAll(/'(.*?)'(?=, '|$)/g)].map(m => m[1]);
+        const always = runs.length ? skipped(runs[0]).filter(t => runs.every(run => skipped(run).includes(t))) : [];
+        return always.map(title => hit(runs.at(-1)[0], title, `skipped in all ${runs.length} passing tests runs`));
+      }),
+  },
+  'slow-check': {
+    means: 'a check took more than 5 minutes',
+    find: ({ jobs }) =>
+      jobs.flatMap(r =>
+        (r.outcome.checks ?? [])
+          .filter(c => c.durationMs > 300_000)
+          .map(c => hit(r, c.check, `${Math.round(c.durationMs / 1000)} s`))
+      ),
+  },
   'fast-script-fail': {
     means: 'an attempt failed only on script checks under 10 s, which the bot could have run before finishing',
     find: ({ jobs, types }) =>

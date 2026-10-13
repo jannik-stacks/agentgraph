@@ -16,7 +16,7 @@ its branch, and the run that starts after the answer resumes from it.
 `/retro` on an issue starts `workflows/retro.md`, the hub looking at its own runs. A maintainer
 runs `node scripts/retro.mjs <data> --hub <hub>` on the host, which turns finished runs into one
 JSON line per anomaly: a job that stopped without a word, a finding no attempt fixed, a retry no
-blocking check asked for, an environment error. Pasted under `/retro`, each line nobody has judged
+blocking check asked for, an environment error, a criterion test no run ran, a check over 5 minutes. Pasted under `/retro`, each line nobody has judged
 yet goes to the retro bot, which replies that it is expected or files it as a sub-issue naming the
 invariant that found it.
 
@@ -28,12 +28,13 @@ invariant that found it.
 | size | script | | block | The added lines and the files outside `tests/` that add or change lines stay within `scripts/bounds.mjs`, files that only make one rename aside |
 | rules | script | | block | The written rules on added lines: timeless comments, docs style, no way around the guards, nothing unfinished, current names; a new check in block mode names the replay that calibrated it |
 | lint | script | | block | oxlint plus the suspicious rules, errors on added lines only, and oxfmt formatting |
-| types, studio-build, tests | script | | block | Types, the studio build and the suite, the live stream tests among them; tests also fails when its output reports a module that could not load |
+| types, studio-build, tests | script | | block | Types, the studio build and the suite, the live stream tests among them; tests also fails when its output reports a module that could not load, and a pass names the criterion tests it skipped |
 | test-guards | script | | block | No deleted, fewer, skipped, focused or slowed tests; each criterion's named test is added; no `Closes` when the brief lists follow-ups; every new test fails on the base code with the change's new files added |
 | coverage | script | | block | The related tests pass and every added line in `src/` runs in one of them |
 | code-shape | script | | block | Code structure and the studio's UI rules, with React hints printed but never failing |
 | unused-exports | script | | block | Every new export is used, every new file is imported outside tests, every new optional field is set and every new event type is read |
 | propagation | script | | warn | A name, field or literal the change renames or removes is gone from the other code, hubs, docs and infra too |
+| enum-copy | script | | warn | No added list copies every value of a declared string union, which would miss the next value |
 | docs-sync | script | | warn | Every new schema is documented |
 | triage-brief | script | | block | The triage reply follows the template and names only files the change may touch and safety accepts, no more outside `tests/` than the size cap, and the issue's Done when names no path outside bounds (in triage's `until`) |
 | criterion-met | bot, `review` | each criterion, over `src/`, `studio/src/` and `examples/bothub/scripts/` | warn | Is there a sequence of events within the brief under which the change does not do what the criterion states? Other edge cases are notes |

@@ -2,13 +2,14 @@
 // first, by file and full name with the first line of their error, then the end of vitest's error log and its
 // summary, so a long error log never pushes the names out of the part of the output that is kept. A run whose output
 // reports a module that could not load fails too, listing those lines, even when every test passed: a test over a
-// module that did not load tests nothing.
+// module that did not load tests nothing. A pass names each criterion test of the triage brief that was skipped.
 //
 //   node tests.mjs [file...]      e.g. node tests.mjs tests/live.test.ts
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { findBrief, parseBrief } from './brief.mjs';
 
 const kept = 7000;
 const listed = 40;
@@ -37,7 +38,14 @@ try {
   if (run.status === 0 && loads.length) {
     console.log([...loads.slice(0, listed), `tests: ${result?.numPassedTests ?? 'all'} passed, but the output reports a module that could not load`].join('\n'));
     process.exitCode = 1;
-  } else if (run.status === 0) console.log(`tests: ${result?.numPassedTests ?? 'all'} passed`);
+  } else if (run.status === 0) {
+    const brief = findBrief();
+    const titles = new Set(brief ? parseBrief(brief).criteria.map(c => c.title) : []);
+    const skipped = (result?.testResults ?? []).flatMap(file =>
+      file.assertionResults.filter(test => titles.has(test.title) && test.status !== 'passed').map(test => `'${test.title}'`)
+    );
+    console.log(`tests: ${result?.numPassedTests ?? 'all'} passed${skipped.length ? `; criterion tests skipped: ${skipped.join(', ')}` : ''}`);
+  }
   else {
     const failed = (result?.testResults ?? []).flatMap(file =>
       file.assertionResults

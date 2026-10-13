@@ -351,6 +351,19 @@ describe('tests', () => {
     });
   });
 
+  it('names the criterion tests a passing run skipped', () => {
+    const repo = suite(
+      "it('replays a label added while stopped', () => expect(1).toBe(1));",
+      "it.skipIf(!process.env.DOCKER)('replays a label re-added by hand', () => expect(1).toBe(1));",
+      "it.skip('another skipped test', () => expect(1).toBe(1));"
+    );
+    write(repo.dir, { 'brief.md': brief });
+    expect(run('tests.mjs', repo, [], { BOTHUB_BRIEF: join(repo.dir, 'brief.md') })).toEqual({
+      ok: true,
+      out: "tests: 1 passed; criterion tests skipped: 'replays a label re-added by hand'",
+    });
+  });
+
   it('fails a passing suite whose output reports a module that could not load, and lists those lines', () => {
     const loads =
       "it('loads', () => { console.error('could not load /work/src/a.ts: [PARSE_ERROR] Unexpected token'); });";
@@ -534,6 +547,35 @@ describe('size', () => {
     expect(findings(out)).toEqual([
       '2 files changed outside tests/ besides 2 that only rename kind → type, more than 1: src/c.ts, src/d.ts',
     ]);
+  });
+});
+
+describe('enum-copy', () => {
+  const declared = {
+    'src/store.ts': "export type RunStatus =\n  | 'queued'\n  | 'running'\n  | 'failed'\n  | 'skipped';\n",
+    'src/schema.ts': "export const Closure = z.enum(['done', 'blocked', 'deferred']);\n",
+  };
+
+  it('fails an added list of every value of a declared union, or all but one', () => {
+    const repo = change(declared, {
+      'src/run.ts':
+        "const all = ['queued', 'running', 'failed'];\nconst closures = new Set([\n  'done',\n  'blocked',\n  'deferred',\n]);\n",
+      'examples/bothub/scripts/t.mjs': "const s = ['failed', 'skipped', 'running', 'queued'];\n",
+    });
+    expect(findings(run('enum-copy.mjs', repo).out)).toEqual([
+      'examples/bothub/scripts/t.mjs:1: copies the values of RunStatus in src/store.ts; read them from there instead',
+      'src/run.ts:1: copies the values of RunStatus in src/store.ts; read them from there instead',
+      'src/run.ts:2: copies the values of Closure in src/schema.ts; read them from there instead',
+    ]);
+  });
+
+  it('passes a subset, a list with other values, the declaration itself and tests', () => {
+    const repo = change(declared, {
+      'src/run.ts': "const failed = ['failed', 'skipped'];\nconst mixed = ['queued', 'running', 'failed', 'gone'];\n",
+      'src/schema.ts': "export const Closure = z.enum(['done', 'blocked', 'deferred', 'no-op']);\n",
+      'tests/run.test.ts': "const all = ['queued', 'running', 'failed', 'skipped'];\n",
+    });
+    expect(run('enum-copy.mjs', repo)).toEqual({ ok: true, out: 'enum-copy: ok' });
   });
 });
 
