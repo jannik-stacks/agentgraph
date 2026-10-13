@@ -153,7 +153,7 @@ describe('test-guards: the suite stays whole', () => {
     ]);
   });
 
-  it('passes added tests, short timeouts, process timeouts and skips on a real condition', () => {
+  it('passes added tests, short timeouts, e2e timeouts, process timeouts and skips on a real condition', () => {
     const repo = change(
       { 'tests/a.test.ts': suite },
       {
@@ -166,6 +166,7 @@ describe('test-guards: the suite stays whole', () => {
           "const fixture = { 'b.test.ts': `it.only('x', { timeout: 30_000 }, () => {});` };",
           '',
         ].join('\n'),
+        'tests/d.e2e.test.ts': `${suite}it('boots', { timeout: 120_000 }, () => expect(1).toBe(1));\n`,
       }
     );
     expect(guards(repo)).toMatchObject(guardsOk);
@@ -710,7 +711,7 @@ describe('triage-brief', () => {
     expect(check(text)).toEqual({ ok: true, out: 'triage-brief: ok' });
     const outside = brief.replace('- `tests/labels.test.ts`', '- `bin/bothub.mjs`\n- `tests/labels.test.ts`');
     expect(findings(check(outside).out)).toEqual([
-      'bin/bothub.mjs is outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, studio/content/docs/, examples/); leave it out of scope or ask',
+      'bin/bothub.mjs is outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, studio/content/docs/, examples/, infra/local/sandbox/, infra/local/README.md); leave it out of scope or ask',
     ]);
   });
 

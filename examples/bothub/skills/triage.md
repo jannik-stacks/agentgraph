@@ -49,7 +49,7 @@ one plain sentence on what needs deciding, then each option in plain words. Name
 function only where it helps. Its title is a short question, never a cut-off sentence.
 
 The change may touch only `src/`, `tests/`, `studio/src/`, `studio/seed.ts`,
-`studio/content/docs/` and `examples/`, the paths the safety check allows (the hub keeps them in its
+`studio/content/docs/`, `examples/`, `infra/local/sandbox/` and `infra/local/README.md`, the paths the safety check allows (the hub keeps them in its
 own `scripts/bounds.mjs`, which is not in this repository); triage-brief lists them when the brief
 names a file elsewhere. The files section names at most 8 files outside `tests/`, the size check's
 file cap; test files never count. For a rename, name the files that do more than the

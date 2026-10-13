@@ -1,11 +1,11 @@
 // Guards the test suite a change leaves behind, cheapest first. Against $BOTHUB_BASE it keeps every test with its
-// assertions, skips, focuses and slows none, and leaves tests/setup/ alone. The test lines it adds assert outside
-// loops and branches, so each case is its own it.each row. It adds the test each criterion of the triage brief names,
-// with its exact title, in the file the criterion names, and its reply closes no issue when the brief lists
-// follow-ups. And every test it adds fails on the base code: in a temporary copy of the base with the change's tests/
-// files and new files on top, a new test that passes would not notice the change to existing code being reverted, and
-// one that only fails to import a new file proves nothing. A test titled "still …" guards behavior that already worked
-// and may pass.
+// assertions, skips, focuses and slows none (a *.e2e.test.ts may be slow), and leaves tests/setup/ alone. The test
+// lines it adds assert outside loops and branches, so each case is its own it.each row. It adds the test each
+// criterion of the triage brief names, with its exact title, in the file the criterion names, and its reply closes no
+// issue when the brief lists follow-ups. And every test it adds fails on the base code: in a temporary copy of the
+// base with the change's tests/ files and new files on top, a new test that passes would not notice the change to
+// existing code being reverted, and one that only fails to import a new file proves nothing. A test titled "still …"
+// guards behavior that already worked and may pass.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -60,7 +60,8 @@ const integrity = () => {
       const text = raw.replace(strings, '""');
       for (const [pattern, what] of skipped) if (pattern.test(text)) findings.push(`${path}:${line}: ${what}`);
       const ms = timeoutOf(text);
-      if (ms > defaultTimeout) findings.push(`${path}:${line}: a test timeout of ${ms} ms, above the ${defaultTimeout} ms default`);
+      if (ms > defaultTimeout && !path.endsWith('.e2e.test.ts'))
+        findings.push(`${path}:${line}: a test timeout of ${ms} ms, above the ${defaultTimeout} ms default`);
     }
   }
 };
