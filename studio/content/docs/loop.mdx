@@ -35,6 +35,9 @@ bot and decide checks run after that, only when no `block` script failed, so a b
 pays for a review. Checks in `log` mode run last, and only when no `block` check failed, so they
 judge only the attempt that goes through. A check left out this way is skipped with the reason in
 its findings.
+A failing script check runs once more on the change's base. When it fails there too and names only
+files the base run names and the change did not touch, it is red on base: it does not gate, costs
+no attempt and never goes back to the bot, and the merge request lists it under Known gaps.
 Verdicts keep the order of the `checks` list, and each records when it started and ended.
 
 A bot check judges an item only once it changed. When an earlier check run of the same job on the

@@ -256,6 +256,14 @@ const replyLimit = 64_000;
 /** How many items of one check are judged at once, unless the check sets its own `concurrency`. */
 const itemConcurrency = 8;
 
+/** What a check script finds in its env: the handoff, the issue, the attempt's reply and where the change starts. */
+const scriptEnv = (a: Attempt, p: Pipeline) => ({
+  ...handoffEnv(a.handoff),
+  ...issueEnv(p),
+  ...(a.reply !== undefined && { BOTHUB_REPLY: a.reply.slice(0, replyLimit) }),
+  BOTHUB_BASE: a.base,
+});
+
 /**
  * Runs one check over an attempt's changes, read-only. A check whose `paths` match no changed file, or that has
  * nothing to look at, is skipped. A script that does not fan out runs once and reads the worktree itself; every other
@@ -280,12 +288,7 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       since: a.base,
       files,
       timeout: a.job['timeout-minutes'] ?? defaultMinutes,
-      env: {
-        ...handoffEnv(a.handoff),
-        ...issueEnv(p),
-        ...(a.reply !== undefined && { BOTHUB_REPLY: a.reply.slice(0, replyLimit) }),
-        BOTHUB_BASE: a.base,
-      },
+      env: scriptEnv(a, p),
     };
 
     if (check.type === 'script' && !fanOut(over)) {
@@ -386,11 +389,63 @@ export const withGaps = (body: string, checks: Verdict[], p: Pick<Pipeline, 'con
   return `${body.trimEnd()}\n\n## Known gaps\n\n${gaps.map(line).join('\n')}`;
 };
 
+const baseRuns = new WeakMap<Pipeline, Map<string, Promise<Judged>>>();
+
+const pathsIn = (text = '') => text.match(/[\w.@-]+(?:\/[\w.@-]+)+/g) ?? [];
+
+/**
+ * Marks a failing gating script check "red on base" when it fails on the change's base too and names files, each one
+ * the base run names too and the change does not touch. Such a check does not gate, so it costs no attempt and never
+ * reaches the bot. Each check runs once per base, in a worktree at that commit.
+ */
+const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<Verdict[]> => {
+  const scriptOf = (v: Verdict) => {
+    const check = p.config.checks[v.check];
+    const red = check?.type === 'script' && !fanOut(check.over) && !v.pass && !v.skipped && !v.blocked;
+    return red && v.gating && holds(v, p) && pathsIn(v.findings).length ? check : undefined;
+  };
+  if (!verdicts.some(scriptOf)) return verdicts;
+  const runs = baseRuns.get(p) ?? new Map<string, Promise<Judged>>();
+  baseRuns.set(p, runs);
+  const id = `${a.worktree}-base`;
+  let tree: Promise<string> | undefined;
+  const onBase = ({ name, run }: Extract<Defined<Check>, { type: 'script' }>) => {
+    const key = `${a.base} ${name}`;
+    if (!runs.has(key)) {
+      tree ??= p.workspaces.create({ repo: p.event.repo, ref: a.base }, id).then(({ path }) => path);
+      const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
+      const access = { hub: p.hub, readonly: true };
+      const judged = tree.then(cwd => runScript(run, cwd, timeout, scriptEnv(a, p), launcher(p), access));
+      runs.set(key, judged.then(scriptVerdict));
+    }
+    return runs.get(key)!;
+  };
+  try {
+    const { files } = await p.workspaces.changes(a.worktree, a.base);
+    return await Promise.all(
+      verdicts.map(async v => {
+        const check = scriptOf(v);
+        if (!check) return v;
+        const base = await onBase(check);
+        const own = (path: string) => !base.findings?.includes(path) || files.some(file => path.endsWith(file));
+        if (base.pass || base.blocked || pathsIn(v.findings).some(own)) return v;
+        const why = `red on base: it fails on ${a.base.slice(0, 7)} too, only in files the change did not touch`;
+        return { ...v, gating: false, findings: `${why}\n\n${v.findings}` };
+      })
+    );
+  } catch {
+    return verdicts;
+  } finally {
+    if (tree) await tree.then(() => p.workspaces.remove(p.event.repo, id)).catch(() => {});
+  }
+};
+
 /**
  * Runs the named checks in stages, each all at once: the gating script checks first, then, only when none that holds
- * the change failed, the gating bot and decide checks, so the cheap gates spare the costly ones. Checks in `log` mode
- * run last and only when nothing that holds the change failed, so they judge only an attempt that settles. A check
- * left out that way is skipped. Verdicts keep the order of `names`.
+ * the change failed, the gating bot and decide checks, so the cheap gates spare the costly ones. A failing script check
+ * that is red on base (see `redOnBase`) does not hold the change. Checks in `log` mode run last and only when nothing
+ * that holds the change failed, so they judge only an attempt that settles. A check left out that way is skipped.
+ * Verdicts keep the order of `names`.
  */
 export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
@@ -416,7 +471,10 @@ export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
         verdicts[i] = { check: name, gating: check?.mode !== 'log', pass: false, skipped: true, findings };
       });
     const held = (ran: Verdict[]) => ran.some(v => v.gating && !v.skipped && !v.pass && holds(v, p));
-    if (held(yield* run(scripts))) {
+    const ran = yield* run(scripts);
+    const scripted = yield* Effect.promise(() => redOnBase(ran, a, p));
+    scripts.forEach(({ i }, k) => (verdicts[i] = scripted[k]!));
+    if (held(scripted)) {
       skip(costly, 'not run: a script check failed');
       skip(logged, 'not run: a check that holds the change failed');
     } else if (held(yield* run(costly))) skip(logged, 'not run: a check that holds the change failed');

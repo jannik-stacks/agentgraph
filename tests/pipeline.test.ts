@@ -1608,6 +1608,28 @@ describe('over', () => {
     ]);
   });
 
+  it('marks a script check red on base when it fails there too, only in files the change did not touch', async () => {
+    const script = (name: string, run: string) => ({ name, data: { type: 'script', run, mode: 'block' } });
+    const { result } = await run(
+      hubWith([
+        script('old', 'echo FAIL tests/old.test.ts; exit 1'),
+        script('touched', 'echo FAIL src/a.ts; exit 1'),
+        script('new', 'test ! -f src/a.ts || { echo FAIL tests/old.test.ts; exit 1; }'),
+      ]),
+      judged
+    );
+    expect(untimed(result.outcome?.checks)).toEqual([
+      {
+        check: 'old',
+        gating: false,
+        pass: false,
+        findings: expect.stringMatching(/^red on base: it fails on \w{7} too.*\n\nFAIL tests\/old\.test\.ts$/),
+      },
+      { check: 'touched', gating: true, pass: false, findings: 'FAIL src/a.ts' },
+      { check: 'new', gating: true, pass: false, findings: 'FAIL tests/old.test.ts' },
+    ]);
+  });
+
   it('asks a human once when a check could not run, without sending it back to the bot', async () => {
     const { calls, launch } = recording('down');
     const issues = trackedIssues();

@@ -82,8 +82,8 @@ export const workspaces = ({
 
   /**
    * Refreshes the mirror and checks out a run's start: the job's `branch` when it exists, otherwise the event's ref
-   * (or the default branch). With `merge`, that branch is merged in without committing, conflict markers left in
-   * place. Resolves to the path, the commit the change is measured from (`base`, which `publish` and `changes` take
+   * (a branch or a commit, or the default branch). With `merge`, that branch is merged in without committing,
+   * conflict markers left in place. Resolves to the path, the commit the change is measured from (`base`, which `publish` and `changes` take
    * back; the merged-in tip with `merge`), the commit checked out (`head`), the files left conflicting and, when it
    * started at the job's existing branch, that `branch`. With `fresh`, it starts from the ref even when the branch
    * exists, and resolves to the branch's tip as `replace`, for `publish` to replace. With `from`, it starts at that
@@ -102,7 +102,7 @@ export const workspaces = ({
   ) => {
     const mirror = await sync(repo);
     const path = worktreePath(dataDir, runId);
-    const at = (name: string) => `${name.startsWith('refs/') ? name : `refs/heads/${name}`}^{commit}`;
+    const at = (name: string) => `${/^(refs\/|[0-9a-f]{40}$)/.test(name) ? name : `refs/heads/${name}`}^{commit}`;
     const verify = (name: string) => git(mirror, ['rev-parse', '--verify', '--quiet', at(name)]).catch(() => '');
     const own = branch ? await verify(branch) : '';
     const picked = from ? await verify(from) : '';
