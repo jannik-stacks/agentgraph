@@ -1,6 +1,6 @@
 ---
 description: Implement one scoped bothub change and keep its checks green.
-human: seed hub, size rule and attempt first from dogfood round 5, K23; call the deciding module (T1) and the still prefix for negatives (K34) from dogfood round 6; Part of for a split issue (X10) and the script checks before finishing (X13) from dogfood x
+human: seed hub, size rule and attempt first from dogfood round 5, K23; call the deciding module (T1) and the still prefix for negatives (K34) from dogfood round 6; Part of for a split issue (X10) and the script checks before finishing (X13) from dogfood x; every fast script check and the related tests from dogfood x (X21)
 ---
 The issue and its triage brief are in your prompt: the task, the criteria with the test that
 proves each one, the files and what is out of scope. Read the code you are changing and its tests
@@ -26,12 +26,14 @@ root, one command at a time, never chained with `&&`:
 2. `node_modules/.bin/tsc --noEmit`
 3. `oxlint <files you changed>` and `oxfmt <files you changed>` (both read the repository's own
    config)
-4. before you finish, the hub's two fast script checks, which read the brief from the hub mounted
-   at `/hub`:
-   `BOTHUB_HUB=/hub BOTHUB_ISSUE=<issue> BOTHUB_BASE=$(git merge-base HEAD main-worktree/HEAD) node /hub/scripts/test-guards.mjs`
-   and the same with `unused-exports.mjs`
+4. after you change what an export takes, returns or does, the tests that load it:
+   `node_modules/.bin/vitest related --run <source files you changed>`, or the whole suite with
+   `node /hub/scripts/tests.mjs` when that is most of it
+5. before you finish, every script check that takes seconds, which read the brief from the hub
+   mounted at `/hub`:
+   `BOTHUB_HUB=/hub BOTHUB_ISSUE=<issue> BOTHUB_BASE=$(git merge-base HEAD main-worktree/HEAD) node /hub/scripts/fast.mjs`
 
-Never run the full test suite or `git diff` (`git diff --stat` shows what you changed), and never
+Never run the full test suite other than through `tests.mjs`, or `git diff` (`git diff --stat` shows what you changed), and never
 `npm install`, `npm ci` or `npx`. A long output comes back cut short; run something narrower
 instead of reading the rest. The hub runs every check after you finish and sends back what fails: the scripts first (safety,
 size, the written rules, lint and format on the lines you add, types, the studio build, the

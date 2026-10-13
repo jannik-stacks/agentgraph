@@ -375,6 +375,34 @@ describe('tests', () => {
   });
 });
 
+describe('fast', () => {
+  it('runs each check with its own command and fails only on a finding of a block check', () => {
+    const hub = temp('fast-hub');
+    const check = (run: string, mode: string) => `---\ntype: script\nrun: ${run}\nmode: ${mode}\n---\n`;
+    write(hub, {
+      'checks/clean.md': check('echo "clean: ok"', 'block'),
+      'checks/warned.md': check('echo found; exit 1', 'warn'),
+      'checks/held.md': check('echo "held: $BOTHUB_BASE"; exit 1', 'block'),
+    });
+    const repo = change({ 'a.txt': '' });
+    expect(run('fast.mjs', repo, ['clean', 'warned'], { BOTHUB_HUB: hub })).toEqual({
+      ok: true,
+      out: 'clean: ok\nfound\nwarned: the findings above are warn',
+    });
+    expect(run('fast.mjs', repo, ['held'], { BOTHUB_HUB: hub })).toEqual({
+      ok: false,
+      out: `held: ${repo.base}\nheld: the findings above are block`,
+    });
+  });
+
+  it('runs only script checks of the hub', async () => {
+    const { fast } = await import(join(scripts, 'fast.mjs'));
+    const type = (name: string) =>
+      /^type: (\w+)/m.exec(readFileSync(join(scripts, `../checks/${name}.md`), 'utf8'))?.[1];
+    expect(fast.filter((name: string) => type(name) !== 'script')).toEqual([]);
+  });
+});
+
 describe('lint on added lines', () => {
   const config = { '.oxlintrc.json': '{ "rules": { "no-debugger": "error" } }\n' };
 
