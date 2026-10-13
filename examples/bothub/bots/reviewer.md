@@ -4,6 +4,7 @@ model: review
 tools: [read, grep, glob, notes_search]
 returns: [reply]
 max-turns: 20
+concurrency: 2
 budget: { runs-per-day: 500, minutes: 15 }
 human: seed hub, untraced
 ---

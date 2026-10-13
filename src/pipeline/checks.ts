@@ -6,7 +6,7 @@ import { digest } from '../fingerprint.ts';
 import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.ts';
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
 import { issueContext } from '../preload.ts';
-import { runScript, type ScriptResult } from '../runner.ts';
+import { resetOf, runScript, type ScriptResult } from '../runner.ts';
 import type { Check, Job, Over } from '../schema.ts';
 import type { Run, Verdict } from '../store.ts';
 import { type Pipeline, agent, issuesOf, launcher } from './context.ts';
@@ -14,6 +14,18 @@ import { type Handoff, type Target, defaultMinutes, eventContext, fenced, handof
 
 /** Whether a check run crashed: it failed without a reason outside its work. */
 const crashed = (run: Run) => run.status === 'failed' && run.stopped === undefined;
+
+/** The longest wait for a provider limit to reset, and the wait when the error names no reset. */
+const resetCap = 5 * 60_000;
+const providerBackoff = 30_000;
+
+/** How long to wait before running a check again that the provider refused; undefined when not worth one retry. */
+export const providerWait = (run: Pick<Run, 'stopped' | 'error'>, now = Date.now()) => {
+  if (run.stopped !== 'provider') return;
+  const reset = resetOf(run.error);
+  const wait = reset ? reset.getTime() - now + 1000 : providerBackoff;
+  return wait <= resetCap ? Math.max(wait, 0) : undefined;
+};
 
 /**
  * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A final
@@ -225,7 +237,9 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         return yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
       });
       const first = yield* judge;
-      const { run, final } = crashed(first.run) ? yield* judge : first;
+      const wait = providerWait(first.run);
+      const again = crashed(first.run) || wait !== undefined;
+      const { run, final } = again ? yield* Effect.andThen(Effect.sleep(wait ?? 0), judge) : first;
       const verdict = verdictOf(run, final);
       if (verdict.pass) yield* Effect.promise(() => p.store.update(run.id, { passed: key }));
       return { ...verdict, runs: [...new Set([first.run.id, run.id])] };

@@ -27,6 +27,12 @@ import type { AgentEvent, HarnessAdapter, RunSpec } from './types.ts';
 /** Errors that mean the provider refused the run for now: rate and usage limits, quotas, overload. */
 const providerLimit = /\b(429|rate[ -]?limit|usage limit|quota|overloaded)\b/i;
 
+/** When a provider limit resets, read from a `Limit resets at: <UTC date and time>` line in its error. */
+export const resetOf = (error = '') => {
+  const at = /resets? at:?\s*(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)/i.exec(error);
+  return at ? new Date(`${at[1]}T${at[2]}Z`) : undefined;
+};
+
 const inherited = ['PATH', 'HOME', 'LANG', 'TMPDIR', 'USER', 'TERM'];
 const stderrLimit = 4096;
 

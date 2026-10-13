@@ -13,6 +13,7 @@ import {
   closureOf as closure,
   failingChecks,
   handoffEnv,
+  providerWait,
   renderBranch,
   runPlan,
   runPlanned,
@@ -124,20 +125,22 @@ const finalMessage = bothub([
   { kind: 'label', add: ['bug'] },
 ]);
 
-const events = (ok: boolean, message: string): AgentEvent[] => [
+const events = (ok: boolean, message: string, error?: string): AgentEvent[] => [
   { type: 'start', session: 's1', model: 'resolved/sonnet' },
   { type: 'text', text: 'working' },
+  ...(error ? [{ type: 'error' as const, message: error }] : []),
   { type: 'end', ok, turns: 2, result: message, costUsd: 0.5 },
 ];
 
-type Behaviour = { ok?: boolean; message?: string; work?: string };
+type Behaviour = { ok?: boolean; message?: string; work?: string; error?: string };
 
 /** A harness that checks its worktree and secrets, then reports `message`; `ok: false` fails the run. */
 const fake = (behave: Behaviour | ((spec: RunSpec, call: number) => Behaviour) = {}) =>
   fakeHarness((spec, call) => {
-    const { ok = true, message = finalMessage, work = '' } = typeof behave === 'function' ? behave(spec, call) : behave;
+    const { ok = true, message = finalMessage, work = '', error } =
+      typeof behave === 'function' ? behave(spec, call) : behave;
     const secrets = `if (process.env.BOTHUB_LLM_API_KEY !== 'key' || process.env.OTHER) process.exit(9)`;
-    return { events: events(ok, message), work: `fs.accessSync('README.md'); ${work}; ${secrets}`, exit: ok ? 0 : 1 };
+    return { events: events(ok, message, error), work: `fs.accessSync('README.md'); ${work}; ${secrets}`, exit: ok ? 0 : 1 };
   });
 
 /** GitHub with nothing written yet; `calls` holds the writes. */
@@ -1570,6 +1573,24 @@ describe('over', () => {
       runs: [expect.any(String), expect.any(String)],
     });
     expect(result.run).toMatchObject({ closure: 'blocked' });
+  });
+
+  it('runs a check again once its provider limit resets, and never when the reset is far off', async () => {
+    let judged = 0;
+    const limited = (reset: Date) => `Rate limit exceeded. Limit resets at: ${reset.toISOString().replace('T', ' ')}`;
+    const { result } = await run(
+      hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' }]),
+      spec =>
+        !spec.system.startsWith('You judge.')
+          ? { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) }
+          : judged++
+            ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) }
+            : { ok: false, message: '', error: limited(new Date(Date.now() - 60_000)) }
+    );
+    expect(judged).toBe(2);
+    expect(result.outcome?.checks?.[0]).toMatchObject({ pass: true, runs: [expect.any(String), expect.any(String)] });
+    const far = new Date('2026-10-13T19:00:00Z');
+    expect(providerWait({ stopped: 'provider', error: limited(far) }, far.getTime() - 3_600_000)).toBeUndefined();
   });
 
   it('names the items that could not run first, even after other items found something', async () => {
