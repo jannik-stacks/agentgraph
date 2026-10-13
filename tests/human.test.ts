@@ -11,9 +11,9 @@ import { issueContext } from '../src/preload.ts';
 import { index, issueDocs, noteDocs } from '../src/recall.ts';
 import { limiter, unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
-import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
+import type { BotEvent } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { sourceRepo, temp } from './git.ts';
+import { fakeHarness, sourceRepo, temp } from './kit.ts';
 
 const marker = 'HUMAN-MARKER-7f3a';
 const map = (kind: string) => `human: { source: "${marker} ${kind}", other: "${marker} extra" }`;
@@ -66,30 +66,18 @@ const hub = async () => {
 
 const final = (body: string) => ['Done.', '```bothub', JSON.stringify([{ kind: 'reply', body }]), '```'].join('\n');
 
-/** An adapter that records each spec; the worker writes a file, the judge passes. */
-const recording = () => {
-  const seen: RunSpec[] = [];
-  const adapter: HarnessAdapter = {
-    name: 'opencode',
-    command: spec => {
-      seen.push(spec);
-      const judge = spec.system.startsWith('You judge.');
-      const work = judge ? '' : "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/a.ts', 'a\\n');";
-      const events: AgentEvent[] = [
+/** A harness that records each spec; the worker writes a file, the judge passes. */
+const recording = () =>
+  fakeHarness(spec => {
+    const judge = spec.system.startsWith('You judge.');
+    return {
+      events: [
         { type: 'start', session: 's', model: 'm' },
         { type: 'end', ok: true, turns: 1, result: final(judge ? 'PASS' : 'done') },
-      ];
-      const out = events.map(e => JSON.stringify(e)).join('\n');
-      return {
-        cmd: 'node',
-        args: ['-e', `const fs = require('fs'); ${work} console.log(${JSON.stringify(out)})`],
-        env: {},
-      };
-    },
-    parseLine: line => (line.trim() ? [JSON.parse(line) as AgentEvent] : []),
-  };
-  return { seen, adapters: { opencode: adapter, pi: { ...adapter, name: 'pi' as const } } };
-};
+      ],
+      work: judge ? '' : "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/a.ts', 'a\\n')",
+    };
+  });
 
 const text = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value));
 
@@ -145,7 +133,7 @@ describe('human', () => {
         }
       )
     );
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(result.outcome?.checks?.map(c => c.check)).toEqual(['judged', 'asked', 'ran']);
     expect(seen.some(s => s.system.startsWith('You judge.'))).toBe(true);
     expect(decided.length).toBeGreaterThan(0);

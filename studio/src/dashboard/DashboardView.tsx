@@ -18,6 +18,7 @@ import { GroupList } from './Groups.tsx';
 import { live, pricesAtom, useLiveStream } from './live.ts';
 import { costOfRuns, groupRuns, isFailed, isLive } from './model.ts';
 import { NeedsHuman } from './NeedsHuman.tsx';
+import { ChangesLink, PullsView } from './PullsView.tsx';
 import { executionOf, RunView } from './RunView.tsx';
 import { SummaryStrip } from './SummaryStrip.tsx';
 
@@ -190,6 +191,7 @@ export const DashboardView = () => {
     if (statuses) refreshNeedsHuman();
   }, [statuses, refreshNeedsHuman]);
 
+  if ('pulls' in page && page.pulls !== undefined) return <PullsView number={page.pulls} />;
   if ('follow' in page || (selected && runPage))
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -216,6 +218,7 @@ export const DashboardView = () => {
     <div className="grid h-full grid-cols-1 grid-rows-[auto_1fr]">
       <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-800">
         <SummaryStrip runs={rows} />
+        <ChangesLink />
         <Connection />
       </div>
       <div className="flex min-h-0">

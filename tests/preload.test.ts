@@ -5,7 +5,7 @@ import { localIssues } from '../src/issues-local.ts';
 import { accepted, issueContext, runContext } from '../src/preload.ts';
 import type { Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
-import { temp } from './git.ts';
+import { temp } from './kit.ts';
 
 describe('runContext', () => {
   const bot = {

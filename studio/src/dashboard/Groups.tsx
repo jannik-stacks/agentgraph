@@ -1,11 +1,12 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { Fragment, memo, useState } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import type { RunRow } from '../../../src/live.ts';
+import { Link as Anchor } from '../Providers.tsx';
 import { navigateAtom, runIdAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
-import { cx, Tooltip } from '../ui.tsx';
+import { cx, IconButton, Tooltip } from '../ui.tsx';
 import { age, Cost, Elapsed, Io, StatusIcon, useEnter } from './bits.tsx';
-import { pricesAtom } from './live.ts';
+import { live, pricesAtom } from './live.ts';
 import { costOf, costOfRuns, eventTitle, type Group, isLive, type JobNode, type Link, triggerGlyph } from './model.ts';
 
 /**
@@ -62,11 +63,15 @@ const RunLine = memo(function RunLine({ run, job }: { run: RunRow; job: JobNode 
   );
 });
 
-const Node = ({ job, onSelect }: { job: JobNode; onSelect: (id: string) => void }) => (
-  <span className="inline-flex flex-wrap items-center gap-1">
+/** A job and the checks that gate it; `after` puts an arrow in front, kept on one line with the job. */
+const Node = ({ job, after, onSelect }: { job: JobNode; after: boolean; onSelect: (id: string) => void }) => (
+  <>
     <Tooltip
-      tip={`Job ${job.job}${job.attempts.length > 1 ? `, ${job.attempts.length} attempts` : ''}; opens the latest attempt`}
+      tip={`Job ${job.job}${job.attempts.length > 1 ? `, ${job.attempts.length} attempts` : ''}`}
+      action="Open the latest attempt"
+      className="shrink-0 items-center gap-1"
     >
+      {after && <Icon name="chevron" className="size-3 text-zinc-400" />}
       <button
         type="button"
         onClick={e => {
@@ -86,7 +91,12 @@ const Node = ({ job, onSelect }: { job: JobNode; onSelect: (id: string) => void 
       </button>
     </Tooltip>
     {[...job.checks].map(([name, runs]) => (
-      <Tooltip key={name} tip={`Check ${name}${runs.length > 1 ? `, ${runs.length} runs` : ''}; opens the latest`}>
+      <Tooltip
+        key={name}
+        tip={`Check ${name}${runs.length > 1 ? `, ${runs.length} runs` : ''}`}
+        action="Open the latest run"
+        className="shrink-0"
+      >
         <button
           type="button"
           onClick={e => {
@@ -101,20 +111,48 @@ const Node = ({ job, onSelect }: { job: JobNode; onSelect: (id: string) => void 
         </button>
       </Tooltip>
     ))}
-  </span>
+  </>
 );
 
-/** The jobs an event started, left to right in the order they started, each followed by the checks that gate it. */
+/**
+ * The jobs an event started, left to right in the order they started, each followed by the checks that gate it. It
+ * keeps to one line; when that cuts it off, a caret opens every job and check in place.
+ */
 const JobGraph = ({ jobs }: { jobs: JobNode[] }) => {
   const select = useSetAtom(runIdAtom);
+  const [open, setOpen] = useState(false);
+  const [cut, setCut] = useState(false);
+  const line = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = line.current;
+    if (!element) return;
+    const measure = () => setCut(element.scrollWidth > element.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [jobs, open]);
   return (
-    <div className="flex flex-wrap items-center gap-1 pb-1.5 pl-8">
-      {jobs.map((job, i) => (
-        <Fragment key={job.key}>
-          {i > 0 && <Icon name="chevron" className="size-3 text-zinc-400" />}
-          <Node job={job} onSelect={select} />
-        </Fragment>
-      ))}
+    <div className="flex items-start gap-1 pr-3 pb-1.5 pl-8">
+      <div ref={line} className={cx('flex min-w-0 flex-1 items-center gap-1', open ? 'flex-wrap' : 'overflow-hidden')}>
+        {jobs.map((job, i) => (
+          <Node key={job.key} job={job} after={i > 0} onSelect={select} />
+        ))}
+      </div>
+      {(cut || open) && (
+        <IconButton
+          tip={open ? 'Show on one line' : 'Show every job and check'}
+          variant="ghost"
+          aria-expanded={open}
+          onClick={e => {
+            e.stopPropagation();
+            setOpen(!open);
+          }}
+          onKeyDown={e => e.stopPropagation()}
+        >
+          <Icon name="chevron" className={cx('size-3', open ? '-rotate-90' : 'rotate-90')} />
+        </IconButton>
+      )}
     </div>
   );
 };
@@ -123,7 +161,8 @@ const LinkChip = ({ link, direction }: { link: Link; direction: 'from' | 'to' })
   const select = useSetAtom(runIdAtom);
   return (
     <Tooltip
-      tip={`${direction === 'from' ? 'Started by' : 'Started'} ${link.label}${link.likely ? ', matched by issue and time' : ''}; opens that run`}
+      tip={`${direction === 'from' ? 'Started by' : 'Started'} ${link.label}${link.likely ? ', matched by issue and time' : ''}`}
+      action="Open that run"
     >
       <button
         type="button"
@@ -140,6 +179,26 @@ const LinkChip = ({ link, direction }: { link: Link; direction: 'from' | 'to' })
       </button>
     </Tooltip>
   );
+};
+
+/** The merge requests an event's runs opened, each a link to its changes. */
+const PullChips = ({ event }: { event: string }) => {
+  const pulls = useAtomValue(live.pulls).filter(p => p.origin?.event === event);
+  return pulls.map(pull => (
+    <Tooltip
+      key={pull.number}
+      tip={`Merge request #${pull.number}, ${pull.state}: ${pull.title}`}
+      action="Show its changes"
+    >
+      <Anchor
+        href={`/dashboard/pulls/${pull.number}`}
+        onClick={e => e.stopPropagation()}
+        className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 px-1 text-[11px] text-zinc-600 hover:border-sky-400 dark:border-zinc-700 dark:text-zinc-400"
+      >
+        <Icon name="pull" className="size-3" />#{pull.number}
+      </Anchor>
+    </Tooltip>
+  ));
 };
 
 /**
@@ -186,6 +245,7 @@ export const GroupRow = memo(function GroupRow({ group, open: initiallyOpen }: {
             {group.caused.map(link => (
               <LinkChip key={link.event} link={link} direction="to" />
             ))}
+            <PullChips event={event.id} />
           </span>
           <Io tally={group.tally} className="text-xs" />
           <Cost

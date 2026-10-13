@@ -58,7 +58,7 @@ export type Trigger = z.infer<typeof Trigger>;
 export const Association = z.enum(['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'NONE']);
 export type Association = z.infer<typeof Association>;
 
-export const Mode = z.enum(['shadow', 'warn', 'block']);
+export const Mode = z.enum(['log', 'warn', 'block']);
 export type Mode = z.infer<typeof Mode>;
 
 export const ProposalKind = z.enum(['reply', 'label', 'push', 'merge-request', 'merge', 'note', 'hub', 'ask']);
@@ -253,7 +253,7 @@ const variant = <S extends z.ZodRawShape>(what: string, shape: S) =>
 const step = (over: 'diff' | 'event') => ({
   over: Over.default(over),
   paths: z.array(z.string()).optional(),
-  mode: Mode.default('shadow'),
+  mode: Mode.default('log'),
 });
 
 const checkFields = {

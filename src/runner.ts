@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { loadedMarker } from './harnesses/opencode-surfacer.ts';
@@ -18,8 +19,11 @@ import {
   sandboxReady,
   specInside,
 } from './sandbox.ts';
-import type { EventRecord, Run, Store } from './store.ts';
+import type { EventRecord, Run, Stopped, Store } from './store.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from './types.ts';
+
+/** Errors that mean the provider refused the run for now: rate and usage limits, quotas, overload. */
+const providerLimit = /\b(429|rate[ -]?limit|usage limit|quota|overloaded)\b/i;
 
 const inherited = ['PATH', 'HOME', 'LANG', 'TMPDIR', 'USER', 'TERM'];
 const stderrLimit = 4096;
@@ -67,44 +71,72 @@ const kill = (pid: number | undefined) => {
   } catch {}
 };
 
+type Exited = { code: number | null } | { error: Error };
+
 /**
- * Raw stdout of a child process; fails on spawn errors or a non-zero exit, and kills its process group (and runs
- * `stop`) on release.
+ * Starts `command` in its own process group, writing `input` to its stdin when given. `closed` resolves once it
+ * exits or fails to start; `stop` kills the group and runs the command's own `stop`.
  */
-const output = ({ cmd, args, cwd, env, stop }: Command) =>
+const start = (
+  command: Command,
+  on: { stdout: (chunk: Buffer) => void; stderr: (chunk: Buffer) => void },
+  input?: string
+) => {
+  const child = spawn(command.cmd, command.args, {
+    cwd: command.cwd,
+    env: command.env,
+    stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+    detached: true,
+  });
+  child.stdin?.on('error', () => {});
+  child.stdin?.end(input);
+  child.stdout?.on('data', on.stdout);
+  child.stderr?.on('data', on.stderr);
+  const closed = new Promise<Exited>(resolve => {
+    child.once('error', error => resolve({ error }));
+    child.once('close', code => resolve({ code }));
+  });
+  const stop = () => {
+    kill(child.pid);
+    command.stop?.();
+  };
+  return { closed, stop };
+};
+
+/** Raw stdout of a child process; fails on spawn errors or a non-zero exit, and stops it on release. */
+const output = (command: Command) =>
   Stream.asyncPush<Uint8Array, Error>(emit =>
     Effect.acquireRelease(
       Effect.sync(() => {
-        const child = spawn(cmd, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
         let stderr = '';
-        child.stdout.on('data', (chunk: Buffer) => emit.single(chunk));
-        child.stderr.on('data', (chunk: Buffer) => {
-          stderr = (stderr + chunk.toString()).slice(-stderrLimit);
+        const { closed, stop } = start(command, {
+          stdout: chunk => emit.single(chunk),
+          stderr: chunk => {
+            stderr = (stderr + chunk.toString()).slice(-stderrLimit);
+          },
         });
-        const closed = new Promise<void>(resolve => {
-          child.once('error', error => resolve(emit.fail(error)));
-          child.once('close', code =>
-            resolve(
-              code === 0
-                ? emit.end()
-                : emit.fail(Object.assign(new Error(stderr.trim() || `exited with code ${code}`), { exitCode: code }))
-            )
-          );
-        });
-        return { child, closed };
+        const ended = closed.then(exit =>
+          'error' in exit
+            ? emit.fail(exit.error)
+            : exit.code === 0
+              ? emit.end()
+              : emit.fail(
+                  Object.assign(new Error(stderr.trim() || `exited with code ${exit.code}`), { exitCode: exit.code })
+                )
+        );
+        return { ended, stop };
       }),
-      ({ child, closed }) =>
+      ({ ended, stop }) =>
         Effect.promise(() => {
-          kill(child.pid);
-          stop?.();
-          return closed;
+          stop();
+          return ended;
         })
     )
   );
 
 /**
  * A command inside a run container with `worktree` at `/work`, read-only with `readonly`. `home` is mounted as
- * `/home/agent` (otherwise `HOME` is the container's tmpfs `/tmp`); secrets travel by name, and the docker client gets
+ * `/home/agent` (otherwise `HOME` is the container's tmpfs `/tmp`), and `env` cannot move it; secrets travel by name, and the docker client gets
  * the host allowlist.
  */
 const contained = async ({
@@ -139,7 +171,7 @@ const contained = async ({
     worktree,
     home,
     mounts: [...mounts, ...(await gitMounts(worktree, readonly)), ...(await depsMounts(worktree, readonly))],
-    env: { ...containerEnv(), ...(home ? homeEnv(inside.home, inside.tmp) : { HOME: inside.tmp }), ...env },
+    env: { ...containerEnv(), ...env, ...(home ? homeEnv(inside.home, inside.tmp) : { HOME: inside.tmp }) },
     ...(secrets && { secrets }),
     cmd,
     args,
@@ -212,8 +244,9 @@ export const sandboxed: Launcher = {
 };
 
 /**
- * Starts commands directly on this machine with a private home and an allowlisted env, without isolation. Only for
- * tests and the simulator, whose harnesses are scripted and run no agent.
+ * Starts commands directly on this machine with a private home and an allowlisted env, without isolation; scripts get
+ * the system temp directory as `HOME` and `TMPDIR`. Only for tests and the simulator, whose harnesses are scripted and
+ * run no agent.
  */
 export const unsandboxed: Launcher = {
   agent: async (adapter, spec, secrets, home) => {
@@ -224,7 +257,7 @@ export const unsandboxed: Launcher = {
     cmd: 'sh',
     args: ['-c', script],
     cwd,
-    env: agentEnv({ ...env, ...(hub && { BOTHUB_HUB: hub }) }),
+    env: agentEnv({ ...env, ...(hub && { BOTHUB_HUB: hub }), HOME: tmpdir(), TMPDIR: tmpdir() }),
   }),
   startFailed: () => false,
 };
@@ -309,12 +342,17 @@ export const stuckWatch = () => {
   };
 };
 
+class Stalled extends Error {}
+class Withdrawn extends Error {}
+
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
  * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
  * Secret values are masked in stored events, errors and the home's files. A run caught in a loop
  * (see `stuckWatch`) is stopped with `stuck: …`; a sandbox that is unavailable or a container that never started fails with
- * `sandbox-failed: …`, and nothing runs on the host.
+ * `sandbox-failed: …`, and nothing runs on the host. A harness silent for `stallMinutes` fails as stalled, and a run
+ * is cancelled as withdrawn once `until` resolves with a reason. Each of these, a timeout and a provider limit are
+ * recorded as the run's `stopped`.
  * Never fails; interruption records `cancelled` after the process group is killed.
  */
 export const runJob = (options: {
@@ -327,11 +365,17 @@ export const runJob = (options: {
   onEvent?: (record: EventRecord) => void;
   launch?: Launcher;
   readonly?: boolean;
+  stallMinutes?: number;
+  until?: Effect.Effect<string>;
 }): Effect.Effect<Run> =>
   Effect.suspend(() => {
     const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed, readonly } = options;
+    const { stallMinutes, until } = options;
     const save = (patch: Partial<Omit<Run, 'id'>>) => Effect.promise(() => store.update(runId, patch));
-    const finish = (patch: Partial<Omit<Run, 'id'>>) => save({ ...patch, endedAt: new Date().toISOString() });
+    const finish = (patch: Partial<Omit<Run, 'id'>>) => {
+      const stopped = patch.stopped ?? (providerLimit.test(patch.error ?? '') ? 'provider' : undefined);
+      return save({ ...patch, ...(stopped && { stopped }), endedAt: new Date().toISOString() });
+    };
 
     const mask = masker(Object.values(secrets ?? {}));
     const watch = stuckWatch();
@@ -371,6 +415,15 @@ export const runJob = (options: {
       Effect.zipRight(Effect.tryPromise({ try: () => makeHome(home), catch: e => e as Error })),
       Effect.zipRight(
         agentEvents(adapter, spec, secrets, home, launch, readonly).pipe(
+          events =>
+            stallMinutes ? Stream.timeoutFail(events, () => new Stalled(), Duration.minutes(stallMinutes)) : events,
+          events =>
+            until
+              ? Stream.interruptWhen(
+                  events,
+                  Effect.flatMap(until, why => Effect.fail(new Withdrawn(why)))
+                )
+              : events,
           Stream.runForEach(record),
           Effect.timeout(Duration.minutes(timeoutMinutes))
         )
@@ -390,9 +443,24 @@ export const runJob = (options: {
               }),
         onFailure: e => {
           if (Cause.isTimeoutException(e))
-            return finish({ status: 'timed-out', ...usage(), error: `timed out after ${timeoutMinutes} minutes` });
-          if (stuck) return finish({ status: 'failed', ...usage(), error: `stuck: ${stuck}` });
-          if (sandboxFailed(e)) return finish({ status: 'failed', error: `sandbox-failed: ${mask(e.message)}` });
+            return finish({
+              status: 'timed-out',
+              stopped: 'timeout',
+              ...usage(),
+              error: `timed out after ${timeoutMinutes} minutes`,
+            });
+          if (stuck) return finish({ status: 'failed', stopped: 'stuck', ...usage(), error: `stuck: ${stuck}` });
+          if (e instanceof Stalled)
+            return finish({
+              status: 'failed',
+              stopped: 'stalled',
+              ...usage(),
+              error: `stalled: no agent event for ${stallMinutes} minutes`,
+            });
+          if (e instanceof Withdrawn)
+            return finish({ status: 'cancelled', stopped: 'withdrawn', ...usage(), error: `withdrawn: ${e.message}` });
+          if (sandboxFailed(e))
+            return finish({ status: 'failed', stopped: 'sandbox', error: `sandbox-failed: ${mask(e.message)}` });
           return finish({ status: 'failed', ...usage(), error: mask(reason() ?? e.message) });
         },
       }),
@@ -408,7 +476,12 @@ const scriptRawLimit = 64 << 10;
 const scriptStdoutLimit = 4 << 20;
 
 /** How a script ended: exited 0 or not, its output tail and stdout, and whether it never ran or ran out of time. */
-export type ScriptResult = { ok: boolean; output: string; stdout: string; sandboxFailed?: true; timedOut?: true };
+export type ScriptResult = {
+  ok: boolean;
+  output: string;
+  stdout: string;
+  stopped?: Extract<Stopped, 'sandbox' | 'timeout'>;
+};
 
 /**
  * Runs `script` with `sh -c` in a run container with `cwd` as its worktree, read-only with `readonly`, and the
@@ -429,58 +502,51 @@ export const runScript = async (
     ok: false,
     output: `sandbox-failed: ${message}`,
     stdout: '',
-    sandboxFailed: true,
+    stopped: 'sandbox',
   });
   const command = await launch.script(script, cwd, env, access).catch((error: Error) => error);
   if (command instanceof Error) return failed(command.message);
-  return new Promise<ScriptResult>(resolve => {
-    const child = spawn(command.cmd, command.args, {
-      cwd: command.cwd,
-      env: command.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,
-    });
-    child.stdin.on('error', () => {});
-    child.stdin.end(input);
-    let raw = '';
-    let cut = false;
-    let stdout = '';
-    let timedOut = false;
-    const add = (chunk: Buffer) => {
-      raw += chunk.toString();
-      if (raw.length <= scriptRawLimit) return;
-      raw = raw.slice(-scriptRawLimit);
-      cut = true;
-    };
-    const shown = () =>
-      stripVTControlCharacters(cut ? raw.slice(raw.indexOf('\n') + 1) : raw).slice(-scriptOutputLimit);
-    child.stdout.on('data', (chunk: Buffer) => {
-      if (stdout.length < scriptStdoutLimit) stdout += chunk.toString();
-      add(chunk);
-    });
-    child.stderr.on('data', add);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      kill(child.pid);
-      command.stop?.();
-    }, timeoutMinutes * 60_000);
-    child.once('error', error => {
-      clearTimeout(timer);
-      resolve(launch.startFailed(error) ? failed(error.message) : { ok: false, output: error.message, stdout: '' });
-    });
-    child.once('close', code => {
-      clearTimeout(timer);
-      if (code === 125 && launch.startFailed({ name: 'exit', message: '', exitCode: 125 }))
-        return resolve(failed(shown().trim() || 'the container did not start'));
-      const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
-      resolve({
-        ok: code === 0 && !timedOut,
-        output: (shown() + tail).trim(),
-        stdout,
-        ...(timedOut && { timedOut }),
-      });
-    });
-  });
+  let raw = '';
+  let cut = false;
+  let stdout = '';
+  let timedOut = false;
+  const add = (chunk: Buffer) => {
+    raw += chunk.toString();
+    if (raw.length <= scriptRawLimit) return;
+    raw = raw.slice(-scriptRawLimit);
+    cut = true;
+  };
+  const shown = () => stripVTControlCharacters(cut ? raw.slice(raw.indexOf('\n') + 1) : raw).slice(-scriptOutputLimit);
+  const { closed, stop } = start(
+    command,
+    {
+      stdout: chunk => {
+        if (stdout.length < scriptStdoutLimit) stdout += chunk.toString();
+        add(chunk);
+      },
+      stderr: add,
+    },
+    input
+  );
+  const timer = setTimeout(() => {
+    timedOut = true;
+    stop();
+  }, timeoutMinutes * 60_000);
+  const exit = await closed;
+  clearTimeout(timer);
+  if ('error' in exit)
+    return launch.startFailed(exit.error)
+      ? failed(exit.error.message)
+      : { ok: false, output: exit.error.message, stdout: '' };
+  if (exit.code === 125 && launch.startFailed({ name: 'exit', message: '', exitCode: 125 }))
+    return failed(shown().trim() || 'the container did not start');
+  const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
+  return {
+    ok: exit.code === 0 && !timedOut,
+    output: (shown() + tail).trim(),
+    stdout,
+    ...(timedOut ? { stopped: 'timeout' as const } : {}),
+  };
 };
 
 /** A limiter allowing at most `n` wrapped effects to run at once (4 by default); waiting runs stay `queued`. */

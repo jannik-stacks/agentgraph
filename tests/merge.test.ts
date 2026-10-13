@@ -8,9 +8,9 @@ import { runPlan, runPlanned, type JobResult, type Pipeline } from '../src/pipel
 import { localPulls } from '../src/pulls.ts';
 import { limiter, unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
-import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
+import type { BotEvent, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { commit, git, sourceRepo, temp } from './git.ts';
+import { commit, fakeHarness, git, sourceRepo, temp } from './kit.ts';
 
 const md = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n\n${body}` });
 const script = join(import.meta.dirname, '../examples/acme-app/scripts/merge-next.mjs');
@@ -67,21 +67,14 @@ const opened: BotEvent = {
 const bothub = (proposals: unknown[]) => ['```bothub', JSON.stringify(proposals), '```'].join('\n');
 
 /** A harness that writes `a.ts` with what `content` says for the spec, and proposes what `propose` says. */
-const harness = (behave: (spec: RunSpec) => { content: string; proposals: unknown[] }) => {
-  const seen: RunSpec[] = [];
-  const adapter: HarnessAdapter = {
-    name: 'opencode',
-    command: spec => {
-      seen.push(spec);
-      const { content, proposals } = behave(spec);
-      const end: AgentEvent = { type: 'end', ok: true, turns: 1, result: bothub(proposals) };
-      const code = `require('fs').writeFileSync('a.ts', ${JSON.stringify(content)}); console.log(${JSON.stringify(JSON.stringify(end))})`;
-      return { cmd: 'node', args: ['-e', code], env: {} };
-    },
-    parseLine: line => (line.trim() ? [JSON.parse(line) as AgentEvent] : []),
-  };
-  return { seen, adapters: { opencode: adapter, pi: { ...adapter, name: 'pi' as const } } };
-};
+const harness = (behave: (spec: RunSpec) => { content: string; proposals: unknown[] }) =>
+  fakeHarness(spec => {
+    const { content, proposals } = behave(spec);
+    return {
+      events: [{ type: 'end', ok: true, turns: 1, result: bothub(proposals) }],
+      work: `fs.writeFileSync('a.ts', ${JSON.stringify(content)})`,
+    };
+  });
 
 const setup = async (config = configFor(), adapters?: Pipeline['adapters']) => {
   const origin = sourceRepo();
@@ -108,7 +101,7 @@ const setup = async (config = configFor(), adapters?: Pipeline['adapters']) => {
   return { origin, pulls, p, branch };
 };
 
-const results = (result: JobResult) => ('run' in result ? result.outcome?.results : undefined);
+const results = (result: JobResult) => result.outcome?.results;
 
 describe('merge', () => {
   it('lands the oldest open request once its required checks pass on the merged tree', async () => {
@@ -117,7 +110,7 @@ describe('merge', () => {
     await pulls.open({ title: 'Step', body: '', branch: 'bothub/5-6', into: 'bothub/5' });
     const result = await Effect.runPromise(runPlanned({ workflow: 'merge', job: 'merge' }, p));
     expect(results(result)).toMatchObject([{ kind: 'merge', status: 'applied', url: `${origin.dir}#pull/1` }]);
-    expect('run' in result && result.run.closure).toBe('done');
+    expect(result.run.closure).toBe('done');
     expect(git(origin.dir, 'rev-parse', 'bothub/5^2')).toBe(head);
     expect(git(origin.dir, 'show', 'bothub/5:a.ts')).toBe('six');
 
@@ -148,9 +141,10 @@ describe('merge', () => {
     const [blocked] = await Effect.runPromise(
       runPlan([{ workflow: 'plan', job: 'implement', bot: 'bot' }], { ...p, event: step })
     );
-    expect(blocked).toMatchObject({
+    expect(blocked?.run).toMatchObject({
+      status: 'skipped',
       closure: 'blocked',
-      skipped: '"bothub/{parent}-6" names a value this event does not have',
+      reason: '"bothub/{parent}-6" names a value this event does not have',
     });
   });
 

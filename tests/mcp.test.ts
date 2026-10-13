@@ -7,7 +7,7 @@ import { localIssues } from '../src/issues-local.ts';
 import { bothubServer, mcpToolNames, opencodeMcpConfig, type McpServer } from '../src/mcp-config.ts';
 import { proposalsFile, serveMcp } from '../src/mcp.ts';
 import { openStore } from '../src/store.ts';
-import { temp } from './git.ts';
+import { temp } from './kit.ts';
 
 const compiled = compile([
   { path: 'notes/caveat/hex.md', source: '---\ntitle: Hex has no 0x\n---\n\nPersisted hex has no prefix.' },

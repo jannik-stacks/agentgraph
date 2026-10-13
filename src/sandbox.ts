@@ -22,19 +22,13 @@ const checks: Record<string, [RegExp, string]> = {
 
 /**
  * The run container settings. Image and resource limits can be set from the environment; the network and every
- * isolation flag cannot. `BOTHUB_SANDBOX` and `BOTHUB_SANDBOX_NETWORK`, when set, must name the sandbox itself.
+ * isolation flag cannot.
  * @throws SandboxError on any value it does not accept.
  */
 export const sandboxConfig = (env: Record<string, string | undefined> = process.env) => {
   const reject = (message: string) => {
     throw new SandboxError(message);
   };
-  if (env.BOTHUB_SANDBOX !== undefined && env.BOTHUB_SANDBOX !== 'docker')
-    reject(`BOTHUB_SANDBOX="${env.BOTHUB_SANDBOX}": runs always use the docker sandbox; unset it`);
-  if (env.BOTHUB_SANDBOX_NETWORK !== undefined && env.BOTHUB_SANDBOX_NETWORK !== sandboxNetwork)
-    reject(
-      `BOTHUB_SANDBOX_NETWORK="${env.BOTHUB_SANDBOX_NETWORK}": runs always use the ${sandboxNetwork} network; unset it`
-    );
   for (const [key, [pattern, what]] of Object.entries(checks)) {
     const value = env[key];
     if (value !== undefined && !pattern.test(value)) reject(`${key}="${value}" is not ${what}`);

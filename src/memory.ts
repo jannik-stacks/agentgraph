@@ -130,7 +130,7 @@ export const renderMemory = (m: Memory) => {
     ]),
     section(
       'Failed',
-      m.failed.map(f => `- ${f.check}${f.gating ? '' : ' (shadow)'}: ${f.findings.replaceAll('\n', ' ')}`)
+      m.failed.map(f => `- ${f.check}${f.gating ? '' : ' (log)'}: ${f.findings.replaceAll('\n', ' ')}`)
     ),
     section(
       'Rejected',

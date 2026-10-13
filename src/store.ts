@@ -18,6 +18,12 @@ export type RunStatus =
   | 'skipped'
   | 'interrupted';
 
+/**
+ * Why a run stopped for a reason outside its bot's work: out of runs for the day, out of time, a sandbox that never
+ * started, a provider that refused it, or caught in a loop.
+ */
+export type Stopped = 'budget' | 'timeout' | 'stalled' | 'withdrawn' | 'sandbox' | 'provider' | 'stuck';
+
 /** The process that created a run: its pid and a token minted once per process start. */
 export type Owner = { pid: number; token: string };
 
@@ -26,7 +32,7 @@ export const self: Owner = { pid: process.pid, token: randomBytes(8).toString('h
 
 /**
  * One job execution, or a skipped job with its `reason`, persisted as `runs/<id>/run.json`. `closure` says what
- * happened to the work, `base` is the commit its worktree started from, `model` the model the harness reported and
+ * happened to the work, `stopped` why it ended outside its bot's work, `base` is the commit its worktree started from, `model` the model the harness reported and
  * `approval` the issue a gated job waits on and `parked` the branch a blocked job left its work on.
  */
 export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
@@ -39,6 +45,7 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     check?: string;
     event: BotEvent;
     status: RunStatus;
+    stopped?: Stopped;
     closure?: Closure;
     owner?: Owner;
     base?: string;
@@ -53,7 +60,7 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
   };
 
 /**
- * One check's result after an attempt. Only gating checks (not in `shadow` mode) can fail the attempt; a `skipped`
+ * One check's result after an attempt. Only gating checks (not in `log` mode) can fail the attempt; a `skipped`
  * check matched no changed file and passes only when the check allows it. A `blocked` check could not run (budget,
  * timeout, sandbox): it pauses the job for a human instead of going back to the bot.
  */
@@ -83,6 +90,10 @@ export type Outcome = ReturnType<typeof extractProposals> &
     branch?: string;
     pr?: number;
   };
+
+/** What `runs` matches on. */
+export type RunFilter = Partial<Pick<Run, 'workflow' | 'job' | 'bot'>> &
+  Partial<Pick<BotEvent, 'repo' | 'number'>> & { event?: string; check?: boolean; since?: number };
 
 /** One line of `runs/<id>/events.jsonl`. */
 export type EventRecord = { ts: string; seq: number; event: AgentEvent };
@@ -171,6 +182,25 @@ export const openStore = (dir: string, owner: Owner = self) => {
     }
     const runs = await Promise.all(ids.sort().reverse().map(read));
     return runs.filter(run => run !== undefined);
+  };
+
+  /**
+   * The runs matching every field given, newest first: of one event id, repository, issue number, workflow, job or
+   * bot, check runs only or none (`check`), and started at or after `since` (ms).
+   */
+  const runs = async (filter: RunFilter = {}) => {
+    const { event, repo, number, workflow, job, bot, check, since } = filter;
+    return (await list()).filter(
+      run =>
+        (event === undefined || run.event.id === event) &&
+        (repo === undefined || run.event.repo === repo) &&
+        (number === undefined || run.event.number === number) &&
+        (workflow === undefined || run.workflow === workflow) &&
+        (job === undefined || run.job === job) &&
+        (bot === undefined || run.bot === bot) &&
+        (check === undefined || Boolean(run.check) === check) &&
+        (since === undefined || (run.startedAt !== undefined && Date.parse(run.startedAt) >= since))
+    );
   };
 
   /** Events with `seq >= from`; a trailing partial line from an in-flight append is skipped. */
@@ -279,6 +309,7 @@ export const openStore = (dir: string, owner: Owner = self) => {
     append,
     read,
     list,
+    runs,
     events,
     saveOutcome,
     outcome,

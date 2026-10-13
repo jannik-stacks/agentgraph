@@ -3,13 +3,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { GitHub } from '../src/github-app.ts';
 import { githubPulls, localPulls } from '../src/pulls.ts';
-import { commit, git, sourceRepo, temp } from './git.ts';
+import { bareOrigin, commit, git, sourceRepo, temp } from './kit.ts';
 
 /** A bare origin cloned from a source repository, and a way to push new commits on a branch to it. */
 const setup = () => {
   const source = sourceRepo();
-  const origin = join(temp('bare'), 'app.git');
-  git(source.dir, 'clone', '-q', '--bare', source.dir, origin);
+  const origin = bareOrigin(source.dir);
   const file = join(temp('pulls'), 'pulls.jsonl');
   const pulls = localPulls({ origin, file, repo: 'acme/app' });
   const push = (branch: string, files: Record<string, string>, from = 'main') => {

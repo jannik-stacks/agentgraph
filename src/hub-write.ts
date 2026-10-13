@@ -1,16 +1,13 @@
-import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
-import { promisify } from 'node:util';
 import { z } from 'zod';
 import type { HubChange } from './apply.ts';
 import type { ConfigError, SourceFile } from './config.ts';
+import { botEnv, git } from './git.ts';
 import { applyChanges, itemKind, validateHub, type Change } from './hub-files.ts';
 import { readHub } from './load.ts';
-
-const run = promisify(execFile);
 
 /** Every hub item file: what `readHub` reads, plus local issues under `issues/`. */
 export const readHubItems = async (dir: string): Promise<SourceFile[]> => {
@@ -62,8 +59,8 @@ const confine = async (base: string, path: string) => {
 const current = (path: string) => readFile(path, 'utf8').catch(() => null);
 
 const isGitRepo = (dir: string) =>
-  run('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree']).then(
-    ({ stdout }) => stdout.trim() === 'true',
+  git(dir, ['rev-parse', '--is-inside-work-tree']).then(
+    out => out === 'true',
     () => false
   );
 
@@ -146,21 +143,19 @@ export const writeHub = (dir: string, input: unknown): Promise<WriteResult> =>
     const touched = [...result.written, ...result.deleted];
     if (commit && touched.length && (await isGitRepo(base))) {
       try {
-        const tracked = (await run('git', ['-C', base, 'ls-files', '--', ...result.deleted])).stdout.split('\n');
+        const tracked = (await git(base, ['ls-files', '--', ...result.deleted])).split('\n');
         const paths = [...result.written, ...result.deleted.filter(path => tracked.includes(path))];
-        if (result.written.length) await run('git', ['-C', base, 'add', '--', ...result.written]);
+        if (result.written.length) await git(base, ['add', '--', ...result.written]);
         if (paths.length) {
-          await run('git', ['-C', base, 'commit', '-m', 'update', '--only', '--', ...paths]);
-          result.commit = (await run('git', ['-C', base, 'rev-parse', 'HEAD'])).stdout.trim();
+          await git(base, ['commit', '-m', 'update', '--only', '--', ...paths]);
+          result.commit = await git(base, ['rev-parse', 'HEAD']);
         }
       } catch (e) {
-        result.commitError = ((e as { stderr?: string }).stderr || (e as Error).message).trim();
+        result.commitError = (e as Error).message;
       }
     }
     return result;
   });
-
-const bot = { name: 'bothub[bot]', email: 'bothub[bot]@users.noreply.github.com' };
 
 const branchSlug = (title: string) =>
   title
@@ -177,10 +172,7 @@ const branchSlug = (title: string) =>
 export const hubProposal =
   (dir: string) =>
   async ({ files, title, body }: HubChange): Promise<string | undefined> => {
-    const top = await run('git', ['-C', dir, 'rev-parse', '--show-toplevel']).then(
-      ({ stdout }) => realpath(stdout.trim()),
-      () => undefined
-    );
+    const top = await git(dir, ['rev-parse', '--show-toplevel']).then(realpath, () => undefined);
     if (!top || top !== (await realpath(dir))) return;
     const changed = new Set(files.map(file => file.path));
     const after = [
@@ -193,29 +185,22 @@ export const hubProposal =
         `the change leaves the hub invalid: ${validated.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`
       );
     const scratch = await mkdtemp(join(tmpdir(), 'bothub-hub-'));
-    const env = {
-      ...process.env,
-      GIT_INDEX_FILE: join(scratch, 'index'),
-      GIT_AUTHOR_NAME: bot.name,
-      GIT_AUTHOR_EMAIL: bot.email,
-      GIT_COMMITTER_NAME: bot.name,
-      GIT_COMMITTER_EMAIL: bot.email,
-    };
-    const git = async (args: string[]) => (await run('git', ['-C', top, ...args], { env })).stdout.trim();
+    const env = { ...botEnv, GIT_INDEX_FILE: join(scratch, 'index') };
+    const inTop = (args: string[]) => git(top, args, env);
     try {
-      await git(['read-tree', 'HEAD']);
+      await inTop(['read-tree', 'HEAD']);
       for (const file of files) {
         if (file.content === null) {
-          await git(['update-index', '--force-remove', '--', file.path]);
+          await inTop(['update-index', '--force-remove', '--', file.path]);
           continue;
         }
         const blob = join(scratch, 'blob');
         await writeFile(blob, file.content);
-        const sha = await git(['hash-object', '-w', '--', blob]);
-        await git(['update-index', '--add', '--cacheinfo', `100644,${sha},${file.path}`]);
+        const sha = await inTop(['hash-object', '-w', '--', blob]);
+        await inTop(['update-index', '--add', '--cacheinfo', `100644,${sha},${file.path}`]);
       }
-      const tree = await git(['write-tree']);
-      const commit = await git([
+      const tree = await inTop(['write-tree']);
+      const commit = await inTop([
         'commit-tree',
         '--no-gpg-sign',
         tree,
@@ -225,7 +210,7 @@ export const hubProposal =
         body.trim() ? `${title}\n\n${body}` : title,
       ]);
       const branch = `bothub/hub/${branchSlug(title)}-${commit.slice(0, 7)}`;
-      await git(['update-ref', `refs/heads/${branch}`, commit, '']);
+      await inTop(['update-ref', `refs/heads/${branch}`, commit, '']);
       return branch;
     } finally {
       await rm(scratch, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -23,6 +23,8 @@ const studioPaths = () => {
 
 const setup = async () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'bothub-contract-')));
+  const pull = { number: 1, op: 'open', title: 't', body: '', branch: 'b', into: 'main', sha: 'x' };
+  writeFileSync(join(store.dir, 'pulls.jsonl'), `${JSON.stringify(pull)}\n`);
   const run = await store.create({
     workflow: 'w',
     job: 'j',
@@ -58,7 +60,7 @@ describe('studio and API contract', () => {
     const { handler, runId } = await setup();
     const unserved: string[] = [];
     for (const [path, at] of studioPaths()) {
-      const concrete = path.replace(/\$\{[^}]*\}/g, runId);
+      const concrete = path.replace(/\$\{number\}/g, '1').replace(/\$\{[^}]*\}/g, runId);
       if ((await status(handler, concrete)) === 404) unserved.push(`${at} ${path}`);
     }
     expect(unserved).toEqual([]);

@@ -7,7 +7,7 @@ import { localIssues } from '../src/issues-local.ts';
 import type { JobResult } from '../src/pipeline.ts';
 import { runScript } from '../src/runner.ts';
 import { serveHub } from '../src/serve.ts';
-import { commit, git, temp } from './git.ts';
+import { bareOrigin, commit, git, temp } from './kit.ts';
 
 const up = async () => {
   if (process.env.BOTHUB_E2E !== '1') return false;
@@ -58,9 +58,7 @@ const fixture = () => {
   git(dir, 'init', '-q', '-b', 'main');
   mkdirSync(join(dir, 'src'));
   commit(dir, { 'README.md': 'Rates.\n', 'src/rates.ts': 'export const rate = () => 4217;\n' });
-  const origin = join(temp('e2e-origin'), 'app.git');
-  git(dir, 'clone', '-q', '--bare', dir, origin);
-  return { dir, origin };
+  return { dir, origin: bareOrigin(dir) };
 };
 
 const hub = () => {
@@ -101,7 +99,7 @@ describe.skipIf(!(await up()))('local strategy against docker and the model prox
       await localIssues(join(dir, 'issues'), { repo: 'acme/rates', as: 'morgan' }).comment(1, '/bothub');
       while (!done.length) await new Promise(r => setTimeout(r, 500));
       const [result] = done.flat();
-      expect(result && 'run' in result && result.run.status).toBe('succeeded');
+      expect(result && result.run.status).toBe('succeeded');
       const issue = await localIssues(join(dir, 'issues'), { repo: 'acme/rates' }).get(1);
       const reply = issue?.comments.find(c => c.author === 'bothub[bot]');
       expect(reply?.body).toContain('4217');

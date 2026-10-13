@@ -58,7 +58,7 @@ describe('compile', () => {
     expect(flow?.name).toBe('issue');
     expect(flow?.on.issue_comment?.guard?.associations).toEqual(['OWNER', 'MEMBER', 'COLLABORATOR']);
     expect(flow?.jobs.implement).toMatchObject({ needs: [], until: { checks: ['types', 'review'], max: 2 } });
-    expect(flow?.jobs.review?.mode).toBe('shadow');
+    expect(flow?.jobs.review?.mode).toBe('log');
     expect(flow?.body).toContain('/bothub');
   });
 
@@ -275,9 +275,9 @@ describe('compile', () => {
     ]);
     expect(result.ok && result.warnings.map(w => `${w.path}: ${w.message}`)).toEqual([
       'bots/b.md: "usd-per-run" is declared, not enforced: harness "opencode" reports no cost',
-      'checks/judge.md: decides in block mode without a "threshold"; tune one in shadow mode first',
+      'checks/judge.md: decides in block mode without a "threshold"; tune one in log mode first',
       'checks/tuned.md: no job lists it in "until" or "requires", so it never runs',
-      'workflows/w.md: job "a" loops until checks that are all in shadow mode, so it never repeats',
+      'workflows/w.md: job "a" loops until checks that are all in log mode, so it never repeats',
     ]);
     const examples = compile(await readHub(hub));
     expect(examples.ok && examples.warnings).toEqual([]);

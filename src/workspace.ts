@@ -1,36 +1,11 @@
-import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { access, copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { promisify } from 'node:util';
+import { botEnv, git } from './git.ts';
 import { checkPaths, type Proposal } from './outputs.ts';
 import type { BotEvent } from './types.ts';
 
-const exec = promisify(execFile);
 const repoName = /^[\w-][\w.-]*\/[\w-][\w.-]*$/;
-const bot = { name: 'bothub[bot]', email: 'bothub[bot]@users.noreply.github.com' };
-
-/** Commits made on the host are authored and committed by the bot. */
-export const botEnv = {
-  GIT_AUTHOR_NAME: bot.name,
-  GIT_AUTHOR_EMAIL: bot.email,
-  GIT_COMMITTER_NAME: bot.name,
-  GIT_COMMITTER_EMAIL: bot.email,
-};
-
-/** Runs git without a shell; `env` extends the process environment and never appears in errors. */
-const git = async (args: string[], env: Record<string, string> = {}) => {
-  try {
-    const { stdout } = await exec('git', args, {
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env },
-      maxBuffer: 16 << 20,
-    });
-    return stdout.trim();
-  } catch (e) {
-    const { stderr } = e as { stderr?: string };
-    throw new Error(`git ${args.join(' ')} failed: ${stderr?.trim() || (e as Error).name}`);
-  }
-};
 
 const names = (output: string) => output.split('\0').filter(Boolean);
 
@@ -94,10 +69,10 @@ export const workspaces = ({
     serial(repo, async () => {
       const path = mirrorPath(repo);
       const env = await auth(repo);
-      if (await exists(path)) await git(['-C', path, 'fetch', '--prune', 'origin'], env);
+      if (await exists(path)) await git(path, ['fetch', '--prune', 'origin'], env);
       else {
         await mkdir(dirname(path), { recursive: true });
-        await git(['clone', '--mirror', cloneUrl(repo), path], env);
+        await git(dirname(path), ['clone', '--mirror', cloneUrl(repo), path], env);
       }
       return path;
     });
@@ -115,17 +90,17 @@ export const workspaces = ({
     const mirror = await sync(repo);
     const path = worktreePath(dataDir, runId);
     const at = (name: string) => `${name.startsWith('refs/') ? name : `refs/heads/${name}`}^{commit}`;
-    const verify = (name: string) => git(['-C', mirror, 'rev-parse', '--verify', '--quiet', at(name)]).catch(() => '');
+    const verify = (name: string) => git(mirror, ['rev-parse', '--verify', '--quiet', at(name)]).catch(() => '');
     const own = branch ? await verify(branch) : '';
     const rev = own || (ref ? at(ref) : 'HEAD^{commit}');
-    await serial(repo, () => git(['-C', mirror, 'worktree', 'add', '--detach', path, rev]));
-    const head = await git(['-C', path, 'rev-parse', 'HEAD']);
+    await serial(repo, () => git(mirror, ['worktree', 'add', '--detach', path, rev]));
+    const head = await git(path, ['rev-parse', 'HEAD']);
     if (!merge) return { path, base: head, head, conflicts: [] };
     const base = await verify(merge);
     if (!base) throw new Error(`branch "${merge}" does not exist`);
     const merging = ['-c', 'commit.gpgsign=false', 'merge', '--no-commit', '--no-ff', '-q', base];
-    await git(['-C', path, ...merging], botEnv).catch(() => {});
-    const conflicts = names(await git(['-C', path, 'diff', '--name-only', '--diff-filter=U', '-z']));
+    await git(path, merging, botEnv).catch(() => {});
+    const conflicts = names(await git(path, ['diff', '--name-only', '--diff-filter=U', '-z']));
     return { path, base, head, conflicts };
   };
 
@@ -159,7 +134,7 @@ export const workspaces = ({
   ) => {
     const path = worktreePath(dataDir, runId);
     if (!(await exists(path))) throw new Error(`no worktree for run "${runId}"`);
-    const run = (args: string[], env?: Record<string, string>) => git(['-C', path, ...args], env);
+    const run = (args: string[], env?: Record<string, string>) => git(path, args, env);
     const ref = `refs/heads/${branch}`;
     const origin = cloneUrl(repo);
     const url = origin.startsWith('https://github.com/')
@@ -221,12 +196,12 @@ export const workspaces = ({
   const changes = async (runId: string, base: string, only: string[] = [], context?: number | 'function') => {
     const path = worktreePath(dataDir, runId);
     if (!(await exists(path))) throw new Error(`no worktree for run "${runId}"`);
-    const index = await git(['-C', path, 'rev-parse', '--path-format=absolute', '--git-path', 'index']);
+    const index = await git(path, ['rev-parse', '--path-format=absolute', '--git-path', 'index']);
     const scratch = `${index}.bothub-${randomBytes(4).toString('hex')}`;
     await copyFile(index, scratch).catch(() => {});
     try {
       const env = { GIT_INDEX_FILE: scratch };
-      const run = (args: string[]) => git(['-C', path, ...args], env);
+      const run = (args: string[]) => git(path, args, env);
       await run(['add', '-A']);
       const files = names(await run(['diff', '--cached', '--name-only', '--no-renames', '-z', base]));
       const around = context === undefined ? [] : context === 'function' ? ['--function-context'] : [`-U${context}`];
@@ -241,17 +216,17 @@ export const workspaces = ({
   const forkPoint = async (repo: string, runId: string, branch?: string) => {
     const path = worktreePath(dataDir, runId);
     const target = !branch
-      ? await git(['-C', mirrorPath(repo), 'rev-parse', 'HEAD'])
+      ? await git(mirrorPath(repo), ['rev-parse', 'HEAD'])
       : branch.startsWith('refs/')
         ? branch
         : `refs/heads/${branch}`;
-    return git(['-C', path, 'merge-base', 'HEAD', target]);
+    return git(path, ['merge-base', 'HEAD', target]);
   };
 
   /** Deletes a run's worktree and prunes it from the mirror. Never throws. */
   const remove = async (repo: string, runId: string) => {
     await rm(worktreePath(dataDir, runId), { recursive: true, force: true });
-    await serial(repo, () => git(['-C', mirrorPath(repo), 'worktree', 'prune'])).catch(() => {});
+    await serial(repo, () => git(mirrorPath(repo), ['worktree', 'prune'])).catch(() => {});
   };
 
   return { create, publish, changes, forkPoint, remove };

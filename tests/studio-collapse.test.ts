@@ -29,7 +29,7 @@ const { fanLimit, collapse, heldBy, fold } = await studioModule<CollapseModule>(
 const { checkGroups } = await studioModule<LayoutModule>('studio/layout.ts');
 const { graphModel, layerModel } = await studioModule<GraphModule>('graph-model.ts');
 
-const modes = ['shadow', 'block', 'warn', 'block', 'shadow', 'warn', 'block', 'shadow'];
+const modes = ['log', 'block', 'warn', 'block', 'log', 'warn', 'block', 'log'];
 const types = ['script', 'bot', 'script', 'decide', 'script', 'script', 'bot', 'script'];
 
 const hub = (count: number): Model => {
@@ -72,7 +72,7 @@ describe('studio graph stacks', () => {
     expect(fold([1, 2, 3, 4, 5, 6])).toEqual({ shown: [1, 2, 3, 4], rest: [5, 6] });
   });
 
-  it('shows block checks before warn before shadow, keeping their order within a mode, and stacks the rest last', () => {
+  it('shows block checks before warn before log, keeping their order within a mode, and stacks the rest last', () => {
     const folded = collapse(hub(8));
     const checks = folded.nodes.filter(n => n.kind === 'check');
     expect(checks.map(n => n.id)).toEqual(['check:c1', 'check:c3', 'check:c6', 'check:c2', 'stack:job:w/build/check']);
@@ -87,7 +87,7 @@ describe('studio graph stacks', () => {
         key: 'mode',
         counts: [
           ['warn', 1],
-          ['shadow', 3],
+          ['log', 3],
         ],
       },
       { key: 'type', counts: [['script', 4]] },

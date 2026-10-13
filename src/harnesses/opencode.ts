@@ -21,6 +21,7 @@ type Part =
 type Line =
   | { type: 'text' | 'tool_use' | 'step_finish'; part: Part }
   | { type: 'error'; error?: { name?: string; data?: { message?: string } } }
+  | { type: 'bothub'; event?: unknown }
   | { type: string };
 
 /** The only provider: the model proxy, where bot models are aliases, spoken to over its Responses API. */
@@ -147,7 +148,14 @@ const step = (part: Extract<Part, { type: 'step-finish' }>): AgentEvent[] => {
   return [...usage, { type: 'end', ok: part.reason === 'stop' }];
 };
 
+/** Event types bothub's own plugins may print to opencode's stdout as `{"type":"bothub","event":…}` lines. */
+const pluginEvents: AgentEvent['type'][] = ['recall'];
+
 const event = (line: Line): AgentEvent[] => {
+  if (line.type === 'bothub' && 'event' in line) {
+    const e = line.event as AgentEvent | null | undefined;
+    return typeof e === 'object' && e !== null && pluginEvents.includes(e.type) ? [e] : [];
+  }
   if (line.type === 'error' && 'error' in line)
     return [{ type: 'error', message: line.error?.data?.message ?? line.error?.name ?? 'opencode error' }];
   if (!('part' in line)) return [];

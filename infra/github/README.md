@@ -1,11 +1,12 @@
 # GitHub App for bothub
 
 GitHub mode runs the same workflows as local mode, with events coming from a GitHub App webhook
-instead of `issues/*.md`. `bothub webhook serve` listens on two ports on 127.0.0.1:
+instead of `issues/*.md`. `bothub serve` on a hub without `issues: local` listens on two ports on
+127.0.0.1:
 
 | Port | What | Exposed |
 |---|---|---|
-| 5182 | webhook receiver (signature checked, nothing else served) | yes, through a tunnel |
+| 5183 | webhook receiver (signature checked, nothing else served) | yes, through a tunnel |
 | 5181 | studio API | no, localhost only |
 
 Everything below uses placeholders (`YOUR-USER`, `bothub-sandbox`, `hooks-dev.example.com`).
@@ -72,7 +73,7 @@ Secrets live in the data directory (`~/.bothub` or `$BOTHUB_DATA`), never in thi
 
 7. **Install.** Open `<app page>/installations/new`, choose "Only select repositories" and pick
    the test repository. The installation id is the number at the end of the URL you land on;
-   `bothub webhook serve` reads it from each delivery, `bothub run` needs it as
+   `bothub serve` looks it up per repository, `bothub run` needs it as
    `BOTHUB_INSTALLATION_ID` in `.env`.
 
 8. **Hub.** Use a hub whose `hub.yaml` has `issues: github` (the default).
@@ -80,23 +81,15 @@ Secrets live in the data directory (`~/.bothub` or `$BOTHUB_DATA`), never in thi
 9. **Serve.**
 
    ```sh
-   bothub webhook serve --hub path/to/hub --repo acme/sandbox
+   bothub serve --hub path/to/hub --repos acme/sandbox
    ```
 
-   `--repo` is an allowlist; deliveries from other repositories are acknowledged and ignored.
+   `--repos` is an allowlist; deliveries from other repositories are acknowledged and ignored.
 
-10. **Check the wiring without GitHub.** Replay a saved payload signed with your secret:
-
-    ```sh
-    bothub webhook replay payload.json --event issue_comment
-    ```
-
-    It prints the receiver's status: 202 accepted, 200 already seen, 204 not an event bothub
-    handles, 401 bad signature. Any payload from the app's "Recent Deliveries" page works as a
-    file; give each replay a new `--delivery` id or it is acknowledged as a repeat.
-
-11. **End to end.** Comment `/bothub <task>` on an issue in the test repository as its owner. The
-    app's Advanced tab lists every delivery with the response bothub gave and a redeliver button.
+10. **End to end.** Comment `/bothub <task>` on an issue in the test repository as its owner. The
+    app's Advanced tab lists every delivery with the response bothub gave: 202 accepted, 200
+    already seen, 204 not an event bothub handles, 401 bad signature. Its Redeliver button sends
+    one again.
 
 ## Local webhook delivery
 
@@ -106,8 +99,8 @@ Secrets live in the data directory (`~/.bothub` or `$BOTHUB_DATA`), never in thi
 | URL | fixed per channel | quick tunnel: new random URL on every start; named tunnel: fixed |
 | Path | GitHub to smee.io, then a client on your machine pulls and re-posts | GitHub to Cloudflare's edge, then through an outbound connection to your port |
 | Privacy | anyone with the channel URL can read the payloads | only your service sees them |
-| Signatures | the client re-posts the JSON; if deliveries fail with 401 through smee but pass with replay, the body was re-encoded | raw bytes pass through untouched |
-| Later | dev only | the same tunnel fronts the VPS in milestone 5 (`infra/server`) |
+| Signatures | the client re-posts the JSON; if deliveries fail with 401 through smee but pass when sent straight to the port, the body was re-encoded | raw bytes pass through untouched |
+| Later | dev only | the same tunnel fronts the VPS in milestone 5 |
 
 Use **cloudflared**. It forwards the request unchanged, keeps payloads off a shared relay, and a
 named tunnel is the same piece that later puts a server behind Cloudflare with no open port.
@@ -117,7 +110,7 @@ smee is fine for a five-minute try without any account.
 
 ```sh
 brew install cloudflared
-cloudflared tunnel --url http://127.0.0.1:5182
+cloudflared tunnel --url http://127.0.0.1:5183
 ```
 
 It prints `https://<random>.trycloudflare.com`. Put that URL in the app's settings under
@@ -140,7 +133,7 @@ tunnel: bothub-dev
 credentials-file: /Users/YOUR-USER/.cloudflared/TUNNEL-ID.json
 ingress:
   - hostname: hooks-dev.example.com
-    service: http://127.0.0.1:5182
+    service: http://127.0.0.1:5183
   - service: http_status:404
 ```
 
@@ -150,7 +143,7 @@ Then, each session:
 cloudflared tunnel run bothub-dev
 ```
 
-The webhook URL stays `https://hooks-dev.example.com/`. Only port 5182 is routed; never point a
+The webhook URL stays `https://hooks-dev.example.com/`. Only port 5183 is routed; never point a
 tunnel at the studio port.
 
 ### smee.io
@@ -158,5 +151,5 @@ tunnel at the studio port.
 Open https://smee.io/new for a channel URL, put it in the app's Webhook URL, then:
 
 ```sh
-npx smee-client --url https://smee.io/CHANNEL --target http://127.0.0.1:5182/
+npx smee-client --url https://smee.io/CHANNEL --target http://127.0.0.1:5183/
 ```

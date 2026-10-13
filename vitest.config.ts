@@ -4,7 +4,7 @@ const local = [
   'src/sandbox.ts',
   'src/runner.ts',
   'src/serve.ts',
-  'src/pipeline.ts',
+  'src/pipeline/*.ts',
   'src/apply.ts',
   'src/issues-local.ts',
   'src/harnesses/opencode.ts',

@@ -15,11 +15,11 @@ A bot job runs, then each check in its `until` runs against the worktree. Findin
 gating checks go back to the same bot as a follow-up prompt, until the checks pass, `until.max`
 follow-ups are used or the bot's `usd-per-run` is spent. The loop is in
 
-<Sym name="attempts" file="src/pipeline.ts" />. Every check ends in a verdict.
+<Sym name="attempts" file="src/pipeline/attempt.ts" />. Every check ends in a verdict.
 
 <Fields name="Verdict" />
 
-A check gates when its mode is not `shadow`. A skipped check does not gate, unless no gating check
+A check gates when its mode is not `log`. A skipped check does not gate, unless no gating check
 ran at all. Once the follow-ups are spent, only failing `block` checks fail the run; `warn` ones are
 recorded and let it through. A `blocked` verdict means the check could not run, and the job asks a
 human instead of sending the bot after it.
@@ -27,7 +27,7 @@ human instead of sending the bot after it.
 Two jobs never work on one branch at the same time. A job whose branch another live run holds
 waits for it, up to its own timeout, and is deferred only after that.
 
-<Source file="src/pipeline.ts" symbol="failingChecks" />
+<Source file="src/pipeline/checks.ts" symbol="failingChecks" />
 
 ## Verdicts
 
@@ -36,7 +36,7 @@ its body as a yes or no question to a small local model (<Sym name="decideCheck"
 does not answer clearly fails. A check that fans out over files, hunks or script items passes only
 when every item passes, and its findings are labelled by item.
 
-<Source file="src/pipeline.ts" symbol="verdictOf" />
+<Source file="src/pipeline/checks.ts" symbol="verdictOf" />
 
 When a job's final run ends, <Sym name="summarize" /> writes a short memory of it next to its
 events, without a model.

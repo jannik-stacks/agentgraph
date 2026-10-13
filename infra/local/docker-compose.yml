@@ -3,7 +3,6 @@
 #   default   litellm (model proxy, virtual keys, admin UI at /ui) + postgres (keys, spend, UI login)
 #   sandbox   egress allowlist proxy and Ollama relay on the internal network run containers join
 #   ollama    Ollama in a container (Linux; on macOS run Ollama natively for the GPU)
-#   compute   celld dev, a local Cloudflare Workers runtime for the control plane
 #
 # Images are pinned by digest; the tag is informational. Re-pin with
 #   docker buildx imagetools inspect <image>:<tag>
@@ -101,16 +100,6 @@ services:
       - ollama-models:/root/.ollama
     networks: [egress]
     restart: unless-stopped
-
-  celld:
-    profiles: [compute]
-    build: ./celld
-    image: bothub-celld:local
-    command: ["dev", "/app", "--host", "0.0.0.0"]
-    ports: ["127.0.0.1:9876:9876"]
-    volumes:
-      - ${BOTHUB_WORKER_DIR:-./celld/hello}:/app
-    networks: [egress]
 
 networks:
   db:

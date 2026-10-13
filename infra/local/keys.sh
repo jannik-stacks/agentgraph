@@ -19,13 +19,17 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 # bothub's runs-per-day budget are what actually bite; the dollar budget covers review.
 BOTS=(
   "implementor   smart,writer,fast,local   10  30  400000"
-  "docs-editor   writer,fast,local          3  20  200000"
   "reviewer      review,smart,fast,local    5  20  300000"
-  "fact-checker  review,fast,local          2  20  150000"
-  "gardener      writer,fast,local          2  10  100000"
   "triager       smart,fast,local           1  20  100000"
+  "checker       fast,local                 1  30  200000"
   "claim-checker fast,local                 1  30  200000"
 )
+
+# Every bot in the example hubs needs a row.
+for file in ../../examples/*/bots/*.md; do
+  bot=$(basename "$file" .md)
+  printf '%s\n' "${BOTS[@]}" | grep -q "^$bot " || echo "warn: $bot (${file#../../}) has no row in keys.sh" >&2
+done
 
 api() { # method path [json]
   curl -fsS -X "$1" "$BASE$2" \

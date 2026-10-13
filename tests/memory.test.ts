@@ -125,7 +125,7 @@ describe('renderMemory', () => {
         '',
         '## Failed',
         '- tests: src/b.ts:3 expected 1 received 2',
-        '- style (shadow): failed without output',
+        '- style (log): failed without output',
         '',
         '## Rejected',
         '- label +bug: the job may not label',

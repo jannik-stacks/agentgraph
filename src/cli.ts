@@ -7,38 +7,28 @@ import { parseEnv } from 'node:util';
 import { defineCommand, runCommand, showUsage, type CommandDef } from 'citty';
 import { Effect } from 'effect';
 import { z } from 'zod';
-import { compile, type Compiled, type Config } from './config.ts';
-import { dispatch, plan } from './dispatch.ts';
+import { compile, type Config } from './config.ts';
+import { plan } from './dispatch.ts';
 import { harnesses } from './harnesses/index.ts';
 import { githubApp } from './github-app.ts';
 import { toEvent } from './github.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
-import { bothubServer } from './mcp-config.ts';
 import { McpTool, serveMcp } from './mcp.ts';
 import { buildSpec, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
 import { sandboxConfig, sandboxNetwork } from './sandbox.ts';
-import { Bot, Check, Hub, Note, Skill, Workflow } from './schema.ts';
-import { checkLine, localOrigin, runEvent, serveHub } from './serve.ts';
+import { handleEvent, localOrigin, serveHub } from './serve.ts';
 import { serveGitHub } from './serve-github.ts';
 import { simulate } from './sim.ts';
 import { openStore, runId, type Run } from './store.ts';
-import type { AgentEvent } from './types.ts';
-import { replay } from './webhook.ts';
+import type { AgentEvent, BotEvent } from './types.ts';
 import { workspaces, worktreePath } from './workspace.ts';
 
 const json = { type: 'boolean', description: 'Print JSON (default when stdout is not a terminal)' } as const;
 const dir = { type: 'string', description: 'Hub directory', default: '.' } as const;
 const data = { type: 'string', description: 'Data directory (default: $BOTHUB_DATA or ~/.bothub)' } as const;
-const eventName = { type: 'string', description: 'GitHub event name, e.g. issue_comment', required: true } as const;
-const payload = { type: 'positional', description: 'Webhook payload JSON file', required: true } as const;
 const followInterval = 500;
-const concurrency = {
-  type: 'string',
-  description: 'Events and agent sessions that run at once; one event at a time per issue',
-  default: '4',
-} as const;
 
 const asJson = (flag: boolean | undefined) => flag ?? !process.stdout.isTTY;
 const print = (text: string) => process.stdout.write(text.endsWith('\n') ? text : text + '\n');
@@ -61,21 +51,18 @@ const sandbox = () => {
   }
 };
 
-const loadConfig = async (path: string): Promise<Compiled> => {
+const loadConfig = async (path: string) => {
   const files = await readHub(path);
   if (!files.length)
-    return { ok: false, errors: [{ path, message: 'no bots, skills, checks, workflows or notes found' }] };
+    return { ok: false as const, errors: [{ path, message: 'no bots, skills, checks, workflows or notes found' }] };
   return compile(files);
 };
 
-const loadPlan = async (args: { dir: string; event: string; payload: string }) => {
-  const result = await loadConfig(args.dir);
-  if (!result.ok) {
-    for (const e of result.errors) fail(`${e.path}: ${e.message}`);
-    return;
-  }
-  const event = toEvent(args.event, `cli-${randomUUID()}`, JSON.parse(await readFile(args.payload, 'utf8')));
-  return { config: result.config, event, jobs: event ? plan(event, result.config) : [] };
+/** The hub's config, or undefined after reporting each error. */
+const compiled = async (path: string): Promise<Config | undefined> => {
+  const result = await loadConfig(path);
+  if (result.ok) return result.config;
+  for (const e of result.errors) fail(`${e.path}: ${e.message}`);
 };
 
 /** The hub's local issue tracker, when `hub.yaml` selects one; GitHub issues come from the app client instead. */
@@ -125,6 +112,8 @@ const describe = (e: AgentEvent): string => {
         .join(', ');
     case 'error':
       return `error ${oneLine(e.message)}`;
+    case 'recall':
+      return `recall ${e.on} ${e.items.filter(i => i.fate === 'surfaced' || i.fate === 'returned').length}/${e.items.length}, ${e.tokens} tokens`;
   }
 };
 
@@ -132,9 +121,9 @@ const shellQuote = (arg: string) => (/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${ar
 
 const summary = (r: JobResult) => {
   const name = `${r.workflow}/${r.job}`;
-  if ('skipped' in r) return `${name}: skipped, ${r.skipped}`;
   const parts = [r.run.status, `run ${r.run.id}`];
-  if (r.run.error) parts.push(oneLine(r.run.error));
+  const why = r.run.error ?? (r.run.status === 'skipped' ? r.run.reason : undefined);
+  if (why) parts.push(oneLine(why));
   if (r.outcome) {
     const { accepted, rejected, errors, applied } = r.outcome;
     parts.push(`${accepted.length} accepted`, `${rejected.length + errors.length} rejected`);
@@ -195,95 +184,67 @@ const check = defineCommand({
   },
 });
 
-const planCmd = defineCommand({
-  meta: { name: 'plan', description: 'Show which jobs a GitHub webhook payload would start' },
-  args: { event: eventName, payload, dir, json },
-  async run({ args }) {
-    const loaded = await loadPlan(args);
-    if (!loaded) return 2;
-    const { event, jobs } = loaded;
-    if (asJson(args.json)) print(JSON.stringify({ event, jobs }));
-    else if (!jobs.length) print('no jobs');
-    else
-      for (const j of jobs)
-        print(`${j.workflow}/${j.job}${j.bot ? ` (${j.bot})` : ' (run)'}${j.args ? `: ${j.args}` : ''}`);
-    return 0;
-  },
-});
+/** Each planned job as a dry run shows it: a script's command, or a bot's session and harness command. */
+const sessions = (config: Config, event: BotEvent, hub: string, root: string) =>
+  plan(event, config).map(job => {
+    const workflow = config.workflows[job.workflow];
+    const step = workflow?.jobs[job.job];
+    if (!workflow || step?.type !== 'bot') return { ...job, script: step?.type === 'script' ? step.run : '' };
+    const built = buildSpec({ ...job, config, workflow, event, cwd: worktreePath(root, runId()), hub, data: root });
+    const { spec, bot, timeoutMinutes, branch } = built;
+    const { cmd, args } = harnesses[bot.harness].command(spec);
+    return {
+      ...job,
+      harness: bot.harness,
+      timeoutMinutes,
+      ...(branch && { branch }),
+      ...(built.job.until && { until: built.job.until }),
+      spec,
+      command: [cmd, ...args],
+    };
+  });
+
+const printSession = (s: ReturnType<typeof sessions>[number]) => {
+  if ('script' in s) return print(`${s.workflow}/${s.job} (run)\n$ sh -c ${shellQuote(s.script)}\n\n`);
+  const shown = (arg: string) =>
+    arg === s.spec.system ? '<system>' : arg === s.spec.prompt ? '<prompt>' : shellQuote(arg);
+  print(`${s.workflow}/${s.job} (${s.bot}, ${s.harness}, ${s.timeoutMinutes} min)`);
+  if (s.until) print(`until: ${s.until.checks.join(', ')} pass, at most ${s.until.max} more attempts`);
+  print(`cwd: ${s.spec.cwd}`);
+  const split = s.command.indexOf('--');
+  const command =
+    split >= 0 && s.command.length - split > 2 && s.command.slice(split + 1).join(' ') === s.spec.prompt
+      ? [...s.command.slice(0, split + 1), s.spec.prompt]
+      : s.command;
+  print(`$ ${command.map(shown).join(' ')}\n\n`);
+  print(`--- system\n${s.spec.system}\n\n`);
+  print(`--- prompt\n${s.spec.prompt}\n\n`);
+};
 
 const run = defineCommand({
   meta: { name: 'run', description: 'Run the jobs a GitHub webhook payload starts, on this machine' },
   args: {
-    event: eventName,
-    payload,
+    event: { type: 'string', description: 'GitHub event name, e.g. issue_comment', required: true },
+    payload: { type: 'positional', description: 'Webhook payload JSON file', required: true },
     dir,
     data,
-    'dry-run': { type: 'boolean', description: 'Print each agent session instead of starting it' },
+    'dry-run': { type: 'boolean', description: 'Print the jobs and each agent session instead of starting them' },
     json,
   },
   async run({ args }) {
-    const loaded = await loadPlan(args);
-    if (!loaded) return 2;
-    const { config, event, jobs } = loaded;
-    const root = dataDir(args.data);
-    if (!event || !jobs.length) {
+    const config = await compiled(args.dir);
+    if (!config) return 2;
+    const event = toEvent(args.event, `cli-${randomUUID()}`, JSON.parse(await readFile(args.payload, 'utf8')));
+    const root = resolve(dataDir(args.data));
+    const hub = resolve(args.dir);
+    if (!event || !plan(event, config).length) {
       print(asJson(args.json) ? JSON.stringify({ event, jobs: [] }) : 'no jobs');
       return 0;
     }
-
     if (args['dry-run']) {
-      const sessions = jobs.map(job => {
-        const workflow = config.workflows[job.workflow];
-        const step = workflow?.jobs[job.job];
-        if (!workflow || step?.type !== 'bot') return { ...job, script: step?.type === 'script' ? step.run : '' };
-        const {
-          spec,
-          bot,
-          timeoutMinutes,
-          branch,
-          job: definition,
-        } = buildSpec({
-          ...job,
-          config,
-          workflow,
-          event,
-          cwd: worktreePath(root, runId()),
-          hub: resolve(args.dir),
-          data: resolve(root),
-        });
-        const { cmd, args: argv } = harnesses[bot.harness].command(spec);
-        return {
-          ...job,
-          harness: bot.harness,
-          timeoutMinutes,
-          ...(branch && { branch }),
-          ...(definition.until && { until: definition.until }),
-          spec,
-          command: [cmd, ...argv],
-        };
-      });
-      if (asJson(args.json)) print(JSON.stringify({ event, jobs: sessions }));
-      else
-        for (const s of sessions) {
-          if ('script' in s) {
-            print(`${s.workflow}/${s.job} (run)\n$ sh -c ${shellQuote(s.script)}\n\n`);
-            continue;
-          }
-          const shown = (arg: string) =>
-            arg === s.spec.system ? '<system>' : arg === s.spec.prompt ? '<prompt>' : shellQuote(arg);
-          print(`${s.workflow}/${s.job} (${s.bot}, ${s.harness}, ${s.timeoutMinutes} min)`);
-          if ('until' in s && s.until)
-            print(`until: ${s.until.checks.join(', ')} pass, at most ${s.until.max} more attempts`);
-          print(`cwd: ${s.spec.cwd}`);
-          const split = s.command.indexOf('--');
-          const command =
-            split >= 0 && s.command.length - split > 2 && s.command.slice(split + 1).join(' ') === s.spec.prompt
-              ? [...s.command.slice(0, split + 1), s.spec.prompt]
-              : s.command;
-          print(`$ ${command.map(shown).join(' ')}\n\n`);
-          print(`--- system\n${s.spec.system}\n\n`);
-          print(`--- prompt\n${s.spec.prompt}\n\n`);
-        }
+      const jobs = sessions(config, event, hub, root);
+      if (asJson(args.json)) print(JSON.stringify({ event, jobs }));
+      else jobs.forEach(printSession);
       return 0;
     }
 
@@ -292,69 +253,62 @@ const run = defineCommand({
     const app = await appFrom(env);
     if (!app)
       fail(
-        'no GitHub App credentials (BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE, BOTHUB_INSTALLATION_ID): shadow mode, nothing is applied'
+        'no GitHub App credentials (BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE, BOTHUB_INSTALLATION_ID): nothing is applied'
       );
     const issues = hubIssues(config, args.dir, event.repo);
-    const store = openStore(root);
-    const results = await runEvent(await dispatch(event, config, store), {
-      config,
-      event,
-      store,
+    const results = await handleEvent(event, {
+      dir: hub,
+      data: root,
+      store: openStore(root),
       workspaces: workspaces({ dataDir: root, ...(app && { token: app.token }) }),
       limit: await Effect.runPromise(limiter()),
       env,
-      ...(app && { gh: app.gh }),
-      ...(issues && { issues }),
-      mcp: tools => bothubServer({ dir: resolve(args.dir), tools, repo: event.repo, data: resolve(root) }),
-      hub: resolve(args.dir),
-      data: resolve(root),
+      config: async () => config,
+      backend: () => ({ ...(app && { gh: app.gh }), ...(issues && { issues }) }),
+      log: line => process.stderr.write(`${line}\n`),
       onEvent: (r, record) => process.stderr.write(`${r.workflow}/${r.job} ${describe(record.event)}\n`),
-      onCheck: (r, check, verdict) => process.stderr.write(`${checkLine(r, check, verdict)}\n`),
     });
     if (asJson(args.json)) print(JSON.stringify(results));
     else for (const r of results) print(summary(r));
-    return results.some(r => 'run' in r && r.run.status !== 'succeeded') ? 1 : 0;
+    return results.some(r => r.run.status !== 'succeeded' && r.run.status !== 'skipped') ? 1 : 0;
   },
 });
 
-const runs = defineCommand({
-  meta: { name: 'runs', description: 'List runs, newest first' },
-  args: { data, json },
-  async run({ args }) {
-    const list = await openStore(dataDir(args.data)).list();
-    if (asJson(args.json)) print(JSON.stringify(list));
-    else if (!list.length) print('no runs');
-    else {
-      const rows = list.map(r => [
-        r.id,
-        r.status,
-        `${r.workflow}/${r.job}`,
-        r.costUsd !== undefined ? `$${r.costUsd.toFixed(2)}` : '-',
-        ago(r.startedAt ?? r.event.ts),
-      ]);
-      const widths = rows[0]?.map((_, i) => Math.max(...rows.map(row => row[i]?.length ?? 0))) ?? [];
-      for (const row of rows)
-        print(
-          row
-            .map((cell, i) => cell.padEnd(widths[i] ?? 0))
-            .join('  ')
-            .trimEnd()
-        );
-    }
-    return 0;
-  },
-});
+const runTable = (list: Run[]) => {
+  const rows = list.map(r => [
+    r.id,
+    r.status,
+    `${r.workflow}/${r.job}`,
+    r.costUsd !== undefined ? `$${r.costUsd.toFixed(2)}` : '-',
+    ago(r.startedAt ?? r.event.ts),
+  ]);
+  const widths = rows[0]?.map((_, i) => Math.max(...rows.map(row => row[i]?.length ?? 0))) ?? [];
+  for (const row of rows)
+    print(
+      row
+        .map((cell, i) => cell.padEnd(widths[i] ?? 0))
+        .join('  ')
+        .trimEnd()
+    );
+};
 
 const logs = defineCommand({
-  meta: { name: 'logs', description: "Print a run's events" },
+  meta: { name: 'logs', description: "List runs, newest first, or print one run's events" },
   args: {
-    id: { type: 'positional', description: 'Run id', required: true },
+    id: { type: 'positional', description: 'Run id', required: false },
     data,
     follow: { type: 'boolean', description: 'Keep printing until the run finishes' },
     json,
   },
   async run({ args }) {
     const store = openStore(dataDir(args.data));
+    if (!args.id) {
+      const list = await store.list();
+      if (asJson(args.json)) print(JSON.stringify(list));
+      else if (!list.length) print('no runs');
+      else runTable(list);
+      return 0;
+    }
     if (!(await store.read(args.id))) {
       fail(`unknown run "${args.id}"`);
       return 2;
@@ -379,19 +333,16 @@ const mcp = defineCommand({
     tools: { type: 'string', description: 'Comma-separated tools to serve', default: McpTool.options.join(',') },
   },
   async run({ args }) {
-    const result = await loadConfig(args.dir);
-    if (!result.ok) {
-      for (const e of result.errors) fail(`${e.path}: ${e.message}`);
-      return 2;
-    }
+    const config = await compiled(args.dir);
+    if (!config) return 2;
     const tools = z.array(McpTool).safeParse(args.tools.split(',').filter(Boolean));
     if (!tools.success) {
       fail(`unknown tool in "${args.tools}", expected ${McpTool.options.join(', ')}`);
       return 2;
     }
-    const issues = hubIssues(result.config, args.dir, args.repo);
+    const issues = hubIssues(config, args.dir, args.repo);
     await serveMcp(tools.data, {
-      config: result.config,
+      config,
       ...(issues && { issues }),
       ...(args.data && { store: openStore(args.data) }),
       ...(process.env.HOME && { home: process.env.HOME }),
@@ -412,90 +363,61 @@ const sim = defineCommand({
 const serveCmd = defineCommand({
   meta: {
     name: 'serve',
-    description: 'Watch a local hub, run the jobs its issue changes start, and serve the studio API',
+    description:
+      "Run the jobs a hub's events start and serve the studio API: local issues for a hub with `issues: local`, GitHub App webhooks otherwise",
   },
-  args: {
-    hub: { type: 'string', description: 'Hub directory with `issues: local`', required: true },
-    data,
-    repo: { type: 'string', description: 'Local bare repository used as origin', required: true },
-    name: { type: 'string', description: 'Repository name events carry (default: local/<repo>)' },
-    port: { type: 'string', description: 'Studio API port', default: '5181' },
-    concurrency,
-    prewarm: { type: 'boolean', description: "Install the hub's deps at start instead of on the first run" },
-  },
-  async run({ args }) {
-    const config = sandbox();
-    if (!config) return 2;
-    const at = positive('concurrency', args.concurrency);
-    if (!at) return 2;
-    const root = dataDir(args.data);
-    const result = await loadConfig(args.hub);
-    if (!result.ok) {
-      for (const e of result.errors) fail(`${e.path}: ${e.message}`);
-      return 2;
-    }
-    if (result.config.hub.issues !== 'local') {
-      fail('serve needs a hub with `issues: local` in hub.yaml');
-      return 2;
-    }
-    const origin = await localOrigin(args.repo);
-    const { stop } = await serveHub({
-      hub: args.hub,
-      data: root,
-      origin,
-      ...(args.name && { repo: args.name }),
-      env: await loadEnv(root),
-      port: Number(args.port),
-      concurrency: at,
-      ...(args.prewarm && { prewarm: true }),
-    });
-    process.stderr.write(`sandbox ${config.image} on ${sandboxNetwork}, data ${root}\n`);
-    await new Promise<void>(done => {
-      process.once('SIGINT', done);
-      process.once('SIGTERM', done);
-    });
-    await stop();
-    return 0;
-  },
-});
-
-const webhookServe = defineCommand({
-  meta: { name: 'serve', description: 'Receive GitHub App webhooks and run the jobs they start' },
   args: {
     hub: { ...dir, required: true },
     data,
-    repo: { type: 'string', description: 'Comma-separated owner/repo allowlist (default: every installed repository)' },
+    repo: { type: 'string', description: 'Local issues: the local bare repository used as origin' },
+    name: { type: 'string', description: 'Local issues: the repository name events carry (default: local/<repo>)' },
+    prewarm: { type: 'boolean', description: "Local issues: install the hub's deps at start, not on the first run" },
+    repos: { type: 'string', description: 'GitHub: comma-separated owner/repo allowlist (default: every one)' },
+    'webhook-port': { type: 'string', description: 'GitHub: webhook port, the only one to expose', default: '5183' },
     port: { type: 'string', description: 'Studio API port', default: '5181' },
-    'webhook-port': { type: 'string', description: 'Webhook port, the only one to expose', default: '5183' },
-    concurrency,
+    concurrency: {
+      type: 'string',
+      description: 'Events and agent sessions that run at once; one event at a time per issue',
+      default: '4',
+    },
   },
   async run({ args }) {
-    if (!sandbox()) return 2;
+    const settings = sandbox();
+    if (!settings) return 2;
     const at = positive('concurrency', args.concurrency);
     if (!at) return 2;
     const root = dataDir(args.data);
+    const config = await compiled(args.hub);
+    if (!config) return 2;
     const env = await loadEnv(root);
-    const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
-    if (!appId || !keyFile || !secret) {
-      fail('webhook serve needs BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE and BOTHUB_WEBHOOK_SECRET');
-      return 2;
+    const common = { hub: args.hub, data: root, env, port: Number(args.port), concurrency: at };
+    let stop: () => Promise<void>;
+    if (config.hub.issues === 'local') {
+      if (!args.repo) {
+        fail('a hub with `issues: local` needs --repo, a local bare repository');
+        return 2;
+      }
+      ({ stop } = await serveHub({
+        ...common,
+        origin: await localOrigin(args.repo),
+        ...(args.name && { repo: args.name }),
+        ...(args.prewarm && { prewarm: true }),
+      }));
+    } else {
+      const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
+      if (!appId || !keyFile || !secret) {
+        fail('serving GitHub needs BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE and BOTHUB_WEBHOOK_SECRET');
+        return 2;
+      }
+      ({ stop } = await serveGitHub({
+        ...common,
+        app: githubApp({ appId, privateKey: await readFile(keyFile, 'utf8') }),
+        secret,
+        ...(args.repos && { repos: args.repos.split(',').map(r => r.trim()) }),
+        webhookPort: Number(args['webhook-port']),
+      }));
     }
-    const result = await loadConfig(args.hub);
-    if (!result.ok) {
-      for (const e of result.errors) fail(`${e.path}: ${e.message}`);
-      return 2;
-    }
-    const { stop } = await serveGitHub({
-      hub: args.hub,
-      data: root,
-      app: githubApp({ appId, privateKey: await readFile(keyFile, 'utf8') }),
-      secret,
-      env,
-      ...(args.repo && { repos: args.repo.split(',').map(r => r.trim()) }),
-      port: Number(args.port),
-      webhookPort: Number(args['webhook-port']),
-      concurrency: at,
-    });
+    process.stderr.write(`sandbox ${settings.image} on ${sandboxNetwork}, data ${root}\n`);
     await new Promise<void>(done => {
       process.once('SIGINT', done);
       process.once('SIGTERM', done);
@@ -505,65 +427,12 @@ const webhookServe = defineCommand({
   },
 });
 
-const webhookReplay = defineCommand({
-  meta: { name: 'replay', description: 'Sign a saved webhook payload and POST it to a local receiver' },
-  args: {
-    event: eventName,
-    payload,
-    data,
-    url: { type: 'string', description: 'Receiver URL', default: 'http://127.0.0.1:5183/' },
-    delivery: { type: 'string', description: 'Delivery id (default: a random UUID)' },
-  },
-  async run({ args }) {
-    const { BOTHUB_WEBHOOK_SECRET: secret } = await loadEnv(dataDir(args.data));
-    if (!secret) {
-      fail('replay needs BOTHUB_WEBHOOK_SECRET');
-      return 2;
-    }
-    const res = await replay({
-      url: args.url,
-      secret,
-      event: args.event,
-      payload: await readFile(args.payload),
-      ...(args.delivery && { deliveryId: args.delivery }),
-    });
-    const body = await res.text();
-    print(`${res.status}${body ? ` ${oneLine(body)}` : ''}`);
-    return res.ok ? 0 : 1;
-  },
-});
-
-const webhookCmd = defineCommand({
-  meta: { name: 'webhook', description: 'Receive GitHub App webhooks, or replay a saved one locally' },
-  subCommands: { serve: webhookServe, replay: webhookReplay },
-});
-
-const schema = defineCommand({
-  meta: { name: 'schema', description: 'Print a JSON Schema for the frontmatter of each hub file kind' },
-  run() {
-    const toSchema = (s: z.ZodType) => z.toJSONSchema(s, { io: 'input', unrepresentable: 'any' });
-    const kinds = { hub: Hub, bot: Bot, skill: Skill, check: Check, workflow: Workflow, note: Note };
-    print(JSON.stringify(Object.fromEntries(Object.entries(kinds).map(([k, s]) => [k, toSchema(s)])), null, 2));
-    return 0;
-  },
-});
-
-const commands: Record<string, CommandDef<any>> = {
-  check,
-  plan: planCmd,
-  run,
-  runs,
-  logs,
-  mcp,
-  serve: serveCmd,
-  webhook: webhookCmd,
-  sim,
-  schema,
-};
+const shown = { check, run, serve: serveCmd, logs, sim };
+const commands: Record<string, CommandDef<any>> = { ...shown, mcp };
 
 export const cli = defineCommand({
   meta: { name: 'bothub', description: 'GitHub-driven agent runner' },
-  subCommands: commands,
+  subCommands: shown,
 });
 
 /** Runs the CLI and resolves to a process exit code. */

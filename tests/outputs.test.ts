@@ -68,7 +68,7 @@ describe('matchGlob', () => {
 describe('validate', () => {
   const allowed = { returns: ['reply', 'push', 'merge-request', 'note'] as Return[], paths: ['src/**', 'README.md'] };
 
-  it('accepts allowed proposals and applies outside shadow mode', () => {
+  it('accepts allowed proposals and applies outside log mode', () => {
     const proposals: Proposal[] = [
       { kind: 'reply', body: 'a' },
       { kind: 'push', branch: 'bothub/7-fix', files: ['src/a.ts', 'README.md'] },
@@ -76,7 +76,7 @@ describe('validate', () => {
       { kind: 'note', note: 'caveat', slug: 'fork-prs', title: 'Fork PRs?', body: 'Which repo?' },
     ];
     expect(validate(proposals, allowed, 'warn')).toEqual({ accepted: proposals, rejected: [], apply: true });
-    expect(validate(proposals, allowed, 'shadow')).toEqual({ accepted: proposals, rejected: [], apply: false });
+    expect(validate(proposals, allowed, 'log')).toEqual({ accepted: proposals, rejected: [], apply: false });
   });
 
   it('rejects kinds the job does not allow', () => {

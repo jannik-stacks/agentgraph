@@ -302,6 +302,41 @@ console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTH
     expect(run).toMatchObject({ status: 'failed', error: 'stuck: the same tool call and result 4 times in a row' });
     expect(await store.events(runId)).toHaveLength(8);
   });
+
+  it('stops a harness that goes silent, and the process with it', async () => {
+    const { store, runId } = await setup();
+    const run = await Effect.runPromise(
+      runJob({
+        adapter: node(hang, asText),
+        spec,
+        timeoutMinutes: 1,
+        stallMinutes: 0.01,
+        store,
+        runId,
+        launch: unsandboxed,
+      })
+    );
+    expect(run).toMatchObject({
+      status: 'failed',
+      stopped: 'stalled',
+      error: 'stalled: no agent event for 0.01 minutes',
+    });
+    const pid = await pidOf(store, runId);
+    await waitFor(async () => !alive(pid));
+    expect(alive(pid)).toBe(false);
+  });
+
+  it('withdraws a run once its work is abandoned, and stops the process', async () => {
+    const { store, runId } = await setup();
+    const until = Effect.succeed('#1 was closed').pipe(Effect.delay('100 millis'));
+    const run = await Effect.runPromise(
+      runJob({ adapter: node(hang, asText), spec, timeoutMinutes: 1, until, store, runId, launch: unsandboxed })
+    );
+    expect(run).toMatchObject({ status: 'cancelled', stopped: 'withdrawn', error: 'withdrawn: #1 was closed' });
+    const pid = await pidOf(store, runId);
+    await waitFor(async () => !alive(pid));
+    expect(alive(pid)).toBe(false);
+  });
 });
 
 describe('the sandbox', () => {
@@ -336,20 +371,18 @@ describe('the sandbox', () => {
     expect(existsSync(file)).toBe(false);
   });
 
-  it.each([
-    { BOTHUB_SANDBOX: 'host' },
-    { BOTHUB_SANDBOX: 'none' },
-    { BOTHUB_SANDBOX_NETWORK: 'host' },
-    { BOTHUB_SANDBOX_NETWORK: 'bridge' },
-  ])('fails a run as sandbox-failed with %o, and nothing runs on the host', async env => {
-    const { store, runId } = await setup();
-    const file = marker();
-    const run = await withEnv(env, () =>
-      Effect.runPromise(runJob({ adapter: touching(file), spec, timeoutMinutes: 1, store, runId }))
-    );
-    expect(run).toMatchObject({ status: 'failed', error: expect.stringMatching(/^sandbox-failed: BOTHUB_SANDBOX/) });
-    expect(existsSync(file)).toBe(false);
-  });
+  it.each([{ BOTHUB_SANDBOX_IMAGE: '--privileged' }, { BOTHUB_SANDBOX_MEMORY: '0' }])(
+    'fails a run as sandbox-failed with %o, and nothing runs on the host',
+    async env => {
+      const { store, runId } = await setup();
+      const file = marker();
+      const run = await withEnv(env, () =>
+        Effect.runPromise(runJob({ adapter: touching(file), spec, timeoutMinutes: 1, store, runId }))
+      );
+      expect(run).toMatchObject({ status: 'failed', error: expect.stringMatching(/^sandbox-failed: BOTHUB_SANDBOX/) });
+      expect(existsSync(file)).toBe(false);
+    }
+  );
 
   it('fails a script as sandbox-failed when docker is unavailable, and nothing runs on the host', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
@@ -458,6 +491,25 @@ describe('runScript', () => {
       ok: true,
       output: 'bothub/7-x',
     });
+  });
+
+  it('gives every script an existing, writable HOME even when the host has none', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
+    const host = process.env.HOME;
+    delete process.env.HOME;
+    const probe = `fs.accessSync(os.homedir(), fs.constants.W_OK); console.log(process.env.HOME)`;
+    const result = await runScript(
+      `node -e "const os = require('os'), fs = require('fs'); ${probe}"`,
+      cwd,
+      1,
+      {
+        HOME: '/no/such/home',
+      },
+      unsandboxed
+    ).finally(() => {
+      if (host !== undefined) process.env.HOME = host;
+    });
+    expect(result).toMatchObject({ ok: true, output: tmpdir() });
   });
 
   it('writes the input to stdin and returns the whole stdout apart from the output tail', async () => {

@@ -14,22 +14,13 @@ import {
   specInside,
 } from '../src/sandbox.ts';
 import type { RunSpec } from '../src/types.ts';
-import { temp } from './git.ts';
+import { temp } from './kit.ts';
 
 const root = join(import.meta.dirname, '..');
 
 describe('sandboxConfig', () => {
-  it('accepts no settings or BOTHUB_SANDBOX=docker', () => {
+  it('accepts no settings', () => {
     expect(sandboxConfig({})).toMatchObject({ image: 'bothub-sandbox:local', memory: '4g', cpus: '1.5', pids: '512' });
-    expect(sandboxConfig({ BOTHUB_SANDBOX: 'docker', BOTHUB_SANDBOX_NETWORK: 'bothub-sandbox' })).toBeDefined();
-  });
-
-  it.each(['host', 'none', 'off', '', 'Docker', 'false', '0'])('rejects BOTHUB_SANDBOX=%j', value => {
-    expect(() => sandboxConfig({ BOTHUB_SANDBOX: value })).toThrow(SandboxError);
-  });
-
-  it.each(['host', 'bridge', 'none', 'default', '', 'other-internal'])('rejects BOTHUB_SANDBOX_NETWORK=%j', value => {
-    expect(() => sandboxConfig({ BOTHUB_SANDBOX_NETWORK: value })).toThrow(SandboxError);
   });
 
   it.each([

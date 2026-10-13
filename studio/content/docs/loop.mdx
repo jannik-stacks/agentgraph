@@ -60,16 +60,15 @@ files it changed on top of the branch.
 
 ## Check modes
 
-| Mode     | Effect                                                              |
-| -------- | ------------------------------------------------------------------- |
-| `shadow` | Runs and records its verdict, never fails the attempt. The default  |
-| `warn`   | A failure sends findings back, but never fails the run on its own   |
-| `block`  | A failure sends findings back, and fails the run after the last try |
+| Mode    | Effect                                                                                    |
+| ------- | ----------------------------------------------------------------------------------------- |
+| `log`   | Runs and records its verdict, never shown to the bot, never holds the change. The default |
+| `warn`  | A failure sends findings back, but never fails the run on its own                         |
+| `block` | A failure sends findings back, and fails the run after the last try                       |
 
 A change that only `warn` checks still fail goes through once the attempts are spent, with their
 verdicts recorded. A `warn` script that fails does not hold back the bot and decide checks either.
-Jobs have a mode too: a job in `shadow`
-validates and stores its proposals but never applies them, which is how a new bot or skill starts
+Jobs have a mode too: a job in `log` validates and stores its proposals but never applies them, which is how a new bot or skill starts
 out.
 
 ## Checks
@@ -179,7 +178,7 @@ a pull request:
 
 1. a **caveat** or **style** note, proposed by a bot and merged by a human, which is then surfaced
    to every run it is relevant to,
-2. a **check** the note names, in `shadow`, then `warn`, then `block`,
+2. a **check** the note names, in `log`, then `warn`, then `block`,
 3. ideally a lint rule, so the mistake cannot be written at all.
 
 The `learn` workflow in the example hub reads review findings and proposes the next step once a

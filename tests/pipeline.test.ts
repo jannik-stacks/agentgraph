@@ -25,9 +25,9 @@ import { limiter, unsandboxed, type Launcher } from '../src/runner.ts';
 import { SandboxError } from '../src/sandbox.ts';
 import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
 import { readSummaries } from '../src/summaries.ts';
-import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
+import type { AgentEvent, BotEvent, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { commit, git, sourceRepo, temp } from './git.ts';
+import { commit, fakeHarness, git, sourceRepo, temp } from './kit.ts';
 
 const md = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n\n${body}` });
 
@@ -37,7 +37,7 @@ const untimed = (verdicts: Verdict[] | undefined) =>
     return verdict;
   });
 
-const configFor = (mode = 'shadow'): Config => {
+const configFor = (mode = 'log'): Config => {
   const result = compile([
     md(
       'bots/bot.md',
@@ -51,7 +51,7 @@ const configFor = (mode = 'shadow'): Config => {
     md('skills/implement.md', 'description: Change code.', 'Implement it.'),
     md('skills/judge.md', 'description: Judge a file.', 'Judge this file.'),
     md('checks/exists.md', 'type: script\nrun: test -f src/a.ts && seq 12\nmode: block'),
-    md('checks/shadowed.md', 'type: script\nrun: printf "\\033[33mnever mind\\033[0m\\n"; exit 1'),
+    md('checks/logged.md', 'type: script\nrun: printf "\\033[33mnever mind\\033[0m\\n"; exit 1'),
     md('checks/judged.md', 'type: bot\nbot: judge\nskill: judge\nover: each-file\nmode: block', 'Be strict.'),
     md('notes/style/small.md', 'title: Small changes\nstatus: accepted', 'Keep changes small.'),
     md('notes/style/old.md', 'title: Old rule\nstatus: retired', 'Forget this.'),
@@ -79,7 +79,7 @@ jobs:
     bot: bot
     skill: implement
     returns: [reply, ask]
-    until: { checks: [exists, shadowed], max: 1 }
+    until: { checks: [exists, logged], max: 1 }
   judged:
     type: bot
     mode: warn
@@ -123,38 +123,21 @@ const finalMessage = bothub([
   { kind: 'label', add: ['bug'] },
 ]);
 
-const lines = (ok: boolean, message: string) =>
-  (
-    [
-      { type: 'start', session: 's1', model: 'resolved/sonnet' },
-      { type: 'text', text: 'working' },
-      { type: 'end', ok, turns: 2, result: message, costUsd: 0.5 },
-    ] satisfies AgentEvent[]
-  )
-    .map(line => JSON.stringify(line))
-    .join('\n');
+const events = (ok: boolean, message: string): AgentEvent[] => [
+  { type: 'start', session: 's1', model: 'resolved/sonnet' },
+  { type: 'text', text: 'working' },
+  { type: 'end', ok, turns: 2, result: message, costUsd: 0.5 },
+];
 
 type Behaviour = { ok?: boolean; message?: string; work?: string };
 
-/** An adapter that runs `node -e` in the worktree, checks its secrets, prints agent events and records each spec. */
-const fake = (behave: Behaviour | ((spec: RunSpec, call: number) => Behaviour) = {}) => {
-  const seen: RunSpec[] = [];
-  const adapter: HarnessAdapter = {
-    name: 'opencode',
-    command: spec => {
-      seen.push(spec);
-      const {
-        ok = true,
-        message = finalMessage,
-        work = '',
-      } = typeof behave === 'function' ? behave(spec, seen.length) : behave;
-      const script = `const fs = require('fs'); fs.accessSync('README.md'); ${work}; if (process.env.BOTHUB_LLM_API_KEY !== 'key' || process.env.OTHER) process.exit(9); console.log(${JSON.stringify(lines(ok, message))}); process.exit(${ok ? 0 : 1})`;
-      return { cmd: 'node', args: ['-e', script], env: {} };
-    },
-    parseLine: line => (line.trim() ? [JSON.parse(line) as AgentEvent] : []),
-  };
-  return { seen, adapters: { opencode: adapter, pi: { ...adapter, name: 'pi' as const } } };
-};
+/** A harness that checks its worktree and secrets, then reports `message`; `ok: false` fails the run. */
+const fake = (behave: Behaviour | ((spec: RunSpec, call: number) => Behaviour) = {}) =>
+  fakeHarness((spec, call) => {
+    const { ok = true, message = finalMessage, work = '' } = typeof behave === 'function' ? behave(spec, call) : behave;
+    const secrets = `if (process.env.BOTHUB_LLM_API_KEY !== 'key' || process.env.OTHER) process.exit(9)`;
+    return { events: events(ok, message), work: `fs.accessSync('README.md'); ${work}; ${secrets}`, exit: ok ? 0 : 1 };
+  });
 
 /** GitHub with nothing written yet; `calls` holds the writes. */
 const fakeGitHub = () => {
@@ -358,12 +341,12 @@ describe('context', () => {
 });
 
 describe('runPlanned', () => {
-  it('records proposals in shadow mode without applying them and removes the worktree', async () => {
+  it('records proposals in log mode without applying them and removes the worktree', async () => {
     const { calls, gh } = fakeGitHub();
     const { seen, adapters } = fake();
-    const p = await pipeline({ config: configFor('shadow'), gh, adapters });
+    const p = await pipeline({ config: configFor('log'), gh, adapters });
     const result = await Effect.runPromise(runPlanned(triage, p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(result.run).toMatchObject({
       status: 'succeeded',
       costUsd: 0.5,
@@ -394,7 +377,7 @@ describe('runPlanned', () => {
     const { calls, gh } = fakeGitHub();
     const p = await pipeline({ config: configFor('warn'), gh });
     const result = await Effect.runPromise(runPlanned(triage, p));
-    expect('run' in result && result.outcome).toMatchObject({
+    expect(result.outcome).toMatchObject({
       applied: true,
       results: [
         {
@@ -420,13 +403,13 @@ describe('runPlanned', () => {
   it('never applies without a client or after a failed run', async () => {
     const p = await pipeline({ config: configFor('warn') });
     const result = await Effect.runPromise(runPlanned(triage, p));
-    expect('run' in result && result.outcome?.applied).toBe(false);
+    expect(result.outcome?.applied).toBe(false);
 
     const { calls, gh } = fakeGitHub();
     const failing = await pipeline({ config: configFor('warn'), gh, adapters: fake({ ok: false }).adapters });
     const failed = await Effect.runPromise(runPlanned(triage, failing));
-    expect('run' in failed && failed.run.status).toBe('failed');
-    expect('run' in failed && failed.outcome?.applied).toBe(false);
+    expect(failed.run.status).toBe('failed');
+    expect(failed.outcome?.applied).toBe(false);
     expect(calls).toEqual([]);
   });
 
@@ -436,11 +419,11 @@ describe('runPlanned', () => {
       workspaces: workspaces({ dataDir: temp('x'), cloneUrl: () => '/nope' }),
     });
     const result = await Effect.runPromise(runPlanned(triage, p));
-    expect('run' in result && result.run).toMatchObject({
+    expect(result.run).toMatchObject({
       status: 'failed',
       error: expect.stringContaining('git clone'),
     });
-    expect('run' in result && result.outcome).toBeUndefined();
+    expect(result.outcome).toBeUndefined();
   });
 
   it('pushes the job branch before opening the pull request and rejects other branches', async () => {
@@ -455,7 +438,7 @@ describe('runPlanned', () => {
     const work = "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')";
     const p = await pipeline({ config: configFor(), gh, adapters: fake({ message, work }).adapters }, origin);
     const result = await Effect.runPromise(runPlanned(planned('implement'), p));
-    expect('run' in result && result.outcome?.results).toEqual([
+    expect(result.outcome?.results).toEqual([
       {
         kind: 'push',
         key: 'd1/triage/implement/push-1',
@@ -470,11 +453,9 @@ describe('runPlanned', () => {
         url: 'https://github.com/acme/app/pull/1',
       },
     ]);
-    expect('run' in result && result.run).toMatchObject({ closure: 'handed-off' });
-    expect('run' in result && result.outcome).toMatchObject({ branch, pr: 1 });
-    expect('run' in result && result.outcome?.rejected[0]?.reason).toBe(
-      `branch "bothub/other" is not the job's branch "${branch}"`
-    );
+    expect(result.run).toMatchObject({ closure: 'handed-off' });
+    expect(result.outcome).toMatchObject({ branch, pr: 1 });
+    expect(result.outcome?.rejected[0]?.reason).toBe(`branch "bothub/other" is not the job's branch "${branch}"`);
     expect(git(origin.dir, 'show', `${branch}:src/a.ts`)).toBe('a');
     expect(git(origin.dir, 'log', '-1', '--format=%an %s', branch)).toBe('bothub[bot] bothub: implement');
     expect(calls.map(c => c.path)).toEqual(['/repos/acme/app/pulls']);
@@ -483,7 +464,7 @@ describe('runPlanned', () => {
   it('runs script jobs in a worktree and records their output', async () => {
     const p = await pipeline({ config: configFor() });
     const result = await Effect.runPromise(runPlanned(planned('plain'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(result.run).toMatchObject({ status: 'failed', error: 'the script exited non-zero', job: 'plain' });
     expect(result.run.bot).toBeUndefined();
     expect((await p.store.events(result.run.id)).map(r => r.event)).toEqual([
@@ -507,13 +488,13 @@ describe('until', () => {
     }));
     const p = await pipeline({ config: configFor(), issues, adapters });
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(seen).toHaveLength(2);
     expect(seen[1]!.cwd).toBe(seen[0]!.cwd);
     expect(seen[1]!.prompt.startsWith(seen[0]!.prompt)).toBe(true);
     expect(seen[1]!.prompt).toContain('## Check findings\n\nAttempt 2 of 2.');
     expect(seen[1]!.prompt).toContain('### exists\n\n```text\nexited non-zero\n```');
-    expect(seen[1]!.prompt).not.toContain('### shadowed');
+    expect(seen[1]!.prompt).not.toContain('### logged');
 
     const runs = (await p.store.list()).reverse();
     expect(runs.map(r => [r.attempt, r.parent, r.status])).toEqual([
@@ -524,7 +505,7 @@ describe('until', () => {
     expect((await p.store.outcome(runs[0]!.id))?.applied).toBe(false);
     expect(untimed(result.outcome?.checks)).toEqual([
       { check: 'exists', gating: true, pass: true, findings: '3\n4\n5\n6\n7\n8\n9\n10\n11\n12' },
-      { check: 'shadowed', gating: false, pass: false, findings: 'never mind' },
+      { check: 'logged', gating: false, pass: false, findings: 'never mind' },
     ]);
     expect(result.outcome?.applied).toBe(true);
     expect((await issues.get(7))?.comments.map(c => unmarked(c.body))).toEqual(['Done.', '@octocat needs a human: #8']);
@@ -533,12 +514,30 @@ describe('until', () => {
     ]);
   });
 
+  it('withdraws a run whose issue is closed while it runs, and applies nothing', async () => {
+    const issues = trackedIssues();
+    const sleep = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)';
+    const { adapters } = fake({ work: sleep });
+    const p = await pipeline({ config: configFor(), issues, adapters, pollMs: 50 });
+    const running = Effect.runPromise(runPlanned(triage, p));
+    await vi.waitFor(async () => expect((await p.store.list())[0]?.status).toBe('running'));
+    await issues.close(7);
+    const result = await running;
+    expect(result.run).toMatchObject({
+      status: 'cancelled',
+      stopped: 'withdrawn',
+      closure: 'no-op',
+      error: 'withdrawn: #7 was closed',
+    });
+    expect((await issues.get(7))?.comments).toEqual([]);
+  });
+
   it('turns checks that still fail after max follow-ups into an ask and applies nothing else', async () => {
     const issues = trackedIssues();
     const { seen, adapters } = fake({ message: replyAndAsk });
     const p = await pipeline({ config: configFor(), issues, adapters });
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(seen).toHaveLength(2);
     const reason = 'checks still failing after 2 attempts';
     expect(result.run).toMatchObject({ status: 'failed', error: reason, attempt: 2 });
@@ -572,7 +571,7 @@ describe('until', () => {
     const { seen, adapters } = fake({ message: stop });
     const p = await pipeline({ config: configFor(), issues, adapters });
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(seen).toHaveLength(1);
     expect(result.outcome?.checks).toBeUndefined();
     expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked', reason: 'the gates forbid studio' });
@@ -597,7 +596,7 @@ describe('until', () => {
     });
     const p = await pipeline({ config: configFor(), adapters });
     const result = await Effect.runPromise(runPlanned(planned('judged'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(verdicts.slice(0, 2).sort()).toEqual(['FAIL b', 'PASS a']);
     expect(verdicts.slice(2).sort()).toEqual(['PASS a', 'PASS b']);
     const judge = seen.find(s => s.prompt.includes('## Changes to src/a.ts'))!;
@@ -635,7 +634,7 @@ describe('parking', () => {
     );
     const p = await pipeline({ config: configFor(), issues, adapters }, origin);
     const result = await Effect.runPromise(runPlanned(planned('parking'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     return { issues, origin, seen, p, result };
   };
 
@@ -651,7 +650,7 @@ describe('parking', () => {
     const [asked] = await issues.list({ label: 'unsure' });
     await issues.comment(asked!.number, 'Short, like the others.');
     const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
-    if (!('run' in next)) throw new Error('skipped');
+
     expect(seen).toHaveLength(2);
     const resume = seen[1]!.prompt.slice(seen[1]!.prompt.indexOf('## Resuming'));
     expect(resume).toContain(`Your earlier run ${result.run.id} stopped before finishing.`);
@@ -683,7 +682,7 @@ describe('parking', () => {
     const { adapters } = fake({ message: asks, work: "fs.writeFileSync('notes.md', 'n')" });
     const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters }, origin);
     const result = await Effect.runPromise(runPlanned(planned('parking'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(result.run.parked).toBeUndefined();
     expect(result.run.reason).toMatch(/^the name is unclear; not parked: .*notes\.md/);
     expect(git(origin.dir, 'branch', '--list', 'bothub/7')).toBe('');
@@ -694,19 +693,19 @@ describe('parking', () => {
     const { seen, adapters } = fake({ message: asks });
     const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters }, origin);
     const first = await Effect.runPromise(runPlanned(planned('parking'), p));
-    if (!('run' in first)) throw new Error('skipped');
+
     expect(first.run.parked).toBeUndefined();
     expect(seen[0]!.prompt).not.toContain('## Resuming');
     expect(git(origin.dir, 'branch', '--list', 'bothub/7')).toBe('');
     const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
-    if (!('run' in next)) throw new Error('skipped');
+
     expect(seen[1]!.prompt).toContain('## Resuming');
     expect(seen[1]!.prompt).not.toContain('parked on');
     expect(next.run.base).toBe(origin.main);
   });
 });
 
-const closureOf = (r: JobResult) => ('skipped' in r ? r.closure : r.run.closure);
+const closureOf = (r: JobResult) => r.run.closure;
 
 describe('runPlan', () => {
   const jobs = [planned('notify'), planned('plain'), planned('summarize'), triage];
@@ -714,7 +713,7 @@ describe('runPlan', () => {
   it('runs jobs in needs order and skips dependents of jobs that did not succeed', async () => {
     const p = await pipeline({ config: configFor() });
     const results = await Effect.runPromise(runPlan(jobs, p));
-    expect(results.map(r => [r.job, 'skipped' in r ? r.skipped : r.run.status, closureOf(r)])).toEqual([
+    expect(results.map(r => [r.job, r.run.status === 'skipped' ? r.run.reason : r.run.status, closureOf(r)])).toEqual([
       ['triage', 'succeeded', 'done'],
       ['summarize', 'succeeded', 'no-op'],
       ['plain', 'failed', 'blocked'],
@@ -730,7 +729,7 @@ describe('runPlan', () => {
   it('skips a dependent when the job it needs fails', async () => {
     const p = await pipeline({ config: configFor(), adapters: fake({ ok: false }).adapters });
     const results = await Effect.runPromise(runPlan([triage, planned('summarize')], p));
-    expect(results.map(r => [r.job, 'skipped' in r ? r.skipped : r.run.status])).toEqual([
+    expect(results.map(r => [r.job, r.run.status === 'skipped' ? r.run.reason : r.run.status])).toEqual([
       ['triage', 'failed'],
       ['summarize', 'needs "triage" (blocked) to be done'],
     ]);
@@ -762,7 +761,18 @@ describe('closure', () => {
       closure: 'deferred',
       reason: 'later',
     });
-    expect(closure(run({ status: 'failed', error: 'HTTP 429: rate limit' }), undefined, []).closure).toBe('deferred');
+    expect(
+      closure(run({ status: 'failed', stopped: 'provider', error: 'HTTP 429: rate limit' }), undefined, []).closure
+    ).toBe('deferred');
+    expect(closure(run({ status: 'failed', stopped: 'stalled', error: 'stalled' }), undefined, []).closure).toBe(
+      'blocked'
+    );
+    expect(
+      closure(run({ status: 'cancelled', stopped: 'withdrawn', error: 'withdrawn: #1 was closed' }), undefined, [])
+    ).toEqual({
+      closure: 'no-op',
+      reason: 'withdrawn: #1 was closed',
+    });
     expect(closure(run({ status: 'failed', error: 'boom' }), undefined, [])).toEqual({
       closure: 'blocked',
       reason: 'boom',
@@ -827,16 +837,17 @@ describe('checks fail closed', () => {
   });
 
   it('blocks a check whose run ended for a reason outside its work', () => {
-    expect(verdictOf(ok({ status: 'timed-out' }), '')).toEqual({
+    expect(verdictOf(ok({ status: 'timed-out', stopped: 'timeout' }), '')).toEqual({
       pass: false,
       findings: 'run r timed-out',
       blocked: true,
     });
     expect(verdictOf(ok({ status: 'skipped', reason: 'over budget' }), '')).toMatchObject({ blocked: true });
-    expect(verdictOf(ok({ status: 'failed', error: 'sandbox-failed: no network' }), '')).toMatchObject({
+    expect(verdictOf(ok({ status: 'failed', stopped: 'sandbox', error: 'no network' }), '')).toMatchObject({
       blocked: true,
     });
     expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').blocked).toBeUndefined();
+    expect(verdictOf(ok({ status: 'failed', stopped: 'stuck', error: 'stuck: a loop' }), '').blocked).toBeUndefined();
   });
 
   it('does not gate on a check the change does not touch, unless no gating check ran', () => {
@@ -846,7 +857,7 @@ describe('checks fail closed', () => {
     expect(failingChecks([skipped('docs'), passed])).toEqual([]);
     expect(failingChecks([skipped('docs'), passed, failed])).toEqual([failed]);
     expect(failingChecks([skipped('docs'), skipped('kit')])).toEqual([skipped('docs'), skipped('kit')]);
-    expect(failingChecks([{ ...skipped('shadowed'), gating: false }, passed])).toEqual([]);
+    expect(failingChecks([{ ...skipped('logged'), gating: false }, passed])).toEqual([]);
     expect(failingChecks([])).toEqual([]);
   });
 });
@@ -856,7 +867,7 @@ describe('proposals', () => {
     const { seen, adapters } = fake({ message: 'I looked around and everything seems fine.' });
     const p = await pipeline({ config: configFor('warn'), adapters });
     const result = await Effect.runPromise(runPlanned(triage, p));
-    if (!('run' in result)) throw new Error('skipped');
+
     expect(seen).toHaveLength(2);
     expect(seen[1]!.prompt).toContain('## Proposal errors\n\nAttempt 2 of 2.');
     expect(seen[1]!.prompt).toContain('- the reply has no bothub block');
@@ -879,7 +890,7 @@ describe('proposals', () => {
     const p = await pipeline({ config: configFor('warn'), adapters });
     const result = await Effect.runPromise(runPlanned(triage, p));
     expect(seen[1]!.prompt).toMatch(/## Proposal errors[\s\S]*- proposal 1:/);
-    expect('run' in result && result.run).toMatchObject({ status: 'succeeded', closure: 'done', attempt: 2 });
+    expect(result.run).toMatchObject({ status: 'succeeded', closure: 'done', attempt: 2 });
   });
 });
 
@@ -892,7 +903,7 @@ describe('budgets', () => {
     await Effect.runPromise(runPlanned(triage, p));
     const second = await Effect.runPromise(runPlanned(triage, p));
     expect(seen).toHaveLength(1);
-    expect('run' in second && second.run).toMatchObject({
+    expect(second.run).toMatchObject({
       status: 'skipped',
       closure: 'deferred',
       reason: 'bot "bot" used its 1 runs for the last 24 hours',
@@ -911,15 +922,16 @@ describe('budgets', () => {
     };
     const p = await pipeline({ config, adapters, launch: down });
     const failed = await Effect.runPromise(runPlanned(triage, p));
-    expect('run' in failed && failed.run).toMatchObject({
+    expect(failed.run).toMatchObject({
       status: 'failed',
       closure: 'deferred',
+      stopped: 'sandbox',
       error: 'sandbox-failed: the bothub-sandbox network is missing',
     });
     expect(seen).toHaveLength(0);
     const retried = await Effect.runPromise(runPlanned(triage, { ...p, launch: unsandboxed }));
     expect(seen).toHaveLength(1);
-    expect('run' in retried && retried.run).toMatchObject({ status: 'succeeded', closure: 'done' });
+    expect(retried.run).toMatchObject({ status: 'succeeded', closure: 'done' });
   });
 
   it('stops looping once the attempts spent the run budget', async () => {
@@ -929,7 +941,7 @@ describe('budgets', () => {
     const p = await pipeline({ config, issues: trackedIssues(), adapters });
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
     expect(seen).toHaveLength(1);
-    expect('run' in result && result.run).toMatchObject({
+    expect(result.run).toMatchObject({
       status: 'failed',
       closure: 'blocked',
       error: 'spent $0.50 of the $0.5 budget in 1 attempts with checks still failing',
@@ -1013,7 +1025,7 @@ jobs:
     const store = openStore(dataDir);
     const p = await pipeline({ config: memory(), adapters, store, data: dataDir, hub, issues: trackedIssues() });
     const result = await Effect.runPromise(runPlanned({ workflow: 'w', job: 'learn', bot: 'mem' }, p));
-    if (!('run' in result)) throw new Error('skipped');
+
     const runs = (await p.store.list()).reverse();
     expect(seen.map(s => s.surfacer?.run)).toEqual(runs.map(r => r.id));
     expect(seen[0]!.prompt).not.toContain('## Your earlier attempt');
@@ -1081,7 +1093,7 @@ jobs:
       ['verify', 'done'],
       ['deploy', 'blocked'],
     ]);
-    expect(first[2]).toMatchObject({ skipped: 'waiting for approval in #8' });
+    expect(first[2]?.run).toMatchObject({ status: 'skipped', reason: 'waiting for approval in #8' });
     expect(await issues.get(8)).toMatchObject({ title: 'Approve flow/deploy for #7 in production', parent: 7 });
     expect(seen).toHaveLength(1);
 
@@ -1117,7 +1129,7 @@ jobs:
     setTimeout(() => void held.release(), 300);
     const result = await Effect.runPromise(runPlanned(jobs[0]!, p));
     expect(seen).toHaveLength(1);
-    expect('run' in result && result.run.status).toBe('succeeded');
+    expect(result.run.status).toBe('succeeded');
   });
 
   it('defers a job whose branch another live run holds past its timeout', async () => {
@@ -1130,7 +1142,7 @@ jobs:
     vi.spyOn(Date, 'now').mockImplementation(() => now + calls++ * 600_000);
     const result = await Effect.runPromise(runPlanned(jobs[0]!, p)).finally(() => vi.restoreAllMocks());
     expect(seen).toHaveLength(0);
-    expect('run' in result && result.run).toMatchObject({
+    expect(result.run).toMatchObject({
       status: 'skipped',
       closure: 'deferred',
       reason: `branch "${branch}" is in use by run other`,
@@ -1157,7 +1169,7 @@ describe('over', () => {
       md('bots/bot.md', 'harness: opencode\ntools: [read]\nreturns: [reply]\nmax-turns: 3', 'You work.'),
       md('bots/judge.md', 'harness: opencode\ntools: [read]\nreturns: [reply]\nmax-turns: 3', 'You judge.'),
       md('skills/implement.md', 'description: Change code.', 'Implement it.'),
-      ...checks.map(c => md(`checks/${c.name}.md`, JSON.stringify({ mode: 'shadow', ...c.data }), c.body)),
+      ...checks.map(c => md(`checks/${c.name}.md`, JSON.stringify({ mode: 'log', ...c.data }), c.body)),
       md(
         'workflows/triage.md',
         JSON.stringify({
@@ -1188,7 +1200,7 @@ describe('over', () => {
     const { seen, adapters } = fake(behave);
     const p = await pipeline({ config, adapters, env: { BOTHUB_LLM_API_KEY: 'key', ...env }, ...extra }, origin());
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
-    if (!('run' in result)) throw new Error('skipped');
+
     return { result, seen, p };
   };
 
@@ -1509,7 +1521,7 @@ describe('over', () => {
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
     const p = await pipeline({ config: result.config }, origin());
     const job = await Effect.runPromise(runPlanned({ workflow: 'triage', job: 'each' }, p));
-    expect('run' in job && job.run.status).toBe('succeeded');
+    expect(job.run.status).toBe('succeeded');
     expect(readFileSync(log, 'utf8')).toBe('one/one\ntwo/two\n');
   });
 
@@ -1535,7 +1547,7 @@ describe('over', () => {
     });
     const p = await pipeline({ config, adapters, issues, env: { BOTHUB_LLM_API_KEY: 'key' } }, origin());
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
-    expect('run' in result && result.run.closure).toBe('done');
+    expect(result.run.closure).toBe('done');
     expect((await issues.get(7))?.comments.map(c => unmarked(c.body))).toEqual([
       '3 items: 1 with findings, 2 passed.\n\n### item 2\n\nfindings\n\nlong.txt:19 reads oddly.',
     ]);

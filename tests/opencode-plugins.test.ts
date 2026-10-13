@@ -3,11 +3,30 @@ import type { AddressInfo } from 'node:net';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { opencode } from '../src/harnesses/opencode.ts';
 import deciderPlugin, { decider, type DeciderQuestion } from '../src/harnesses/opencode-decider.ts';
 import surfacerPlugin, { surfacer, type SurfacerOptions } from '../src/harnesses/opencode-surfacer.ts';
 import type { EventRecord } from '../src/store.ts';
 import type { SummaryRecord } from '../src/summaries.ts';
+import type { AgentEvent } from '../src/types.ts';
+
+/** What the plugins print to opencode's stdout, read back the way the harness adapter reads it. */
+let printed: string[] = [];
+beforeEach(() => {
+  printed = [];
+  const write = process.stdout.write.bind(process.stdout);
+  vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array, ...rest: never[]) => {
+    const text = String(chunk);
+    if (text.startsWith('{"type":"bothub"')) return (printed.push(text), true);
+    return write(chunk, ...rest);
+  }) as typeof process.stdout.write);
+  return () => vi.restoreAllMocks();
+});
+const recalls = () =>
+  printed
+    .flatMap(line => opencode.parseLine(line.trimEnd()))
+    .filter((e): e is Extract<AgentEvent, { type: 'recall' }> => e.type === 'recall');
 
 const servers: Server[] = [];
 afterAll(() => Promise.all(servers.map(s => new Promise(done => s.close(done)))));
@@ -217,6 +236,52 @@ describe('surfacer plugin', () => {
     const block = (await turn(hooks, 'The nonce gap is back; last time a sleep loop around nonce fixed it')).join('\n');
     expect(block).not.toContain('sleep loop');
     expect(block).not.toContain('r-arch#2-3');
+  });
+});
+
+describe('surfacer events', () => {
+  it('reports every candidate of a turn with its score, what it surfaced and what the cutoff and budget cut', async () => {
+    const { hooks } = await start({ budget: 40 });
+    await turn(hooks, task);
+    const [event, ...more] = recalls();
+    expect(more).toEqual([]);
+    expect(event).toMatchObject({ type: 'recall', on: 'turn', query: task });
+    const fates = Object.fromEntries(event!.items.map(i => [i.pointer, i.fate]));
+    expect(fates).toMatchObject({
+      'r-fees#2-3': 'surfaced',
+      'notes/decision/bigint-amounts.md': 'budget',
+      'r-fees#4-4': 'cutoff',
+    });
+    expect(Object.keys(fates)).not.toContain('r-private#0-1');
+    const surfaced = event!.items.find(i => i.fate === 'surfaced')!;
+    expect(surfaced).toMatchObject({ kind: 'summary', p: 0.92 });
+    expect(surfaced.score).toBeGreaterThan(0);
+    expect(surfaced.tokens).toBeGreaterThan(0);
+    expect(event!.tokens).toBe(surfaced.tokens);
+    const note = event!.items.find(i => i.pointer === 'notes/decision/bigint-amounts.md')!;
+    expect(note).toMatchObject({ kind: 'note', title: 'Amounts are bigint', p: 0.85 });
+  });
+
+  it('reports a turn whose candidates no model could judge, with the error', async () => {
+    const { hooks } = await start({ url: offline, decide: { url: offline, timeoutMs: 2000 } });
+    expect(await turn(hooks, task)).toEqual([]);
+    const [event] = recalls();
+    expect(event!.tokens).toBe(0);
+    expect(event!.error).toBeTruthy();
+    expect(event!.items.length).toBeGreaterThan(0);
+    expect(new Set(event!.items.map(i => i.fate))).toEqual(new Set(['unjudged']));
+  });
+
+  it('reports each history call with what it returned', async () => {
+    const { hooks } = await start({ history: true });
+    const out = await hooks.tool!.history.execute({ query: 'FeeEstimateError' });
+    await hooks.tool!.history.execute({ query: 'r-fees' });
+    const [search, read] = recalls();
+    expect(search).toMatchObject({ on: 'history', query: 'FeeEstimateError' });
+    expect(search!.items.map(i => i.pointer)).toContain('r-fees#2-3');
+    expect(search!.items.every(i => i.fate === 'returned' && i.score! > 0)).toBe(true);
+    expect(search!.tokens).toBe(Math.ceil(out.length / 4));
+    expect(read!.items.map(i => i.pointer)).toEqual(['r-fees#0-1', 'r-fees#2-3', 'r-fees#4-4']);
   });
 });
 

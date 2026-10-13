@@ -17,6 +17,7 @@ import type { EventRecord } from '../../../src/store.ts';
 import { estimate, type Price, sum, tokensOf } from '../../../src/usage.ts';
 import { infoAtom, navigateAtom, runIdAtom, runPageAtom } from '../state.ts';
 import { Icon, KindIcon } from '../studio/icons.tsx';
+import { Link } from '../Providers.tsx';
 import { cx, IconButton, Tooltip } from '../ui.tsx';
 import { age, Cost, Elapsed, formatTokens, Io, StatusIcon, useEnter } from './bits.tsx';
 import { fetchEvents, fetchOutcome, live, pricesAtom, recordKey } from './live.ts';
@@ -36,7 +37,10 @@ import {
   type Turn,
   turnsOf,
 } from './model.ts';
+import { DiffFiles, DiffSummary, WhitespaceToggle } from './DiffView.tsx';
+import { fetchRunDiff, hideWhitespaceAtom } from './pulls.ts';
 import { OutcomeView, RunFields, Text, ToolBody, toolSummary, VerdictView } from './render/index.tsx';
+import { RecalledHead, RecalledRows, recallsOf } from './render/recall.tsx';
 
 type Mode = 'auto' | 'all' | 'none';
 const Steps = createContext<{
@@ -247,6 +251,7 @@ const TurnLine = memo(function TurnLine({
 /** A run's model calls and tool calls as steps; the last one stays open while the run is live. */
 const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord[]; price: Price | undefined }) => {
   const { turns, start, end, errors } = useMemo(() => turnsOf(records), [records]);
+  const recalls = useMemo(() => recallsOf(records), [records]);
   const live = isLive(run.status);
   const first = turns.find(t => t.usage)?.usage;
   return (
@@ -266,6 +271,11 @@ const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord
           </Tooltip>
         )}
       </li>
+      {recalls.length > 0 && (
+        <Step id={`${run.id}:recalled`} auto={false} head={<RecalledHead recalls={recalls} />}>
+          {() => <RecalledRows recalls={recalls} />}
+        </Step>
+      )}
       {turns.map((turn, i) => (
         <TurnLine
           key={turn.index}
@@ -490,6 +500,69 @@ const OutcomeStep = ({ run }: { run: RunRow }) => {
   );
 };
 
+/** Whether a run left commits behind: pushed them, or parked its work on a branch. */
+const committed = (run: RunRow) =>
+  !!run.parked || !!run.brief?.results.some(r => r.kind === 'push' && r.status === 'applied');
+
+const FetchedDiff = ({ run }: { run: RunRow }) => {
+  const hide = useAtomValue(hideWhitespaceAtom);
+  const diff = use(fetchRunDiff(run.id, run.status, hide));
+  if (!diff?.files.length && !diff?.hiddenFiles)
+    return <p className="text-xs text-zinc-500">This run changed no files.</p>;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <DiffSummary files={diff.files} />
+        <WhitespaceToggle />
+      </div>
+      <DiffFiles files={diff.files} hiddenFiles={diff.hiddenFiles} />
+    </div>
+  );
+};
+
+/** The diff a run pushed or parked, with a link to the merge request on its branch. */
+const ChangesStep = ({ run }: { run: RunRow }) => {
+  const pulls = useAtomValue(live.pulls);
+  if (!committed(run)) return null;
+  const branch = run.parked ?? run.brief?.branch;
+  const pull =
+    run.brief?.pr !== undefined
+      ? pulls.find(p => p.number === run.brief?.pr)
+      : pulls.find(p => p.branch === branch && p.state === 'open');
+  return (
+    <Step
+      id={`${run.id}:changes`}
+      auto={false}
+      head={
+        <Row>
+          <Tooltip tip={run.parked ? `Work parked on ${run.parked}` : 'Files this run committed and pushed'}>
+            <Icon name="pull" className="size-3.5 text-zinc-400" />
+          </Tooltip>
+          <span className="font-medium">changes</span>
+          <span className="truncate font-mono text-[11px] text-zinc-500">{branch}</span>
+          {pull && <span className="text-zinc-500">#{pull.number}</span>}
+        </Row>
+      }
+    >
+      {() => (
+        <div className="space-y-2 py-1 pr-2">
+          {pull && (
+            <Link
+              href={`/dashboard/pulls/${pull.number}`}
+              className="inline-flex items-center gap-1.5 text-xs text-sky-700 hover:underline dark:text-sky-300"
+            >
+              Merge request #{pull.number}: {pull.title}
+            </Link>
+          )}
+          <Suspense fallback={null}>
+            <FetchedDiff run={run} />
+          </Suspense>
+        </div>
+      )}
+    </Step>
+  );
+};
+
 const kindLabels = {
   setup: 'setup, re-read every call',
   tools: 'tool results carried',
@@ -654,6 +727,7 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
     return follow ? <p className="p-4 text-zinc-500">Waiting for a run to start.</p> : <Missing id={id} />;
   const { run, root, attempts, runs } = execution;
   const last = attempts.at(-1)!;
+  const changed = attempts.findLast(committed);
   const setAll = (next: Mode) => {
     setMode(next);
     setOverrides({});
@@ -689,7 +763,7 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
             <Icon name="collapse" className="size-3" />
           </IconButton>
           <IconButton
-            tip={follow ? 'Following the latest run; click to stay on this one' : 'Follow the latest run as runs start'}
+            tip={follow ? 'Stay on this run' : 'Follow the latest run as runs start'}
             aria-pressed={!!follow}
             className={cx(follow && 'border-sky-400 text-sky-700 dark:border-sky-600 dark:text-sky-300')}
             onClick={() => (follow ? select(run.id) : navigate({ path: '/dashboard/follow' }))}
@@ -757,6 +831,7 @@ export const RunView = ({ id, variant = 'panel' }: { id: string; variant?: 'pane
               <AttemptStep key={attempt.id} attempt={attempt} total={attempts.length} runs={rows} prices={prices} />
             ))}
             <OutcomeStep run={last} />
+            {changed && <ChangesStep key={changed.id} run={changed} />}
           </ul>
         </Steps>
       </div>

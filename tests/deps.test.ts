@@ -5,7 +5,7 @@ import { compile } from '../src/config.ts';
 import { depsKey, prepareDeps, withDeps, type Deps } from '../src/deps.ts';
 import { runScript, unsandboxed } from '../src/runner.ts';
 import { depsMounts } from '../src/sandbox.ts';
-import { commit, git, sourceRepo, temp } from './git.ts';
+import { commit, git, sourceRepo, temp } from './kit.ts';
 
 const setup = () => {
   const { dir } = sourceRepo();

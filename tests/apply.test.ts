@@ -4,7 +4,7 @@ import { appJwt, gh, githubApp, type Fetch } from '../src/github-app.ts';
 import type { Proposal } from '../src/outputs.ts';
 import { localIssues } from '../src/issues-local.ts';
 import type { BotEvent } from '../src/types.ts';
-import { temp } from './git.ts';
+import { temp } from './kit.ts';
 
 type Call = { method: string; url: string; headers: Record<string, string>; body?: unknown };
 

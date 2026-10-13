@@ -42,7 +42,6 @@ Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `docker com
 ```sh
 export BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000/v1 BOTHUB_DATA=/tmp/bothub-sim
 ../../bin/bothub.mjs run --event issue_comment ../../examples/payloads/issue-comment.json --dir ../../examples/hub --dry-run
-sandbox/run.sh implementor <worktree> <run-home> -- opencode run "say hi"   # one sandboxed run
 ```
 
 ## A full local run
@@ -72,12 +71,7 @@ prices. Prices come from the proxy's `/model/info` when it has them, then from `
 (USD per million tokens, aliases mapped to models). The ChatGPT login bills nothing per token, so
 smart and writer runs show $0 billed and their list-price estimate.
 
-## Compute profile
-
-`docker compose --profile compute up -d celld` serves `BOTHUB_WORKER_DIR` (default `celld/hello`)
-on 127.0.0.1:9876 with `celld dev`, a local Cloudflare Workers runtime.
-
 ## Tear down
 
-`docker compose --profile sandbox --profile ollama --profile compute down` keeps volumes; add
+`docker compose --profile sandbox --profile ollama down` keeps volumes; add
 `-v` to drop keys, spend, the ChatGPT login and models.

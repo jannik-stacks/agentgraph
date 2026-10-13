@@ -1,13 +1,9 @@
-import { execFile } from 'node:child_process';
 import { appendFile, readFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
+import { botEnv, gitStatus } from './git.ts';
 import type { GitHub, GitHubError } from './github-app.ts';
 import { toEvent } from './github.ts';
 import type { Proposal } from './outputs.ts';
 import type { BotEvent } from './types.ts';
-import { botEnv } from './workspace.ts';
-
-const exec = promisify(execFile);
 
 /**
  * A request to merge `branch` into `into`: a pull request on GitHub, a `pulls.jsonl` record locally. `head` is the
@@ -189,16 +185,7 @@ export const fold = (ops: Op[], url: (number: number) => string) => {
  * events (opened, synchronize, closed) of every request in `repo`, with ids that stay the same each time.
  */
 export const localPulls = ({ origin, file, repo }: { origin: string; file: string; repo: string }) => {
-  const git = async (args: string[], env: Record<string, string> = {}) => {
-    try {
-      const { stdout } = await exec('git', ['-C', origin, ...args], { env: { ...process.env, ...env } });
-      return { code: 0, stdout: stdout.trim() };
-    } catch (e) {
-      const { code, stdout, stderr } = e as { code?: number; stdout?: string; stderr?: string };
-      if (typeof code === 'number' && code === 1) return { code, stdout: stdout?.trim() ?? '', stderr };
-      throw new Error(`git ${args.join(' ')} failed: ${stderr?.trim() || (e as Error).message}`);
-    }
-  };
+  const git = (args: string[], env?: Record<string, string>) => gitStatus(origin, args, env);
   const tip = async (branch: string) => {
     const { code, stdout } = await git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`]);
     return code === 0 && stdout ? stdout : undefined;

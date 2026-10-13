@@ -9,15 +9,8 @@ import { unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import { workspaces } from '../src/workspace.ts';
 import type { JobResult } from '../src/pipeline.ts';
-import type { BotEvent } from '../src/types.ts';
-import { commit, git, sourceRepo, temp } from './git.ts';
-
-const bareOrigin = () => {
-  const { dir } = sourceRepo();
-  const bare = join(temp('bare'), 'app.git');
-  git(dir, 'clone', '-q', '--bare', dir, bare);
-  return bare;
-};
+import type { AgentEvent, BotEvent } from '../src/types.ts';
+import { bareOrigin, commit, fakeHarness, sourceRepo, temp } from './kit.ts';
 
 const files: Record<string, string> = {
   'hub.yaml': 'issues: local\n',
@@ -46,11 +39,8 @@ const files: Record<string, string> = {
   'issues/1-question.md': '---\ntitle: A question\nstate: open\nlabels: []\nauthor: morgan\n---\n\nWhy?\n',
 };
 
-const reply = JSON.stringify({ type: 'end', ok: true, result: '```bothub\n[{"kind":"reply","body":"Because."}]\n```' });
-const adapter = {
-  command: () => ({ cmd: process.execPath, args: ['-e', `console.log(${JSON.stringify(reply)})`], env: {} }),
-  parseLine: (line: string) => (line.trim() ? [JSON.parse(line)] : []),
-};
+const reply: AgentEvent = { type: 'end', ok: true, result: '```bothub\n[{"kind":"reply","body":"Because."}]\n```' };
+const { adapters } = fakeHarness(() => ({ events: [reply] }));
 
 describe('localOrigin', () => {
   it('accepts a local bare repository and refuses anything else', async () => {
@@ -79,7 +69,7 @@ describe('serveHub', () => {
       port: 0,
       interval: 20,
       log: () => {},
-      adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      adapters,
       launch: unsandboxed,
       onResults: (event, results) => done.push([event, results]),
     });
@@ -88,7 +78,7 @@ describe('serveHub', () => {
       while (!done.length) await new Promise(r => setTimeout(r, 20));
       const [[event, results]] = done as [[BotEvent, JobResult[]]];
       expect(event).toMatchObject({ trigger: 'issue_comment', number: 1, repo: 'acme/app' });
-      expect(results.map(r => ('run' in r ? r.run.status : r.skipped))).toEqual(['succeeded']);
+      expect(results.map(r => (r.run.status === 'skipped' ? r.run.reason : r.run.status))).toEqual(['succeeded']);
       expect(readFileSync(join(hub, 'issues', '1-question.md'), 'utf8')).toContain('Because.');
       const res = await fetch(`http://127.0.0.1:${served.port}/api/runs`);
       expect((await res.json()).map((r: { job: string }) => r.job)).toEqual(['answer']);
@@ -116,7 +106,7 @@ describe('serveHub', () => {
       port: 0,
       interval: 20,
       log: line => lines.push(line),
-      adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      adapters,
       launch: unsandboxed,
       onResults: (event, results) => done.push([event, results]),
       retry: { backoff: () => 300 },
@@ -133,10 +123,59 @@ describe('serveHub', () => {
       await issues.comment(1, '/bothub why, again');
       while (done.length < 2) await new Promise(r => setTimeout(r, 20));
       await served.idle();
-      expect(done.map(([event, results]) => [event.body, results.map(r => 'run' in r && r.run.status)])).toEqual([
+      expect(done.map(([event, results]) => [event.body, results.map(r => r.run.status)])).toEqual([
         ['/bothub why', ['succeeded']],
         ['/bothub why, again', ['succeeded']],
       ]);
+    } finally {
+      await served.stop();
+    }
+  });
+
+  it('runs an event with the last hub that compiled, and reports the broken edit on /api/info', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    const lines: string[] = [];
+    const done: BotEvent[] = [];
+    const served = await serveHub({
+      hub,
+      data: temp('serve-data'),
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 20,
+      log: line => lines.push(line),
+      adapters,
+      launch: unsandboxed,
+      onResults: event => done.push(event),
+    });
+    const info = async () =>
+      (await (await fetch(`http://127.0.0.1:${served.port}/api/info`)).json()) as { hubErrors: unknown[] };
+    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
+    const ran = async (count: number) => {
+      while (done.length < count) await new Promise(r => setTimeout(r, 20));
+      await served.idle();
+    };
+    try {
+      await issues.comment(1, '/bothub one');
+      await ran(1);
+      expect((await info()).hubErrors).toEqual([]);
+
+      writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!.replace('tools: [read]', 'tools: [Read]'));
+      await issues.comment(1, '/bothub two');
+      await ran(2);
+      expect(lines).toContain('the hub does not compile (1 errors), running the last version that compiled');
+      expect((await info()).hubErrors).toMatchObject([{ path: 'bots/helper.md' }]);
+
+      writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!);
+      await issues.comment(1, '/bothub three');
+      await ran(3);
+      expect((await info()).hubErrors).toEqual([]);
+      expect(done.map(event => event.body)).toEqual(['/bothub one', '/bothub two', '/bothub three']);
     } finally {
       await served.stop();
     }
@@ -185,14 +224,10 @@ describe('serveHub', () => {
       join(hub, 'issues/2-other.md'),
       '---\ntitle: Another\nstate: open\nlabels: []\nauthor: morgan\n---\n\nHow?\n'
     );
-    const timed = {
-      command: () => ({
-        cmd: process.execPath,
-        args: ['-e', `setTimeout(() => console.log(${JSON.stringify(reply)}), 300)`],
-        env: {},
-      }),
-      parseLine: adapter.parseLine,
-    };
+    const timed = fakeHarness(() => ({
+      events: [reply],
+      work: 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300)',
+    }));
     const lines: string[] = [];
     const data = temp('serve-data');
     const served = await serveHub({
@@ -204,7 +239,7 @@ describe('serveHub', () => {
       port: 0,
       interval: 20,
       log: line => lines.push(line),
-      adapters: { opencode: { name: 'opencode', ...timed }, pi: { name: 'pi', ...timed } },
+      adapters: timed.adapters,
       launch: unsandboxed,
     });
     try {
@@ -245,7 +280,7 @@ describe('serveHub', () => {
         port: 0,
         interval: 20,
         log: () => {},
-        adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+        adapters,
         launch: unsandboxed,
         onResults: (event, results) => done.push([event, results]),
       });
@@ -300,14 +335,14 @@ describe('serveHub', () => {
       port: 0,
       interval: 20,
       log: () => {},
-      adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      adapters,
       launch: unsandboxed,
       onResults: (_, results) => done.push(results),
     });
     try {
       await served.idle();
       expect((await openStore(data).read(stale.id))?.status).toBe('interrupted');
-      expect(done.flat().map(r => ('run' in r ? r.run.status : r.skipped))).toEqual(['succeeded']);
+      expect(done.flat().map(r => (r.run.status === 'skipped' ? r.run.reason : r.run.status))).toEqual(['succeeded']);
     } finally {
       await served.stop();
     }
@@ -389,7 +424,7 @@ describe('serveHub', () => {
       port: 0,
       interval: 20,
       log: line => lines.push(line),
-      adapters: { opencode: { name: 'opencode', ...adapter }, pi: { name: 'pi', ...adapter } },
+      adapters,
       launch: unsandboxed,
       onResults: event => done.push(event),
     });
@@ -408,8 +443,7 @@ describe('warmDeps', () => {
   const setup = (install: string) => {
     const { dir } = sourceRepo();
     commit(dir, { 'deps.lock': 'v1\n' });
-    const origin = join(temp('bare'), 'app.git');
-    git(dir, 'clone', '-q', '--bare', dir, origin);
+    const origin = bareOrigin(dir);
     const ran = join(temp('deps-log'), 'log');
     const hub = temp('serve-hub');
     const script = JSON.stringify(`echo ran >> ${ran}; ${install}`);

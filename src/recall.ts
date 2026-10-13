@@ -172,12 +172,15 @@ const maxCandidate = 1200;
 
 export type Recalled = { doc: Doc; score: number; p?: number };
 
+/** What became of a candidate: kept, below the cutoff, or over the token budget. */
+export type Weighed = Recalled & { fate: 'kept' | 'cutoff' | 'budget' };
+
 /**
- * Finds what a run should know for `task`: BM25 picks the `top` candidates the asking bot may see, then the decision
- * model keeps those it judges relevant at or above `cutoff`, best first, until `budget` tokens are used. Without a
- * reachable decision model the BM25 order is kept.
+ * Every candidate recall considers for `task`, with its fate: BM25 picks the `top` candidates the asking bot may
+ * see, then the decision model keeps those it judges relevant at or above `cutoff`, best first, until `budget` tokens
+ * are used. Without a reachable decision model the BM25 order is kept and `error` says why.
  */
-export const recall = async ({
+export const weigh = async ({
   index: idx,
   task,
   query = task,
@@ -199,10 +202,12 @@ export const recall = async ({
   decide?: DecideFn;
   url?: string;
   model?: string;
-}) => {
+}): Promise<{ weighed: Weighed[]; error?: string }> => {
   const candidates = idx.search(query, { limit: Math.min(top, 64), keep: allowedFor(bot) });
-  if (!candidates.length) return [];
+  if (!candidates.length) return { weighed: [] };
   let ranked: Recalled[];
+  const below: Weighed[] = [];
+  let error: string | undefined;
   try {
     const answers = await decide({
       url,
@@ -218,20 +223,24 @@ export const recall = async ({
         ])
       ),
     });
-    ranked = candidates
-      .map((c, i) => ({ ...c, p: answers[`c${i}`]!.noul }))
-      .filter(c => c.p >= cutoff)
-      .sort((x, y) => y.p - x.p);
-  } catch {
+    const judged = candidates.map((c, i) => ({ ...c, p: answers[`c${i}`]!.noul }));
+    ranked = judged.filter(c => c.p >= cutoff).sort((x, y) => y.p - x.p);
+    below.push(...judged.filter(c => c.p < cutoff).map(c => ({ ...c, fate: 'cutoff' as const })));
+  } catch (e) {
     ranked = candidates;
+    error = (e as Error).message;
   }
-  const kept: Recalled[] = [];
+  const weighed: Weighed[] = [];
   let used = 0;
   for (const hit of ranked) {
     const cost = estimateTokens(`${hit.doc.title}\n${hit.doc.text}`);
-    if (used + cost > budget) continue;
-    used += cost;
-    kept.push(hit);
+    const fits = used + cost <= budget;
+    if (fits) used += cost;
+    weighed.push({ ...hit, fate: fits ? 'kept' : 'budget' });
   }
-  return kept;
+  return { weighed: [...weighed, ...below], ...(error !== undefined && { error }) };
 };
+
+/** The candidates `weigh` keeps, best first. */
+export const recall = async (options: Parameters<typeof weigh>[0]): Promise<Recalled[]> =>
+  (await weigh(options)).weighed.filter(w => w.fate === 'kept').map(({ fate: _, ...hit }) => hit);

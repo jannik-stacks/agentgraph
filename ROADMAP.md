@@ -27,7 +27,7 @@ backends, never by forking code. Each milestone ends with something you can run.
 4. **GitHub mode.** GitHub App, webhook receiver with signature check, tunnel for local testing,
    a test repository, the same workflows as local mode.
 5. **Portable sandbox.** A `Sandbox` interface with docker, docker plus gVisor and remote
-   backends; the VPS profile in `infra/server` with systemd or compose, gVisor, Cloudflare Tunnel
+   backends; a VPS profile with systemd or compose, gVisor, Cloudflare Tunnel
    and Access.
 6. **Learning loop.** Run memory summaries, the gardener proposing notes, `decide` checks on the
    local decision model, the correction ladder from note to check.

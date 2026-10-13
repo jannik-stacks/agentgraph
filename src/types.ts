@@ -58,7 +58,27 @@ export type AgentEvent =
       costUsd?: number;
     }
   | { type: 'end'; ok: boolean; turns?: number; result?: string; costUsd?: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | {
+      /**
+       * What the memory surfacer weighed: before a model turn (`turn`) or for a `history` call. Each item is a note,
+       * run summary or run, with its BM25 `score`, the decision model's `p` when it judged, and the tokens it adds.
+       */
+      type: 'recall';
+      on: 'turn' | 'history';
+      query: string;
+      tokens: number;
+      items: {
+        pointer: string;
+        title?: string;
+        kind?: 'note' | 'issue' | 'summary' | 'run';
+        score?: number;
+        p?: number;
+        tokens?: number;
+        fate: 'surfaced' | 'cutoff' | 'budget' | 'unjudged' | 'returned';
+      }[];
+      error?: string;
+    };
 
 /** A harness adapter: pure argv construction plus line-by-line output parsing. */
 export type HarnessAdapter = {

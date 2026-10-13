@@ -209,5 +209,5 @@ export const validate = (proposals: Proposal[], allowance: Allowance, mode: Mode
     counts.set(proposal.kind, count + 1);
     accepted.push(proposal);
   }
-  return { accepted, rejected, apply: mode !== 'shadow' };
+  return { accepted, rejected, apply: mode !== 'log' };
 };

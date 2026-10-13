@@ -76,15 +76,12 @@ did not cause.
 The environment can set the image (`BOTHUB_SANDBOX_IMAGE`), the resource limits
 (`BOTHUB_SANDBOX_MEMORY`, `BOTHUB_SANDBOX_CPUS`, `BOTHUB_SANDBOX_PIDS`) and the model proxy URL
 (`BOTHUB_SANDBOX_LLM_URL`). Limits must be positive. The network, the user and the isolation flags
-are fixed. `BOTHUB_SANDBOX` and `BOTHUB_SANDBOX_NETWORK` only exist to catch old settings: any value
-other than `docker` and `bothub-sandbox` stops `bothub serve` at startup and fails every run. Hub
-files have no field that changes the sandbox.
+are fixed. Hub files have no field that changes the sandbox.
 
 `bothub sim` is the one exception. Its harness is a script that replays a scenario, so it runs
 without docker and never starts an agent.
 
-The image and a standalone `run.sh` with the same flags and checks live in `infra/local/sandbox`;
-the code is on [Runs](/docs/reference/runs).
+The image is built from `infra/local/sandbox`; the code is on [Runs](/docs/reference/runs).
 
 ## Harnesses
 

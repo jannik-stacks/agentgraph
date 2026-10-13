@@ -76,6 +76,21 @@ describe('openStore', () => {
     expect((await store.list()).map(r => r.id)).toEqual([fresh.id, old.id]);
   });
 
+  it('finds the runs matching every field of a filter', async () => {
+    const store = openStore(temp());
+    const at = (day: number) => runId(new Date(`2026-10-0${day}T00:00:00Z`));
+    const job = await store.create({ ...fields, startedAt: '2026-10-02T00:00:00Z' }, at(1));
+    const check = await store.create({ ...fields, check: 'lint', parent: job.id }, at(2));
+    const other = await store.create({ ...fields, job: 'other', event: { ...event, id: 'e2', number: 3 } }, at(3));
+    const ids = async (filter: Parameters<typeof store.runs>[0]) => (await store.runs(filter)).map(r => r.id);
+    expect(await ids({})).toEqual([other.id, check.id, job.id]);
+    expect(await ids({ event: 'e1', check: false })).toEqual([job.id]);
+    expect(await ids({ check: true })).toEqual([check.id]);
+    expect(await ids({ repo: 'acme/app', number: 3, job: 'other' })).toEqual([other.id]);
+    expect(await ids({ since: Date.parse('2026-10-01T00:00:00Z') })).toEqual([job.id]);
+    expect(await ids({ bot: 'nobody' })).toEqual([]);
+  });
+
   it('appends events and reads them from an offset, skipping a partial trailing line', async () => {
     const dir = temp();
     const store = openStore(dir);

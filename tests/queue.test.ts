@@ -11,7 +11,7 @@ import { fileQueue, worker } from '../src/queue.ts';
 import { unsandboxed } from '../src/runner.ts';
 import { serveHub } from '../src/serve.ts';
 import type { BotEvent } from '../src/types.ts';
-import { git, sourceRepo, temp } from './git.ts';
+import { bareOrigin, temp } from './kit.ts';
 
 const exec = promisify(execFile);
 const until = async (check: () => boolean) => {
@@ -342,9 +342,7 @@ describe('serveHub queue', () => {
     );
     for (const n of [1, 2, 3])
       write(`issues/${n}-task.md`, `---\ntitle: Task\nauthor: morgan\nlabels: [${n === 1 ? 'bot:helper' : ''}]\n---\n`);
-    const { dir } = sourceRepo();
-    const origin = join(temp('bare'), 'app.git');
-    git(dir, 'clone', '-q', '--bare', dir, origin);
+    const origin = bareOrigin();
 
     const data = temp('serve-data');
     const labeled = (number: number): BotEvent => ({
@@ -376,7 +374,7 @@ describe('serveHub queue', () => {
       log: line => lines.push(line),
       launch: unsandboxed,
       onResults: (event, results) =>
-        ran.push([event.number, results.map(r => ('run' in r ? r.run.status : r.skipped))]),
+        ran.push([event.number, results.map(r => (r.run.status === 'skipped' ? (r.run.reason ?? '') : r.run.status))]),
     });
     try {
       await served.idle();

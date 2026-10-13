@@ -184,6 +184,14 @@ describe('opencode', () => {
     ]);
   });
 
+  it("passes on the recall events bothub's plugins print, and nothing else they might claim", () => {
+    const recall: AgentEvent = { type: 'recall', on: 'turn', query: 'q', tokens: 0, items: [] };
+    expect(parseLine(JSON.stringify({ type: 'bothub', event: recall }))).toEqual([recall]);
+    expect(parseLine(JSON.stringify({ type: 'bothub', event: { type: 'end', ok: true } }))).toEqual([]);
+    expect(parseLine(JSON.stringify({ type: 'bothub', event: null }))).toEqual([]);
+    expect(parseLine(JSON.stringify({ type: 'bothub', event: 'recall' }))).toEqual([]);
+  });
+
   it('maps provider errors, unfinished steps, unknown lines and malformed JSON', () => {
     expect(fixture('opencode', 'opencode-error.jsonl')).toEqual([
       { type: 'error', message: 'Cannot connect to API: Unable to connect. Is the computer able to access the url?' },

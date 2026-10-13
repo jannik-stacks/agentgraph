@@ -1,10 +1,10 @@
 import { cpSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { main } from '../src/cli.ts';
+import { cli, main } from '../src/cli.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent } from '../src/types.ts';
-import { temp } from './git.ts';
+import { temp } from './kit.ts';
 
 const examples = join(import.meta.dirname, '../examples');
 
@@ -73,39 +73,33 @@ describe('cli', () => {
     const { err } = capture();
     const hub = ['--hub', temp('cli'), '--repo', temp('cli')];
     expect(await main(['serve', ...hub, '--concurrency', '0'])).toBe(2);
-    await main(['webhook', 'serve', ...hub, '--concurrency', 'many']);
+    await main(['serve', ...hub, '--concurrency', 'many']);
     expect(err.join('')).toBe(
       'bothub: --concurrency must be a positive whole number, not "0"\n' +
         'bothub: --concurrency must be a positive whole number, not "many"\n'
     );
   });
 
-  it('schema prints a JSON Schema for each file kind', async () => {
-    const io = capture();
-    expect(await main(['schema'])).toBe(0);
-    const schemas = JSON.parse(io.out.join(''));
-    expect(Object.keys(schemas)).toEqual(['hub', 'bot', 'skill', 'check', 'workflow', 'note']);
-    expect(schemas.bot.required).toEqual(['harness', 'tools', 'returns']);
-    const jobs = schemas.workflow.properties.jobs.additionalProperties.oneOf;
-    const bot = jobs.find((job: any) => job.properties.type.const === 'bot');
-    expect(bot.properties.until.properties.max.default).toBe(2);
-    expect(schemas.check.oneOf.map((check: any) => check.properties.type.const)).toEqual(['script', 'bot', 'decide']);
-  });
-
-  it('plan prints the jobs a payload starts', async () => {
+  it('run --dry-run --json lists the jobs a payload starts', async () => {
     const io = capture();
     const code = await main([
-      'plan',
+      'run',
       '--event',
       'issue_comment',
       join(examples, 'payloads/issue-comment.json'),
       '--dir',
       join(examples, 'hub'),
+      '--dry-run',
       '--json',
     ]);
     expect(code).toBe(0);
     expect(JSON.parse(io.out.join('')).jobs).toEqual([
-      { workflow: 'issue', job: 'implement', bot: 'implementor', args: 'add a /health endpoint with a test' },
+      expect.objectContaining({
+        workflow: 'issue',
+        job: 'implement',
+        bot: 'implementor',
+        args: 'add a /health endpoint with a test',
+      }),
     ]);
   });
 
@@ -141,14 +135,14 @@ describe('cli', () => {
     expect(existsSync(data)).toBe(false);
   });
 
-  it('runs lists runs as a table or JSON', async () => {
+  it('logs without an id lists runs as a table or JSON', async () => {
     const { data, id } = await seeded();
     const io = capture();
-    expect(await main(['runs', '--data', data, '--no-json'])).toBe(0);
+    expect(await main(['logs', '--data', data, '--no-json'])).toBe(0);
     expect(io.out[0]).toMatch(new RegExp(`^${id}  succeeded  issue-command/implement  \\$0\\.12  \\d+[smhd] ago\\n$`));
-    expect(await main(['runs', '--data', data, '--json'])).toBe(0);
+    expect(await main(['logs', '--data', data, '--json'])).toBe(0);
     expect(JSON.parse(io.out[1] ?? '')[0]).toMatchObject({ id, status: 'succeeded' });
-    expect(await main(['runs', '--data', temp('cli'), '--no-json'])).toBe(0);
+    expect(await main(['logs', '--data', temp('cli'), '--no-json'])).toBe(0);
     expect(io.out[2]).toBe('no runs\n');
   });
 
@@ -176,5 +170,14 @@ describe('cli', () => {
     }, 100);
     expect(await main(['logs', id, '--data', data, '--follow', '--json'])).toBe(0);
     expect(io.out.map(line => JSON.parse(line).seq)).toEqual([0, 1, 2, 3, 4]);
+  });
+});
+
+describe('cli surface', () => {
+  it('lists five commands and keeps mcp hidden', async () => {
+    expect(Object.keys(cli.subCommands as object)).toEqual(['check', 'run', 'serve', 'logs', 'sim']);
+    capture();
+    expect(await main(['plan'])).toBe(2);
+    expect(await main(['mcp', '--dir', join(examples, 'payloads')])).toBe(2);
   });
 });

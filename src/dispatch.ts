@@ -70,6 +70,19 @@ export const parseCommand = (body: string, command: string): string | undefined 
   return rest.trim();
 };
 
+/**
+ * Why work started by `event` is no longer wanted, checked while it runs: its issue was closed, or the label that
+ * started it was removed. Only issue and comment events are checked, and an event that closed the issue never is.
+ */
+export const abandoned = async (event: BotEvent, issues: Pick<Issues, 'get'>) => {
+  if (event.number === undefined || !['issues', 'issue_comment'].includes(event.trigger)) return;
+  const issue = await issues.get(event.number);
+  if (!issue) return;
+  if (issue.state === 'closed' && event.action !== 'closed') return `#${event.number} was closed`;
+  if (event.action === 'labeled' && event.label !== undefined && !issue.labels.includes(event.label))
+    return `its label "${event.label}" was removed`;
+};
+
 /** Whether the label that started an event was removed before its jobs ran, which withdraws them. */
 export const withdrawn = async (event: BotEvent, issues: Pick<Issues, 'get'>) =>
   event.action === 'labeled' &&

@@ -3,7 +3,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { workspaces } from '../src/workspace.ts';
-import { commit, git, sourceRepo, temp } from './git.ts';
+import { commit, git, sourceRepo, temp } from './kit.ts';
 
 const setup = () => {
   const origin = sourceRepo();
@@ -68,7 +68,7 @@ describe('workspaces', () => {
 
   it('rejects unknown refs and unsafe repository names', async () => {
     const { ws } = setup();
-    await expect(ws.create({ repo: 'acme/app', ref: 'nope' }, 'run-1')).rejects.toThrow('git -C');
+    await expect(ws.create({ repo: 'acme/app', ref: 'nope' }, 'run-1')).rejects.toThrow('invalid reference');
     await expect(ws.create({ repo: '../escape' }, 'run-2')).rejects.toThrow('invalid repository');
   });
 

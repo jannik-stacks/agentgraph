@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { useState } from 'react';
-import { Button, cx } from '../../ui.tsx';
+import { Button, cx, Tooltip } from '../../ui.tsx';
 import { diffLines, hunks } from './diff.ts';
 import { discardAtom, draftHubAtom, editItemAtom, saveAtom, saveResultAtom, savingAtom } from './hub-edits.ts';
 
@@ -104,14 +104,15 @@ export const ChangesTray = () => {
               Save
             </Button>
             {hub.git && (
-              <Button
-                variant="primary"
-                disabled={!validated.ok || saving}
-                title="writes the files, then runs git add and git commit -m update on them"
-                onClick={() => void save({ commit: true })}
-              >
-                Save and commit
-              </Button>
+              <Tooltip tip="Writes the files, then runs git add and git commit -m update on them">
+                <Button
+                  variant="primary"
+                  disabled={!validated.ok || saving}
+                  onClick={() => void save({ commit: true })}
+                >
+                  Save and commit
+                </Button>
+              </Tooltip>
             )}
           </span>
         )}

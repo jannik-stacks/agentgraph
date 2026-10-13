@@ -182,10 +182,10 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
     }
   }
   for (const check of Object.values(checks))
-    if (check.type === 'decide' && check.mode !== 'shadow' && check.threshold === undefined)
+    if (check.type === 'decide' && check.mode !== 'log' && check.threshold === undefined)
       found.push({
         path: check.path,
-        message: `decides in ${check.mode} mode without a "threshold"; tune one in shadow mode first`,
+        message: `decides in ${check.mode} mode without a "threshold"; tune one in log mode first`,
       });
   const jobs = Object.values(workflows).flatMap(workflow => Object.values(workflow.jobs));
   const used = new Set(
@@ -197,8 +197,8 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
   for (const workflow of Object.values(workflows))
     for (const [id, job] of Object.entries(workflow.jobs)) {
       const warn = (message: string) => found.push({ path: workflow.path, message: `job "${id}" ${message}` });
-      if (job.type === 'bot' && job.until && job.until.checks.every(name => checks[name]?.mode === 'shadow'))
-        warn('loops until checks that are all in shadow mode, so it never repeats');
+      if (job.type === 'bot' && job.until && job.until.checks.every(name => checks[name]?.mode === 'log'))
+        warn('loops until checks that are all in log mode, so it never repeats');
     }
   return found;
 };

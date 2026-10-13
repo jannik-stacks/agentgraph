@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { git, temp } from './git.ts';
+import { git, temp } from './kit.ts';
 
 const script = resolve(import.meta.dirname, '../examples/acme-app/scripts/claims/extract.mjs');
 const fixtures = resolve(import.meta.dirname, 'fixtures/claims');

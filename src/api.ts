@@ -2,7 +2,8 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
-import { compile } from './config.ts';
+import { compile, type ConfigError } from './config.ts';
+import { listPulls, pullDiff, runDiff } from './diffs.ts';
 import { fingerprint, srcDir as ownSrc } from './fingerprint.ts';
 import { hubWriteRoutes } from './hub-write.ts';
 import { liveStream, watchRuns } from './live.ts';
@@ -29,6 +30,10 @@ const sleep = (ms: number, signal: AbortSignal) =>
     const timer = setTimeout(done, ms);
     signal.addEventListener('abort', done);
   });
+
+const diffOptions = (url: URL) => ({
+  whitespace: url.searchParams.get('whitespace') === 'hide' ? ('hide' as const) : ('show' as const),
+});
 
 const offset = (value: string | null) => {
   if (value === null || value === '') return 0;
@@ -113,6 +118,11 @@ export const readFiles = async (roots: Root[]) => {
  * `GET /api/stream` is the live view of the store as Server-Sent Events (see `liveStream`); `?run=<id>` also follows
  * one run's events, resuming after `Last-Event-ID` or from `?from=`. `GET /api/live` answers its snapshot as JSON and
  * `GET /api/prices` the estimated list prices from `prices`.
+ * `GET /api/info` names the hub, the data directory and the process, with `hubErrors` when the served hub's latest
+ * edit does not compile.
+ * `GET /api/pulls` lists the merge requests in the data directory with their files, `GET /api/pulls/:n/diff` answers
+ * one request's diff and `GET /api/runs/:id/diff` what a run committed (see `diffs.ts`); `?whitespace=hide` leaves out
+ * changes made only of whitespace.
  * `GET /api/build` compares the fingerprint of `srcDir` when the handler was made with the one on disk now, so a
  * client can tell the server runs older code than its source.
  */
@@ -124,6 +134,7 @@ export const api = ({
   srcDir = ownSrc,
   prices = async () => ({}),
   watch = {},
+  hubErrors = () => [],
 }: {
   hubDir: string;
   store: Store;
@@ -132,6 +143,7 @@ export const api = ({
   srcDir?: string;
   prices?: () => Promise<Record<string, Price & { model: string }>>;
   watch?: Parameters<typeof watchRuns>[1];
+  hubErrors?: () => ConfigError[];
 }): Handler => {
   const running = fingerprint(srcDir);
   const watcher = watchRuns(store.dir, watch);
@@ -199,6 +211,7 @@ export const api = ({
           dataReal: await realpath(store.dir).catch(() => null),
           pid: process.pid,
           version: running,
+          hubErrors: hubErrors(),
         }),
     ],
     [/^\/api\/files$/, async () => Response.json(await readFiles([{ name: 'hub', dir: hubDir }, ...roots]))],
@@ -229,6 +242,22 @@ export const api = ({
     ],
     [/^\/api\/prices$/, async () => Response.json(await prices())],
     [/^\/api\/needs-human$/, async () => Response.json(await needsHuman(store))],
+    [/^\/api\/pulls$/, async () => Response.json(await listPulls(store))],
+    [
+      /^\/api\/pulls\/(\d+)\/diff$/,
+      async (_req, url, n) => {
+        const diff = await pullDiff(store, Number(n), diffOptions(url));
+        return diff ? Response.json(diff) : notFound();
+      },
+    ],
+    [
+      /^\/api\/runs\/([^/]+)\/diff$/,
+      async (_req, url, id) => {
+        const run = await store.read(id);
+        if (!run) return notFound();
+        return Response.json(await runDiff(store, run, diffOptions(url)));
+      },
+    ],
     [
       /^\/api\/runs\/([^/]+)$/,
       async (_req, _url, id) => {

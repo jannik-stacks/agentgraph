@@ -4,7 +4,7 @@ import { compile } from '../config.ts';
 import { decide, defaultDecideModel, defaultDecideUrl } from '../decide.ts';
 import { readHub } from '../load.ts';
 import { accepted } from '../preload.ts';
-import { allowedFor, index, loadSynonyms, noteDocs, recall, summaryDocs, type Doc, type Index } from '../recall.ts';
+import { allowedFor, index, loadSynonyms, noteDocs, summaryDocs, weigh, type Doc, type Index } from '../recall.ts';
 import type { EventRecord } from '../store.ts';
 import {
   fit,
@@ -18,6 +18,7 @@ import {
   type SummaryRecord,
 } from '../summaries.ts';
 import type { AgentEvent } from '../types.ts';
+import { tokensOf } from '../usage.ts';
 
 /** The file a bothub plugin writes in the run home when opencode loads it; a run whose plugin left none fails. */
 export const loadedMarker = (home: string, id: string) => join(home, '.bothub', 'loaded', id);
@@ -27,6 +28,13 @@ export const markLoaded = async (id: string) => {
   const file = loadedMarker(process.env.HOME ?? '/tmp', id);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, `${process.pid}\n`);
+};
+
+/** Reports a plugin event to bothub as a line on opencode's stdout, where the harness adapter reads it. */
+export const report = (event: AgentEvent) => {
+  try {
+    process.stdout.write(`${JSON.stringify({ type: 'bothub', event })}\n`);
+  } catch {}
 };
 
 /**
@@ -62,10 +70,15 @@ const textOf = (parts: Part[]) =>
     .join('\n');
 
 const hitLine = (doc: Doc) => `- [${doc.pointer}] ${doc.kind === 'note' ? `${doc.title}: ` : ''}${fit(doc.text, 400)}`;
+const maxQuery = 300;
+const round = (n: number) => Math.round(n * 1000) / 1000;
+type RecallItem = Extract<AgentEvent, { type: 'recall' }>['items'][number];
+const itemOf = (doc: Doc): Omit<RecallItem, 'fate'> => ({ pointer: doc.pointer, title: doc.title, kind: doc.kind });
 
 /**
  * opencode server plugin: surfaces relevant past-run summaries and accepted hub notes before model turns, writes a
- * one-line summary of each assistant message and tool call, and offers a `history` tool when allowed.
+ * one-line summary of each assistant message and tool call, and offers a `history` tool when allowed. Every lookup is
+ * reported as a `recall` event with each candidate's scores and fate.
  */
 export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) => {
   const o = raw as SurfacerOptions;
@@ -116,7 +129,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         ...all,
         search: (q, opts) => all.search(q, { ...opts, keep: d => !s.shown.has(d.id) && (opts?.keep?.(d) ?? true) }),
       };
-      const hits = await recall({
+      const { weighed, error } = await weigh({
         index: fresh,
         task,
         query,
@@ -127,11 +140,29 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         model,
         decide: request => decide({ ...request, timeoutMs }),
       });
-      for (const { doc, p } of hits)
-        if (p !== undefined && !s.shown.has(doc.id)) {
+      const items: RecallItem[] = weighed.map(({ doc, score, p, fate }) => {
+        const line = hitLine(doc);
+        const surfaced = fate === 'kept' && p !== undefined && !s.shown.has(doc.id);
+        if (surfaced) {
           s.shown.add(doc.id);
-          s.lines.push(hitLine(doc));
+          s.lines.push(line);
         }
+        return {
+          ...itemOf(doc),
+          score: round(score),
+          ...(p !== undefined && { p }),
+          tokens: tokensOf(line.length + 1),
+          fate: surfaced ? 'surfaced' : fate === 'kept' ? 'unjudged' : fate,
+        };
+      });
+      report({
+        type: 'recall',
+        on: 'turn',
+        query: fit(query, maxQuery),
+        tokens: items.reduce((n, i) => n + (i.fate === 'surfaced' ? (i.tokens ?? 0) : 0), 0),
+        items,
+        ...(error !== undefined && { error }),
+      });
     })().catch(() => {});
   };
 
@@ -166,18 +197,33 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
   };
 
   const h = history(o.data, o.bot, shareOf);
-  const readHistory = async (query: string) => {
+  const readHistory = async (query: string): Promise<{ text: string; items: RecallItem[] }> => {
     const q = query.trim();
-    if (!q) return JSON.stringify(await h.list(), null, 2);
+    if (!q) {
+      const runs = await h.list();
+      return {
+        text: JSON.stringify(runs, null, 2),
+        items: runs.map(r => ({ pointer: r.id, title: `${r.workflow}/${r.job}`, kind: 'run', fate: 'returned' })),
+      };
+    }
     const pointer = /^(\S+)#(\d+)-(\d+)$/.exec(q);
     if (pointer && runId.test(pointer[1]!)) {
       const events = await h.read(pointer[1]!, { from: Number(pointer[2]), to: Number(pointer[3]) });
-      return events ? JSON.stringify(events, null, 2) : `no run "${pointer[1]}" you may read`;
+      return events
+        ? { text: JSON.stringify(events, null, 2), items: [{ pointer: q, kind: 'run', fate: 'returned' }] }
+        : { text: `no run "${pointer[1]}" you may read`, items: [] };
     }
     const own = runId.test(q) ? ((await h.read(q)) as SummaryRecord[] | undefined) : undefined;
-    if (own) return own.map(r => `${r.run}#${r.from}-${r.to} ${r.line}`).join('\n') || `run "${q}" has no summaries`;
+    if (own)
+      return {
+        text: own.map(r => `${r.run}#${r.from}-${r.to} ${r.line}`).join('\n') || `run "${q}" has no summaries`,
+        items: own.map(r => ({ pointer: `${r.run}#${r.from}-${r.to}`, kind: 'summary', fate: 'returned' })),
+      };
     const hits = (await load()).search(q, { limit: 10, keep: d => d.kind === 'summary' && allowedFor(o.bot)(d) });
-    return hits.map(({ doc }) => `${doc.pointer} ${doc.text}`).join('\n') || 'nothing found';
+    return {
+      text: hits.map(({ doc }) => `${doc.pointer} ${doc.text}`).join('\n') || 'nothing found',
+      items: hits.map(({ doc, score }) => ({ ...itemOf(doc), score: round(score), fate: 'returned' })),
+    };
   };
 
   return {
@@ -214,8 +260,13 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
           description:
             'Search and read earlier runs you may see. Pass words to search their summaries, a run id to read its summaries, a pointer like <run>#<from>-<to> to read those original events, or nothing to list recent runs.',
           args: { query: { type: 'string', description: 'Words, a run id, a <run>#<from>-<to> pointer, or empty' } },
-          execute: async ({ query }: { query?: string }) =>
-            (await readHistory(String(query ?? ''))).slice(0, maxOutput),
+          execute: async ({ query }: { query?: string }) => {
+            const q = String(query ?? '');
+            const { text, items } = await readHistory(q);
+            const out = text.slice(0, maxOutput);
+            report({ type: 'recall', on: 'history', query: fit(q, maxQuery), tokens: tokensOf(out.length), items });
+            return out;
+          },
         },
       },
     }),

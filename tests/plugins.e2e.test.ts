@@ -9,7 +9,7 @@ import { runJob } from '../src/runner.ts';
 import { containerEnv, sandboxConfig, sandboxNetwork } from '../src/sandbox.ts';
 import { openStore } from '../src/store.ts';
 import type { SummaryRecord } from '../src/summaries.ts';
-import { commit, git, temp } from './git.ts';
+import { commit, git, temp } from './kit.ts';
 
 const up = async () => {
   if (process.env.BOTHUB_E2E !== '1') return false;
@@ -114,7 +114,12 @@ describe.skipIf(!(await up()))('bothub opencode plugins in the sandbox', () => {
         secrets: { BOTHUB_LLM_API_KEY: key() },
       })
     );
-    const texts = (await store.events(run.id)).flatMap(r => (r.event.type === 'text' ? [r.event.text] : []));
+    const events = (await store.events(run.id)).map(r => r.event);
+    const texts = events.flatMap(e => (e.type === 'text' ? [e.text] : []));
+    const recall = events.find(e => e.type === 'recall');
+    expect(recall).toMatchObject({ on: 'turn' });
+    if (tevInside() && recall?.type === 'recall')
+      expect(recall.items).toContainEqual(expect.objectContaining({ pointer: 'r-old#0-1', fate: 'surfaced' }));
     expect(done.status, done.error).toBe('succeeded');
     expect(texts.join('\n')).toContain('[bothub] decider-loaded');
     if (tevInside()) expect(texts.join('\n')).toContain('4217');

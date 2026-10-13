@@ -7,7 +7,7 @@ import type { GitHub, GitHubError } from '../src/github-app.ts';
 import { githubIssues } from '../src/issues-github.ts';
 import { localIssues, parseIssue, renderIssue } from '../src/issues-local.ts';
 import type { BotEvent } from '../src/types.ts';
-import { temp } from './git.ts';
+import { temp } from './kit.ts';
 
 const until = async (check: () => boolean) => {
   for (let i = 0; i < 200 && !check(); i++) await new Promise(done => setTimeout(done, 5));

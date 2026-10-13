@@ -63,11 +63,15 @@ export const studioTabAtom = atom(get => studioTabs.find(tab => tab === get(segm
 
 export const docsSlugAtom = atom(get => get(segments).slice(1));
 
-/** The dashboard page: the run list, one run's page at `/dashboard/runs/<id>`, or `/dashboard/follow`. */
+/**
+ * The dashboard page: the run list, one run's page at `/dashboard/runs/<id>`, `/dashboard/follow`, or the merge
+ * requests at `/dashboard/pulls` and one of them at `/dashboard/pulls/<n>`.
+ */
 export const dashboardPageAtom = atom(get => {
   const [, page, id] = get(segments);
   if (page === 'runs' && id) return { run: decodeURIComponent(id) };
   if (page === 'follow') return { follow: true as const };
+  if (page === 'pulls') return { pulls: id && /^\d+$/.test(id) ? Number(id) : null };
   return {};
 });
 

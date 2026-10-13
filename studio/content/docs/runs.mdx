@@ -26,6 +26,24 @@ Run ids start with a timestamp (<Sym name="runId" />), so they sort in creation 
 <Sym name="RunStatus" />. A run left unfinished by a process that died is marked `interrupted` by
 <Sym name="reconcile" />.
 
+## How a run stops early
+
+A run that ends before its work is done records why in `stopped`, next to its status:
+
+| `stopped`   | When                                                                        |
+| ----------- | --------------------------------------------------------------------------- |
+| `timeout`   | it ran past its minutes                                                     |
+| `stalled`   | the harness printed no event for 10 minutes                                 |
+| `stuck`     | the same tool call and result, or the same error, came back again and again |
+| `withdrawn` | its issue was closed, or the label that started it removed, while it ran    |
+| `sandbox`   | the sandbox never started, so nothing ran                                   |
+| `provider`  | the model provider refused the run                                          |
+| `budget`    | the bot had used its runs for the day                                       |
+
+The process is stopped with it. A withdrawn run closes as `no-op` and applies nothing, a sandbox,
+provider or budget stop as `deferred`, and the rest as `blocked`. The issue is checked every 30
+seconds while an agent runs.
+
 ## The harness home
 
 Each run gets its own `HOME` and XDG directories under `home/` (<Sym name="homeEnv" />), so harness sessions

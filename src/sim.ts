@@ -1,27 +1,24 @@
-import { execFile } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { Cause, Effect, Exit } from 'effect';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { compile, returnKinds, type Config } from './config.ts';
+import { botEnv, git } from './git.ts';
 import { dispatch, plan, type PlannedJob } from './dispatch.ts';
 import type { Issues } from './issues.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
-import { bothubServer } from './mcp-config.ts';
 import { runPlan, type JobResult } from './pipeline.ts';
 import { localPulls, type Pulls } from './pulls.ts';
+import { pipelineFor, type Hub } from './serve.ts';
 import { limiter, unsandboxed } from './runner.ts';
 import { Harness, HubTool } from './schema.ts';
 import { openStore, reconcile, type Owner, type Run, type Store } from './store.ts';
 import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from './types.ts';
-import { botEnv, workspaces, type Workspaces } from './workspace.ts';
-
-const exec = promisify(execFile);
+import { workspaces, type Workspaces } from './workspace.ts';
 
 const list = <T extends z.ZodType>(item: T) =>
   z.union([item, z.array(item)]).transform(v => (Array.isArray(v) ? v : [v]));
@@ -140,8 +137,6 @@ const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
   ),
 });
 
-const git = (cwd: string, args: string[]) => exec('git', ['-C', cwd, ...args], { env: { ...process.env, ...botEnv } });
-
 /** A bare repository with a README and `files` committed on `main`. */
 const seed = async (root: string, files: Record<string, string>) => {
   const origin = join(root, 'origin.git');
@@ -154,7 +149,7 @@ const seed = async (root: string, files: Record<string, string>) => {
     await writeFile(join(work, path), content);
   }
   await git(work, ['add', '-A']);
-  await git(work, ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start']);
+  await git(work, ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'start'], botEnv);
   await git(work, ['push', '-q', origin, 'main']);
   await rm(work, { recursive: true, force: true });
   return origin;
@@ -323,39 +318,35 @@ export const simulate = async (file: string, out: (line: string) => void): Promi
 
     let current = '';
     const runOnce = async (jobs: PlannedJob[], event: BotEvent) => {
-      const exit = await Effect.runPromiseExit(
-        Effect.flatMap(limiter(1), limit =>
-          runPlan(jobs, {
-            config,
-            event,
-            store,
-            workspaces: spaces,
-            limit,
-            env: {},
-            pulls,
-            issues: tracker,
-            adapters,
-            launch: unsandboxed,
-            mcp: tools => bothubServer({ dir: hub, tools, repo, data }),
-            hub,
-            data,
-            onEvent: (run, { event: e }) => {
-              if (e.type === 'start' && spec) {
-                const name = `${run.workflow}/${run.job}${run.attempt ? ` attempt ${run.attempt}` : ''}`;
-                if (name !== current) {
-                  current = name;
-                  const tools = spec.mcp ? (spec.mcp.args[spec.mcp.args.indexOf('--tools') + 1] ?? '') : 'none';
-                  print(`\njob    ${name} (${run.bot})`);
-                  print(`       preload ${preloaded(spec)} (session ${kb(spec.system + spec.prompt)})`);
-                  print(`       tools   ${tools}`);
-                }
-              }
-              const line = describe(e);
-              if (line) print(`       ${line}`);
-            },
-          })
-        )
-      );
+      const served: Hub = {
+        dir: hub,
+        data,
+        store,
+        workspaces: spaces,
+        limit: await Effect.runPromise(limiter(1)),
+        env: {},
+        config: async () => config,
+        backend: () => ({ pulls, issues: tracker }),
+        log: () => {},
+        adapters,
+        launch: unsandboxed,
+        onCheck: () => {},
+        onEvent: (run, { event: e }) => {
+          if (e.type === 'start' && spec) {
+            const name = `${run.workflow}/${run.job}${run.attempt ? ` attempt ${run.attempt}` : ''}`;
+            if (name !== current) {
+              current = name;
+              const tools = spec.mcp ? (spec.mcp.args[spec.mcp.args.indexOf('--tools') + 1] ?? '') : 'none';
+              print(`\njob    ${name} (${run.bot})`);
+              print(`       preload ${preloaded(spec)} (session ${kb(spec.system + spec.prompt)})`);
+              print(`       tools   ${tools}`);
+            }
+          }
+          const line = describe(e);
+          if (line) print(`       ${line}`);
+        },
+      };
+      const exit = await Effect.runPromiseExit(runPlan(jobs, pipelineFor(served, config, event)));
       if (Exit.isSuccess(exit)) return exit.value;
       const error = Cause.squash(exit.cause);
       if (error !== crashed) throw error;
@@ -414,10 +405,6 @@ export const simulate = async (file: string, out: (line: string) => void): Promi
     print('\nresults');
     for (const r of results) {
       const name = `${r.workflow}/${r.job}`;
-      if ('skipped' in r) {
-        print(`  ${name}: skipped, ${r.closure} (${r.skipped})`);
-        continue;
-      }
       const why = r.run.error ?? r.run.reason;
       print(`  ${name}: ${r.run.status}, ${r.run.closure}${why ? ` (${oneLine(why, 80)})` : ''}`);
       const checks = r.outcome?.checks ?? [];

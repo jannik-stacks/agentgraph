@@ -14,11 +14,7 @@ const run = async (name: string) => {
 describe('simulate', () => {
   it('runs a /bothub comment through triage, implementation with tool calls, and review', async () => {
     const { results, trace } = await run('bothub-comment.yaml');
-    expect(results.map(r => ('skipped' in r ? 'skipped' : r.run.status))).toEqual([
-      'succeeded',
-      'succeeded',
-      'succeeded',
-    ]);
+    expect(results.map(r => r.run.status)).toEqual(['succeeded', 'succeeded', 'succeeded']);
     expect(trace).toContain('event  issue_comment (created) on #6 by @morgan: /bothub add cvToJson');
     expect(trace).toMatch(/job {4}issue\/triage \(triager\)\n {7}preload Issue #6 [\d.]+ kB, Linked issues/);
     expect(trace).toContain(
@@ -38,8 +34,8 @@ describe('simulate', () => {
   it('turns a run whose checks keep failing into unsure issues under the task', { timeout: 20_000 }, async () => {
     const { results, trace } = await run('stuck-run.yaml');
     const implement = results.find(r => r.job === 'implement');
-    expect(implement && 'run' in implement && implement.run).toMatchObject({ status: 'failed', attempt: 4 });
-    expect(trace).toContain('checks   safety pass, harness-memory pass, style pass, lint pass, types pass, tests fail');
+    expect(implement && implement.run).toMatchObject({ status: 'failed', attempt: 4 });
+    expect(trace).toMatch(/^ {4}checks {3}safety pass, .*\btests fail\b/m);
     expect(trace).toContain('rejected push: checks still failing after 4 attempts');
     expect(trace).toMatch(
       /\+ 8-should-cvfromjson-reject-a-uint-passed-as-a-number\.md \(new\)\n.*\n {4}\| title: Should cvFromJson/
@@ -56,7 +52,7 @@ describe('simulate', () => {
     expect(trace.match(/request #\d+ opened/g)).toHaveLength(1);
     expect(trace.match(/^job {4}issue\/triage/gm)).toHaveLength(1);
     expect(trace).toContain('applied  push: applied sim://origin.git#bothub/6 (applied by an earlier run)');
-    expect(results.map(r => [r.job, 'skipped' in r ? r.closure : r.run.closure])).toEqual([
+    expect(results.map(r => [r.job, r.run.closure])).toEqual([
       ['triage', 'done'],
       ['implement', 'handed-off'],
       ['review', 'done'],
@@ -91,7 +87,7 @@ describe('simulate', () => {
     expect(trace).toContain(
       'requests\n  #1 bothub/5-6 into bothub/5: merged\n  #2 bothub/5 into main: open\n  #3 bothub/5-7 into bothub/5: merged'
     );
-    expect(results.filter(r => r.job === 'merge').map(r => ('skipped' in r ? r.closure : r.run.closure))).toEqual([
+    expect(results.filter(r => r.job === 'merge').map(r => r.run.closure)).toEqual([
       'done',
       'handed-off',
       'done',
