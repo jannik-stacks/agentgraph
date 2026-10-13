@@ -25,6 +25,7 @@ RUN npm install -g --no-fund --no-audit \
 RUN mkdir -p /opt/opencode \
  && cd /opt/opencode \
  && npm install --no-fund --no-audit --save-exact @opencode-ai/plugin@${OPENCODE_VERSION} \
+ && printf 'node_modules\npackage.json\nbun.lock\n.gitignore\n' > .gitignore \
  && npm cache clean --force
 
 ENV OPENCODE_CONFIG_DIR=/opt/opencode \
