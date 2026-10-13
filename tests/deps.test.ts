@@ -25,6 +25,14 @@ const FLAKY_INSTALLS = [
     error: undefined,
   },
   {
+    case: 'again after npm quits with its exit handler never called',
+    fails: 1,
+    output: 'npm error Exit handler never called!',
+    delays: [0],
+    installs: 2,
+    error: undefined,
+  },
+  {
     case: 'no more than its delays allow',
     fails: 9,
     output: 'npm error code ETIMEDOUT',

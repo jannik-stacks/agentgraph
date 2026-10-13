@@ -25,9 +25,12 @@ export const depsKey = async (worktree: string, deps: Deps) => {
     .slice(0, 24);
 };
 
-/** Output of an install that failed on the network: a dropped connection, a timeout or a proxy that gave up. */
+/**
+ * Output of an install that failed on the network: a dropped connection, a timeout, a proxy that gave up, or npm
+ * quitting with a request still open.
+ */
 const network =
-  /\b(FETCH_ERROR|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|socket hang up)\b|CONNECT response|tunneling socket/i;
+  /\b(FETCH_ERROR|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|socket hang up)\b|CONNECT response|tunneling socket|Exit handler never called/i;
 
 /** How long an install that failed on the network waits before each try again. */
 const installDelays = [2_000, 10_000, 30_000];
