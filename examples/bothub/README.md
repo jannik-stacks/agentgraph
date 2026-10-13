@@ -13,6 +13,13 @@ first): the scripts first, then the narrow judges. A failing gating check goes b
 implementor with its findings. A human merges. A job that blocks on a question parks its work on
 its branch, and the run that starts after the answer resumes from it.
 
+`/retro` on an issue starts `workflows/retro.md`, the hub looking at its own runs. A maintainer
+runs `node scripts/retro.mjs <data> --hub <hub>` on the host, which turns finished runs into one
+JSON line per anomaly: a job that stopped without a word, a finding no attempt fixed, a retry no
+blocking check asked for, an environment error. Pasted under `/retro`, each line nobody has judged
+yet goes to the retro bot, which replies that it is expected or files it as a sub-issue naming the
+invariant that found it.
+
 ## Checks
 
 | Check | Type | Over | Mode | What it asks |
@@ -44,10 +51,10 @@ which model it runs on and how it scored.
 
 | Path | What |
 |---|---|
-| `bots/` | triager, implementor, reviewer (the `review` model, which falls back to `smart`) and checker (the `fast` model) |
-| `skills/` | triage, implement, review-hunk |
+| `bots/` | triager, implementor, reviewer (the `review` model, which falls back to `smart`), checker (the `fast` model) and retro |
+| `skills/` | triage, implement, review-hunk, retro |
 | `checks/` | the checks above |
-| `scripts/` | what the checks run, mounted read-only at `$BOTHUB_HUB` (`/hub`) in the sandbox; `bounds.mjs` holds the paths and caps safety, size and triage-brief read, `brief.mjs` parses the triage brief, `hunks.mjs`, `criteria.mjs`, `scope.mjs`, `exports.mjs`, `risky.mjs` and `tooltips.mjs` slice the change for the judges; `line-rules.mjs` and `ast.mjs` back the rules and code-shape checks; `calibrate.mjs` scores a model against `fixtures/` |
+| `scripts/` | what the checks run, mounted read-only at `$BOTHUB_HUB` (`/hub`) in the sandbox; `bounds.mjs` holds the paths and caps safety, size and triage-brief read, `brief.mjs` parses the triage brief, `hunks.mjs`, `criteria.mjs`, `scope.mjs`, `exports.mjs`, `risky.mjs` and `tooltips.mjs` slice the change for the judges; `line-rules.mjs` and `ast.mjs` back the rules and code-shape checks; `calibrate.mjs` scores a model against `fixtures/`; `retro.mjs` turns a data directory's runs into retro items and `retro-items.mjs` hands the unjudged ones to the retro bot |
 | `hub.yaml` | local issues in `issues/`, and `deps`: bothub's and studio's locked dependencies, installed in the sandbox once per lockfile and linked into every run's worktree |
 | `fixtures/` | labelled items for calibrating the model checks |
 | `notes/` | style, decision and caveat notes, each naming the check that enforces it, with Bad and Good code blocks where an example shows the rule |

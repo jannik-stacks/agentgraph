@@ -1,0 +1,455 @@
+// Turns a data directory's finished runs into anomaly items for the retro judge: one JSON line per invariant and key,
+// with what the invariant means, how often it held, the issues and runs that show it and one piece of evidence. Every
+// invariant reads only what runs leave behind: run.json, outcome.json, events.jsonl and pulls.jsonl. `--hub` adds
+// each check's mode, the check names and each bot's resume setting; without it every failing gating check counts as
+// holding and every bot as resuming its session.
+//
+//   node retro.mjs <data> [--hub <dir>] [--since <iso time>]
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
+
+const parse = text => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+const read = file => (existsSync(file) ? readFileSync(file, 'utf8') : '');
+const json = file => parse(read(file));
+const jsonl = file => read(file).split('\n').map(parse).filter(Boolean);
+
+/** Each run under `<data>/runs` created at or after `since`, oldest first. */
+export const load = (data, since = '') =>
+  readdirSync(join(data, 'runs'))
+    .filter(id => id >= since.replace(/[:.]/g, '-'))
+    .sort()
+    .flatMap(id => {
+      const dir = join(data, 'runs', id);
+      const run = json(join(dir, 'run.json'));
+      const events = jsonl(join(dir, 'events.jsonl')).map(line => ({ ts: line.ts, ...line.event }));
+      return run ? [{ id, run, outcome: json(join(dir, 'outcome.json')) ?? {}, events }] : [];
+    });
+
+/** The front matter `field` of every `<hub>/<kind>/*.md` that sets it, by name. */
+const front = (hub, kind, field) => {
+  const dir = hub ? join(hub, kind) : '';
+  if (!dir || !existsSync(dir)) return {};
+  const value = file => new RegExp(`^${field}:\\s*(\\S+)`, 'm').exec(read(join(dir, file)))?.[1];
+  const names = readdirSync(dir).filter(file => file.endsWith('.md'));
+  return Object.fromEntries(names.map(file => [file.slice(0, -3), value(file)]).filter(([, v]) => v));
+};
+
+const said = ['reply', 'ask', 'merge-request', 'label'];
+const posted = r => (r.outcome.results ?? []).some(x => said.includes(x.kind) && x.status !== 'failed');
+const calls = (r, tool) => r.events.filter(e => e.type === 'tool_call' && tool.test(e.tool));
+const edits = r => calls(r, /edit|write|patch/).length;
+const accepted = (r, kind) => (r.outcome.accepted ?? []).filter(x => x.kind === kind);
+const asks = r => accepted(r, 'ask').map(x => x.question);
+const failing = r => (r.outcome.checks ?? []).filter(c => c.gating && !c.pass && !c.skipped);
+const findings = r => (r.outcome.checks ?? []).map(c => [c.check, String(c.findings ?? '')]);
+const recalls = r => r.events.filter(e => e.type === 'recall');
+const shown = r => recalls(r).flatMap(e => (e.items ?? []).filter(i => i.fate === 'surfaced' || i.fate === 'unjudged'));
+const tokens = r => r.events.reduce((sum, e) => sum + (e.type === 'usage' ? e.inputTokens : 0), 0);
+const created = id => Date.parse(id.slice(0, 24).replace(/T(\d\d)-(\d\d)-(\d\d)-/, 'T$1:$2:$3.'));
+const job = r => `${r.run.workflow}/${r.run.job}`;
+const attempt = (prev, cur) => cur.run.attempt > 1 && cur.run.parent === prev.id;
+const gist = text =>
+  text
+    .replace(/[^\n -~ -￿]\[[\d;]*m/g, '')
+    .replace(/\d{4}-\d\d-\d\dT[\d-]+Z-\w+/g, 'RUN')
+    .replace(/\d+/g, 'N')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ')
+    .slice(0, 120);
+const words = text => new Set(text.toLowerCase().match(/[a-z]{4,}/g) ?? []);
+const overlap = (a, b) => [...a].filter(w => b.has(w)).length / Math.max(1, Math.min(a.size, b.size));
+const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+const hit = (r, key, detail) => ({
+  key,
+  run: r.id,
+  issue: r.run.event?.number,
+  detail: String(detail ?? '').slice(0, 300),
+});
+
+const environment = {
+  'read-only path': /EROFS|read-only file system/i,
+  'no home directory': /uv_os_homedir/,
+  'missing binary': /spawnSync \S+ ENOENT/,
+  'terminal escapes': /\[\d+(;\d+)*m\S/,
+};
+
+/** The runs of one job on one issue, oldest first, and each with the run before it. */
+const chains = jobs => Object.values(Object.groupBy(jobs, r => `${job(r)}#${r.run.event?.number}`));
+const pairs = chain => chain.slice(1).map((cur, i) => [chain[i], cur]);
+
+const invariants = {
+  'silent-stop': {
+    means: 'a job stopped (blocked, deferred or failed) and nothing was posted where a human would see it',
+    find: ({ jobs }) =>
+      jobs
+        .filter(r => ['blocked', 'deferred'].includes(r.run.closure) || r.run.status === 'failed')
+        .filter(r => !posted(r) && !/^needs "/.test(r.run.reason ?? ''))
+        .map(r =>
+          hit(r, `${job(r)}: ${gist(r.run.reason ?? r.run.error ?? r.run.status)}`, r.run.reason ?? r.run.error)
+        ),
+  },
+  'work-lost': {
+    means: 'a job that edited code stopped without parking or pushing it, so the next run starts from zero',
+    find: ({ jobs, writing }) =>
+      jobs
+        .filter(r => writing.has(job(r)) && ['blocked', 'deferred'].includes(r.run.closure))
+        .filter(r => !r.run.parked && !accepted(r, 'push').length)
+        .filter(r => edits(r) || r.run.attempt > 1)
+        .map(r => hit(r, job(r), r.run.reason)),
+  },
+  'stuck-finding': {
+    means: 'a gating check failed with the same finding on two runs in a row: the bot cannot or did not fix it',
+    find: ({ chains }) =>
+      chains.flatMap(chain =>
+        pairs(chain).flatMap(([prev, cur]) =>
+          failing(cur)
+            .filter(c =>
+              failing(prev).some(p => p.check === c.check && gist(p.findings ?? '') === gist(c.findings ?? ''))
+            )
+            .map(c => hit(cur, `${c.check}: ${gist(c.findings ?? '')}`, c.findings))
+        )
+      ),
+  },
+  'no-convergence': {
+    means: 'three attempts in a row failed gating checks, each on a new finding',
+    find: ({ chains }) =>
+      chains.flatMap(chain => {
+        let streak = [];
+        return chain.flatMap(r => {
+          const linked = streak.length && attempt(streak.at(-1), r);
+          streak = failing(r).length ? (linked ? [...streak, r] : [r]) : [];
+          const path = streak
+            .map(s =>
+              failing(s)
+                .map(c => c.check)
+                .join('+')
+            )
+            .join(' then ');
+          return streak.length === 3 ? [hit(r, `${job(r)}#${r.run.event?.number}`, path)] : [];
+        });
+      }),
+  },
+  'retry-no-holding': {
+    means: 'an attempt was retried although no failing check of the one before blocks',
+    find: ({ chains, modes }) =>
+      chains.flatMap(chain =>
+        pairs(chain)
+          .filter(([prev, cur]) => attempt(prev, cur) && !prev.run.error)
+          .filter(([prev]) => !failing(prev).some(c => (modes[c.check] ?? 'block') === 'block'))
+          .map(([prev, cur]) =>
+            hit(
+              cur,
+              job(cur),
+              failing(prev)
+                .map(c => c.check)
+                .join(', ') || 'nothing failed'
+            )
+          )
+      ),
+  },
+  'park-on-open-request': {
+    means: 'parked, unchecked work was pushed to a branch with an open merge request',
+    find: ({ jobs, pulls }) =>
+      jobs
+        .filter(r => r.run.parked)
+        .flatMap(r => {
+          const before = pulls.filter(p => p.ts <= (r.run.endedAt ?? ''));
+          const shut = n => before.some(p => p.number === n && (p.op === 'merge' || p.op === 'close'));
+          const open = before.filter(p => p.op === 'open' && p.branch === r.run.parked && !shut(p.number));
+          return open.map(p => hit(r, r.run.parked, `parked onto open request #${p.number}`));
+        }),
+  },
+  'no-session': {
+    means: 'an opencode bot set to resume its session never recorded a session id, so it cannot resume',
+    find: ({ jobs, resume }) =>
+      jobs
+        .filter(r => r.run.harness === 'opencode' && resume(r.run.bot) === 'session')
+        .filter(r => r.events.some(e => e.type === 'start') && !r.events.some(e => e.session))
+        .map(r => hit(r, r.run.bot, 'no start event carries a session id')),
+  },
+  rejected: {
+    means: "bothub found a bot's proposal invalid, so the work its reply describes never landed",
+    find: ({ jobs }) =>
+      jobs.flatMap(r =>
+        (r.outcome.rejected ?? [])
+          .filter(x => !/^(the bot stopped|checks (still failing|could not run))/.test(x.reason ?? ''))
+          .map(x => hit(r, `${job(r)}: ${x.proposal?.kind}: ${gist(x.reason ?? '')}`, x.reason))
+      ),
+  },
+  'engine-ask': {
+    means: 'bothub itself asked a human because checks kept failing or could not run',
+    find: ({ jobs }) =>
+      jobs.flatMap(r =>
+        asks(r)
+          .filter(q => /^checks (still failing|could not run)/.test(q))
+          .map(q => hit(r, job(r), q))
+      ),
+  },
+  'ask-about-check': {
+    means: 'a bot asked a human about a check or a hub limit, which an answer cannot change',
+    find: ({ jobs, checks }) => {
+      const named = c =>
+        new RegExp(c.includes('-') ? `\\b${c}\\b` : `\`${c}\`|\\b${c} (check|finding|cap|limit|threshold)`, 'i');
+      const limit = /allowed (edit )?paths|\b(file|size) cap\b|raise the (cap|limit)/i;
+      return jobs.flatMap(r =>
+        asks(r)
+          .filter(q => !/^checks (still failing|could not run)/.test(q))
+          .flatMap(q =>
+            [...checks.filter(c => named(c).test(q)), ...(limit.test(q) ? ['hub limit'] : [])].map(c => hit(r, c, q))
+          )
+      );
+    },
+  },
+  'asked-untried': {
+    means: 'a job that writes code asked a human on its first attempt without editing anything',
+    find: ({ jobs, writing }) =>
+      jobs
+        .filter(r => writing.has(job(r)) && !r.run.parent && !edits(r) && asks(r).length)
+        .map(r => hit(r, `${job(r)}#${r.run.event?.number}`, asks(r)[0])),
+  },
+  'same-ask': {
+    means: 'the same question was asked twice on one issue',
+    find: ({ jobs }) => {
+      const seen = new Map();
+      return jobs.flatMap(r =>
+        asks(r).flatMap(question => {
+          const issue = r.run.event?.number;
+          const earlier = (seen.get(issue) ?? []).find(q => overlap(words(q), words(question)) >= 0.6);
+          seen.set(issue, [...(seen.get(issue) ?? []), question]);
+          return earlier ? [hit(r, `#${issue}: ${gist(earlier)}`, question)] : [];
+        })
+      );
+    },
+  },
+  'no-block': {
+    means: "a bot's reply had no bothub block, so its work was thrown away",
+    find: ({ jobs }) =>
+      jobs.filter(r => /no bothub block/.test(r.run.error ?? r.run.reason ?? '')).map(r => hit(r, job(r), r.run.error)),
+  },
+  'no-verdict': {
+    means: 'a bot check reply had no PASS or FAIL the engine could read',
+    find: ({ runs }) =>
+      runs.flatMap(r =>
+        findings(r).flatMap(([check, text]) => (/gave no verdict/.test(text) ? [hit(r, check, text)] : []))
+      ),
+  },
+  'over-max': {
+    means: 'a check could not judge because its item count exceeded its max',
+    find: ({ runs }) =>
+      runs.flatMap(r =>
+        findings(r)
+          .filter(([, text]) => /more than "max" allows|"each-hunk" takes/.test(text))
+          .map(([check, text]) => hit(r, check, text))
+      ),
+  },
+  budget: {
+    means: "a bot's daily run budget stopped a job or a check",
+    find: ({ runs }) =>
+      runs.flatMap(r =>
+        [r.run.reason ?? '', ...findings(r).map(([, text]) => text)].flatMap(text => {
+          const m = /bot "([\w-]+)" used its (\d+) runs/.exec(text);
+          return m ? [hit(r, `${m[1]} at ${m[2]} a day`, m[0])] : [];
+        })
+      ),
+  },
+  'env-error': {
+    means:
+      'the sandbox environment, not the change, broke a command: a read-only path, a missing binary or home, terminal escapes',
+    find: ({ jobs }) =>
+      jobs.flatMap(r => {
+        const texts = [r.run.reason, r.run.error, ...findings(r).map(([, t]) => t), ...asks(r)];
+        const lines = [...texts, ...accepted(r, 'reply').map(x => x.body)].join('\n').split('\n');
+        return Object.entries(environment).flatMap(([name, pattern]) => {
+          const line = lines.find(l => pattern.test(l));
+          return line ? [hit(r, name, line)] : [];
+        });
+      }),
+  },
+  'failed-read': {
+    means: 'runs tried to read the same missing file: a prompt or skill points at something that is not there',
+    find: ({ runs }) => {
+      const failed = runs.flatMap(r => {
+        const ok = new Map(r.events.filter(e => e.type === 'tool_result').map(e => [e.id, e.ok]));
+        return calls(r, /^read$/).flatMap(e =>
+          ok.get(e.id) === false ? [hit(r, e.input?.filePath, e.input?.filePath)] : []
+        );
+      });
+      const runsOf = path => new Set(failed.filter(h => h.key === path).map(h => h.run)).size;
+      return failed.filter(h => runsOf(h.key) > 1);
+    },
+  },
+  'rerun-done': {
+    means: 'a job that had already finished on an issue ran again from scratch',
+    find: ({ chains }) =>
+      chains.flatMap(chain =>
+        pairs(chain)
+          .filter(
+            ([prev, cur]) =>
+              ['done', 'handed-off'].includes(prev.run.closure) && !cur.run.parent && cur.run.status !== 'skipped'
+          )
+          .map(([prev, cur]) => hit(cur, job(cur), `${prev.id} had closed ${prev.run.closure}`))
+      ),
+  },
+  'recheck-unchanged': {
+    means: 'checks ran again on an attempt that edited nothing',
+    find: ({ jobs }) =>
+      jobs
+        .filter(
+          r => r.run.attempt > 1 && !edits(r) && (r.outcome.checks ?? []).some(c => !c.skipped && c.durationMs > 10_000)
+        )
+        .map(r => hit(r, job(r), (r.outcome.checks ?? []).map(c => c.check).join(', '))),
+  },
+  'waits-on-log': {
+    means: 'a check that does not gate finished more than a minute after every gating check, so the job waited on it',
+    find: ({ jobs }) =>
+      jobs.flatMap(r => {
+        const ran = (r.outcome.checks ?? []).filter(c => !c.skipped && c.endedAt);
+        const gate = Math.max(0, ...ran.filter(c => c.gating).map(c => Date.parse(c.endedAt)));
+        const late = ran.filter(c => !c.gating && Date.parse(c.endedAt) - gate > 60_000);
+        return gate
+          ? late.map(c => hit(r, c.check, `${Math.round((Date.parse(c.endedAt) - gate) / 1000)} s after`))
+          : [];
+      }),
+  },
+  'no-op-run': {
+    means: 'a script job ran and changed nothing',
+    find: ({ jobs }) =>
+      jobs
+        .filter(r => !r.run.bot && r.outcome.results?.length)
+        .filter(r => r.outcome.results.every(x => x.status === 'skipped' || /already/.test(x.reason ?? '')))
+        .map(r => hit(r, job(r), r.outcome.results.map(x => x.reason).join('; '))),
+  },
+  'check-rereads': {
+    means: 'a check run read three or more files, though its item should hold what it judges',
+    find: ({ runs }) =>
+      runs
+        .filter(r => r.run.check && calls(r, /^read$/).length >= 3)
+        .map(r => hit(r, r.run.check, `${calls(r, /^read$/).length} reads`)),
+  },
+  'token-outlier': {
+    means: 'a run read more than three times the typical input tokens of its job or check',
+    find: ({ runs }) =>
+      Object.entries(Object.groupBy(runs, r => r.run.check ?? r.run.job)).flatMap(([name, rs]) => {
+        const typical = median(rs.map(tokens));
+        const big = rs.filter(r => tokens(r) > 3 * typical && tokens(r) > 100_000);
+        return rs.length < 5 ? [] : big.map(r => hit(r, name, `${tokens(r)} input tokens, typical ${typical}`));
+      }),
+  },
+  'slow-start': {
+    means: 'a run waited more than a minute before its first event: a queue, a limiter or a slow model start',
+    find: ({ runs }) =>
+      runs.flatMap(r => {
+        const wait = (Date.parse(r.events[0]?.ts) - (r.run.check ? created(r.id) : Date.parse(r.run.startedAt))) / 1000;
+        return wait > 60
+          ? [hit(r, `${r.run.bot ?? 'script'}${r.run.check ? ' checks' : ' jobs'}`, `${Math.round(wait)} s`)]
+          : [];
+      }),
+  },
+  'recall-query': {
+    means: 'recall searched with the event header instead of the task',
+    find: ({ runs }) =>
+      runs.flatMap(r =>
+        recalls(r)
+          .filter(e => /^## Event/.test(e.query ?? ''))
+          .map(e => hit(r, 'event header', e.query))
+      ),
+  },
+  'recall-into-check': {
+    means: "a check run was shown earlier runs' summaries, which can anchor its verdict",
+    find: ({ runs }) =>
+      runs.flatMap(r => {
+        const summaries = r.run.check ? shown(r).filter(i => i.kind === 'summary') : [];
+        return summaries.length ? [hit(r, r.run.check, summaries.map(i => i.pointer).join(', '))] : [];
+      }),
+  },
+  'recall-unused': {
+    means: 'recall showed notes or summaries and the run never read or named any of them',
+    find: ({ runs }) =>
+      runs.flatMap(r => {
+        const later = JSON.stringify(r.events.filter(e => e.type === 'tool_call' || e.type === 'text'));
+        const slug = pointer => pointer.replace(/^notes\/\w+\//, '').replace(/\.md$|#.*$/g, '');
+        const items = shown(r);
+        const unused = items.length && !items.some(i => later.includes(slug(i.pointer)));
+        return unused ? [hit(r, r.run.check ? 'check runs' : 'job runs', `${items.length} shown, none used`)] : [];
+      }),
+  },
+  'recall-flat': {
+    means: 'the recall judge gave nearly the same score to every candidate, so it does not rank',
+    find: ({ runs }) =>
+      runs.flatMap(r =>
+        recalls(r).flatMap(e => {
+          const ps = (e.items ?? []).map(i => i.p).filter(p => p !== undefined);
+          return ps.length >= 5 && Math.max(...ps) - Math.min(...ps) < 0.15
+            ? [hit(r, 'recall judge', ps.join(' '))]
+            : [];
+        })
+      ),
+  },
+  'recall-error': {
+    means: 'recall failed',
+    find: ({ runs }) =>
+      runs.flatMap(r =>
+        recalls(r)
+          .filter(e => e.error)
+          .map(e => hit(r, gist(e.error), e.error))
+      ),
+  },
+  unmetered: {
+    means: 'recall judged candidates and no usage record counts its tokens',
+    find: ({ runs }) =>
+      runs
+        .filter(r => shown(r).some(i => i.p !== undefined) && !r.events.some(e => e.source === 'recall'))
+        .map(r => hit(r, 'recall judge')),
+  },
+};
+
+/** The anomaly items, most telling invariant first: one per invariant and key, with its hits and up to five runs. */
+export const retro = (runs, { hub, pulls = [] } = {}) => {
+  const jobs = runs.filter(r => !r.run.check && !['queued', 'running'].includes(r.run.status));
+  const resumes = front(hub, 'bots', 'resume');
+  const ctx = {
+    runs,
+    jobs,
+    chains: chains(jobs),
+    writing: new Set(jobs.filter(r => accepted(r, 'push').length).map(job)),
+    pulls,
+    modes: front(hub, 'checks', 'mode'),
+    checks: Object.keys(front(hub, 'checks', 'type')),
+    resume: bot => (hub ? (resumes[bot] ?? 'none') : 'session'),
+  };
+  return Object.entries(invariants).flatMap(([invariant, { means, find }]) =>
+    Object.entries(Object.groupBy(find(ctx), h => h.key)).map(([key, hits]) => ({
+      id: `retro:${createHash('sha256').update(`${invariant}: ${key}`).digest('hex').slice(0, 8)}`,
+      key: `${invariant}: ${key}`,
+      invariant,
+      means,
+      count: hits.length,
+      issues: [...new Set(hits.map(h => h.issue).filter(n => n !== undefined))],
+      runs: hits.slice(0, 5).map(h => h.run),
+      evidence: hits[0].detail,
+    }))
+  );
+};
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const args = process.argv.slice(2);
+  const flag = name => (args.includes(name) ? args.splice(args.indexOf(name), 2)[1] : undefined);
+  const hub = flag('--hub');
+  const since = flag('--since');
+  if (!args[0]) {
+    console.error('usage: node retro.mjs <data> [--hub <dir>] [--since <iso time>]');
+    process.exit(2);
+  }
+  const pulls = jsonl(join(args[0], 'pulls.jsonl'));
+  for (const item of retro(load(args[0], since), { hub, pulls })) console.log(JSON.stringify(item));
+}
