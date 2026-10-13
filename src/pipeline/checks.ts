@@ -319,6 +319,17 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
     return timed;
   });
 
+const findingsCap = 1500;
+
+/** The findings of failing verdicts for a human, each check's cut at `findingsCap` characters. */
+export const findingsFor = (failing: Verdict[]) =>
+  failing
+    .map(({ check, findings = 'failed without output' }) => {
+      const cut = findings.length > findingsCap ? `${findings.slice(0, findingsCap)}\n…` : findings;
+      return `### ${check}\n\n${fenced(cut)}`;
+    })
+    .join('\n\n');
+
 /** Whether a failing verdict holds the change: every gating check does, except one in `warn` mode. */
 export const holds = (verdict: Verdict, p: Pipeline) => p.config.checks[verdict.check]?.mode !== 'warn';
 

@@ -25,6 +25,9 @@ const exists = (path: string) =>
     () => false
   );
 
+/** The branch a job's unfinished work is parked on, beside the job's own `branch`. */
+export const parkedBranch = (branch: string) => `${branch}-parked`;
+
 /** Where the worktree for a run lives. */
 export const worktreePath = (dataDir: string, runId: string) => join(dataDir, 'work', runId);
 
@@ -83,7 +86,8 @@ export const workspaces = ({
    * place. Resolves to the path, the commit the change is measured from (`base`, which `publish` and `changes` take
    * back; the merged-in tip with `merge`), the commit checked out (`head`), the files left conflicting and, when it
    * started at the job's existing branch, that `branch`. With `fresh`, it starts from the ref even when the branch
-   * exists, and resolves to the branch's tip as `replace`, for `publish` to replace.
+   * exists, and resolves to the branch's tip as `replace`, for `publish` to replace. With `from`, it starts at that
+   * branch instead when it exists, such as the work parked for the job's branch.
    */
   const create = async (
     {
@@ -92,7 +96,8 @@ export const workspaces = ({
       branch,
       merge,
       fresh,
-    }: Pick<BotEvent, 'repo' | 'ref'> & { branch?: string; merge?: string; fresh?: boolean },
+      from,
+    }: Pick<BotEvent, 'repo' | 'ref'> & { branch?: string; merge?: string; fresh?: boolean; from?: string },
     runId: string
   ) => {
     const mirror = await sync(repo);
@@ -100,7 +105,8 @@ export const workspaces = ({
     const at = (name: string) => `${name.startsWith('refs/') ? name : `refs/heads/${name}`}^{commit}`;
     const verify = (name: string) => git(mirror, ['rev-parse', '--verify', '--quiet', at(name)]).catch(() => '');
     const own = branch ? await verify(branch) : '';
-    const rev = (!fresh && own) || (ref ? at(ref) : 'HEAD^{commit}');
+    const picked = from ? await verify(from) : '';
+    const rev = picked || (!fresh && own) || (ref ? at(ref) : 'HEAD^{commit}');
     await serial(repo, () => git(mirror, ['worktree', 'add', '--detach', path, rev]));
     const head = await git(path, ['rev-parse', 'HEAD']);
     const started = !own || !branch ? {} : fresh ? { replace: own } : { branch };
@@ -119,7 +125,8 @@ export const workspaces = ({
    * branch moves it forward. With `replace`, the branch is replaced instead, only while it is still at that commit.
    * A merge in progress
    * is committed whole with both parents once no conflicting file keeps a marker; then every file the branch changes
-   * against the merged-in tip must be allowed by `paths`. Reports the commit to `committed` before pushing it; when the
+   * against the merged-in tip must be allowed by `paths`. Work parked for the branch (see `parkedBranch`) that the run
+   * builds on counts as already listed. Reports the commit to `committed` before pushing it; when the
    * remote branch is already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it
    * refused.
    */
@@ -158,10 +165,15 @@ export const workspaces = ({
     }
 
     const tip = await run(['rev-parse', '--verify', '--quiet', ref]).catch(() => '');
-    const ahead = await run(['merge-base', '--is-ancestor', tip || 'HEAD', 'HEAD']).then(
-      () => true,
-      () => false
+    const parked = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${parkedBranch(branch)}`]).catch(
+      () => ''
     );
+    const builds = (commit: string) =>
+      run(['merge-base', '--is-ancestor', commit, 'HEAD']).then(
+        () => true,
+        () => false
+      );
+    const ahead = await builds(tip || 'HEAD');
     if (!ahead && !replace) throw new Error(`branch "${branch}" exists and this run did not start from it`);
 
     // Uncommitted changes are committed when the proposal lists every one of them; a merge is committed whole.
@@ -189,7 +201,8 @@ export const workspaces = ({
       names(await run(['diff', '--name-only', '--no-renames', '-z', `${from}...HEAD`]));
     const changed = await diffed(merging || base);
     if (!changed.length) throw new Error(`branch "${branch}" has no changes`);
-    const own = tip && tip !== base && !merging && !replace ? await diffed(tip) : changed;
+    const since = parked && (await builds(parked)) ? parked : tip;
+    const own = since && since !== base && !merging && !replace ? await diffed(since) : changed;
     const unlisted = merging ? undefined : own.find(file => !files.includes(file));
     if (unlisted) throw new Error(`"${unlisted}" changed but is not listed in the proposal`);
     const outside = checkPaths(changed, paths);

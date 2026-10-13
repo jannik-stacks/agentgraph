@@ -542,7 +542,7 @@ describe('until', () => {
     expect(seen).toHaveLength(2);
     const reason = 'checks still failing after 2 attempts';
     expect(result.run).toMatchObject({ status: 'failed', error: reason, attempt: 2 });
-    const question = `${reason}: exists. The findings are in run ${result.run.id}.`;
+    const question = `${reason}: exists. The findings are in run ${result.run.id}.\n\n### exists\n\n\`\`\`text\nexited non-zero\n\`\`\``;
     expect(result.outcome).toMatchObject({
       accepted: [
         { kind: 'ask', question: 'Is the name right?' },
@@ -646,11 +646,30 @@ describe('parking', { timeout: 20_000 }, () => {
     return { issues, origin, seen, p, result };
   };
 
-  it('parks a blocked job on its branch without a merge request', async () => {
+  it('parks a blocked job beside its branch, leaving the branch alone', async () => {
     const { origin, result } = await blockedRun();
-    expect(result.run).toMatchObject({ closure: 'blocked', reason: 'the name is unclear', parked: 'bothub/7' });
-    expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
-    expect(git(origin.dir, 'rev-parse', 'bothub/7^')).toBe(origin.main);
+    expect(result.run).toMatchObject({ closure: 'blocked', reason: 'the name is unclear', parked: 'bothub/7-parked' });
+    expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
+    expect(git(origin.dir, 'rev-parse', 'bothub/7-parked^')).toBe(origin.main);
+    expect(git(origin.dir, 'branch', '--list', 'bothub/7')).toBe('');
+  });
+
+  it('parks the work of a job deferred by its budget and says so on the issue', async () => {
+    const origin = sourceRepo();
+    const issues = trackedIssues();
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, budget: { 'runs-per-day': 1 } };
+    const writeB = "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/b.ts', 'b')";
+    const { adapters } = fake({ message: pushB, work: writeB });
+    const p = await pipeline({ config, issues, adapters }, origin);
+    const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+
+    expect(result.run).toMatchObject({ status: 'skipped', closure: 'deferred', parked: 'bothub/7-parked' });
+    expect(git(origin.dir, 'show', 'bothub/7-parked:src/b.ts')).toBe('b');
+    const [said] = (await issues.get(7))!.comments;
+    expect(said!.body).toMatch(
+      /^triage\/parking was deferred: bot "bot" used its 1 runs .*, the next one frees up at \S+\. Its work so far is parked on `bothub\/7-parked`\./
+    );
   });
 
   it('resumes from the parked branch with the question and the answer', async () => {
@@ -662,7 +681,7 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(seen).toHaveLength(2);
     const resume = seen[1]!.prompt.slice(seen[1]!.prompt.indexOf('## Resuming'));
     expect(resume).toContain(`Your earlier run ${result.run.id} stopped before finishing.`);
-    expect(resume).toContain('parked on `bothub/7`');
+    expect(resume).toContain('parked on `bothub/7-parked`');
     expect(resume).toContain('```text\nWhich name should it get?\n```');
     expect(resume).toContain('```text\nCall it short.\n```');
     expect(resume).toContain(`In #${asked!.number}: Short, like the others.`);
@@ -743,11 +762,13 @@ describe('runPlan', () => {
     ]);
   });
 
-  it('reuses a done job on the same issue when a later event answers the job that needs it', async () => {
+  it('reuses a done job on the same issue until the issue changes', async () => {
     const { seen, adapters } = fake((spec, call) => ({
       ok: !(spec.system.includes('Summarize the thread.') && call < 3),
     }));
-    const p = await pipeline({ config: configFor(), adapters });
+    const dir = temp('issues');
+    writeFileSync(join(dir, '7-task.md'), '---\ntitle: Task\n---\n\nDo it.\n');
+    const p = await pipeline({ config: configFor(), adapters, issues: localIssues(dir, { repo: 'acme/app' }) });
     const jobs = [triage, planned('summarize')];
     const first = await Effect.runPromise(runPlan(jobs, p));
     expect(first.map(r => [r.job, r.run.status])).toEqual([
@@ -761,8 +782,13 @@ describe('runPlan', () => {
     expect(seen).toHaveLength(3);
 
     const third = await Effect.runPromise(runPlan(jobs, { ...p, event: { ...event, id: 'd3' } }));
-    expect(third[0]!.run.id).not.toBe(first[0]!.run.id);
-    expect(seen).toHaveLength(5);
+    expect(third[0]!.run.id).toBe(first[0]!.run.id);
+    expect(seen).toHaveLength(4);
+
+    writeFileSync(join(dir, '7-task.md'), '---\ntitle: Task\n---\n\nDo it differently.\n');
+    const fourth = await Effect.runPromise(runPlan(jobs, { ...p, event: { ...event, id: 'd4' } }));
+    expect(fourth[0]!.run.id).not.toBe(first[0]!.run.id);
+    expect(seen).toHaveLength(6);
   });
 });
 
@@ -999,7 +1025,9 @@ describe('budgets', () => {
     expect(second.run).toMatchObject({
       status: 'skipped',
       closure: 'deferred',
-      reason: 'bot "bot" used its 1 runs for the last 24 hours',
+      reason: expect.stringMatching(
+        /^bot "bot" used its 1 runs for the last 24 hours, the next one frees up at \d{4}-/
+      ),
     });
   });
 
@@ -1038,6 +1066,26 @@ describe('budgets', () => {
       status: 'failed',
       closure: 'blocked',
       error: 'spent $0.50 of the $0.5 budget in 1 attempts with checks still failing',
+    });
+  });
+
+  it('prices a run its harness reports at no cost, so the run budget still stops the loop', async () => {
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };
+    const { seen, adapters } = fakeHarness(() => ({
+      events: [
+        { type: 'start', model: 'writer' },
+        { type: 'usage', inputTokens: 1_000_000, outputTokens: 0 },
+        { type: 'end', ok: true, result: bothub([{ kind: 'reply', body: 'Done.' }]), costUsd: 0 },
+      ],
+    }));
+    const prices = async () => ({ writer: { model: 'w', input: 1, output: 1 } });
+    const p = await pipeline({ config, issues: trackedIssues(), adapters, env: {}, prices });
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(seen).toHaveLength(1);
+    expect(result.run).toMatchObject({
+      costUsd: 1,
+      error: 'spent $1.00 of the $0.5 budget in 1 attempts with checks still failing',
     });
   });
 });

@@ -46,7 +46,8 @@ Script checks always run again.
 `max` counts retries after the first attempt and defaults to 2. The loop also stops once the
 attempts and checks have spent the bot's `usd-per-run`. When `block` checks still fail after
 the last one, the run is marked failed, every proposal except `ask` is held back, and bothub adds
-an `ask` that names the failing checks and the run that has the findings. Every attempt is stored
+an `ask` that names the failing checks and the run, and quotes each check's findings, cut to a
+readable length. Every attempt is stored
 as its own run, linked to the one before it.
 
 A check that could not run is blocked, not failed: its sandbox did not start, it timed out, or its
@@ -56,16 +57,20 @@ proposals and asks a human once, naming the check and the run where the change w
 ## Parked work
 
 A job with a `branch` that may `push` and closes as blocked, whether it asked a question, stopped on
-its own or ran out of attempts, parks its work: bothub commits the worktree and pushes it to the
-branch without opening a merge request, and records the branch on the run as `parked`. Work outside
-the job's `paths` is not pushed, and the run's reason says why.
+its own or ran out of attempts, or is deferred, for example by its bot's `runs-per-day`, parks its
+work: bothub commits the worktree and pushes it to `<branch>-parked`, and records that branch on the
+run as `parked`. The job's own branch and its merge request only get work whose checks settled.
+Work outside the job's `paths` is not pushed, and the run's reason says why. A deferred job also
+comments on the issue with the reason, when a budget frees up, and where its work waits.
 
-The next run of that job on the same issue starts from the branch. Its prompt gets a `## Resuming`
-section with what the blocked run asked and what the human answered: the text of the comment that
-started the run, and comments on the `unsure` issues it opened. The checks measure the change from
-where the branch forked, so the parked work is checked with the rest. A resumed `push` lists the
-files it changed on top of the branch. The jobs it needs that already closed done on the issue before
-it blocked are not run again: their runs are reused, so answering the implementor does not redo triage.
+The next run of that job on the same issue starts from the parked branch. Its prompt gets a
+`## Resuming` section with what the stopped run asked or why it stopped, and what the human
+answered: the text of the comment that started the run, and comments on the `unsure` issues it
+opened. The checks measure the change from where the branch forked, so the parked work is checked
+with the rest. A resumed `push` lists the files it changed on top of the parked work. The jobs it
+needs that already closed done on the issue are not run again while the issue reads as it did when
+they ran: their runs are reused, so answering the implementor does not redo triage. Editing the
+issue, or `/bothub all`, runs them again.
 
 ## Continuing
 
@@ -81,11 +86,11 @@ and line. The jobs it needs that already closed on the issue are reused.
 
 The command's first word picks how much runs again:
 
-| Command         | Branch            | Jobs before it | Checks look at                              |
-| --------------- | ----------------- | -------------- | ------------------------------------------- |
-| `/bothub`       | kept              | reused         | the change since the last run's pushed head |
-| `/bothub all`   | kept              | run again      | the whole branch since it forked            |
-| `/bothub fresh` | reset to the base | run again      | the whole new change                        |
+| Command         | Branch            | Jobs before it | Checks look at                   |
+| --------------- | ----------------- | -------------- | -------------------------------- |
+| `/bothub`       | kept              | reused         | the whole branch since it forked |
+| `/bothub all`   | kept              | run again      | the whole branch since it forked |
+| `/bothub fresh` | reset to the base | run again      | the whole new change             |
 
 A fresh run replaces the branch only while it is still at the tip the run started from, so a push
 a human makes meanwhile is refused, not overwritten. The merge request stays open and shows the new

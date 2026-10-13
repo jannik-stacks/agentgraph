@@ -10,12 +10,14 @@ import { githubIssues } from '../issues-github.ts';
 import type { Issues } from '../issues.ts';
 import type { McpServer } from '../mcp-config.ts';
 import type { McpTool } from '../mcp.ts';
+import type { loadPrices } from '../prices.ts';
 import { githubPulls, type Pulls } from '../pulls.ts';
 import { runJob, sandboxed, type Launcher, type limiter } from '../runner.ts';
 import type { Bot, Closure, Harness } from '../schema.ts';
 import { Summarizer, summarizeRun } from '../summaries.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from '../store.ts';
 import type { BotEvent, HarnessAdapter, RunSpec } from '../types.ts';
+import { estimate, tally } from '../usage.ts';
 import type { Workspaces } from '../workspace.ts';
 import { secretsFor } from './prompt.ts';
 
@@ -49,6 +51,8 @@ export type Pipeline = {
   onCheck?: (attempt: Run, check: string, verdict?: Verdict) => void;
   /** Minutes a harness may stay silent before its run is stopped, 10 unless set. */
   stallMinutes?: number;
+  /** List prices, for runs whose harness reports no cost. */
+  prices?: ReturnType<typeof loadPrices>;
   /** How often a running agent's issue is checked for being closed or unlabeled, 30 seconds unless set. */
   pollMs?: number;
 };
@@ -94,13 +98,23 @@ const day = 24 * 60 * 60 * 1000;
 
 /**
  * Why a bot may not start another run today, if it may not. Every run counts, attempts and checks too, except
- * runs whose sandbox never started.
+ * runs whose sandbox never started. Says when the next run frees up.
  */
 const outOfRuns = async (bot: Defined<Bot>, store: Store, now = Date.now()) => {
   const cap = bot.budget?.['runs-per-day'];
   if (!cap) return;
-  const used = (await store.runs({ bot: bot.name, since: now - day })).filter(run => run.stopped !== 'sandbox').length;
-  return used >= cap ? `bot "${bot.name}" used its ${cap} runs for the last 24 hours` : undefined;
+  const used = (await store.runs({ bot: bot.name, since: now - day })).filter(run => run.stopped !== 'sandbox');
+  if (used.length < cap) return;
+  const frees = new Date(Date.parse(used[cap - 1]!.startedAt!) + day).toISOString();
+  return `bot "${bot.name}" used its ${cap} runs for the last 24 hours, the next one frees up at ${frees}`;
+};
+
+/** The run with its `costUsd` at list prices when its harness reported none and its model has a price. */
+const priced = async (run: Run, p: Pipeline) => {
+  if (run.costUsd || !run.model || !p.prices) return run;
+  const price = (await p.prices())[run.model];
+  const usd = estimate(tally((await p.store.events(run.id)).map(record => record.event)), price);
+  return usd ? p.store.update(run.id, { costUsd: usd }) : run;
 };
 
 /** Writes a run's summaries into the data directory, with the bot's summarizer; a summary never fails the run. */
@@ -177,6 +191,7 @@ export const agent = (
     );
     const reported: string | undefined = model;
     const recorded = reported ? yield* Effect.promise(() => p.store.update(run.id, { model: reported })) : finished;
+    const costed = yield* Effect.promise(() => priced(recorded, p));
     yield* Effect.promise(() => summarize(bot, run.id, p));
-    return { run: recorded, final: result ?? lastText };
+    return { run: costed, final: result ?? lastText };
   });

@@ -142,17 +142,3 @@ export const continuing = async (
     .join('\n\n');
   return { section, ...(session && { session }) };
 };
-
-/** The head the job's latest run on the event's issue pushed, when one did. */
-export const lastPushed = async (planned: PlannedJob, created: Run, p: Pipeline) => {
-  const { repo, number } = p.event;
-  if (number === undefined) return;
-  const { workflow, job } = planned;
-  const runs = (await p.store.runs({ repo, number, workflow, job, check: false })).filter(r => r.id !== created.id);
-  for (const run of runs) {
-    const pushed = (await p.store.outcome(run.id))?.results.find(
-      result => result.kind === 'push' && result.status === 'applied' && result.sha
-    );
-    if (pushed?.sha) return pushed.sha;
-  }
-};

@@ -19,6 +19,7 @@ import {
   type Scope,
   conflictSection,
   failingChecks,
+  findingsFor,
   followUp,
   gather,
   holds,
@@ -331,7 +332,8 @@ const attempts = (
           ? `spent $${spent.toFixed(2)} of the $${cap} budget in ${attempt} attempts with ${what.join(' and ')}`
           : `${what.join(' and ')} after ${attempt} attempts`;
         const names = [...holding.map(v => v.check), ...left].join(', ');
-        return yield* askHuman(reason, `${reason}: ${names}. The findings are in run ${run.id}.`, reason);
+        const question = `${reason}: ${names}. The findings are in run ${run.id}.\n\n${findingsFor(holding)}`;
+        return yield* askHuman(reason, question.trim(), reason);
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));

@@ -112,7 +112,8 @@ const setup = async (bot = '') => {
 
 describe('continuing from a merge request', { timeout: 30_000 }, () => {
   it('continues the job on its branch with the comment and line comments, reusing the jobs before it', async () => {
-    const { hub, origin, pulls, seen, first, commentEvent } = await setup();
+    const { hub, origin, pulls, seen, logs, first, commentEvent } = await setup();
+    expect(logs).toContain(`issue/implement: succeeded, handed-off ${first[1]!.run.id}`);
     expect(first.map(r => [r.job, r.run.closure])).toEqual([
       ['triage', 'done'],
       ['implement', 'handed-off'],
@@ -145,12 +146,13 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(await pulls.list({ state: 'all' })).toHaveLength(1);
   });
 
-  it('measures a continued change from the head the last run pushed, and the whole branch with `all`', async () => {
+  it('measures a continued change from where the branch forked, starting at the merge request tip', async () => {
     const { hub, origin, pulls, seen, first, commentEvent } = await setup();
     const pushed = git(origin, 'rev-parse', 'bothub/7');
     await pulls.comment(1, { author: 'morgan', body: '/bothub go on' });
     const [, again] = await handleEvent(await commentEvent(1), hub);
-    expect(again!.run.base).toBe(pushed);
+    expect(again!.run.base).toBe(git(origin, 'rev-parse', 'main'));
+    expect(git(origin, 'rev-parse', 'bothub/7^')).toBe(pushed);
     expect(seen).toHaveLength(3);
 
     await pulls.comment(1, { author: 'morgan', body: '/bothub all check it all' });

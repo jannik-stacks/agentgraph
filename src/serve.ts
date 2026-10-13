@@ -5,11 +5,13 @@ import { api, serve } from './api.ts';
 import { compile, type Config, type ConfigError } from './config.ts';
 import { prepareDeps } from './deps.ts';
 import { plan, withdrawn, type PlannedJob } from './dispatch.ts';
+import { srcDir } from './fingerprint.ts';
 import { git } from './git.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { approvals, continuation, issuesOf, onRequest, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
+import { loadPrices } from './prices.ts';
 import { localPulls } from './pulls.ts';
 import { fileQueue, worker, type Queued, type WorkerOptions } from './queue.ts';
 import { limiter, sandboxed } from './runner.ts';
@@ -90,7 +92,7 @@ export type Backend = Pick<Pipeline, 'gh' | 'issues' | 'pulls'>;
  * start and end and each check.
  */
 export type Hub = Pick<Pipeline, 'store' | 'workspaces' | 'limit' | 'env'> &
-  Partial<Pick<Pipeline, 'adapters' | 'launch' | 'onEvent' | 'onCheck'>> & {
+  Partial<Pick<Pipeline, 'adapters' | 'launch' | 'onEvent' | 'onCheck' | 'prices'>> & {
     dir: string;
     data: string;
     config: () => Promise<Config>;
@@ -113,6 +115,7 @@ export const pipelineFor = (hub: Hub, config: Config, event: BotEvent): Pipeline
   data: hub.data,
   ...(hub.adapters && { adapters: hub.adapters }),
   ...(hub.launch && { launch: hub.launch }),
+  ...(hub.prices && { prices: hub.prices }),
   onEvent:
     hub.onEvent ??
     ((run, { event: e }) => {
@@ -148,7 +151,9 @@ export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobRes
   hub.log(described(event, jobs.length));
   const results = await runEvent(jobs, p);
   for (const r of results)
-    hub.log(`${r.workflow}/${r.job}: ${r.run.status} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`);
+    hub.log(
+      `${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
+    );
   return results;
 };
 
@@ -262,6 +267,7 @@ export const servedHub = async (
     env,
     config: compiled.config,
     hubErrors: compiled.errors,
+    prices: loadPrices({ file: join(srcDir, '..', 'infra', 'local', 'prices.json'), env }),
     backend,
     log,
     ...(adapters && { adapters }),

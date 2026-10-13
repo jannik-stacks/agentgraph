@@ -2,6 +2,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { Effect } from 'effect';
 import { effectiveReturns, jobOrder, returnKinds } from '../config.ts';
 import { isTrusted, type PlannedJob } from '../dispatch.ts';
+import { digest } from '../fingerprint.ts';
+import { parkedBranch } from '../workspace.ts';
 import { fanOut } from '../over.ts';
 import { roles, type Issues } from '../issues.ts';
 import { approved, extractProposals, validate } from '../outputs.ts';
@@ -12,7 +14,7 @@ import type { BotEvent } from '../types.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, issueEnv, runOnItem } from './checks.ts';
-import { continuing, lastPushed, saidSince } from './continue.ts';
+import { continuing, saidSince } from './continue.ts';
 import { closed, finish, remember, settle } from './landing.ts';
 import { type Worktree, defaultBranchFor, fanned, jobItems, proposalProblems, requestsEnv } from './attempt.ts';
 
@@ -27,11 +29,14 @@ const scriptJob = (
   job: Extract<Job, { type: 'script' }>,
   handoff: Handoff,
   target: Target,
-  p: Pipeline
+  p: Pipeline,
+  issue?: string
 ) =>
   Effect.gen(function* () {
     const { store, event } = p;
-    const created = yield* Effect.promise(() => store.create({ workflow: planned.workflow, job: planned.job, event }));
+    const created = yield* Effect.promise(() =>
+      store.create({ workflow: planned.workflow, job: planned.job, event, ...(issue && { issue }) })
+    );
     const timeout = job['timeout-minutes'] ?? defaultMinutes;
     const returns = job.returns ?? [];
     const kinds = returnKinds(returns);
@@ -163,7 +168,7 @@ const waitForLock = async (name: string, run: string, minutes: number, p: Pipeli
  * Runs `use` in a fresh worktree for `created`, at the job's branch when it exists, otherwise at `startOf`, an `into`
  * that does not exist yet created from the default branch first, holding the lock on `lock`. With `fresh`, it starts
  * from `startOf` even when the job's branch exists, to replace it. With `merge`, that branch is merged in for the job
- * to resolve. The commit the worktree starts from is stored as the run's `base`; the worktree is always removed. A branch another
+ * to resolve. With `from`, it starts at that branch when it exists. The commit the worktree starts from is stored as the run's `base`; the worktree is always removed. A branch another
  * live run holds is waited for, at most `wait` minutes, then defers the job.
  */
 const withWorktree = (
@@ -177,7 +182,8 @@ const withWorktree = (
     merge,
     wait,
     fresh,
-  }: { target: Target; lock: string | undefined; merge?: string; wait: number; fresh?: boolean }
+    from,
+  }: { target: Target; lock: string | undefined; merge?: string; wait: number; fresh?: boolean; from?: string }
 ): Effect.Effect<JobResult> => {
   const planned: PlannedJob = {
     workflow: created.workflow,
@@ -201,6 +207,7 @@ const withWorktree = (
     ...(target.branch && { branch: target.branch }),
     ...(merge && { merge }),
     ...(fresh && { fresh }),
+    ...(from && { from }),
   };
   return Effect.acquireUseRelease(
     Effect.promise(() =>
@@ -237,17 +244,22 @@ const withWorktree = (
   );
 };
 
-/** The latest earlier run of this job on the event's issue, with its outcome, when it closed blocked. */
-const lastBlocked = async (planned: PlannedJob, created: Run, p: Pipeline) => {
+/**
+ * The latest earlier run of this job on the event's issue, with its outcome, when it stopped unfinished: closed
+ * blocked, or deferred with its work parked.
+ */
+const unfinished = async (planned: PlannedJob, created: Run, p: Pipeline) => {
   const { repo, number } = p.event;
   if (number === undefined) return;
   const { workflow, job } = planned;
   const last = (await p.store.runs({ repo, number, workflow, job, check: false })).find(
-    r => r.id !== created.id && r.status !== 'skipped'
+    r => r.id !== created.id && (r.status !== 'skipped' || r.parked)
   );
-  if (last?.closure !== 'blocked') return;
+  if (!last || (last.closure !== 'blocked' && !last.parked)) return;
   return { run: last, outcome: await p.store.outcome(last.id) };
 };
+
+type Unfinished = NonNullable<Awaited<ReturnType<typeof unfinished>>>;
 
 /**
  * What a human said after `run` ended: the text that started this run, other human comments on the event's issue and
@@ -274,25 +286,11 @@ const answers = async (run: Run, questions: string[], planned: PlannedJob, p: Pi
   return [...(said ? [said] : []), ...(await saidSince(ended, p.event.pull, p)), ...comments.flat()];
 };
 
-/**
- * The worktree with the work of the job's last blocked run on this issue picked up: the prompt section that says what
- * it asked and what the human answered, and, when it parked its work on the branch this worktree started from, the
- * change measured from where that branch forked.
- */
-const resumed = async (
-  worktree: Worktree,
-  planned: PlannedJob,
-  created: Run,
-  handoff: Handoff,
-  target: Target,
-  p: Pipeline
-) => {
-  const last = await lastBlocked(planned, created, p);
-  if (!last || worktree.merging) return worktree;
-  const { run, outcome } = last;
+/** The prompt section for a job that resumes its unfinished run: what it asked or why it stopped, and the answer. */
+const resumption = async ({ run, outcome }: Unfinished, planned: PlannedJob, p: Pipeline) => {
   const questions = (outcome?.accepted ?? []).flatMap(proposal => (proposal.kind === 'ask' ? [proposal.question] : []));
   const said = await answers(run, questions, planned, p);
-  const resume = [
+  return [
     '## Resuming',
     run.parked
       ? `Your earlier run ${run.id} stopped before finishing. Its work is parked on \`${run.parked}\` and already in this worktree: continue from it, do not start over.`
@@ -304,45 +302,39 @@ const resumed = async (
   ]
     .filter(Boolean)
     .join('\n\n');
-  if (!run.parked) return { ...worktree, resume };
-  const from = startOf(target, handoff, p);
-  const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
-  await p.store.update(created.id, { base });
-  return { ...worktree, base, resume };
 };
 
 /**
- * The worktree with the job's earlier work on the issue picked up, unless it starts over: resumed when its last run
- * blocked, otherwise continued when the worktree started at the job's branch. A continued job's change is measured
- * from the head its last run pushed, or with `all` from where the branch forked.
+ * The worktree with the job's earlier work on the issue picked up, unless it starts over or resolves a merge: resumed
+ * when its last run stopped unfinished (see `unfinished`), otherwise continued when the worktree started at the job's
+ * branch. Picked-up work is measured from where the branch forked, so the checks see the whole change.
  */
 const picked = async (
   worktree: Worktree,
   planned: PlannedJob,
   created: Run,
+  last: Unfinished | undefined,
   handoff: Handoff,
   target: Target,
   p: Pipeline
 ) => {
-  if (planned.rerun === 'fresh') return worktree;
-  const resuming = await resumed(worktree, planned, created, handoff, target, p);
-  if (resuming.resume || !worktree.branch || worktree.merging) return resuming;
+  if (planned.rerun === 'fresh' || worktree.merging) return worktree;
+  const resume = last && (await resumption(last, planned, p));
   const bot = planned.bot === undefined ? undefined : p.config.bots[planned.bot];
-  const resume = bot?.resume;
-  const continued = await continuing(planned, created, worktree.branch, resume, p);
-  if (!continued) return worktree;
-  const { section, session } = continued;
-  const carried = { ...worktree, resume: section, ...(session && { session }) };
-  const from = planned.rerun === 'all' ? startOf(target, handoff, p) : await lastPushed(planned, created, p);
-  if (from === undefined && planned.rerun !== 'all') return carried;
+  const continued =
+    resume || !worktree.branch ? undefined : await continuing(planned, created, worktree.branch, bot?.resume, p);
+  const section = resume ?? continued?.section;
+  if (!section) return worktree;
+  const from = startOf(target, handoff, p);
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
-  return { ...carried, base };
+  return { ...worktree, base, resume: section, ...(continued?.session && { session: continued.session }) };
 };
 
 /**
- * Pushes a blocked job's work to its branch without a merge request, so the next run of the job on the issue resumes
- * from it, and records the branch on the run as `parked`. Work the job may not push stays unparked, with the reason.
+ * Parks the work of a job that stopped unfinished, blocked or deferred, beside its branch (see `parkedBranch`), so the
+ * branch and its merge request only get work that settled, and the next run of the job on the issue resumes from it.
+ * Records the parked branch on the run; work the job may not push stays unparked, with the reason.
  */
 const park = async (
   result: JobResult,
@@ -352,25 +344,43 @@ const park = async (
   returns: Return[],
   p: Pipeline
 ) => {
-  if (result.run.closure !== 'blocked' || worktree.merging) return result;
+  const { closure } = result.run;
+  if ((closure !== 'blocked' && closure !== 'deferred') || worktree.merging) return result;
   const { branch } = target;
   if (!branch || !returnKinds(returns).includes('push')) return result;
   try {
     const { files } = await p.workspaces.changes(worktree.id, worktree.base);
     if (!files.length) return result;
+    const parked = parkedBranch(branch);
     await p.workspaces.publish(p.event.repo, worktree.id, {
-      branch,
+      branch: parked,
       files,
       ...(job.paths && { paths: job.paths }),
       message: `bothub: ${result.job} (parked)`,
       base: worktree.base,
-      ...(worktree.replace && { replace: worktree.replace }),
     });
-    return { ...result, run: await p.store.update(result.run.id, { parked: branch }) };
+    return { ...result, run: await p.store.update(result.run.id, { parked }) };
   } catch (e) {
-    const reason = `${result.run.reason ?? 'blocked'}; not parked: ${(e as Error).message}`;
+    const reason = `${result.run.reason ?? closure}; not parked: ${(e as Error).message}`;
     return { ...result, run: await p.store.update(result.run.id, { reason }) };
   }
+};
+
+/** Tells the event's issue that a job was deferred: why, where its work waits and how it goes on. */
+const tellDeferred = async (result: JobResult, p: Pipeline) => {
+  const issues = issuesOf(p);
+  const { number } = p.event;
+  if (result.run.closure !== 'deferred' || !issues || number === undefined) return;
+  const { reason, parked } = result.run;
+  const command = p.config.workflows[result.workflow]?.on.issue_comment?.command;
+  const body = [
+    `${result.workflow}/${result.job} was deferred${reason ? `: ${reason}` : ''}.`,
+    parked && `Its work so far is parked on \`${parked}\`.`,
+    command ? `Comment \`${command}\` to continue.` : 'It continues when it runs again.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  await issues.comment(number, body).catch(() => undefined);
 };
 
 /**
@@ -407,7 +417,8 @@ export const runPlanned = (
       (yield* Effect.promise(() => nothingToMerge(returnKinds(job.returns ?? []), target, p)))
     )
       return yield* Effect.promise(() => skip(planned, 'nothing to merge or propose', p, 'no-op'));
-    if (job.type === 'script') return yield* scriptJob(planned, job, handoff, target, p);
+    const issue = yield* Effect.promise(() => issueDigest(p));
+    if (job.type === 'script') return yield* scriptJob(planned, job, handoff, target, p, issue);
     const bot = p.config.bots[job.bot];
     if (!bot) return yield* Effect.promise(() => skip(planned, 'the job has no bot', p));
     const created = yield* Effect.promise(() =>
@@ -418,16 +429,21 @@ export const runPlanned = (
         harness: bot.harness,
         event: p.event,
         ...(job.until && { attempt: 1 }),
+        ...(issue && { issue }),
       })
     );
     const returns = effectiveReturns(bot, job);
+    const last =
+      planned.rerun === 'fresh' || merge ? undefined : yield* Effect.promise(() => unfinished(planned, created, p));
     return yield* withWorktree(
       created,
       started =>
         Effect.gen(function* () {
-          const worktree = yield* Effect.promise(() => picked(started, planned, created, handoff, target, p));
+          const worktree = yield* Effect.promise(() => picked(started, planned, created, last, handoff, target, p));
           const result = yield* fanned(planned, workflow, job, created, worktree, handoff, p);
-          return yield* Effect.promise(() => park(result, worktree, job, target, returns, p));
+          const parked = yield* Effect.promise(() => park(result, worktree, job, target, returns, p));
+          yield* Effect.promise(() => tellDeferred(parked, p));
+          return parked;
         }),
       handoff,
       p,
@@ -436,10 +452,23 @@ export const runPlanned = (
         lock: lockOf(target, returns),
         fresh: planned.rerun === 'fresh',
         ...(merge && { merge }),
+        ...(last?.run.parked && { from: last.run.parked }),
         wait: job['timeout-minutes'] ?? defaultMinutes,
       }
     );
   });
+
+/** A digest of the event's issue title and body, to tell later whether the issue changed. */
+const issueDigest = async (p: Pipeline) => {
+  const { number } = p.event;
+  const issue =
+    number === undefined
+      ? undefined
+      : await issuesOf(p)
+          ?.get(number)
+          .catch(() => undefined);
+  return issue && digest(issue.title, issue.body);
+};
 
 export const proceeds = (closure: Closure | undefined) => closure === 'done' || closure === 'handed-off';
 
@@ -457,22 +486,20 @@ const reuse = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | unde
 };
 
 /**
- * The job's latest run on the event's issue when it closed done or handed off and a job that needs it ran after it
- * and left work to pick up: blocked, or handed off a branch. A comment that answers or continues that job then reruns
- * it without redoing this one, unless it asks to rerun everything.
+ * The job's latest run on the event's issue when it closed done or handed off, a job that needs it ran after it, and
+ * the issue still reads as it did when that run started. A later command on the issue then picks up the job that
+ * needs it without redoing this one, unless the issue changed or the command asks to rerun everything.
  */
 const answered = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | undefined> => {
   const { repo, number } = p.event;
   const jobs = p.config.workflows[planned.workflow]?.jobs;
   if (number === undefined || !jobs || planned.rerun) return;
-  const runs = (await p.store.runs({ repo, number, workflow: planned.workflow, check: false })).filter(
-    r => r.status !== 'skipped'
-  );
-  const at = runs.findIndex(r => r.job === planned.job);
+  const runs = await p.store.runs({ repo, number, workflow: planned.workflow, check: false });
+  const at = runs.findIndex(r => r.job === planned.job && r.status !== 'skipped');
   const run = runs[at];
   if (run?.status !== 'succeeded' || !proceeds(run.closure)) return;
-  const next = runs.slice(0, at).find(r => jobs[r.job]?.needs.includes(planned.job));
-  return next?.closure === 'blocked' || next?.closure === 'handed-off' ? reused(planned, run, p) : undefined;
+  if (!runs.slice(0, at).some(r => jobs[r.job]?.needs.includes(planned.job))) return;
+  return run.issue === (await issueDigest(p)) ? reused(planned, run, p) : undefined;
 };
 
 /**
