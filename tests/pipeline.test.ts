@@ -253,6 +253,26 @@ describe('buildSpec', () => {
     expect(spec.prompt).not.toContain('Text:');
   });
 
+  it('recalls on opencode with the brief of the job it needs, and serves the notes tools the block names', () => {
+    const bot = { ...config.bots.bot!, harness: 'opencode' as const, preload: ['issue' as const, 'recall' as const] };
+    const recalling = { ...config, bots: { ...config.bots, bot } };
+    const marker = '<!-- bothub:e1/triage/triage/reply-1 -->';
+    const preloaded = `## Issue #7: Task\n\nDo it.\n\n### @bot at 2026-01-01\n\nTouch src/fees.ts only.\n\n${marker}`;
+    const access = {
+      hub: '/hub',
+      data: '/data',
+      mcp: (tools: string[]) => ({ command: 'node', args: tools, env: {} }),
+    };
+    const build = (job: string, text?: string) =>
+      buildSpec({ config: recalling, workflow, job, event, cwd: '/w', ...access, ...(text && { preloaded: text }) })
+        .spec;
+    expect(build('triage', preloaded).surfacer?.recall?.query).toBe('## Issue #7: Task\n\nDo it.');
+    const summarize = build('summarize', preloaded);
+    expect(summarize.surfacer?.recall?.query).toBe('Touch src/fees.ts only.');
+    expect(summarize.tools).toEqual(expect.arrayContaining(['bothub_notes_get', 'bothub_notes_search']));
+    expect(build('summarize').surfacer?.recall?.query).toBe(event.body);
+  });
+
   it('renders the job branch into the event and the proposal examples', () => {
     const { spec, branch, returns } = buildSpec({ config, workflow, job: 'implement', event, cwd: '/w' });
     expect(branch).toBe('bothub/7-please-look-at-this');
@@ -328,6 +348,43 @@ describe('context', () => {
     expect(bare.tools).toEqual(['read']);
     expect(bare.mcp).toBeUndefined();
     expect(bare.system).not.toContain('## Hub tools');
+  });
+
+  it("asks the job's decider questions, else the bot's, against the issue context, and none in a pi run", () => {
+    const ask = (q: string) => `\ndecider:\n  - { on: tool_call, tools: [edit], ask: "${q}" }`;
+    const files = (harness: string) => [
+      md('bots/b.md', `harness: ${harness}\ntools: [read, edit]\nreturns: [reply]${ask('Bot question?')}`, 'Role.'),
+      md('skills/s.md', 'description: Do it.', 'Do it.'),
+      md(
+        'workflows/w.md',
+        'on: { issue_comment: {} }\njobs:\n  a: { type: bot, bot: b, skill: s }\n  j: { type: bot, bot: b, skill: s, decider: [{ on: stop, ask: "Job question?" }] }'
+      ),
+    ];
+    const specOf = (harness: string, job: string, preloaded?: string) => {
+      const result = compile(files(harness));
+      if (!result.ok) throw new Error(JSON.stringify(result.errors));
+      const { config } = result;
+      return buildSpec({ config, workflow: config.workflows.w!, job, event, cwd: '/w', preloaded }).spec;
+    };
+    expect(specOf('opencode', 'a', '## Issue #7: Brief').decider).toEqual({
+      questions: [{ on: 'tool_call', tools: ['edit'], ask: 'Bot question?', mode: 'log' }],
+      task: '## Issue #7: Brief',
+    });
+    expect(specOf('opencode', 'j').decider).toEqual({
+      questions: [{ on: 'stop', ask: 'Job question?', mode: 'log' }],
+      task: specOf('opencode', 'j').prompt,
+    });
+    expect(specOf('pi', 'a').decider).toBeUndefined();
+    const acting = compile([
+      md(
+        'bots/b.md',
+        'harness: opencode\ntools: [read]\nreturns: [reply]\ndecider: [{ on: stop, ask: "Ok?", mode: act }]',
+        ''
+      ),
+    ]);
+    expect(acting.ok ? [] : acting.errors.map(e => e.message)).toEqual([
+      expect.stringContaining('mode act needs a "threshold" and a "say"'),
+    ]);
   });
 
   it('preloads the issue from the tracker before the run', async () => {
@@ -688,6 +745,24 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(next.run.base).toBe(origin.main);
     expect(git(origin.dir, 'show', 'bothub/7:src/b.ts')).toBe('b');
     expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
+  });
+
+  it('resumes in the blocked run session with resume: session', async () => {
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, resume: 'session' };
+    const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
+    const { seen, adapters } = fake(spec =>
+      spec.prompt.includes('## Resuming')
+        ? { message: pushB, work: continueB }
+        : { message: asks, work: `${writeA}; ${keep}` }
+    );
+    const kept = { ...adapters, opencode: { ...adapters.opencode, sessions: '.sessions' } };
+    const p = await pipeline({ config, issues: trackedIssues(), adapters: kept }, sourceRepo());
+    await Effect.runPromise(runPlanned(planned('parking'), p));
+    await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
+
+    expect(seen[1]!.prompt).toContain('## Resuming');
+    expect(seen[1]!.session?.id).toBe('s1');
   });
 
   it('finds an answer given in an earlier comment on the issue when a bare command resumes', async () => {
@@ -1136,20 +1211,19 @@ jobs:
       hub: '/hub',
       data: '/data',
       scope: 'hub',
-      summarizer: { mode: 'extractive', granularity: 'item', 'max-bytes': 512 },
       history: true,
-      cutoff: 0.4,
-      budget: 900,
+      recall: { cutoff: 0.4, budget: 900, query: event.body },
     });
-    expect(learn.tools).toEqual(['read', 'bothub_notes_search', 'bothub_notes_add']);
-    expect(learn.mcp?.args).toEqual(['notes_search', 'notes_add']);
+    expect(learn.tools).toEqual(['read', 'bothub_notes_search', 'bothub_notes_get', 'bothub_notes_add']);
+    expect(learn.mcp?.args).toEqual(['notes_search', 'notes_get', 'notes_add']);
     expect(learn.system).toContain('The `notes_add` tool proposes one as well.');
     expect(learn.system).toContain(
       'A `hub` change proposes whole files of the hub, under `notes/**`; a human merges it.'
     );
     expect(learn.system).toContain('"files": [{ "path": "notes/**"');
     expect(spec('learn', {}).surfacer).toBeUndefined();
-    expect(spec('history').surfacer).toMatchObject({ history: true, surface: false });
+    expect(spec('history').surfacer).toMatchObject({ history: true });
+    expect(spec('history').surfacer?.recall).toBeUndefined();
     expect(spec('history').tools).toEqual(['read', 'bothub_notes_search']);
     expect(spec('bare').surfacer).toBeUndefined();
     expect(spec('quiet').surfacer).toBeUndefined();
@@ -1178,6 +1252,12 @@ jobs:
       reason: 'the hub has no repository to land it in',
     });
     for (const run of runs) expect((await readSummaries(dataDir, run.id)).length).toBeGreaterThan(0);
+    expect((await readSummaries(dataDir, runs.at(-1)!.id)).at(-1)).toMatchObject({
+      kind: 'outcome',
+      line: expect.stringMatching(
+        /^outcome: succeeded, done; proposed note caveat fees Fees Fees retry once\.; reply Attempt 2\./
+      ),
+    });
   });
 });
 
@@ -1540,13 +1620,14 @@ describe('over', () => {
     expect(untimed(passing.result.outcome?.checks)?.[1]).toMatchObject({ check: 'tone', pass: true });
   });
 
-  it('tells check scripts the issue number and what the attempt replied', async () => {
+  it('tells check scripts the issue number and what the attempt replied, merge request bodies included', async () => {
     const log = logFile();
+    const request = { kind: 'merge-request', title: 'Labels', body: 'Part of #7', branch: 'bothub/7' } as const;
     await run(
       hubWith([{ name: 'brief', data: { type: 'script', run: `echo "$BOTHUB_ISSUE|$BOTHUB_REPLY" >> ${log}` } }]),
-      { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) }
+      { work, message: bothub([{ kind: 'reply', body: 'Done.' }, request]) }
     );
-    expect(readFileSync(log, 'utf8')).toBe('7|Done.\n');
+    expect(readFileSync(log, 'utf8')).toBe('7|Done.\n\nPart of #7\n');
   });
 
   it('gives a check bot the issue before the verdict contract and the item last', async () => {
@@ -1640,7 +1721,11 @@ describe('over', () => {
     vi.stubGlobal('fetch', fetch);
     const { result } = await run(
       hubWith([
-        { name: 'secrets', data: { type: 'decide', over: 'each-hunk' }, body: 'Is this hunk free of secrets?' },
+        {
+          name: 'secrets',
+          data: { type: 'decide', over: 'each-hunk', threshold: 0.5 },
+          body: 'Is this hunk free of secrets?',
+        },
       ]),
       { work },
       { BOTHUB_DECIDE_URL: 'http://decide.test' }
@@ -1658,7 +1743,7 @@ describe('over', () => {
         gating: false,
         pass: false,
         findings: expect.stringMatching(
-          /\nsrc\/a.ts @@ -0,0 \+1 @@:\nIs this hunk free of secrets\? Probability of yes 0.100/
+          /\nsrc\/a.ts @@ -0,0 \+1 @@:\nProbability of yes 0.100, threshold 0.5. Is this hunk free of secrets\?/
         ),
       },
     ]);

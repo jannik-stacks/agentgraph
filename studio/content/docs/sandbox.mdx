@@ -82,6 +82,7 @@ are fixed. Hub files have no field that changes the sandbox.
 without docker and never starts an agent.
 
 The image is built from `infra/local/sandbox`; the code is on [Runs](/docs/reference/runs).
+After a rebuild, `infra/local/sandbox/smoke.sh` starts it the way a run does and fails on a missing tool or a write to the read-only root.
 
 ## Harnesses
 
@@ -108,7 +109,8 @@ spent what.
 | `fast`            | Ollama running `qwen3.5:4b` locally                         |
 
 Ollama also serves `tev1:0.8b` through its decision API, for small yes, no and scoring questions
-that `decide` checks, the decider and the surfacer ask directly (<Sym name="decideCheck" />). That is the default
+that `decide` checks and the decider ask directly (<Sym name="decideCheck" />). A question and what it is
+about are cut to 4,000 characters, the start and the end, so they fit tev1's context. That is the default
 `BOTHUB_DECIDE_MODEL`. Set it to a LiteLLM alias without a `:tag`, such as `luna`, and the same yes-or-no questions go
 to that chat model through LiteLLM instead, with the run's own key. An offline config points every alias at Ollama.
 

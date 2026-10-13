@@ -137,7 +137,7 @@ A script check with the default `over` runs once against the worktree. When it f
 gets its item in `BOTHUB_ITEM` and on stdin. `BOTHUB_BASE` names the commit the change started
 from, for the check and for scripts named by `over`, which run in the same sandbox.
 `BOTHUB_ISSUE` holds the event's issue or pull request number, and `BOTHUB_REPLY` what the attempt
-replied. When an `each` script fails or prints more lines than `max`, the check fails with that as
+replied with the bodies of its merge requests. When an `each` script fails or prints more lines than `max`, the check fails with that as
 its finding and nothing is judged. A passing script check keeps the last lines of its output,
 shown with the run. Checks see the worktree read-only; see [Sandbox](/docs/sandbox).
 
@@ -158,7 +158,8 @@ A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by <Sym
 a final message with no `bothub` block counts as that reply, since small models often leave it out.
 Its prompt starts with what every item shares, the skill, the body, the issue the bot preloads, the
 event and the verdict format, and ends with the item, so a provider can cache everything before it.
-A decide check passes when the probability of yes reaches its `threshold`, 0.5 unless set; see
+A decide check passes when the probability of yes reaches its `threshold`. Without one it only
+records the probability, which is how a threshold gets tuned; see
 [Pipeline and checks](/docs/reference/pipeline#verdicts).
 
 A bot reading each changed docs page, with no skill, prompted by the body alone:

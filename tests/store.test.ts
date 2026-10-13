@@ -59,8 +59,6 @@ describe('openStore', () => {
     await expect(store.list()).rejects.toThrow(SyntaxError);
     mkdirSync(join(dir, 'runs', id, 'events.jsonl'));
     await expect(store.events(id)).rejects.toThrow('EISDIR');
-    mkdirSync(join(dir, 'runs', id, 'memory.md'));
-    await expect(store.memory(id)).rejects.toThrow('EISDIR');
 
     const flat = temp();
     writeFileSync(join(flat, 'runs'), '');
@@ -213,13 +211,5 @@ describe('reconcile', () => {
     expect((await now.read(done.id))?.status).toBe('succeeded');
     expect((await now.read(mine.id))?.status).toBe('running');
     expect(removed.sort()).toEqual([running.id, applying.id].sort());
-  });
-
-  it('keeps run memory next to the run', async () => {
-    const store = openStore(temp());
-    const run = await store.create(fields);
-    expect(await store.memory(run.id)).toBeUndefined();
-    await store.saveMemory(run.id, '# memory\n');
-    expect(await store.memory(run.id)).toBe('# memory\n');
   });
 });

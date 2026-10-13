@@ -250,6 +250,16 @@ describe('compile', () => {
     ).toEqual(['job "a" grants tool "runs_read", which bot "t" does not have']);
   });
 
+  it('needs a threshold and a say before a decider question acts', () => {
+    const errors = errorsOf([
+      file(
+        'bots/d.md',
+        'harness: opencode\ntools: [read]\nreturns: [reply]\ndecider: [{ on: stop, ask: Done?, mode: act }]'
+      ),
+    ]);
+    expect(errors).toEqual([expect.stringMatching(/mode act needs a "threshold" and a "say"/)]);
+  });
+
   it('rejects tool names the harness does not have, so a bot never runs with a silently empty allowlist', () => {
     const errors = errorsOf([
       file('bots/caps.md', 'harness: opencode\ntools: [Read, bash(git diff*), issues_get]\nreturns: [reply]'),
@@ -262,13 +272,17 @@ describe('compile', () => {
     ]);
   });
 
-  it('warns that pi ignores max-turns and gets no hub tools', () => {
+  it('warns that pi ignores max-turns and gets no hub tools or decider', () => {
     const result = compile([
-      file('bots/p.md', 'harness: pi\ntools: [read, notes_search]\nreturns: [reply]\nmax-turns: 4'),
+      file(
+        'bots/p.md',
+        'harness: pi\ntools: [read, notes_search]\nreturns: [reply]\nmax-turns: 4\ndecider: [{ on: stop, ask: Done? }]'
+      ),
     ]);
     expect(result.ok && result.warnings.map(w => w.message)).toEqual([
       '"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it',
       'lists hub tools (notes_search) that pi runs do not get',
+      'asks decider questions, which pi runs do not get',
     ]);
     const quiet = compile([file('bots/p.md', 'harness: pi\ntools: [read]\nreturns: [reply]')]);
     expect(quiet.ok && quiet.warnings).toEqual([]);
@@ -324,10 +338,10 @@ describe('effective context', () => {
     expect(effectiveTools(bot, { tools: ['issues_get'] })).toEqual(['issues_get']);
   });
 
-  it('takes the job preload, then the bot preload, then recall alone', () => {
+  it('takes the job preload, then the bot preload, then nothing', () => {
     expect(effectivePreload(bot, { preload: ['links'] })).toEqual(['links']);
     expect(effectivePreload(bot, {})).toEqual(['issue']);
-    expect(effectivePreload({}, {})).toEqual(['recall']);
+    expect(effectivePreload({}, {})).toEqual([]);
   });
 });
 

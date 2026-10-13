@@ -344,9 +344,10 @@ const preloadName = (item: PreloadItem) => (typeof item === 'string' ? item : 'r
 const preloadMeaning = (item: PreloadItem) => {
   if (item === 'issue') return 'the issue thread';
   if (item === 'links') return 'linked issues and PRs';
-  const { cutoff, budget } = typeof item === 'string' ? {} : item.recall;
+  const { judge, cutoff, budget } = typeof item === 'string' ? {} : item.recall;
   return [
     'relevant notes and earlier runs',
+    judge !== undefined && `judged by ${judge}`,
     cutoff !== undefined && `cutoff ${cutoff}`,
     budget !== undefined && `budget ${budget}`,
   ]

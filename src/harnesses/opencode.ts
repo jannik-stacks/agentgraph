@@ -44,9 +44,14 @@ const permission = (tools: string[]) => {
 
 const plugin = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 
-/** bothub's own opencode plugins for the run: the surfacer and the decider, each only when configured. */
+/**
+ * bothub's own opencode plugins for the run: the surfacer and the decider, each only when configured. A resumed session
+ * recalls nothing again.
+ */
 const plugins = (spec: RunSpec) => [
-  ...(spec.surfacer ? [[plugin('./opencode-surfacer.ts'), spec.surfacer]] : []),
+  ...(spec.surfacer
+    ? [[plugin('./opencode-surfacer.ts'), spec.session ? { ...spec.surfacer, recall: undefined } : spec.surfacer]]
+    : []),
   ...(spec.decider?.questions.length ? [[plugin('./opencode-decider.ts'), spec.decider]] : []),
 ];
 
@@ -155,13 +160,15 @@ const step = (part: Extract<Part, { type: 'step-finish' }>): AgentEvent[] => {
 };
 
 /**
- * Whether a plugin may print `e` to opencode's stdout as a `{"type":"bothub","event":…}` line: a `recall`, or the
- * `usage` of a model call bothub's own code made.
+ * Whether a plugin may print `e` to opencode's stdout as a `{"type":"bothub","event":…}` line: a `recall`, a
+ * `decision`, or the `usage` of a model call bothub's own code made.
  */
 const fromPlugin = (e: AgentEvent | null | undefined): e is AgentEvent =>
   typeof e === 'object' &&
   e !== null &&
-  (e.type === 'recall' || (e.type === 'usage' && sources.includes(e.source!) && e.source !== 'harness'));
+  (e.type === 'recall' ||
+    e.type === 'decision' ||
+    (e.type === 'usage' && sources.includes(e.source!) && e.source !== 'harness'));
 
 const event = (line: Line): AgentEvent[] => {
   if (line.type === 'bothub' && 'event' in line) {

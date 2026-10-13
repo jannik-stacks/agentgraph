@@ -55,6 +55,7 @@ import {
   toolName,
   toolSummary,
 } from './render/index.tsx';
+import { DecidedHead, DecidedRows, decisionsOf } from './render/decisions.tsx';
 import { RecalledHead, RecalledRows, recallsOf } from './render/recall.tsx';
 
 type Mode = 'auto' | 'all' | 'none';
@@ -327,6 +328,7 @@ const fences = { bothub: (code: string) => <ProposalsFence code={code} /> };
 const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord[]; price: Price | undefined }) => {
   const { turns, start, end, errors } = useMemo(() => turnsOf(records), [records]);
   const recalls = useMemo(() => recallsOf(records), [records]);
+  const decisions = useMemo(() => decisionsOf(records), [records]);
   const live = isLive(run.status);
   const first = turns.find(t => t.usage)?.usage;
   return (
@@ -356,6 +358,11 @@ const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord
       {recalls.length > 0 && (
         <Step id={`${run.id}:recalled`} auto={false} head={<RecalledHead recalls={recalls} />}>
           {() => <RecalledRows recalls={recalls} />}
+        </Step>
+      )}
+      {decisions.length > 0 && (
+        <Step id={`${run.id}:decided`} auto={false} head={<DecidedHead decisions={decisions} />}>
+          {() => <DecidedRows decisions={decisions} />}
         </Step>
       )}
       {turns.map((turn, i) => (

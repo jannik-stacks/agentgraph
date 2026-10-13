@@ -1,6 +1,6 @@
 ---
 description: Implement one scoped bothub change and keep its checks green.
-human: seed hub, size rule and attempt first from dogfood round 5, K23; call the deciding module (T1) and the still prefix for negatives (K34) from dogfood round 6
+human: seed hub, size rule and attempt first from dogfood round 5, K23; call the deciding module (T1) and the still prefix for negatives (K34) from dogfood round 6; Part of for a split issue (X10) and the script checks before finishing (X13) from dogfood x
 ---
 The issue and its triage brief are in your prompt: the task, the criteria with the test that
 proves each one, the files and what is out of scope. Read the code you are changing and its tests
@@ -26,6 +26,10 @@ root, one command at a time, never chained with `&&`:
 2. `node_modules/.bin/tsc --noEmit`
 3. `oxlint <files you changed>` and `oxfmt <files you changed>` (both read the repository's own
    config)
+4. before you finish, the hub's two fast script checks, which read the brief from the hub mounted
+   at `/hub`:
+   `BOTHUB_HUB=/hub BOTHUB_ISSUE=<issue> BOTHUB_BASE=$(git merge-base HEAD main-worktree/HEAD) node /hub/scripts/test-guards.mjs`
+   and the same with `unused-exports.mjs`
 
 Never run the full test suite or `git diff` (`git diff --stat` shows what you changed), and never
 `npm install`, `npm ci` or `npx`. A long output comes back cut short; run something narrower
@@ -47,5 +51,5 @@ checks and sends nothing back. Your work so far is parked beside the branch. Whe
 there, continue from it and do not start over.
 
 End with a `push` of your branch listing every file you changed, a `merge-request` from that
-branch whose body says which issue it closes, and a reply that lists each criterion with the test
-that proves it.
+branch whose body says `Closes #<issue>`, or `Part of #<issue>` when the brief lists `Follow-up:`
+lines, and a reply that lists each criterion with the test that proves it.

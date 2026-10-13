@@ -1,5 +1,6 @@
-// One JSON line per export the change adds to src/, with the existing exports whose names share a word with it, so
-// a small model can say whether one of them already does the job. An export with no such neighbour is left out.
+// One JSON line per src/ file the change adds exports to: those exports, and the existing exports whose names share a
+// word with one of them, so a small model can say whether one already does the job. An export with no such neighbour
+// is left out, and a file with none of them.
 import { execFileSync } from 'node:child_process';
 import { addedLines, base, changedFiles } from './changes.mjs';
 
@@ -11,7 +12,7 @@ const words = name =>
     .toLowerCase()
     .split(/[^a-z\d]+/)
     .filter(word => word.length > 2 && !generic.has(word));
-const maxNeighbours = 6;
+const maxNeighbours = 10;
 
 const grep = sha => {
   try {
@@ -34,16 +35,20 @@ const known = new Set(existing.map(e => `${e.file}:${e.name}`));
 
 for (const { path, deleted } of changedFiles(sha)) {
   if (deleted || !/^src\/.*\.(ts|mts)$/.test(path)) continue;
+  const exports = [];
+  const neighbours = new Map();
   for (const { line, text } of addedLines(sha, path)) {
     const name = declaration.exec(text)?.[1];
     if (!name || known.has(`${path}:${name}`)) continue;
     const mine = new Set(words(name));
-    const neighbours = existing
-      .map(e => ({ ...e, shared: words(e.name).filter(word => mine.has(word)).length }))
-      .filter(e => e.shared && e.name !== name)
-      .sort((a, b) => b.shared - a.shared)
-      .slice(0, maxNeighbours)
-      .map(({ file, line: at, code }) => `${file}:${at}: ${code}`);
-    if (neighbours.length) console.log(JSON.stringify({ file: path, line, export: text.trim().slice(0, 300), neighbours }));
+    const near = existing
+      .filter(e => e.name !== name)
+      .map(e => [`${e.file}:${e.line}: ${e.code}`, words(e.name).filter(word => mine.has(word)).length])
+      .filter(([, shared]) => shared);
+    if (!near.length) continue;
+    exports.push(`${line}: ${text.trim().slice(0, 300)}`);
+    for (const [key, shared] of near) neighbours.set(key, Math.max(shared, neighbours.get(key) ?? 0));
   }
+  const nearest = [...neighbours].sort((a, b) => b[1] - a[1]).slice(0, maxNeighbours).map(([key]) => key);
+  if (exports.length) console.log(JSON.stringify({ file: path, exports, neighbours: nearest }));
 }

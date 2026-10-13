@@ -35,7 +35,7 @@ repository (git)
   code             the default branch, bot branches, merge requests
 
 data dir (not in git, object storage later)
-  runs/<id>/       run.json, events.jsonl, outcome.json, memory.md, summaries.jsonl
+  runs/<id>/       run.json, events.jsonl, outcome.json, summaries.jsonl
     home/          the harness's own sessions and transcripts
   queue, deliveries, locks, pulls.jsonl (local merge requests)
   repos/, work/    mirrors and worktrees, rebuilt when missing
@@ -53,8 +53,8 @@ A note is what the hub knows, surfaced when relevant. There are three kinds.
 - **style**: how code and docs should look.
 - **caveat**: a known sharp edge in our own design.
 
-No bot or skill lists the notes it reads. While a run works, accepted notes that match what it is
-doing are surfaced into it (see [Context](/docs/context#surfacing)), and every run can search them
+No bot or skill lists the notes it reads. A run that recalls gets the accepted notes that match its
+task surfaced into it (see [Context](/docs/context#surfacing)), and every run can search them
 with `notes_search`. A note's `status` is `proposed`, `accepted`, `superseded` or `retired`; only
 accepted notes are surfaced. A note can name the `check` that enforces it, which is how it earns
 teeth (see the correction ladder in [The loop](/docs/loop)).
@@ -80,13 +80,12 @@ reviewed, and only notes reach every bot.
 | ------------------ | --------------------------- | -------------------------------------------------------------- |
 | **note**           | `notes/` in the repository  | every run, surfaced when relevant or by `notes_search`         |
 | **run summary**    | `runs/<id>/summaries.jsonl` | later runs within their bot's `history`, surfaced or by search |
-| **run memory**     | `runs/<id>/memory.md`       | humans                                                         |
 | **transcript**     | `runs/<id>/home/`           | humans only                                                    |
 | **harness memory** | the harness's own files     | the job's next run with `resume: session`, otherwise nobody    |
 
-A run summary is one line per message and tool call, written after every run. Run memory is a
-short record of the run: tools used, checks that failed and why, what was proposed and what
-landed. A retry gets the failing check findings, and with `resume: summary` a summary of the
+A run summary is one line per step that matters, written after every run: messages, failed
+calls, what changed in each file, the last run of each command, and at the end how the run went,
+what it proposed, what landed and which checks failed and why. A retry gets the failing check findings, and with `resume: summary` a summary of the
 attempt before it. Harnesses like opencode keep their own memory files; bothub starts every run
 from a clean home, apart from the session a `resume: session` bot continues, and a check can refuse
 a change that writes them into the repository.

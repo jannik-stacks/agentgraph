@@ -197,7 +197,9 @@ const attempts = (
       const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
       const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
       const validated = validate(extracted.proposals, allowance, job.mode);
-      const replies = extracted.proposals.flatMap(proposal => (proposal.kind === 'reply' ? [proposal.body] : []));
+      const replies = extracted.proposals.flatMap(proposal =>
+        proposal.kind === 'reply' || proposal.kind === 'merge-request' ? [proposal.body] : []
+      );
       const a: Attempt = {
         planned,
         job,

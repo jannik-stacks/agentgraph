@@ -107,7 +107,10 @@ describe('opencode', () => {
 
   it("loads bothub's own plugins instead of --pure, and allows history only when the surfacer offers it", () => {
     const surfacer = { run: 'r1', bot: 'implementor', data: '/data', hub: '/hub' };
-    const decider = { questions: [{ on: 'tool_call' as const, ask: 'In scope?', say: 'out of scope' }] };
+    const decider = {
+      questions: [{ on: 'tool_call' as const, ask: 'In scope?', mode: 'log' as const }],
+      task: 'Fix it',
+    };
     const { args, env } = command({ ...spec, surfacer, decider });
     const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? '');
     expect(config.plugin).toEqual([
@@ -118,9 +121,27 @@ describe('opencode', () => {
     expect(args).not.toContain('--pure');
     expect(config).toMatchObject({ share: 'disabled', compaction: { auto: false } });
     expect(JSON.parse(env.OPENCODE_PERMISSION ?? '').history).toBeUndefined();
-    const withHistory = command({ ...spec, surfacer: { ...surfacer, history: true }, decider: { questions: [] } });
+    const withHistory = command({
+      ...spec,
+      surfacer: { ...surfacer, history: true },
+      decider: { questions: [], task: '' },
+    });
     expect(JSON.parse(withHistory.env.OPENCODE_PERMISSION ?? '').history).toBe('allow');
     expect(JSON.parse(withHistory.env.OPENCODE_CONFIG_CONTENT ?? '').plugin).toHaveLength(1);
+  });
+
+  it('recalls on a new session only, never again on a resumed one', () => {
+    const surfacer = { run: 'r1', bot: 'implementor', data: '/data', hub: '/hub', recall: { query: 'Fix fees' } };
+    const options = (session?: { id: string; home: string }) =>
+      JSON.parse(command({ ...spec, surfacer, ...(session && { session }) }).env.OPENCODE_CONFIG_CONTENT ?? '')
+        .plugin[0][1];
+    expect(options().recall).toEqual({ query: 'Fix fees' });
+    expect(options({ id: 'ses_1', home: '/home' })).toEqual({
+      run: 'r1',
+      bot: 'implementor',
+      data: '/data',
+      hub: '/hub',
+    });
   });
 
   it('denies everything without tools and falls back to the default alias', () => {

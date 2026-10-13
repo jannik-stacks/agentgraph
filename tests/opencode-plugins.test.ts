@@ -1,13 +1,14 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { opencode } from '../src/harnesses/opencode.ts';
-import deciderPlugin, { decider, type DeciderQuestion } from '../src/harnesses/opencode-decider.ts';
+import deciderPlugin, { decider } from '../src/harnesses/opencode-decider.ts';
 import surfacerPlugin, { surfacer, type SurfacerOptions } from '../src/harnesses/opencode-surfacer.ts';
 import type { EventRecord } from '../src/store.ts';
+import type { DeciderQuestion } from '../src/schema.ts';
 import type { SummaryRecord } from '../src/summaries.ts';
 import type { AgentEvent } from '../src/types.ts';
 
@@ -44,7 +45,10 @@ const serve = async (handle: (body: unknown, req: IncomingMessage, res: ServerRe
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 };
 
-type Systemone = { state: string; questions: Record<string, { instructions: string }> };
+type Systemone = {
+  state: string;
+  questions: Record<string, { instructions: string }>;
+};
 
 /** A fake decision model on `/v1/systemone`: `score` gives the probability of yes for each question. */
 const fakeTev = async (score: (instructions: string, state: string) => number) => {
@@ -64,16 +68,29 @@ const fakeTev = async (score: (instructions: string, state: string) => number) =
   return { url, requests };
 };
 
-type ChatRequest = { model: string; messages: { role: string; content: string }[] };
+type ChatRequest = {
+  model: string;
+  messages: { role: string; content: string }[];
+};
 
-/** A fake chat endpoint: answers every question id in the user message with `p`. */
-const fakeChat = async (p: number) => {
+/** A fake chat endpoint: answers every question in the user message with `p`, or what `p` gives its text. */
+const fakeChat = async (p: number | ((question: string) => number)) => {
   const requests: (ChatRequest & { authorization?: string })[] = [];
   const url = await serve((body, req) => {
     const request = body as ChatRequest;
-    requests.push({ ...request, ...(req.headers.authorization && { authorization: req.headers.authorization }) });
-    const ids = [...request.messages[1]!.content.matchAll(/^(\w+): /gm)].map(m => m[1]!);
-    return { choices: [{ message: { content: JSON.stringify(Object.fromEntries(ids.map(id => [id, p]))) } }] };
+    requests.push({
+      ...request,
+      ...(req.headers.authorization && {
+        authorization: req.headers.authorization,
+      }),
+    });
+    const answers = request.messages[1]!.content.split(/^(?=\w+: )/m)
+      .map(q => /^(\w+): ([\s\S]*)/.exec(q))
+      .filter(m => m !== null)
+      .map(([, id, text]) => [id, typeof p === 'number' ? p : p(text!)]);
+    return {
+      choices: [{ message: { content: JSON.stringify(Object.fromEntries(answers)) } }],
+    };
   });
   return { url, requests };
 };
@@ -94,7 +111,12 @@ const summary = (run: string, from: number, to: number, kind: SummaryRecord['kin
   by: 'extractive',
 });
 
-const runs: { id: string; bot: string; archived?: number; summaries: SummaryRecord[] }[] = [
+const runs: {
+  id: string;
+  bot: string;
+  archived?: number;
+  summaries: SummaryRecord[];
+}[] = [
   {
     id: 'r-fees',
     bot: 'implementor',
@@ -161,139 +183,150 @@ const fixture = async () => {
     await mkdir(join(hub, path, '..'), { recursive: true });
     await writeFile(join(hub, path), text);
   }
-  const summaries = join(await mkdtemp(join(tmpdir(), 'surfacer-home-')), '.bothub', 'summaries.jsonl');
-  return { data, hub, summaries };
+  return { data, hub };
 };
 
 const scores = {
   FeeEstimateError: 0.92,
   'Amounts are bigint': 0.85,
-  'middle dots': 0.6,
+  'middle dots': 0.2,
   'sleep loop': 0.99,
-  'Retry FeeEstimateError': 0.99,
 };
 
 type Hooks = Awaited<ReturnType<typeof surfacer>>;
 
-const start = async (options: Partial<SurfacerOptions> & { url?: string } = {}) => {
+const task = 'Fix the fee estimation crash: FeeEstimateError when fees are numbers, fees should be bigint amounts';
+
+const start = async (options: Partial<SurfacerOptions> = {}) => {
   const files = await fixture();
-  const { url = (await fakeTev(keywords(scores))).url, ...rest } = options;
-  const hooks = await surfacer({}, { run: 'r-now', bot: 'implementor', ...files, decide: { url }, ...rest });
+  const hooks = await surfacer({}, { run: 'r-now', bot: 'implementor', scope: 'bot', ...files, ...options });
   return { hooks, files };
 };
 
-const turn = async (hooks: Hooks, text: string, sessionID = 's1') => {
-  await hooks['chat.message']({ sessionID }, { parts: [{ type: 'text', text }] });
+const shown = async (hooks: Hooks) => {
   const system: string[] = [];
-  await hooks['experimental.chat.system.transform']({ sessionID }, { system });
+  await hooks['experimental.chat.system.transform']({ sessionID: 's1' }, { system });
   return system;
 };
 
-const task = 'Fix the fee estimation crash: FeeEstimateError when fees are numbers, fees should be bigint amounts';
+const headings = (block = '') => [...block.matchAll(/^### ([^\s:]+)/gm)].map(m => m[1]);
 
 describe('surfacer plugin', () => {
   it('is an opencode v1 server plugin', () => {
     expect(surfacerPlugin).toEqual({ id: 'bothub-surfacer', server: surfacer });
   });
 
-  it('surfaces the summaries and accepted notes the decision model keeps, with their source ids', async () => {
-    const { hooks } = await start();
-    const [block, ...rest] = await turn(hooks, task);
+  it('shows the best summaries and accepted notes for the task in full, and the tools to read more', async () => {
+    const { hooks } = await start({ recall: { query: task } });
+    const [block, ...rest] = await shown(hooks);
     expect(rest).toEqual([]);
-    expect(block).toMatch(/^Possibly relevant/);
-    const ids = [...block!.matchAll(/^- \[([^\]]+)\]/gm)].map(m => m[1]);
-    expect(ids).toEqual(['r-fees#2-3', 'notes/decision/bigint-amounts.md']);
-    expect(block).toContain('FeeEstimateError fee must be a bigint');
-    expect(block).not.toContain('middle dots');
+    expect(block).toMatch(/^## Hub notes and earlier runs for this task/);
+    expect(block).toContain('`notes_get`');
+    expect(block).toContain('`notes_search`');
+    expect(block).not.toContain('`history`');
+    expect(headings(block)).toContain('r-fees#2-3');
+    expect(block).toContain('### decision/bigint-amounts: Amounts are bigint\nFees, amounts and nonces are bigint.');
     expect(block).not.toContain('r-private');
     expect(block).not.toContain('Retry FeeEstimateError');
+    expect(await shown(hooks)).toEqual([block]);
   });
 
-  it('judges candidates with a chat model through the LLM endpoint when the decide model is an alias', async () => {
+  it('shows nothing and asks nothing without a recall query', async () => {
     const chat = await fakeChat(0.9);
-    const { hooks } = await start({ decide: { url: offline, model: 'luna' }, llm: { url: chat.url } });
-    const [block] = await turn(hooks, task);
-    expect(block).toMatch(/^Possibly relevant/);
+    const { hooks } = await start({ llm: { url: chat.url } });
+    expect(await shown(hooks)).toEqual([]);
+    expect(recalls()).toEqual([]);
+    expect(chat.requests).toEqual([]);
+  });
+
+  it('drops what the judge scores under the cutoff', async () => {
+    const chat = await fakeChat(keywords(scores));
+    const { hooks } = await start({
+      recall: { query: task, judge: 'luna' },
+      llm: { url: chat.url },
+    });
+    const [block] = await shown(hooks);
     expect(chat.requests).toMatchObject([{ model: 'luna' }]);
+    expect(headings(block)).toContain('r-fees#2-3');
+    expect(block).not.toContain('middle dots');
   });
 
-  it('keeps the block within the token budget, best first', async () => {
-    const { hooks } = await start({ budget: 40 });
-    const [block] = await turn(hooks, task);
-    expect([...block!.matchAll(/^- \[([^\]]+)\]/gm)].map(m => m[1])).toEqual(['r-fees#2-3']);
-  });
-
-  it('never adds the same hit twice in one session and stops asking about it', async () => {
-    const tev = await fakeTev(keywords(scores));
-    const { hooks } = await start({ url: tev.url });
-    const first = await turn(hooks, task);
-    const second = await turn(hooks, 'Still FeeEstimateError after the change, fees and bigint amounts again');
-    expect(second).toEqual(first);
-    expect(first[0]!.match(/r-fees#2-3/g)).toHaveLength(1);
-    const asked = (i: number) => Object.values(tev.requests[i]!.questions).map(q => q.instructions);
-    expect(asked(0).some(q => q.includes('FeeEstimateError fee must be a bigint'))).toBe(true);
-    expect(asked(1).some(q => q.includes('FeeEstimateError fee must be a bigint'))).toBe(false);
-    const other = await turn(hooks, task, 's2');
-    expect(other).toEqual(first);
-  });
-
-  it('adds nothing when no candidate passes the cutoff or the model cannot judge', async () => {
-    const quiet = await start({ url: (await fakeTev(() => 0.1)).url });
-    expect(await turn(quiet.hooks, task)).toEqual([]);
-    const down = await start({ url: offline, decide: { url: offline, timeoutMs: 2000 } });
-    expect(await turn(down.hooks, task)).toEqual([]);
-    const unrelated = await start();
-    expect(await turn(unrelated.hooks, 'Rename the CLI flag --verbose')).toEqual([]);
-    const none: string[] = [];
-    await unrelated.hooks['experimental.chat.system.transform']({ sessionID: 'never' }, { system: none });
-    await unrelated.hooks['experimental.chat.system.transform']({}, { system: none });
-    expect(none).toEqual([]);
+  it('keeps the block within the token budget', async () => {
+    const { hooks } = await start({ recall: { query: task, budget: 40 } });
+    expect(headings((await shown(hooks))[0])).toHaveLength(1);
   });
 
   it('never surfaces an archived path, however well it scores', async () => {
-    const { hooks } = await start();
-    const block = (await turn(hooks, 'The nonce gap is back; last time a sleep loop around nonce fixed it')).join('\n');
+    const { hooks } = await start({
+      recall: {
+        query: 'The nonce gap is back; a sleep loop around nonce fixed it',
+      },
+    });
+    const block = (await shown(hooks)).join('\n');
     expect(block).not.toContain('sleep loop');
     expect(block).not.toContain('r-arch#2-3');
+  });
+
+  it('names the history tool when the bot has it', async () => {
+    const { hooks } = await start({ recall: { query: task }, history: true });
+    expect((await shown(hooks))[0]).toContain('`history`');
   });
 });
 
 describe('surfacer events', () => {
-  it('reports every candidate of a turn with its score, what it surfaced and what the cutoff and budget cut', async () => {
-    const { hooks } = await start({ budget: 40 });
-    await turn(hooks, task);
+  it('reports every candidate with its score, what it surfaced and what the cutoff and budget cut', async () => {
+    const chat = await fakeChat(keywords(scores));
+    const { hooks } = await start({
+      recall: { query: task, judge: 'luna', budget: 40 },
+      llm: { url: chat.url },
+    });
+    await shown(hooks);
     const [event, ...more] = recalls();
     expect(more).toEqual([]);
     expect(event).toMatchObject({ type: 'recall', on: 'turn', query: task });
     const fates = Object.fromEntries(event!.items.map(i => [i.pointer, i.fate]));
-    expect(fates).toMatchObject({
-      'r-fees#2-3': 'surfaced',
-      'notes/decision/bigint-amounts.md': 'budget',
-      'r-fees#4-4': 'cutoff',
-    });
+    expect(Object.values(fates).filter(f => f === 'surfaced')).toHaveLength(1);
+    expect(Object.values(fates)).toContain('budget');
+    expect(fates['r-docs#0-0']).toBe('cutoff');
     expect(Object.keys(fates)).not.toContain('r-private#0-1');
     const surfaced = event!.items.find(i => i.fate === 'surfaced')!;
-    expect(surfaced).toMatchObject({ kind: 'summary', p: 0.92 });
+    expect(surfaced.p).toBeGreaterThanOrEqual(0.5);
     expect(surfaced.score).toBeGreaterThan(0);
-    expect(surfaced.tokens).toBeGreaterThan(0);
     expect(event!.tokens).toBe(surfaced.tokens);
-    const note = event!.items.find(i => i.pointer === 'notes/decision/bigint-amounts.md')!;
-    expect(note).toMatchObject({ kind: 'note', title: 'Amounts are bigint', p: 0.85 });
+    expect(event!.items.find(i => i.pointer === 'decision/bigint-amounts')).toMatchObject({
+      kind: 'note',
+      title: 'Amounts are bigint',
+      p: 0.85,
+    });
   });
 
-  it('reports a turn whose candidates no model could judge, with the error', async () => {
-    const { hooks } = await start({ url: offline, decide: { url: offline, timeoutMs: 2000 } });
-    expect(await turn(hooks, task)).toEqual([]);
+  it('falls back to the search order when the judge is down, and says why', async () => {
+    const { hooks } = await start({
+      recall: { query: task, judge: 'luna' },
+      llm: { url: offline },
+    });
+    expect(headings((await shown(hooks))[0]).length).toBeGreaterThan(0);
     const [event] = recalls();
-    expect(event!.tokens).toBe(0);
     expect(event!.error).toBeTruthy();
-    expect(event!.items.length).toBeGreaterThan(0);
-    expect(new Set(event!.items.map(i => i.fate))).toEqual(new Set(['unjudged']));
+    expect(event!.tokens).toBeGreaterThan(0);
+  });
+
+  it('reports a hub that does not load instead of surfacing nothing in silence', async () => {
+    const { hooks, files } = await start();
+    await writeFile(join(files.hub, 'notes/decision/broken.md'), '---\ntitle: [unclosed\n---\nBody.\n');
+    const broken = await surfacer({}, { run: 'r-now', bot: 'implementor', ...files, recall: { query: task } });
+    expect(await shown(broken)).toEqual([]);
+    expect(await shown(hooks)).toEqual([]);
+    const [event] = recalls();
+    expect(event).toMatchObject({ on: 'turn', tokens: 0, items: [] });
+    expect(event!.error).toMatch(/the hub does not load/);
   });
 
   it('reports each history call with what it returned', async () => {
     const { hooks } = await start({ history: true });
-    const out = await hooks.tool!.history.execute({ query: 'FeeEstimateError' });
+    const out = await hooks.tool!.history.execute({
+      query: 'FeeEstimateError',
+    });
     await hooks.tool!.history.execute({ query: 'r-fees' });
     const [search, read] = recalls();
     expect(search).toMatchObject({ on: 'history', query: 'FeeEstimateError' });
@@ -329,100 +362,81 @@ describe('history tool', () => {
   });
 });
 
-describe('live summaries', () => {
-  const lines = async (file: string) =>
-    (await readFile(file, 'utf8').catch(() => ''))
-      .split('\n')
-      .filter(Boolean)
-      .map(l => JSON.parse(l) as SummaryRecord);
-
-  it('writes one extractive line per assistant message and tool call', async () => {
-    const { hooks, files } = await start();
-    await hooks['experimental.text.complete']({}, { text: 'Reading the fee module first.\nThen `estimateFee`.' });
-    await hooks['experimental.text.complete']({}, { text: '  ' });
-    await hooks['tool.execute.after'](
-      { tool: 'bash', callID: 'c1', args: { command: 'npm test' } },
-      { output: 'FeeEstimateError: fee must be a bigint\n' }
-    );
-    await hooks.dispose();
-    expect((await lines(files.summaries)).map(r => [r.id, r.kind, r.line])).toEqual([
-      ['r-now:live:0', 'text', 'text: Reading the fee module first. [`estimateFee`]'],
-      ['r-now:live:1', 'tool', 'tool bash command=npm test: ok, FeeEstimateError: fee must be a bigint'],
-    ]);
-  });
-
-  it('writes nothing when summaries are off', async () => {
-    const { hooks, files } = await start({ summarizer: 'off' });
-    await hooks['experimental.text.complete']({}, { text: 'done' });
-    await hooks.dispose();
-    expect(await lines(files.summaries)).toEqual([]);
-  });
-
-  it('adds a model line in the background without holding up the turn', async () => {
-    let release = () => {};
-    const gate = new Promise<void>(done => (release = done));
-    const llm = await serve(async () => {
-      await gate;
-      return { choices: [{ message: { content: 'tool: npm test failed on FeeEstimateError (fees, bigint)' } }] };
-    });
-    const { hooks, files } = await start({
-      summarizer: { mode: 'model', model: 'small', 'max-bytes': 64 },
-      llm: { url: llm },
-    });
-    await hooks['tool.execute.after'](
-      { tool: 'bash', callID: 'c1', args: { command: 'npm test' } },
-      { output: 'x'.repeat(500) }
-    );
-    await hooks.dispose();
-    expect((await lines(files.summaries)).map(r => r.by)).toEqual(['extractive']);
-    release();
-    await expect
-      .poll(async () => (await lines(files.summaries)).map(r => r.by), { timeout: 5000 })
-      .toEqual(['extractive', 'small']);
-    const [, model] = await lines(files.summaries);
-    expect(model?.id).toBe('r-now:live:0');
-  });
-});
-
 const inScope: DeciderQuestion = {
   on: 'tool_call',
   tools: ['bash'],
   ask: 'Does this command stay inside the task?',
+  mode: 'act',
+  threshold: 0.5,
   say: 'that command is outside the task.',
 };
 const claimed: DeciderQuestion = {
   on: 'stop',
   ask: 'If the message says tests pass, were the tests run?',
+  mode: 'act',
+  threshold: 0.5,
   say: 'you said the tests pass without running them; run them or say they were not run.',
 };
 const readBack: DeciderQuestion = {
   on: 'tool_result',
   ask: 'Did the command succeed?',
+  mode: 'act',
+  threshold: 0.5,
   say: 'that command failed; read the error before going on.',
+};
+const inBrief: DeciderQuestion = {
+  on: 'tool_call',
+  tools: ['edit'],
+  ask: 'Is the file one the task names?',
+  mode: 'log',
 };
 
 /** Yes for states that mention every word in `safe`, no otherwise. */
 const judging = (safe: string[]) => (_: string, state: string) => (safe.every(w => state.includes(w)) ? 0.9 : 0.1);
 
-const startDecider = async (questions: DeciderQuestion[], url: string) => {
-  const hooks = await decider({}, { questions, decide: { url, timeoutMs: 2000 } });
-  await hooks['chat.message'](
-    { sessionID: 's' },
-    { parts: [{ type: 'text', text: 'Fix the fee rounding in src/fees.ts' }] }
+const startDecider = (questions: DeciderQuestion[], url: string) =>
+  decider(
+    {},
+    {
+      questions,
+      task: 'Fix the fee rounding in src/fees.ts',
+      decide: { url, timeoutMs: 2000 },
+    }
   );
-  await hooks['chat.message']({ sessionID: 's' }, { parts: [{ type: 'text', text: 'later message' }] });
-  return hooks;
-};
 
-const call = (hooks: Awaited<ReturnType<typeof decider>>, tool: string, args: unknown) =>
-  hooks['tool.execute.before']({ tool, sessionID: 's' }, { args });
+const call = (hooks: Awaited<ReturnType<typeof decider>>, tool: string, args: unknown, callID = 'c1') =>
+  hooks['tool.execute.before']({ tool, callID }, { args });
+
+const decisions = () =>
+  printed
+    .flatMap(line => opencode.parseLine(line.trimEnd()))
+    .filter((e): e is Extract<AgentEvent, { type: 'decision' }> => e.type === 'decision');
 
 describe('decider plugin', () => {
   it('is an opencode v1 server plugin', () => {
     expect(deciderPlugin).toEqual({ id: 'bothub-decider', server: decider });
   });
 
-  it('denies a tool call below the threshold with the reason the model sees, and allows one above it', async () => {
+  it('only records the answer of a log question, with the tool call it was about', async () => {
+    const tev = await fakeTev(() => 0.1);
+    const hooks = await startDecider([inBrief], tev.url);
+    await expect(call(hooks, 'edit', { filePath: 'src/other.ts' }, 'call-7')).resolves.toBeUndefined();
+    expect(decisions()).toEqual([
+      {
+        type: 'decision',
+        on: 'tool_call',
+        ask: inBrief.ask,
+        tool: 'edit',
+        call: 'call-7',
+        p: 0.1,
+        acted: false,
+      },
+    ]);
+    expect(tev.requests[0]!.state).toMatch(/^The agent wants to call edit with:\n\{"filePath":"src\/other.ts"\}/);
+    expect(tev.requests[0]!.state).toContain('Task:\nFix the fee rounding in src/fees.ts');
+  });
+
+  it('denies an act tool call below its threshold with the reason the model sees, and allows one above it', async () => {
     const tev = await fakeTev(judging(['npm test']));
     const hooks = await startDecider([inScope], tev.url);
     await expect(call(hooks, 'bash', { command: 'npm test' })).resolves.toBeUndefined();
@@ -431,32 +445,22 @@ describe('decider plugin', () => {
     );
     await expect(call(hooks, 'read', { filePath: 'src/fees.ts' })).resolves.toBeUndefined();
     expect(tev.requests).toHaveLength(2);
-    expect(tev.requests[1]!.state).toContain('Task:\nFix the fee rounding in src/fees.ts\n');
-    expect(tev.requests[1]!.state).not.toContain('later message');
+    expect(decisions().map(d => [d.p, d.threshold, d.acted])).toEqual([
+      [0.9, 0.5, false],
+      [0.1, 0.5, true],
+    ]);
   });
 
-  it('honours a per-question threshold', async () => {
-    const tev = await fakeTev(() => 0.6);
-    const strict = await startDecider([{ ...inScope, threshold: 0.7 }], tev.url);
-    await expect(call(strict, 'bash', { command: 'ls' })).rejects.toThrow('outside the task');
-    const lenient = await startDecider([inScope], tev.url);
-    await expect(call(lenient, 'bash', { command: 'ls' })).resolves.toBeUndefined();
-  });
-
-  it('denies when the model is unreachable, unless the question says to skip', async () => {
+  it('never acts when the model cannot answer, and records why', async () => {
     const down = await startDecider([inScope, claimed, readBack], offline);
-    await expect(call(down, 'bash', { command: 'npm test' })).rejects.toThrow('outside the task');
+    await expect(call(down, 'bash', { command: 'npm test' })).resolves.toBeUndefined();
     const result = { output: 'ok' };
-    await down['tool.execute.after']({ tool: 'bash', sessionID: 's', callID: 'c', args: {} }, result);
-    expect(result.output).toBe('ok');
+    await down['tool.execute.after']({ tool: 'bash', callID: 'c', args: {} }, result);
     const message = { text: 'All tests pass.' };
-    await down['experimental.text.complete']({ sessionID: 's' }, message);
-    expect(message.text).toBe('All tests pass.');
-    const skipping = await startDecider([{ ...inScope, unreachable: 'skip' }], offline);
-    await expect(call(skipping, 'bash', { command: 'npm test' })).resolves.toBeUndefined();
-    const acting = await startDecider([{ ...claimed, unreachable: 'act' }], offline);
-    await acting['experimental.text.complete']({ sessionID: 's' }, message);
-    expect(message.text).toContain('[bothub] you said the tests pass');
+    await down['experimental.text.complete']({}, message);
+    expect([result.output, message.text]).toEqual(['ok', 'All tests pass.']);
+    expect(decisions()).toHaveLength(3);
+    expect(decisions().every(d => !d.acted && d.p === undefined && d.error?.startsWith('decide:'))).toBe(true);
   });
 
   it('nudges after a tool result and on a final message only when the answer is no', async () => {
@@ -465,32 +469,28 @@ describe('decider plugin', () => {
     );
     const hooks = await startDecider([claimed, readBack], tev.url);
     const claim = { text: 'Done. All tests pass.' };
-    await hooks['experimental.text.complete']({ sessionID: 's' }, claim);
+    await hooks['experimental.text.complete']({}, claim);
     expect(claim.text).toBe(
       'Done. All tests pass.\n\n[bothub] you said the tests pass without running them; run them or say they were not run.'
     );
-    const result = { output: '12 passed' };
-    await hooks['tool.execute.after'](
-      { tool: 'bash', sessionID: 's', callID: 'c', args: { command: 'npm test' } },
-      result
-    );
-    expect(result.output).toBe('12 passed');
+    const result = { output: 'Tests 12 passed' };
+    await hooks['tool.execute.after']({ tool: 'bash', callID: 'c', args: { command: 'npm test' } }, result);
+    expect(result.output).toBe('Tests 12 passed');
     const honest = { text: 'Done. All tests pass.' };
-    await hooks['experimental.text.complete']({ sessionID: 's' }, honest);
+    await hooks['experimental.text.complete']({}, honest);
     expect(honest.text).toBe('Done. All tests pass.');
-    const blank = { text: '  ' };
-    await hooks['experimental.text.complete']({ sessionID: 's' }, blank);
-    expect(tev.requests.at(-1)!.state).toContain('tool bash command=npm test: ok, 12 passed');
+    expect(tev.requests.at(-1)!.state).toContain('tool bash command=npm test: ok, Tests 12 passed');
   });
 
   it('asks nothing when no question applies', async () => {
     const tev = await fakeTev(() => 0.1);
-    const hooks = await decider({}, { questions: [inScope], decide: { url: tev.url } });
+    const hooks = await startDecider([inScope], tev.url);
     await call(hooks, 'read', {});
     const result = { output: 'x' };
-    await hooks['tool.execute.after']({ tool: 'read', sessionID: 'other', callID: 'c', args: {} }, result);
-    await hooks['experimental.text.complete']({ sessionID: 'other' }, { text: 'hi' });
+    await hooks['tool.execute.after']({ tool: 'read', callID: 'c', args: {} }, result);
+    await hooks['experimental.text.complete']({}, { text: 'hi' });
     expect(tev.requests).toEqual([]);
+    expect(decisions()).toEqual([]);
     expect(result.output).toBe('x');
   });
 
@@ -499,7 +499,12 @@ describe('decider plugin', () => {
     const chat = await fakeChat(0.1);
     const hooks = await decider(
       {},
-      { questions: [inScope], decide: { url: tev.url, model: 'luna' }, llm: { url: chat.url, apiKey: 'sk-run' } }
+      {
+        questions: [inScope],
+        task: 'Fix it',
+        decide: { url: tev.url, model: 'luna' },
+        llm: { url: chat.url, apiKey: 'sk-run' },
+      }
     );
     await expect(call(hooks, 'bash', { command: 'ls' })).rejects.toThrow('outside the task');
     expect(tev.requests).toEqual([]);
@@ -524,50 +529,64 @@ const countingTev = () =>
 const PLUGIN_CALLS = [
   {
     source: 'recall',
-    make: async () => turn((await start({ url: await countingTev() })).hooks, task),
+    make: async () => {
+      vi.stubEnv('BOTHUB_DECIDE_URL', await countingTev());
+      await shown((await start({ recall: { query: task, judge: 'tev1:0.8b' } })).hooks);
+      vi.unstubAllEnvs();
+    },
     expected: { model: 'tev1:0.8b', inputTokens: 50, direct: true },
   },
   {
     source: 'decider',
-    make: async () => call(await startDecider([inScope], await countingTev()), 'bash', { command: 'npm test' }),
+    make: async () =>
+      call(await startDecider([inScope], await countingTev()), 'bash', {
+        command: 'npm test',
+      }),
     expected: { model: 'tev1:0.8b', inputTokens: 50, direct: true },
-  },
-  {
-    source: 'summarizer',
-    make: async () => {
-      const llm = await serve(() => ({
-        choices: [{ message: { content: 'tool: npm test failed' } }],
-        usage: { prompt_tokens: 120, completion_tokens: 6 },
-      }));
-      const { hooks } = await start({
-        summarizer: { mode: 'model', model: 'small', 'max-bytes': 64 },
-        llm: { url: llm },
-      });
-      await hooks['tool.execute.after'](
-        { tool: 'bash', callID: 'c1', args: { command: 'npm test' } },
-        { output: 'x'.repeat(500) }
-      );
-    },
-    expected: { model: 'small', inputTokens: 120, outputTokens: 6 },
   },
 ] as const;
 
 const PLUGIN_LINES = [
   {
     name: 'a usage with a source',
-    event: { type: 'usage', inputTokens: 1, outputTokens: 1, source: 'decider' },
+    event: {
+      type: 'usage',
+      inputTokens: 1,
+      outputTokens: 1,
+      source: 'decider',
+    },
     kept: 1,
   },
-  { name: 'a usage without a source', event: { type: 'usage', inputTokens: 1, outputTokens: 1 }, kept: 0 },
+  {
+    name: 'a usage without a source',
+    event: { type: 'usage', inputTokens: 1, outputTokens: 1 },
+    kept: 0,
+  },
   {
     name: 'a usage posing as the harness',
-    event: { type: 'usage', inputTokens: 1, outputTokens: 1, source: 'harness' },
+    event: {
+      type: 'usage',
+      inputTokens: 1,
+      outputTokens: 1,
+      source: 'harness',
+    },
     kept: 0,
   },
   {
     name: 'a usage from an unknown source',
     event: { type: 'usage', inputTokens: 1, outputTokens: 1, source: 'other' },
     kept: 0,
+  },
+  {
+    name: 'a decision',
+    event: {
+      type: 'decision',
+      on: 'tool_call',
+      ask: 'In scope?',
+      p: 0.4,
+      acted: false,
+    },
+    kept: 1,
   },
   { name: 'an end', event: { type: 'end', ok: true }, kept: 0 },
 ];
@@ -578,12 +597,19 @@ describe('plugin model calls', () => {
     async ({ source, make, expected }) => {
       await make();
       await expect.poll(() => usages().length, { timeout: 5000 }).toBeGreaterThan(0);
-      expect(usages()[0]).toMatchObject({ type: 'usage', source, ms: expect.any(Number), ...expected });
+      expect(usages()[0]).toMatchObject({
+        type: 'usage',
+        source,
+        ms: expect.any(Number),
+        ...expected,
+      });
     }
   );
 
   it('reports a decision call that never answered as failed', async () => {
-    await call(await startDecider([inScope], offline), 'bash', { command: 'ls' }).catch(() => {});
+    await call(await startDecider([inScope], offline), 'bash', {
+      command: 'ls',
+    });
     expect(usages()).toMatchObject([{ source: 'decider', inputTokens: 0, error: true }]);
   });
 

@@ -14,7 +14,7 @@ import type { BotEvent } from '../types.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, issueEnv, runOnItem } from './checks.ts';
-import { continuing, saidSince } from './continue.ts';
+import { continuing, saidSince, sessionOf } from './continue.ts';
 import { closed, finish, remember, settle } from './landing.ts';
 import { type Worktree, defaultBranchFor, fanned, jobItems, proposalProblems, requestsEnv } from './attempt.ts';
 
@@ -306,8 +306,8 @@ const resumption = async ({ run, outcome }: Unfinished, planned: PlannedJob, p: 
 
 /**
  * The worktree with the job's earlier work on the issue picked up, unless it starts over or resolves a merge: resumed
- * when its last run stopped unfinished (see `unfinished`), otherwise continued when the worktree started at the job's
- * branch. Picked-up work is measured from where the branch forked, so the checks see the whole change.
+ * when its last run stopped unfinished (see `unfinished`), in that run's session with `resume: session`, otherwise
+ * continued when the worktree started at the job's branch. Picked-up work is measured from where the branch forked, so the checks see the whole change.
  */
 const picked = async (
   worktree: Worktree,
@@ -325,10 +325,11 @@ const picked = async (
     resume || !worktree.branch ? undefined : await continuing(planned, created, worktree.branch, bot?.resume, p);
   const section = resume ?? continued?.section;
   if (!section) return worktree;
+  const session = last && bot?.resume === 'session' ? await sessionOf(last.run, p) : continued?.session;
   const from = startOf(target, handoff, p);
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
-  return { ...worktree, base, resume: section, ...(continued?.session && { session: continued.session }) };
+  return { ...worktree, base, resume: section, ...(session && { session }) };
 };
 
 /**

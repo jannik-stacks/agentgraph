@@ -13,6 +13,7 @@ import type { PlannedJob } from '../dispatch.ts';
 import type { SurfacerOptions } from '../harnesses/opencode-surfacer.ts';
 import { mcpToolNames } from '../mcp-config.ts';
 import type { McpTool } from '../mcp.ts';
+import { recallQuery } from '../preload.ts';
 import {
   NoteKind,
   type Preload,
@@ -34,7 +35,7 @@ const examples: Record<ProposalKind, string> = {
   label: '{ "kind": "label", "add": ["bug"], "remove": ["needs-triage"] }',
   push: '{ "kind": "push", "branch": "<branch>", "files": ["src/changed.ts"] }',
   'merge-request':
-    '{ "kind": "merge-request", "title": "…", "body": "Closes #<issue>", "branch": "<branch>", "into": "<into>", "draft": true }',
+    '{ "kind": "merge-request", "title": "…", "body": "Closes #<issue>, or Part of #<issue> for one task of several", "branch": "<branch>", "into": "<into>", "draft": true }',
   merge: '{ "kind": "merge", "request": 12 }',
   note: '{ "kind": "note", "note": "style", "slug": "short-kebab-name", "title": "…", "body": "The note, in Markdown" }',
   hub: '{ "kind": "hub", "title": "…", "body": "Why", "files": [{ "path": "<hub file>", "content": "The whole new file" }] }',
@@ -140,11 +141,13 @@ const offeredTools = (tools: (McpTool | 'history')[]) =>
 type HubAccess = Partial<Pick<Pipeline, 'mcp' | 'hub' | 'data'>>;
 
 /**
- * The surfacer for an opencode run that preloads recall or may call `history`: accepted notes and the summaries of
- * earlier runs its bot may see, surfaced by relevance as it works. `run` is filled in when the run starts.
+ * The surfacer for an opencode run that preloads recall with a `query` to search with, or may call `history`:
+ * accepted notes and the summaries of earlier runs its bot may see, surfaced by relevance before its first turn. `run`
+ * is filled in when the run starts.
  */
-const surfacerFor = (config: Config, bot: Defined<Bot>, preload: Preload[], tools: HubTool[], access: HubAccess) => {
-  const recall = preload.map(recallOf).find(Boolean);
+const surfacerFor = (bot: Defined<Bot>, preload: Preload[], tools: HubTool[], access: HubAccess, query?: string) => {
+  const settings = preload.map(recallOf).find(Boolean);
+  const recall = settings && query?.trim() ? { ...settings, query } : undefined;
   const history = tools.includes('history');
   if (bot.harness !== 'opencode' || !access.hub || !access.data || (!recall && !history)) return;
   const options: SurfacerOptions = {
@@ -153,11 +156,8 @@ const surfacerFor = (config: Config, bot: Defined<Bot>, preload: Preload[], tool
     hub: access.hub,
     data: access.data,
     ...(bot.history && { scope: bot.history }),
-    ...(bot.summarizer && { summarizer: bot.summarizer }),
     ...(history && { history }),
-    ...(!recall && { surface: false }),
-    ...(recall?.cutoff !== undefined && { cutoff: recall.cutoff }),
-    ...(recall?.budget !== undefined && { budget: recall.budget }),
+    ...(recall && { recall }),
   };
   return options;
 };
@@ -165,7 +165,8 @@ const surfacerFor = (config: Config, bot: Defined<Bot>, preload: Preload[], tool
 /**
  * A bot's session. The system prompt holds, in order, the role, the `pinned` sections (the forced skill and the
  * task), the offered skills, the hub tools and what the run may return. Hub tools are served by `access.mcp`, with
- * `notes_add` when an opencode run may return notes; `history` and recall come from the surfacer.
+ * `notes_add` when an opencode run may return notes, and `notes_get` and `notes_search` when it recalls notes;
+ * `history` and recall come from the surfacer, which searches with `query`.
  */
 export const session = ({
   config,
@@ -174,10 +175,11 @@ export const session = ({
   target = {},
   prompt,
   cwd,
-  preload = ['recall'],
+  preload = [],
   tools = [],
   access = {},
   pinned = [],
+  query,
 }: {
   config: Config;
   bot: Defined<Bot>;
@@ -189,15 +191,19 @@ export const session = ({
   tools?: HubTool[];
   access?: HubAccess;
   pinned?: (string | undefined)[];
+  query?: string | undefined;
 }): RunSpec => {
   const notesTool = bot.harness === 'opencode' && returnKinds(returns).includes('note');
+  const surfacer = surfacerFor(bot, preload, tools, access, query);
   const served: McpTool[] = access.mcp
     ? [
-        ...tools.filter((tool): tool is Exclude<HubTool, 'history'> => tool !== 'history'),
-        ...(notesTool ? ['notes_add' as const] : []),
+        ...new Set([
+          ...tools.filter((tool): tool is Exclude<HubTool, 'history'> => tool !== 'history'),
+          ...(surfacer?.recall ? (['notes_get', 'notes_search'] as const) : []),
+          ...(notesTool ? ['notes_add' as const] : []),
+        ]),
       ]
     : [];
-  const surfacer = surfacerFor(config, bot, preload, tools, access);
   return {
     prompt,
     system: [
@@ -266,7 +272,8 @@ export const targetOf = (job: Job, at: Parameters<typeof renderBranch>[1], from?
 
 /**
  * The agent session for a planned job. The forced skill and any `preloaded` issue context are pinned in the system
- * prompt, so they hold for the whole run; the prompt is the event with the handed-off branch and pull request.
+ * prompt, so they hold for the whole run; the prompt is the event with the handed-off branch and pull request. Recall
+ * searches with the brief or the issue (see `recallQuery`), else the event's text. An opencode run asks the job's or else the bot's decider questions against the issue context, or the event without it.
  */
 export const buildSpec = ({
   config,
@@ -299,19 +306,22 @@ export const buildSpec = ({
   const prompt = eventContext(event, args, branch, handoff?.pr);
   const preload = effectivePreload(bot, job);
   const tools = effectiveTools(bot, job);
+  const questions = bot.harness === 'opencode' ? (job.decider ?? bot.decider) : undefined;
+  const spec = session({
+    config,
+    bot,
+    returns,
+    target,
+    prompt,
+    cwd,
+    preload,
+    tools,
+    access,
+    pinned: [`## Skill: ${skill.name}\n\n${skill.body}`, preloaded],
+    query: recallQuery(preloaded, workflow.name, job.needs) ?? (args || event.body),
+  });
   return {
-    spec: session({
-      config,
-      bot,
-      returns,
-      target,
-      prompt,
-      cwd,
-      preload,
-      tools,
-      access,
-      pinned: [`## Skill: ${skill.name}\n\n${skill.body}`, preloaded],
-    }),
+    spec: questions?.length ? { ...spec, decider: { questions, task: preloaded ?? prompt } } : spec,
     bot,
     job,
     returns,

@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import { accepted, issueContext, runContext } from '../src/preload.ts';
+import { accepted, issueContext, recallQuery, runContext } from '../src/preload.ts';
 import type { Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
 import { temp } from './kit.ts';
@@ -17,9 +17,9 @@ describe('runContext', () => {
     role: '',
   } as Bot;
 
-  it('recalls by default and narrows what the bot returns to the step', () => {
+  it('preloads nothing by default and narrows what the bot returns to the step', () => {
     expect(runContext({ bot })).toEqual({
-      preload: ['recall'],
+      preload: [],
       harnessTools: ['read'],
       hubTools: ['notes_search'],
       returns: ['reply', 'note', 'hub(notes/**)'],
@@ -113,5 +113,25 @@ describe('issueContext', () => {
     const issues = localIssues(dir, { repo: 'a/b' });
     expect(await issueContext(issues, event, ['issue'])).toBe('## Issue #6: Step\n\nState: open\n\nDo it.');
     expect(await issueContext(issues, { ...event, number: 99 }, ['issue'])).toBeUndefined();
+  });
+});
+
+describe('recallQuery', () => {
+  const issue = '## Issue #7: Task\n\nState: open\n\nDo it.';
+  const context = (job: string) =>
+    `${issue}\n\n### @bot at 2026-01-01\n\nTouch src/fees.ts only.\n\n<!-- bothub:e1/issue/${job}/reply-1 -->`;
+
+  it('searches with the brief of a job the step needs, without its marker', () => {
+    expect(recallQuery(context('triage'), 'issue', ['triage'])).toBe('Touch src/fees.ts only.');
+  });
+
+  it('falls back to the issue without a brief it needs', () => {
+    expect(recallQuery(context('review'), 'issue', ['triage'])).toBe(issue);
+    expect(recallQuery(context('triage'), 'issue', [])).toBe(issue);
+  });
+
+  it('has nothing to search with without the issue', () => {
+    expect(recallQuery(undefined, 'issue', ['triage'])).toBeUndefined();
+    expect(recallQuery('## Linked issues\n\nmore', 'issue', ['triage'])).toBeUndefined();
   });
 });

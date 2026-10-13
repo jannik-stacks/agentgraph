@@ -3,7 +3,6 @@ harness: opencode
 model: review
 tools: [read, grep, glob, notes_search]
 returns: [reply]
-preload: [recall]
 max-turns: 20
 budget: { runs-per-day: 450, minutes: 15 }
 human: seed hub, untraced

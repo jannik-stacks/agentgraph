@@ -9,15 +9,10 @@ export type Human = z.infer<typeof Human>;
 
 const human = Human.optional();
 
-export const Granularity = z.enum(['item', 'turn', 'run']);
-export type Granularity = z.infer<typeof Granularity>;
-
 const Settings = z.strictObject({
   mode: z.enum(['off', 'extractive', 'model']).default('extractive'),
   model: z.string().min(1).optional(),
-  granularity: z.union([Granularity, z.array(Granularity).min(1)]).default('item'),
   'max-bytes': z.number().int().min(64).max(4096).default(512),
-  prompt: z.string().min(1).optional(),
 });
 
 /**
@@ -123,18 +118,40 @@ export type NoteKind = z.infer<typeof NoteKind>;
 
 /**
  * Context rendered into a run before it starts: the triggering issue, its linked issues, and `recall`, which surfaces
- * accepted notes and past-run summaries by relevance while the bot works.
+ * the accepted notes and past-run summaries most relevant to the job's brief or issue before the first turn. A recall
+ * `judge` model drops the search hits it scores under `cutoff`; `budget` caps the tokens the surfaced text adds.
  */
 export const Preload = z.union([
   z.enum(['issue', 'links', 'recall']),
   z.strictObject({
     recall: z.strictObject({
+      judge: z.string().min(1).optional(),
       cutoff: z.number().min(0).max(1).optional(),
       budget: z.int().positive().optional(),
     }),
   }),
 ]);
 export type Preload = z.infer<typeof Preload>;
+
+/**
+ * A yes-or-no question the decider asks the decision model during an opencode run: before a tool call (`tool_call`),
+ * after one (`tool_result`) or on the bot's final message (`stop`), for the listed `tools` only when given. Yes means
+ * all is well. In `log` mode it only records the answer; in `act` mode an answer below `threshold` denies the tool
+ * call, or adds `say` to the tool result or message.
+ */
+export const DeciderQuestion = z
+  .strictObject({
+    on: z.enum(agentTriggers).extract(['tool_call', 'tool_result', 'stop']),
+    ask: z.string().min(1),
+    tools: z.array(z.string()).optional(),
+    mode: z.enum(['log', 'act']).default('log'),
+    threshold: z.number().min(0).max(1).optional(),
+    say: z.string().min(1).optional(),
+  })
+  .refine(q => q.mode === 'log' || (q.threshold !== undefined && q.say), {
+    message: 'mode act needs a "threshold" and a "say"; tune the threshold in log mode first',
+  });
+export type DeciderQuestion = z.infer<typeof DeciderQuestion>;
 
 /** Read-only tools a bot may be given: the bothub MCP server's, and `history` over earlier runs. */
 export const HubTool = z.enum(['issues_list', 'issues_get', 'notes_search', 'notes_get', 'runs_read', 'history']);
@@ -194,8 +211,9 @@ const unknownBotKeys = (keys: string[], input: unknown) => {
  * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any hub tools (see
  * `HubTool`) the bot may call during a run; `returns` is the most it may return, which a job can only narrow.
  * `resume` is what a new run or attempt starts with besides its task; `history` how far back `history` and recall
- * reach, `bot` by default. `concurrency` caps how many of the bot's sessions, jobs and checks together, run at once,
- * within the hub's own limit; unset, only that limit applies.
+ * reach, `issue` by default. `concurrency` caps how many of the bot's sessions, jobs and checks together, run at once,
+ * within the hub's own limit; unset, only that limit applies. `decider` lists the questions the decision model answers
+ * during the bot's opencode runs (see `DeciderQuestion`); a job's own `decider` replaces it.
  */
 export const Bot = z
   .strictObject(
@@ -209,6 +227,7 @@ export const Bot = z
       resume: Resume.optional(),
       history: History.optional(),
       summarizer: Summarizer.optional(),
+      decider: z.array(DeciderQuestion).optional(),
       'max-turns': z.int().positive().optional(),
       concurrency: z.int().positive().optional(),
       budget: z
@@ -353,6 +372,7 @@ export const Job = z.discriminatedUnion(
       until: z.strictObject({ checks: z.array(name).min(1), max: z.int().positive().default(2) }).optional(),
       preload: z.array(Preload).optional(),
       tools: z.array(HubTool).optional(),
+      decider: z.array(DeciderQuestion).optional(),
       ...jobEnd,
     }),
     variant('a script job', { type: z.literal('script'), ...jobStart, run: script, ...jobWrites, ...jobEnd }),

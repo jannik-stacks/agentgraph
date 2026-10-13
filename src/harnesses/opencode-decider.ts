@@ -1,123 +1,108 @@
-import { decide, defaultDecideModel, defaultDecideUrl, defaultThreshold } from '../decide.ts';
-import type { agentTriggers } from '../schema.ts';
+import { decide, defaultDecideModel, defaultDecideUrl } from '../decide.ts';
+import type { DeciderQuestion } from '../schema.ts';
 import { endpointOf, items, type Endpoint } from '../summaries.ts';
 import { markLoaded, report } from './opencode-surfacer.ts';
 
 /**
- * One yes-or-no question for the decision model at a hook point. Yes means all is well; below `threshold` the
- * decider acts with `say`: a `tool_call` is denied, a `tool_result` or `stop` gets a one-line nudge. `unreachable`
- * says what happens when the model cannot answer: `act` (the default for `tool_call`) or `skip` (for the others).
+ * What the decider plugin gets from bothub, as opencode plugin options: the questions, the `task` they are asked
+ * against, and where the decision model is. `llm` serves a chat decision model.
  */
-export type DeciderQuestion = {
-  on: Extract<(typeof agentTriggers)[number], 'tool_call' | 'tool_result' | 'stop'>;
-  ask: string;
-  say: string;
-  tools?: string[];
-  threshold?: number;
-  unreachable?: 'act' | 'skip';
-};
-
-/** What the decider plugin gets from bothub, as opencode plugin options. `llm` serves a chat decision model. */
 export type DeciderOptions = {
   questions: DeciderQuestion[];
+  task: string;
   decide?: { url?: string; model?: string; timeoutMs?: number };
   llm?: Endpoint;
 };
 
-type Part = { type: string; text?: string; synthetic?: boolean };
-type Session = { task: string; calls: string[] };
-
-const maxState = 6000;
-
-const clip = (text: string) =>
-  text.length > maxState ? `${text.slice(0, maxState / 2)}\n[…]\n${text.slice(-maxState / 2)}` : text;
-
 /**
- * opencode server plugin: asks the decision model its questions at tool calls, tool results and final messages, and
- * reports each model call as a `usage` event.
+ * opencode server plugin: asks the decision model its questions at tool calls, tool results and final messages,
+ * reports each answer as a `decision` event and each model call as a `usage` event, and acts only on questions in
+ * `act` mode. A model that cannot answer never acts.
  */
 export const decider = async (_input: unknown, raw?: Record<string, unknown>) => {
   const o = raw as DeciderOptions;
   await markLoaded(deciderId);
   const url = o.decide?.url ?? (process.env.BOTHUB_DECIDE_URL || defaultDecideUrl);
   const model = o.decide?.model ?? (process.env.BOTHUB_DECIDE_MODEL || defaultDecideModel);
-  const timeoutMs = o.decide?.timeoutMs ?? 20_000;
+  const timeoutMs = o.decide?.timeoutMs ?? 5_000;
   const llm = o.llm ?? endpointOf(process.env);
+  const calls: string[] = [];
 
-  const sessions = new Map<string, Session>();
-  const session = (id: string) => {
-    if (!sessions.has(id)) sessions.set(id, { task: '', calls: [] });
-    return sessions.get(id)!;
-  };
-
-  const asked = (on: DeciderQuestion['on'], tool?: string) =>
-    o.questions.filter(q => q.on === on && (!q.tools || (tool !== undefined && q.tools.includes(tool))));
-
-  /** The questions whose answer, or missing answer, calls for action. */
-  const judge = async (questions: DeciderQuestion[], state: string) => {
+  /** The questions asked at `on` for `tool` whose answer calls for action. */
+  const judge = async (on: DeciderQuestion['on'], state: string, tool?: string, call?: string) => {
+    const questions = o.questions.filter(
+      q => q.on === on && (!q.tools || (tool !== undefined && q.tools.includes(tool)))
+    );
     if (!questions.length) return [];
+    let answers: Record<string, { noul: number } | undefined> = {};
+    let error: string | undefined;
     try {
-      const answers = await decide({
+      answers = await decide({
         url,
         model,
         llm,
         timeoutMs,
         onUsage: usage => report({ ...usage, source: 'decider' }),
-        state: clip(state),
+        state: `${state}\n\nTask:\n${o.task}`,
         questions: Object.fromEntries(
           questions.map((q, i) => [`q${i}`, { type: 'noul' as const, instructions: q.ask }])
         ),
       });
-      return questions.filter((q, i) => answers[`q${i}`]!.noul < (q.threshold ?? defaultThreshold));
-    } catch {
-      return questions.filter(q => (q.unreachable ?? (q.on === 'tool_call' ? 'act' : 'skip')) === 'act');
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
     }
+    return questions.filter((q, i) => {
+      const p = answers[`q${i}`]?.noul;
+      const acted = q.mode === 'act' && p !== undefined && p < q.threshold!;
+      report({
+        type: 'decision',
+        on,
+        ask: q.ask,
+        ...(tool && { tool }),
+        ...(call && { call }),
+        ...(p !== undefined && { p }),
+        ...(q.threshold !== undefined && { threshold: q.threshold }),
+        acted,
+        ...(error && { error }),
+      });
+      return acted;
+    });
   };
 
   const nudge = (acted: DeciderQuestion[]) => acted.map(q => `\n\n[bothub] ${q.say}`).join('');
 
   return {
-    'chat.message': async ({ sessionID }: { sessionID: string }, { parts }: { parts: Part[] }) => {
-      const s = session(sessionID);
-      if (!s.task)
-        s.task = parts
-          .filter(p => p.type === 'text' && !p.synthetic)
-          .map(p => p.text ?? '')
-          .join('\n');
-    },
-    'tool.execute.before': async (
-      { tool, sessionID }: { tool: string; sessionID: string },
-      { args }: { args: unknown }
-    ) => {
-      const s = session(sessionID);
+    'tool.execute.before': async ({ tool, callID }: { tool: string; callID: string }, { args }: { args: unknown }) => {
       const acted = await judge(
-        asked('tool_call', tool),
-        `Task:\n${s.task}\n\nThe agent wants to call ${tool} with:\n${JSON.stringify(args, null, 2)}`
+        'tool_call',
+        `The agent wants to call ${tool} with:\n${JSON.stringify(args)}`,
+        tool,
+        callID
       );
       if (acted.length) throw new Error(`bothub denied this call: ${acted.map(q => q.say).join(' ')}`);
     },
     'tool.execute.after': async (
-      { tool, sessionID, callID, args }: { tool: string; sessionID: string; callID: string; args: unknown },
+      { tool, callID, args }: { tool: string; callID: string; args: unknown },
       result: { output: string }
     ) => {
-      const s = session(sessionID);
       const [item] = items([
         { ts: '', seq: 0, event: { type: 'tool_call', id: callID, tool, input: args } },
         { ts: '', seq: 1, event: { type: 'tool_result', id: callID, ok: true, output: result.output } },
       ]);
-      if (item) s.calls.push(item.line);
+      if (item) calls.push(item.line);
       const acted = await judge(
-        asked('tool_result', tool),
-        `Task:\n${s.task}\n\nThe agent called ${tool} with:\n${JSON.stringify(args, null, 2)}\n\nResult:\n${result.output}`
+        'tool_result',
+        `The agent called ${tool} with:\n${JSON.stringify(args)}\n\nResult:\n${result.output}`,
+        tool,
+        callID
       );
       result.output += nudge(acted);
     },
-    'experimental.text.complete': async ({ sessionID }: { sessionID: string }, output: { text: string }) => {
+    'experimental.text.complete': async (_: unknown, output: { text: string }) => {
       if (!output.text.trim()) return;
-      const s = session(sessionID);
       const acted = await judge(
-        asked('stop'),
-        `Task:\n${s.task}\n\nTool calls so far:\n${s.calls.join('\n') || 'none'}\n\nThe agent's message:\n${output.text}`
+        'stop',
+        `The agent's message:\n${output.text}\n\nTool calls so far:\n${calls.join('\n') || 'none'}`
       );
       output.text += nudge(acted);
     },

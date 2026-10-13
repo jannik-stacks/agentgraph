@@ -47,6 +47,7 @@ const event: BotEvent = {
   trigger: 'issue_comment',
   repo: 'acme/app',
   actor: { login: 'octocat', association: 'OWNER' },
+  body: 'Fix the fee estimate',
 };
 
 describe('studio step context', () => {
@@ -65,12 +66,15 @@ describe('studio step context', () => {
         const { spec } = built;
         expect(context!.returns).toEqual(built.returns);
         expect(context!.harnessTools).toEqual(spec.tools.filter(t => !t.startsWith('bothub_')));
-        expect(context!.hubTools.filter(t => t !== 'history')).toEqual(
-          spec.tools.filter(t => t.startsWith('bothub_') && t !== 'bothub_notes_add').map(t => t.slice(7))
-        );
+        expect([
+          ...new Set([
+            ...context!.hubTools.filter(t => t !== 'history'),
+            ...(spec.surfacer?.recall ? ['notes_get', 'notes_search'] : []),
+          ]),
+        ]).toEqual(spec.tools.filter(t => t.startsWith('bothub_') && t !== 'bothub_notes_add').map(t => t.slice(7)));
         const recalls = context!.preload.some(item => recallOf(item));
         const opencode = config.bots[job.bot]!.harness === 'opencode';
-        expect(spec.surfacer !== undefined && spec.surfacer.surface !== false).toBe(recalls && opencode);
+        expect(spec.surfacer?.recall !== undefined).toBe(recalls && opencode);
         expect(spec.system).not.toContain('## Notes');
       }
     expect(jobs).toBeGreaterThan(0);

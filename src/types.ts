@@ -1,7 +1,7 @@
 import type { DeciderOptions } from './harnesses/opencode-decider.ts';
 import type { SurfacerOptions } from './harnesses/opencode-surfacer.ts';
 import type { McpServer } from './mcp-config.ts';
-import type { Association, Harness, Trigger } from './schema.ts';
+import type { Association, DeciderQuestion, Harness, Trigger } from './schema.ts';
 import type { Source } from './usage.ts';
 
 /**
@@ -91,6 +91,21 @@ export type AgentEvent =
         tokens?: number;
         fate: 'surfaced' | 'cutoff' | 'budget' | 'unjudged' | 'returned';
       }[];
+      error?: string;
+    }
+  | {
+      /**
+       * One decider question answered at a hook point: `p` is the probability of yes, `call` the tool call it was
+       * about, and `acted` whether the answer denied the call or added a nudge. `error` when the model could not answer.
+       */
+      type: 'decision';
+      on: DeciderQuestion['on'];
+      ask: string;
+      tool?: string;
+      call?: string;
+      p?: number;
+      threshold?: number;
+      acted: boolean;
       error?: string;
     };
 

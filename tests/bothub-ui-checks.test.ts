@@ -407,7 +407,7 @@ describe('docs-sync check', () => {
 describe('unused-exports check', () => {
   it('fails an export no other file uses and passes one that is imported', () => {
     const repo = studioChange(
-      {},
+      { 'src/live.ts': '' },
       {
         'src/usage.ts': 'export const sum = (a: number) => a;\nexport const spare = 1;\n',
         'src/live.ts': "import { sum } from './usage.ts';\nexport const live = sum(1);\n",

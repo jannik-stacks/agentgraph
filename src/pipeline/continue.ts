@@ -3,7 +3,7 @@ import type { Comment } from '../issues.ts';
 import type { Pull } from '../pulls.ts';
 import type { Resume } from '../schema.ts';
 import type { Run, Store } from '../store.ts';
-import { items } from '../summaries.ts';
+import { readSummaries, summarizeEvents } from '../summaries.ts';
 import type { BotEvent, RunSpec } from '../types.ts';
 import { type Pipeline, issuesOf, pullsOf } from './context.ts';
 import { fenced } from './prompt.ts';
@@ -46,10 +46,19 @@ export const continuation = async (
 
 const earlierLines = 40;
 
-/** What a run did, one line per message and tool call, for a later run or attempt of a bot that resumes. */
+/**
+ * What a run did and how it ended, for a later run or attempt of a bot that resumes: its stored summaries, or, when
+ * it has none, the extractive summary of its events. The last lines win.
+ */
 export const attemptSummary = async (run: Run, p: Pipeline) => {
-  const lines = items(await p.store.events(run.id)).map(item => `- ${item.line}`);
-  return lines.slice(-earlierLines).join('\n') || undefined;
+  const stored = p.data ? await readSummaries(p.data, run.id) : [];
+  const records = stored.length ? stored : summarizeEvents(run.id, await p.store.events(run.id));
+  return (
+    records
+      .slice(-earlierLines)
+      .map(r => `- ${r.line}`)
+      .join('\n') || undefined
+  );
 };
 
 /** The harness session `run` recorded, with the home that holds it. */

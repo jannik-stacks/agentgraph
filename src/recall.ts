@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { parse } from 'yaml';
 import type { Config } from './config.ts';
-import { decide as askModel, defaultDecideModel, defaultDecideUrl } from './decide.ts';
+import { ask } from './decide.ts';
 import type { Issue } from './issues.ts';
 import { type Asker, type Origin, visible, type SummaryRecord } from './summaries.ts';
+import { tokensOf } from './usage.ts';
 
 /**
  * One searchable document: a note, an issue or a run summary. `pointer` says where the full text lives; a run
@@ -125,14 +126,14 @@ export const index = (docs: Doc[], words: Synonyms = new Map()) => {
 };
 export type Index = ReturnType<typeof index>;
 
-/** Accepted and proposed hub notes as documents. */
+/** Hub notes as documents; the pointer is `<kind>/<slug>`, what `notes_get` takes. */
 export const noteDocs = (notes: Config['notes']): Doc[] =>
   notes.map(n => ({
     id: `note:${n.kind}/${n.name}`,
     kind: 'note',
     title: n.title,
-    text: `${n.kind}\n${n.body}`,
-    pointer: `notes/${n.kind}/${n.name}.md`,
+    text: n.body,
+    pointer: `${n.kind}/${n.name}`,
   }));
 
 /** Issues with their comments as documents. */
@@ -160,84 +161,86 @@ export const summaryDocs = (records: (SummaryRecord & { origin: Origin })[]): Do
 export const allowedFor = (asker: Asker | undefined) => (doc: Doc) =>
   doc.kind !== 'summary' || (asker !== undefined && visible(asker, doc.origin ?? {}));
 
-/** The decision call recall uses; `decide` from decide.ts fits. */
-export type DecideFn = typeof askModel;
+/** How relevant each of `docs` is to `query`, from 0 to 1; a missing score leaves that document unjudged. */
+export type Judge = (query: string, docs: Doc[]) => Promise<(number | undefined)[]>;
 
-const estimateTokens = (text: string) => Math.ceil(text.length / 3.6);
-const maxTask = 4000;
-const maxCandidate = 1200;
-
-export type Recalled = { doc: Doc; score: number; p?: number };
-
-/** What became of a candidate: kept, below the cutoff, or over the token budget. */
-export type Weighed = Recalled & { fate: 'kept' | 'cutoff' | 'budget' };
-
-/**
- * Every candidate recall considers for `task`, with its fate: BM25 picks the `top` candidates the asking bot may
- * see, then the decision model keeps those it judges relevant at or above `cutoff`, best first, until `budget` tokens
- * are used. Without a reachable decision model the BM25 order is kept and `error` says why.
- */
-export const weigh = async ({
-  index: idx,
-  task,
-  query = task,
-  asker,
-  top = 20,
-  cutoff = 0.7,
-  budget = 2000,
-  decide = askModel,
-  url = defaultDecideUrl,
-  model = defaultDecideModel,
-}: {
-  index: Index;
-  task: string;
-  query?: string;
-  asker?: Asker;
-  top?: number;
-  cutoff?: number;
-  budget?: number;
-  decide?: DecideFn;
-  url?: string;
-  model?: string;
-}): Promise<{ weighed: Weighed[]; error?: string }> => {
-  const candidates = idx.search(query, { limit: Math.min(top, 64), keep: allowedFor(asker) });
-  if (!candidates.length) return { weighed: [] };
-  let ranked: Recalled[];
-  const below: Weighed[] = [];
-  let error: string | undefined;
-  try {
-    const answers = await decide({
-      url,
+/** A judge that asks `model` through `ask` whether each document names something specific to the task. */
+export const judgeWith =
+  (model: string, options: Omit<Parameters<typeof ask>[0], 'model' | 'state' | 'questions'> = {}): Judge =>
+  async (query, docs) => {
+    const answers = await ask({
+      ...options,
       model,
-      state: `Task:\n${task.slice(0, maxTask)}`,
+      state: `Task:\n${query}`,
       questions: Object.fromEntries(
-        candidates.map(({ doc }, i) => [
+        docs.map((doc, i) => [
           `c${i}`,
           {
             type: 'noul' as const,
-            instructions: `Would this ${doc.kind} help an agent doing the task?\n${doc.title}\n${doc.text.slice(0, maxCandidate)}`,
+            instructions: `Does this ${doc.kind} name a pitfall or rule specific to this task's code, beyond general advice that fits any change?\n${doc.title}\n${doc.text.slice(0, 1200)}`,
           },
         ])
       ),
     });
-    const judged = candidates.map((c, i) => ({ ...c, p: answers[`c${i}`]!.noul }));
-    ranked = judged.filter(c => c.p >= cutoff).sort((x, y) => y.p - x.p);
-    below.push(...judged.filter(c => c.p < cutoff).map(c => ({ ...c, fate: 'cutoff' as const })));
-  } catch (e) {
-    ranked = candidates;
-    error = (e as Error).message;
-  }
-  const weighed: Weighed[] = [];
-  let used = 0;
-  for (const hit of ranked) {
-    const cost = estimateTokens(`${hit.doc.title}\n${hit.doc.text}`);
-    const fits = used + cost <= budget;
-    if (fits) used += cost;
-    weighed.push({ ...hit, fate: fits ? 'kept' : 'budget' });
-  }
-  return { weighed: [...weighed, ...below], ...(error !== undefined && { error }) };
-};
+    return docs.map((_, i) => {
+      const answer = answers[`c${i}`];
+      return answer?.type === 'noul' ? answer.noul : undefined;
+    });
+  };
 
-/** The candidates `weigh` keeps, best first. */
-export const recall = async (options: Parameters<typeof weigh>[0]): Promise<Recalled[]> =>
-  (await weigh(options)).weighed.filter(w => w.fate === 'kept').map(({ fate: _, ...hit }) => hit);
+const maxLine = 1600;
+
+/** A recalled document as the bot reads it: its pointer and title, then its text, whole up to 1,600 characters. */
+export const lineOf = (doc: Doc) =>
+  `### ${doc.pointer}${doc.kind === 'summary' ? '' : `: ${doc.title}`}\n${doc.text.length > maxLine ? `${doc.text.slice(0, maxLine)}…` : doc.text}`;
+
+export type Recalled = { doc: Doc; score: number; p?: number };
+
+/** What became of a candidate: kept, judged below the cutoff, or past `top` or the token budget. */
+export type Weighed = Recalled & { fate: 'kept' | 'cutoff' | 'budget' };
+
+/**
+ * Every candidate recall considers for `query`, with its fate: BM25 picks the best eight the asker may see, a `judge`
+ * drops those it scores under `cutoff`, and the rest are kept in BM25 order up to `top` of them and `budget` tokens of
+ * their lines. A failing judge leaves every candidate unjudged and `error` says why.
+ */
+export const weigh = async ({
+  index: idx,
+  query,
+  asker,
+  judge,
+  top = 3,
+  cutoff = 0.5,
+  budget = 600,
+}: {
+  index: Index;
+  query: string;
+  asker?: Asker | undefined;
+  judge?: Judge | undefined;
+  top?: number | undefined;
+  cutoff?: number | undefined;
+  budget?: number | undefined;
+}): Promise<{ weighed: Weighed[]; error?: string }> => {
+  const candidates = idx.search(query, { limit: 8, keep: allowedFor(asker) });
+  let error: string | undefined;
+  const ps =
+    judge && candidates.length
+      ? await judge(
+          query,
+          candidates.map(c => c.doc)
+        ).catch((e: unknown) => ((error = e instanceof Error ? e.message : String(e)), []))
+      : [];
+  let used = 0;
+  let kept = 0;
+  const weighed = candidates.map((candidate, i): Weighed => {
+    const p = ps[i];
+    const hit = { ...candidate, ...(p !== undefined && { p }) };
+    if (p !== undefined && p < cutoff) return { ...hit, fate: 'cutoff' };
+    const cost = tokensOf(lineOf(candidate.doc).length + 1);
+    if (kept >= top || used + cost > budget) return { ...hit, fate: 'budget' };
+    kept++;
+    used += cost;
+    return { ...hit, fate: 'kept' };
+  });
+  return { weighed, ...(error !== undefined && { error }) };
+};

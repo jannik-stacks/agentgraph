@@ -59,7 +59,7 @@ export type Attempt = {
   item?: number;
   /** The branch tip a push replaces, when the job started over. */
   replace?: string;
-  /** What the attempt replied, for check scripts as `BOTHUB_REPLY`. */
+  /** What the attempt replied and the bodies of its merge requests, for check scripts as `BOTHUB_REPLY`. */
   reply?: string;
   /** A fan-out item's replies are collected here under its label instead of posted one by one. */
   fold?: { label: string; replies: Item[] };

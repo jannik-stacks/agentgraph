@@ -44,6 +44,12 @@ export const DecideRequest = z.strictObject({
 });
 export type DecideRequest = z.infer<typeof DecideRequest>;
 
+/** About 1,300 tokens of state, which leaves room for the questions in tev1:0.8b's 2,048-token context. */
+const maxState = 4_000;
+
+const fitted = (text: string) =>
+  text.length > maxState ? `${text.slice(0, maxState / 2)}\n[…]\n${text.slice(-maxState / 2)}` : text;
+
 const DecideResponse = z.object({
   answers: z.record(z.string(), Answer),
   usage: z.object({ input_tokens: z.number(), output_tokens: z.number() }).optional(),
@@ -52,7 +58,6 @@ const DecideResponse = z.object({
 
 export const defaultDecideUrl = 'http://127.0.0.1:11434';
 export const defaultDecideModel = 'tev1:0.8b';
-export const defaultThreshold = 0.5;
 
 type Answers<Q extends Record<string, Question>> = { [K in keyof Q]: Extract<Answer, { type: Q[K]['type'] }> };
 
@@ -156,52 +161,63 @@ const askDecisionApi = (url: string, timeoutMs: number, request: DecideRequest, 
 
 /**
  * Asks the decision model about `state`: Ollama's decision API (`/v1/systemone`) at the base URL `url`, or, for a
- * model without a `:tag` (see `viaChat`), the chat model at `llm`, which answers only `noul` questions. The model call,
- * failed or not, goes to `onUsage`.
+ * model without a `:tag` (see `viaChat`), the chat model at `llm`, which answers only `noul` questions. A text state
+ * longer than 4,000 characters keeps its head and tail. The model call, failed or not, goes to `onUsage`. A chat
+ * model's unreadable answers are left out.
  *
- * @throws when the request is invalid, the call times out, the server answers with an error, or an answer is missing.
- * @example
- * const { ok } = await decide({ url, model: 'tev1:0.8b', state: 'Message: fix typo', questions: { ok: { type: 'noul', instructions: 'Is the message exactly "update"?' } } });
- * ok.noul; // probability of yes
+ * @throws when the request is invalid, the call times out or the server answers with an error.
  */
-export const decide = async <Q extends Record<string, Question>>({
+export const ask = async ({
   url = defaultDecideUrl,
   llm,
   timeoutMs = 60_000,
   onUsage,
   ...request
-}: Omit<DecideRequest, 'questions'> & {
-  questions: Q;
+}: DecideRequest & {
   url?: string;
   llm?: Endpoint | undefined;
   timeoutMs?: number;
   onUsage?: ((usage: Usage) => void) | undefined;
-}): Promise<Answers<Q>> => {
-  const body = DecideRequest.safeParse(request);
+}): Promise<Partial<Record<string, Answer>>> => {
+  const body = DecideRequest.safeParse({
+    ...request,
+    state: typeof request.state === 'string' ? fitted(request.state) : request.state,
+  });
   if (!body.success) throw new Error(`decide: invalid request: ${z.prettifyError(body.error)}`);
-  const answers = viaChat(body.data.model)
-    ? await askChat(llm, timeoutMs, body.data, onUsage)
-    : await askDecisionApi(url, timeoutMs, body.data, onUsage);
+  return viaChat(body.data.model)
+    ? askChat(llm, timeoutMs, body.data, onUsage)
+    : askDecisionApi(url, timeoutMs, body.data, onUsage);
+};
+
+/**
+ * `ask`, with every question answered.
+ *
+ * @throws as `ask` does, and when an answer is missing.
+ * @example
+ * const { ok } = await decide({ url, model: 'tev1:0.8b', state: 'Message: fix typo', questions: { ok: { type: 'noul', instructions: 'Is the message exactly "update"?' } } });
+ * ok.noul; // probability of yes
+ */
+export const decide = async <Q extends Record<string, Question>>(
+  request: Parameters<typeof ask>[0] & { questions: Q }
+): Promise<Answers<Q>> => {
+  const answers = await ask(request);
   for (const [key, question] of Object.entries(request.questions)) {
     if (answers[key]?.type !== question.type) throw new Error(`decide: no ${question.type} answer for "${key}"`);
   }
   return answers as Answers<Q>;
 };
 
-const maxState = 16_000;
-
-const clipped = (text: string) => (text.length > maxState ? `${text.slice(0, maxState)}\n[truncated]` : text);
-
 /**
  * Asks the decision model one yes-or-no `question` about `state` and passes when the probability of yes is at or
- * above `threshold`. Fails closed when the model cannot be reached. Reads `BOTHUB_DECIDE_URL`, `BOTHUB_DECIDE_MODEL`
- * and, for a chat model, `BOTHUB_LLM_BASE_URL` and `BOTHUB_LLM_API_KEY` from `env`. The model call goes to `onUsage`.
+ * above `threshold`, or always without one, which only records the probability. Fails closed when the model cannot be
+ * reached. Reads `BOTHUB_DECIDE_URL`, `BOTHUB_DECIDE_MODEL` and, for a chat model, `BOTHUB_LLM_BASE_URL` and
+ * `BOTHUB_LLM_API_KEY` from `env`. The model call goes to `onUsage`.
  */
 export const decideCheck = async (
   question: string,
   state: string,
   env: Record<string, string | undefined>,
-  threshold = defaultThreshold,
+  threshold?: number,
   onUsage?: (usage: Usage) => void
 ): Promise<Pick<Verdict, 'pass' | 'findings'>> => {
   try {
@@ -210,12 +226,13 @@ export const decideCheck = async (
       model: env.BOTHUB_DECIDE_MODEL || defaultDecideModel,
       llm: endpointOf(env),
       onUsage,
-      state: clipped(state),
+      state,
       questions: { answer: { type: 'noul', instructions: question } },
     });
+    const against = threshold === undefined ? 'no threshold' : `threshold ${threshold}`;
     return {
-      pass: answer.noul >= threshold,
-      findings: `${question} Probability of yes ${answer.noul.toFixed(3)}, threshold ${threshold}.`,
+      pass: threshold === undefined || answer.noul >= threshold,
+      findings: `Probability of yes ${answer.noul.toFixed(3)}, ${against}. ${question}`,
     };
   } catch (e) {
     return { pass: false, findings: e instanceof Error ? e.message : String(e) };

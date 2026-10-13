@@ -3,11 +3,11 @@ import { apply, type ApplyResult } from '../apply.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import type { Item } from '../over.ts';
 import { hubProposal } from '../hub-write.ts';
-import { writeMemory } from '../memory.ts';
 import { extractProposals, Proposal, type Validated } from '../outputs.ts';
 import type { Pull, Pulls } from '../pulls.ts';
 import type { Closure, ProposalKind } from '../schema.ts';
 import type { Outcome, Run, Verdict } from '../store.ts';
+import { summarizeOutcome } from '../summaries.ts';
 import { type JobResult, type Pipeline, issuesOf, pullsOf } from './context.ts';
 import type { Handoff } from './prompt.ts';
 import { stepsInto } from './attempt.ts';
@@ -268,11 +268,9 @@ const stepLanded = async (pull: Pull, pulls: Pulls, p: Pipeline) => {
   await issues.comment(issue.parent, `#${number} landed on ${pull.into}, ${landed} of ${steps.length} steps.`);
 };
 
-/** Saves the memory of a job's final run; a memory that cannot be written never fails the job. */
+/** Adds how a job's final run ended to its summaries; a summary that cannot be written never fails the job. */
 export const remember = async (run: Run, outcome: Outcome | undefined, p: Pipeline) => {
-  try {
-    await writeMemory(p.store, run, await p.store.events(run.id), outcome);
-  } catch {}
+  if (p.data) await summarizeOutcome(p.data, run, outcome).catch(() => {});
 };
 
 export const finish = (

@@ -61,7 +61,7 @@ describe('test-guards: new tests bite', () => {
     const { ok, found } = guards(repo);
     expect(ok).toBe(false);
     expect(found).toEqual([
-      "tests/add.test.ts:5: 'adds a negative and a positive' passes on the base code, so it would not catch the change being reverted",
+      "tests/add.test.ts:5: 'adds a negative and a positive' passes on the base code with the change's new files added, so it would not catch the change to existing code being reverted",
     ]);
     expect(git(repo.dir, 'status', '--porcelain')).toBe(status);
   });
@@ -79,14 +79,29 @@ describe('test-guards: new tests bite', () => {
     expect(guards(repo)).toMatchObject(guardsOk);
   });
 
-  it('counts a new test file that cannot load on the base code as failing there', () => {
+  it('runs the base with the new files, so a test of a new module alone does not bite', () => {
+    const subTest =
+      "import { expect, it } from 'vitest';\nimport { sub } from '../src/sub.ts';\nit('subtracts', () => expect(sub(3, 1)).toBe(2));\n";
     const repo = withModules(
       change(
         { 'src/add.ts': adder },
+        { 'src/sub.ts': 'export const sub = (a: number, b: number) => a - b;\n', 'tests/sub.test.ts': subTest }
+      )
+    );
+    expect(guards(repo).found).toEqual([
+      "tests/sub.test.ts:3: 'subtracts' passes on the base code with the change's new files added, so it would not catch the change to existing code being reverted",
+    ]);
+  });
+
+  it('passes a test through an existing caller that a new module changes', () => {
+    const repo = withModules(
+      change(
+        { 'src/add.ts': adder, 'tests/add.test.ts': addTest() },
         {
-          'src/sub.ts': 'export const sub = (a: number, b: number) => a - b;\n',
-          'tests/sub.test.ts':
-            "import { expect, it } from 'vitest';\nimport { sub } from '../src/sub.ts';\nit('subtracts', () => expect(sub(3, 1)).toBe(2));\n",
+          'src/clamp.ts': 'export const clamp = (n: number) => Math.max(0, n);\n',
+          'src/add.ts':
+            "import { clamp } from './clamp.ts';\nexport const add = (a: number, b: number) => clamp(a + b);\n",
+          'tests/add.test.ts': addTest("it('clamps a negative sum to zero', () => expect(add(-3, 1)).toBe(0));"),
         }
       )
     );
@@ -510,6 +525,55 @@ describe('unused-exports', () => {
       'src/pull.ts:3: close is exported but no other file uses it; drop the export or the code',
     ]);
   });
+
+  it('fails a new file only tests import, and passes one code imports', () => {
+    const lib = 'export const plan = (n: number) => n;\n';
+    const test = "import { plan } from '../src/plan.ts';\nplan(1);\n";
+    const { ok, out } = run('unused-exports.mjs', change({}, { 'src/plan.ts': lib, 'tests/plan.test.ts': test }));
+    expect(ok).toBe(false);
+    expect(findings(out)).toEqual([
+      'src/plan.ts: a new file nothing outside tests imports; call it from the code that needs it',
+    ]);
+    const wired = { 'src/plan.ts': lib, 'src/run.ts': "import { plan } from './plan.ts';\nplan(1);\n" };
+    expect(run('unused-exports.mjs', change({ 'src/run.ts': '' }, wired))).toEqual({
+      ok: true,
+      out: 'unused-exports: ok',
+    });
+  });
+
+  it.each([
+    [
+      'an optional field nothing sets',
+      "export type Spec = {\n  cwd: string;\n  decider?: string;\n};\nexport const spec: Spec = { cwd: '.' };\n",
+      'src/spec.ts:3: decider is a new optional field nothing outside tests sets; set it where the value is made, or drop it',
+    ],
+    [
+      'an event type nothing reads',
+      "export type Event = { type: 'start' } | { type: 'decision'; p: number };\nexport const event: Event = { type: 'decision', p: 1 };\nexport const start = (e: Event) => e.type === 'start';\n",
+      "src/spec.ts:1: 'decision' is a new event type nothing outside tests reads; handle it where events are read, or drop it",
+    ],
+  ])('fails %s', (_, code, finding) => {
+    const user =
+      "import { Spec, spec, Event, event, start } from './spec.ts';\nexport const use = [spec, event, start];\n";
+    const { ok, out } = run(
+      'unused-exports.mjs',
+      change({ 'src/spec.ts': '', 'src/use.ts': user }, { 'src/spec.ts': code })
+    );
+    expect(ok).toBe(false);
+    expect(findings(out)).toEqual([finding]);
+  });
+
+  it('passes a new optional field code sets and a new event type code reads', () => {
+    const code = [
+      "export type Event = { type: 'decision'; tool?: string };",
+      "export const event: Event = { type: 'decision', tool: 'edit' };",
+      "export const decided = (e: Event) => e.type === 'decision';",
+      '',
+    ].join('\n');
+    const user = "import { Event, event, decided } from './spec.ts';\nexport const use = [event, decided];\n";
+    const repo = change({ 'src/spec.ts': '', 'src/use.ts': user }, { 'src/spec.ts': code });
+    expect(run('unused-exports.mjs', repo)).toEqual({ ok: true, out: 'unused-exports: ok' });
+  });
 });
 
 describe('risky', () => {
@@ -736,6 +800,25 @@ describe('test-guards: criterion tests', () => {
     ]);
   });
 
+  it('fails a reply that closes the issue when the brief lists follow-ups', () => {
+    const split = brief.replace('- GitHub polling.', '- Follow-up: GitHub polling.');
+    const repo = change(
+      {},
+      {
+        'tests/labels.test.ts': tests(
+          'replays a label added while stopped',
+          'replays a label re-added by hand',
+          'still replays comments'
+        ),
+      }
+    );
+    const env = { BOTHUB_HUB: hubWith(split), BOTHUB_ISSUE: '1' };
+    expect(guards(repo, { ...env, BOTHUB_REPLY: 'Part of #1' })).toMatchObject({ ok: true, out: 'test-guards: ok' });
+    expect(guards(repo, { ...env, BOTHUB_REPLY: 'Closes #1' }).found).toEqual([
+      'the reply says "Closes #1", but the brief lists follow-ups, so the issue stays open; say "Part of #<issue>"',
+    ]);
+  });
+
   it('says so when there is no brief to read', () => {
     const repo = change({ 'a.txt': '' });
     expect(guards(repo)).toMatchObject(guardsOk);
@@ -856,7 +939,7 @@ describe('slicers for the narrow judges', () => {
     ]);
   });
 
-  it('exports: each new export with existing exports that share a word with its name', () => {
+  it('exports: one item per file with its new exports and the existing exports that share a word with them', () => {
     const repo = change(
       {
         'src/issues.ts': 'export const parseIssue = (s: string) => s;\nexport type Issue = { n: number };\n',
@@ -871,8 +954,7 @@ describe('slicers for the narrow judges', () => {
     expect(found).toEqual([
       {
         file: 'src/files.ts',
-        line: 1,
-        export: 'export const parseIssueFile = (s: string) => s;',
+        exports: ['1: export const parseIssueFile = (s: string) => s;'],
         neighbours: [
           'src/issues.ts:1: export const parseIssue = (s: string) => s;',
           'src/issues.ts:2: export type Issue = { n: number };',

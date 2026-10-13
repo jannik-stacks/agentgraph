@@ -29,14 +29,15 @@ invariant that found it.
 | rules | script | | block | The written rules on added lines: timeless comments, docs style, no way around the guards, nothing unfinished, current names |
 | lint | script | | block | oxlint plus the suspicious rules, errors on added lines only, and oxfmt formatting |
 | types, studio-build, tests | script | | block | Types, the studio build and the suite, the live stream tests among them |
-| test-guards | script | | block | No deleted, fewer, skipped, focused or slowed tests; each criterion's named test is added; every new test fails on the base code |
+| test-guards | script | | block | No deleted, fewer, skipped, focused or slowed tests; each criterion's named test is added; no `Closes` when the brief lists follow-ups; every new test fails on the base code with the change's new files added |
 | coverage | script | | block | The related tests pass and every added line in `src/` runs in one of them |
 | code-shape | script | | block | Code structure and the studio's UI rules, with React hints printed but never failing |
-| unused-exports, docs-sync | script | | warn | Every new export is used; every new schema is documented |
+| unused-exports | script | | block | Every new export is used, every new file is imported outside tests, every new optional field is set and every new event type is read |
+| docs-sync | script | | warn | Every new schema is documented |
 | triage-brief | script | | block | The triage reply follows the template and names only files the change may touch, no more outside `tests/` than the size cap (in triage's `until`) |
 | criterion-met | bot, `review` | each criterion | warn | Is there a sequence of events within the brief under which the change does not do what the criterion states? Other edge cases are notes |
 | review-src | bot, `review` | each code hunk in `src/` and `studio/src/`, rename-only hunks left out | block | Does the hunk mishandle an input or break a caller? |
-| near-duplicate, review-docs | bot, `review` | each new export or docs hunk | warn | Does an existing export already do this; does each docs statement hold? |
+| near-duplicate, review-docs | bot, `review` | each file's new exports, or each docs hunk | warn | Does an existing export already do this; does each docs statement hold? |
 | docs-tone-provenance, docs-tone-repeats | bot, `review` | each docs hunk | warn | Does it say where an idea came from; does it say a thing twice? |
 | docs-tone-tagline, scope, review-tests | bot, `review` | each docs hunk, file outside the brief or test hunk | log | A tagline after a dash; does the file serve the task; does each assertion bite? |
 | docs-tone-marketing, tooltip-text | bot, `fast` | each docs hunk or tooltip | log | Is it free of selling words; does the tooltip say what the thing does? |

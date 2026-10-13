@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chatAnswers, decide, decideCheck, viaChat, type Question } from '../src/decide.ts';
+import { ask, chatAnswers, decide, decideCheck, viaChat, type Question } from '../src/decide.ts';
 
 const reply = (status: number, body: unknown) =>
   vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(body), { status }));
@@ -94,9 +94,9 @@ describe('decideCheck', () => {
 
   it('passes at or above the threshold and reports the probability of yes', async () => {
     const fetch = stub(reply(200, { answers: { answer: { type: 'noul', noul: 0.5 } } }));
-    expect(await decideCheck('Is the code fine?', 'src/a.ts\nexport const a = 1;', env)).toEqual({
+    expect(await decideCheck('Is the code fine?', 'src/a.ts\nexport const a = 1;', env, 0.5)).toEqual({
       pass: true,
-      findings: 'Is the code fine? Probability of yes 0.500, threshold 0.5.',
+      findings: 'Probability of yes 0.500, threshold 0.5. Is the code fine?',
     });
     const body = sent(fetch);
     expect(body.model).toBe('tev1:0.8b');
@@ -111,10 +111,18 @@ describe('decideCheck', () => {
     expect(verdict.findings).toContain('0.700');
   });
 
-  it('clips a long state', async () => {
+  it('only records the probability without a threshold', async () => {
+    stub(reply(200, { answers: { answer: { type: 'noul', noul: 0.1 } } }));
+    expect(await decideCheck('Fine?', 'x', env)).toEqual({
+      pass: true,
+      findings: 'Probability of yes 0.100, no threshold. Fine?',
+    });
+  });
+
+  it("keeps the head and tail of a long state, to fit the model's context", async () => {
     const fetch = stub(reply(200, { answers: { answer: { type: 'noul', noul: 1 } } }));
-    await decideCheck('q', 'x'.repeat(20_000), env);
-    expect(sent(fetch).state).toMatch(/\[truncated\]$/);
+    await decideCheck('q', `${'a'.repeat(10_000)}${'z'.repeat(10_000)}`, env);
+    expect(sent(fetch).state).toBe(`${'a'.repeat(2000)}\n[…]\n${'z'.repeat(2000)}`);
   });
 
   it('fails closed when the model is unreachable', async () => {
@@ -203,12 +211,18 @@ describe('decide through a chat model', () => {
     await expect(decide({ llm, model: 'luna', state: 's', questions })).rejects.toThrow(error);
   });
 
+  it('leaves an unanswered question out of ask, where decide rejects it', async () => {
+    stub(chat('{"a": 0.9}'));
+    const questions = { a: { type: 'noul', instructions: 'x' }, b: { type: 'noul', instructions: 'y' } } as const;
+    expect(await ask({ llm, model: 'luna', state: 's', questions })).toEqual({ a: { type: 'noul', noul: 0.9 } });
+  });
+
   it('runs a decide check on the chat model the env names', async () => {
     const fetch = stub(chat('{"answer": 0.9}'));
     const env = { BOTHUB_DECIDE_MODEL: 'luna', BOTHUB_LLM_BASE_URL: llm.url, BOTHUB_LLM_API_KEY: llm.apiKey };
     expect(await decideCheck('Fine?', 'x', env)).toEqual({
       pass: true,
-      findings: 'Fine? Probability of yes 0.900, threshold 0.5.',
+      findings: 'Probability of yes 0.900, no threshold. Fine?',
     });
     expect(fetch.mock.calls[0]?.[0]).toBe('http://litellm:4000/v1/chat/completions');
   });

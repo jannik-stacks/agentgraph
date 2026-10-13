@@ -246,18 +246,6 @@ export const openStore = (dir: string, owner: Owner = self) => {
 
   const saveOutcome = (id: string, outcome: Outcome) => writeJson(outcomeFile(id), outcome);
   const outcome = (id: string) => readJson<Outcome>(outcomeFile(id));
-  const memoryFile = (id: string) => join(runDir(id), 'memory.md');
-  const saveMemory = async (id: string, text: string) => {
-    await writeFile(memoryFile(id), text);
-  };
-  const memory = async (id: string) => {
-    try {
-      return await readFile(memoryFile(id), 'utf8');
-    } catch (e) {
-      if (missing(e)) return;
-      throw e;
-    }
-  };
 
   /** The harness's own transcripts and session state under `home/`: JSON and JSON Lines files, minus credentials. */
   const files = async (id: string) => {
@@ -339,8 +327,6 @@ export const openStore = (dir: string, owner: Owner = self) => {
     events,
     saveOutcome,
     outcome,
-    memory,
-    saveMemory,
     home,
     tmp,
     files,

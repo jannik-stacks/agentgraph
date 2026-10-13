@@ -123,6 +123,8 @@ const describe = (e: AgentEvent): string => {
       return `error ${oneLine(e.message)}`;
     case 'recall':
       return `recall ${e.on} ${e.items.filter(i => i.fate === 'surfaced' || i.fate === 'returned').length}/${e.items.length}, ${e.tokens} tokens`;
+    case 'decision':
+      return `decision ${e.on}${e.tool ? ` ${e.tool}` : ''} ${e.p === undefined ? `unanswered: ${oneLine(e.error ?? '')}` : `p ${e.p.toFixed(2)}`}${e.acted ? ', acted' : ''}`;
   }
 };
 

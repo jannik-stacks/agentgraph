@@ -15,7 +15,11 @@ const up = async () => {
   if (process.env.BOTHUB_E2E !== '1') return false;
   try {
     execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 10_000 });
-    return (await fetch('http://127.0.0.1:4000/health/liveliness', { signal: AbortSignal.timeout(5000) })).ok;
+    return (
+      await fetch('http://127.0.0.1:4000/health/liveliness', {
+        signal: AbortSignal.timeout(5000),
+      })
+    ).ok;
   } catch {
     return false;
   }
@@ -62,7 +66,7 @@ const past: SummaryRecord = {
 };
 
 describe.skipIf(!(await up()))('bothub opencode plugins in the sandbox', () => {
-  it('load in a real run: the surfacer writes and surfaces, the decider nudges', { timeout: 600_000 }, async () => {
+  it('load in a real run: the surfacer surfaces, the decider records its answer', { timeout: 600_000 }, async () => {
     const work = temp('e2e-plugins-repo');
     git(work, 'init', '-q', '-b', 'main');
     commit(work, { 'README.md': 'Rates.\n' });
@@ -70,7 +74,13 @@ describe.skipIf(!(await up()))('bothub opencode plugins in the sandbox', () => {
     mkdirSync(join(data, 'runs', 'r-old'), { recursive: true });
     writeFileSync(
       join(data, 'runs', 'r-old', 'run.json'),
-      JSON.stringify({ id: 'r-old', bot: 'triager', workflow: 'w', job: 'j', status: 'succeeded' })
+      JSON.stringify({
+        id: 'r-old',
+        bot: 'triager',
+        workflow: 'w',
+        job: 'j',
+        status: 'succeeded',
+      })
     );
     writeFileSync(join(data, 'runs', 'r-old', 'summaries.jsonl'), `${JSON.stringify(past)}\n`);
     const hub = temp('e2e-plugins-hub');
@@ -101,11 +111,27 @@ describe.skipIf(!(await up()))('bothub opencode plugins in the sandbox', () => {
           model: 'smart',
           tools: ['read'],
           maxTurns: 3,
-          surfacer: { run: run.id, bot: 'triager', data, hub, cutoff: 0.3 },
+          surfacer: {
+            run: run.id,
+            bot: 'triager',
+            scope: 'bot',
+            data,
+            hub,
+            recall: {
+              query: 'What number does rate() in src/rates.ts return?',
+              judge: 'tev1:0.8b',
+              cutoff: 0.3,
+            },
+          },
           decider: {
             questions: [
-              { on: 'stop', ask: 'Is this message written in French?', say: 'decider-loaded', unreachable: 'act' },
+              {
+                on: 'stop',
+                ask: 'Is this message written in French?',
+                mode: 'log',
+              },
             ],
+            task: 'Answer the question.',
           },
         },
         timeoutMinutes: 8,
@@ -121,9 +147,7 @@ describe.skipIf(!(await up()))('bothub opencode plugins in the sandbox', () => {
     if (tevInside() && recall?.type === 'recall')
       expect(recall.items).toContainEqual(expect.objectContaining({ pointer: 'r-old#0-1', fate: 'surfaced' }));
     expect(done.status, done.error).toBe('succeeded');
-    expect(texts.join('\n')).toContain('[bothub] decider-loaded');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'decision', on: 'stop', acted: false }));
     if (tevInside()) expect(texts.join('\n')).toContain('4217');
-    const live = readFileSync(join(store.home(run.id), '.bothub', 'summaries.jsonl'), 'utf8');
-    expect(live).toContain(`"id":"${run.id}:live:0"`);
   });
 });

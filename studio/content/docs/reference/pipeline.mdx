@@ -39,5 +39,6 @@ when every item passes, and its findings are labelled by item.
 
 <Source file="src/pipeline/checks.ts" symbol="verdictOf" />
 
-When a job's final run ends, <Sym name="summarize" /> writes a short memory of it next to its
-events, without a model.
+When a job's final run ends, <Sym name="summarizeOutcome" /> adds how it ended to the run's
+summaries: one line with its status, what it proposed, what was rejected and what landed, and one
+line per failed check with the gist of its findings.

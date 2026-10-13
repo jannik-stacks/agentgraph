@@ -47,6 +47,19 @@ const renderIssue = (issue: Issue, level: number, label = '') =>
     .join('\n\n');
 
 /**
+ * What recall searches with for a job of `workflow`, read from the issue `context` `issueContext` rendered: the latest
+ * reply a job it `needs` posted on the issue, its brief, without the marker bothub wrote; otherwise the issue's title
+ * and body.
+ */
+export const recallQuery = (context: string | undefined, workflow: string, needs: string[]) => {
+  if (!context?.startsWith('## Issue ')) return;
+  const [issue, ...comments] = context.split(/\n\n#{3,} @\S+ at \S+\n\n/);
+  const marker = new RegExp(`<!-- bothub:\\S*/${workflow}/(?:${needs.join('|')})/\\S*reply-\\d+ -->`);
+  const brief = needs.length ? comments.findLast(comment => marker.test(comment)) : undefined;
+  return brief ? brief.slice(0, brief.search(marker)).trim() : issue;
+};
+
+/**
  * The issue context rendered into a run's prompt: the triggering issue with its comments (`issue`), and its parent,
  * linked issues and sub-issues (`links`). Empty without an issue tracker or an issue number.
  */

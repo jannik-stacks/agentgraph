@@ -1,6 +1,6 @@
 ---
 description: Turn a bothub issue into one scoped task with acceptance criteria a check can prove.
-human: seed hub, untraced; one ask for every open choice (X4) and follow-ups for a split issue (X5) from dogfood x
+human: seed hub, untraced; one ask for every open choice (X4), follow-ups for a split issue (X5), a first task that delivers a Done-when row (X9) and interacting criteria (X12) from dogfood x
 ---
 The issue is in your prompt. Find the code it is about in `src/` and the tests that cover it in
 `tests/`, and work out the current behavior. A few files are enough.
@@ -27,11 +27,14 @@ Each criterion is one line with one observable result, never two joined by "and"
 of them. It ends with the exact title of the test that proves it and the test file it goes in; the
 hub checks that the change adds that test, that it passes, and that it fails on the code before
 the change. A criterion that keeps behavior which already works gets a title starting with
-`still `, such as `it('still replays comments written while serve was stopped')`.
+`still `, such as `it('still replays comments written while serve was stopped')`. When two criteria
+touch the same input or function, add a criterion for how they interact.
 
 When the issue is several tasks, because it needs more than five criteria or more files than the
-cap below, brief the one the others build on. Say in the task that it is the first of several, and
-list each remaining task under `## Out of scope` as a line starting with `Follow-up:`.
+cap below, brief the first one. It delivers at least one row of the issue's "Done when" end to end
+through the code path that exists today, so its criteria test that path; a new module only later
+tasks would call is not a first task. Say in the task that it is the first of several, and list each
+remaining task under `## Out of scope` as a line starting with `Follow-up:`.
 
 A task that adds a member to a union or kind reaches every exhaustive `Record`, `switch`, test and
 docs page over it: grep for them and name each under `## Files`.

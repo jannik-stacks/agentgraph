@@ -179,6 +179,7 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
       const served = hubTools(bot);
       if (served.length) warn(`lists hub tools (${served.join(', ')}) that pi runs do not get`);
       if (bot.preload?.some(recallOf)) warn('preloads recall, which pi runs do not get');
+      if (bot.decider) warn('asks decider questions, which pi runs do not get');
     }
   }
   for (const check of Object.values(checks))
@@ -325,11 +326,11 @@ export const harnessTools = (bot: Pick<Bot, 'tools'>) => bot.tools.filter(tool =
 export const effectiveTools = (bot: Pick<Bot, 'tools'>, job: Pick<Extract<Job, { type: 'bot' }>, 'tools'>) =>
   job.tools ?? hubTools(bot);
 
-/** What a run starts with: the job's `preload`, then the bot's, then recall alone. */
+/** What a run starts with: the job's `preload`, then the bot's, then nothing. */
 export const effectivePreload = (
   bot: Pick<Bot, 'preload'>,
   job: Pick<Extract<Job, { type: 'bot' }>, 'preload'>
-): Preload[] => job.preload ?? bot.preload ?? ['recall'];
+): Preload[] => job.preload ?? bot.preload ?? [];
 
 /** The recall settings among `preload`, when it has recall. */
 export const recallOf = (preload: Preload) =>

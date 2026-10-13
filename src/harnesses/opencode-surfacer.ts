@@ -1,20 +1,18 @@
-import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { compile } from '../config.ts';
-import { decide, defaultDecideModel, defaultDecideUrl } from '../decide.ts';
+import { defaultDecideUrl } from '../decide.ts';
 import { readHub } from '../load.ts';
 import { accepted } from '../preload.ts';
-import { allowedFor, index, loadSynonyms, noteDocs, summaryDocs, weigh, type Doc, type Index } from '../recall.ts';
-import type { EventRecord } from '../store.ts';
+import { index, judgeWith, lineOf, loadSynonyms, noteDocs, summaryDocs, weigh, type Doc } from '../recall.ts';
+import type { Preload } from '../schema.ts';
 import {
   askerOf,
   endpointOf,
   fit,
   history,
-  items,
   loadSummaries,
-  modelLine,
-  Summarizer,
+  visible,
   type Endpoint,
   type History,
   type SummaryRecord,
@@ -40,162 +38,103 @@ export const report = (event: AgentEvent) => {
 };
 
 /**
- * What the surfacer plugin gets from bothub, as opencode plugin options. Paths are as seen by the harness. `surface`
- * false keeps recall off and serves only `history`.
+ * What the surfacer plugin gets from bothub, as opencode plugin options. Paths are as seen by the harness. `recall`
+ * turns recall on with the text it searches with; without it the plugin serves only `history`.
  */
 export type SurfacerOptions = {
-  surface?: boolean;
   run: string;
   bot: string;
   data: string;
   hub: string;
   scope?: History;
-  summarizer?: string | Partial<Summarizer>;
   history?: boolean;
-  cutoff?: number;
-  budget?: number;
-  summaries?: string;
-  decide?: { url?: string; model?: string; timeoutMs?: number };
+  recall?: Extract<Preload, { recall: unknown }>['recall'] & { query: string };
   llm?: Endpoint;
 };
 
-type Part = { type: string; text?: string; synthetic?: boolean };
-type Session = { task?: string; shown: Set<string>; lines: string[]; pending?: Promise<void> };
-
 const runId = /^[A-Za-z0-9_][\w.-]*$/;
 const maxOutput = 16_000;
-
-const textOf = (parts: Part[]) =>
-  parts
-    .filter(p => p.type === 'text' && !p.synthetic && p.text?.trim())
-    .map(p => p.text)
-    .join('\n');
-
-const hitLine = (doc: Doc) => `- [${doc.pointer}] ${doc.kind === 'note' ? `${doc.title}: ` : ''}${fit(doc.text, 400)}`;
 const maxQuery = 300;
+const judgeTimeoutMs = 10_000;
 const round = (n: number) => Math.round(n * 1000) / 1000;
 type RecallItem = Extract<AgentEvent, { type: 'recall' }>['items'][number];
 const itemOf = (doc: Doc): Omit<RecallItem, 'fate'> => ({ pointer: doc.pointer, title: doc.title, kind: doc.kind });
 
 /**
- * opencode server plugin: surfaces relevant past-run summaries and accepted hub notes before model turns, writes a
- * one-line summary of each assistant message and tool call, and offers a `history` tool when allowed. Every lookup is
- * reported as a `recall` event with each candidate's scores and fate, and every model call as a `usage` event.
+ * opencode server plugin: before the first model turn, surfaces the accepted hub notes and earlier-run summaries most
+ * relevant to the run's task, and offers a `history` tool when allowed. Every lookup is reported as a `recall` event
+ * with each candidate's scores and fate, or the error that stopped it, and every judge call as a `usage` event.
  */
 export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) => {
   const o = raw as SurfacerOptions;
   await markLoaded(surfacerId);
-  const settings = Summarizer.parse(o.summarizer ?? 'extractive');
-  let asker: ReturnType<typeof askerOf> | undefined;
-  const asking = () => (asker ??= askerOf(o.data, o.run, o.bot, o.scope ?? 'bot'));
-  const url = o.decide?.url ?? (process.env.BOTHUB_DECIDE_URL || defaultDecideUrl);
-  const model = o.decide?.model ?? (process.env.BOTHUB_DECIDE_MODEL || defaultDecideModel);
-  const timeoutMs = o.decide?.timeoutMs ?? 20_000;
+  const asker = askerOf(o.data, o.run, o.bot, o.scope ?? 'issue');
   const llm = o.llm ?? endpointOf(process.env);
-  const file = o.summaries ?? join(process.env.HOME ?? '/tmp', '.bothub', 'summaries.jsonl');
 
-  let corpus: Promise<Index> | undefined;
-  const load = () =>
-    (corpus ??= Promise.all([
-      loadSummaries(o.data),
+  const corpus = (async () => {
+    const seer = await asker;
+    const [records, words, hub] = await Promise.all([
+      seer.history === 'none' ? [] : loadSummaries(o.data, origin => visible(seer, origin)),
       loadSynonyms(join(o.hub, 'synonyms.yaml')),
       readHub(o.hub).then(compile),
-    ]).then(([records, words, hub]) =>
-      index(
-        [
-          ...summaryDocs(records.filter(r => r.run !== o.run)),
-          ...(hub.ok ? noteDocs(hub.config.notes.filter(accepted)) : []),
-        ],
-        words
-      )
-    ));
+    ]);
+    if (!hub.ok) throw new Error(`the hub does not load: ${hub.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`);
+    return index(
+      [...summaryDocs(records.filter(r => r.run !== o.run)), ...noteDocs(hub.config.notes.filter(accepted))],
+      words
+    );
+  })();
+  corpus.catch(() => {});
 
-  const sessions = new Map<string, Session>();
-  const session = (id: string) => {
-    if (!sessions.has(id)) sessions.set(id, { shown: new Set(), lines: [] });
-    return sessions.get(id)!;
-  };
-
-  const surface = (s: Session, query: string) => {
-    s.task ??= query;
-    const task = s.task;
-    s.pending = (async () => {
-      const all = await load();
-      const fresh: Index = {
-        ...all,
-        search: (q, opts) => all.search(q, { ...opts, keep: d => !s.shown.has(d.id) && (opts?.keep?.(d) ?? true) }),
-      };
+  const surface = async ({ query, judge, ...settings }: NonNullable<SurfacerOptions['recall']>) => {
+    try {
       const { weighed, error } = await weigh({
-        index: fresh,
-        task,
+        index: await corpus,
         query,
-        asker: await asking(),
-        ...(o.cutoff !== undefined && { cutoff: o.cutoff }),
-        ...(o.budget !== undefined && { budget: o.budget }),
-        url,
-        model,
-        decide: request =>
-          decide({ ...request, llm, timeoutMs, onUsage: usage => report({ ...usage, source: 'recall' }) }),
+        asker: await asker,
+        ...settings,
+        ...(judge && {
+          judge: judgeWith(judge, {
+            url: process.env.BOTHUB_DECIDE_URL || defaultDecideUrl,
+            llm,
+            timeoutMs: judgeTimeoutMs,
+            onUsage: usage => report({ ...usage, source: 'recall' }),
+          }),
+        }),
       });
-      const items: RecallItem[] = weighed.map(({ doc, score, p, fate }) => {
-        const line = hitLine(doc);
-        const surfaced = fate === 'kept' && p !== undefined && !s.shown.has(doc.id);
-        if (surfaced) {
-          s.shown.add(doc.id);
-          s.lines.push(line);
-        }
-        return {
-          ...itemOf(doc),
-          score: round(score),
-          ...(p !== undefined && { p }),
-          tokens: tokensOf(line.length + 1),
-          fate: surfaced ? 'surfaced' : fate === 'kept' ? 'unjudged' : fate,
-        };
-      });
+      const kept = weighed.filter(w => w.fate === 'kept').map(w => lineOf(w.doc));
       report({
         type: 'recall',
         on: 'turn',
         query: fit(query, maxQuery),
-        tokens: items.reduce((n, i) => n + (i.fate === 'surfaced' ? (i.tokens ?? 0) : 0), 0),
-        items,
+        tokens: kept.reduce((n, line) => n + tokensOf(line.length + 1), 0),
+        items: weighed.map(({ doc, score, p, fate }) => ({
+          ...itemOf(doc),
+          score: round(score),
+          ...(p !== undefined && { p }),
+          tokens: tokensOf(lineOf(doc).length + 1),
+          fate: fate === 'kept' ? 'surfaced' : fate,
+        })),
         ...(error !== undefined && { error }),
       });
-    })().catch(() => {});
+      return kept;
+    } catch (e) {
+      report({
+        type: 'recall',
+        on: 'turn',
+        query: fit(query, maxQuery),
+        tokens: 0,
+        items: [],
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return [];
+    }
   };
-
-  let seq = 0;
-  let writes = Promise.resolve();
-  const write = (record: SummaryRecord) => {
-    writes = writes
-      .then(() => mkdir(dirname(file), { recursive: true }))
-      .then(() => appendFile(file, `${JSON.stringify(record)}\n`))
-      .catch(() => {});
-  };
-  const summarize = (events: AgentEvent[]) => {
-    if (settings.mode === 'off') return;
-    const records: EventRecord[] = events.map(event => ({ ts: new Date().toISOString(), seq: seq++, event }));
-    const [item] = items(records);
-    if (!item) return;
-    const record: SummaryRecord = {
-      id: `${o.run}:live:${item.from}`,
-      run: o.run,
-      from: item.from,
-      to: item.to,
-      kind: item.kind,
-      line: fit(item.line, settings['max-bytes']),
-      by: 'extractive',
-    };
-    write(record);
-    if (settings.mode === 'model' && llm)
-      modelLine(settings, llm, item.source, usage => report({ ...usage, source: 'summarizer' })).then(
-        line => write({ ...record, line, by: settings.model! }),
-        () => {}
-      );
-  };
+  const shown = o.recall && surface(o.recall);
 
   const readHistory = async (query: string): Promise<{ text: string; items: RecallItem[] }> => {
     const q = query.trim();
-    const h = history(o.data, await asking());
+    const h = history(o.data, await asker);
     if (!q) {
       const runs = await h.list();
       return {
@@ -216,8 +155,7 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         text: own.map(r => `${r.run}#${r.from}-${r.to} ${r.line}`).join('\n') || `run "${q}" has no summaries`,
         items: own.map(r => ({ pointer: `${r.run}#${r.from}-${r.to}`, kind: 'summary', fate: 'returned' })),
       };
-    const allowed = allowedFor(await asking());
-    const hits = (await load()).search(q, { limit: 10, keep: d => d.kind === 'summary' && allowed(d) });
+    const hits = (await corpus).search(q, { limit: 10, keep: d => d.kind === 'summary' });
     return {
       text: hits.map(({ doc }) => `${doc.pointer} ${doc.text}`).join('\n') || 'nothing found',
       items: hits.map(({ doc, score }) => ({ ...itemOf(doc), score: round(score), fate: 'returned' })),
@@ -225,32 +163,15 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
   };
 
   return {
-    'chat.message': async ({ sessionID }: { sessionID: string }, { parts }: { parts: Part[] }) => {
-      const text = textOf(parts);
-      if (text && o.surface !== false) surface(session(sessionID), text);
-    },
-    'experimental.chat.system.transform': async (
-      { sessionID }: { sessionID?: string },
-      { system }: { system: string[] }
-    ) => {
-      const s = sessionID ? sessions.get(sessionID) : undefined;
-      await s?.pending;
-      if (s?.lines.length)
+    'experimental.chat.system.transform': async (_: unknown, { system }: { system: string[] }) => {
+      const lines = await shown;
+      if (lines?.length)
         system.push(
-          `Possibly relevant, from earlier runs and hub notes. Check before relying on it.\n${s.lines.join('\n')}`
+          [
+            `## Hub notes and earlier runs for this task\n\nThe most relevant, in full. Read another note with \`notes_get\` (kind and slug as in its heading), find more with \`notes_search\`${o.history ? ', and read an earlier run with `history` and its `<run>#<from>-<to>` pointer' : ''}.`,
+            ...lines,
+          ].join('\n\n')
         );
-    },
-    'experimental.text.complete': async (_: unknown, { text }: { text: string }) => {
-      if (text.trim()) summarize([{ type: 'text', text }]);
-    },
-    'tool.execute.after': async (
-      { tool, callID, args }: { tool: string; callID: string; args: unknown },
-      { output }: { output: string }
-    ) => {
-      summarize([
-        { type: 'tool_call', id: callID, tool, input: args },
-        { type: 'tool_result', id: callID, ok: true, output },
-      ]);
     },
     ...(o.history && {
       tool: {
@@ -268,7 +189,6 @@ export const surfacer = async (_input: unknown, raw?: Record<string, unknown>) =
         },
       },
     }),
-    dispose: () => writes,
   };
 };
 

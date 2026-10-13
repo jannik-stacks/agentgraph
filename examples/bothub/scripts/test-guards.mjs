@@ -1,15 +1,17 @@
 // Guards the test suite a change leaves behind, cheapest first. Against $BOTHUB_BASE it keeps every test with its
 // assertions, skips, focuses and slows none, and leaves tests/setup/ alone. The test lines it adds assert outside
-// loops and branches, so each case is its own it.each row. It adds the test each criterion of the
-// triage brief names, with its exact title, in the file the criterion names. And every test it adds fails on the
-// base code: in a temporary copy of the base with the change's tests/ files on top, a new test that passes would not
-// notice the change being reverted. A test titled "still …" guards behavior that already worked and may pass.
+// loops and branches, so each case is its own it.each row. It adds the test each criterion of the triage brief names,
+// with its exact title, in the file the criterion names, and its reply closes no issue when the brief lists
+// follow-ups. And every test it adds fails on the base code: in a temporary copy of the base with the change's tests/
+// files and new files on top, a new test that passes would not notice the change to existing code being reverted, and
+// one that only fails to import a new file proves nothing. A test titled "still …" guards behavior that already worked
+// and may pass.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
-import { addedLines, base, baseText, changedFiles, isTestFile, report, titleOf } from './changes.mjs';
+import { addedLines, base, baseText, changedFiles, inBase, isTestFile, report, titleOf } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
 const testCalls = /\b(it|test)(\.each\([^)]*\))?\(/g;
@@ -128,7 +130,11 @@ const criteria = () => {
       return [];
     }
   };
-  for (const { n, title, file } of parseBrief(brief).criteria) {
+  const { criteria, outOfScope } = parseBrief(brief);
+  const closes = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#\d+/i.exec(process.env.BOTHUB_REPLY ?? '');
+  if (closes && outOfScope.some(line => line.startsWith('Follow-up:')))
+    findings.push(`the reply says "${closes[0]}", but the brief lists follow-ups, so the issue stays open; say "Part of #<issue>"`);
+  for (const { n, title, file } of criteria) {
     const still = title.startsWith('still ');
     if (!lines(file, still).some(line => titleOf(line) === title))
       findings.push(`criterion ${n}: no test titled '${title}' ${still ? 'in' : 'added in'} ${file}; add it with that exact title`);
@@ -154,7 +160,7 @@ const bite = () => {
     mkdirSync(tree);
     execFileSync('git', ['archive', '--format=tar', '-o', join(tmp, 'base.tar'), `${sha}:./`]);
     execFileSync('tar', ['-xf', join(tmp, 'base.tar'), '-C', tree]);
-    for (const { path, deleted } of changed.filter(f => f.path.startsWith('tests/'))) {
+    for (const { path, deleted } of changed.filter(f => f.path.startsWith('tests/') || (!inBase(sha, f.path) && lstatSync(f.path).isFile()))) {
       if (deleted) rmSync(join(tree, path), { force: true });
       else {
         mkdirSync(dirname(join(tree, path)), { recursive: true });
@@ -175,7 +181,7 @@ const bite = () => {
       for (const { line, title } of added.get(path)) {
         if (title.startsWith('still ')) continue;
         if (file?.assertionResults.find(a => a.title === title)?.status === 'passed')
-          findings.push(`${path}:${line}: '${title}' passes on the base code, so it would not catch the change being reverted`);
+          findings.push(`${path}:${line}: '${title}' passes on the base code with the change's new files added, so it would not catch the change to existing code being reverted`);
       }
     }
   } finally {
