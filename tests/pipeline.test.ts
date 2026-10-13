@@ -139,10 +139,18 @@ type Behaviour = { ok?: boolean; message?: string; work?: string; error?: string
 /** A harness that checks its worktree and secrets, then reports `message`; `ok: false` fails the run. */
 const fake = (behave: Behaviour | ((spec: RunSpec, call: number) => Behaviour) = {}) =>
   fakeHarness((spec, call) => {
-    const { ok = true, message = finalMessage, work = '', error } =
-      typeof behave === 'function' ? behave(spec, call) : behave;
+    const {
+      ok = true,
+      message = finalMessage,
+      work = '',
+      error,
+    } = typeof behave === 'function' ? behave(spec, call) : behave;
     const secrets = `if (process.env.BOTHUB_LLM_API_KEY !== 'key' || process.env.OTHER) process.exit(9)`;
-    return { events: events(ok, message, error), work: `fs.accessSync('README.md'); ${work}; ${secrets}`, exit: ok ? 0 : 1 };
+    return {
+      events: events(ok, message, error),
+      work: `fs.accessSync('README.md'); ${work}; ${secrets}`,
+      exit: ok ? 0 : 1,
+    };
   });
 
 /** GitHub with nothing written yet; `calls` holds the writes. */

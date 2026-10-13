@@ -308,7 +308,9 @@ console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTH
     await Effect.runPromise(
       runJob({ adapter: node(script, asText), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed, env })
     );
-    expect((await store.events(runId)).map(r => r.event)).toEqual([{ type: 'text', text: 'branch bothub/7-long-name' }]);
+    expect((await store.events(runId)).map(r => r.event)).toEqual([
+      { type: 'text', text: 'branch bothub/7-long-name' },
+    ]);
   });
 
   it('masks a secret in a binary home file without moving a byte', async () => {
