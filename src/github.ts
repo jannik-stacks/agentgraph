@@ -32,7 +32,8 @@ const timingSafeEqual = (a: string, b: string) => {
 };
 
 const Associated = Association.catch('NONE');
-const User = z.object({ login: z.string() });
+const User = z.object({ login: z.string(), type: z.string().optional() });
+const isBot = (user: z.infer<typeof User>) => user.type === 'Bot' || user.login.endsWith('[bot]');
 const Repo = z.object({ full_name: z.string() });
 const Item = z.object({ number: z.number(), html_url: z.string(), body: z.string().nullish(), user: User });
 
@@ -61,7 +62,8 @@ export const handled: ReadonlySet<string> = new Set<string>([
 
 /**
  * Normalises a webhook delivery into a `BotEvent`, or `undefined` for events bothub does not handle. Events on a
- * pull request, including comments on it, carry its `refs/pull/<n>/head` ref, which also covers forks.
+ * pull request, including comments on it, carry its `refs/pull/<n>/head` ref, which also covers forks. The actor is
+ * the sender; a bot sender is always `NONE`, so a label or close a bot makes never passes a trust guard.
  */
 export const toEvent = (name: string, deliveryId: string, payload: unknown, now = new Date()): BotEvent | undefined => {
   if (!handled.has(name)) return;
@@ -80,7 +82,7 @@ export const toEvent = (name: string, deliveryId: string, payload: unknown, now 
     ...(p.action && { action: p.action }),
     repo: p.repository.full_name,
     ...(item && { number: item.number }),
-    actor: { login: p.sender.login, association: authored?.author_association ?? 'NONE' },
+    actor: { login: p.sender.login, association: isBot(p.sender) ? 'NONE' : (authored?.author_association ?? 'NONE') },
     ...(authored?.body != null && { body: authored.body }),
     ...(url && { url }),
     ...(ref && { ref }),

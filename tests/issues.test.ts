@@ -161,6 +161,48 @@ describe('localIssues', () => {
     await early.ready;
   });
 
+  it('attributes labels and closes made through bothub to the writer, so a bot label passes no trust guard', async () => {
+    const dir = temp('issues');
+    writeFileSync(join(dir, '1-task.md'), '---\ntitle: Task\nauthor: morgan\n---\n\nDo it.\n');
+    const events: BotEvent[] = [];
+    const { ready, stop } = localIssues(dir, { repo: 'acme/app' }).watch(e => events.push(e), { interval: 5 });
+    await ready;
+    const bot = localIssues(dir, { repo: 'acme/app' });
+    await bot.label(1, { add: ['needs-input'] });
+    await until(() => events.length >= 1);
+    await localIssues(dir, { repo: 'acme/app', as: 'morgan' }).label(1, { add: ['go'] });
+    await until(() => events.length >= 2);
+    await bot.close(1);
+    await until(() => events.length >= 3);
+    writeFileSync(
+      join(dir, '1-task.md'),
+      readFileSync(join(dir, '1-task.md'), 'utf8').replace('labels: [', 'labels: [hand, ')
+    );
+    await until(() => events.length >= 4);
+    stop();
+    expect(events.map(e => [e.action, e.label, e.actor])).toEqual([
+      ['labeled', 'needs-input', { login: 'bothub[bot]', association: 'NONE' }],
+      ['labeled', 'go', { login: 'morgan', association: 'OWNER' }],
+      ['closed', undefined, { login: 'bothub[bot]', association: 'NONE' }],
+      ['labeled', 'hand', { login: 'morgan', association: 'OWNER' }],
+    ]);
+    expect((await bot.get(1))?.changes).toEqual([
+      { by: 'bothub[bot]', action: 'labeled', label: 'needs-input' },
+      { by: 'morgan', action: 'labeled', label: 'go' },
+      { by: 'bothub[bot]', action: 'closed' },
+    ]);
+
+    const result = compile([
+      {
+        path: 'workflows/w.md',
+        source:
+          '---\non: { issues: { types: [labeled], guard: { associations: [OWNER] } } }\njobs:\n  a: { type: script, run: echo }\n---\n',
+      },
+    ]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    expect(events.map(e => plan(e, result.config).length)).toEqual([0, 1, 0, 1]);
+  });
+
   it('reports the file of an issue it cannot read', async () => {
     const dir = temp('issues');
     writeFileSync(join(dir, '1-bad.md'), '---\ntitle: Bad\nstate: maybe\n---\n');

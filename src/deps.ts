@@ -1,0 +1,101 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { appendFile, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { runScript, type Launcher } from './runner.ts';
+import { depsMarker, gitDirs } from './sandbox.ts';
+import type { Hub } from './schema.ts';
+
+export type Deps = NonNullable<Hub['deps']>;
+
+const linked = '.bothub-deps';
+
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false
+  );
+
+/** Names the install a worktree needs: its command, its dirs and the content of every lockfile. */
+export const depsKey = async (worktree: string, deps: Deps) => {
+  const locks = await Promise.all(deps.lockfiles.map(file => readFile(join(worktree, file), 'utf8').catch(() => null)));
+  return createHash('sha256')
+    .update(JSON.stringify([deps.install, deps.dirs, locks]))
+    .digest('hex')
+    .slice(0, 24);
+};
+
+/** Runs the install in the worktree and moves the dirs it leaves to `entry`. */
+const install = async (worktree: string, deps: Deps, entry: string, launch: Launcher, hub?: string) => {
+  const { ok, output } = await runScript(deps.install, worktree, deps['timeout-minutes'], {}, launch, hub);
+  if (!ok) throw new Error(`installing dependencies failed: ${output.split('\n').slice(-10).join('\n')}`);
+  const staged = `${entry}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    for (const dir of deps.dirs) {
+      if (!(await exists(join(worktree, dir)))) throw new Error(`installing dependencies left no ${dir}`);
+      await mkdir(dirname(join(staged, dir)), { recursive: true });
+      await rename(join(worktree, dir), join(staged, dir));
+    }
+    await rename(staged, entry).catch(async error => {
+      if (!(await exists(entry))) throw error;
+    });
+  } finally {
+    await rm(staged, { recursive: true, force: true });
+  }
+};
+
+/** Replaces each dir with a writable one holding a link per entry of the installed dir. */
+const link = async (worktree: string, deps: Deps, entry: string) => {
+  for (const dir of deps.dirs) {
+    const at = join(worktree, dir);
+    await rm(at, { recursive: true, force: true });
+    await mkdir(at, { recursive: true });
+    for (const name of await readdir(join(entry, dir))) await symlink(join(entry, dir, name), join(at, name));
+    await writeFile(join(at, linked), entry);
+  }
+};
+
+/** Keeps the dirs out of every change git reports for the repository's worktrees. */
+const exclude = async (common: string, deps: Deps) => {
+  const file = join(common, 'info', 'exclude');
+  const lines = (await readFile(file, 'utf8').catch(() => '')).split('\n');
+  const missing = deps.dirs.map(dir => `/${dir}/`).filter(line => !lines.includes(line));
+  if (!missing.length) return;
+  await mkdir(dirname(file), { recursive: true });
+  await appendFile(file, `${lines.at(-1) ? '\n' : ''}${missing.join('\n')}\n`);
+};
+
+/**
+ * Makes the worktree's dependencies ready: installs them under `cache` once per key, then links each dir into the
+ * worktree and records the install in its admin dir, where the sandbox finds it to mount read-only.
+ */
+export const prepareDeps = async (worktree: string, deps: Deps, cache: string, launch: Launcher, hub?: string) => {
+  const git = await gitDirs(worktree);
+  if (!git) return;
+  const entry = join(cache, await depsKey(worktree, deps));
+  const marker = join(git.admin, depsMarker);
+  const current = (await readFile(marker, 'utf8').catch(() => '')).trim();
+  const intact = await Promise.all(deps.dirs.map(dir => exists(join(worktree, dir, linked))));
+  if (current === entry && intact.every(Boolean)) return;
+  await rm(marker, { force: true });
+  if (!(await exists(entry))) {
+    await mkdir(cache, { recursive: true });
+    for (const dir of deps.dirs) await rm(join(worktree, dir), { recursive: true, force: true });
+    await install(worktree, deps, entry, launch, hub);
+  }
+  await link(worktree, deps, entry);
+  await exclude(git.common, deps);
+  await writeFile(marker, entry);
+};
+
+/** A launcher that makes a worktree's dependencies ready before anything starts in it. */
+export const withDeps = (launch: Launcher, deps: Deps, cache: string, hub?: string): Launcher => ({
+  ...launch,
+  agent: async (adapter, spec, ...rest) => {
+    await prepareDeps(spec.cwd, deps, cache, launch, hub);
+    return launch.agent(adapter, spec, ...rest);
+  },
+  script: async (script, cwd, ...rest) => {
+    await prepareDeps(cwd, deps, cache, launch, hub);
+    return launch.script(script, cwd, ...rest);
+  },
+});

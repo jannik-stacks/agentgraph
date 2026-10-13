@@ -26,7 +26,8 @@ type Context = {
   event: BotEvent;
   issues?: Issues;
   gh?: GitHub;
-  push: (
+  /** Pushes a branch; without it, a push fails. */
+  push?: (
     proposal: Push,
     journal: { expected?: string; committed: (sha: string) => Promise<unknown> }
   ) => Promise<string>;
@@ -160,6 +161,7 @@ const note = (ctx: Context, proposal: Extract<Proposal, { kind: 'note' }>) => {
 type Journal = { key: string; earlier: ApplyResult | undefined; committed: (sha: string) => Promise<unknown> };
 
 const push = async (ctx: Context, proposal: Push, { earlier, committed }: Journal): Promise<Outcome> => {
+  if (!ctx.push) throw new Error('nowhere to push');
   let sha: string | undefined;
   const url = await ctx.push(proposal, {
     ...(earlier?.sha && { expected: earlier.sha }),

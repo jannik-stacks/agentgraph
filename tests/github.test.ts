@@ -57,6 +57,20 @@ describe('toEvent', () => {
     });
   });
 
+  it('counts a bot sender as NONE, whoever wrote the issue it labels', () => {
+    const labeled = (sender: { login: string; type?: string }) =>
+      toEvent('issues', 'd7', {
+        action: 'labeled',
+        repository: { full_name: 'acme/app' },
+        sender,
+        issue: { number: 7, html_url: 'u', user: { login: 'morgan' }, author_association: 'OWNER' },
+        label: { name: 'ready' },
+      })?.actor;
+    expect(labeled({ login: 'morgan' })).toEqual({ login: 'morgan', association: 'OWNER' });
+    expect(labeled({ login: 'bothub[bot]', type: 'Bot' })).toEqual({ login: 'bothub[bot]', association: 'NONE' });
+    expect(labeled({ login: 'helper', type: 'Bot' })?.association).toBe('NONE');
+  });
+
   it('checks out the pull request head for comments on a pull request', () => {
     const payload = commentPayload('/bothub fix it');
     const event = toEvent('issue_comment', 'd5', {

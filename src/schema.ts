@@ -303,7 +303,10 @@ export const Note = z.strictObject({
 });
 export type Note = z.infer<typeof Note>;
 
-/** `issues/<n>-<slug>.md` in a hub with local issues. The body is the issue, followed by its comments. */
+/**
+ * `issues/<n>-<slug>.md` in a hub with local issues. The body is the issue, followed by its comments. `changes` records
+ * who labeled or closed it through bothub; a hand edit leaves no record.
+ */
 export const IssueFile = z.strictObject({
   title: z.string().min(1),
   state: z.enum(['open', 'closed']).default('open'),
@@ -311,16 +314,34 @@ export const IssueFile = z.strictObject({
   author: z.string().exactOptional(),
   parent: z.int().positive().exactOptional(),
   links: z.array(z.int().positive()).exactOptional(),
+  changes: z
+    .array(z.strictObject({ by: z.string(), action: z.enum(['labeled', 'closed']), label: z.string().exactOptional() }))
+    .exactOptional(),
 });
+export type IssueFile = z.infer<typeof IssueFile>;
+
+const inRepo = z
+  .string()
+  .regex(/^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[^\n]+$/, 'must be a path inside the repository, without . or ..');
 
 /**
  * `hub.yaml`: hub-wide settings. `issues` picks where issues, plans, specs and open questions live;
- * `merge.default-branch` says who merges into the default branch: only a `human`, or `bots` too.
+ * `merge.default-branch` says who merges into the default branch: only a `human`, or `bots` too. `deps` installs the
+ * repository's dependencies once per content of its `lockfiles`, in the sandbox, and links the `dirs` it leaves into
+ * every run's worktree, read-only.
  */
 export const Hub = z.strictObject({
   issues: IssuesBackend.default('github'),
   merge: z
     .strictObject({ 'default-branch': z.enum(['human', 'bots']).default('human') })
     .default({ 'default-branch': 'human' }),
+  deps: z
+    .strictObject({
+      install: z.string().min(1),
+      lockfiles: z.array(inRepo).min(1),
+      dirs: z.array(inRepo).min(1),
+      'timeout-minutes': z.int().positive().default(15),
+    })
+    .optional(),
 });
 export type Hub = z.infer<typeof Hub>;

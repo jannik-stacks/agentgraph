@@ -73,7 +73,7 @@ A script check with the default `over` runs once against the worktree. When it f
 gets its item in `BOTHUB_ITEM` and on stdin. `BOTHUB_BASE` names the commit the change started
 from, for the check and for scripts named by `over`, which run in the same sandbox. When an `each`
 script fails or prints more lines than `max`, the check fails with that as its finding and nothing
-is judged.
+is judged. A passing script check keeps the last lines of its output, shown with the run.
 
 A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by <Sym name="verdictOf" />.
 A decide check passes when the probability of yes reaches its `threshold`, 0.5 unless set; see
@@ -127,7 +127,8 @@ ran at all, every skipped gating check fails instead, so a change never passes u
 
 Jobs take `over` too. It defaults to `event`, one run for the event. Any other value runs the job
 once per item: a bot job gets the item at the end of its prompt, and a script job gets it in
-`BOTHUB_ITEM` and on stdin.
+`BOTHUB_ITEM` and on stdin. The items' replies are posted as one comment that counts the items
+and passes and lists the findings of each item that had any.
 
 ## The correction ladder
 

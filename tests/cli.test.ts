@@ -61,7 +61,10 @@ describe('cli', () => {
     writeFileSync(join(dir, 'checks/fine.md'), '---\ntype: decide\nmode: block\n---\nIs the change fine?\n');
     const io = capture();
     expect(await main(['check', '--dir', dir, '--no-json'])).toBe(0);
-    expect(io.err).toEqual([expect.stringMatching(/^warning: checks\/fine.md: .*without a "threshold"/)]);
+    expect(io.err).toEqual([
+      expect.stringMatching(/^warning: checks\/fine.md: .*without a "threshold"/),
+      expect.stringMatching(/^warning: checks\/fine.md: no job lists it/),
+    ]);
     expect(io.err.every(line => line.startsWith('warning: '))).toBe(true);
     expect(io.out[0]).toMatch(new RegExp(`, ${io.err.length} warnings?\\n$`));
   });

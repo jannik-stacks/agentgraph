@@ -15,7 +15,7 @@ bin/bothub.mjs runs
 bin/bothub.mjs logs <run id> --follow
 ```
 
-- `check` compiles a hub and prints every error.
+- `check` compiles a hub and prints every error, and warns about checks no job uses.
 - `plan` shows which jobs a webhook payload would start.
 - `run` runs them on this machine. `--dry-run` prints each agent session instead of starting it.
 - `runs` lists runs, newest first, and `logs` prints a run's events.

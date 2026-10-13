@@ -24,6 +24,7 @@ type Line =
 
 /** The only provider: the model proxy, where bot models are aliases, spoken to over its Responses API. */
 const provider = 'bothub';
+const alias = (spec: RunSpec) => spec.model ?? 'default';
 
 /** A permission per tool entry: `read` allows the tool, `bash(git diff*)` allows one pattern. */
 const permission = (tools: string[]) => {
@@ -64,7 +65,7 @@ const config = (spec: RunSpec) => ({
       npm: '@ai-sdk/openai',
       name: provider,
       options: { baseURL: '{env:BOTHUB_LLM_BASE_URL}', apiKey: '{env:BOTHUB_LLM_API_KEY}' },
-      models: { [spec.model ?? 'default']: {} },
+      models: { [alias(spec)]: {} },
     },
   },
   agent: { [provider]: { mode: 'primary', prompt: spec.system, ...(spec.maxTurns && { steps: spec.maxTurns }) } },
@@ -98,7 +99,7 @@ const command = (spec: RunSpec) => ({
     '--agent',
     provider,
     '--model',
-    `${provider}/${spec.model ?? 'default'}`,
+    `${provider}/${alias(spec)}`,
     '--',
     ...words(spec.prompt),
   ],
@@ -164,6 +165,12 @@ const parseLine = (raw: string): AgentEvent[] => {
 
 /**
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's
- * tool allowlist and project config is ignored.
+ * tool allowlist and project config is ignored. Its output names no model, so it reports the alias it was given.
  */
-export const opencode: HarnessAdapter = { name: 'opencode', command, parseLine, plugins: pluginIds };
+export const opencode: HarnessAdapter = {
+  name: 'opencode',
+  command,
+  parseLine,
+  start: spec => [{ type: 'start', model: alias(spec) }],
+  plugins: pluginIds,
+};

@@ -129,6 +129,12 @@ describe('opencode', () => {
     expect(args).toContain('bothub/default');
   });
 
+  it('reports the model alias it runs, since its output names none', () => {
+    const { model: _, ...bare } = spec;
+    expect(harnesses.opencode.start?.(spec)).toEqual([{ type: 'start', model: 'coder' }]);
+    expect(harnesses.opencode.start?.(bare)).toEqual([{ type: 'start', model: 'default' }]);
+  });
+
   it('lets a plain tool entry win over its patterns', () => {
     const { env } = command({ ...spec, tools: ['bash(git *)', 'bash'] });
     expect(JSON.parse(env.OPENCODE_PERMISSION ?? '').bash).toBe('allow');

@@ -97,7 +97,8 @@ const bind = ({ src, dst, readonly }: Mount) => {
 const hostUser = () => `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
 
 /**
- * `docker run` for one command in a hardened, throwaway container: read-only root, tmpfs `/tmp`, the host user (never
+ * `docker run` for one command in a hardened, throwaway container: read-only root, tmpfs `/tmp` (executable, since
+ * the worktree is writable and executable anyway and tools run what they build there), the host user (never
  * root), no capabilities, no new privileges, resource limits, the internal network and no image pulls. The worktree
  * is `/work` and the working directory; `home` is mounted as `/home/agent` when given; `stdin` keeps stdin open. `env` is set in argv; `secrets`
  * are passed by name only, so their values come from the docker client's environment (the returned `env`) and never
@@ -145,7 +146,7 @@ export const dockerRun = ({
       sandboxNetwork,
       '--read-only',
       '--tmpfs',
-      `${inside.tmp}:rw,nosuid,nodev,size=1g`,
+      `${inside.tmp}:rw,exec,nosuid,nodev,size=1g`,
       '--user',
       user,
       '--cap-drop=ALL',
@@ -197,15 +198,32 @@ export const sandboxReady = async (config = sandboxConfig()) => {
  * host path and only the admin dir read-write, so git works in `/work` while refs and objects stay untouchable.
  */
 export const gitMounts = async (worktree: string): Promise<Mount[]> => {
+  const dirs = await gitDirs(worktree);
+  if (!dirs) return [];
+  return [
+    { src: dirs.common, dst: dirs.common, readonly: true },
+    { src: dirs.admin, dst: dirs.admin },
+  ];
+};
+
+/** A worktree's admin dir and the repository dir it shares, or `undefined` when it is not a linked worktree. */
+export const gitDirs = async (worktree: string) => {
   const dotGit = await readFile(join(worktree, '.git'), 'utf8').catch(() => undefined);
   const gitdir = dotGit && /^gitdir: (.+)$/m.exec(dotGit)?.[1]?.trim();
-  if (!gitdir) return [];
+  if (!gitdir) return;
   const admin = resolve(worktree, gitdir);
   const common = resolve(admin, (await readFile(join(admin, 'commondir'), 'utf8').catch(() => '../..')).trim());
-  return [
-    { src: common, dst: common, readonly: true },
-    { src: admin, dst: admin },
-  ];
+  return { admin, common };
+};
+
+/** The file in a worktree's admin dir naming the installed dependencies its dirs link to. */
+export const depsMarker = 'bothub-deps';
+
+/** The installed dependencies a worktree links to, mounted read-only at their own path so the links resolve. */
+export const depsMounts = async (worktree: string): Promise<Mount[]> => {
+  const dirs = await gitDirs(worktree);
+  const entry = dirs && (await readFile(join(dirs.admin, depsMarker), 'utf8').catch(() => '')).trim();
+  return entry ? [{ src: entry, dst: entry, readonly: true }] : [];
 };
 
 const bothubRoot = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');

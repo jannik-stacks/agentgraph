@@ -77,7 +77,7 @@ trap 'kill "$watchdog" 2>/dev/null || true' EXIT
 docker run --rm --init --pull never --name "$name" \
   --network bothub-sandbox \
   --read-only \
-  --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+  --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g \
   --mount "type=bind,src=$home,dst=/home/agent" \
   --user "$uid:$gid" \
   --cap-drop=ALL \

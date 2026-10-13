@@ -127,6 +127,21 @@ describe('agentEvents', () => {
     ]);
   });
 
+  it("sends the adapter's start events once, with the first line", async () => {
+    const adapter = {
+      ...node(`process.stdout.write('a\\nb')`, asText),
+      start: () => [{ type: 'start' as const, model: 'm' }],
+    };
+    const events = await Effect.runPromise(
+      Stream.runCollect(agentEvents(adapter, spec, undefined, undefined, unsandboxed))
+    );
+    expect(Chunk.toArray(events)).toEqual([
+      { type: 'start', model: 'm' },
+      { type: 'text', text: 'a' },
+      { type: 'text', text: 'b' },
+    ]);
+  });
+
   it('closes stdin and does not inherit the host env', async () => {
     const script = `process.stdin.on('end', () => console.log(Object.keys(process.env).sort().join(','))).resume();`;
     const events = await Effect.runPromise(

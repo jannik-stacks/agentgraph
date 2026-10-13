@@ -1,6 +1,6 @@
 import type { ApplyResult } from '../../../src/apply.ts';
 import type { Proposal } from '../../../src/outputs.ts';
-import type { Outcome } from '../../../src/store.ts';
+import type { Outcome, Verdict } from '../../../src/store.ts';
 import type { Tone } from '../graph-model.ts';
 import { Badge, Pre, Section } from '../ui.tsx';
 
@@ -20,6 +20,20 @@ const resultTone: Record<ApplyResult['status'], Tone> = {
   skipped: 'neutral',
   failed: 'danger',
 };
+
+const verdictTone = (verdict: Verdict): Tone =>
+  verdict.skipped ? 'neutral' : verdict.pass ? 'ok' : verdict.gating ? 'danger' : 'warn';
+
+const VerdictView = ({ verdict }: { verdict: Verdict }) => (
+  <div className="space-y-1">
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge tone={verdictTone(verdict)}>{verdict.skipped ? 'skipped' : verdict.pass ? 'pass' : 'fail'}</Badge>
+      <span className="font-mono">{verdict.check}</span>
+      {!verdict.gating && <span className="text-zinc-500">shadow</span>}
+    </div>
+    {verdict.findings && <Pre>{verdict.findings}</Pre>}
+  </div>
+);
 
 export const OutcomePanel = ({ outcome }: { outcome: Outcome }) => (
   <div className="space-y-4">
@@ -43,6 +57,13 @@ export const OutcomePanel = ({ outcome }: { outcome: Outcome }) => (
         ))}
       </Section>
     )}
+    {outcome.checks?.length ? (
+      <Section title={`checks (${outcome.checks.length})`}>
+        {outcome.checks.map(verdict => (
+          <VerdictView key={verdict.check} verdict={verdict} />
+        ))}
+      </Section>
+    ) : null}
     <Section title={outcome.applied ? 'applied' : 'not applied'}>
       {outcome.results.length ? (
         <ul className="space-y-1">

@@ -80,6 +80,7 @@ describe('dockerRun', () => {
     expect(run.args).toEqual(
       expect.arrayContaining(['--rm', '--read-only', '--cap-drop=ALL', 'no-new-privileges=true', '--init'])
     );
+    expect(run.args[run.args.indexOf('--tmpfs') + 1]).toBe('/tmp:rw,exec,nosuid,nodev,size=1g');
     expect(run.args.slice(run.args.indexOf('--network'), run.args.indexOf('--network') + 2)).toEqual([
       '--network',
       'bothub-sandbox',

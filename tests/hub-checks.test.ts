@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runScript, unsandboxed } from '../src/runner.ts';
 import { git, temp } from './git.ts';
 
 const hub = resolve(import.meta.dirname, '../examples/acme-app');
 const scripts = join(hub, 'scripts');
+const bothubScripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const bin = resolve(import.meta.dirname, '../node_modules/.bin');
 
 const write = (root: string, files: Record<string, string>) => {
@@ -29,7 +29,7 @@ const change = (before: Record<string, string>, after: Record<string, string> = 
 };
 
 const check = (script: string, { dir, base }: { dir: string; base?: string }, ...args: string[]) => {
-  const result = spawnSync(process.execPath, [join(scripts, script), ...args], {
+  const result = spawnSync(process.execPath, [resolve(scripts, script), ...args], {
     cwd: dir,
     encoding: 'utf8',
     env: { PATH: `${bin}:${process.env.PATH}`, ...(base && { BOTHUB_BASE: base }) },
@@ -197,32 +197,57 @@ describe('lint check', () => {
 
   it('fails when the linters are missing from the sandbox instead of passing', () => {
     const repo = change({ 'kit/a.ts': 'export const a = 1;\n' }, { 'kit/a.ts': 'export const a = 2;\n' });
+    const onlyNode = temp('only-node');
+    symlinkSync(process.execPath, join(onlyNode, 'node'));
     const result = spawnSync(process.execPath, [join(scripts, 'lint.mjs')], {
       cwd: repo.dir,
       encoding: 'utf8',
-      env: { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, BOTHUB_BASE: repo.base },
+      env: { PATH: `${onlyNode}:/usr/bin:/bin`, BOTHUB_BASE: repo.base },
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('oxlint is not installed in this sandbox');
   });
 });
 
-describe('kit check', () => {
-  it('installs locked dependencies once, reinstalls when the lockfile changes, and fails a broken install', async () => {
-    const repo = change({
-      'kit/package.json': '{ "name": "k", "version": "1.0.0", "private": true }\n',
-      'kit/package-lock.json':
-        '{ "name": "k", "version": "1.0.0", "lockfileVersion": 3, "requires": true, "packages": { "": { "name": "k", "version": "1.0.0" } } }\n',
-    });
-    const kit = (cmd: string) => runScript(`sh "$BOTHUB_HUB/scripts/kit.sh" ${cmd}`, repo.dir, 2, {}, unsandboxed, hub);
-    const first = await kit('ls node_modules/.bothub-lock');
-    expect(first.ok).toBe(true);
-    expect(first.output).toMatch(/up to date[\s\S]*\nnode_modules\/\.bothub-lock$/);
-    expect(await kit('sh -c "echo second >> node_modules/marker; cat node_modules/marker"')).toMatchObject({
-      ok: true,
-      output: 'second',
-    });
-    writeFileSync(join(repo.dir, 'kit/package-lock.json'), '{ "broken": ');
-    expect((await kit('true')).ok).toBe(false);
+describe('bothub hub checks', () => {
+  const at = (script: string) => join(bothubScripts, script);
+
+  it('flags dated or historical comments and symbol-laden docs lines a change adds', () => {
+    const repo = change(
+      { 'src/a.ts': 'export const a = 1;\n', 'studio/content/docs/a.mdx': '# A\n' },
+      {
+        'src/a.ts': 'export const a = 1;\n// renamed from b on 2026-10-12\nexport const b = 2;\n',
+        'studio/content/docs/a.mdx': '# A\n\n## Sending — the golden path\n\nFast · simple.\n',
+      }
+    );
+    const comments = check(at('comments.mjs'), repo);
+    expect(comments.ok).toBe(false);
+    expect(comments.out).toContain('src/a.ts:2: a date in a comment');
+    expect(comments.out).toContain('src/a.ts:2: history in a comment');
+    const docs = check(at('docs-style.mjs'), repo);
+    expect(docs.ok).toBe(false);
+    expect(docs.out).toContain('studio/content/docs/a.mdx:3: a heading with an em-dash suffix');
+    expect(docs.out).toContain('studio/content/docs/a.mdx:5: a middle dot separator');
+
+    const clean = change({ 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': '// Plain.\nexport const a = 2;\n' });
+    expect(check(at('comments.mjs'), clean)).toEqual({ ok: true, out: 'comments: ok' });
+    expect(check(at('docs-style.mjs'), clean)).toEqual({ ok: true, out: 'docs-style: ok' });
+  });
+
+  it('lints and format-checks the code files a change touches', () => {
+    const repo = change(
+      { '.oxlintrc.json': '{ "rules": { "no-debugger": "error" } }\n', 'src/a.ts': 'export const a = 1;\n' },
+      { 'src/a.ts': 'export const a = 1;\ndebugger;\n' }
+    );
+    const lint = check(at('lint.mjs'), repo);
+    expect(lint.ok).toBe(false);
+    expect(lint.out).toContain('oxlint found errors');
+    const messy = change({}, { 'src/b.ts': 'export   const b=2\n' });
+    const format = check(at('format.mjs'), messy);
+    expect(format.ok).toBe(false);
+    expect(format.out).toContain('oxfmt src/b.ts');
+    const tidy = change({}, { 'src/b.ts': 'export const b = 2;\n' });
+    expect(check(at('lint.mjs'), tidy)).toEqual({ ok: true, out: 'lint: ok' });
+    expect(check(at('format.mjs'), tidy)).toEqual({ ok: true, out: 'format: ok' });
   });
 });

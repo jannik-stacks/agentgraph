@@ -257,7 +257,7 @@ describe('compile', () => {
     expect(quiet.ok && quiet.warnings).toEqual([]);
   });
 
-  it('warns about fields it does not enforce and loops that never repeat', async () => {
+  it('warns about fields it does not enforce, checks that never run and loops that never repeat', async () => {
     const result = compile([
       { ...bot('b'), source: bot('b').source.replace('max-turns', 'budget: { usd-per-run: 2 }\nmax-turns') },
       skill('s'),
@@ -276,6 +276,7 @@ describe('compile', () => {
     expect(result.ok && result.warnings.map(w => `${w.path}: ${w.message}`)).toEqual([
       'bots/b.md: "usd-per-run" is declared, not enforced: harness "opencode" reports no cost',
       'checks/judge.md: decides in block mode without a "threshold"; tune one in shadow mode first',
+      'checks/tuned.md: no job lists it in "until" or "requires", so it never runs',
       'workflows/w.md: job "a" loops until checks that are all in shadow mode, so it never repeats',
     ]);
     const examples = compile(await readHub(hub));

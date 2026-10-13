@@ -44,7 +44,7 @@ const configFor = (mode = 'shadow'): Config => {
     md('skills/notify.md', 'description: Tell someone.', 'Notify someone.'),
     md('skills/implement.md', 'description: Change code.', 'Implement it.'),
     md('skills/judge.md', 'description: Judge a file.', 'Judge this file.'),
-    md('checks/exists.md', 'type: script\nrun: test -f src/a.ts\nmode: block'),
+    md('checks/exists.md', 'type: script\nrun: test -f src/a.ts && seq 12\nmode: block'),
     md('checks/shadowed.md', 'type: script\nrun: echo never mind; exit 1'),
     md('checks/judged.md', 'type: bot\nbot: judge\nskill: judge\nover: each-file\nmode: block', 'Be strict.'),
     md('notes/style/small.md', 'title: Small changes\nstatus: accepted', 'Keep changes small.'),
@@ -502,7 +502,7 @@ describe('until', () => {
     expect(result.run.id).toBe(runs[1]!.id);
     expect((await p.store.outcome(runs[0]!.id))?.applied).toBe(false);
     expect(result.outcome?.checks).toEqual([
-      { check: 'exists', gating: true, pass: true },
+      { check: 'exists', gating: true, pass: true, findings: '3\n4\n5\n6\n7\n8\n9\n10\n11\n12' },
       { check: 'shadowed', gating: false, pass: false, findings: 'never mind' },
     ]);
     expect(result.outcome?.applied).toBe(true);
@@ -1176,5 +1176,33 @@ describe('over', () => {
     const runs = await p.store.list();
     expect(runs).toHaveLength(2);
     expect(runs.filter(r => r.parent).map(r => r.parent)).toEqual([runs.find(r => !r.parent)!.id]);
+  });
+
+  it('folds the replies of a fan-out into one, findings first and passes counted', async () => {
+    const issues = trackedIssues();
+    const replies = ['pass\n\nNothing found.', 'findings\n\nlong.txt:19 reads oddly.', 'PASS'];
+    const { adapters } = fake((_spec, call) => ({ message: bothub([{ kind: 'reply', body: replies[call - 1] }]) }));
+    const config = hubWith([], {
+      over: { each: "printf 'one\\ntwo\\nthree\\n'" },
+      until: undefined,
+      mode: 'warn',
+    });
+    const p = await pipeline({ config, adapters, issues, env: { BOTHUB_LLM_API_KEY: 'key' } }, origin());
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect('run' in result && result.run.closure).toBe('done');
+    expect((await issues.get(7))?.comments.map(c => unmarked(c.body))).toEqual([
+      '3 items: 1 with findings, 2 passed.\n\n### item 2\n\nfindings\n\nlong.txt:19 reads oddly.',
+    ]);
+    const runs = (await p.store.list()).reverse();
+    expect((await p.store.outcome(runs[1]!.id))?.results).toEqual([
+      { kind: 'reply', status: 'applied', reason: 'folded into the summary reply' },
+    ]);
+    expect((await p.store.outcome(runs[0]!.id))?.results.map(r => [r.kind, r.status, r.reason])).toEqual([
+      ['reply', 'applied', 'folded into the summary reply'],
+      ['reply', 'applied', undefined],
+    ]);
+
+    await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect((await issues.get(7))?.comments).toHaveLength(1);
   });
 });

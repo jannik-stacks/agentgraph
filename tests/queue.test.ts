@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { compile } from '../src/config.ts';
 import { plan, withdrawn } from '../src/dispatch.ts';
 import { toEvent } from '../src/github.ts';
@@ -88,6 +88,19 @@ describe('fileQueue', () => {
     expect((await restarted.take())?.item).toBe('from a dead process');
     expect((await restarted.take())?.item).toBe('waiting');
     expect(await restarted.take()).toBeUndefined();
+  });
+
+  it('keeps push order across queues on one directory within the same millisecond', async () => {
+    const dir = temp('queue');
+    const queues = [fileQueue<string>(dir), fileQueue<string>(dir)];
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 9, 12));
+    const ids = ['f', 'e', 'd', 'c', 'b', 'a'];
+    try {
+      for (const [i, id] of ids.entries()) await queues[i % 2]?.push(id, id);
+    } finally {
+      now.mockRestore();
+    }
+    expect((await queues[0]?.list())?.map(e => e.id)).toEqual(ids);
   });
 
   it('ignores files that are not items', async () => {
@@ -177,7 +190,7 @@ describe('label assignment', () => {
     if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
     const dir = temp('issues');
     writeFileSync(join(dir, '1-task.md'), '---\ntitle: Task\nauthor: morgan\n---\n\nDo it.\n');
-    const issues = localIssues(dir, { repo: 'acme/app' });
+    const issues = localIssues(dir, { repo: 'acme/app', as: 'morgan' });
     const events: BotEvent[] = [];
     const watching = issues.watch(e => events.push(e), { interval: 5 });
     await watching.ready;
@@ -284,7 +297,7 @@ describe('serveHub queue', () => {
       expect(ran).toEqual([[1, ['succeeded']]]);
       expect(lines).toContain('event before-2 dropped, its label "bot:helper" was removed');
 
-      await localIssues(join(hub, 'issues'), { repo: 'acme/app' }).label(3, { add: ['bot:helper'] });
+      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).label(3, { add: ['bot:helper'] });
       await until(() => ran.length >= 2);
       await served.idle();
       expect(ran).toEqual([

@@ -187,6 +187,13 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
         path: check.path,
         message: `decides in ${check.mode} mode without a "threshold"; tune one in shadow mode first`,
       });
+  const jobs = Object.values(workflows).flatMap(workflow => Object.values(workflow.jobs));
+  const used = new Set(
+    jobs.flatMap(job => [...(job.requires ?? []), ...((job.type === 'bot' && job.until?.checks) || [])])
+  );
+  for (const check of Object.values(checks))
+    if (!used.has(check.name))
+      found.push({ path: check.path, message: 'no job lists it in "until" or "requires", so it never runs' });
   for (const workflow of Object.values(workflows))
     for (const [id, job] of Object.entries(workflow.jobs)) {
       const warn = (message: string) => found.push({ path: workflow.path, message: `job "${id}" ${message}` });

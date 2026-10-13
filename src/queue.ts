@@ -20,6 +20,7 @@ const hashed = (id: string) => createHash('sha256').update(id).digest('hex').sli
 const pending = /^(\d{13}-\d{6})-([0-9a-f]{24})\.json$/;
 const claimed = /^(\d{13}-\d{6})-([0-9a-f]{24})\.json\.(\d+)-(.+)$/;
 const gone = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
+let seq = 0;
 
 /**
  * A queue of JSON files in `dir`, one per item, named so they sort in push order. Taking renames the file to carry its
@@ -27,7 +28,6 @@ const gone = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
  * the waiting ones.
  */
 export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
-  let seq = 0;
   const names = async () => (await readdir(dir).catch(() => [])).sort();
   const find = async (id: string) =>
     (await names()).find(name => (pending.exec(name) ?? claimed.exec(name))?.[2] === hashed(id));

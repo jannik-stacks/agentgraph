@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { watch as watchDir } from 'node:fs';
 import { mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Document, visit } from 'yaml';
+import { Document, isScalar, visit } from 'yaml';
 import { z } from 'zod';
 import { changeEvent, matches, type Comment, type Issue, type Issues } from './issues.ts';
 import { parseMarkdown } from './markdown.ts';
@@ -61,12 +61,15 @@ export const parseIssue = (file: string, source: string): Issue => {
 };
 
 /** Renders an issue back to its file, the inverse of `parseIssue`. */
-export const renderIssue = ({ title, state, labels, author, parent, links, body, comments }: Issue) => {
-  const data = { title, state, labels, author, parent, links };
+export const renderIssue = ({ title, state, labels, author, parent, links, changes, body, comments }: Issue) => {
+  const data = { title, state, labels, author, parent, links, changes };
   const doc = new Document(Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)));
   visit(doc, {
     Seq: (_, seq) => {
-      seq.flow = true;
+      seq.flow = seq.items.every(isScalar);
+    },
+    Map: (_, map) => {
+      map.flow = map !== doc.contents;
     },
   });
   const front = doc.toString({ flowCollectionPadding: false, lineWidth: 0 });
@@ -77,8 +80,9 @@ export const renderIssue = ({ title, state, labels, author, parent, links, body,
 /**
  * Issues as Markdown files in `<dir>/<n>-<slug>.md`, written as `as`. Numbers only grow: the next is one above the
  * highest file, claimed with an exclusive `.<n>.lock` so concurrent writers on one directory never share a number,
- * and issues are closed rather than deleted. Authors ending in `[bot]` count as untrusted (`NONE`),
- * everyone else as `OWNER`, since writing to the hub already takes repository access.
+ * and issues are closed rather than deleted. Labels and closes made here are recorded under `changes` and attributed to
+ * `as`; a change without a record is a hand edit, attributed to the issue's author. Authors ending in `[bot]` count as
+ * untrusted (`NONE`), everyone else as `OWNER`, since writing to the hub already takes repository access.
  */
 export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: string; as?: string }): Issues => {
   let queue: Promise<unknown> = Promise.resolve();
@@ -118,6 +122,9 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
       }
     );
 
+  const record = (issue: Issue, entries: NonNullable<Issue['changes']>) =>
+    entries.length ? { changes: [...(issue.changes ?? []), ...entries] } : {};
+
   const association = (login: string): Association => (login.endsWith('[bot]') ? 'NONE' : 'OWNER');
 
   const watch: Issues['watch'] = (onEvent, { interval, replay } = {}) => {
@@ -135,12 +142,17 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
         for (const issue of current.values()) {
           const old = before.get(issue.number);
           const sender = issue.author ?? as;
+          const recorded = issue.changes?.slice(old?.changes?.length ?? 0) ?? [];
+          const by = (action: string, label?: string) =>
+            recorded.findLast(c => c.action === action && c.label === label)?.by ?? sender;
           if (!old) event({ kind: 'issues', action: 'opened', issue, sender });
           else {
-            if (old.state !== issue.state)
-              event({ kind: 'issues', action: issue.state === 'closed' ? 'closed' : 'reopened', issue, sender });
+            if (old.state !== issue.state) {
+              const action = issue.state === 'closed' ? 'closed' : 'reopened';
+              event({ kind: 'issues', action, issue, sender: by(action) });
+            }
             for (const label of issue.labels.filter(label => !old.labels.includes(label)))
-              event({ kind: 'issues', action: 'labeled', issue, sender, label });
+              event({ kind: 'issues', action: 'labeled', issue, sender: by('labeled', label), label });
           }
           for (const comment of issue.comments.slice(old?.comments.length ?? 0))
             event({ kind: 'issue_comment', issue, comment });
@@ -204,10 +216,20 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
       await update(number, i => ({
         ...i,
         labels: [...new Set([...i.labels, ...add])].filter(l => !remove.includes(l)),
+        ...record(
+          i,
+          add
+            .filter(l => !i.labels.includes(l) && !remove.includes(l))
+            .map(label => ({ by: as, action: 'labeled' as const, label }))
+        ),
       }));
     },
     close: async number => {
-      await update(number, i => ({ ...i, state: 'closed' }));
+      await update(number, i => ({
+        ...i,
+        state: 'closed',
+        ...record(i, i.state === 'closed' ? [] : [{ by: as, action: 'closed' }]),
+      }));
     },
     link: async (parent, child) => {
       if (!(await get(parent))) throw new Error(`no issue #${parent}`);

@@ -101,11 +101,12 @@ export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): Harnes
 });
 
 /**
- * Checks become scripts with the scenario's verdict, script jobs become stubs unless they merge, and jobs run once
- * over the event, so nothing outside the sim runs.
+ * Checks become scripts with the scenario's verdict, script jobs become stubs unless they merge, jobs run once over
+ * the event and nothing is installed, so nothing outside the sim runs.
  */
 const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
   ...config,
+  hub: { ...config.hub, deps: undefined },
   checks: Object.fromEntries(
     Object.entries(config.checks).map(([name, { name: _, path, body, mode, description }]) => [
       name,

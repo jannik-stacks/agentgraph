@@ -8,6 +8,7 @@ import {
   bothubPaths,
   containerEnv,
   containerName,
+  depsMounts,
   dockerRun,
   gitMounts,
   inside,
@@ -133,7 +134,7 @@ const contained = async ({
     name: container,
     worktree,
     home,
-    mounts: [...mounts, ...(await gitMounts(worktree))],
+    mounts: [...mounts, ...(await gitMounts(worktree)), ...(await depsMounts(worktree))],
     env: { ...containerEnv(), ...(home ? homeEnv(inside.home, inside.tmp) : { HOME: inside.tmp }), ...env },
     ...(secrets && { secrets }),
     cmd,
@@ -232,9 +233,16 @@ export const agentEvents = (
       try: () => launch.agent(adapter, spec, secrets, home),
       catch: e => (e instanceof SandboxError ? e : new SandboxError((e as Error).message)),
     }).pipe(
-      Effect.map(command =>
-        output(command).pipe(Stream.decodeText(), Stream.splitLines, Stream.mapConcat(adapter.parseLine))
-      )
+      Effect.map(command => {
+        let started = !adapter.start;
+        const parse = (line: string) => {
+          const events = adapter.parseLine(line);
+          if (started) return events;
+          started = true;
+          return [...(adapter.start?.(spec) ?? []), ...events];
+        };
+        return output(command).pipe(Stream.decodeText(), Stream.splitLines, Stream.mapConcat(parse));
+      })
     )
   );
 

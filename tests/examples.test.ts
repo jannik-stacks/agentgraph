@@ -32,8 +32,10 @@ const hub = (bots: Record<string, string>) => {
 };
 
 describe('example hubs', () => {
-  it('finds both example hubs', () => {
-    expect(hubDirs.map(dir => dir.slice(examples.length + 1))).toEqual(expect.arrayContaining(['hub', 'acme-app']));
+  it('finds every example hub', () => {
+    expect(hubDirs.map(dir => dir.slice(examples.length + 1))).toEqual(
+      expect.arrayContaining(['bothub', 'hub', 'acme-app'])
+    );
   });
 
   it.each(hubDirs)('%s compiles with no errors and passes bothub check', async dir => {

@@ -38,6 +38,11 @@ on:
 The `bot:` prefix is a convention, not a keyword: any label works, and the same workflow runs
 unchanged on GitHub.
 
+Every label and close bothub makes on a local issue is recorded under the issue's `changes` with
+who made it. The event it emits names that bot as the sender, with the association `NONE`, as a
+GitHub App's change has, so a bot's label never starts a workflow guarded to owners. A change
+made by hand in the file has no record and is attributed to the issue's author.
+
 Each new event waits in a queue before it runs. <Sym name="fileQueue" /> keeps one JSON file per
 item under `<data>/queue/`, named so they sort in push order. Taking an item renames its file to
 carry the owning process, so two processes on one data directory never run the same item, and an

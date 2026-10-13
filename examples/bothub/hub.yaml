@@ -1,0 +1,5 @@
+issues: local
+deps:
+  install: npm ci --no-audit --no-fund --loglevel=error && npm --prefix studio ci --no-audit --no-fund --loglevel=error
+  lockfiles: [package-lock.json, studio/package-lock.json]
+  dirs: [node_modules, studio/node_modules]

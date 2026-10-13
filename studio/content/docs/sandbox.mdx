@@ -9,7 +9,7 @@ Every harness run, script job and script check is one hardened `docker run --rm`
 
 <Sym name="dockerRun" />. There is no setting that turns it off or runs anything on the host instead:
 
-- read-only root filesystem, `/tmp` as tmpfs, the operator's own non-root user, all capabilities
+- read-only root filesystem, `/tmp` as a tmpfs that allows running programs, the operator's own non-root user, all capabilities
   dropped, `no-new-privileges`, memory, CPU and pid limits, no image pulls, and a watchdog that
   kills it at the timeout,
 - the run's `home/` mounted read-write, so transcripts survive the container,
@@ -19,11 +19,42 @@ Every harness run, script job and script check is one hardened `docker run --rm`
   egress proxy that only allows GitHub and the npm registry, and a relay to the host's Ollama.
 
 Besides the worktree, its git admin directory and the run home, the only mounts are read-only:
-the bare mirror, bothub's own code for the MCP server, the hub and the run store. The docker
-socket is never mounted.
+the bare mirror, bothub's own code for the MCP server, the hub, the run store and the hub's
+installed dependencies. The docker socket is never mounted.
+
+`/tmp` allows running programs because forbidding it would protect nothing: the worktree is
+writable and runnable anyway, and test runners and build tools run what they write to `/tmp`.
 
 No GitHub token goes inside. The run gets the proxy URL, its bot's own key and the decision API
 address. Pushes happen on the host, after checks.
+
+## Dependencies
+
+A run never installs packages itself. `deps` in `hub.yaml` names an install command, the
+lockfiles it reads and the directories it fills:
+
+```yaml
+deps:
+  install: npm ci --no-audit --no-fund
+  lockfiles: [package-lock.json]
+  dirs: [node_modules]
+  timeout-minutes: 15
+```
+
+Before the first harness run or script in a worktree, <Sym name="prepareDeps" /> hashes the
+command, the directories and the lockfiles' contents. When `<data>/deps/<hash>` does not exist
+yet, it runs `install` in the worktree, in the same sandbox as any script, so the egress proxy
+lets it reach the npm registry, and moves the directories into the cache. Later runs with the
+same lockfiles skip the install.
+
+Each worktree then gets its directories back as plain folders of links into the cache, which is
+mounted read-only at the same path. The packages cannot be changed, while tools can still write
+their own caches next to the links. The directories are added to the repository's
+`info/exclude`, so they never show up in a change. A change to a lockfile gets a fresh install
+before its checks run, and a failed install fails the run with the end of its output.
+
+The hash does not cover the sandbox image. After rebuilding the image with a different Node
+version, delete `<data>/deps`.
 
 ## When the sandbox is unavailable
 

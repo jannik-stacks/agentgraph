@@ -1,6 +1,6 @@
 import { toEvent } from './github.ts';
 import type { Proposal } from './outputs.ts';
-import type { Association, IssuesBackend } from './schema.ts';
+import type { Association, IssueFile, IssuesBackend } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
 export type Comment = { author: string; ts: string; body: string; url?: string };
@@ -15,6 +15,7 @@ export type Issue = {
   author?: string;
   parent?: number;
   links?: number[];
+  changes?: NonNullable<IssueFile['changes']>;
   comments: Comment[];
   url?: string;
 };

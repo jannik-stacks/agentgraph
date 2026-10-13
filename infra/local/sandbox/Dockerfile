@@ -10,7 +10,7 @@ ARG OXLINT_VERSION=1.87.0
 ARG OXFMT_VERSION=0.72.0
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates git ripgrep \
+ && apt-get install -y --no-install-recommends ca-certificates git procps ripgrep \
  && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g --no-fund --no-audit \

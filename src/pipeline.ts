@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Effect } from 'effect';
 import { apply, type ApplyResult } from './apply.ts';
 import {
@@ -15,6 +16,7 @@ import {
 } from './config.ts';
 import { isTrusted, type PlannedJob } from './dispatch.ts';
 import { decideCheck } from './decide.ts';
+import { withDeps } from './deps.ts';
 import { fanOut, itemsOf, type Item } from './over.ts';
 import { harnesses } from './harnesses/index.ts';
 import type { GitHub } from './github-app.ts';
@@ -36,7 +38,7 @@ import {
 } from './outputs.ts';
 import { issueContext } from './preload.ts';
 import { githubPulls, type Pull, type Pulls } from './pulls.ts';
-import { runJob, runScript, type Launcher, type limiter } from './runner.ts';
+import { runJob, runScript, sandboxed, type Launcher, type limiter } from './runner.ts';
 import {
   NoteKind,
   type Preload,
@@ -394,6 +396,13 @@ export type Pipeline = {
   onEvent?: (run: Run, record: EventRecord) => void;
 };
 
+/** How the pipeline starts commands: in the sandbox unless `launch` says otherwise, with the hub's `deps` ready. */
+const launcher = (p: Pipeline) => {
+  const launch = p.launch ?? sandboxed;
+  const { deps } = p.config.hub;
+  return deps && p.data ? withDeps(launch, deps, join(p.data, 'deps'), p.hub) : launch;
+};
+
 const pullsOf = (p: Pipeline) => p.pulls ?? (p.gh && githubPulls(p.gh, p.event.repo));
 
 const issuesOf = (p: Pipeline) => p.issues ?? (p.gh && githubIssues(p.gh, p.event.repo));
@@ -479,7 +488,7 @@ const agent = (
         store: p.store,
         runId: run.id,
         secrets: { ...secretsFor(bot, p.env), ...env },
-        ...(p.launch && { launch: p.launch }),
+        launch: launcher(p),
         onEvent: record => {
           if (record.event.type === 'start') model ??= record.event.model;
           if (record.event.type === 'text') lastText = record.event.text;
@@ -530,6 +539,8 @@ type Attempt = {
   handoff: Handoff;
   target: Target;
   item?: number;
+  /** A fan-out item's replies are collected here under its label instead of posted one by one. */
+  fold?: { label: string; replies: Item[] };
   merging?: boolean;
 };
 
@@ -551,7 +562,7 @@ const gather = async (over: Over, scope: Scope, p: Pipeline): Promise<{ items: I
   if (typeof over === 'object') {
     const script = 'each' in over ? over.each : over.run;
     const env = { ...scope.env, BOTHUB_BASE: scope.since };
-    const { ok, output, stdout } = await runScript(script, scope.cwd, scope.timeout, env, p.launch, p.hub);
+    const { ok, output, stdout } = await runScript(script, scope.cwd, scope.timeout, env, launcher(p), p.hub);
     if (!ok) return { items: [], error: `the "over" script failed: ${output || 'exited non-zero'}` };
     const items = itemsOf(over, { diff: '', output: stdout });
     if ('each' in over && items.length > over.max)
@@ -582,16 +593,24 @@ const itemSection = (over: Over, item: Item) => {
 
 /** The item as a script sees it: in `BOTHUB_ITEM` and on stdin. */
 const runOnItem = (script: string, item: Item, scope: Scope, p: Pipeline) =>
-  runScript(script, scope.cwd, scope.timeout, { ...scope.env, BOTHUB_ITEM: item.text }, p.launch, p.hub, item.text);
+  runScript(script, scope.cwd, scope.timeout, { ...scope.env, BOTHUB_ITEM: item.text }, launcher(p), p.hub, item.text);
 
 type Judged = Pick<Verdict, 'pass' | 'findings'> & { run?: string };
+
+const passTail = 10;
+
+/** A script check's verdict: its output on a failure, and the last lines of it on a pass, so warnings stay visible. */
+const scriptVerdict = ({ ok, output }: { ok: boolean; output: string }): Judged => {
+  if (!ok) return { pass: false, findings: output || 'exited non-zero' };
+  const tail = output.trim().split('\n').slice(-passTail).join('\n');
+  return { pass: true, ...(tail && { findings: tail }) };
+};
 
 const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline) => {
   if (check.type === 'script')
     return (item: Item) =>
       Effect.promise(async (): Promise<Judged> => {
-        const { ok, output } = await runOnItem(check.run, item, scope, p);
-        return { pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) };
+        return scriptVerdict(await runOnItem(check.run, item, scope, p));
       });
   if (check.type === 'decide')
     return (item: Item) =>
@@ -663,10 +682,10 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
     };
 
     if (check.type === 'script' && !fanOut(over)) {
-      const { ok, output } = yield* Effect.promise(() =>
-        runScript(check.run, a.cwd, scope.timeout, scope.env, p.launch, p.hub)
+      const result = yield* Effect.promise(() =>
+        runScript(check.run, a.cwd, scope.timeout, scope.env, launcher(p), p.hub)
       );
-      return done({ pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) });
+      return done(scriptVerdict(result));
     }
 
     const { items, error } = yield* Effect.promise(() => gather(over, scope, p));
@@ -829,7 +848,8 @@ const settle = async (
   const { paths } = a.job;
   const base: Outcome = { proposals, errors, accepted, rejected, results: [], applied, ...(checks && { checks }) };
   if (!applied) return p.store.saveOutcome(run.id, base);
-  const writes = toApply.filter(proposal => proposal.kind !== 'close');
+  const folds = (proposal: Proposal) => a.fold !== undefined && proposal.kind === 'reply';
+  const writes = toApply.filter(proposal => proposal.kind !== 'close' && !folds(proposal));
   const push: Parameters<typeof apply>[1]['push'] = ({ kind: _, ...proposal }, journal) =>
     workspaces.publish(event.repo, a.worktree, {
       ...proposal,
@@ -852,7 +872,40 @@ const settle = async (
     merge: request => landMerge(request, a, p),
     ...((hubPr ?? p.hub) && { hubPr: hubPr ?? hubProposal(p.hub!) }),
   });
-  return p.store.saveOutcome(run.id, { ...base, results, ...handoffOf(writes, results) });
+  const folded = toApply.flatMap(proposal => {
+    if (proposal.kind !== 'reply' || !a.fold) return [];
+    a.fold.replies.push({ label: a.fold.label, text: proposal.body });
+    return [{ kind: 'reply', status: 'applied', reason: 'folded into the summary reply' } satisfies ApplyResult];
+  });
+  return p.store.saveOutcome(run.id, { ...base, results: [...results, ...folded], ...handoffOf(writes, results) });
+};
+
+/**
+ * Posts a fan-out's collected replies as one reply: the items with findings first, each under its label, then how many
+ * passed. A reply whose first word is `pass` counts as a pass. Recorded on the fan-out's first run; resolves to why
+ * it failed, if it did.
+ */
+const postSummary = async (first: Run, noun: string, replies: Item[], p: Pipeline) => {
+  if (!replies.length) return;
+  const passed = replies.filter(reply => /^pass\b/i.test(reply.text.trim()));
+  const found = replies.filter(reply => !passed.includes(reply));
+  const total = `${replies.length} ${noun}${replies.length === 1 ? '' : 's'}`;
+  const head = found.length
+    ? `${total}: ${found.length} with findings, ${passed.length} passed.`
+    : `${total}, all passed.`;
+  const body = [head, ...found.map(reply => `### ${reply.label}\n\n${reply.text.trim()}`)].join('\n\n');
+  const outcome = await p.store.outcome(first.id);
+  if (!outcome) return;
+  const issues = issuesOf(p);
+  const results = await apply([{ kind: 'reply', body }], {
+    event: p.event,
+    prefix: `${p.event.id}/${first.workflow}/${first.job}/summary`,
+    record: results => p.store.saveOutcome(first.id, { ...outcome, results: [...outcome.results, ...results] }),
+    ...(issues && { issues }),
+    ...(p.gh && { gh: p.gh }),
+  });
+  const failed = results.find(result => result.status === 'failed');
+  return failed && `the summary reply failed: ${failed.reason ?? 'unknown error'}`;
 };
 
 type Landed = { conflicts: string[] } | { sha: string };
@@ -1025,7 +1078,7 @@ const attempts = (
   worktree: Worktree,
   handoff: Handoff,
   p: Pipeline,
-  item?: { index: number; section: string | undefined }
+  item?: { index: number; section: string | undefined; fold?: Attempt['fold'] }
 ) =>
   Effect.gen(function* () {
     const { cwd, base, merging } = worktree;
@@ -1084,6 +1137,7 @@ const attempts = (
         handoff,
         target,
         ...(item && { item: item.index }),
+        ...(item?.fold && { fold: item.fold }),
         ...(merging && { merging }),
       };
       const succeeded = run.status === 'succeeded';
@@ -1227,6 +1281,8 @@ const fanned = (
       return { ...planned, run } satisfies JobResult;
     }
     let result: JobResult | undefined;
+    const replies: Item[] = [];
+    const noun = fanOut(job.over);
     for (const [index, item] of items.entries()) {
       const run =
         index === 0
@@ -1243,8 +1299,14 @@ const fanned = (
               })
             );
       const section = itemSection(job.over, item);
-      result = yield* attempts(planned, workflow, run, worktree, handoff, p, { index, section });
-      if (!proceeds(closureOfResult(result))) return result;
+      const fold = noun && { label: item.label, replies };
+      result = yield* attempts(planned, workflow, run, worktree, handoff, p, { index, section, ...(fold && { fold }) });
+      if (!proceeds(closureOfResult(result))) break;
+    }
+    const failed = noun ? yield* Effect.promise(() => postSummary(first, noun, replies, p)) : undefined;
+    if (failed && result && 'run' in result) {
+      const run = yield* Effect.promise(() => p.store.update(result.run.id, closed('blocked', failed)));
+      return { ...result, run };
     }
     return result as JobResult;
   });
@@ -1282,7 +1344,8 @@ const scriptJob = (
     const timeout = job['timeout-minutes'] ?? defaultMinutes;
     const returns = job.returns ?? [];
     const kinds = returnKinds(returns);
-    const once = (cwd: string, env: Record<string, string>) => runScript(job.run, cwd, timeout, env, p.launch, p.hub);
+    const once = (cwd: string, env: Record<string, string>) =>
+      runScript(job.run, cwd, timeout, env, launcher(p), p.hub);
     const each = async (worktree: Worktree) => {
       const { items, error, scope } = await jobItems(job, worktree, handoff, p);
       if (error) return { ok: false, output: error, stdout: '' };
