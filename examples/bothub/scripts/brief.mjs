@@ -5,7 +5,7 @@
 //   ## Files
 //   ## Out of scope
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 export const sections = ['Task', 'Criteria', 'Files', 'Out of scope'];
 export const maxCriteria = 5;
@@ -70,6 +70,26 @@ const issueNumber = () => {
   return n && Number(n);
 };
 
+/** The local issue files under `$BOTHUB_HUB/issues`. */
+const issueFiles = () => {
+  if (!process.env.BOTHUB_HUB) return [];
+  const dir = join(process.env.BOTHUB_HUB, 'issues');
+  try {
+    return readdirSync(dir)
+      .filter(name => /^\d+-.*\.md$/.test(name))
+      .map(name => join(dir, name));
+  } catch {
+    return [];
+  }
+};
+
+/** The local issue `BOTHUB_ISSUE` (or the `bothub/<n>` branch) names, as written. */
+export const findIssue = () => {
+  const n = issueNumber();
+  const file = n && issueFiles().find(file => basename(file).startsWith(`${n}-`));
+  return file ? readFileSync(file, 'utf8') : undefined;
+};
+
 /** The last comment on a local issue file that holds a brief. */
 const briefIn = source => {
   const heads = [...source.matchAll(comment)];
@@ -83,22 +103,12 @@ const briefIn = source => {
  */
 export const findBrief = () => {
   if (process.env.BOTHUB_BRIEF) return readFileSync(process.env.BOTHUB_BRIEF, 'utf8');
-  const hub = process.env.BOTHUB_HUB;
-  if (!hub) return;
-  const dir = join(hub, 'issues');
-  let names;
-  try {
-    names = readdirSync(dir).filter(name => /^\d+-.*\.md$/.test(name));
-  } catch {
-    return;
+  if (issueNumber()) {
+    const source = findIssue();
+    return source && briefIn(source);
   }
-  const n = issueNumber();
-  if (n) {
-    const name = names.find(name => name.startsWith(`${n}-`));
-    return name && briefIn(readFileSync(join(dir, name), 'utf8'));
-  }
-  const ready = names
-    .map(name => readFileSync(join(dir, name), 'utf8'))
+  const ready = issueFiles()
+    .map(file => readFileSync(file, 'utf8'))
     .filter(source => /^state:\s*open\s*$/m.test(source) && /^labels:.*\bready\b/m.test(source))
     .map(briefIn)
     .filter(Boolean);

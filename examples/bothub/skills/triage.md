@@ -1,6 +1,6 @@
 ---
 description: Turn a bothub issue into one scoped task with acceptance criteria a check can prove.
-human: seed hub, untraced; one ask for every open choice (X4), follow-ups for a split issue (X5), a first task that delivers a Done-when row (X9) and interacting criteria (X12) from dogfood x
+human: seed hub, untraced; one ask for every open choice (X4), follow-ups for a split issue (X5), a first task that delivers a Done-when row (X9) and interacting criteria (X12) from dogfood x; paths pointed at, not copied, from dogfood round 9 (K3)
 ---
 The issue is in your prompt. Find the code it is about in `src/` and the tests that cover it in
 `tests/`, and work out the current behavior. A few files are enough.
@@ -48,11 +48,11 @@ a single answer settles all of them. Write it for a maintainer who has not read 
 one plain sentence on what needs deciding, then each option in plain words. Name a file or
 function only where it helps. Its title is a short question, never a cut-off sentence.
 
-The change may touch only `src/`, `tests/`, `studio/src/`, `studio/seed.ts`,
-`studio/content/docs/`, `examples/`, `infra/local/sandbox/` and `infra/local/README.md`, the paths the safety check allows (the hub keeps them in its
-own `scripts/bounds.mjs`, which is not in this repository); triage-brief lists them when the brief
-names a file elsewhere. The files section names at most 8 files outside `tests/`, the size check's
-file cap; test files never count. For a rename, name the files that do more than the
+The change may touch only the paths the safety check allows. The hub keeps them in its own
+`scripts/bounds.mjs`, which is not in this repository; triage-brief lists them when the brief names
+a file elsewhere or the issue's `Done when` names a path elsewhere, and says when the safety check
+would fail a file the brief names. The files section names at most 8 files outside `tests/`, the
+size check's file cap; test files never count. For a rename, name the files that do more than the
 rename and say in the task that the rename reaches every use.
 
 Apply the label `ready` when the criteria are complete, or `needs-input` when you asked. End with

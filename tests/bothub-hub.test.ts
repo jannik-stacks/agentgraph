@@ -715,12 +715,63 @@ describe('triage-brief', () => {
     ]);
   });
 
-  it('still matches the bounds file in the triage skill, which names them because the bot cannot read the hub', async () => {
+  it('points the triage skill at the bounds file instead of copying its paths', async () => {
     const { paths, maxFiles } = await import(join(scripts, 'bounds.mjs'));
     const skill = readFileSync(join(scripts, '../skills/triage.md'), 'utf8').replace(/\s+/g, ' ');
-    const named = skill.match(/may touch only (.+?), the paths the safety check allows/)?.[1] ?? '';
-    expect(named.match(/`[^`]+`/g)?.map(path => path.slice(1, -1))).toEqual(paths);
+    expect(skill).toContain('may touch only the paths the safety check allows');
+    expect(paths.filter((path: string) => skill.includes(`\`${path}\``))).toEqual(['src/', 'tests/']);
     expect(skill).toContain(`at most ${maxFiles} files outside \`tests/\``);
+  });
+
+  it('still rejects the same file names as the safety check', async () => {
+    const { rejects } = await import(join(scripts, 'bounds.mjs'));
+    const names = [
+      '.env',
+      'k.pem',
+      'id_rsa',
+      '.npmrc',
+      '.github/workflows/ci.yml',
+      'AGENTS.md',
+      'a/CLAUDE.md',
+      '.opencode/x',
+      'a/plan.md',
+      'a/b.ts',
+    ];
+    const repo = change({ 'a/b.ts': '' }, Object.fromEntries(names.map(name => [name, 'x\n'])));
+    const expected = names.flatMap(name => rejects(name, name !== 'a/b.ts').map((why: string) => `${name}: ${why}`));
+    expect(expected).toHaveLength(9);
+    expect(findings(run('safety.mjs', repo, names).out).sort()).toEqual(expected.sort());
+  });
+
+  it('fails a brief naming a file the safety check would fail', () => {
+    const text = brief.replace(
+      '- `tests/labels.test.ts`',
+      '- `examples/bothub/skills/review-transitions.md`\n- `src/CLAUDE.md`\n- `tests/labels.test.ts`'
+    );
+    expect(findings(check(text).out)).toEqual([
+      'examples/bothub/skills/review-transitions.md: the safety check would fail it: a new report or tracking file; put the outcome where the project keeps its records',
+      'src/CLAUDE.md: the safety check would fail it: writes harness memory (CLAUDE.md); propose a note instead',
+    ]);
+  });
+
+  it("fails a path the issue's Done when names outside the bounds, unless the brief leaves it out of scope", () => {
+    const hub = temp('brief-hub');
+    write(hub, {
+      'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- `infra/compose.yaml` runs it.\n- `src/a.ts` too.\n',
+    });
+    const dir = temp('brief');
+    const env = { BOTHUB_HUB: hub, BOTHUB_ISSUE: '7' };
+    const at = (text: string) => {
+      writeFileSync(join(dir, 'reply.md'), text);
+      return run('triage-brief.mjs', { dir, base: '' }, [join(dir, 'reply.md')], env);
+    };
+    expect(findings(at(brief).out)).toEqual([
+      'the issue\'s Done when names infra/compose.yaml, outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, studio/content/docs/, examples/, infra/local/sandbox/, infra/local/README.md); ask to allow it, or list it under "## Out of scope"',
+    ]);
+    expect(at(`${brief.trimEnd()}\n- Follow-up: \`infra/compose.yaml\` once it is allowed.\n`)).toEqual({
+      ok: true,
+      out: 'triage-brief: ok',
+    });
   });
 
   it('fails a brief naming more files outside tests/ than the size cap, and says to split it', () => {

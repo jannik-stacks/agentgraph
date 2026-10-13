@@ -35,7 +35,7 @@ invariant that found it.
 | unused-exports | script | | block | Every new export is used, every new file is imported outside tests, every new optional field is set and every new event type is read |
 | propagation | script | | warn | A name, field or literal the change renames or removes is gone from the other code, hubs, docs and infra too |
 | docs-sync | script | | warn | Every new schema is documented |
-| triage-brief | script | | block | The triage reply follows the template and names only files the change may touch, no more outside `tests/` than the size cap (in triage's `until`) |
+| triage-brief | script | | block | The triage reply follows the template and names only files the change may touch and safety accepts, no more outside `tests/` than the size cap, and the issue's Done when names no path outside bounds (in triage's `until`) |
 | criterion-met | bot, `review` | each criterion, over `src/`, `studio/src/` and `examples/bothub/scripts/` | warn | Is there a sequence of events within the brief under which the change does not do what the criterion states? Other edge cases are notes |
 | review-src | bot, `review` | each code hunk in `src/`, `studio/src/` and `examples/bothub/scripts/`, rename-only hunks left out | block | Does the hunk mishandle an input or break a caller? |
 | near-duplicate, review-docs | bot, `review` | each file's new exports, or each docs hunk | warn | Does an existing export already do this; does each docs statement hold? |
