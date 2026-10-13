@@ -11,6 +11,7 @@ import {
   approvals,
   buildSpec,
   closureOf as closure,
+  couldNotRun,
   failingChecks,
   handoffEnv,
   providerWait,
@@ -1555,7 +1556,8 @@ describe('over', () => {
     expect(seen).toHaveLength(1);
     expect(calls).toEqual(['agent You work. rw', 'script down ro']);
     expect(result.outcome?.checks?.[0]).toMatchObject({ pass: false, blocked: true });
-    const question = `checks could not run: tests (sandbox-failed: the sandbox is down). The change waits in run ${result.run.id}; nothing went back to the bot.`;
+    const question =
+      'Checks could not run, so the change is held: tests could not run (sandbox-failed: the sandbox is down). Nothing went back to the bot. Comment `/bothub` to run them again.';
     expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
     expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
   });
@@ -1593,6 +1595,14 @@ describe('over', () => {
     expect(providerWait({ stopped: 'provider', error: limited(far) }, far.getTime() - 3_600_000)).toBeUndefined();
   });
 
+  it('tells a human about a provider limit plainly, with its reset and without keys or run ids', () => {
+    const findings =
+      '1 of 12 items could not run, the first: run 2026-10-13T18-57-17-082Z-6616de failed: Rate limit exceeded for api_key: REDACTED. Limit type: requests. Current limit: 20, Remaining: 0. Limit resets at: 2026-10-13 19:11:44 UTC';
+    expect(couldNotRun([{ check: 'review-src', gating: true, pass: false, blocked: true, findings }])).toBe(
+      "Checks could not run, so the change is held: 1 of 12 review-src items hit the model provider's rate limit until 19:11 UTC. Nothing went back to the bot. Comment `/bothub` to run them again."
+    );
+  });
+
   it('names the items that could not run first, even after other items found something', async () => {
     const { launch } = recording('c');
     const { result } = await run(
@@ -1611,7 +1621,8 @@ describe('over', () => {
       {},
       { launch, issues: trackedIssues() }
     );
-    const question = `checks could not run: items (1 of 3 items could not run, the first: sandbox-failed: the sandbox is down). The change waits in run ${result.run.id}; nothing went back to the bot.`;
+    const question =
+      'Checks could not run, so the change is held: 1 of 3 items items could not run (sandbox-failed: the sandbox is down). Nothing went back to the bot. Comment `/bothub` to run them again.';
     expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
     expect(result.outcome?.checks?.[0]?.findings).toContain('item 1:\nbad a');
   });

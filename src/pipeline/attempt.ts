@@ -18,6 +18,7 @@ import {
   type Attempt,
   type Scope,
   conflictSection,
+  couldNotRun,
   failingChecks,
   findingsFor,
   followUp,
@@ -329,7 +330,7 @@ const attempts = (
 
       if (blocked.length) {
         const reason = `checks could not run: ${blocked.map(v => `${v.check} (${v.findings?.split('\n')[0] ?? 'no output'})`).join(', ')}`;
-        return yield* askHuman(reason, `${reason}. The change waits in run ${run.id}; nothing went back to the bot.`);
+        return yield* askHuman(reason, couldNotRun(blocked));
       }
 
       if (exhausted) {

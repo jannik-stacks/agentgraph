@@ -6,7 +6,7 @@ import { digest } from '../fingerprint.ts';
 import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.ts';
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
 import { issueContext } from '../preload.ts';
-import { resetOf, runScript, type ScriptResult } from '../runner.ts';
+import { providerLimit, resetOf, runScript, type ScriptResult } from '../runner.ts';
 import type { Check, Job, Over } from '../schema.ts';
 import type { Run, Verdict } from '../store.ts';
 import { type Pipeline, agent, issuesOf, launcher } from './context.ts';
@@ -346,6 +346,25 @@ export const findingsFor = (failing: Verdict[]) =>
       return `### ${check}\n\n${fenced(cut)}`;
     })
     .join('\n\n');
+
+/** What a human reads when checks could not run: why, until when, and what to comment, without run ids or keys. */
+export const couldNotRun = (blocked: Verdict[]) => {
+  const why = ({ check, findings = '' }: Verdict) => {
+    const line = findings.split('\n')[0]!;
+    const count = /^(\d+ of \d+) items could not run, the first: /.exec(line);
+    const what = count ? `${count[1]} ${check} items` : check;
+    const reset = resetOf(line);
+    if (providerLimit.test(line))
+      return `${what} hit the model provider's rate limit${reset ? ` until ${reset.toISOString().slice(11, 16)} UTC` : ''}`;
+    const cause = line
+      .slice(count?.[0].length ?? 0)
+      .replace(/^run \S+ \w+(: |$)/, '')
+      .replace(/\b[0-9a-f]{24,}\b/gi, '…');
+    return `${what} could not run${cause ? ` (${cause})` : ''}`;
+  };
+  const checks = blocked.map(why).join('; ');
+  return `Checks could not run, so the change is held: ${checks}. Nothing went back to the bot. Comment \`/bothub\` to run them again.`;
+};
 
 /** Whether a failing verdict holds the change: every gating check does, except one in `warn` mode. */
 export const holds = (verdict: Verdict, p: Pipeline) => p.config.checks[verdict.check]?.mode !== 'warn';

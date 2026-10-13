@@ -68,7 +68,7 @@ const accepted = (r, kind) => (r.outcome.accepted ?? []).filter(x => x.kind === 
 const asks = r => accepted(r, 'ask').map(x => x.question);
 const failing = r => (r.outcome.checks ?? []).filter(c => c.gating && !c.pass && !c.skipped);
 const findings = r => (r.outcome.checks ?? []).map(c => [c.check, String(c.findings ?? '')]);
-const engineAsk = /^checks (still failing|could not run)/;
+const engineAsk = /^checks (still failing|could not run)/i;
 const crashed = /^run \S+ failed:/m;
 const decisions = r => r.events.filter(e => e.type === 'decision');
 /** The subjects of the commits a push result added since `base`, read from its repository when it is on disk. */

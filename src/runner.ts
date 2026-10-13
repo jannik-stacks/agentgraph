@@ -25,7 +25,7 @@ import type { EventRecord, Run, Stopped, Store } from './store.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from './types.ts';
 
 /** Errors that mean the provider refused the run for now: rate and usage limits, quotas, overload. */
-const providerLimit = /\b(429|rate[ -]?limit|usage limit|quota|overloaded)\b/i;
+export const providerLimit = /\b(429|rate[ -]?limit|usage limit|quota|overloaded)\b/i;
 
 /** When a provider limit resets, read from a `Limit resets at: <UTC date and time>` line in its error. */
 export const resetOf = (error = '') => {

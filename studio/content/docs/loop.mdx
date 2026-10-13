@@ -53,8 +53,10 @@ as its own run, linked to the one before it.
 A check that could not run is blocked, not failed: its sandbox did not start, it timed out, its
 bot was over budget, or its bot run crashed or hit a provider limit and failed again on the one
 retry. After a provider limit that retry waits for the reset the error names, or 30 seconds when it
-names none, and is skipped when the reset is more than 5 minutes away. Nothing goes back to the bot for it. The job holds its proposals and asks a human once,
-naming the check and the run where the change waits, even when the check is in `warn` mode.
+names none, and is skipped when the reset is more than 5 minutes away. Nothing goes back to the
+bot for it. The job holds its proposals and asks a human once, even when the check is in `warn`
+mode, in plain words: which checks could not run and why, until when a provider limit lasts, and
+that a `/bothub` comment runs them again.
 
 ## Parked work
 
