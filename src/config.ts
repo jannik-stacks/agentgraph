@@ -134,12 +134,14 @@ const references = (config: Config): ConfigError[] => {
 
   for (const check of Object.values(checks)) {
     const fail = at(check.path);
-    if ([check.run, check.bot, check.decide].filter(Boolean).length !== 1)
-      fail('needs one of "run", "bot" or "decide"');
-    if (check.bot && !(check.bot in bots)) fail(`uses unknown bot "${check.bot}"`);
-    if (check.bot && !check.skill) fail(`runs bot "${check.bot}" but has no skill`);
-    if (check.skill && !check.bot) fail('has a skill but no bot');
+    const prompt = check.body.trim();
+    if (check.type === 'script' && typeof check.over === 'object' && 'run' in check.over)
+      fail('runs its own command, so "over: { run }" needs type bot or decide');
+    if (check.type === 'decide' && !prompt) fail('has no question: a decide check asks its body');
+    if (check.type !== 'bot') continue;
+    if (!(check.bot in bots)) fail(`uses unknown bot "${check.bot}"`);
     if (check.skill && !(check.skill in skills)) fail(`uses unknown skill "${check.skill}"`);
+    if (!check.skill && !prompt) fail('has no prompt: give the bot a body or a skill');
   }
 
   for (const note of config.notes)
@@ -173,7 +175,7 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
     }
   }
   for (const check of Object.values(checks))
-    if (check.decide && check.mode !== 'shadow' && check.decide.threshold === undefined)
+    if (check.type === 'decide' && check.mode !== 'shadow' && check.threshold === undefined)
       found.push({
         path: check.path,
         message: `decides in ${check.mode} mode without a "threshold"; tune one in shadow mode first`,
@@ -181,8 +183,7 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
   for (const workflow of Object.values(workflows))
     for (const [id, job] of Object.entries(workflow.jobs)) {
       const warn = (message: string) => found.push({ path: workflow.path, message: `job "${id}" ${message}` });
-      if (job['for-each']) warn('has "for-each", declared, not enforced: the job runs once over all its changes');
-      if (job.until && job.until.checks.every(name => checks[name]?.mode === 'shadow'))
+      if (job.type === 'bot' && job.until && job.until.checks.every(name => checks[name]?.mode === 'shadow'))
         warn('loops until checks that are all in shadow mode, so it never repeats');
     }
   return found;
@@ -194,19 +195,18 @@ const checkJob = (id: string, job: Job, workflow: Workflow, { bots, skills, chec
   for (const need of job.needs) if (!(need in workflow.jobs)) fail(`needs unknown job "${need}"`);
   for (const trigger of Object.keys(job.on ?? {}))
     if (!(trigger in workflow.on)) fail(`triggers on "${trigger}", which the workflow does not listen to`);
-  if (!job.run === !job.bot) fail('needs either "bot" and "skill", or "run"');
-  if (job.bot && !job.skill) fail(`runs bot "${job.bot}" but has no skill`);
-  if (job.skill && !job.bot) fail('has a skill but no bot');
-  if (job.skill && !(job.skill in skills)) fail(`uses unknown skill "${job.skill}"`);
-  if (job.until && !job.bot) fail('loops "until" checks pass but has no bot');
+  if (job.type === 'script') {
+    if (typeof job.over === 'object' && 'run' in job.over)
+      fail('runs its own command, so "over: { run }" needs type bot');
+    return errors;
+  }
+  if (!(job.skill in skills)) fail(`uses unknown skill "${job.skill}"`);
   for (const check of job.until?.checks ?? []) if (!(check in checks)) fail(`waits for unknown check "${check}"`);
   if (job.branch) {
     if (!job.branch.startsWith('bothub/')) fail(`branch "${job.branch}" must start with "bothub/"`);
     for (const [, key = ''] of job.branch.matchAll(/\{([^}]*)\}/g))
       if (!placeholders.has(key)) fail(`branch uses unknown placeholder "{${key}}"`);
   }
-  if (!job.bot && (job.preload || job.tools)) fail('has "preload" or "tools" but no bot');
-  if (!job.bot) return errors;
   const bot = bots[job.bot];
   if (!bot) {
     fail(`uses unknown bot "${job.bot}"`);
@@ -252,7 +252,7 @@ export const jobOrder = (workflow: Pick<Workflow, 'jobs'>): string[] => {
 };
 
 /** What a bot may propose in a job: the bot's `can`, narrowed by the job's `can` when it has one. */
-export const effectiveCan = (bot: Pick<Bot, 'can'>, job: Pick<Job, 'can'>) =>
+export const effectiveCan = (bot: Pick<Bot, 'can'>, job: Pick<Extract<Job, { type: 'bot' }>, 'can'>) =>
   job.can ? bot.can.filter(kind => job.can?.includes(kind)) : bot.can;
 
 /** The bothub read tools among a bot's `tools`. */
@@ -263,8 +263,11 @@ export const hubTools = (bot: Pick<Bot, 'tools'>): HubTool[] =>
 export const harnessTools = (bot: Pick<Bot, 'tools'>) => bot.tools.filter(tool => !HubTool.safeParse(tool).success);
 
 /** The read tools a run gets: the job's `tools` when it has them, otherwise the bot's. */
-export const effectiveTools = (bot: Pick<Bot, 'tools'>, job: Pick<Job, 'tools'>) => job.tools ?? hubTools(bot);
+export const effectiveTools = (bot: Pick<Bot, 'tools'>, job: Pick<Extract<Job, { type: 'bot' }>, 'tools'>) =>
+  job.tools ?? hubTools(bot);
 
 /** What is rendered into a run before it starts: the job's `preload`, then the bot's, then the notes alone. */
-export const effectivePreload = (bot: Pick<Bot, 'preload'>, job: Pick<Job, 'preload'>): Preload[] =>
-  job.preload ?? bot.preload ?? ['notes'];
+export const effectivePreload = (
+  bot: Pick<Bot, 'preload'>,
+  job: Pick<Extract<Job, { type: 'bot' }>, 'preload'>
+): Preload[] => job.preload ?? bot.preload ?? ['notes'];

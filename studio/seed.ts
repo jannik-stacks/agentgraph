@@ -21,8 +21,8 @@ const compiled = compile(await readHub(join(root, 'examples', 'hub')));
 if (!compiled.ok) throw new Error(compiled.errors.map(e => `${e.path}: ${e.message}`).join('\n'));
 const workflow = compiled.config.workflows.issue;
 const job = workflow?.jobs.implement;
-const bot = job?.bot ? compiled.config.bots[job.bot] : undefined;
-if (!workflow || !job || !bot) throw new Error('the example hub has no issue/implement job');
+const bot = job?.type === 'bot' ? compiled.config.bots[job.bot] : undefined;
+if (!workflow || job?.type !== 'bot' || !bot) throw new Error('the example hub has no issue/implement job');
 
 const message = [
   'Added `GET /health` returning `{ ok: true }` with a test, and opened a pull request.',

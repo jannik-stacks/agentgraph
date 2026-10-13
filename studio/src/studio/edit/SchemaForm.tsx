@@ -1,6 +1,13 @@
 import { createContext, type ReactNode, use, useEffect, useId, useState } from 'react';
 import { parse, stringify } from 'yaml';
-import { type FieldIssue, initialValue, type JsonSchema } from '../../../../src/hub-files.ts';
+import {
+  currentChoice,
+  type FieldIssue,
+  initialValue,
+  type JsonSchema,
+  switchChoice,
+  unionChoices,
+} from '../../../../src/hub-files.ts';
 import { Button, Chip, cx, Segmented, useCommittedText } from '../../ui.tsx';
 
 export type Path = (string | number)[];
@@ -347,42 +354,30 @@ const YamlField = ({ value, onChange }: FieldProps) => {
   );
 };
 
-const variantLabel = (option: JsonSchema, i: number) => {
-  const discriminator = Object.values(option.properties ?? {}).find(p => p.const !== undefined)?.const;
-  if (discriminator !== undefined) return String(discriminator);
-  const t = typeOf(option);
-  if (t === 'array') return 'list';
-  if (t === 'object') return Object.keys(option.properties ?? {}).join(' and ') || 'map';
-  return t ?? `option ${i + 1}`;
-};
-
-const matches = (option: JsonSchema, value: unknown): boolean => {
-  const t = typeOf(option);
-  if (Array.isArray(value)) return t === 'array';
-  if (isRecord(value)) {
-    if (t !== 'object') return false;
-    return Object.entries(option.properties ?? {}).every(([k, p]) => p.const === undefined || value[k] === p.const);
-  }
-  if (value === undefined || value === null) return false;
-  return t === typeof value || (t === 'integer' && typeof value === 'number');
-};
-
-const UnionField = ({ options, value, onChange, path, required }: FieldProps & { options: JsonSchema[] }) => {
-  const labels = options.map(variantLabel);
-  const index = options.findIndex(o => matches(o, value));
-  const current = options[index];
+/**
+ * A union: one choice among its enum values and object options, then the fields of the chosen option. Switching
+ * keeps the fields both options share. An absent value shows the schema's default.
+ */
+const UnionField = ({ schema, options, value, onChange, path, required }: FieldProps & { options: JsonSchema[] }) => {
+  const choices = unionChoices(options);
+  const shown = value ?? schema.default;
+  const current = currentChoice(choices, shown);
   return (
     <div className="space-y-2">
-      <Segmented
-        options={labels}
-        value={labels[index]}
-        aria-label={String(lastKey(path))}
+      <EnumField
+        schema={schema}
+        options={choices.map(c => c.label)}
+        value={current?.label}
+        path={path}
+        required={required}
         onChange={label => {
-          const next = label === labels[index] ? undefined : options[labels.indexOf(label)];
-          onChange(next ? initialValue(next) : required ? value : undefined);
+          const next = choices.find(c => c.label === label);
+          onChange(next ? switchChoice(next, value) : undefined);
         }}
       />
-      {current && <Value schema={current} value={value} onChange={onChange} path={path} required />}
+      {current && current.value === undefined && (
+        <Value schema={current.option} value={shown} onChange={onChange} path={path} required />
+      )}
     </div>
   );
 };
@@ -427,8 +422,9 @@ const Value = (props: FieldProps): ReactNode => {
 };
 
 const nested = (schema: JsonSchema) => {
-  const kind = shapeOf(schema).kind;
-  return kind === 'object' || kind === 'record' || kind === 'objects' || kind === 'union';
+  const shape = shapeOf(schema);
+  if (shape.kind === 'union') return !shape.options.some(o => o.enum);
+  return shape.kind === 'object' || shape.kind === 'record' || shape.kind === 'objects';
 };
 
 /** One labelled field. Grouped values get a bordered section; an absent optional group is one button to add it. */
@@ -489,17 +485,19 @@ const ObjectFields = ({ schema, value, onChange, path }: FieldProps) => {
   const unknown = Object.keys(data).filter(k => !(k in props));
   return (
     <div className="grid grid-cols-[7.5rem_1fr] items-start gap-x-3 gap-y-2">
-      {Object.entries(props).map(([key, s]) => (
-        <FieldRow
-          key={key}
-          name={key}
-          schema={s}
-          value={data[key]}
-          onChange={set(key)}
-          path={[...path, key]}
-          required={required.has(key)}
-        />
-      ))}
+      {Object.entries(props)
+        .filter(([, s]) => s.const === undefined)
+        .map(([key, s]) => (
+          <FieldRow
+            key={key}
+            name={key}
+            schema={s}
+            value={data[key]}
+            onChange={set(key)}
+            path={[...path, key]}
+            required={required.has(key)}
+          />
+        ))}
       {unknown.map(key => (
         <FieldRow
           key={key}
@@ -702,7 +700,7 @@ export const SchemaForm = ({
   context: FormContext;
 }) => (
   <Ctx value={context}>
-    <ObjectFields
+    <Value
       schema={schema}
       value={value}
       onChange={v => onChange((v ?? {}) as Record<string, unknown>)}

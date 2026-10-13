@@ -218,7 +218,7 @@ describe('kit check', () => {
     const first = await kit('ls node_modules/.bothub-lock');
     expect(first.ok).toBe(true);
     expect(first.output).toMatch(/up to date[\s\S]*\nnode_modules\/\.bothub-lock$/);
-    expect(await kit('sh -c "echo second >> node_modules/marker; cat node_modules/marker"')).toEqual({
+    expect(await kit('sh -c "echo second >> node_modules/marker; cat node_modules/marker"')).toMatchObject({
       ok: true,
       output: 'second',
     });

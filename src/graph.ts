@@ -1,5 +1,6 @@
 import { hubTools, type Config } from './config.ts';
-import { NoteKind, ruleKinds, type HubTool, type Preload } from './schema.ts';
+import { fanOut } from './over.ts';
+import { NoteKind, ruleKinds, type HubTool, type Over, type Preload } from './schema.ts';
 
 /** A node and edge model of a hub, for rendering. Ids are prefixed by kind, like `job:issue/implement`. */
 export type HubGraph = {
@@ -62,15 +63,13 @@ export const hubGraph = (config: Config): HubGraph => {
       if (tool.startsWith('issues_')) tracker = true;
       edge({ from, to: `tool:${tool}`, kind: 'calls' });
     });
-  const runsAs = (from: string, bot: string, forEach: string | undefined) =>
-    edge({
-      from,
-      to: `bot:${bot}`,
-      ...(forEach ? { kind: 'fans-out', label: `for each ${forEach}` } : { kind: 'runs-as' }),
-    });
+  const runsAs = (from: string, bot: string, over: Over) => {
+    const each = fanOut(over);
+    edge({ from, to: `bot:${bot}`, ...(each ? { kind: 'fans-out', label: `for each ${each}` } : { kind: 'runs-as' }) });
+  };
 
   for (const workflow of Object.values(config.workflows)) {
-    const jobId = (id: string) => `${workflow.jobs[id]?.run ? 'script' : 'job'}:${workflow.name}/${id}`;
+    const jobId = (id: string) => `${workflow.jobs[id]?.type === 'script' ? 'script' : 'job'}:${workflow.name}/${id}`;
     for (const [trigger, filter] of Object.entries(workflow.on))
       node({
         id: `trigger:${workflow.name}/${trigger}`,
@@ -85,16 +84,17 @@ export const hubGraph = (config: Config): HubGraph => {
       const { on, needs, ...rest } = job;
       node({
         id: self,
-        kind: job.run ? 'script' : 'job',
+        kind: job.type === 'script' ? 'script' : 'job',
         label: id,
-        badges: badges(job.mode, job.branch, job.environment && `environment ${job.environment}`),
+        badges: badges(job.mode, job.type === 'bot' && job.branch, job.environment && `environment ${job.environment}`),
         detail: { workflow: workflow.name, ...rest },
       });
       for (const trigger of Object.keys(on ?? (needs.length ? {} : workflow.on)))
         edge({ from: `trigger:${workflow.name}/${trigger}`, to: self, kind: 'triggers' });
       for (const need of needs) edge({ from: jobId(need), to: self, kind: 'needs' });
-      if (job.bot) runsAs(self, job.bot, job['for-each']);
-      if (job.skill) edge({ from: self, to: `skill:${job.skill}`, kind: 'uses-skill' });
+      if (job.type !== 'bot') continue;
+      runsAs(self, job.bot, job.over);
+      edge({ from: self, to: `skill:${job.skill}`, kind: 'uses-skill' });
       preloads(self, job.preload);
       calls(self, job.tools ?? []);
       for (const check of job.until?.checks ?? []) {
@@ -130,10 +130,11 @@ export const hubGraph = (config: Config): HubGraph => {
       id: `check:${name}`,
       kind: 'check',
       label: name,
-      badges: badges(check.mode, check.run ? 'script' : check.bot),
-      detail: { ...rest, ...(body && { prompt: body }) },
+      badges: badges(check.mode, check.type === 'bot' ? check.bot : check.type),
+      detail: { ...rest, ...(body && { [check.type === 'decide' ? 'question' : 'prompt']: body }) },
     });
-    if (check.bot) runsAs(`check:${name}`, check.bot, check['for-each']);
+    if (check.type !== 'bot') continue;
+    runsAs(`check:${name}`, check.bot, check.over);
     if (check.skill) edge({ from: `check:${name}`, to: `skill:${check.skill}`, kind: 'uses-skill' });
   }
 

@@ -167,7 +167,7 @@ describe('label assignment', () => {
     '    types: [labeled]',
     '    labels: [bot:helper]',
     'jobs:',
-    '  work: { run: echo }',
+    '  work: { type: script, run: echo }',
     '---',
     '',
   ].join('\n');
@@ -239,7 +239,7 @@ describe('serveHub queue', () => {
     write('hub.yaml', 'issues: local\n');
     write(
       'workflows/assigned.md',
-      '---\nname: assigned\non:\n  issues: { types: [labeled], labels: [bot:helper] }\njobs:\n  work: { run: echo }\n---\n'
+      '---\nname: assigned\non:\n  issues: { types: [labeled], labels: [bot:helper] }\njobs:\n  work: { type: script, run: echo }\n---\n'
     );
     for (const n of [1, 2, 3])
       write(`issues/${n}-task.md`, `---\ntitle: Task\nauthor: morgan\nlabels: [${n === 1 ? 'bot:helper' : ''}]\n---\n`);

@@ -29,9 +29,10 @@ The same goes for deliveries: the store records every event id it has dispatched
 
 ## Fail closed
 
-Nothing passes by default. A check that cannot decide fails with the reason, a skipped check only
-counts when the check allows skipping, and a `decide` check fails when the model cannot be
-reached.
+Nothing passes by default. A check that cannot decide fails with the reason. A check that applies
+to nothing in the change is skipped, but fails once no gating check ran at all. An `over` script
+that fails or prints more than `max` items fails its check, and a `decide` check fails when the
+model cannot be reached.
 
 <Source file="src/decide.ts" symbol="decideCheck" />
 

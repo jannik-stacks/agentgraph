@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { Decide } from './decide.ts';
 
 export const githubTriggers = [
   'issue_comment',
@@ -54,8 +53,6 @@ export type Harness = z.infer<typeof Harness>;
 export const Closure = z.enum(['done', 'handed-off', 'blocked', 'deferred', 'no-op']);
 export type Closure = z.infer<typeof Closure>;
 
-export const ForEach = z.enum(['file', 'chunk']);
-
 const list = <T extends z.ZodType>(item: T) =>
   z.union([item, z.array(item)]).transform(v => (Array.isArray(v) ? v : [v]));
 
@@ -108,40 +105,115 @@ export const Skill = z.strictObject({
 });
 export type Skill = z.infer<typeof Skill>;
 
+const script = z.string().min(1);
+
 /**
- * `checks/<name>.md`: a script, a bot, or a `decide` question to the local decision model, returning a verdict. The body is the prompt, added after the skill when there is one. A check whose
- * `paths` match no changed file is skipped, which fails a gate unless `allow-skip` is set.
+ * What a check or job looks at: once over the whole `diff`, the lines it `added`, the triggering `event`'s text or
+ * the output of a `run` script; or once per changed file (`each-file`), per diff hunk (`each-hunk`) or per line an
+ * `each` script prints, at most `max` of them.
  */
-export const Check = z.strictObject({
-  run: z.string().min(1).optional(),
-  bot: name.optional(),
-  skill: name.optional(),
-  'for-each': ForEach.optional(),
+export const Over = z.union([
+  z.enum(['diff', 'added', 'event', 'each-file', 'each-hunk']),
+  z.strictObject({ run: script }),
+  z.strictObject({ each: script, max: z.int().positive().default(50) }),
+]);
+export type Over = z.infer<typeof Over>;
+
+/** A missing or unknown `type`, with a guess from the first field in `hints` the value has. */
+const typeError = (types: string[], hints: [field: string, type: string][]) => ({
+  error: (issue: { code?: string; input?: unknown }) => {
+    if (issue.code !== 'invalid_union') return;
+    const input = (typeof issue.input === 'object' && issue.input) || {};
+    const type = 'type' in input ? input.type : undefined;
+    const guess = hints.find(([field]) => field in input);
+    const hint = guess ? `; it has "${guess[0]}", so probably "type: ${guess[1]}"` : '';
+    const one = types.join(', ');
+    return type === undefined
+      ? `missing "type": use one of ${one}${hint}`
+      : `type "${String(type)}" is not one of ${one}${hint}`;
+  },
+});
+
+/** One `type` of a check or job, naming the fields it does not take. */
+const variant = <S extends z.ZodRawShape>(what: string, shape: S) =>
+  z.strictObject(shape, {
+    error: issue => {
+      if (issue.code !== 'unrecognized_keys') return;
+      const keys = issue.keys.map(key => `"${key}"`).join(', ');
+      const hint = issue.keys.includes('run') ? '; to judge what a command prints, use "over: { run: <command> }"' : '';
+      return `${what} does not take ${keys}${hint}`;
+    },
+  });
+
+const checkFields = {
+  over: Over.default('diff'),
   paths: z.array(z.string()).optional(),
-  'allow-skip': z.boolean().optional(),
-  decide: Decide.optional(),
   mode: Mode.default('shadow'),
   description: z.string().optional(),
-});
+};
+
+/**
+ * `checks/<name>.md`: what a check looks at (`over`) and who judges it. A `script` passes when it exits 0; a `bot`
+ * replies PASS or FAIL to the body, added after the skill when there is one; `decide` asks the local decision model
+ * the body as a yes-or-no question and passes on yes. A check whose `paths` match no changed file does not apply.
+ */
+export const Check = z.discriminatedUnion(
+  'type',
+  [
+    variant('a script check', { type: z.literal('script'), run: script, ...checkFields }),
+    variant('a bot check', { type: z.literal('bot'), bot: name, skill: name.optional(), ...checkFields }),
+    variant('a decide check', {
+      type: z.literal('decide'),
+      threshold: z.number().min(0).max(1).optional(),
+      ...checkFields,
+    }),
+  ],
+  typeError(
+    ['script', 'bot', 'decide'],
+    [
+      ['run', 'script'],
+      ['bot', 'bot'],
+      ['decide', 'decide'],
+    ]
+  )
+);
 export type Check = z.infer<typeof Check>;
 
-export const Job = z.strictObject({
-  on: On.optional(),
-  needs: list(z.string()).default([]),
-  bot: name.optional(),
-  skill: name.optional(),
-  run: z.string().min(1).optional(),
-  'for-each': ForEach.optional(),
-  branch: z.string().optional(),
-  until: z.strictObject({ checks: z.array(name).min(1), max: z.int().positive().default(2) }).optional(),
-  can: z.array(ProposalKind).optional(),
-  preload: z.array(Preload).optional(),
-  tools: z.array(HubTool).optional(),
+const jobStart = { on: On.optional(), needs: list(z.string()).default([]) };
+const jobEnd = {
+  over: Over.default('event'),
   paths: z.array(z.string()).optional(),
   mode: Mode.default('shadow'),
   environment: z.string().optional(),
   'timeout-minutes': z.number().positive().optional(),
-});
+};
+
+/** A workflow step: a `bot` running a skill, or a `script`. A job that fans out with `over` runs once per item. */
+export const Job = z.discriminatedUnion(
+  'type',
+  [
+    variant('a bot job', {
+      type: z.literal('bot'),
+      ...jobStart,
+      bot: name,
+      skill: name,
+      branch: z.string().optional(),
+      until: z.strictObject({ checks: z.array(name).min(1), max: z.int().positive().default(2) }).optional(),
+      can: z.array(ProposalKind).optional(),
+      preload: z.array(Preload).optional(),
+      tools: z.array(HubTool).optional(),
+      ...jobEnd,
+    }),
+    variant('a script job', { type: z.literal('script'), ...jobStart, run: script, ...jobEnd }),
+  ],
+  typeError(
+    ['bot', 'script'],
+    [
+      ['run', 'script'],
+      ['bot', 'bot'],
+    ]
+  )
+);
 export type Job = z.infer<typeof Job>;
 
 /** `workflows/<name>.md`: triggers to jobs. The body is an optional human description. */

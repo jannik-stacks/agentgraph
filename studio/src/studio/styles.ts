@@ -59,5 +59,5 @@ export const edgeStyle: Record<EdgeKind, Partial<Edge>> = {
 
 export const defaultEdgeLabel: Partial<Record<EdgeKind, string>> = {
   'loops-back': 'retry',
-  'fans-out': 'for each chunk',
+  'fans-out': 'for each item',
 };

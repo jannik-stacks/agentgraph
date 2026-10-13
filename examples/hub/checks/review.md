@@ -1,7 +1,8 @@
 ---
+type: bot
 bot: reviewer
 skill: review-file
-for-each: file
+over: each-file
 mode: warn
 description: A second model judges every changed file.
 ---

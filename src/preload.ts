@@ -46,7 +46,11 @@ export const runContext = (
     bot,
     skill,
     step = {},
-  }: { bot: Bot; skill?: Pick<Skill, 'notes'> | undefined; step?: Pick<Job, 'preload' | 'tools' | 'paths'> }
+  }: {
+    bot: Bot;
+    skill?: Pick<Skill, 'notes'> | undefined;
+    step?: Pick<Extract<Job, { type: 'bot' }>, 'preload' | 'tools' | 'paths'>;
+  }
 ) => {
   const preload = effectivePreload(bot, step);
   const query = { kinds: [...(bot.notes ?? []), ...(skill?.notes ?? [])], paths: step.paths };

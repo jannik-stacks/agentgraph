@@ -48,7 +48,7 @@ describe('studio step context', () => {
     let jobs = 0;
     for (const workflow of Object.values(config.workflows))
       for (const [id, job] of Object.entries(workflow.jobs)) {
-        if (!job.bot || !job.skill) continue;
+        if (job.type !== 'bot') continue;
         jobs++;
         const node = model.nodes.find(n => n.id === `job:${workflow.name}/${id}`);
         const [context] = node?.context ?? [];

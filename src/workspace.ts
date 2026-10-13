@@ -196,13 +196,24 @@ export const workspaces = ({
     }
   };
 
+  /** The commit where a run's worktree forked from `branch`, a ref, or the default branch when none is given. */
+  const forkPoint = async (repo: string, runId: string, branch?: string) => {
+    const path = worktreePath(dataDir, runId);
+    const target = !branch
+      ? await git(['-C', mirrorPath(repo), 'rev-parse', 'HEAD'])
+      : branch.startsWith('refs/')
+        ? branch
+        : `refs/heads/${branch}`;
+    return git(['-C', path, 'merge-base', 'HEAD', target]);
+  };
+
   /** Deletes a run's worktree and prunes it from the mirror. Never throws. */
   const remove = async (repo: string, runId: string) => {
     await rm(worktreePath(dataDir, runId), { recursive: true, force: true });
     await serial(repo, () => git(['-C', mirrorPath(repo), 'worktree', 'prune'])).catch(() => {});
   };
 
-  return { create, publish, changes, remove };
+  return { create, publish, changes, forkPoint, remove };
 };
 
 export type Workspaces = ReturnType<typeof workspaces>;

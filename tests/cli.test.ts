@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { cpSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { main } from '../src/cli.ts';
@@ -56,9 +56,12 @@ describe('cli', () => {
   });
 
   it('check prints the warnings of a hub that compiles', async () => {
+    const dir = temp('cli-hub');
+    cpSync(join(examples, 'hub'), dir, { recursive: true });
+    writeFileSync(join(dir, 'checks/fine.md'), '---\ntype: decide\nmode: block\n---\nIs the change fine?\n');
     const io = capture();
-    expect(await main(['check', '--dir', join(examples, 'acme-app'), '--no-json'])).toBe(0);
-    expect(io.err.length).toBeGreaterThan(0);
+    expect(await main(['check', '--dir', dir, '--no-json'])).toBe(0);
+    expect(io.err).toEqual([expect.stringMatching(/^warning: checks\/fine.md: .*without a "threshold"/)]);
     expect(io.err.every(line => line.startsWith('warning: '))).toBe(true);
     expect(io.out[0]).toMatch(new RegExp(`, ${io.err.length} warnings?\\n$`));
   });
@@ -69,7 +72,10 @@ describe('cli', () => {
     const schemas = JSON.parse(io.out.join(''));
     expect(Object.keys(schemas)).toEqual(['hub', 'bot', 'skill', 'check', 'workflow', 'note']);
     expect(schemas.bot.required).toEqual(['harness', 'tools', 'can']);
-    expect(schemas.workflow.properties.jobs.additionalProperties.properties.until.properties.max.default).toBe(2);
+    const jobs = schemas.workflow.properties.jobs.additionalProperties.oneOf;
+    const bot = jobs.find((job: any) => job.properties.type.const === 'bot');
+    expect(bot.properties.until.properties.max.default).toBe(2);
+    expect(schemas.check.oneOf.map((check: any) => check.properties.type.const)).toEqual(['script', 'bot', 'decide']);
   });
 
   it('plan prints the jobs a payload starts', async () => {

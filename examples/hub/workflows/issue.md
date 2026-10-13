@@ -8,6 +8,7 @@ on:
     types: [opened, synchronize]
 jobs:
   implement:
+    type: bot
     on: { issue_comment: {} }
     bot: implementor
     skill: implement
@@ -17,6 +18,7 @@ jobs:
     tools: [issues_get, notes_search]
     mode: warn
   review:
+    type: bot
     on: { pull_request: {} }
     bot: reviewer
     skill: review

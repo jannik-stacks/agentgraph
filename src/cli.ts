@@ -222,8 +222,8 @@ const run = defineCommand({
     if (args['dry-run']) {
       const sessions = jobs.map(job => {
         const workflow = config.workflows[job.workflow];
-        const script = workflow?.jobs[job.job]?.run;
-        if (!workflow || script) return { ...job, script: script ?? '' };
+        const step = workflow?.jobs[job.job];
+        if (!workflow || step?.type !== 'bot') return { ...job, script: step?.type === 'script' ? step.run : '' };
         const {
           spec,
           bot,
@@ -258,7 +258,8 @@ const run = defineCommand({
           const shown = (arg: string) =>
             arg === s.spec.system ? '<system>' : arg === s.spec.prompt ? '<prompt>' : shellQuote(arg);
           print(`${s.workflow}/${s.job} (${s.bot}, ${s.harness}, ${s.timeoutMinutes} min)`);
-          if (s.until) print(`until: ${s.until.checks.join(', ')} pass, at most ${s.until.max} more attempts`);
+          if ('until' in s && s.until)
+            print(`until: ${s.until.checks.join(', ')} pass, at most ${s.until.max} more attempts`);
           print(`cwd: ${s.spec.cwd}`);
           const split = s.command.indexOf('--');
           const command =

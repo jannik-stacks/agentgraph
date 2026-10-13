@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { addedLines, Decide, decide, decideCheck } from '../src/decide.ts';
+import { decide, decideCheck } from '../src/decide.ts';
 
 const reply = (status: number, body: unknown) =>
   vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(body), { status }));
@@ -89,53 +89,12 @@ describe('decide', () => {
   });
 });
 
-describe('addedLines', () => {
-  it('keeps added lines under their file names', () => {
-    const diff = [
-      'diff --git a/a.ts b/a.ts',
-      '--- a/a.ts',
-      '+++ b/a.ts',
-      '@@ -1 +1 @@',
-      '-old',
-      '+new',
-      'diff --git a/b.md b/b.md',
-      'new file mode 100644',
-      '--- /dev/null',
-      '+++ b/b.md',
-      '@@ -0,0 +1,2 @@',
-      '+# Title',
-      '+',
-      '+Text',
-    ].join('\n');
-    expect(addedLines(diff)).toBe('a.ts\nnew\n\nb.md\n# Title\n\nText');
-  });
-});
-
 describe('decideCheck', () => {
-  const check = (decide: Parameters<typeof decideCheck>[0]['decide']) => ({
-    name: 'commit-style',
-    mode: 'block' as const,
-    decide,
-  });
-  const diff = [
-    'diff --git a/src/a.ts b/src/a.ts',
-    '--- a/src/a.ts',
-    '+++ b/src/a.ts',
-    '@@ -1 +1,2 @@',
-    ' const keep = 0;',
-    '-const old = 1;',
-    '+export const a = 1;',
-    '',
-  ].join('\n');
-  const inputs = { files: ['src/a.ts'], diff };
   const env = { BOTHUB_DECIDE_URL: 'http://ollama:11434', BOTHUB_DECIDE_MODEL: 'tev1:0.8b' };
 
-  it('passes at or above the threshold and reports the probability', async () => {
+  it('passes at or above the threshold and reports the probability of yes', async () => {
     const fetch = stub(reply(200, { answers: { answer: { type: 'noul', noul: 0.5 } } }));
-    const verdict = await decideCheck(check({ question: 'Is the code fine?' }), inputs, env);
-    expect(verdict).toEqual({
-      check: 'commit-style',
-      gating: true,
+    expect(await decideCheck('Is the code fine?', 'src/a.ts\nexport const a = 1;', env)).toEqual({
       pass: true,
       findings: 'Is the code fine? Probability of yes 0.500, threshold 0.5.',
     });
@@ -147,62 +106,19 @@ describe('decideCheck', () => {
 
   it('fails below the threshold', async () => {
     stub(reply(200, { answers: { answer: { type: 'noul', noul: 0.7 } } }));
-    const verdict = await decideCheck(check({ question: 'Fine?', threshold: 0.8 }), inputs, env);
+    const verdict = await decideCheck('Fine?', 'x', env, 0.8);
     expect(verdict.pass).toBe(false);
     expect(verdict.findings).toContain('0.700');
   });
 
-  it('passes on the probability of no for pass-on: no', async () => {
-    stub(reply(200, { answers: { answer: { type: 'noul', noul: 0.2 } } }));
-    const verdict = await decideCheck(check({ question: 'Does it contain a date?', 'pass-on': 'no' }), inputs, env);
-    expect(verdict).toMatchObject({
-      pass: true,
-      findings: 'Does it contain a date? Probability of no 0.800, threshold 0.5.',
-    });
-  });
-
-  it('sends the full diff, the file names or the event text as `over` says', async () => {
+  it('clips a long state', async () => {
     const fetch = stub(reply(200, { answers: { answer: { type: 'noul', noul: 1 } } }));
-    await decideCheck(check({ question: 'q', over: 'diff' }), inputs, env);
-    expect(sent(fetch).state).toBe(diff);
-    fetch.mockClear();
-    await decideCheck(check({ question: 'q', over: 'files' }), inputs, env);
-    expect(sent(fetch).state).toBe('src/a.ts');
-    fetch.mockClear();
-    const event = {
-      id: 'e',
-      ts: '2026-10-12T00:00:00.000Z',
-      source: 'local' as const,
-      trigger: 'issue_comment' as const,
-      repo: 'acme/app',
-      actor: { login: 'morgan', association: 'OWNER' as const },
-      body: '/bothub fix it',
-    };
-    await decideCheck(check({ question: 'q', over: 'event' }), { files: [], diff: '', event }, env);
-    expect(sent(fetch).state).toBe('/bothub fix it');
+    await decideCheck('q', 'x'.repeat(20_000), env);
+    expect(sent(fetch).state).toMatch(/\[truncated\]$/);
   });
 
-  it('skips without anything to look at and fails closed when the model is unreachable', async () => {
-    const fetch = stub(reply(500, { error: 'boom' }));
-    expect(await decideCheck(check({ question: 'q' }), { files: [], diff: '' }, env)).toMatchObject({
-      pass: false,
-      skipped: true,
-      findings: 'no changed files',
-    });
-    expect(await decideCheck(check({ question: 'q', over: 'event' }), { files: [], diff: '' }, env)).toMatchObject({
-      pass: false,
-      skipped: true,
-      findings: 'the event has no text',
-    });
-    expect(fetch).not.toHaveBeenCalled();
-    expect(await decideCheck(check({ question: 'q' }), inputs, env)).toMatchObject({
-      pass: false,
-      findings: 'decide: 500: boom',
-    });
-  });
-
-  it('parses the check field with defaults', () => {
-    expect(Decide.parse({ question: 'q' })).toEqual({ question: 'q', 'pass-on': 'yes', over: 'added' });
-    expect(() => Decide.parse({ question: 'q', threshold: 2 })).toThrow();
+  it('fails closed when the model is unreachable', async () => {
+    stub(reply(500, { error: 'boom' }));
+    expect(await decideCheck('q', 'x', env)).toEqual({ pass: false, findings: 'decide: 500: boom' });
   });
 });

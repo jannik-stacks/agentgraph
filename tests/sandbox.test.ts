@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { bothubServer } from '../src/mcp-config.ts';
 import {
   bothubArg,
+  bothubPaths,
   dockerRun,
   gitMounts,
   inside,
@@ -56,6 +57,22 @@ describe('dockerRun', () => {
     args: ['run', '--', 'hi'],
     config: sandboxConfig({}),
     user: '501:20',
+  });
+
+  it('keeps stdin open only when asked', () => {
+    expect(run.args).not.toContain('-i');
+    const piped = dockerRun({
+      name: 'bothub-r1',
+      worktree: '/data/work/r1',
+      env: {},
+      secrets: {},
+      cmd: 'sh',
+      args: [],
+      config: sandboxConfig({}),
+      user: '501:20',
+      stdin: true,
+    });
+    expect(piped.args.slice(0, 4)).toContain('-i');
   });
 
   it('hardens the container and joins the internal network', () => {
@@ -162,6 +179,31 @@ describe('mcpInside and specInside', () => {
       '/srv/data/runs',
     ]);
     expect(mounts.every(m => m.readonly)).toBe(true);
+  });
+
+  it('gives the surfacer the same read-only hub and run store mounts, once', () => {
+    const surfacer = { run: 'r1', bot: 'b', data: '/srv/data', hub: '/srv/hub', history: true };
+    const spec: RunSpec = { prompt: 'p', system: 's', cwd: '/srv/work/r1', tools: [], surfacer };
+    const alone = specInside(spec);
+    expect(alone.spec.surfacer).toEqual({ ...surfacer, data: '/data', hub: '/hub' });
+    expect(alone.mounts.slice(-2)).toEqual([
+      { src: '/srv/hub', dst: '/hub', readonly: true },
+      { src: '/srv/data/runs', dst: '/data/runs', readonly: true },
+    ]);
+    const both = specInside({ ...spec, mcp: server });
+    expect(new Set(both.mounts.map(m => m.dst)).size).toBe(both.mounts.length);
+    expect(both.mounts.filter(m => m.dst === '/hub' || m.dst === '/data/runs')).toHaveLength(2);
+  });
+
+  it('maps quoted paths into bothub code inside inline JSON', () => {
+    const json = JSON.stringify({
+      plugin: [[join(root, 'src', 'harnesses', 'opencode-surfacer.ts'), {}]],
+      other: '/x',
+    });
+    expect(JSON.parse(bothubPaths(json))).toEqual({
+      plugin: [[`${inside.bothub}/src/harnesses/opencode-surfacer.ts`, {}]],
+      other: '/x',
+    });
   });
 
   it('maps paths into bothub code and leaves others alone', () => {

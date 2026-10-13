@@ -201,16 +201,13 @@ describe('writeHub round trip', () => {
     mkdirSync(join(dir, 'checks'));
     writeFileSync(
       join(dir, path),
-      '---\n# runs in CI too\nmode: warn\nrun: npm run lint  # fast\npaths: [src/**]\n---\nBody.\n'
+      '---\n# runs in CI too\ntype: script\nmode: warn\nrun: npm run lint  # fast\npaths: [src/**]\n---\nBody.\n'
     );
-    const result = await writeHub(dir, {
-      changes: [
-        { path, data: { mode: 'block', run: 'npm run lint', paths: ['src/**'], description: 'Lint.' }, body: 'Body.' },
-      ],
-    });
+    const data = { type: 'script', mode: 'block', run: 'npm run lint', paths: ['src/**'], description: 'Lint.' };
+    const result = await writeHub(dir, { changes: [{ path, data, body: 'Body.' }] });
     expect(result).toMatchObject({ ok: true });
     expect(readFileSync(join(dir, path), 'utf8')).toBe(
-      '---\n# runs in CI too\nmode: block\nrun: npm run lint # fast\npaths: [src/**]\ndescription: Lint.\n---\nBody.\n'
+      '---\n# runs in CI too\ntype: script\nmode: block\nrun: npm run lint # fast\npaths: [src/**]\ndescription: Lint.\n---\nBody.\n'
     );
   });
 
@@ -281,7 +278,7 @@ describe('writeHub atomic writes', () => {
       const result = await writeHub(dir, {
         changes: [
           { path: 'bots/triager.md', data: bot, body: 'Role.' },
-          { path: 'checks/lint.md', data: { run: 'true' } },
+          { path: 'checks/lint.md', data: { type: 'script', run: 'true' } },
         ],
       });
       expect(result).toMatchObject({ ok: false, status: 400 });

@@ -319,7 +319,7 @@ describe('the sandbox', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
     const file = marker();
     const result = await withEnv(noDocker(), () => runScript(`touch ${file}`, cwd, 1));
-    expect(result).toEqual({ ok: false, output: expect.stringMatching(/^sandbox-failed: .*ENOENT/) });
+    expect(result).toMatchObject({ ok: false, output: expect.stringMatching(/^sandbox-failed: .*ENOENT/) });
     expect(existsSync(file)).toBe(false);
   });
 
@@ -407,21 +407,32 @@ describe('runScript', () => {
   it('passes on exit 0 with a minimal env and reports the output tail otherwise', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
     process.env.BOTHUB_SECRET_PROBE = 'leak';
-    expect(await runScript('echo "$BOTHUB_SECRET_PROBE" ok; pwd', cwd, 1, {}, unsandboxed)).toEqual({
+    expect(await runScript('echo "$BOTHUB_SECRET_PROBE" ok; pwd', cwd, 1, {}, unsandboxed)).toMatchObject({
       ok: true,
       output: expect.stringMatching(/^ok\n.*bothub-script-/),
     });
     delete process.env.BOTHUB_SECRET_PROBE;
-    expect(await runScript('echo broke >&2; exit 2', cwd, 1, {}, unsandboxed)).toEqual({ ok: false, output: 'broke' });
-    expect(await runScript('echo "$BOTHUB_BRANCH"', cwd, 1, { BOTHUB_BRANCH: 'bothub/7-x' }, unsandboxed)).toEqual({
+    expect(await runScript('echo broke >&2; exit 2', cwd, 1, {}, unsandboxed)).toMatchObject({
+      ok: false,
+      output: 'broke',
+    });
+    expect(
+      await runScript('echo "$BOTHUB_BRANCH"', cwd, 1, { BOTHUB_BRANCH: 'bothub/7-x' }, unsandboxed)
+    ).toMatchObject({
       ok: true,
       output: 'bothub/7-x',
     });
   });
 
+  it('writes the input to stdin and returns the whole stdout apart from the output tail', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'bothub-script-'));
+    const result = await runScript('tr a-z A-Z; echo note >&2', cwd, 1, {}, unsandboxed, undefined, 'one\ntwo\n');
+    expect(result).toEqual({ ok: true, output: 'ONE\nTWO\nnote', stdout: 'ONE\nTWO\n' });
+  });
+
   it('kills the script after the timeout', async () => {
     const result = await runScript('sleep 5', mkdtempSync(join(tmpdir(), 'bothub-script-')), 0.002, {}, unsandboxed);
-    expect(result).toEqual({ ok: false, output: 'timed out after 0.002 minutes' });
+    expect(result).toMatchObject({ ok: false, output: 'timed out after 0.002 minutes' });
   });
 });
 

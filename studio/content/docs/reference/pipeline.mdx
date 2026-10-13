@@ -19,14 +19,17 @@ follow-ups are used or the bot's `usd-per-run` is spent. The loop is in
 
 <Fields name="Verdict" />
 
-A check gates when its mode is not `shadow`. Skipped only passes when the check allows it.
+A check gates when its mode is not `shadow`. A skipped check does not gate, unless no gating check
+ran at all.
 
 <Source file="src/pipeline.ts" symbol="failingChecks" />
 
 ## Verdicts
 
-A check is a script (exit code), a bot that replies `PASS` or `FAIL`, or a `decide` question to a
-small local model (<Sym name="decideCheck" />). A bot that does not answer clearly fails.
+A check is a script (exit code), a bot that replies `PASS` or `FAIL`, or a `decide` check that asks
+its body as a yes or no question to a small local model (<Sym name="decideCheck" />). A bot that
+does not answer clearly fails. A check that fans out over files, hunks or script items passes only
+when every item passes, and its findings are labelled by item.
 
 <Source file="src/pipeline.ts" symbol="verdictOf" />
 

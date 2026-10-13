@@ -102,11 +102,71 @@ export const deepEqual = (a: unknown, b: unknown): boolean => {
   );
 };
 
+const typeOf = (schema: JsonSchema) => (Array.isArray(schema.type) ? schema.type[0] : schema.type);
+
+/**
+ * Whether `value` is of the union option `option`: the same JSON type, and for an object every `const` property
+ * equal and every required property present.
+ */
+export const matchesOption = (option: JsonSchema, value: unknown): boolean => {
+  const t = typeOf(option);
+  if (Array.isArray(value)) return t === 'array';
+  if (isRecord(value)) {
+    if (t !== 'object') return false;
+    const props = Object.entries(option.properties ?? {});
+    return (
+      props.every(([k, p]) => p.const === undefined || value[k] === p.const) &&
+      (option.required ?? []).every(k => option.properties?.[k]?.const !== undefined || k in value)
+    );
+  }
+  if (value === undefined || value === null) return false;
+  if (option.enum) return option.enum.includes(value);
+  return t === typeof value || (t === 'integer' && typeof value === 'number');
+};
+
 const variant = (schema: JsonSchema | undefined, value: unknown): JsonSchema | undefined => {
   const options = schema?.anyOf ?? schema?.oneOf;
   if (!options) return schema;
   const object = isRecord(value);
-  return options.find(o => (object ? o.type === 'object' : Array.isArray(value) ? o.type === 'array' : true));
+  return (
+    options.find(o => matchesOption(o, value)) ??
+    options.find(o => (object ? o.type === 'object' : Array.isArray(value) ? o.type === 'array' : true))
+  );
+};
+
+/**
+ * One choice of a union: an enum value, or an object option named by its `const` discriminator or its required
+ * fields.
+ */
+export type UnionChoice = { label: string; option: JsonSchema; value?: unknown };
+
+/** The choices a union offers, flattening enum options into one choice per value. */
+export const unionChoices = (options: JsonSchema[]): UnionChoice[] =>
+  options.flatMap((option, i) => {
+    if (option.enum) return option.enum.map(value => ({ label: String(value), option, value }));
+    const discriminator = Object.values(option.properties ?? {}).find(p => p.const !== undefined)?.const;
+    if (discriminator !== undefined) return [{ label: String(discriminator), option }];
+    const t = typeOf(option);
+    const fields = option.required?.length ? option.required : Object.keys(option.properties ?? {});
+    const label = t === 'array' ? 'list' : t === 'object' ? fields.join(' and ') || 'map' : (t ?? `option ${i + 1}`);
+    return [{ label, option }];
+  });
+
+/** The choice `value` is, if any. */
+export const currentChoice = (choices: UnionChoice[], value: unknown) =>
+  choices.find(c => (c.value !== undefined ? c.value === value : matchesOption(c.option, value)));
+
+/**
+ * The value after switching to `choice`: its enum value, or its starting value keeping every field of `value` the
+ * new option also has, so shared fields survive and the old option's own fields drop.
+ */
+export const switchChoice = (choice: UnionChoice, value: unknown): unknown => {
+  if (choice.value !== undefined) return choice.value;
+  const start = initialValue(choice.option);
+  if (!isRecord(start) || !isRecord(value)) return start;
+  const props = choice.option.properties ?? {};
+  const kept = Object.entries(value).filter(([k]) => k in props && props[k]?.const === undefined);
+  return { ...start, ...Object.fromEntries(kept) };
 };
 
 /** Drops `undefined`, then orders object keys as the schema declares them, unknown keys last in their own order. */

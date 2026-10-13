@@ -31,6 +31,7 @@ const files: Record<string, string> = {
     '    guard: { associations: [OWNER] }',
     'jobs:',
     '  answer:',
+    '    type: bot',
     '    bot: helper',
     '    skill: answer',
     '    can: [reply]',

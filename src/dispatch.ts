@@ -54,7 +54,7 @@ const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[
     .map(([id, job]) => ({
       workflow: workflow.name,
       job: id,
-      ...(job.bot && { bot: job.bot }),
+      ...(job.type === 'bot' && { bot: job.bot }),
       ...(args !== undefined && { args }),
     }));
 };

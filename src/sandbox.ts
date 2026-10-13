@@ -99,7 +99,7 @@ const hostUser = () => `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 10
 /**
  * `docker run` for one command in a hardened, throwaway container: read-only root, tmpfs `/tmp`, the host user (never
  * root), no capabilities, no new privileges, resource limits, the internal network and no image pulls. The worktree
- * is `/work` and the working directory; `home` is mounted as `/home/agent` when given. `env` is set in argv; `secrets`
+ * is `/work` and the working directory; `home` is mounted as `/home/agent` when given; `stdin` keeps stdin open. `env` is set in argv; `secrets`
  * are passed by name only, so their values come from the docker client's environment (the returned `env`) and never
  * appear in argv.
  * @throws SandboxError for a root user or a mount of `/`, `/run`, `/var/run` or a docker socket.
@@ -115,6 +115,7 @@ export const dockerRun = ({
   args,
   config = sandboxConfig(),
   user = hostUser(),
+  stdin = false,
 }: {
   name: string;
   worktree: string;
@@ -126,6 +127,7 @@ export const dockerRun = ({
   args: string[];
   config?: ReturnType<typeof sandboxConfig>;
   user?: string;
+  stdin?: boolean;
 }) => {
   if (!/^[1-9][0-9]*:[0-9]+$/.test(user)) throw new SandboxError(`refusing to run a container as user "${user}"`);
   return {
@@ -133,6 +135,7 @@ export const dockerRun = ({
     args: [
       'run',
       '--rm',
+      ...(stdin ? ['-i'] : []),
       '--init',
       '--pull',
       'never',
@@ -245,20 +248,35 @@ export const mcpInside = (server: McpServer): { server: McpServer; mounts: Mount
 };
 
 /**
- * A run spec as the harness sees it inside a container: `/work` as cwd and the MCP server rewritten for its mounts,
- * plus read-only mounts of bothub's code for the server and harness extensions.
+ * A run spec as the harness sees it inside a container: `/work` as cwd, the MCP server and the surfacer rewritten for
+ * their mounts, plus read-only mounts of bothub's code for the server and harness extensions. The surfacer gets the
+ * same read-only hub and run store mounts as the MCP server.
  */
 export const specInside = (spec: RunSpec): { spec: RunSpec; mounts: Mount[] } => {
   const mcp = spec.mcp && mcpInside(spec.mcp);
+  const surfacer = spec.surfacer && { ...spec.surfacer, hub: inside.hub, data: inside.data };
+  const mounts = [
+    ...bothubMounts,
+    ...(mcp?.mounts ?? []),
+    ...(spec.surfacer
+      ? [
+          { src: spec.surfacer.hub, dst: inside.hub, readonly: true },
+          { src: join(spec.surfacer.data, 'runs'), dst: join(inside.data, 'runs'), readonly: true },
+        ]
+      : []),
+  ];
   return {
-    spec: { ...spec, cwd: inside.work, ...(mcp && { mcp: mcp.server }) },
-    mounts: [...bothubMounts, ...(mcp?.mounts ?? [])],
+    spec: { ...spec, cwd: inside.work, ...(mcp && { mcp: mcp.server }), ...(surfacer && { surfacer }) },
+    mounts: mounts.filter((m, i) => mounts.findIndex(n => n.dst === m.dst) === i),
   };
 };
 
 /** A path into bothub's own code mapped to where it is mounted, for harness args that point at it. */
 export const bothubArg = (arg: string) =>
   arg.startsWith(`${bothubRoot}/`) ? inside.bothub + arg.slice(bothubRoot.length) : arg;
+
+/** Every quoted path into bothub's own code in a JSON text mapped to where it is mounted, for inline harness config. */
+export const bothubPaths = (json: string) => json.replaceAll(`"${bothubRoot}/`, `"${inside.bothub}/`);
 
 /** A unique container name for a run or script. */
 export const containerName = (id: string) =>

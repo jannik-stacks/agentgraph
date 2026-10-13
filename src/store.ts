@@ -47,6 +47,8 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     endedAt?: string;
     error?: string;
     reason?: string;
+    /** Rewinds of this run: events after the smallest `after` are archived, kept for humans and never shown to bots. */
+    archived?: { after: number; lesson: string; by: 'bot' | 'retry'; patch?: string }[];
   };
 
 /**

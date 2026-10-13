@@ -33,6 +33,7 @@ read, they never write; writing is what [proposals](/docs/proposals) are for.
 ```yaml
 jobs:
   triage:
+    type: bot
     bot: triager
     preload: [issue, links]
     tools: [issues_get, notes_search]

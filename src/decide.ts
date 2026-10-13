@@ -1,8 +1,5 @@
 import { z } from 'zod';
-import type { Defined } from './config.ts';
-import type { Check } from './schema.ts';
 import type { Verdict } from './store.ts';
-import type { BotEvent } from './types.ts';
 
 const instructions = z.union([z.string().min(1), z.record(z.string(), z.unknown()), z.array(z.unknown()).min(1)]);
 
@@ -110,78 +107,33 @@ export const decide = async <Q extends Record<string, Question>>({
   return parsed.data.answers as Answers<Q>;
 };
 
-/**
- * The `decide` field of a check: one yes-or-no question about the changes. The check passes when the probability of
- * the `pass-on` answer is at or above `threshold`, 0.5 unless set.
- */
-export const Decide = z.strictObject({
-  question: z.string().min(1),
-  'pass-on': z.enum(['yes', 'no']).default('yes'),
-  threshold: z.number().min(0).max(1).optional(),
-  over: z.enum(['added', 'diff', 'files', 'event']).default('added'),
-});
-export type Decide = z.infer<typeof Decide>;
-
-/**
- * What a `decide` check looks at: the lines the changes add (`added`), the full `diff`, the changed `files`, or the
- * triggering `event`'s text.
- */
-export type DecideInputs = { files: string[]; diff: string; event?: BotEvent };
-
 const maxState = 16_000;
 
 const clipped = (text: string) => (text.length > maxState ? `${text.slice(0, maxState)}\n[truncated]` : text);
 
-/** The lines a diff adds, under the name of each file they land in. */
-export const addedLines = (diff: string) => {
-  const parts: string[] = [];
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+++ ')) parts.push(`\n${line.replace(/^\+\+\+ (b\/)?/, '')}`);
-    else if (line.startsWith('+')) parts.push(line.slice(1));
-  }
-  return parts.join('\n').trim();
-};
-
-const stateFor = ({ over }: Decide, { files, diff, event }: DecideInputs) => {
-  if (over === 'event') return event?.body ?? '';
-  if (over === 'files') return files.join('\n');
-  return clipped(over === 'diff' ? diff : addedLines(diff));
-};
-
 /**
- * Runs a `decide` check: asks the decision model one `noul` question about the changes and passes when the
- * probability of the `pass-on` answer is at or above the threshold. The model sees only the bare text `over` names.
- * Skipped when there is nothing to look at; fails closed when the model cannot be reached. Reads `BOTHUB_DECIDE_URL`
- * and `BOTHUB_DECIDE_MODEL` from `env`.
+ * Asks the decision model one yes-or-no `question` about `state` and passes when the probability of yes is at or
+ * above `threshold`. Fails closed when the model cannot be reached. Reads `BOTHUB_DECIDE_URL` and
+ * `BOTHUB_DECIDE_MODEL` from `env`.
  */
 export const decideCheck = async (
-  check: Pick<Defined<Check>, 'name' | 'mode'> & { decide: z.input<typeof Decide> },
-  inputs: DecideInputs,
-  env: Record<string, string | undefined>
-): Promise<Verdict> => {
-  const spec = Decide.parse(check.decide);
-  const done = (result: Pick<Verdict, 'pass' | 'findings' | 'skipped'>): Verdict => ({
-    check: check.name,
-    gating: check.mode !== 'shadow',
-    ...result,
-  });
-  const skipped = (findings: string) => done({ pass: false, skipped: true, findings });
-  if (spec.over === 'event' && !inputs.event?.body) return skipped('the event has no text');
-  if (spec.over !== 'event' && !inputs.files.length) return skipped('no changed files');
+  question: string,
+  state: string,
+  env: Record<string, string | undefined>,
+  threshold = defaultThreshold
+): Promise<Pick<Verdict, 'pass' | 'findings'>> => {
   try {
     const { answer } = await decide({
       url: env.BOTHUB_DECIDE_URL || defaultDecideUrl,
       model: env.BOTHUB_DECIDE_MODEL || defaultDecideModel,
-      state: stateFor(spec, inputs),
-      questions: { answer: { type: 'noul', instructions: spec.question } },
+      state: clipped(state),
+      questions: { answer: { type: 'noul', instructions: question } },
     });
-    const probability = spec['pass-on'] === 'yes' ? answer.noul : 1 - answer.noul;
-    const threshold = spec.threshold ?? defaultThreshold;
-    return done({
-      pass: probability >= threshold,
-      findings: `${spec.question} Probability of ${spec['pass-on']} ${probability.toFixed(3)}, threshold ${threshold}.`,
-    });
+    return {
+      pass: answer.noul >= threshold,
+      findings: `${question} Probability of yes ${answer.noul.toFixed(3)}, threshold ${threshold}.`,
+    };
   } catch (e) {
-    return done({ pass: false, findings: e instanceof Error ? e.message : String(e) });
+    return { pass: false, findings: e instanceof Error ? e.message : String(e) };
   }
 };

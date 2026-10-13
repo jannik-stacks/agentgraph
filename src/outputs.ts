@@ -115,7 +115,10 @@ const caps: Record<Proposal['kind'], number> = {
 /** The label a human adds to an approval issue; never a bot. */
 export const approved = 'approved';
 
-const check = (proposal: Proposal, { paths, branch }: Pick<Job, 'paths' | 'branch'>): string | undefined => {
+const check = (
+  proposal: Proposal,
+  { paths, branch }: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'>
+): string | undefined => {
   const pinned = (name: string) =>
     branch && name !== branch ? `branch "${name}" is not the job's branch "${branch}"` : undefined;
   switch (proposal.kind) {
@@ -135,7 +138,7 @@ const check = (proposal: Proposal, { paths, branch }: Pick<Job, 'paths' | 'branc
  */
 export const validate = (
   proposals: Proposal[],
-  allowance: Pick<Job, 'paths' | 'branch'> & { can: ProposalKind[] },
+  allowance: Pick<Extract<Job, { type: 'bot' }>, 'paths' | 'branch'> & { can: ProposalKind[] },
   mode: Mode
 ): Validated => {
   const accepted: Proposal[] = [];

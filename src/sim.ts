@@ -77,13 +77,25 @@ export const simAdapter = (name: Harness, seen: (spec: RunSpec) => void): Harnes
   parseLine: line => (line.trim() ? [JSON.parse(line) as AgentEvent] : []),
 });
 
-/** Checks become scripts with the scenario's verdict, and script jobs become stubs, so nothing outside the sim runs. */
+/**
+ * Checks become scripts with the scenario's verdict, script jobs become stubs and jobs run once over the event, so
+ * nothing outside the sim runs.
+ */
 const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
   ...config,
   checks: Object.fromEntries(
-    Object.entries(config.checks).map(([name, { bot: _, skill: __, 'for-each': ___, paths: ____, ...check }]) => [
+    Object.entries(config.checks).map(([name, { name: _, path, body, mode, description }]) => [
       name,
-      { ...check, run: verdicts[name] === 'fail' ? `echo "${name}: failing in this scenario"; exit 1` : 'true' },
+      {
+        type: 'script' as const,
+        run: verdicts[name] === 'fail' ? `echo "${name}: failing in this scenario"; exit 1` : 'true',
+        over: 'diff' as const,
+        mode,
+        ...(description && { description }),
+        name,
+        path,
+        body,
+      },
     ])
   ),
   workflows: Object.fromEntries(
@@ -94,7 +106,9 @@ const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
         jobs: Object.fromEntries(
           Object.entries(workflow.jobs).map(([id, job]) => [
             id,
-            job.run ? { ...job, run: `echo "script ${id} is stubbed in the sim"` } : job,
+            job.type === 'script'
+              ? { ...job, over: 'event' as const, run: `echo "script ${id} is stubbed in the sim"` }
+              : { ...job, over: 'event' as const },
           ])
         ),
       },
@@ -226,6 +240,7 @@ export const simulate = async (file: string, print: (line: string) => void): Pro
         return `sim://${target}/tree/${branch}`;
       },
       changes: async () => ({ files: [], diff: '' }),
+      forkPoint: async () => 'sim',
       remove: async (_, runId) => rm(join(data, 'work', runId), { recursive: true, force: true }),
     };
     const opened: string[] = [];

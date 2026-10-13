@@ -1,5 +1,6 @@
 import { type AnyStateMachine, createMachine } from 'xstate';
 import type { Config } from '../../../src/config.ts';
+import { fanOut } from '../../../src/over.ts';
 
 type Workflow = Config['workflows'][string];
 type Job = Workflow['jobs'][string];
@@ -28,15 +29,15 @@ const checkRegion = (): StateConfig => ({
 });
 
 const jobState = (machine: string, job: Job, next: string | undefined, config: Config): StateConfig => {
-  const bot = job.bot ? config.bots[job.bot] : undefined;
+  const bot = job.type === 'bot' ? config.bots[job.bot] : undefined;
   const notes = [
-    job.bot && `bot ${job.bot}${bot ? ` (${bot.harness})` : ''}`,
-    job.skill && `skill ${job.skill}`,
+    job.type === 'bot' ? `bot ${job.bot}${bot ? ` (${bot.harness})` : ''}` : `run ${job.run}`,
+    job.type === 'bot' && `skill ${job.skill}`,
     `mode ${job.mode}${job['timeout-minutes'] ? `, ${job['timeout-minutes']} min` : ''}`,
     bot?.notes?.length && `reads notes: ${bot.notes.join(', ')}`,
   ].filter(Boolean);
-  const until = job.until;
-  const forEach = job['for-each'];
+  const until = job.type === 'bot' ? job.until : undefined;
+  const forEach = fanOut(job.over);
   const working: StateConfig = {
     on: {
       'agent ended': until

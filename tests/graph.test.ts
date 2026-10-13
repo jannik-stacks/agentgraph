@@ -86,7 +86,8 @@ describe('hubGraph', () => {
     const result = compile([
       {
         path: 'workflows/w.md',
-        source: '---\non: { push: {} }\njobs:\n  a: { run: echo }\n  b: { needs: a, run: echo }\n---\n',
+        source:
+          '---\non: { push: {} }\njobs:\n  a: { type: script, run: echo }\n  b: { type: script, needs: a, run: echo }\n---\n',
       },
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));

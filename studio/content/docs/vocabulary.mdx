@@ -10,7 +10,7 @@ description: The few words that describe every hub.
 | **skill**    | What to do. A prompt the job forces or the bot is offered                               | `skills/<name>.md`, body is the prompt    |
 | **workflow** | A small graph from triggers to jobs                                                     | `workflows/<name>.md`                     |
 | **job**      | One step in a workflow: it casts a bot and hands it a skill, or runs a plain script     | inside a workflow                         |
-| **check**    | A script or a bot that returns a verdict, pass or fail with findings                    | `checks/<name>.md`                        |
+| **check**    | A script, a bot or a decide question that returns a verdict, pass or fail with findings | `checks/<name>.md`                        |
 | **branch**   | Where work happens. One worktree per run, never the default branch                      | runtime                                   |
 | **proposal** | The only way a bot changes anything on GitHub                                           | runtime, see [Proposals](/docs/proposals) |
 | **run**      | One bot or script executing one job attempt, with events, cost and an outcome           | the run store                             |

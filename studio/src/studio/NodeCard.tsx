@@ -1,6 +1,7 @@
 import { Handle, type Node, type NodeProps, Position } from '@xyflow/react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { createContext, memo, type ReactNode, use } from 'react';
+import { fanOut } from '../../../src/over.ts';
 import type { GraphNode } from '../graph-model.ts';
 import { editPathAtom, navigateAtom, sampleAtom } from '../state.ts';
 import { Badge, cx } from '../ui.tsx';
@@ -19,8 +20,7 @@ const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg
 const stacked =
   'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-300),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-300)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-900),3px_3px_0_0_var(--color-zinc-600),6px_6px_0_-1px_var(--color-zinc-900),6px_6px_0_0_var(--color-zinc-600)]';
 
-const forEachOf = (node: GraphNode) =>
-  typeof node.data?.['for-each'] === 'string' ? node.data['for-each'] : undefined;
+const forEachOf = (node: GraphNode) => fanOut(node.data?.over as Parameters<typeof fanOut>[0]);
 
 const Card = ({
   node,
@@ -53,7 +53,7 @@ const PerEach = ({ node }: { node: GraphNode }) => {
   const forEach = forEachOf(node);
   return forEach ? (
     <Badge tone="info">
-      <span className="whitespace-nowrap">per {forEach}</span>
+      <span className="whitespace-nowrap">each {forEach}</span>
     </Badge>
   ) : null;
 };

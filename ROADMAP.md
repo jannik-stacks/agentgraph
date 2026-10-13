@@ -29,7 +29,7 @@ backends, never by forking code. Each milestone ends with something you can run.
 5. **Portable sandbox.** A `Sandbox` interface with docker, docker plus gVisor and remote
    backends; the VPS profile in `infra/server` with systemd or compose, gVisor, Cloudflare Tunnel
    and Access.
-6. **Learning loop.** Run memory summaries, the gardener proposing notes, `decide:` checks on the
+6. **Learning loop.** Run memory summaries, the gardener proposing notes, `decide` checks on the
    local decision model, the correction ladder from note to check.
 7. **Budgets and cost.** Runs per day, minutes and spend enforced; usage per bot on the dashboard.
 8. **Evals.** A daily small real-model run on fixed tasks built from merged PRs, each run with and

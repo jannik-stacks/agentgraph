@@ -24,11 +24,11 @@ export const sampleModel: GraphModel = {
     node('t:command', 'trigger', '/bothub', { detail: { summary: 'issue_comment' } }),
     node('j:implement', 'job', 'implement', {
       badges: [{ text: 'warn', tone: 'warn' }],
-      detail: { summary: 'until types, tests, chunk-review pass' },
+      detail: { summary: 'until types, tests, hunk-review pass' },
     }),
-    node('j:chunk', 'script', 'chunk', {
+    node('j:chunk', 'script', 'hunks', {
       badges: [{ text: 'block', tone: 'danger' }],
-      detail: { summary: 'split touched files by function' },
+      detail: { summary: 'one item per diff hunk' },
     }),
     node('c:types', 'check', 'types', {
       badges: [{ text: 'block', tone: 'danger' }],
@@ -38,9 +38,9 @@ export const sampleModel: GraphModel = {
       badges: [{ text: 'block', tone: 'danger' }],
       detail: { summary: 'vitest run' },
     }),
-    node('c:chunk-review', 'check', 'chunk-review', {
+    node('c:chunk-review', 'check', 'hunk-review', {
       badges: [{ text: 'warn', tone: 'warn' }],
-      detail: { summary: 'reviewer on each chunk' },
+      detail: { summary: 'reviewer on each hunk' },
     }),
     node('j:open-pr', 'job', 'open-pr', {
       badges: [{ text: 'block', tone: 'danger' }],
@@ -55,7 +55,7 @@ export const sampleModel: GraphModel = {
       detail: { summary: 'can: reply' },
     }),
     node('s:implement', 'skill', 'implement', { detail: { summary: 'forced' } }),
-    node('s:review-chunk', 'skill', 'review-chunk', { detail: { summary: 'forced' } }),
+    node('s:review-chunk', 'skill', 'review-hunk', { detail: { summary: 'forced' } }),
     node('n:decision', 'note', 'decisions', { detail: { summary: 'notes/decision' } }),
     node('n:convention', 'note', 'conventions', { detail: { summary: 'notes/convention' } }),
   ],

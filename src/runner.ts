@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Cause, Duration, Effect, Stream } from 'effect';
 import {
   bothubArg,
+  bothubPaths,
   containerEnv,
   containerName,
   dockerRun,
@@ -111,6 +112,7 @@ const contained = async ({
   secrets,
   cmd,
   args,
+  stdin,
 }: {
   name: string;
   worktree: string;
@@ -120,6 +122,7 @@ const contained = async ({
   secrets?: Record<string, string>;
   cmd: string;
   args: string[];
+  stdin?: boolean;
 }): Promise<Command> => {
   const config = sandboxConfig();
   await sandboxReady(config);
@@ -134,6 +137,7 @@ const contained = async ({
     ...(secrets && { secrets }),
     cmd,
     args,
+    ...(stdin && { stdin }),
   });
   return { ...run, env: agentEnv(run.env), cwd: worktree, stop: removeContainer(container) };
 };
@@ -155,7 +159,7 @@ export const containedCommand = (
     worktree: spec.cwd,
     home,
     mounts,
-    env,
+    env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, bothubPaths(value)])),
     secrets: { ...secrets, BOTHUB_LLM_BASE_URL: sandboxConfig().llmUrl },
     cmd,
     args: args.map(bothubArg),
@@ -188,6 +192,7 @@ export const sandboxed: Launcher = {
       env: { ...env, ...(hub && { BOTHUB_HUB: inside.hub }) },
       cmd: 'sh',
       args: ['-c', script],
+      stdin: true,
     }),
   startFailed: error => error.exitCode === 125 || typeof error.code === 'string',
 };
@@ -365,12 +370,14 @@ export const runJob = (options: {
   });
 
 const scriptOutputLimit = 8192;
+const scriptStdoutLimit = 4 << 20;
 
 /**
  * Runs `script` with `sh -c` in a run container with `cwd` as its worktree and the minimal agent env plus `env`. A
  * `hub` directory is mounted read-only and named by `BOTHUB_HUB`, so a script can run the hub's own scripts.
- * Resolves to whether it exited 0 within the timeout, with the tail of its combined output; a sandbox that is
- * unavailable resolves to `sandbox-failed: …` without running anything. Never rejects.
+ * `input` is written to its stdin. Resolves to whether it exited 0 within the timeout, with the tail of its combined
+ * output and its stdout up to 4 MB; a sandbox that is unavailable resolves to `sandbox-failed: …` without running
+ * anything. Never rejects.
  */
 export const runScript = async (
   script: string,
@@ -378,24 +385,31 @@ export const runScript = async (
   timeoutMinutes: number,
   env: Record<string, string> = {},
   launch: Launcher = sandboxed,
-  hub?: string
+  hub?: string,
+  input = ''
 ) => {
-  const failed = (message: string) => ({ ok: false, output: `sandbox-failed: ${message}` });
+  const failed = (message: string) => ({ ok: false, output: `sandbox-failed: ${message}`, stdout: '' });
   const command = await launch.script(script, cwd, env, hub).catch((error: Error) => error);
   if (command instanceof Error) return failed(command.message);
-  return new Promise<{ ok: boolean; output: string }>(resolve => {
+  return new Promise<{ ok: boolean; output: string; stdout: string }>(resolve => {
     const child = spawn(command.cmd, command.args, {
       cwd: command.cwd,
       env: command.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
     });
+    child.stdin.on('error', () => {});
+    child.stdin.end(input);
     let output = '';
+    let stdout = '';
     let timedOut = false;
     const add = (chunk: Buffer) => {
       output = (output + chunk.toString()).slice(-scriptOutputLimit);
     };
-    child.stdout.on('data', add);
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (stdout.length < scriptStdoutLimit) stdout += chunk.toString();
+      add(chunk);
+    });
     child.stderr.on('data', add);
     const timer = setTimeout(() => {
       timedOut = true;
@@ -404,14 +418,14 @@ export const runScript = async (
     }, timeoutMinutes * 60_000);
     child.once('error', error => {
       clearTimeout(timer);
-      resolve(launch.startFailed(error) ? failed(error.message) : { ok: false, output: error.message });
+      resolve(launch.startFailed(error) ? failed(error.message) : { ok: false, output: error.message, stdout: '' });
     });
     child.once('close', code => {
       clearTimeout(timer);
       if (code === 125 && launch.startFailed({ name: 'exit', message: '', exitCode: 125 }))
         return resolve(failed(output.trim() || 'the container did not start'));
       const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
-      resolve({ ok: code === 0 && !timedOut, output: (output + tail).trim() });
+      resolve({ ok: code === 0 && !timedOut, output: (output + tail).trim(), stdout });
     });
   });
 };

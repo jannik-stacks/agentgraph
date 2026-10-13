@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { opencodeMcpConfig } from '../mcp-config.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
 
@@ -37,11 +38,21 @@ const permission = (tools: string[]) => {
   return rules;
 };
 
+const plugin = (file: string) => fileURLToPath(new URL(file, import.meta.url));
+
+/** bothub's own opencode plugins for the run: the surfacer and the decider, each only when configured. */
+const plugins = (spec: RunSpec) => [
+  ...(spec.surfacer ? [[plugin('./opencode-surfacer.ts'), spec.surfacer]] : []),
+  ...(spec.decider?.questions.length ? [[plugin('./opencode-decider.ts'), spec.decider]] : []),
+];
+
+/** Harness memory is off: no sharing, no snapshots, no compaction or pruning; bothub's surfacer is the memory. */
 const config = (spec: RunSpec) => ({
   $schema: 'https://opencode.ai/config.json',
   autoupdate: false,
   share: 'disabled',
   snapshot: false,
+  compaction: { auto: false, prune: false },
   enabled_providers: [provider],
   provider: {
     [provider]: {
@@ -53,6 +64,7 @@ const config = (spec: RunSpec) => ({
   },
   agent: { [provider]: { mode: 'primary', prompt: spec.system, ...(spec.maxTurns && { steps: spec.maxTurns }) } },
   ...(spec.mcp && opencodeMcpConfig(spec.mcp)),
+  ...(plugins(spec).length && { plugin: plugins(spec) }),
 });
 
 const numeric = /^(?:-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+)$/i;
@@ -65,14 +77,17 @@ const words = (prompt: string) =>
     return [...out, last === undefined ? `${word}\t` : `${last}\t${word}`];
   }, []);
 
-/** The prompt goes in space-free words after `--` so the CLI neither parses nor re-quotes it. */
+/**
+ * The prompt goes in space-free words after `--` so the CLI neither parses nor re-quotes it. `--pure` keeps every
+ * external plugin out unless bothub's own are configured.
+ */
 const command = (spec: RunSpec) => ({
   cmd: 'opencode',
   args: [
     'run',
     '--format',
     'json',
-    '--pure',
+    ...(plugins(spec).length ? [] : ['--pure']),
     '--title',
     provider,
     '--agent',
@@ -84,9 +99,12 @@ const command = (spec: RunSpec) => ({
   ],
   env: {
     OPENCODE_CONFIG_CONTENT: JSON.stringify(config(spec)),
-    OPENCODE_PERMISSION: JSON.stringify(permission(spec.tools)),
+    OPENCODE_PERMISSION: JSON.stringify(permission([...spec.tools, ...(spec.surfacer?.history ? ['history'] : [])])),
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_CLAUDE_CODE: '1',
+    OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+    OPENCODE_DISABLE_AUTOCOMPACT: '1',
+    OPENCODE_DISABLE_PRUNE: '1',
     OPENCODE_DISABLE_AUTOUPDATE: '1',
     OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
     OPENCODE_DISABLE_MODELS_FETCH: '1',

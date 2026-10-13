@@ -1,3 +1,5 @@
+import type { DeciderOptions } from './harnesses/opencode-decider.ts';
+import type { SurfacerOptions } from './harnesses/opencode-surfacer.ts';
 import type { McpServer } from './mcp-config.ts';
 import type { Association, Harness, Trigger } from './schema.ts';
 
@@ -31,6 +33,10 @@ export type RunSpec = {
   maxTurns?: number;
   /** The bothub MCP server serving the run's read tools, when it has any. */
   mcp?: McpServer;
+  /** Past-run memory for the harness to surface and search, when the bot has any. */
+  surfacer?: SurfacerOptions;
+  /** Decision-model questions asked during the run. */
+  decider?: DeciderOptions;
 };
 
 /** Agent output, normalised across harnesses. */

@@ -47,7 +47,13 @@ describe('compile', () => {
       'pattern/small-pure-functions',
     ]);
     expect(bots.reviewer).toMatchObject({ harness: 'pi', body: expect.stringContaining('Try to break them') });
-    expect(checks.review).toMatchObject({ bot: 'reviewer', 'for-each': 'file', mode: 'warn' });
+    expect(checks.review).toMatchObject({
+      type: 'bot',
+      bot: 'reviewer',
+      skill: 'review-file',
+      over: 'each-file',
+      mode: 'warn',
+    });
     const flow = workflows.issue;
     expect(flow?.name).toBe('issue');
     expect(flow?.on.issue_comment?.guard?.associations).toEqual(['OWNER', 'MEMBER', 'COLLABORATOR']);
@@ -70,37 +76,65 @@ describe('compile', () => {
         [
           'on: { pull_request: }',
           'jobs:',
-          '  a: { needs: missing, bot: p, skill: s, can: [open-pr], until: { checks: [ghost] } }',
-          '  b: { bot: ghost, skill: s }',
-          '  c: { on: { issue_comment: {} }, run: echo }',
-          '  d: { bot: p }',
-          '  e: { skill: nope }',
-          '  f: { run: echo, until: { checks: [ghost] }, branch: "main-{x}" }',
+          '  a: { type: bot, needs: missing, bot: p, skill: s, can: [open-pr], until: { checks: [ghost] } }',
+          '  b: { type: bot, bot: ghost, skill: s }',
+          '  c: { type: script, on: { issue_comment: {} }, run: echo }',
+          '  e: { type: bot, bot: p, skill: nope }',
+          '  f: { type: bot, bot: p, skill: s, branch: "main-{x}" }',
+          '  g: { type: script, run: echo, over: { run: ls } }',
         ].join('\n')
       ),
     ]);
-    expect(errors).toEqual(
-      expect.arrayContaining([
-        'job "a" needs unknown job "missing"',
-        'job "a" waits for unknown check "ghost"',
-        'job "a" allows "open-pr", which bot "p" cannot do',
-        'job "b" uses unknown bot "ghost"',
-        'job "c" triggers on "issue_comment", which the workflow does not listen to',
-        'job "d" runs bot "p" but has no skill',
-        'job "e" needs either "bot" and "skill", or "run"',
-        'job "e" uses unknown skill "nope"',
-        'job "f" loops "until" checks pass but has no bot',
-        'job "f" branch "main-{x}" must start with "bothub/"',
-        'job "f" branch uses unknown placeholder "{x}"',
-      ])
-    );
+    expect(errors).toEqual([
+      'job "a" needs unknown job "missing"',
+      'job "a" waits for unknown check "ghost"',
+      'job "a" allows "open-pr", which bot "p" cannot do',
+      'job "b" uses unknown bot "ghost"',
+      'job "c" triggers on "issue_comment", which the workflow does not listen to',
+      'job "e" uses unknown skill "nope"',
+      'job "f" branch "main-{x}" must start with "bothub/"',
+      'job "f" branch uses unknown placeholder "{x}"',
+      'job "g" runs its own command, so "over: { run }" needs type bot',
+    ]);
+  });
+
+  it('names the missing or wrong type and guesses it from the fields', () => {
+    expect(errorsOf([file('checks/c.md', 'run: x')])).toEqual([
+      expect.stringContaining(
+        'missing "type": use one of script, bot, decide; it has "run", so probably "type: script"'
+      ),
+    ]);
+    expect(errorsOf([file('checks/c.md', 'type: robot\nbot: p')])).toEqual([
+      expect.stringContaining('type "robot" is not one of script, bot, decide; it has "bot", so probably "type: bot"'),
+    ]);
+    expect(errorsOf([file('checks/c.md', 'mode: warn')])).toEqual([
+      expect.stringContaining('missing "type": use one of script, bot, decide\n'),
+    ]);
+    expect(errorsOf([workflow('on: { push: {} }\njobs:\n  a: { bot: p, skill: s }')])).toEqual([
+      expect.stringContaining('missing "type": use one of bot, script; it has "bot", so probably "type: bot"'),
+    ]);
+  });
+
+  it('rejects fields the type does not take', () => {
+    expect(errorsOf([file('checks/c.md', 'type: bot\nbot: p\nrun: npm test', 'Judge it.')])).toEqual([
+      expect.stringContaining(
+        'a bot check does not take "run"; to judge what a command prints, use "over: { run: <command> }"'
+      ),
+    ]);
+    expect(errorsOf([file('checks/c.md', 'type: decide\nbot: p\nskill: s', 'Is it fine?')])).toEqual([
+      expect.stringContaining('a decide check does not take "bot", "skill"'),
+    ]);
+    expect(errorsOf([workflow('on: { push: {} }\njobs:\n  b: { type: script, run: x, preload: [issue] }')])).toEqual([
+      expect.stringContaining('a script job does not take "preload"'),
+    ]);
+    expect(errorsOf([file('checks/c.md', 'type: script\nrun: x\nover: { each: ls, max: 0 }')])).toHaveLength(1);
+    expect(errorsOf([file('checks/c.md', 'type: script\nrun: x\nover: chunk')])).toHaveLength(1);
   });
 
   it('checks checks, bot skills and notes', () => {
     const result = compile([
       { ...bot('p'), source: bot('p').source.replace('max-turns', 'skills: [gone]\nmax-turns') },
-      file('checks/both.md', 'run: x\nbot: p\nskill: gone'),
-      file('checks/half.md', 'bot: p'),
+      file('checks/gone.md', 'type: bot\nbot: p\nskill: gone'),
       file('notes/decision/a.md', 'title: A\ncheck: nope'),
       file('notes/rumor/b.md', 'title: B'),
     ]);
@@ -109,15 +143,20 @@ describe('compile', () => {
     ]);
     const errors = errorsOf([
       { ...bot('p'), source: bot('p').source.replace('max-turns', 'skills: [gone]\nmax-turns') },
-      file('checks/both.md', 'run: x\nbot: p\nskill: gone'),
-      file('checks/half.md', 'bot: p'),
+      file('checks/gone.md', 'type: bot\nbot: p\nskill: gone'),
+      file('checks/ghost.md', 'type: bot\nbot: ghost', 'Judge it.'),
+      file('checks/mute.md', 'type: bot\nbot: p'),
+      file('checks/blank.md', 'type: decide'),
+      file('checks/own.md', 'type: script\nrun: x\nover: { run: ls }'),
       file('notes/decision/a.md', 'title: A\ncheck: nope'),
     ]);
     expect(errors).toEqual([
       'offers unknown skill "gone"',
-      'needs one of "run", "bot" or "decide"',
       'uses unknown skill "gone"',
-      'runs bot "p" but has no skill',
+      'uses unknown bot "ghost"',
+      'has no prompt: give the bot a body or a skill',
+      'has no question: a decide check asks its body',
+      'runs its own command, so "over: { run }" needs type bot or decide',
       'refers to unknown check "nope"',
     ]);
   });
@@ -133,14 +172,9 @@ describe('compile', () => {
       errorsOf([
         tooled,
         skill('s'),
-        workflow(
-          'on: { push: {} }\njobs:\n  a: { bot: t, skill: s, tools: [issues_get, runs_read] }\n  b: { run: x, preload: [issue] }'
-        ),
+        workflow('on: { push: {} }\njobs:\n  a: { type: bot, bot: t, skill: s, tools: [issues_get, runs_read] }'),
       ])
-    ).toEqual([
-      'job "a" grants tool "runs_read", which bot "t" does not have',
-      'job "b" has "preload" or "tools" but no bot',
-    ]);
+    ).toEqual(['job "a" grants tool "runs_read", which bot "t" does not have']);
   });
 
   it('rejects tool names the harness does not have, so a bot never runs with a silently empty allowlist', () => {
@@ -169,22 +203,21 @@ describe('compile', () => {
     const result = compile([
       { ...bot('b'), source: bot('b').source.replace('max-turns', 'budget: { usd-per-run: 2 }\nmax-turns') },
       skill('s'),
-      file('checks/quiet.md', 'run: x'),
-      file('checks/judge.md', "decide: { question: 'Is it fine?' }\nmode: block"),
-      file('checks/tuned.md', "decide: { question: 'Is it fine?', threshold: 0.7 }\nmode: block"),
+      file('checks/quiet.md', 'type: script\nrun: x'),
+      file('checks/judge.md', 'type: decide\nmode: block', 'Is it fine?'),
+      file('checks/tuned.md', 'type: decide\nthreshold: 0.7\nmode: block', 'Is it fine?'),
       workflow(
         [
           'on: { issues: {} }',
           'jobs:',
-          '  a: { bot: b, skill: s, for-each: file, until: { checks: [quiet] } }',
-          '  c: { bot: b, skill: s, until: { checks: [quiet, judge] } }',
+          '  a: { type: bot, bot: b, skill: s, over: each-file, until: { checks: [quiet] } }',
+          '  c: { type: bot, bot: b, skill: s, until: { checks: [quiet, judge] } }',
         ].join('\n')
       ),
     ]);
     expect(result.ok && result.warnings.map(w => `${w.path}: ${w.message}`)).toEqual([
       'bots/b.md: "usd-per-run" is declared, not enforced: harness "opencode" reports no cost',
       'checks/judge.md: decides in block mode without a "threshold"; tune one in shadow mode first',
-      'workflows/w.md: job "a" has "for-each", declared, not enforced: the job runs once over all its changes',
       'workflows/w.md: job "a" loops until checks that are all in shadow mode, so it never repeats',
     ]);
     const examples = compile(await readHub(hub));
@@ -192,7 +225,9 @@ describe('compile', () => {
   });
 
   it('rejects needs cycles', () => {
-    const errors = errorsOf([workflow('on: {}\njobs:\n  a: { needs: b, run: x }\n  b: { needs: [a], run: x }')]);
+    const errors = errorsOf([
+      workflow('on: {}\njobs:\n  a: { type: script, needs: b, run: x }\n  b: { type: script, needs: [a], run: x }'),
+    ]);
     expect(errors).toContain('needs cycle: a -> b -> a');
   });
 });

@@ -11,6 +11,7 @@ import {
 } from './config.ts';
 import { isTrusted, type PlannedJob } from './dispatch.ts';
 import { decideCheck } from './decide.ts';
+import { fanOut, itemsOf, type Item } from './over.ts';
 import { harnesses } from './harnesses/index.ts';
 import type { GitHub } from './github-app.ts';
 import { githubIssues } from './issues-github.ts';
@@ -37,6 +38,7 @@ import {
   type Harness,
   type HubTool,
   type Job,
+  type Over,
   type ProposalKind,
   type Skill,
   type Workflow,
@@ -160,7 +162,7 @@ const session = ({
 }: {
   config: Config;
   bot: Defined<Bot>;
-  skill: Defined<Skill>;
+  skill?: Defined<Skill> | undefined;
   can: ProposalKind[];
   branch: string | undefined;
   prompt: string;
@@ -171,7 +173,7 @@ const session = ({
   mcp?: ((tools: HubTool[]) => McpServer) | undefined;
   pinned?: (string | undefined)[];
 }): RunSpec => {
-  const kinds = [...(bot.notes ?? []), ...(skill.notes ?? [])];
+  const kinds = [...(bot.notes ?? []), ...(skill?.notes ?? [])];
   const notes = preload.includes('notes') ? renderNotes(relevantNotes(config.notes, { kinds, paths })) : undefined;
   const served = mcp && tools.length ? tools : [];
   return {
@@ -226,7 +228,7 @@ export const handoffEnv = ({ branch, pr }: Handoff = {}): Record<string, string>
 
 /** The branch a job works on: its own `branch` template, or the branch handed to it. */
 const branchFor = (job: Job, at: Parameters<typeof renderBranch>[1], from?: Handoff) =>
-  job.branch ? renderBranch(job.branch, at) : from?.branch;
+  job.type === 'bot' && job.branch ? renderBranch(job.branch, at) : from?.branch;
 
 /**
  * The agent session for a planned job. The forced skill and any `preloaded` issue context are pinned in the system
@@ -253,8 +255,9 @@ export const buildSpec = ({
   }) => {
   const job = workflow.jobs[id];
   if (!job) throw new Error(`workflow "${workflow.name}" has no job "${id}"`);
-  const bot = job.bot ? config.bots[job.bot] : undefined;
-  const skill = job.skill ? config.skills[job.skill] : undefined;
+  if (job.type !== 'bot') throw new Error(`job "${id}" is a script`);
+  const bot = config.bots[job.bot];
+  const skill = config.skills[job.skill];
   if (!bot || !skill) throw new Error(`job "${id}" has no bot and skill`);
   const can = effectiveCan(bot, job);
   const branch = branchFor(job, { event, args, job: id, workflow: workflow.name }, handoff);
@@ -436,59 +439,87 @@ const verdictContract = [
 
 type Attempt = {
   planned: PlannedJob;
-  job: Job;
+  job: Extract<Job, { type: 'bot' }>;
   worktree: string;
   cwd: string;
   base: string;
   parent: Run;
   handoff: Handoff;
+  item?: number;
 };
 
-const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
-  Effect.gen(function* () {
-    const gating = check.mode !== 'shadow';
-    const done = (result: Pick<Verdict, 'pass' | 'findings' | 'runs' | 'skipped'>): Verdict => ({
-      check: check.name,
-      gating,
-      ...result,
-    });
-    const skipped = (findings: string) => done({ pass: false, skipped: true, findings });
-    const { run: script, paths } = check;
-    const changed =
-      script && !paths ? [] : (yield* Effect.promise(() => p.workspaces.changes(a.worktree, a.base))).files;
-    const matching = paths ? changed.filter(file => paths.some(glob => matchGlob(glob, file))) : changed;
-    if (paths && !matching.length) return skipped('no changed file matches its paths');
+/** Where `over` reads from: the worktree, the commit the change starts at, the files in scope and the script env. */
+type Scope = {
+  worktree: string;
+  cwd: string;
+  since: string;
+  files: string[];
+  timeout: number;
+  env: Record<string, string>;
+};
 
-    if (script) {
-      const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
-      const { ok, output } = yield* Effect.promise(() =>
-        runScript(script, a.cwd, timeout, { ...handoffEnv(a.handoff), BOTHUB_BASE: a.base }, p.launch, p.hub)
-      );
-      return done({ pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) });
-    }
+/**
+ * The items `over` names. A script `over` runs in the worktree with `BOTHUB_BASE` set to where the change starts; a
+ * script that fails, or prints more items than `max`, gives an error instead.
+ */
+const gather = async (over: Over, scope: Scope, p: Pipeline): Promise<{ items: Item[]; error?: string }> => {
+  if (typeof over === 'object') {
+    const script = 'each' in over ? over.each : over.run;
+    const env = { ...scope.env, BOTHUB_BASE: scope.since };
+    const { ok, output, stdout } = await runScript(script, scope.cwd, scope.timeout, env, p.launch, p.hub);
+    if (!ok) return { items: [], error: `the "over" script failed: ${output || 'exited non-zero'}` };
+    const items = itemsOf(over, { diff: '', output: stdout });
+    if ('each' in over && items.length > over.max)
+      return {
+        items: [],
+        error: `the "over" script printed ${items.length} items, more than "max" allows (${over.max})`,
+      };
+    return { items };
+  }
+  if (over === 'event') return { items: itemsOf(over, { diff: '', event: p.event.body }) };
+  const { diff } = await p.workspaces.changes(scope.worktree, scope.since, scope.files);
+  return { items: itemsOf(over, { diff }) };
+};
 
-    if (check.decide) {
-      const { diff } = yield* Effect.promise(() => p.workspaces.changes(a.worktree, a.base));
-      const { name, mode, decide } = check;
-      return yield* Effect.promise(() =>
-        decideCheck({ name, mode, decide }, { files: matching, diff, event: p.event }, p.env)
-      );
-    }
+/** An item as a prompt section. The event is already in every prompt, so it gets none. */
+const itemSection = (over: Over, item: Item) => {
+  if (over === 'event') return;
+  const titles: Record<Exclude<Over, object>, string> = {
+    diff: 'Changes',
+    added: 'Added lines',
+    event: 'Event',
+    'each-file': `Changes to ${item.label}`,
+    'each-hunk': `Hunk in ${item.label}`,
+  };
+  const title = typeof over === 'string' ? titles[over] : 'run' in over ? 'Command output' : `Item: ${item.label}`;
+  return `## ${title}\n\n${fenced(item.text)}`;
+};
 
-    const bot = p.config.bots[check.bot ?? ''];
-    const skill = p.config.skills[check.skill ?? ''];
-    if (!bot || !skill) return done({ pass: false, findings: 'the check has no bot and skill' });
-    if (!matching.length) return skipped('no changed files');
-    const targets = check['for-each'] ? matching.map(file => [file]) : [matching];
-    const runs: string[] = [];
-    const findings: string[] = [];
-    let pass = true;
-    for (const target of targets) {
-      const { diff } = yield* Effect.promise(() => p.workspaces.changes(a.worktree, a.base, target));
+/** The item as a script sees it: in `BOTHUB_ITEM` and on stdin. */
+const runOnItem = (script: string, item: Item, scope: Scope, p: Pipeline) =>
+  runScript(script, scope.cwd, scope.timeout, { ...scope.env, BOTHUB_ITEM: item.text }, p.launch, p.hub, item.text);
+
+type Judged = Pick<Verdict, 'pass' | 'findings'> & { run?: string };
+
+const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline) => {
+  if (check.type === 'script')
+    return (item: Item) =>
+      Effect.promise(async (): Promise<Judged> => {
+        const { ok, output } = await runOnItem(check.run, item, scope, p);
+        return { pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) };
+      });
+  if (check.type === 'decide')
+    return (item: Item) =>
+      Effect.promise(() => decideCheck(check.body.trim(), item.text, p.env, check.threshold) as Promise<Judged>);
+  const bot = p.config.bots[check.bot];
+  const skill = check.skill ? p.config.skills[check.skill] : undefined;
+  return (item: Item): Effect.Effect<Judged> =>
+    Effect.gen(function* () {
+      if (!bot) return { pass: false, findings: `unknown bot "${check.bot}"` };
       const prompt = [
-        skill.body,
+        skill?.body,
         check.body,
-        `## Changes\n\n${target.map(file => `- ${file}`).join('\n')}\n\n${fenced(diff)}`,
+        itemSection(check.over, item),
         verdictContract,
         eventContext(p.event, a.planned.args, undefined),
       ]
@@ -518,20 +549,72 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
         mcp: p.mcp,
       });
       const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p);
-      runs.push(run.id);
-      const verdict = verdictOf(run, final);
-      pass &&= verdict.pass;
-      if (verdict.findings) findings.push(targets.length > 1 ? `${target[0]}:\n${verdict.findings}` : verdict.findings);
+      return { ...verdictOf(run, final), run: run.id };
+    });
+};
+
+/**
+ * Runs one check over an attempt's changes. A check whose `paths` match no changed file, or that has nothing to look
+ * at, is skipped. A script that does not fan out runs once and reads the worktree itself; every other check judges
+ * each item `over` names and passes only when every item passes.
+ */
+const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
+  Effect.gen(function* () {
+    const done = (result: Pick<Verdict, 'pass' | 'findings' | 'runs' | 'skipped'>): Verdict => ({
+      check: check.name,
+      gating: check.mode !== 'shadow',
+      ...result,
+    });
+    const skipped = (findings: string) => done({ pass: false, skipped: true, findings });
+    const { paths, over } = check;
+    const changed = paths ? (yield* Effect.promise(() => p.workspaces.changes(a.worktree, a.base))).files : [];
+    const files = changed.filter(file => paths?.some(glob => matchGlob(glob, file)));
+    if (paths && !files.length) return skipped('no changed file matches its paths');
+    const scope: Scope = {
+      worktree: a.worktree,
+      cwd: a.cwd,
+      since: a.base,
+      files,
+      timeout: a.job['timeout-minutes'] ?? defaultMinutes,
+      env: { ...handoffEnv(a.handoff), BOTHUB_BASE: a.base },
+    };
+
+    if (check.type === 'script' && !fanOut(over)) {
+      const { ok, output } = yield* Effect.promise(() =>
+        runScript(check.run, a.cwd, scope.timeout, scope.env, p.launch, p.hub)
+      );
+      return done({ pass: ok, ...(!ok && { findings: output || 'exited non-zero' }) });
     }
-    return done({ pass, runs, ...(findings.length && { findings: findings.join('\n\n') }) });
+
+    const { items, error } = yield* Effect.promise(() => gather(over, scope, p));
+    if (error) return done({ pass: false, findings: error });
+    if (!items.length) return skipped('nothing to look at');
+    const judge = judgeWith(check, a, scope, p);
+    const runs: string[] = [];
+    const findings: string[] = [];
+    let pass = true;
+    for (const item of items) {
+      const verdict = yield* judge(item);
+      if (verdict.run) runs.push(verdict.run);
+      pass &&= verdict.pass;
+      if (verdict.findings) findings.push(items.length > 1 ? `${item.label}:\n${verdict.findings}` : verdict.findings);
+    }
+    return done({
+      pass,
+      ...(runs.length && { runs }),
+      ...(findings.length && { findings: findings.join('\n\n') }),
+    });
   });
 
 /**
- * The gating checks that fail an attempt: those that failed, those skipped without `allow-skip`, and every skipped one
- * when no gating check ran at all.
+ * The gating checks that fail an attempt. A check skipped because the change touches nothing it covers does not gate,
+ * unless no gating check ran at all: then every skipped one fails, so a change is never passed unchecked.
  */
-export const failingChecks = (verdicts: Verdict[], checks: Config['checks']) =>
-  verdicts.filter(v => v.gating && !v.pass && !(v.skipped && checks[v.check]?.['allow-skip']));
+export const failingChecks = (verdicts: Verdict[]) => {
+  const gating = verdicts.filter(v => v.gating);
+  const ran = gating.filter(v => !v.skipped);
+  return ran.length ? ran.filter(v => !v.pass) : gating.filter(v => v.skipped);
+};
 
 const followUp = (
   prompt: string,
@@ -662,7 +745,7 @@ const settle = async (
   const results = await apply(writes, {
     event,
     push,
-    prefix: `${event.id}/${run.workflow}/${run.job}`,
+    prefix: `${event.id}/${run.workflow}/${run.job}${a.item ? `/item-${a.item + 1}` : ''}`,
     prior: await priorEffects(run, p),
     record: results => p.store.saveOutcome(run.id, { ...base, results }),
     ...(gh && { gh }),
@@ -692,8 +775,8 @@ const finish = (planned: PlannedJob, run: Run, outcome: Outcome | undefined, can
 /** The issue context a planned job preloads, read from `issues`, or GitHub's issues when only `gh` is given. */
 const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: Pipeline) => {
   const job = workflow.jobs[planned.job];
-  const bot = job?.bot ? p.config.bots[job.bot] : undefined;
-  if (!job || !bot) return;
+  const bot = job?.type === 'bot' ? p.config.bots[job.bot] : undefined;
+  if (job?.type !== 'bot' || !bot) return;
   return issueContext(p.issues ?? (p.gh && githubIssues(p.gh, p.event.repo)), p.event, effectivePreload(bot, job));
 };
 
@@ -720,17 +803,22 @@ export const proposalProblems = (
 const costOf = async (ids: string[], store: Store) =>
   (await Promise.all(ids.map(id => store.read(id)))).reduce((sum, run) => sum + (run?.costUsd ?? 0), 0);
 
+/** A run's worktree: the run that owns it, its path and the commit it started from. */
+type Worktree = { id: string; cwd: string; base: string };
+
 /**
  * Runs the job's bot, then its `until` checks, sending failing findings back as new attempts in the same worktree.
- * The loop stops at `until.max` follow-ups, or once the attempts and checks have spent the bot's `usd-per-run`.
+ * The loop stops at `until.max` follow-ups, or once the attempts and checks have spent the bot's `usd-per-run`. An
+ * `item` of a fan-out adds its section to the prompt.
  */
 const attempts = (
   planned: PlannedJob,
   workflow: Defined<Workflow>,
   first: Run,
-  worktree: { cwd: string; base: string },
+  worktree: Worktree,
   handoff: Handoff,
-  p: Pipeline
+  p: Pipeline,
+  item?: { index: number; section: string | undefined }
 ) =>
   Effect.gen(function* () {
     const { cwd, base } = worktree;
@@ -751,7 +839,8 @@ const attempts = (
     const cap = bot.budget?.['usd-per-run'];
     let spent = 0;
     let parent = first;
-    let prompt = built.spec.prompt;
+    const task = [built.spec.prompt, item?.section].filter(Boolean).join('\n\n');
+    let prompt = task;
     for (let attempt = 1; ; attempt++) {
       const current =
         attempt === 1
@@ -770,7 +859,16 @@ const attempts = (
       spent += run.costUsd ?? 0;
       const extracted = extractProposals(final);
       const validated = validate(extracted.proposals, { can, paths: job.paths, branch }, job.mode);
-      const a: Attempt = { planned, job, worktree: first.id, cwd, base, parent: run, handoff };
+      const a: Attempt = {
+        planned,
+        job,
+        worktree: worktree.id,
+        cwd,
+        base,
+        parent: run,
+        handoff,
+        ...(item && { item: item.index }),
+      };
       const succeeded = run.status === 'succeeded';
       const problems = succeeded ? proposalProblems(extracted, validated, can) : [];
       if (problems.length) {
@@ -787,7 +885,7 @@ const attempts = (
         }
         const failed = yield* Effect.promise(() => p.store.update(run.id, { status: 'failed', error }));
         yield* Effect.promise(() => settle(failed, extracted, validated, undefined, a, p));
-        prompt = followUp(built.spec.prompt, [], [], attempt + 1, max + 1, problems);
+        prompt = followUp(task, [], [], attempt + 1, max + 1, problems);
         parent = failed;
         continue;
       }
@@ -811,7 +909,7 @@ const attempts = (
           p.store
         )
       );
-      const failing = failingChecks(checks, p.config.checks);
+      const failing = failingChecks(checks);
       if (!failing.length) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, validated.accepted, a, p, checks)
@@ -848,21 +946,112 @@ const attempts = (
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, checks));
-      prompt = followUp(built.spec.prompt, failing, validated.rejected, attempt + 1, max + 1);
+      prompt = followUp(task, failing, validated.rejected, attempt + 1, max + 1);
       parent = run;
     }
   });
 
-const scriptJob = (planned: PlannedJob, script: string, job: Job, handoff: Handoff, p: Pipeline) =>
+/**
+ * Where a job's change starts: for a handed-off branch, where it forked from the event's ref or the default branch;
+ * for a pull request, where it forked from its base branch; otherwise the commit the worktree started from.
+ */
+const changeStart = (worktree: Worktree, handoff: Handoff, p: Pipeline) => {
+  const { ref, branch, repo } = p.event;
+  const from = handoff.branch ? (ref ?? '') : branch && ref !== `refs/heads/${branch}` ? branch : undefined;
+  if (from === undefined) return Promise.resolve(worktree.base);
+  return p.workspaces.forkPoint(repo, worktree.id, from || undefined).catch(() => worktree.base);
+};
+
+/** The items a job's `over` names, from its change limited to its `paths`, and the scope to run scripts on them in. */
+const jobItems = async (job: Job, worktree: Worktree, handoff: Handoff, p: Pipeline) => {
+  const since = await changeStart(worktree, handoff, p);
+  const { paths } = job;
+  const changed = paths ? (await p.workspaces.changes(worktree.id, since)).files : [];
+  const scope: Scope = {
+    worktree: worktree.id,
+    cwd: worktree.cwd,
+    since,
+    files: changed.filter(file => paths?.some(glob => matchGlob(glob, file))),
+    timeout: job['timeout-minutes'] ?? defaultMinutes,
+    env: { ...handoffEnv(handoff), BOTHUB_BASE: worktree.base },
+  };
+  if (paths && !scope.files.length) return { items: [], scope };
+  return { ...(await gather(job.over, scope, p)), scope };
+};
+
+/**
+ * Runs a bot job once, or once per item its `over` names, each item as its own chain of attempts in the same
+ * worktree. Stops at the first item that does not close done or handed off.
+ */
+const fanned = (
+  planned: PlannedJob,
+  workflow: Defined<Workflow>,
+  job: Extract<Job, { type: 'bot' }>,
+  first: Run,
+  worktree: Worktree,
+  handoff: Handoff,
+  p: Pipeline
+) =>
+  Effect.gen(function* () {
+    if (job.over === 'event') return yield* attempts(planned, workflow, first, worktree, handoff, p);
+    const { items, error } = yield* Effect.promise(() => jobItems(job, worktree, handoff, p));
+    if (error || !items.length) {
+      const patch: Partial<Run> = error
+        ? { status: 'failed', error, ...closed('blocked', error) }
+        : { status: 'skipped', ...closed('no-op', 'nothing to look at') };
+      const run = yield* Effect.promise(() => p.store.update(first.id, patch));
+      return { ...planned, run } satisfies JobResult;
+    }
+    let result: JobResult | undefined;
+    for (const [index, item] of items.entries()) {
+      const run =
+        index === 0
+          ? first
+          : yield* Effect.promise(() =>
+              p.store.create({
+                workflow: planned.workflow,
+                job: planned.job,
+                bot: job.bot,
+                ...(first.harness && { harness: first.harness }),
+                event: p.event,
+                parent: first.id,
+                ...(job.until && { attempt: 1 }),
+              })
+            );
+      const section = itemSection(job.over, item);
+      result = yield* attempts(planned, workflow, run, worktree, handoff, p, { index, section });
+      if (!proceeds(closureOfResult(result))) return result;
+    }
+    return result as JobResult;
+  });
+
+/**
+ * Runs a script job: once, or once per item its `over` names with the item in `BOTHUB_ITEM` and on stdin. It fails
+ * when any run fails; the output of every run is stored on the job's run.
+ */
+const scriptJob = (planned: PlannedJob, job: Extract<Job, { type: 'script' }>, handoff: Handoff, p: Pipeline) =>
   Effect.gen(function* () {
     const { store, event } = p;
     const created = yield* Effect.promise(() => store.create({ workflow: planned.workflow, job: planned.job, event }));
     const timeout = job['timeout-minutes'] ?? defaultMinutes;
+    const once = (cwd: string, base: string) =>
+      runScript(job.run, cwd, timeout, { ...handoffEnv(handoff), BOTHUB_BASE: base }, p.launch, p.hub);
+    const each = async (worktree: Worktree) => {
+      const { items, error, scope } = await jobItems(job, worktree, handoff, p);
+      if (error) return { ok: false, output: error };
+      const outputs: string[] = [];
+      let ok = true;
+      for (const item of items) {
+        const result = await runOnItem(job.run, item, scope, p);
+        ok &&= result.ok;
+        if (result.output) outputs.push(items.length > 1 ? `${item.label}:\n${result.output}` : result.output);
+      }
+      return { ok, output: outputs.join('\n\n') };
+    };
     const execute = ({ cwd, base }: { cwd: string; base: string }) =>
       Effect.promise(async (): Promise<JobResult> => {
         await store.update(created.id, { status: 'running', startedAt: new Date().toISOString() });
-        const env = { ...handoffEnv(handoff), BOTHUB_BASE: base };
-        const { ok, output } = await runScript(script, cwd, timeout, env, p.launch, p.hub);
+        const { ok, output } = fanOut(job.over) ? await each({ id: created.id, cwd, base }) : await once(cwd, base);
         const ts = new Date().toISOString();
         if (output) await store.append(created.id, { ts, seq: 0, event: { type: 'text', text: output } });
         await store.append(created.id, { ts, seq: output ? 1 : 0, event: { type: 'end', ok } });
@@ -942,8 +1131,8 @@ export const runPlanned = (planned: PlannedJob, p: Pipeline, handoff: Handoff = 
     const workflow = p.config.workflows[planned.workflow];
     const job = workflow?.jobs[planned.job];
     if (!workflow || !job) return yield* Effect.promise(() => skip(planned, 'the job is not in the config', p));
-    if (job.run) return yield* scriptJob(planned, job.run, job, handoff, p);
-    const bot = job.bot ? p.config.bots[job.bot] : undefined;
+    if (job.type === 'script') return yield* scriptJob(planned, job, handoff, p);
+    const bot = p.config.bots[job.bot];
     if (!bot) return yield* Effect.promise(() => skip(planned, 'the job has no bot', p));
     const created = yield* Effect.promise(() =>
       p.store.create({
@@ -958,7 +1147,7 @@ export const runPlanned = (planned: PlannedJob, p: Pipeline, handoff: Handoff = 
     const at = { event: p.event, args: planned.args, job: planned.job, workflow: workflow.name };
     return yield* withWorktree(
       created,
-      worktree => attempts(planned, workflow, created, worktree, handoff, p),
+      worktree => fanned(planned, workflow, job, created, { id: created.id, ...worktree }, handoff, p),
       handoff,
       p,
       branchFor(job, at, handoff)

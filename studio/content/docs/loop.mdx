@@ -17,11 +17,12 @@ bot tries again.
 ```yaml
 jobs:
   implement:
+    type: bot
     bot: implementor
     skill: implement
     branch: bothub/{issue}
     until:
-      checks: [types, tests, chunk-review]
+      checks: [types, tests, review]
       max: 2
     can: [push, open-pr, reply]
 ```
@@ -44,16 +45,86 @@ Today `warn` and `block` gate the loop the same way (see <Sym name="failingCheck
 validates and stores its proposals but never applies them, which is how a new bot or skill starts
 out.
 
-## For each
+## Checks
 
-A check with a bot can fan out with `for-each`. With `file`, every changed file that matches the
-check's `paths` gets its own bot run and verdict. `chunk` is meant to split touched files by
-function; the chunker is not built yet, so for now it behaves like `file`.
+A check is a file in `checks/`. Two fields describe it: `over` says what it looks at, and `type`
+says who judges it.
 
-A check with `run:` is a script: exit 0 passes, anything else fails and its output is the finding.
+| `over`                    | What the check looks at                                                  |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `diff`                    | The whole diff of the change, once. The default                          |
+| `added`                   | Only the lines the change adds, under their file names                   |
+| `event`                   | The text of the event that started the run                               |
+| `each-file`               | Every changed file on its own, one verdict each                          |
+| `each-hunk`               | Every hunk on its own, with its file header so it reads alone            |
+| `{ run: <script> }`       | What the script prints, once                                             |
+| `{ each: <script>, max }` | One item per line the script prints, JSON or plain; `max` defaults to 50 |
+
+| `type`   | Who judges                                                                          |
+| -------- | ----------------------------------------------------------------------------------- |
+| `script` | Its `run` command: exit 0 passes, anything else fails and the output is the finding |
+| `bot`    | A bot, prompted with its `skill` if it names one and then the body                  |
+| `decide` | A small local model, asked the body as a yes or no question; yes passes             |
+
+A script check with the default `over` runs once against the worktree. When it fans out, each run
+gets its item in `BOTHUB_ITEM` and on stdin. `BOTHUB_BASE` names the commit the change started
+from, for the check and for scripts named by `over`, which run in the same sandbox. When an `each`
+script fails or prints more lines than `max`, the check fails with that as its finding and nothing
+is judged.
+
 A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by <Sym name="verdictOf" />.
-A check with `decide:` asks the local decision model one yes or no question instead; see
+A decide check passes when the probability of yes reaches its `threshold`, 0.5 unless set; see
 [Pipeline and checks](/docs/reference/pipeline#verdicts).
+
+A bot reading each changed docs page, with no skill, prompted by the body alone:
+
+```yaml
+type: bot
+bot: reviewer
+over: each-file
+paths: [docs/content/**/*.mdx]
+---
+Judge tone and length for this one page. Report only clear cases.
+```
+
+A decide check asking one question of every hunk:
+
+```yaml
+type: decide
+over: each-hunk
+---
+Is this hunk free of secrets: private keys, seed phrases, API tokens and passwords?
+```
+
+A bot judging what a command prints:
+
+```yaml
+type: bot
+bot: reviewer
+over:
+  run: git diff -U0 "$BOTHUB_BASE" -- kit/src | grep '^+export' || true
+---
+The output lists the exports this change adds. Judge only their names.
+```
+
+A bot judging every claim a script extracts from the docs, one run per claim:
+
+```yaml
+type: bot
+bot: claim-checker
+skill: check-claim
+over:
+  each: node "$BOTHUB_HUB/scripts/claims/extract.mjs" --changed 'docs/**/*.mdx'
+  max: 40
+```
+
+A check with `paths` applies only when the change touches a matching file. A check that applies to
+nothing, or whose `over` finds nothing to look at, is skipped and does not gate. If no gating check
+ran at all, every skipped gating check fails instead, so a change never passes unchecked.
+
+Jobs take `over` too. It defaults to `event`, one run for the event. Any other value runs the job
+once per item: a bot job gets the item at the end of its prompt, and a script job gets it in
+`BOTHUB_ITEM` and on stdin.
 
 ## The correction ladder
 

@@ -116,7 +116,7 @@ describe('localIssues', () => {
     const result = compile([
       {
         path: 'workflows/w.md',
-        source: '---\non: { issue_comment: { command: /bothub } }\njobs:\n  a: { run: echo }\n---\n',
+        source: '---\non: { issue_comment: { command: /bothub } }\njobs:\n  a: { type: script, run: echo }\n---\n',
       },
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));

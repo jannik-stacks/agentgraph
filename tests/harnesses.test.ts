@@ -85,6 +85,43 @@ describe('opencode', () => {
     expect(JSON.stringify(env)).not.toMatch(/sk-|vk-/);
   });
 
+  it('turns off every memory feature opencode has', () => {
+    const { args, env } = command(spec);
+    const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? '');
+    expect(config).toMatchObject({ share: 'disabled', snapshot: false, compaction: { auto: false, prune: false } });
+    expect(config.instructions).toBeUndefined();
+    expect(config.plugin).toBeUndefined();
+    expect(env).toMatchObject({
+      OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+      OPENCODE_DISABLE_CLAUDE_CODE: '1',
+      OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+      OPENCODE_DISABLE_AUTOCOMPACT: '1',
+      OPENCODE_DISABLE_PRUNE: '1',
+    });
+    expect(args).toContain('--pure');
+    expect(args.slice(0, args.indexOf('--'))).not.toEqual(
+      expect.arrayContaining(['--continue', '--session', '--share'])
+    );
+  });
+
+  it("loads bothub's own plugins instead of --pure, and allows history only when the surfacer offers it", () => {
+    const surfacer = { run: 'r1', bot: 'implementor', data: '/data', hub: '/hub' };
+    const decider = { questions: [{ on: 'tool_call' as const, ask: 'In scope?', say: 'out of scope' }] };
+    const { args, env } = command({ ...spec, surfacer, decider });
+    const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? '');
+    expect(config.plugin).toEqual([
+      [expect.stringMatching(/\/src\/harnesses\/opencode-surfacer\.ts$/), surfacer],
+      [expect.stringMatching(/\/src\/harnesses\/opencode-decider\.ts$/), decider],
+    ]);
+    expect(config.plugin.every(([path]: [string]) => existsSync(path))).toBe(true);
+    expect(args).not.toContain('--pure');
+    expect(config).toMatchObject({ share: 'disabled', compaction: { auto: false } });
+    expect(JSON.parse(env.OPENCODE_PERMISSION ?? '').history).toBeUndefined();
+    const withHistory = command({ ...spec, surfacer: { ...surfacer, history: true }, decider: { questions: [] } });
+    expect(JSON.parse(withHistory.env.OPENCODE_PERMISSION ?? '').history).toBe('allow');
+    expect(JSON.parse(withHistory.env.OPENCODE_CONFIG_CONTENT ?? '').plugin).toHaveLength(1);
+  });
+
   it('denies everything without tools and falls back to the default alias', () => {
     const { model: _, ...bare } = spec;
     const { args, env } = command({ ...bare, tools: [] });

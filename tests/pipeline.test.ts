@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compile, type Config } from '../src/config.ts';
 import type { GitHub } from '../src/github-app.ts';
 import { localIssues } from '../src/issues-local.ts';
@@ -26,7 +26,7 @@ import { SandboxError } from '../src/sandbox.ts';
 import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
 import type { AgentEvent, BotEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { git, sourceRepo, temp } from './git.ts';
+import { commit, git, sourceRepo, temp } from './git.ts';
 
 const md = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n\n${body}` });
 
@@ -43,9 +43,9 @@ const configFor = (mode = 'shadow'): Config => {
     md('skills/notify.md', 'description: Tell someone.', 'Notify someone.'),
     md('skills/implement.md', 'description: Change code.', 'Implement it.'),
     md('skills/judge.md', 'description: Judge a file.', 'Judge this file.'),
-    md('checks/exists.md', 'run: test -f src/a.ts\nmode: block'),
-    md('checks/shadowed.md', 'run: echo never mind; exit 1'),
-    md('checks/judged.md', 'bot: judge\nskill: judge\nfor-each: file\nmode: block', 'Be strict.'),
+    md('checks/exists.md', 'type: script\nrun: test -f src/a.ts\nmode: block'),
+    md('checks/shadowed.md', 'type: script\nrun: echo never mind; exit 1'),
+    md('checks/judged.md', 'type: bot\nbot: judge\nskill: judge\nover: each-file\nmode: block', 'Be strict.'),
     md('notes/convention/small.md', 'title: Small changes\nstatus: accepted', 'Keep changes small.'),
     md('notes/convention/old.md', 'title: Old rule\nstatus: retired', 'Forget this.'),
     md('notes/caveat/limits.md', 'title: Limits', 'Keep job budgets short.'),
@@ -54,11 +54,12 @@ const configFor = (mode = 'shadow'): Config => {
       'workflows/triage.md',
       `on: { issue_comment: {} }
 jobs:
-  triage: { mode: ${mode}, bot: bot, skill: triage, timeout-minutes: 5, can: [reply] }
-  summarize: { needs: triage, bot: bot, skill: summarize, can: [] }
-  notify: { needs: [plain], bot: bot, skill: notify }
-  plain: { run: echo plain output; exit 3 }
+  triage: { type: bot, mode: ${mode}, bot: bot, skill: triage, timeout-minutes: 5, can: [reply] }
+  summarize: { type: bot, needs: triage, bot: bot, skill: summarize, can: [] }
+  notify: { type: bot, needs: [plain], bot: bot, skill: notify }
+  plain: { type: script, run: echo plain output; exit 3 }
   implement:
+    type: bot
     mode: warn
     bot: bot
     skill: implement
@@ -66,12 +67,14 @@ jobs:
     paths: ['src/**']
     can: [push, open-pr]
   loop:
+    type: bot
     mode: warn
     bot: bot
     skill: implement
     can: [reply, ask]
     until: { checks: [exists, shadowed], max: 1 }
   judged:
+    type: bot
     mode: warn
     bot: bot
     skill: implement
@@ -287,7 +290,10 @@ describe('context', () => {
         'Role.'
       ),
       md('skills/s.md', 'description: Do it.', 'Do it.'),
-      md('workflows/w.md', 'on: { issue_comment: {} }\njobs:\n  a: { bot: b, skill: s, tools: [issues_get] }'),
+      md(
+        'workflows/w.md',
+        'on: { issue_comment: {} }\njobs:\n  a: { type: bot, bot: b, skill: s, tools: [issues_get] }'
+      ),
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
     const config = result.config;
@@ -531,7 +537,7 @@ describe('until', () => {
     const { seen, adapters } = fake((spec, call) => {
       if (!spec.prompt.startsWith('Judge this file.'))
         return { message: bothub([{ kind: 'reply', body: 'ok' }]), work: write };
-      const failing = call === 3 && spec.prompt.includes('- src/b.ts');
+      const failing = call === 3 && spec.prompt.includes('## Changes to src/b.ts');
       verdicts.push(failing ? 'FAIL' : 'PASS');
       return { message: bothub([{ kind: 'reply', body: failing ? 'FAIL\nsrc/b.ts:1 is wrong' : 'PASS' }]) };
     });
@@ -542,7 +548,7 @@ describe('until', () => {
     const judge = seen[1]!;
     expect(judge.system.startsWith('You judge.')).toBe(true);
     expect(judge.prompt).toContain(
-      'Judge this file.\n\nBe strict.\n\n## Changes\n\n- src/a.ts\n\n```text\ndiff --git a/src/a.ts'
+      'Judge this file.\n\nBe strict.\n\n## Changes to src/a.ts\n\n```text\ndiff --git a/src/a.ts'
     );
     expect(judge.prompt).not.toContain('src/b.ts');
     expect(judge.prompt).toContain('## Verdict');
@@ -661,16 +667,15 @@ describe('checks fail closed', () => {
     expect(verdictOf(ok({}), bothub([{ kind: 'reply', body: 'pass' }]))).toEqual({ pass: true });
   });
 
-  it('lets a skipped check pass a gate only when it allows skipping', () => {
-    const config = configFor();
-    const checks = {
-      ...config.checks,
-      exists: { ...config.checks.exists!, 'allow-skip': true },
-    };
+  it('does not gate on a check the change does not touch, unless no gating check ran', () => {
     const skipped = (check: string): Verdict => ({ check, gating: true, pass: false, skipped: true });
-    expect(failingChecks([skipped('exists')], checks)).toEqual([]);
-    expect(failingChecks([skipped('judged')], checks)).toEqual([skipped('judged')]);
-    expect(failingChecks([{ ...skipped('shadowed'), gating: false }], checks)).toEqual([]);
+    const passed: Verdict = { check: 'tests', gating: true, pass: true };
+    const failed: Verdict = { check: 'types', gating: true, pass: false, findings: 'error' };
+    expect(failingChecks([skipped('docs'), passed])).toEqual([]);
+    expect(failingChecks([skipped('docs'), passed, failed])).toEqual([failed]);
+    expect(failingChecks([skipped('docs'), skipped('kit')])).toEqual([skipped('docs'), skipped('kit')]);
+    expect(failingChecks([{ ...skipped('shadowed'), gating: false }, passed])).toEqual([]);
+    expect(failingChecks([])).toEqual([]);
   });
 });
 
@@ -774,11 +779,12 @@ describe('handoff', () => {
         'workflows/flow.md',
         `on: { issue_comment: {} }
 jobs:
-  implement: { mode: warn, bot: bot, skill: implement, branch: 'bothub/{issue}-{slug}', paths: ['src/**'], can: [push, open-pr] }
+  implement: { type: bot, mode: warn, bot: bot, skill: implement, branch: 'bothub/{issue}-{slug}', paths: ['src/**'], can: [push, open-pr] }
   verify:
+    type: script
     needs: implement
     run: test "$BOTHUB_BRANCH" = bothub/7-please-look-at-this && test "$BOTHUB_PR" = 1 && test -f src/a.ts
-  deploy: { needs: verify, mode: warn, bot: bot, skill: deploy, environment: production, can: [reply] }`
+  deploy: { type: bot, needs: verify, mode: warn, bot: bot, skill: deploy, environment: production, can: [reply] }`
       ),
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -853,5 +859,221 @@ jobs:
       closure: 'deferred',
       reason: `branch "${branch}" is in use by run other`,
     });
+  });
+});
+
+describe('over', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const long = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+  /** Two files and three hunks: lines 1 and 19 of long.txt, and a new src/a.ts. */
+  const work =
+    "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/a.ts', 'a\\n'); const l = fs.readFileSync('long.txt', 'utf8').split('\\n'); l[0] = 'first'; l[18] = 'nineteenth'; fs.writeFileSync('long.txt', l.join('\\n'))";
+  const origin = () => {
+    const repo = sourceRepo();
+    commit(repo.dir, { 'long.txt': long });
+    return repo;
+  };
+
+  type Def = { name: string; data: Record<string, unknown>; body?: string };
+  const hubWith = (checks: Def[], job: Record<string, unknown> = {}) => {
+    const result = compile([
+      md('bots/bot.md', 'harness: opencode\ntools: [read]\ncan: [reply]\nmax-turns: 3', 'You work.'),
+      md('bots/judge.md', 'harness: opencode\ntools: [read]\ncan: [reply]\nmax-turns: 3', 'You judge.'),
+      md('skills/implement.md', 'description: Change code.', 'Implement it.'),
+      ...checks.map(c => md(`checks/${c.name}.md`, JSON.stringify({ mode: 'shadow', ...c.data }), c.body)),
+      md(
+        'workflows/triage.md',
+        JSON.stringify({
+          on: { issue_comment: {} },
+          jobs: {
+            loop: {
+              type: 'bot',
+              bot: 'bot',
+              skill: 'implement',
+              can: ['reply'],
+              until: { checks: checks.map(c => c.name), max: 1 },
+              ...job,
+            },
+          },
+        })
+      ),
+    ]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    return result.config;
+  };
+
+  const run = async (config: Config, behave: Parameters<typeof fake>[0] = { work }, env = {}) => {
+    const { seen, adapters } = fake(behave);
+    const p = await pipeline({ config, adapters, env: { BOTHUB_LLM_API_KEY: 'key', ...env } }, origin());
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+    if (!('run' in result)) throw new Error('skipped');
+    return { result, seen, p };
+  };
+
+  const logFile = () => join(temp('over-log'), 'log');
+
+  it('runs a script once per hunk with the hunk in BOTHUB_ITEM and on stdin', async () => {
+    const log = logFile();
+    const script = `printf '%s|' "$(printf '%s' "$BOTHUB_ITEM" | sed -n 1p)" >> ${log}; grep -c '^@@' >> ${log}`;
+    const { result } = await run(
+      hubWith([{ name: 'hunks', data: { type: 'script', over: 'each-hunk', run: script } }])
+    );
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+      'diff --git a/long.txt b/long.txt|1',
+      'diff --git a/long.txt b/long.txt|1',
+      'diff --git a/src/a.ts b/src/a.ts|1',
+    ]);
+    expect(result.outcome?.checks).toEqual([{ check: 'hunks', gating: false, pass: true }]);
+  });
+
+  it('runs a script once per file', async () => {
+    const log = logFile();
+    const script = `printf '%s' "$BOTHUB_ITEM" | sed -n 1p >> ${log}`;
+    await run(hubWith([{ name: 'files', data: { type: 'script', over: 'each-file', run: script } }]));
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+      'diff --git a/long.txt b/long.txt',
+      'diff --git a/src/a.ts b/src/a.ts',
+    ]);
+  });
+
+  it('takes items from a script, as JSON lines or plain lines, and labels findings by item', async () => {
+    const each = `test -n "$BOTHUB_BASE" && printf '%s\\n' '{"file":"docs/x.mdx","line":4}' plain`;
+    const check = `test "$BOTHUB_ITEM" != plain || { echo "bad $BOTHUB_ITEM"; exit 1; }`;
+    const { result } = await run(
+      hubWith([{ name: 'items', data: { type: 'script', over: { each, max: 5 }, run: check } }])
+    );
+    expect(result.outcome?.checks).toEqual([
+      { check: 'items', gating: false, pass: false, findings: 'item 2:\nbad plain' },
+    ]);
+  });
+
+  it('fails closed when the script prints more items than max, without judging any', async () => {
+    const marker = logFile();
+    const { result } = await run(
+      hubWith([{ name: 'many', data: { type: 'script', over: { each: 'seq 5', max: 2 }, run: `touch ${marker}` } }])
+    );
+    expect(result.outcome?.checks).toEqual([
+      {
+        check: 'many',
+        gating: false,
+        pass: false,
+        findings: 'the "over" script printed 5 items, more than "max" allows (2)',
+      },
+    ]);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('fails closed when the over script fails', async () => {
+    const { result } = await run(
+      hubWith([{ name: 'broken', data: { type: 'script', over: { each: 'echo nope; exit 3' }, run: 'true' } }])
+    );
+    expect(result.outcome?.checks?.[0]).toMatchObject({ pass: false, findings: 'the "over" script failed: nope' });
+  });
+
+  it('prompts a bot check with its body and what over names', async () => {
+    const judged = (spec: RunSpec) =>
+      spec.system.startsWith('You judge.') ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) } : { work };
+    const { result, seen } = await run(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Is the change small?' },
+        {
+          name: 'stat',
+          data: { type: 'bot', bot: 'judge', over: { run: 'git diff --stat "$BOTHUB_BASE"' } },
+          body: 'Judge the stat.',
+        },
+      ]),
+      judged
+    );
+    const [small, stat] = seen.slice(1);
+    expect(small!.prompt).toMatch(/^Is the change small\?\n\n## Changes\n\n```text\ndiff --git a\/long.txt/);
+    expect(small!.prompt).toContain('## Verdict');
+    expect(stat!.prompt).toMatch(/^Judge the stat\.\n\n## Command output\n\n```text\nlong.txt \| 4/);
+    expect(result.outcome?.checks?.map(c => [c.check, c.pass])).toEqual([
+      ['small', true],
+      ['stat', true],
+    ]);
+  });
+
+  it('asks a decide check its body about each item', async () => {
+    const answers = [0.9, 0.8, 0.1];
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
+      Response.json({ answers: { answer: { type: 'noul', noul: answers.shift() } } })
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { result } = await run(
+      hubWith([
+        { name: 'secrets', data: { type: 'decide', over: 'each-hunk' }, body: 'Is this hunk free of secrets?' },
+      ]),
+      { work },
+      { BOTHUB_DECIDE_URL: 'http://decide.test' }
+    );
+    const bodies = fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init.body))] as const);
+    expect(bodies).toHaveLength(3);
+    for (const [url, body] of bodies) {
+      expect(url).toBe('http://decide.test/v1/systemone');
+      expect(body.questions).toEqual({ answer: { type: 'noul', instructions: 'Is this hunk free of secrets?' } });
+      expect(body.state).toMatch(/^diff --git [\s\S]*\n@@ /);
+    }
+    expect(result.outcome?.checks).toEqual([
+      {
+        check: 'secrets',
+        gating: false,
+        pass: false,
+        findings: expect.stringMatching(
+          /\nsrc\/a.ts @@ -0,0 \+1 @@:\nIs this hunk free of secrets\? Probability of yes 0.100/
+        ),
+      },
+    ]);
+  });
+
+  it('does not gate on a check whose paths match no changed file', async () => {
+    const { result, seen } = await run(
+      hubWith([
+        { name: 'docs', data: { type: 'script', paths: ['docs/**'], run: 'exit 1', mode: 'block' } },
+        { name: 'exists', data: { type: 'script', run: 'test -f src/a.ts', mode: 'block' } },
+      ])
+    );
+    expect(seen).toHaveLength(1);
+    expect(result.run).toMatchObject({ status: 'succeeded', attempt: 1 });
+    expect(result.outcome?.checks).toEqual([
+      { check: 'docs', gating: true, pass: false, skipped: true, findings: 'no changed file matches its paths' },
+      { check: 'exists', gating: true, pass: true },
+    ]);
+  });
+
+  it('runs a script job once per item, the item in BOTHUB_ITEM and on stdin', async () => {
+    const log = logFile();
+    const result = compile([
+      md(
+        'workflows/triage.md',
+        JSON.stringify({
+          on: { issue_comment: {} },
+          jobs: {
+            each: {
+              type: 'script',
+              over: { each: "printf 'one\\ntwo\\n'" },
+              run: `printf '%s/%s\\n' "$BOTHUB_ITEM" "$(cat)" >> ${log}`,
+            },
+          },
+        })
+      ),
+    ]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    const p = await pipeline({ config: result.config }, origin());
+    const job = await Effect.runPromise(runPlanned({ workflow: 'triage', job: 'each' }, p));
+    expect('run' in job && job.run.status).toBe('succeeded');
+    expect(readFileSync(log, 'utf8')).toBe('one/one\ntwo/two\n');
+  });
+
+  it('runs a bot job once per item, each prompt with its item', async () => {
+    const { seen, p } = await run(hubWith([], { over: { each: "printf 'one\\ntwo\\n'" }, until: undefined }), {});
+    expect(seen.map(spec => spec.prompt.match(/## Item: (.*)\n\n```text\n(.*)/)?.slice(1))).toEqual([
+      ['item 1', 'one'],
+      ['item 2', 'two'],
+    ]);
+    const runs = await p.store.list();
+    expect(runs).toHaveLength(2);
+    expect(runs.filter(r => r.parent).map(r => r.parent)).toEqual([runs.find(r => !r.parent)!.id]);
   });
 });

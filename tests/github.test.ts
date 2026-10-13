@@ -146,7 +146,7 @@ on:
   push: { branches: [main] }
   pull_request: { branches: [main] }
 jobs:
-  go: { bot: bot, skill: go }
+  go: { type: bot, bot: bot, skill: go }
 ---
 `,
       },

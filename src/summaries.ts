@@ -308,9 +308,13 @@ const readRun = async (dir: string, id: string) => {
   }
 };
 
+/** The last event seq of `run` a bot may see: everything after its earliest rewind point is archived. */
+const visibleUpTo = (run: Pick<Run, 'archived'> | undefined) =>
+  run?.archived?.length ? Math.min(...run.archived.map(a => a.after)) : Infinity;
+
 /**
  * Past runs and their transcripts as the asking bot may see them, for a `history` tool: `list` gives the visible runs
- * newest first, `read` one run's summaries, or its original events between two seqs.
+ * newest first, `read` one run's summaries, or its original events between two seqs. Archived events never come back.
  */
 export const history = (dir: string, asker: string, shareOf: ShareOf = () => 'bot') => {
   const allowed = (run: Run | undefined): run is Run => !!run && visible(asker, run.bot, shareOf(run.bot));
@@ -333,23 +337,26 @@ export const history = (dir: string, asker: string, shareOf: ShareOf = () => 'bo
       return out;
     },
     read: async (id: string, range?: { from: number; to: number }) => {
-      if (!allowed(await readRun(dir, id))) return;
-      if (!range) return readSummaries(dir, id);
+      const run = await readRun(dir, id);
+      if (!allowed(run)) return;
+      const last = visibleUpTo(run);
+      if (!range) return (await readSummaries(dir, id)).filter(r => r.to <= last);
       const events = await readJsonl<EventRecord>(join(dir, 'runs', id, 'events.jsonl'));
-      return events.filter(e => e.seq >= range.from && e.seq <= range.to);
+      return events.filter(e => e.seq >= range.from && e.seq <= Math.min(range.to, last));
     },
   };
 };
 
-/** Every visible run's current summaries under data dir `dir`, tagged with the run's bot and share. */
+/** Every visible run's current summaries under data dir `dir`, tagged with the run's bot and share, without archived ones. */
 export const loadSummaries = async (dir: string, shareOf: ShareOf = () => 'bot') => {
   const out: (SummaryRecord & { bot?: string; share: Share })[] = [];
   for (const id of await runsIn(dir)) {
     const run = await readRun(dir, id);
     const share = shareOf(run?.bot);
     if (share === 'none') continue;
+    const last = visibleUpTo(run);
     for (const record of await readSummaries(dir, id))
-      out.push({ ...record, ...(run?.bot && { bot: run.bot }), share });
+      if (record.to <= last) out.push({ ...record, ...(run?.bot && { bot: run.bot }), share });
   }
   return out;
 };
