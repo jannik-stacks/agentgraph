@@ -406,10 +406,12 @@ const CheckStep = ({
         <div className="space-y-1 py-1 pr-2">
           {brief && (
             <Suspense fallback={null}>
-              <FetchedVerdict attempt={attempt} name={name} />
+              <div className="pl-1">
+                <FetchedVerdict attempt={attempt} name={name} />
+              </div>
             </Suspense>
           )}
-          <ul>
+          <ul className="-ml-1">
             {runs.map(run => (
               <Step
                 key={run.id}
