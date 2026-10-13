@@ -9,7 +9,7 @@ import { git } from './git.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
-import { approvals, continuation, issuesOf, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
+import { approvals, continuation, issuesOf, onRequest, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
 import { localPulls } from './pulls.ts';
 import { fileQueue, worker, type Queued, type WorkerOptions } from './queue.ts';
 import { limiter, sandboxed } from './runner.ts';
@@ -27,8 +27,12 @@ export const localOrigin = async (path: string) => {
   return origin;
 };
 
-/** One issue or pull request's lane: its events run one at a time, in order. An event without a number has its own. */
-export const laneOf = ({ id, item }: Queued<BotEvent>) => `${item.repo}#${item.number ?? id}`;
+/**
+ * One issue's or merge request's lane: its events run one at a time, in order. Issues and merge requests that share a
+ * number get separate lanes; an event without a number has its own.
+ */
+export const laneOf = ({ id, item }: Queued<BotEvent>) =>
+  `${item.repo}${onRequest(item) ? '!' : '#'}${item.number ?? id}`;
 
 /** A log line for a check starting, or ending with its verdict and how long it took. */
 export const checkLine = (run: Run, check: string, verdict?: Verdict) => {
@@ -152,7 +156,8 @@ export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobRes
  * The durable queue of a hub's events in `<data>/queue`: up to `concurrency` events run at once, one at a time per
  * issue, and an event that fails waits and runs again (`retry`) until it moves to `<data>/queue/failed`. `enqueue`
  * records a new event in the delivery ledger first and drops a repeat, and drops an event a bot made that starts no
- * job; an event already `delivered` skips the ledger. Runs a stopped process left unfinished are marked interrupted on
+ * job; an event already `delivered` skips the ledger. A comment that continues an issue (see `continuation`) is queued
+ * as that issue's comment, in the issue's lane. Runs a stopped process left unfinished are marked interrupted on
  * start and their events queued again.
  */
 export const eventQueue = async (
@@ -168,6 +173,13 @@ export const eventQueue = async (
       config => !plan(event, config).length,
       () => false
     ));
+  const continues = async (event: BotEvent) => {
+    const continued = await hub
+      .config()
+      .then(config => continuation(pipelineFor(hub, config, event)))
+      .catch(() => undefined);
+    return continued && 'event' in continued ? continued.event : event;
+  };
   let pushing = Promise.resolve();
   const then = (step: () => Promise<unknown>) => {
     pushing = pushing.then(step).then(
@@ -179,7 +191,7 @@ export const eventQueue = async (
     then(async () => {
       if (!delivered && !(await hub.store.deliver(event.id))) return;
       if (await startsNothing(event)) return hub.log(described(event, 0));
-      await queue.push(event.id, event);
+      await queue.push(event.id, await continues(event));
       void work.wake();
     });
   const interrupted = await reconcile(hub.store, hub.workspaces);

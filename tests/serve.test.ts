@@ -549,8 +549,19 @@ describe('warmDeps', () => {
   });
 });
 
+const LANES = [
+  ['an issue', { number: 3 }, 'acme/app#3'],
+  ['a merge request with the same number', { number: 3, pull: 3 }, 'acme/app!3'],
+  ['an issue a merge request comment continues', { number: 3, pull: 9 }, 'acme/app#3'],
+  ['an event without a number', {}, 'acme/app#e1'],
+] as const;
+
 describe('checkLine and laneOf', () => {
-  it('names a check start and its verdict with its time, and keeps one lane per issue', () => {
+  it.each(LANES)('keeps one lane per issue or merge request: %s', (_, fields, lane) => {
+    expect(laneOf({ id: 'e1', item: { repo: 'acme/app', ...fields } as BotEvent })).toBe(lane);
+  });
+
+  it('names a check start and its verdict with its time', () => {
     const run = { workflow: 'pr', job: 'fix', id: 'r1' } as Parameters<typeof checkLine>[0];
     const verdict = { check: 'tests', gating: true, pass: false };
     expect(checkLine(run, 'tests')).toBe('pr/fix r1 check tests start');
@@ -560,8 +571,5 @@ describe('checkLine and laneOf', () => {
     expect(checkLine(run, 'tests', { ...verdict, blocked: true })).toBe('pr/fix r1 check tests blocked');
     expect(checkLine(run, 'tests', { ...verdict, skipped: true })).toBe('pr/fix r1 check tests skipped');
     expect(checkLine(run, 'tests', verdict)).toBe('pr/fix r1 check tests fail');
-    const event = { repo: 'acme/app', number: 3 } as BotEvent;
-    expect(laneOf({ id: 'e1', item: event })).toBe('acme/app#3');
-    expect(laneOf({ id: 'e2', item: { repo: 'acme/app' } as BotEvent })).toBe('acme/app#e2');
   });
 });

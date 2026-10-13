@@ -120,8 +120,11 @@ merge:
 ```
 
 A script job that returns `merge` gets the open requests into its `into` as JSON in
-`BOTHUB_REQUESTS`, along with `BOTHUB_INTO` and `BOTHUB_DEFAULT_BRANCH`. A script proposes by
-printing a `bothub` block, the same way a bot does.
+`BOTHUB_REQUESTS`, along with `BOTHUB_INTO` and `BOTHUB_DEFAULT_BRANCH`. `BOTHUB_STEPS` lists the
+sub-issues of the plans whose requests go into `into`, each with its `state`, whether a request it
+opened was `merged` there and whether a job on it is `running` (queued or running), so a script can
+wait for the whole plan before asking to merge it. A script proposes by printing a `bothub` block,
+the same way a bot does.
 
 Every outcome, accepted, rejected and applied, is stored in the run's `outcome.json` as an
 

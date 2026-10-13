@@ -68,8 +68,8 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: 64m
-    pids_limit: 64
+    mem_limit: 128m
+    pids_limit: 512
     networks: [sandbox, egress]
     restart: unless-stopped
 

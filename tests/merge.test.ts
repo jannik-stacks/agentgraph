@@ -193,4 +193,42 @@ describe('merge', { timeout: 20_000 }, () => {
     expect(seen[1]?.prompt).toContain('a.ts');
     expect(git(origin.dir, 'show', 'bothub/5:a.ts')).toBe('both');
   });
+  it('asks to merge the plan only once every step is closed or merged and none is running', async () => {
+    const { adapters } = harness(() => ({
+      content: 'six\n',
+      proposals: [
+        { kind: 'push', branch: 'bothub/5-6', files: ['a.ts'] },
+        { kind: 'merge-request', title: 'Step', body: 'Closes #6', branch: 'bothub/5-6' },
+      ],
+    }));
+    const { pulls, p: base, branch } = await setup(configFor(), adapters);
+    const dir = temp('issues');
+    writeFileSync(join(dir, '5-plan.md'), '---\ntitle: Plan\n---\n\nPlan it.\n');
+    writeFileSync(join(dir, '6-step.md'), '---\ntitle: Step\nparent: 5\n---\n\nDo it.\n');
+    writeFileSync(join(dir, '7-other.md'), '---\ntitle: Other\nparent: 5\n---\n\nDo that.\n');
+    const issues = localIssues(dir, { repo: 'acme/app' });
+    const p = { ...base, issues };
+    branch('bothub/5', 'five\n');
+    await Effect.runPromise(runPlan([{ workflow: 'plan', job: 'implement', bot: 'bot' }], { ...p, event: step }));
+    const merge = () => Effect.runPromise(runPlanned({ workflow: 'merge', job: 'merge' }, p));
+    expect(results(await merge())).toMatchObject([{ kind: 'merge', status: 'applied' }]);
+
+    const plan = () => pulls.list({ into: 'main' });
+    await merge();
+    expect(await plan()).toEqual([]);
+
+    await issues.close(7);
+    const running = await p.store.create({
+      workflow: 'plan',
+      job: 'implement',
+      event: { ...step, id: 'c2', number: 7 },
+    });
+    await p.store.update(running.id, { status: 'running' });
+    await merge();
+    expect(await plan()).toEqual([]);
+
+    await p.store.update(running.id, { status: 'succeeded' });
+    expect(results(await merge())).toMatchObject([{ kind: 'merge-request', status: 'applied' }]);
+    expect(await plan()).toMatchObject([{ branch: 'bothub/5', into: 'main' }]);
+  });
 });

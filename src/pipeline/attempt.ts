@@ -8,6 +8,7 @@ import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
 import { issueContext } from '../preload.ts';
 import type { Job, ProposalKind, Workflow } from '../schema.ts';
+import type { Pulls } from '../pulls.ts';
 import type { Run, Store } from '../store.ts';
 import type { RunSpec } from '../types.ts';
 import { unresolved } from '../workspace.ts';
@@ -25,7 +26,7 @@ import {
   itemSection,
   runChecks,
 } from './checks.ts';
-import { carried, sessionOf } from './continue.ts';
+import { carried, onRequest, openerOf, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
 
@@ -423,8 +424,29 @@ export const fanned = (
   });
 
 /**
- * The open requests from `bothub/` branches into a merging job's `into`, as `BOTHUB_INTO`, `BOTHUB_REQUESTS` and
- * `BOTHUB_DEFAULT_BRANCH`.
+ * The steps whose work lands on `into`: every sub-issue of the plans behind the requests into it, each with whether
+ * a request it opened was merged there and whether a job on it is queued or running.
+ */
+const stepsInto = async (into: string, pulls: Pulls, p: Pipeline) => {
+  const issues = issuesOf(p);
+  if (!issues) return [];
+  const requests = await pulls.list({ into, state: 'all' });
+  const openers = await Promise.all(requests.map(async pull => ({ pull, run: await openerOf(pull, p.store) })));
+  const plans = new Set(openers.flatMap(({ run }) => run?.event.parent ?? []));
+  const merged = new Set(openers.flatMap(({ pull, run }) => (pull.state === 'merged' && run?.event.number) || []));
+  const steps = (await Promise.all([...plans].map(parent => issues.list({ parent, state: 'all' })))).flat();
+  return Promise.all(
+    steps.map(async ({ number, title, state }) => {
+      const runs = await p.store.runs({ repo: p.event.repo, number, check: false });
+      const running = runs.some(r => !onRequest(r.event) && (r.status === 'queued' || r.status === 'running'));
+      return { number, title, state, merged: merged.has(number), running };
+    })
+  );
+};
+
+/**
+ * The open requests from `bothub/` branches into a merging job's `into`, and the steps that land there (see
+ * `stepsInto`), as `BOTHUB_INTO`, `BOTHUB_REQUESTS`, `BOTHUB_STEPS` and `BOTHUB_DEFAULT_BRANCH`.
  */
 export const requestsEnv = async (
   kinds: ProposalKind[],
@@ -437,5 +459,10 @@ export const requestsEnv = async (
   const into = target.into ?? defaultBranch;
   const open = (await pulls.list({ into })).filter(pull => pull.branch.startsWith('bothub/'));
   const requests = open.map(({ number, branch, title, url }) => ({ number, branch, into, title, url }));
-  return { BOTHUB_INTO: into, BOTHUB_REQUESTS: JSON.stringify(requests), BOTHUB_DEFAULT_BRANCH: defaultBranch };
+  return {
+    BOTHUB_INTO: into,
+    BOTHUB_REQUESTS: JSON.stringify(requests),
+    BOTHUB_STEPS: JSON.stringify(await stepsInto(into, pulls, p)),
+    BOTHUB_DEFAULT_BRANCH: defaultBranch,
+  };
 };

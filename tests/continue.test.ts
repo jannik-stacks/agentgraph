@@ -7,7 +7,7 @@ import { localIssues } from '../src/issues-local.ts';
 import { continuation, type Pipeline } from '../src/pipeline.ts';
 import { localPulls, type Pulls } from '../src/pulls.ts';
 import { limiter, unsandboxed } from '../src/runner.ts';
-import { compiledHub, handleEvent, type Hub } from '../src/serve.ts';
+import { compiledHub, eventQueue, handleEvent, laneOf, type Hub } from '../src/serve.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
@@ -189,6 +189,20 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(readFileSync(join(hub.store.home(again!.run.id), sessions, 'db'), 'utf8')).toBe('ses_2\nses_3\n');
   });
 
+  it("queues a comment that continues an issue in the issue's lane, apart from the request's own", async () => {
+    const { hub, pulls, commentEvent } = await setup();
+    await pulls.comment(1, { author: 'morgan', body: '/bothub go on' });
+    const delivered = await commentEvent(1);
+    const ran: BotEvent[] = [];
+    const queue = await eventQueue(hub, async event => void ran.push(event), {});
+    queue.enqueue(delivered);
+    await queue.idle();
+    await queue.stop();
+    expect(laneOf({ id: delivered.id, item: delivered })).toBe('acme/app!1');
+    expect(ran).toMatchObject([{ id: delivered.id, trigger: 'issue_comment', number: 7, pull: 1 }]);
+    expect(ran.map(item => laneOf({ id: item.id, item }))).toEqual(['acme/app#7']);
+  });
+
   it('starts nothing on a merged request or from a bot', async () => {
     const { hub, origin, pulls, seen, logs, commentEvent } = await setup();
     await pulls.comment(1, { author: 'helper[bot]', body: '/bothub again' });
@@ -241,6 +255,8 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
       event: expect.objectContaining({ trigger: 'issue_comment', number: 7, pull: 12 }),
     });
     expect(continued && 'event' in continued && continued.event).not.toHaveProperty('ref');
+    const again = continued && 'event' in continued ? continued.event : event;
+    expect(await continuation({ ...p('open'), event: again })).toEqual(continued);
     expect(await continuation(p('closed'))).toEqual({ reason: 'merge request #12 is closed' });
     const { pull: _, ...onIssue } = event;
     expect(await continuation({ ...p('open'), event: onIssue })).toBeUndefined();

@@ -10,6 +10,10 @@ import { fenced } from './prompt.ts';
 
 const commented = new Set<BotEvent['trigger']>(['issue_comment', 'pull_request_review', 'pull_request_review_comment']);
 
+/** Whether an event is about a merge request itself rather than an issue, which may share its number. */
+export const onRequest = ({ number, pull }: Pick<BotEvent, 'number' | 'pull'>) =>
+  number !== undefined && number === pull;
+
 /** The run of the job that opened `pull`, from the job and event in its `origin`. */
 export const openerOf = async (pull: Pick<Pull, 'origin'>, store: Store): Promise<Run | undefined> => {
   if (!pull.origin) return;
