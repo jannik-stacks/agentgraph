@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { dirname, join } from 'node:path';
 import { runScript, type Launcher } from './runner.ts';
 import { depsMarker, gitDirs } from './sandbox.ts';
@@ -35,8 +36,6 @@ const network =
 /** How long an install that failed on the network waits before each try again. */
 const installDelays = [2_000, 10_000, 30_000];
 
-const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 /** Runs the install in a worktree cleared of its dirs, again after each of `delays` while it fails on the network. */
 const installing = async (
   worktree: string,
@@ -52,7 +51,7 @@ const installing = async (
   let result = await run();
   for (const delay of delays) {
     if (result.ok || !network.test(result.output)) break;
-    await pause(delay);
+    await sleep(delay);
     result = await run();
   }
   return result;

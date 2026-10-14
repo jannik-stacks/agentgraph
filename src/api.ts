@@ -2,6 +2,7 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join, sep } from 'node:path';
 import { Readable } from 'node:stream';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { compile, type ConfigError } from './config.ts';
 import { listPulls, pullDiff, runDiff } from './diffs.ts';
 import { fingerprint, srcDir as ownSrc } from './fingerprint.ts';
@@ -35,17 +36,6 @@ const failed: RunStatus[] = ['failed', 'timed-out', 'interrupted'];
 /** Queued or running, and owned by a process that may still be running it. */
 export const isLive = (run: Run) => live.includes(run.status) && (!run.owner || alive(run.owner));
 const notFound = () => Response.json({ error: 'not found' }, { status: 404 });
-
-const sleep = (ms: number, signal: AbortSignal) =>
-  new Promise<void>(resolve => {
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener('abort', done);
-  });
 
 const diffOptions = (url: URL) => ({
   whitespace: url.searchParams.get('whitespace') === 'hide' ? ('hide' as const) : ('show' as const),
@@ -189,7 +179,7 @@ export const api = ({
               send(`event: end\ndata: ${JSON.stringify({ status: run?.status ?? null })}\n\n`);
               break;
             }
-            await sleep(pollMs, signal);
+            await sleep(pollMs, undefined, { signal }).catch(() => undefined);
           }
           if (!cancelled) controller.close();
         } catch (e) {

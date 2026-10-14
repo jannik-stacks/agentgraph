@@ -451,4 +451,3 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
   return { ...pulls, events, comment };
 };
 
-export type LocalPulls = ReturnType<typeof localPulls>;
