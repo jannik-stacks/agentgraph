@@ -3,7 +3,7 @@ harness: opencode
 model: writer
 tools: [read, edit, write, bash, grep, glob, issues_get, notes_search, notes_get]
 returns: [reply, push, merge-request, note, ask]
-skills: [implement]
+skills: [implement, pr-body]
 preload: [issue, { recall: { judge: luna } }]
 resume: session
 max-turns: 60

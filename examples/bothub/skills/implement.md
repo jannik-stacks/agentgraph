@@ -29,6 +29,5 @@ Never `npm install`, `npm ci` or `npx`.
 If a check asks for something the brief rules out, ask one question and `close` as `blocked`. A
 `## Resuming` section means your earlier work is in the worktree: continue from it.
 
-End with a `push` listing every file you changed, a `merge-request` whose body says `Closes #<issue>`
-(or `Part of #<issue>` when the brief has `Follow-up:` lines), and a reply listing each criterion
-with its test.
+End with a `push` listing every file you changed, a `merge-request` whose body follows the pr-body
+skill, and a reply.

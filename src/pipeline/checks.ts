@@ -7,7 +7,7 @@ import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.t
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
 import { answersAfterBrief, issueContext } from '../preload.ts';
 import { providerLimit, resetOf, runScript, type ScriptResult } from '../runner.ts';
-import type { Check, Job, Over } from '../schema.ts';
+import type { Check, Job, MergeSection, Over } from '../schema.ts';
 import type { Run, Verdict } from '../store.ts';
 import { type Pipeline, agent, issuesOf, launcher } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, eventContext, fenced, handoffEnv, session } from './prompt.ts';
@@ -418,17 +418,58 @@ const gapLength = 200;
 const namedGaps = ({ check, pass, findings = '' }: Verdict) =>
   pass ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(([, gap]) => `- ${check}: ${gap}`) : [];
 
-/** A merge request body with a "Known gaps" section: each failing `warn` or `log` check's first finding, and the gaps passing checks named. */
-export const withGaps = (body: string, checks: Verdict[], p: Pick<Pipeline, 'config'>) => {
-  const gaps = checks.filter(v => !v.pass && !v.skipped && !v.blocked && (!v.gating || !holds(v, p)));
+const gapsSection = ({ checks, config }: SectionContext) => {
+  const gaps = checks.filter(v => !v.pass && !v.skipped && !v.blocked && (!v.gating || !holds(v, { config })));
   const named = checks.flatMap(namedGaps).map(l => l.slice(0, gapLength + 2));
-  if (!gaps.length && !named.length) return body;
+  if (!gaps.length && !named.length) return;
   const line = ({ check, findings = '' }: Verdict) => {
     const [first = 'failed without output', next] = findings.split('\n').filter(l => l.trim());
     const finding = first.endsWith(':') && next ? `${first} ${next.replace(/^\s*[-*]\s*/, '')}` : first;
     return `- ${check}: ${finding.replace(/^\s*[-*]\s*/, '').slice(0, gapLength)}`;
   };
-  return `${body.trimEnd()}\n\n## Known gaps\n\n${[...gaps.map(line), ...named].join('\n')}`;
+  return `## Known gaps\n\n${[...gaps.map(line), ...named].join('\n')}`;
+};
+
+const criterionLine = /^\s*(\d+)\.\s+(.+?)\s+Test:\s*`?it\((['"`])(.+?)\3\)`?/;
+
+const criteriaSection = ({ brief = '' }: SectionContext) => {
+  const rows = brief.split('\n').flatMap(line => {
+    const [, , text = '', , title = ''] = criterionLine.exec(line) ?? [];
+    return title ? [`| ${text.replace(/\|/g, '\\|')} | \`${title}\` |`] : [];
+  });
+  if (rows.length) return ['| Criterion | Test |', '| --- | --- |', ...rows].join('\n');
+};
+
+const checksSection = ({ checks, config }: SectionContext) => {
+  const ran = checks.filter(v => !v.skipped);
+  const open = ran.filter(v => !v.pass && (!v.gating || !holds(v, { config })));
+  const names = open.map(v => `${v.check} (${config.checks[v.check]?.mode ?? 'log'})`);
+  return `Checks: ${ran.filter(v => v.pass).length} of ${ran.length} passed${names.length ? `, not passed: ${names.join(', ')}` : ''}.`;
+};
+
+const closesSection = ({ brief = '', issue }: SectionContext, body: string) => {
+  if (issue === undefined || new RegExp(`\\b(closes|part of)\\s+#${issue}\\b`, 'i').test(body)) return;
+  return `${/^\s*[-*]?\s*Follow-up:/m.test(brief) ? 'Part of' : 'Closes'} #${issue}`;
+};
+
+type SectionContext = {
+  checks: Verdict[];
+  config: Pipeline['config'];
+  brief?: string | undefined;
+  issue?: number | undefined;
+};
+
+/** A merge request body with the engine's `sections` after the bot's text, `closes` first. */
+export const withSections = (body: string, ctx: SectionContext, sections: MergeSection[]) => {
+  if (!sections.length) return body;
+  const closes = sections.includes('closes') ? closesSection(ctx, body) : undefined;
+  const parts = {
+    criteria: criteriaSection,
+    checks: checksSection,
+    gaps: gapsSection,
+  };
+  const rest = sections.flatMap(name => (name === 'closes' ? [] : [parts[name](ctx)]));
+  return [closes, body.trim(), ...rest].filter(Boolean).join('\n\n');
 };
 
 const baseRuns = new WeakMap<Pipeline['store'], Map<string, Promise<Judged>>>();

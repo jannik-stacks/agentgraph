@@ -130,6 +130,18 @@ merge:
   default-branch: human # or bots
 ```
 
+The body of a merge request is the bot's text, followed by what the engine adds. `merge-request`
+in `hub.yaml` lists those sections, in order, from `closes` (a `Closes #N` line, or `Part of #N`
+when the brief has `Follow-up:` lines, added only if missing), `criteria` (a table of each
+criterion, its test and a verdict from the `tests` and `criterion-met` checks), `checks` (how many
+checks passed, and the `warn` and `log` ones that did not) and `gaps` (the known gaps). The default
+is all four; `[]` leaves the bot's body as written.
+
+```yaml
+merge-request:
+  sections: [closes, gaps]
+```
+
 A script job that returns `merge` gets the open requests into its `into` as JSON in
 `BOTHUB_REQUESTS`, along with `BOTHUB_INTO` and `BOTHUB_DEFAULT_BRANCH`. `BOTHUB_STEPS` lists the
 sub-issues of the plans whose requests go into `into`, each with its `state`, its plan as `parent`,

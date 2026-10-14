@@ -21,7 +21,7 @@ import {
   runPlanned,
   secretsFor,
   verdictOf,
-  withGaps,
+  withSections,
   type JobResult,
   type Pipeline,
 } from '../src/pipeline.ts';
@@ -1953,10 +1953,57 @@ describe('over', () => {
       { check: 'tests', gating: false, pass: false, findings: 'asserts the input' },
       { check: 'lint', gating: true, pass: true },
     ];
-    expect(withGaps('Part of #7', verdicts, { config })).toBe(
+    expect(withSections('Part of #7', { checks: verdicts, config }, ['gaps'])).toBe(
       'Part of #7\n\n## Known gaps\n\n- style: criterion 3: Blocking: the crash window\n- tests: asserts the input'
     );
-    expect(withGaps('Part of #7', verdicts.slice(2), { config })).toBe('Part of #7');
+    expect(withSections('Part of #7', { checks: verdicts.slice(2), config }, ['gaps'])).toBe('Part of #7');
+  });
+
+  it('renders the engine sections after the bot text, closes first', () => {
+    const config = hubWith([
+      { name: 'tests', data: { type: 'script', run: 'true', mode: 'block' } },
+      {
+        name: 'criterion-met',
+        data: { type: 'script', run: 'true', mode: 'block' },
+      },
+      { name: 'style', data: { type: 'script', run: 'true', mode: 'warn' } },
+    ]);
+    const brief = [
+      '## Criteria',
+      "1. A | b reply is kept. Test: it('keeps the reply') in tests/a.test.ts",
+      "2. A restart resumes. Test: it('resumes') in tests/a.test.ts",
+    ].join('\n');
+    const checks: Verdict[] = [
+      {
+        check: 'tests',
+        gating: true,
+        pass: false,
+        findings: 'FAIL tests/a.test.ts > resumes',
+      },
+      { check: 'criterion-met', gating: true, pass: true },
+      { check: 'style', gating: true, pass: false, findings: 'long line' },
+      { check: 'size', gating: true, pass: true, skipped: true },
+    ];
+    const body = withSections('Fixes the resume.', { checks, config, brief, issue: 7 }, [
+      'closes',
+      'criteria',
+      'checks',
+      'gaps',
+    ]);
+    expect(body).toBe(
+      [
+        'Closes #7',
+        'Fixes the resume.',
+        '| Criterion | Test |\n| --- | --- |\n| A \\| b reply is kept. | `keeps the reply` |\n| A restart resumes. | `resumes` |',
+        'Checks: 1 of 3 passed, not passed: style (warn).',
+        '## Known gaps\n\n- style: long line',
+      ].join('\n\n')
+    );
+    expect(withSections('x', { checks, config, brief, issue: 7 }, [])).toBe('x');
+    expect(withSections('Closes #7 and more', { checks, config, issue: 7 }, ['closes'])).toBe('Closes #7 and more');
+    expect(withSections('x', { checks, config, brief: `${brief}\nFollow-up: y`, issue: 7 }, ['closes'])).toBe(
+      'Part of #7\n\nx'
+    );
   });
 
   it('tells a bot check its attempt from the second on', async () => {
@@ -1983,11 +2030,11 @@ describe('over', () => {
       pass: true,
       findings: 'Known gap: a 2 GB reply, src/a.ts:9\nnote: fine',
     };
-    expect(withGaps('Part of #7', [deferred], { config })).toBe(
+    expect(withSections('Part of #7', { checks: [deferred], config }, ['gaps'])).toBe(
       'Part of #7\n\n## Known gaps\n\n- review: a 2 GB reply, src/a.ts:9'
     );
     const held: Verdict = { check: 'review', gating: true, pass: false, findings: 'a Done-when input, src/a.ts:3' };
-    expect(withGaps('Part of #7', [held], { config })).toBe('Part of #7');
+    expect(withSections('Part of #7', { checks: [held], config }, ['gaps'])).toBe('Part of #7');
     expect(failingChecks([held])).toEqual([held]);
   });
 

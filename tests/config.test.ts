@@ -237,9 +237,20 @@ describe('compile', () => {
   it('reads hub.yaml and checks preload and tools grants', () => {
     const tooled = file('bots/t.md', 'harness: opencode\ntools: [read, issues_get]\nreturns: [reply]\nmax-turns: 5');
     const result = compile([{ path: 'hub.yaml', source: 'issues: local\n' }, tooled]);
-    expect(result.ok && result.config.hub).toEqual({ issues: 'local', merge: { 'default-branch': 'human' } });
+    expect(result.ok && result.config.hub).toEqual({
+      issues: 'local',
+      merge: { 'default-branch': 'human' },
+      'merge-request': { sections: ['closes', 'criteria', 'checks', 'gaps'] },
+    });
+    const sectioned = compile([{ path: 'hub.yaml', source: 'merge-request: { sections: [closes] }\n' }]);
+    expect(sectioned.ok && sectioned.config.hub['merge-request']).toEqual({ sections: ['closes'] });
+    expect(errorsOf([{ path: 'hub.yaml', source: 'merge-request: { sections: [intro] }\n' }])[0]).toMatch(/sections/);
     const empty = compile([]);
-    expect(empty.ok && empty.config.hub).toEqual({ issues: 'github', merge: { 'default-branch': 'human' } });
+    expect(empty.ok && empty.config.hub).toEqual({
+      issues: 'github',
+      merge: { 'default-branch': 'human' },
+      'merge-request': { sections: ['closes', 'criteria', 'checks', 'gaps'] },
+    });
     expect(errorsOf([{ path: 'hub.yaml', source: 'issues: jira\n' }])[0]).toMatch(/issues/);
     expect(
       errorsOf([

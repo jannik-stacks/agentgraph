@@ -11,7 +11,7 @@ import { summarizeOutcome } from '../summaries.ts';
 import { type JobResult, type Pipeline, issuesOf, pullsOf } from './context.ts';
 import type { Handoff } from './prompt.ts';
 import { stepsInto } from './attempt.ts';
-import { type Attempt, failingChecks, runChecks, withGaps } from './checks.ts';
+import { type Attempt, failingChecks, runChecks, withSections } from './checks.ts';
 import { openerOf } from './continue.ts';
 import { runPlanned } from './jobs.ts';
 
@@ -104,10 +104,16 @@ export const settle = async (
   const base: Outcome = { proposals, errors, accepted, rejected, results: [], applied, ...(checks && { checks }) };
   if (!applied) return p.store.saveOutcome(run.id, base);
   const folds = (proposal: Proposal) => a.fold !== undefined && proposal.kind === 'reply';
+  const mr = toApply.some(proposal => proposal.kind === 'merge-request') && checks;
+  const issue = mr && event.number !== undefined ? await issues?.get(event.number) : undefined;
+  const brief = issue?.comments.findLast(c => /^## Criteria\s*$/m.test(c.body))?.body;
+  const ctx = mr ? { checks: mr, config: p.config, brief, issue: event.number } : undefined;
   const writes = toApply
     .filter(proposal => proposal.kind !== 'close' && !folds(proposal))
     .map(proposal =>
-      proposal.kind === 'merge-request' && checks ? { ...proposal, body: withGaps(proposal.body, checks, p) } : proposal
+      proposal.kind === 'merge-request' && ctx
+        ? { ...proposal, body: withSections(proposal.body, ctx, p.config.hub['merge-request'].sections) }
+        : proposal
     );
   if (run.status === 'succeeded' && writes.some(proposal => proposal.kind === 'merge'))
     await p.store.update(run.id, { status: 'running' });
