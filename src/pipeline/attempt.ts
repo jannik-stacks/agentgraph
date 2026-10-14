@@ -29,7 +29,7 @@ import {
   itemSection,
   runChecks,
 } from './checks.ts';
-import { carried, onRequest, openerOf, sessionOf } from './continue.ts';
+import { carried, onRequest, openerOf, seeded, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
 
@@ -159,14 +159,14 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
 
 /**
  * Runs the job's bot, then its `until` checks. While a check that holds the change fails, its findings go back as a
- * new attempt in the same worktree, with the findings of failing `warn` checks alongside; once none fails, the attempt
- * settles with whatever the `warn` checks found. While it resolves a merge, conflict markers left in the conflicting
+ * new attempt in the same worktree but a fresh session (see `seeded`), with the findings of failing `warn` checks
+ * alongside; once none fails, the attempt settles with whatever the `warn` checks found. While it resolves a merge, conflict markers left in the conflicting
  * files count as a failing check. Attempts number on from `first`'s, and the loop stops past `until.max` follow-ups
  * in that count, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a fan-out adds its
  * section to the prompt. A reply with text but no readable proposals block first gets one format-only follow-up
  * attempt, in the same session when the harness can continue it, which `until.max` does not count. An agent that
  * died before doing anything runs once more (see `retried`). An attempt that uses all of the bot's `max-turns` goes on
- * once under the same attempt number; running out again defers the job. With a `recheck` reply, the first attempt
+ * once under the same attempt number and in its session; running out again defers the job. With a `recheck` reply, the first attempt
  * takes that reply instead of running the bot, so only the checks run again.
  */
 const attempts = (
@@ -315,9 +315,9 @@ const attempts = (
           reformatting = true;
           continue;
         }
-        const next = yield* Effect.promise(() => carried(bot.resume, run, p));
-        session = next.session;
-        prompt = followUp(task, [], [], tries + 1, max + 1, problems, next.summary);
+        const earlier = yield* Effect.promise(() => seeded(bot.resume, run, worktree.id, base, p));
+        session = undefined;
+        prompt = followUp(task, [], [], tries + 1, max + 1, problems, earlier);
         continue;
       }
       const left = succeeded && merging ? yield* Effect.promise(() => unresolved(cwd, worktree.conflicts)) : [];
@@ -409,12 +409,10 @@ const attempts = (
       }
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
-      const next =
-        recheck === undefined
-          ? yield* Effect.promise(() => carried(bot.resume, run, p))
-          : { session, summary: undefined };
-      session = next.session;
-      prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], next.summary, left);
+      const ran = recheck === undefined ? run : undefined;
+      const earlier = yield* Effect.promise(() => seeded(bot.resume, ran, worktree.id, base, p));
+      session = undefined;
+      prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], earlier, left);
       parent = run;
     }
   });

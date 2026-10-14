@@ -77,6 +77,27 @@ export const carried = async (resume: Resume | undefined, run: Run, p: Pipeline)
   return session ? { session } : { summary: await attemptSummary(run, p) };
 };
 
+const diffCap = 64 * 1024;
+
+/**
+ * What a follow-up attempt after `run` starts its fresh session with besides its task and findings: unless the bot
+ * resumes nothing, what `run` did and the change in worktree `id` since `base`, as its changed files when the diff is
+ * too long.
+ */
+export const seeded = async (
+  resume: Resume | undefined,
+  run: Run | undefined,
+  id: string,
+  base: string,
+  p: Pipeline
+) => {
+  if (!resume || resume === 'none') return;
+  const summary = run && (await attemptSummary(run, p));
+  const { files, diff } = await p.workspaces.changes(id, base).catch(() => ({ files: [], diff: '' }));
+  const change = diff.length > diffCap ? files.map(file => `- ${file}`).join('\n') : diff.trim() && fenced(diff);
+  return [summary, change && `Your change so far:\n\n${change}`].filter(Boolean).join('\n\n') || undefined;
+};
+
 const human = (comment: Comment, since: string) => !comment.author.endsWith('[bot]') && comment.ts > since;
 
 /**

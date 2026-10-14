@@ -85,8 +85,8 @@ reviewed, and only notes reach every bot.
 
 A run summary is one line per step that matters, written after every run: messages, failed
 calls, what changed in each file, the last run of each command, and at the end how the run went,
-what it proposed, what landed and which checks failed and why. A retry gets the failing check findings, and with `resume: summary` a summary of the
-attempt before it. Harnesses like opencode keep their own memory files; bothub starts every run
+what it proposed, what landed and which checks failed and why. A retry gets the failing check findings, and with `resume: summary` or `session` a summary of the
+attempt before it and its change so far. Harnesses like opencode keep their own memory files; bothub starts every run
 from a clean home, apart from the session a `resume: session` bot continues, and a check can refuse
 a change that writes them into the repository.
 

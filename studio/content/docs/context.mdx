@@ -109,9 +109,11 @@ jobs:
 
 `resume` says what a new attempt or run of a bot starts with besides its task. `none`, the default,
 sends a retry only the failing check findings. `summary` adds the last 40 summary lines of the attempt
-before, ending with how it went, and to a job that continues its work on an issue, what its last run did. `session`
-continues the harness's own conversation, also when a run resumes after its question was answered: bothub copies the session out of the last run's home into
-the new one, and opencode picks it up. A run with no session to hand over starts as with `summary`.
+before, ending with how it went, and its change so far, and to a job that continues its work on an issue, what its last run did. `session`
+continues the harness's own conversation when a run continues or resumes after its question was answered, and when an
+attempt ran out of turns: bothub copies the session out of the last run's home into
+the new one, and opencode picks it up. A retry after failing checks or unusable proposals starts a fresh session
+seeded as with `summary`, so it does not carry the whole conversation again. A run with no session to hand over starts as with `summary`.
 pi cannot continue a session yet, so a pi bot with `resume: session` does not load.
 
 ```yaml

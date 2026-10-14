@@ -585,6 +585,28 @@ describe('until', () => {
     ]);
   });
 
+  it('starts a follow-up of a resume: session bot fresh, with what the attempt did and its change', async () => {
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, resume: 'session' };
+    const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
+    const { seen, adapters } = fake((_spec, call) => ({
+      message: replyAndAsk,
+      work:
+        call === 1
+          ? `fs.writeFileSync('b.ts', 'half'); ${keep}`
+          : "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')",
+    }));
+    const kept = { ...adapters, opencode: { ...adapters.opencode, sessions: '.sessions' } };
+    const p = await pipeline({ config, issues: trackedIssues(), adapters: kept });
+    await Effect.runPromise(runPlanned(planned('loop'), p));
+
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.session).toBeUndefined();
+    expect(seen[1]!.prompt).toContain('## Your earlier attempt\n\n- text: working');
+    expect(seen[1]!.prompt).toMatch(/Your change so far:\n\n```text\ndiff --git a\/b\.ts b\/b\.ts[\s\S]*\n\+half\n/);
+    expect(seen[1]!.prompt).toContain('## Check findings\n\nAttempt 2 of 2.');
+  });
+
   it('withdraws a run whose issue is closed while it runs, and applies nothing', async () => {
     const issues = trackedIssues();
     const sleep = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)';
@@ -790,6 +812,23 @@ describe('parking', { timeout: 20_000 }, () => {
       [1, 'turns', 'used all 7 turns'],
       [1, undefined, undefined],
     ]);
+  });
+
+  it('continues the session of a resume: session bot that ran out of turns', async () => {
+    const config = configFor();
+    config.bots.bot = { ...config.bots.bot!, resume: 'session' };
+    const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
+    const { seen, adapters } = fakeHarness((_spec, call) => ({
+      events: outOfTurns(call === 1 ? 7 : 6),
+      work: `${writeA}; ${keep}`,
+    }));
+    const kept = { ...adapters, opencode: { ...adapters.opencode, sessions: '.sessions' } };
+    const p = await pipeline({ config, issues: trackedIssues(), adapters: kept });
+    await Effect.runPromise(runPlanned(planned('loop'), p));
+
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.session?.id).toBe('s1');
+    expect(seen[1]!.prompt).toContain('## Out of turns');
   });
 
   it('defers a bot out of turns twice, says so on the issue and charges no attempt', async () => {
