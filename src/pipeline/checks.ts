@@ -364,13 +364,32 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
 
 const findingsCap = 1500;
 
-/** The findings of failing verdicts for a human, each check's cut at `findingsCap` characters. */
+/** Text within `cap` characters that keeps its first and last lines, with a marker for the lines between. */
+const squeeze = (text: string, cap: number) => {
+  if (text.length <= cap) return text;
+  const lines = text.split('\n');
+  const take = (from: string[], max: number, budget: number) => {
+    const kept: string[] = [];
+    let size = 0;
+    for (const line of from) {
+      size += line.length + 1;
+      if (kept.length >= max || size > budget) break;
+      kept.push(line);
+    }
+    return kept;
+  };
+  const head = take(lines, 20, cap / 3);
+  const tail = take(lines.slice(head.length).reverse(), 40, (cap * 2) / 3).reverse();
+  if (!head.length && !tail.length) return `${text.slice(0, cap)}\n…`;
+  return [...head, `… ${lines.length - head.length - tail.length} lines …`, ...tail].join('\n');
+};
+
+/** The findings of failing verdicts for a human, each check's squeezed to `findingsCap` characters. */
 export const findingsFor = (failing: Verdict[]) =>
   failing
-    .map(({ check, findings = 'failed without output' }) => {
-      const cut = findings.length > findingsCap ? `${findings.slice(0, findingsCap)}\n…` : findings;
-      return `### ${check}\n\n${fenced(cut)}`;
-    })
+    .map(
+      ({ check, findings = 'failed without output' }) => `### ${check}\n\n${fenced(squeeze(findings, findingsCap))}`
+    )
     .join('\n\n');
 
 /** What a human reads when checks could not run: why, until when, and what to comment, without run ids or keys. */

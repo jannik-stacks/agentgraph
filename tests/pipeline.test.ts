@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compile, type Config } from '../src/config.ts';
 import type { GitHub } from '../src/github-app.ts';
 import { localIssues } from '../src/issues-local.ts';
+import { findingsFor } from '../src/pipeline/checks.ts';
 import type { ApplyResult } from '../src/apply.ts';
 import type { Proposal } from '../src/outputs.ts';
 import {
@@ -2341,5 +2342,16 @@ describe('over', () => {
 
     await Effect.runPromise(runPlanned(planned('loop'), p));
     expect((await issues.get(7))?.comments).toHaveLength(1);
+  });
+});
+
+describe('findingsFor', () => {
+  it('keeps the head and the tail of long findings with a marker, so the cause survives', () => {
+    const findings = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join('\n');
+    const shown = findingsFor([{ check: 'lint', gating: true, pass: false, findings }]);
+    expect(shown).toContain('line 1\n');
+    expect(shown).toContain('line 200\n');
+    expect(shown).toMatch(/\n… \d+ lines …\n/);
+    expect(shown.length).toBeLessThan(1700);
   });
 });
