@@ -1986,6 +1986,54 @@ describe('over', () => {
     ]);
   });
 
+  it('refuses a change over a bot check item limit before any bot check runs, and tells the bot', async () => {
+    const { seen, result } = await run(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+        {
+          name: 'hunks',
+          data: { type: 'bot', bot: 'judge', over: { 'each-hunk': { max: 2 } }, mode: 'block' },
+          body: 'Fine?',
+        },
+      ]),
+      spec => (spec.system.startsWith('You judge.') ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) } : { work })
+    );
+    const refusal = 'the change has 3 hunks, more than the 2 "each-hunk" takes; make a smaller change or split it';
+    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toEqual([]);
+    expect(untimed(result.outcome?.checks)).toEqual([
+      {
+        check: 'small',
+        gating: true,
+        pass: false,
+        skipped: true,
+        findings: 'not run: a check that holds the change failed',
+      },
+      { check: 'hunks', gating: true, pass: false, findings: refusal },
+    ]);
+    const followUp = seen.filter(spec => spec.system.startsWith('You work.'))[1]?.prompt;
+    expect(followUp).toContain('### hunks');
+    expect(followUp).toContain(refusal);
+  });
+
+  it('judges a change within every item limit as before', async () => {
+    const { seen, result } = await run(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+        {
+          name: 'hunks',
+          data: { type: 'bot', bot: 'judge', over: { 'each-hunk': { max: 3 } }, mode: 'block' },
+          body: 'Fine?',
+        },
+      ]),
+      spec => (spec.system.startsWith('You judge.') ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) } : { work })
+    );
+    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(4);
+    expect(result.outcome?.checks?.map(({ check, pass }) => ({ check, pass }))).toEqual([
+      { check: 'small', pass: true },
+      { check: 'hunks', pass: true },
+    ]);
+  });
+
   it('judges items at once unless its concurrency says otherwise', async () => {
     const order = async (data: Record<string, unknown>) => {
       const log = logFile();

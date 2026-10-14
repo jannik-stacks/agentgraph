@@ -275,13 +275,39 @@ const scriptEnv = (a: Attempt, p: Pipeline) => ({
   BOTHUB_BASE: a.base,
 });
 
+/** Where a check reads from, or `undefined` when its `paths` match no changed file. */
+const scopeOf = async (check: Defined<Check>, a: Attempt, p: Pipeline): Promise<Scope | undefined> => {
+  const { paths } = check;
+  const changed = paths ? (await p.workspaces.changes(a.worktree, a.base)).files : [];
+  const files = changed.filter(file => paths?.some(glob => matchGlob(glob, file)));
+  if (paths && !files.length) return;
+  return {
+    worktree: a.worktree,
+    cwd: a.cwd,
+    since: a.base,
+    files,
+    timeout: a.job['timeout-minutes'] ?? defaultMinutes,
+    env: scriptEnv(a, p),
+  };
+};
+
+type Prepared = { scope: Scope; items: Item[]; error?: string } | undefined;
+
+/** A check's scope and the items it judges, none for a script that does not fan out. */
+const prepare = async (check: Defined<Check>, a: Attempt, p: Pipeline): Promise<Prepared> => {
+  const scope = await scopeOf(check, a, p);
+  if (!scope) return;
+  if (check.type === 'script' && !fanOut(check.over)) return { scope, items: [] };
+  return { scope, ...(await gather(check.over, scope, p)) };
+};
+
 /**
- * Runs one check over an attempt's changes, read-only. A check whose `paths` match no changed file, or that has
- * nothing to look at, is skipped. A script that does not fan out runs once and reads the worktree itself; every other
- * check judges the items `over` names, `concurrency` at a time, and passes only when every item passes, with the
- * failing items' findings first. A check with any `blocked` item is blocked.
+ * Runs one check over an attempt's changes, read-only, from what `prepare` found. A check whose `paths` match no
+ * changed file, or that has nothing to look at, is skipped. A script that does not fan out runs once and reads the
+ * worktree itself; every other check judges the items `over` names, `concurrency` at a time, and passes only when
+ * every item passes, with the failing items' findings first. A check with any `blocked` item is blocked.
  */
-const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
+const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline, prepared?: Promise<Prepared>) =>
   Effect.gen(function* () {
     const done = (result: Pick<Verdict, 'pass' | 'findings' | 'failed' | 'runs' | 'skipped' | 'blocked'>): Verdict => ({
       check: check.name,
@@ -289,20 +315,11 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       ...result,
     });
     const skipped = (findings: string) => done({ pass: false, skipped: true, findings });
-    const { paths, over } = check;
-    const changed = paths ? (yield* Effect.promise(() => p.workspaces.changes(a.worktree, a.base))).files : [];
-    const files = changed.filter(file => paths?.some(glob => matchGlob(glob, file)));
-    if (paths && !files.length) return skipped('no changed file matches its paths');
-    const scope: Scope = {
-      worktree: a.worktree,
-      cwd: a.cwd,
-      since: a.base,
-      files,
-      timeout: a.job['timeout-minutes'] ?? defaultMinutes,
-      env: scriptEnv(a, p),
-    };
+    const ready = yield* Effect.promise(() => prepared ?? prepare(check, a, p));
+    if (!ready) return skipped('no changed file matches its paths');
+    const { scope, items, error } = ready;
 
-    if (check.type === 'script' && !fanOut(over)) {
+    if (check.type === 'script' && !fanOut(check.over)) {
       const access = { hub: p.hub, readonly: true };
       const result = yield* Effect.promise(() =>
         runScript(check.run, a.cwd, scope.timeout, scope.env, launcher(p), access)
@@ -310,7 +327,6 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       return done(scriptVerdict(result));
     }
 
-    const { items, error } = yield* Effect.promise(() => gather(over, scope, p));
     if (error) return done({ pass: false, findings: error });
     if (!items.length) return skipped('nothing to look at');
     const judged = yield* Effect.forEach(items, judgeWith(check, a, scope, p), {
@@ -338,7 +354,7 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
   });
 
 /** Runs one check (see `judgeCheck`), timed, telling `onCheck` when it starts and ends, or is stopped. */
-const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
+const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline, prepared?: Promise<Prepared>) =>
   Effect.gen(function* () {
     const start = Date.now();
     p.onCheck?.(a.parent, check.name);
@@ -349,7 +365,7 @@ const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       skipped: true,
       findings: 'stopped',
     };
-    const verdict = yield* Effect.onInterrupt(judgeCheck(check, a, p), () =>
+    const verdict = yield* Effect.onInterrupt(judgeCheck(check, a, p, prepared), () =>
       Effect.sync(() => p.onCheck?.(a.parent, check.name, stopped))
     );
     const end = Date.now();
@@ -572,6 +588,9 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
   }
 };
 
+/** Whether `over` refuses a change with more items than its `max`. */
+const capped = (over: Over) => !!hunkOptions(over) || (typeof over === 'object' && 'each' in over);
+
 /** How long the gating script checks run before the later stages start beside the ones still running. */
 const headStart = 30_000;
 
@@ -580,7 +599,8 @@ const headStart = 30_000;
  * the gating bot and decide checks, so the cheap gates spare the costly ones. Checks in `warn` and `log` mode never
  * hold a change, so they run last and only when nothing that holds the change failed: they judge only an attempt that
  * settles. A check left out that way is skipped. A failing script check that is red on base (see `redOnBase`) does not
- * hold the change.
+ * hold the change. A later check whose `over` takes at most `max` items counts them beside the script checks, and one
+ * that refuses the change for having more fails right away, holding the change before any costly check runs.
  *
  * The later stages do not wait for slow script checks: once every script check has passed or run for `headStart`,
  * they start beside the ones still running. Should a script check then hold the change, they are
@@ -601,7 +621,7 @@ export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
         ({ name, i, check }) =>
           Effect.map(
             check
-              ? runCheck(check, a, p)
+              ? runCheck(check, a, p, prepared.get(i))
               : Effect.succeed<Verdict>({ check: name, gating: true, pass: false, findings: 'unknown check' }),
             verdict => (verdicts[i] = verdict)
           ),
@@ -612,19 +632,38 @@ export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
         verdicts[i] ??= { check: name, gating: check?.mode !== 'log', pass: false, skipped: true, findings };
       });
     const held = (ran: Verdict[]) => ran.some(v => v.gating && !v.skipped && !v.pass && holds(v, p));
-    const rest = Effect.gen(function* () {
-      if (held(yield* run(costly))) skip(logged, 'not run: a check that holds the change failed');
-      else yield* run(logged);
-    });
+    const prepared = new Map(
+      [...costly, ...logged].flatMap(({ i, check }) =>
+        check && capped(check.over) ? [[i, prepare(check, a, p)] as const] : []
+      )
+    );
     const scripting = yield* Effect.fork(run(scripts));
+    const refused = yield* Effect.promise(async () => {
+      const errors = await Promise.all(
+        [...prepared.values()].map(ready =>
+          ready.then(
+            r => r?.error,
+            () => undefined
+          )
+        )
+      );
+      return [...prepared.keys()].flatMap((i, k) => (errors[k] ? [listed[i]!] : []));
+    });
+    const refusals = yield* run(refused);
+    const left = (stage: typeof listed) => stage.filter(entry => !refused.includes(entry));
+    const rest = Effect.gen(function* () {
+      if (held(yield* run(left(costly)))) skip(logged, 'not run: a check that holds the change failed');
+      else yield* run(left(logged));
+    });
     yield* Effect.ignore(Effect.timeout(Fiber.await(scripting), headStart));
-    const ahead = held(scripts.flatMap(({ i }) => verdicts[i] ?? [])) ? undefined : yield* Effect.fork(rest);
+    const early = [...refusals, ...scripts.flatMap(({ i }) => verdicts[i] ?? [])];
+    const ahead = held(early) ? undefined : yield* Effect.fork(rest);
     const ran = yield* Fiber.join(scripting);
     const scripted = yield* Effect.promise(() => redOnBase(ran, a, p));
     scripts.forEach(({ i }, k) => (verdicts[i] = scripted[k]!));
-    if (held(scripted)) {
+    if (held(scripted) || held(refusals)) {
       if (ahead) yield* Fiber.interrupt(ahead);
-      skip(costly, 'not run: a script check failed');
+      skip(costly, held(scripted) ? 'not run: a script check failed' : 'not run: a check that holds the change failed');
       skip(logged, 'not run: a check that holds the change failed');
     } else yield* ahead ? Fiber.join(ahead) : rest;
     return verdicts;
