@@ -9,7 +9,7 @@ import { fingerprint, srcDir as ownSrc } from './fingerprint.ts';
 import { hubWriteRoutes } from './hub-write.ts';
 import { liveStream, watchRuns } from './live.ts';
 import { readHub } from './load.ts';
-import { fail, localJson } from './local-json.ts';
+import { fail, isLocal, localJson } from './local-json.ts';
 import { Missing } from './pulls.ts';
 import { Invalid, comment } from './review.ts';
 import { alive, type Run, type RunStatus, type Store } from './store.ts';
@@ -129,7 +129,8 @@ export const readFiles = async (roots: Root[]) => {
  * `GET /api/pulls` lists the merge requests in the data directory with their files, `GET /api/pulls/:n/diff` answers
  * one request's diff and `GET /api/runs/:id/diff` what a run committed (see `diffs.ts`); `?whitespace=hide` leaves out
  * changes made only of whitespace. `POST /api/comments` writes a `Review` to the local backend (see `comment`), from
- * localhost only and as JSON.
+ * localhost only and as JSON. `POST /api/runs/:id/stop` stops a run this process is running, from localhost only; the run
+ * is cancelled as stopped by a human and its work parked.
  * `GET /api/build` compares the fingerprint of `srcDir` when the handler was made with the one on disk now, so a
  * client can tell the server runs older code than its source.
  */
@@ -142,6 +143,7 @@ export const api = ({
   prices = async () => ({}),
   watch = {},
   hubErrors = () => [],
+  stop = () => false,
 }: {
   hubDir: string;
   store: Store;
@@ -151,6 +153,7 @@ export const api = ({
   prices?: () => Promise<Record<string, Price & { model: string }>>;
   watch?: Parameters<typeof watchRuns>[1];
   hubErrors?: () => ConfigError[];
+  stop?: (id: string) => boolean;
 }): Handler => {
   const running = fingerprint(srcDir);
   const watcher = watchRuns(store.dir, watch);
@@ -324,11 +327,20 @@ export const api = ({
     }
   };
 
+  const stopped = async (req: Request, id: string) => {
+    if (req.method !== 'POST') return fail('method not allowed', 405);
+    if (!isLocal(req)) return fail('writes are only served on localhost', 403);
+    if (!(await store.read(id))) return notFound();
+    return stop(id) ? Response.json({ stopped: true }, { status: 202 }) : fail('the run is not running here', 409);
+  };
+
   return async req => {
     const url = new URL(req.url);
     const edited = await edit(req);
     if (edited) return edited;
     if (url.pathname === '/api/comments') return commented(req);
+    const stopping = /^\/api\/runs\/([^/]+)\/stop$/.exec(url.pathname);
+    if (stopping) return stopped(req, decodeURIComponent(stopping[1] ?? ''));
     if (req.method !== 'GET') return fail('method not allowed', 405);
     for (const [pattern, route] of routes) {
       const match = pattern.exec(url.pathname);

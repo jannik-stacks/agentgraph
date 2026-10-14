@@ -395,6 +395,9 @@ export const stuckWatch = () => {
 class Stalled extends Error {}
 class Withdrawn extends Error {}
 
+/** The reason `until` resolves with when a human stops the run. */
+export const stoppedByHuman = 'stopped by a human';
+
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
  * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
@@ -540,6 +543,8 @@ export const runJob = (options: {
               error: `stalled: no agent event for ${stallMinutes} minutes`,
             });
           }
+          if (e instanceof Withdrawn && e.message === stoppedByHuman)
+            return finish({ status: 'cancelled', stopped: 'human', ...usage(), error: stoppedByHuman });
           if (e instanceof Withdrawn)
             return finish({ status: 'cancelled', stopped: 'withdrawn', ...usage(), error: `withdrawn: ${e.message}` });
           if (sandboxFailed(e))

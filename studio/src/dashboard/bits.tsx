@@ -300,6 +300,19 @@ export const Running = ({ run, className }: { run: Pick<RunRow, 'status' | 'star
   </Tooltip>
 );
 
+/** How long a running run has said nothing, from its last event; amber past two minutes. */
+export const Silent = ({ run }: { run: Pick<RunRow, 'status' | 'startedAt' | 'activity'> }) => {
+  const now = useSyncExternalStore(subscribeClock, second, second);
+  const since = run.activity?.at ?? run.startedAt;
+  const minutes = since ? Math.floor((now * 1000 - new Date(since).getTime()) / 60_000) : 0;
+  if (run.status !== 'running' || minutes < 1) return null;
+  return (
+    <span className={cx('shrink-0 text-[11px]', minutes >= 2 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500')}>
+      silent for {minutes} min
+    </span>
+  );
+};
+
 /** What a run did last: its last line of text or the tool it called, and how long ago anything happened. */
 export const LastActivity = ({ activity, className }: { activity: Activity | undefined; className?: string }) => {
   if (!activity) return <span className={cx('text-zinc-500', className)}>waiting for the first event</span>;

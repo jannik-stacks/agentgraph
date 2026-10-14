@@ -22,13 +22,14 @@ export type RunStatus =
 /**
  * Why a run stopped for a reason outside its bot's work: out of runs for the day, out of time, a sandbox that never
  * started, a provider that refused it, caught in a loop, dead twice before its bot did anything (`infra`), or out of
- * turns twice (`turns`).
+ * turns twice (`turns`), or stopped by a human (`human`).
  */
 export type Stopped =
   | 'budget'
   | 'timeout'
   | 'stalled'
   | 'withdrawn'
+  | 'human'
   | 'sandbox'
   | 'provider'
   | 'stuck'

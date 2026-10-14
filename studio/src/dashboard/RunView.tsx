@@ -21,8 +21,20 @@ import { estimate, type Price, tokensOf } from '../../../src/usage.ts';
 import { eventIdAtom, infoAtom, navigateAtom, runIdAtom, runPageAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
 import { Link } from '../Providers.tsx';
-import { cx, Disclosure, IconButton, Tooltip } from '../ui.tsx';
-import { Ago, Amount, Cost, Elapsed, formatTokens, Io, paneHeader, Running, StatusIcon, useEnter } from './bits.tsx';
+import { Button, cx, Disclosure, IconButton, Tooltip } from '../ui.tsx';
+import {
+  Ago,
+  Amount,
+  Cost,
+  Elapsed,
+  formatTokens,
+  Io,
+  paneHeader,
+  Running,
+  Silent,
+  StatusIcon,
+  useEnter,
+} from './bits.tsx';
 import { fetchEvents, fetchOutcome, live, pricesAtom, recordKey } from './live.ts';
 import {
   attemptsOf,
@@ -947,6 +959,17 @@ export const RunView = ({
         {!running && <StatusIcon status={run.status} level="job" />}
         <Crumbs execution={execution} />
         {running && <Running run={run} />}
+        {running && <Silent run={run} />}
+        {run.status === 'running' && (
+          <Tooltip tip="Stop the run; its work is parked and the next /bothub comment continues it">
+            <Button
+              variant="small"
+              onClick={() => void fetch(`/api/runs/${encodeURIComponent(run.id)}/stop`, { method: 'POST' })}
+            >
+              Stop
+            </Button>
+          </Tooltip>
+        )}
         <span className="flex shrink-0 items-center gap-1">
           <IconButton tip="Expand every step" onClick={() => setAll('all')}>
             <Icon name="expand" className="size-3" />

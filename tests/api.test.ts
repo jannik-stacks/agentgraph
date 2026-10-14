@@ -229,3 +229,35 @@ describe('serve', () => {
     }
   });
 });
+
+describe('POST /api/runs/:id/stop', () => {
+  const stoppable = async (running: boolean) => {
+    const store = openStore(mkdtempSync(join(tmpdir(), 'bothub-api-')));
+    const stopped: string[] = [];
+    const handle = api({
+      hubDir,
+      store,
+      stop: id => {
+        if (running) stopped.push(id);
+        return running;
+      },
+    });
+    const run = await store.create(fields);
+    const post = (path: string, host = '127.0.0.1') => handle(new Request(`http://${host}${path}`, { method: 'POST' }));
+    return { run, stopped, post, handle };
+  };
+
+  it('tells a running run to stop', async () => {
+    const { run, stopped, post } = await stoppable(true);
+    expect((await post(`/api/runs/${run.id}/stop`)).status).toBe(202);
+    expect(stopped).toEqual([run.id]);
+  });
+
+  it('refuses a run that is not running here, an unknown run, a remote host and a GET', async () => {
+    const { run, post, handle } = await stoppable(false);
+    expect((await post(`/api/runs/${run.id}/stop`)).status).toBe(409);
+    expect((await post('/api/runs/nope/stop')).status).toBe(404);
+    expect((await post(`/api/runs/${run.id}/stop`, 'studio')).status).toBe(403);
+    expect((await handle(new Request(`http://127.0.0.1/api/runs/${run.id}/stop`))).status).toBe(405);
+  });
+});

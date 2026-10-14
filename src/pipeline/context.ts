@@ -13,7 +13,7 @@ import type { McpTool } from '../mcp.ts';
 import type { loadPrices } from '../prices.ts';
 import { githubPulls, type Pulls } from '../pulls.ts';
 import { hubBox } from '../hub-sandbox.ts';
-import { runJob, sandboxed, sandboxedWith, type Launcher, type limiter } from '../runner.ts';
+import { runJob, sandboxed, stoppedByHuman, sandboxedWith, type Launcher, type limiter } from '../runner.ts';
 import type { Bot, Closure, Harness } from '../schema.ts';
 import { Summarizer, summarizeRun } from '../summaries.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from '../store.ts';
@@ -55,6 +55,8 @@ export type Pipeline = {
   stallMinutes?: number;
   /** List prices, for runs whose harness reports no cost. */
   prices?: ReturnType<typeof loadPrices>;
+  /** Stops the running agent of a run id as a human's stop; each agent registers while it runs. */
+  stops?: Map<string, () => void>;
   /** How often a running agent's issue is checked for being closed or unlabeled, 30 seconds unless set. */
   pollMs?: number;
 };
@@ -154,6 +156,17 @@ const abandonment = (p: Pipeline) => {
   );
 };
 
+/** The abandonment of the event's work, or a human's stop of run `id`, whichever resolves first. */
+const stoppable = (id: string, p: Pipeline) => {
+  const abandoned = abandonment(p);
+  const { stops } = p;
+  if (!stops) return abandoned;
+  const human = Effect.async<string>(resume => void stops.set(id, () => resume(Effect.succeed(stoppedByHuman)))).pipe(
+    Effect.ensuring(Effect.sync(() => void stops.delete(id)))
+  );
+  return abandoned ? Effect.race(abandoned, human) : human;
+};
+
 /**
  * Runs one agent session through the limiter, in the check pool for a check run, and resolves to the finished run and its final message, with the
  * worktree read-only when `readonly`. A bot out of runs for the day is skipped instead; the model the harness reports
@@ -180,7 +193,7 @@ export const agent = (
     let result: string | undefined;
     let lastText = '';
     let model: string | undefined;
-    const until = abandonment(p);
+    const until = stoppable(run.id, p);
     const finished = yield* p.limit(
       runJob({
         adapter: (p.adapters ?? harnesses)[bot.harness],

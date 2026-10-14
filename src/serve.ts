@@ -95,7 +95,7 @@ export type Backend = Pick<Pipeline, 'gh' | 'issues' | 'pulls'>;
  * start and end and each check.
  */
 export type Hub = Pick<Pipeline, 'store' | 'workspaces' | 'limit' | 'env'> &
-  Partial<Pick<Pipeline, 'adapters' | 'launch' | 'onEvent' | 'onCheck' | 'prices'>> & {
+  Partial<Pick<Pipeline, 'adapters' | 'launch' | 'onEvent' | 'onCheck' | 'prices' | 'stops'>> & {
     dir: string;
     data: string;
     config: () => Promise<Config>;
@@ -119,6 +119,7 @@ export const pipelineFor = (hub: Hub, config: Config, event: BotEvent): Pipeline
   ...(hub.adapters && { adapters: hub.adapters }),
   ...(hub.launch && { launch: hub.launch }),
   ...(hub.prices && { prices: hub.prices }),
+  ...(hub.stops && { stops: hub.stops }),
   onEvent:
     hub.onEvent ??
     ((run, { event: e }) => {
@@ -286,6 +287,7 @@ export const servedHub = async (
     store: openStore(root),
     workspaces: spaces(root),
     limit: await Effect.runPromise(limiter(concurrency)),
+    stops: new Map(),
     env,
     config: compiled.config,
     hubErrors: compiled.errors,
@@ -356,7 +358,16 @@ export const serveHub = async (
     priming = false;
   }
   const server = await serve(
-    api({ hubDir: dir, store: hub.store, ...(hub.hubErrors && { hubErrors: hub.hubErrors }) }),
+    api({
+      hubDir: dir,
+      store: hub.store,
+      stop: id => {
+        const stop = hub.stops?.get(id);
+        stop?.();
+        return stop !== undefined;
+      },
+      ...(hub.hubErrors && { hubErrors: hub.hubErrors }),
+    }),
     options.port ?? 5181
   );
   const address = server.address();

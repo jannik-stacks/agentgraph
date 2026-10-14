@@ -326,7 +326,7 @@ const resumption = async ({ run, outcome }: Unfinished, planned: PlannedJob, p: 
       : `Your earlier run ${run.id} stopped before finishing.`,
     questions.length
       ? `It asked:\n\n${questions.map(fenced).join('\n\n')}`
-      : run.reason && `It stopped because ${run.reason}.`,
+      : run.reason && `Why it stopped: ${run.reason}.`,
     failing && `Its checks last found:\n\n${failing}`,
     said.length ? `The human answered:\n\n${said.map(fenced).join('\n\n')}` : 'No answer was found; read the issue.',
   ]
@@ -376,8 +376,10 @@ const picked = async (
   return { ...worktree, base, resume: sections, ...(recheck && { recheck }) };
 };
 
+const unfinishedStatus: Run['status'][] = ['failed', 'cancelled', 'timed-out', 'interrupted'];
+
 /**
- * Parks the work of a job that stopped unfinished, blocked or deferred, beside its branch (see `parkedBranch`), so the
+ * Parks the work of a job that stopped unfinished (failed, cancelled, timed out, blocked or deferred), beside its branch (see `parkedBranch`), so the
  * branch and its merge request only get work that settled, and the next run of the job on the issue resumes from it.
  * Records the parked branch on the run; work the job may not push stays unparked, with the reason.
  */
@@ -389,8 +391,9 @@ const park = async (
   returns: Return[],
   p: Pipeline
 ) => {
-  const { closure } = result.run;
-  if ((closure !== 'blocked' && closure !== 'deferred') || worktree.merging) return result;
+  const { closure, status } = result.run;
+  const unsettled = closure === 'blocked' || closure === 'deferred' || unfinishedStatus.includes(status);
+  if (!unsettled || worktree.merging) return result;
   const { branch } = target;
   if (!branch || !returnKinds(returns).includes('push')) return result;
   try {

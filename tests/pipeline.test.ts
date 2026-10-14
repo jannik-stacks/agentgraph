@@ -877,6 +877,52 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
   });
 
+  const sleep = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)';
+  const hang = `${writeA}; ${sleep}`;
+
+  it('stops a run on request, parks its work, tells the issue and resumes it knowing a human stopped it', async () => {
+    const origin = sourceRepo();
+    const issues = trackedIssues();
+    const stops = new Map<string, () => void>();
+    const flag = join(temp('flag'), 'written');
+    const written = `${writeA}; fs.writeFileSync(${JSON.stringify(flag)}, '')`;
+    const { seen, adapters } = fake(spec =>
+      spec.prompt.includes('## Resuming')
+        ? { message: pushB, work: continueB }
+        : { message: asks, work: `${written}; ${sleep}` }
+    );
+    const p = await pipeline({ config: configFor(), issues, adapters, stops }, origin);
+    const running = Effect.runPromise(runPlanned(planned('parking'), p));
+    await vi.waitFor(() => expect(existsSync(flag)).toBe(true));
+    stops.values().next().value!();
+    const result = await running;
+
+    expect(result.run).toMatchObject({
+      status: 'cancelled',
+      stopped: 'human',
+      closure: 'deferred',
+      reason: 'stopped by a human',
+      parked: 'bothub/7-parked',
+    });
+    expect(stops.size).toBe(0);
+    expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
+    expect((await issues.get(7))!.comments[0]!.body).toContain('was deferred: stopped by a human');
+
+    await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
+    expect(seen[1]!.prompt).toContain('Why it stopped: stopped by a human.');
+    expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
+  });
+
+  it('parks the work of a run stopped as stalled', async () => {
+    const origin = sourceRepo();
+    const { adapters } = fake({ message: asks, work: hang });
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, stallMinutes: 0.02 }, origin);
+    const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+
+    expect(result.run).toMatchObject({ status: 'failed', stopped: 'stalled', parked: 'bothub/7-parked' });
+    expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
+  });
+
   it('folds the parked commit into the commit that lands on the branch', async () => {
     const { issues, origin, p } = await blockedRun();
     const [asked] = await issues.list({ label: 'unsure' });
