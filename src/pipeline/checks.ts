@@ -198,7 +198,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
   const attempt = a.parent.attempt ?? 1;
   const raisedBefore = async () => {
     const outcomes = await Promise.all((await ofJob(false)).map(run => p.store.outcome(run.id)));
-    const failed = outcomes.flatMap(o => o?.checks?.filter(v => v.check === check.name && !v.pass) ?? []);
+    const failed = outcomes.flatMap(o => o?.checks?.filter(v => v.check === check.name && !v.pass && !v.skipped) ?? []);
     return failed.length ? `\n\nEarlier attempts failed this check with:\n\n${findingsFor(failed.slice(0, 3))}` : '';
   };
   return (item: Item): Effect.Effect<Judged> =>
@@ -584,7 +584,7 @@ const headStart = 30_000;
  *
  * The later stages do not wait for slow script checks: once every script check has passed or run for `headStart`,
  * they start beside the ones still running. Should a script check then hold the change, they are
- * stopped and skipped, so the verdicts are those of running the stages one after the other. Verdicts keep the order
+ * stopped and those not finished are skipped; a finished verdict is kept. Verdicts keep the order
  * of `names`.
  */
 export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
@@ -609,7 +609,7 @@ export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
       );
     const skip = (stage: typeof listed, findings: string) =>
       stage.forEach(({ name, i, check }) => {
-        verdicts[i] = { check: name, gating: check?.mode !== 'log', pass: false, skipped: true, findings };
+        verdicts[i] ??= { check: name, gating: check?.mode !== 'log', pass: false, skipped: true, findings };
       });
     const held = (ran: Verdict[]) => ran.some(v => v.gating && !v.skipped && !v.pass && holds(v, p));
     const rest = Effect.gen(function* () {

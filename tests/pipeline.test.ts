@@ -1982,6 +1982,31 @@ describe('over', () => {
     expect(readFileSync(log, 'utf8')).toBe('judge\n');
   });
 
+  it('keeps a bot verdict that finished before a slow script check failed, for the next attempt to see', async () => {
+    const log = logFile();
+    const prompts: string[] = [];
+    const fails = `test -f ${log}.failed && exit 0; touch ${log}.failed ${log}.started; sleep 1; echo bad; exit 1`;
+    const { result, p } = await runPastHeadStart(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+        { name: 'tests', data: { type: 'script', run: fails, mode: 'block' } },
+      ]),
+      spec =>
+        spec.system.startsWith('You judge.')
+          ? { message: bothub([{ kind: 'reply', body: prompts.push(spec.prompt) === 1 ? 'FAIL\ntoo big' : 'PASS' }]) }
+          : { work },
+      `${log}.started`
+    );
+    const first = (await p.store.runs({ check: false })).find(run => run.id !== result.run.id)!;
+    expect(untimed((await p.store.outcome(first.id))?.checks)).toEqual([
+      { check: 'small', gating: true, pass: false, findings: 'too big', runs: [expect.any(String)] },
+      { check: 'tests', gating: true, pass: false, findings: 'bad' },
+    ]);
+    expect(prompts[1]).toContain('Earlier attempts failed this check with:');
+    expect(prompts[1]).toContain('too big');
+    expect(result.outcome?.checks?.map(v => v.pass)).toEqual([true, true]);
+  });
+
   it("limits a bot check's runs to its own max-turns", async () => {
     const { seen } = await run(
       hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', 'max-turns': 1 }, body: 'Small?' }]),
