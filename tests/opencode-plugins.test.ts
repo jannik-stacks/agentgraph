@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { opencode } from '../src/harnesses/opencode.ts';
 import deciderPlugin, { decider } from '../src/harnesses/opencode-decider.ts';
+import { watcher } from '../src/harnesses/opencode-model.ts';
 import surfacerPlugin, { surfacer, type SurfacerOptions } from '../src/harnesses/opencode-surfacer.ts';
 import type { EventRecord } from '../src/store.ts';
 import type { DeciderQuestion } from '../src/schema.ts';
@@ -589,6 +590,9 @@ const PLUGIN_LINES = [
     kept: 1,
   },
   { name: 'an end', event: { type: 'end', ok: true }, kept: 0 },
+  { name: 'the model that answered', event: { type: 'start', model: 'sol' }, kept: 1 },
+  { name: 'a start naming a session', event: { type: 'start', model: 'sol', session: 's' }, kept: 0 },
+  { name: 'a start without a model', event: { type: 'start' }, kept: 0 },
 ];
 
 describe('plugin model calls', () => {
@@ -615,5 +619,30 @@ describe('plugin model calls', () => {
 
   it.each(PLUGIN_LINES)('keeps $kept of $name from a plugin line', ({ event, kept }) => {
     expect(opencode.parseLine(JSON.stringify({ type: 'bothub', event }))).toHaveLength(kept);
+  });
+});
+
+describe('model watcher', () => {
+  const starts = () => printed.flatMap(line => opencode.parseLine(line.trimEnd())).filter(e => e.type === 'start');
+
+  it('reports the model that answered each agent call when it changes, a fallback included', async () => {
+    const groups = ['review', 'review', 'sol', undefined];
+    const url = await serve((_body, _req, res) => {
+      const group = groups.shift();
+      res.writeHead(200, group ? { 'x-litellm-model-group': group } : {}).end('{}');
+    });
+    const send = globalThis.fetch;
+    try {
+      await watcher(undefined, { alias: 'review' });
+      for (let i = 0; i < 4; i++) await fetch(`${url}/v1/responses`, { method: 'POST' });
+      await fetch(`${url}/v1/chat/completions`, { method: 'POST' });
+    } finally {
+      globalThis.fetch = send;
+    }
+    expect(starts()).toEqual([
+      { type: 'start', model: 'review' },
+      { type: 'start', model: 'sol' },
+      { type: 'start', model: 'review' },
+    ]);
   });
 });

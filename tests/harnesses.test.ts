@@ -94,8 +94,13 @@ describe('opencode', () => {
     expect(config).toMatchObject({ share: 'disabled', snapshot: false, compaction: { auto: false, prune: false } });
     expect(config.tool_output).toEqual({ max_lines: 300, max_bytes: 16_384 });
     expect(config.instructions).toBeUndefined();
-    expect(config.plugin).toEqual([expect.stringMatching(/\/src\/harnesses\/opencode-trim\.ts$/)]);
-    expect(command({ ...spec, tools: ['bash(ls*)'] }).args).toContain('--pure');
+    expect(config.plugin).toEqual([
+      expect.stringMatching(/\/src\/harnesses\/opencode-trim\.ts$/),
+      [expect.stringMatching(/\/src\/harnesses\/opencode-model\.ts$/), { alias: 'coder' }],
+    ]);
+    const toolless = command({ ...spec, tools: ['bash(ls*)'] });
+    expect(JSON.parse(toolless.env.OPENCODE_CONFIG_CONTENT ?? '').plugin).toHaveLength(1);
+    expect(toolless.args).not.toContain('--pure');
     expect(env).toMatchObject({
       OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       OPENCODE_DISABLE_CLAUDE_CODE: '1',
@@ -108,7 +113,7 @@ describe('opencode', () => {
     );
   });
 
-  it("loads bothub's own plugins instead of --pure, and allows history only when the surfacer offers it", () => {
+  it("loads bothub's own plugins, and allows history only when the surfacer offers it", () => {
     const surfacer = { run: 'r1', bot: 'implementor', data: '/data', hub: '/hub' };
     const decider = {
       questions: [{ on: 'tool_call' as const, ask: 'In scope?', mode: 'log' as const }],
@@ -120,9 +125,9 @@ describe('opencode', () => {
       [expect.stringMatching(/\/src\/harnesses\/opencode-surfacer\.ts$/), surfacer],
       [expect.stringMatching(/\/src\/harnesses\/opencode-decider\.ts$/), decider],
       expect.stringMatching(/\/src\/harnesses\/opencode-trim\.ts$/),
+      [expect.stringMatching(/\/src\/harnesses\/opencode-model\.ts$/), { alias: 'coder' }],
     ]);
     expect(config.plugin.every((p: string | [string]) => existsSync([p].flat()[0]!))).toBe(true);
-    expect(args).not.toContain('--pure');
     expect(config).toMatchObject({ share: 'disabled', compaction: { auto: false } });
     expect(JSON.parse(env.OPENCODE_PERMISSION ?? '').history).toBeUndefined();
     const withHistory = command({
@@ -131,7 +136,7 @@ describe('opencode', () => {
       decider: { questions: [], task: '' },
     });
     expect(JSON.parse(withHistory.env.OPENCODE_PERMISSION ?? '').history).toBe('allow');
-    expect(JSON.parse(withHistory.env.OPENCODE_CONFIG_CONTENT ?? '').plugin).toHaveLength(2);
+    expect(JSON.parse(withHistory.env.OPENCODE_CONFIG_CONTENT ?? '').plugin).toHaveLength(3);
   });
 
   it('recalls on a new session only, never again on a resumed one', () => {
@@ -155,14 +160,16 @@ describe('opencode', () => {
     expect(args).toContain('bothub/default');
   });
 
-  it('reports the model alias it runs, since its output names none, and the session its first line names', () => {
-    const { model: _, ...bare } = spec;
-    expect(harnesses.opencode.start?.(spec, '')).toEqual([{ type: 'start', model: 'coder' }]);
-    expect(harnesses.opencode.start?.(bare, 'not json')).toEqual([{ type: 'start', model: 'default' }]);
+  it('reports the session its first line names, and leaves the model to the model plugin', () => {
+    expect(harnesses.opencode.start?.(spec, 'not json')).toEqual([{ type: 'start' }]);
     const first = readFileSync(join(import.meta.dirname, 'fixtures', 'opencode-run.jsonl'), 'utf8').split('\n')[0]!;
     expect(harnesses.opencode.start?.(spec, first)).toEqual([
-      { type: 'start', model: 'coder', session: 'ses_ecfe5c55cffe3r1vZYoqdYrwvF' },
+      { type: 'start', session: 'ses_ecfe5c55cffe3r1vZYoqdYrwvF' },
     ]);
+    const { model: _, ...bare } = spec;
+    const plugin = (s: RunSpec) => JSON.parse(command(s).env.OPENCODE_CONFIG_CONTENT ?? '').plugin.at(-1)[1];
+    expect(plugin(spec)).toEqual({ alias: 'coder' });
+    expect(plugin(bare)).toEqual({ alias: 'default' });
   });
 
   it('continues an earlier session by id, keeping its sessions in the run home', () => {

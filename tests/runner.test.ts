@@ -145,6 +145,7 @@ describe('agentEvents', () => {
 
   it('takes the opencode session from its first own line when a plugin prints first', async () => {
     const lines = [
+      { type: 'bothub', event: { type: 'start', model: 'sol' } },
       { type: 'bothub', event: { type: 'recall', on: 'turn', query: 'q', tokens: 1, items: [] } },
       { type: 'text', sessionID: 'ses_1', part: { type: 'text', text: 'hi' } },
     ];
@@ -153,8 +154,9 @@ describe('agentEvents', () => {
     const events = await Effect.runPromise(
       Stream.runCollect(agentEvents(adapter, { ...spec, model: 'writer' }, undefined, undefined, unsandboxed))
     );
-    expect(Chunk.toArray(events).map(e => e.type)).toEqual(['recall', 'start', 'text']);
-    expect(Chunk.toArray(events)[1]).toEqual({ type: 'start', model: 'writer', session: 'ses_1' });
+    expect(Chunk.toArray(events).map(e => e.type)).toEqual(['start', 'recall', 'start', 'text']);
+    expect(Chunk.toArray(events)[0]).toEqual({ type: 'start', model: 'sol' });
+    expect(Chunk.toArray(events)[2]).toEqual({ type: 'start', session: 'ses_1' });
   });
 
   it('closes stdin and does not inherit the host env', async () => {

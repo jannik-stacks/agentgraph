@@ -1346,6 +1346,34 @@ describe('budgets', () => {
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
     expect(result.run.costUsd).toBeCloseTo(6.25);
   });
+
+  const opencodeRun = (answered: string) =>
+    fakeHarness(() => ({
+      events: [
+        { type: 'start', model: answered },
+        { type: 'start', session: 'ses_1' },
+        { type: 'usage', inputTokens: 1_000_000, outputTokens: 0 },
+        { type: 'end', ok: true, result: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      ],
+    })).adapters;
+  const aliasPrices = async () => ({
+    review: { model: 'opus', input: 5, output: 0 },
+    sol: { model: 'gpt-6.1-sol', input: 1.25, output: 0 },
+  });
+
+  it('prices an opencode run that fell back at the fallback model, and shows that model on the run', async () => {
+    const adapters = opencodeRun('sol');
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, env: {}, prices: aliasPrices });
+    const { run } = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(run).toMatchObject({ model: 'sol', costUsd: 1.25 });
+  });
+
+  it('still prices an opencode run without a fallback at the alias it asked for', async () => {
+    const adapters = opencodeRun('review');
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, env: {}, prices: aliasPrices });
+    const { run } = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(run).toMatchObject({ model: 'review', costUsd: 5 });
+  });
 });
 
 describe('memory', () => {

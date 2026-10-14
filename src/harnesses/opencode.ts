@@ -48,8 +48,8 @@ const plugin = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 const trims = (spec: RunSpec) => spec.tools.some(t => t === 'read' || t === 'grep');
 
 /**
- * bothub's own opencode plugins for the run: the output trimmer when the bot can read or grep, and the surfacer and
- * decider, each only when configured. A resumed session recalls nothing again.
+ * bothub's own opencode plugins for the run: the output trimmer when the bot can read or grep, the surfacer and
+ * decider, each only when configured, and the model watcher. A resumed session recalls nothing again.
  */
 const plugins = (spec: RunSpec) => [
   ...(spec.surfacer
@@ -57,12 +57,14 @@ const plugins = (spec: RunSpec) => [
     : []),
   ...(spec.decider?.questions.length ? [[plugin('./opencode-decider.ts'), spec.decider]] : []),
   ...(trims(spec) ? [plugin('./opencode-trim.ts')] : []),
+  [plugin('./opencode-model.ts'), { alias: alias(spec) }],
 ];
 
 const pluginIds = (spec: RunSpec) => [
   ...(spec.surfacer ? ['bothub-surfacer'] : []),
   ...(spec.decider?.questions.length ? ['bothub-decider'] : []),
   ...(trims(spec) ? ['bothub-trim'] : []),
+  'bothub-model',
 ];
 
 /**
@@ -87,7 +89,7 @@ const config = (spec: RunSpec) => ({
   },
   agent: { [provider]: { mode: 'primary', prompt: spec.system, ...(spec.maxTurns && { steps: spec.maxTurns }) } },
   ...(spec.mcp && opencodeMcpConfig(spec.mcp)),
-  ...(plugins(spec).length && { plugin: plugins(spec) }),
+  plugin: plugins(spec),
 });
 
 const numeric = /^(?:-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+)$/i;
@@ -100,17 +102,13 @@ const words = (prompt: string) =>
     return [...out, last === undefined ? `${word}\t` : `${last}\t${word}`];
   }, []);
 
-/**
- * The prompt goes in space-free words after `--` so the CLI neither parses nor re-quotes it. `--pure` keeps every
- * external plugin out unless bothub's own are configured.
- */
+/** The prompt goes in space-free words after `--` so the CLI neither parses nor re-quotes it. */
 const command = (spec: RunSpec) => ({
   cmd: 'opencode',
   args: [
     'run',
     '--format',
     'json',
-    ...(plugins(spec).length ? [] : ['--pure']),
     '--title',
     provider,
     '--agent',
@@ -166,14 +164,15 @@ const step = (part: Extract<Part, { type: 'step-finish' }>): AgentEvent[] => {
 
 /**
  * Whether a plugin may print `e` to opencode's stdout as a `{"type":"bothub","event":…}` line: a `recall`, a
- * `decision`, or the `usage` of a model call bothub's own code made.
+ * `decision`, the `usage` of a model call bothub's own code made, or a `start` naming the model that answered.
  */
 const fromPlugin = (e: AgentEvent | null | undefined): e is AgentEvent =>
   typeof e === 'object' &&
   e !== null &&
   (e.type === 'recall' ||
     e.type === 'decision' ||
-    (e.type === 'usage' && sources.includes(e.source!) && e.source !== 'harness'));
+    (e.type === 'usage' && sources.includes(e.source!) && e.source !== 'harness') ||
+    (e.type === 'start' && typeof e.model === 'string' && e.session === undefined));
 
 const event = (line: Line): AgentEvent[] => {
   if (line.type === 'bothub' && 'event' in line) {
@@ -202,17 +201,17 @@ const parseLine = jsonLines<Line>('opencode', event);
 
 /**
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's
- * tool allowlist and project config is ignored. Its output names no model, so it reports the alias it was given,
- * with the session its first own line names; bothub's plugins may print before it.
+ * tool allowlist and project config is ignored. Its output names no model, so the model plugin reports the one that
+ * answered; the start reports the session its first own line names, and bothub's plugins may print before it.
  */
 export const opencode: HarnessAdapter = {
   name: 'opencode',
   command,
   parseLine,
-  start: (spec, line) => {
+  start: (_, line) => {
     const { type, sessionID: session } = parsed(line);
     if (type === 'bothub') return [];
-    return [{ type: 'start', model: alias(spec), ...(typeof session === 'string' && { session }) }];
+    return [{ type: 'start', ...(typeof session === 'string' && { session }) }];
   },
   plugins: pluginIds,
   sessions: '.local/share/opencode',
