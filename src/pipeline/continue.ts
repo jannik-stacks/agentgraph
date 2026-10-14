@@ -80,7 +80,7 @@ export const carried = async (resume: Resume | undefined, run: Run, p: Pipeline)
 const diffCap = 64 * 1024;
 
 /**
- * What a follow-up attempt after `run` starts its fresh session with besides its task and findings: unless the bot
+ * What a follow-up attempt or a later run after `run` starts its fresh session with besides its task: unless the bot
  * resumes nothing, what `run` did and the change in worktree `id` since `base`, as its changed files when the diff is
  * too long.
  */
@@ -129,17 +129,10 @@ export const saidSince = async (since: string, pull: number | undefined, p: Pipe
 
 /**
  * The prompt section for a job that continues its own earlier work on the issue: the runs before, the branch and open
- * merge request the work is on, what the last run did when the bot resumes from a summary, and what the human asks
- * now; with `resume: session`, the session to continue. Nothing when the job has not run on the issue before, or its
- * last run blocked, which resumes instead.
+ * merge request the work is on, and what the human asks now, with the last run. Nothing when the job has not run on
+ * the issue before, or its last run blocked, which resumes instead.
  */
-export const continuing = async (
-  planned: PlannedJob,
-  created: Run,
-  branch: string,
-  resume: Resume | undefined,
-  p: Pipeline
-) => {
+export const continuing = async (planned: PlannedJob, created: Run, branch: string, p: Pipeline) => {
   const { repo, number } = p.event;
   if (number === undefined) return;
   const { workflow, job } = planned;
@@ -155,7 +148,6 @@ export const continuing = async (
   const pull = p.event.pull ?? open?.number;
   const asked = (planned.args ?? p.event.body)?.trim();
   const said = [...(asked ? [asked] : []), ...(await saidSince(last.endedAt ?? '', pull, p))];
-  const { summary, session } = await carried(resume, last, p);
   const before = runs
     .slice(0, 5)
     .map(r => `run ${r.id} (${r.closure})`)
@@ -163,12 +155,11 @@ export const continuing = async (
   const section = [
     '## Continuing',
     `You worked on this before: ${before}. Your work is on \`${branch}\` and already in this worktree${open ? `, with merge request #${open.number} open` : ''}: build on it, do not start over.`,
-    summary && `What your last run did:\n\n${summary}`,
     said.length
       ? `The human asks:\n\n${said.map(fenced).join('\n\n')}`
       : 'No new instruction was given; read the issue and the merge request.',
   ]
     .filter(Boolean)
     .join('\n\n');
-  return { section, ...(session && { session }) };
+  return { section, last };
 };

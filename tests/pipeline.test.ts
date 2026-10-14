@@ -873,7 +873,7 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(seen[2]!.prompt).toContain('Its checks last found:\n\n### exists\n\n```text\nexited non-zero\n```');
   });
 
-  it('resumes in the blocked run session with resume: session', async () => {
+  it('resumes a blocked run of a resume: session bot in a fresh session, seeded with its change', async () => {
     const config = configFor();
     config.bots.bot = { ...config.bots.bot!, resume: 'session' };
     const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
@@ -888,7 +888,8 @@ describe('parking', { timeout: 20_000 }, () => {
     await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
 
     expect(seen[1]!.prompt).toContain('## Resuming');
-    expect(seen[1]!.session?.id).toBe('s1');
+    expect(seen[1]!.prompt).toMatch(/What your last run did:\n\n[\s\S]*Your change so far:/);
+    expect(seen[1]!.session).toBeUndefined();
   });
 
   it('finds an answer given in an earlier comment on the issue when a bare command resumes', async () => {

@@ -145,7 +145,6 @@ export type Worktree = {
   branch?: string;
   replace?: string;
   resume?: string;
-  session?: RunSpec['session'];
   recheck?: string;
 };
 
@@ -214,7 +213,7 @@ const attempts = (
       .filter(Boolean)
       .join('\n\n');
     let prompt = task;
-    let session = worktree.session;
+    let session: RunSpec['session'];
     let reformats = 0;
     let reformatting = false;
     let resumed = false;

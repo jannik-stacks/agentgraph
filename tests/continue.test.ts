@@ -180,15 +180,15 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(await pulls.list()).toMatchObject([{ number: 1, branch: 'bothub/7' }]);
   });
 
-  it('continues the harness session of the last run with `resume: session`', async () => {
-    const { hub, pulls, seen, first, commentEvent } = await setup('resume: session\n');
+  it('starts a later run of a `resume: session` bot fresh, seeded with what the last run did and its change', async () => {
+    const { hub, pulls, seen, commentEvent } = await setup('resume: session\n');
     await pulls.comment(1, { author: 'morgan', body: '/bothub go on' });
     const [, again] = await handleEvent(await commentEvent(1), hub);
     expect(seen[1]!.session).toBeUndefined();
-    expect(seen[2]!.session).toEqual({ id: 'ses_2', home: hub.store.home(first[1]!.run.id) });
+    expect(seen[2]!.session).toBeUndefined();
     expect(seen[2]!.prompt).toContain('## Continuing');
-    expect(seen[2]!.prompt).not.toContain('What your last run did');
-    expect(readFileSync(join(hub.store.home(again!.run.id), sessions, 'db'), 'utf8')).toBe('ses_2\nses_3\n');
+    expect(seen[2]!.prompt).toMatch(/What your last run did:\n\n- [\s\S]*Your change so far:/);
+    expect(readFileSync(join(hub.store.home(again!.run.id), sessions, 'db'), 'utf8')).toBe('ses_3\n');
   });
 
   it("queues a comment that continues an issue in the issue's lane, apart from the request's own", async () => {

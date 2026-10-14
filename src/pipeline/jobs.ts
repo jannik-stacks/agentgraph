@@ -14,7 +14,7 @@ import type { BotEvent } from '../types.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, failingChecks, findingsFor, holds, issueEnv, runOnItem } from './checks.ts';
-import { continuing, saidSince, sessionOf } from './continue.ts';
+import { continuing, saidSince, seeded } from './continue.ts';
 import { closed, finish, remember, settle } from './landing.ts';
 import { type Worktree, defaultBranchFor, fanned, jobItems, proposalProblems, requestsEnv } from './attempt.ts';
 
@@ -347,8 +347,9 @@ const heldReply = async ({ run, outcome }: Unfinished, p: Pipeline) => {
 
 /**
  * The worktree with the job's earlier work on the issue picked up, unless it starts over or resolves a merge: resumed
- * when its last run stopped unfinished (see `unfinished`), in that run's session with `resume: session`, otherwise
- * continued when the worktree started at the job's branch. Picked-up work is measured from where the branch forked, so the checks see the whole change.
+ * when its last run stopped unfinished (see `unfinished`), otherwise continued when the worktree started at the job's
+ * branch, in a fresh session seeded with what the last run did (see `seeded`). Picked-up work is measured from where
+ * the branch forked, so the checks see the whole change.
  * A run held only by checks that could not run hands its reply on as `recheck`.
  */
 const picked = async (
@@ -363,16 +364,16 @@ const picked = async (
   if (planned.rerun === 'fresh' || worktree.merging) return worktree;
   const resume = last && (await resumption(last, planned, p));
   const bot = planned.bot === undefined ? undefined : p.config.bots[planned.bot];
-  const continued =
-    resume || !worktree.branch ? undefined : await continuing(planned, created, worktree.branch, bot?.resume, p);
+  const continued = resume || !worktree.branch ? undefined : await continuing(planned, created, worktree.branch, p);
   const section = resume ?? continued?.section;
   if (!section) return worktree;
-  const session = last && bot?.resume === 'session' ? await sessionOf(last.run, p) : continued?.session;
   const from = startOf(target, handoff, p);
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
+  const seed = await seeded(bot?.resume, last?.run ?? continued?.last, worktree.id, base, p);
   const recheck = last && (await heldReply(last, p));
-  return { ...worktree, base, resume: section, ...(session && { session }), ...(recheck && { recheck }) };
+  const sections = [section, seed && `What your last run did:\n\n${seed}`].filter(Boolean).join('\n\n');
+  return { ...worktree, base, resume: sections, ...(recheck && { recheck }) };
 };
 
 /**
