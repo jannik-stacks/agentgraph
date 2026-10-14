@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { opencodeMcpConfig } from '../mcp-config.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
+import { jsonLines } from './lines.ts';
 import { sources } from '../usage.ts';
 
 type ToolState =
@@ -197,14 +198,7 @@ const parsed = (raw: string): { type?: unknown; sessionID?: unknown } => {
   }
 };
 
-const parseLine = (raw: string): AgentEvent[] => {
-  if (!raw.trim()) return [];
-  try {
-    return event(JSON.parse(raw) as Line);
-  } catch (e) {
-    return [{ type: 'error', message: `unreadable opencode output: ${(e as Error).message}` }];
-  }
-};
+const parseLine = jsonLines<Line>('opencode', event);
 
 /**
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's

@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
+import { jsonLines } from './lines.ts';
 
 type Block =
   | { type: 'text'; text: string }
@@ -133,14 +134,7 @@ const event = (line: Line): AgentEvent[] => {
   return [];
 };
 
-const parseLine = (raw: string): AgentEvent[] => {
-  if (!raw.trim()) return [];
-  try {
-    return event(JSON.parse(raw) as Line);
-  } catch (e) {
-    return [{ type: 'error', message: `unreadable claude output: ${(e as Error).message}` }];
-  }
-};
+const parseLine = jsonLines<Line>('claude', event);
 
 /** Claude Code in print mode on the host user's subscription, limited to the spec's tools. */
 export const claude: HarnessAdapter = { name: 'claude', command, parseLine };

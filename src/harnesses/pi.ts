@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
+import { jsonLines } from './lines.ts';
 
 type Block = { type: 'text'; text: string } | { type: string };
 
@@ -118,14 +119,7 @@ const event = (line: Line): AgentEvent[] => {
   return [];
 };
 
-const parseLine = (raw: string): AgentEvent[] => {
-  if (!raw.trim()) return [];
-  try {
-    return event(JSON.parse(raw) as Line);
-  } catch (e) {
-    return [{ type: 'error', message: `unreadable pi output: ${(e as Error).message}` }];
-  }
-};
+const parseLine = jsonLines<Line>('pi', event);
 
 /** pi in print mode with JSON events, limited to the spec's tools and the bothub model proxy. */
 export const pi: HarnessAdapter = { name: 'pi', command, parseLine };
