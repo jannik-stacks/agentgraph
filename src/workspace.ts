@@ -208,6 +208,15 @@ export const workspaces = ({
     const outside = checkPaths(changed, paths);
     if (outside) throw new Error(outside);
 
+    if (parked && !merging && !replace && (await builds(parked))) {
+      const floor = tip && (await builds(tip)) ? tip : base;
+      const count = (to: string) => run(['rev-list', '--count', `${floor}..${to}`]).then(Number);
+      if ((await count('HEAD')) - (await count(parked)) <= 1) {
+        await run(['reset', '-q', '--soft', floor]);
+        await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', message], botEnv);
+      }
+    }
+
     await committed?.(await run(['rev-parse', 'HEAD']));
     const lease = replace ? [`--force-with-lease=${ref}:${replace}`] : [];
     await run(['push', '-q', ...lease, origin, `HEAD:${ref}`], await auth(repo));

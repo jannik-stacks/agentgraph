@@ -865,6 +865,16 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
   });
 
+  it('folds the parked commit into the commit that lands on the branch', async () => {
+    const { issues, origin, p } = await blockedRun();
+    const [asked] = await issues.list({ label: 'unsure' });
+    await issues.comment(asked!.number, 'Short, like the others.');
+    await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
+
+    expect(git(origin.dir, 'log', '--format=%s', `${origin.main}..bothub/7`)).toBe('bothub: parking');
+    expect(git(origin.dir, 'rev-parse', 'bothub/7^')).toBe(origin.main);
+  });
+
   it('resumes a crashed attempt with the findings of the attempt before it', async () => {
     const { seen, adapters } = fake((_spec, call) => (call === 2 ? { ok: false } : {}));
     const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters });
