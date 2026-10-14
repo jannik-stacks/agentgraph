@@ -449,17 +449,18 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
 /**
  * Runs the named checks in stages, each all at once: the gating script checks first, then, only when none that holds
  * the change failed, the gating bot and decide checks, so the cheap gates spare the costly ones. A failing script check
- * that is red on base (see `redOnBase`) does not hold the change. Checks in `log` mode run last and only when nothing
- * that holds the change failed, so they judge only an attempt that settles. A check left out that way is skipped.
+ * that is red on base (see `redOnBase`) does not hold the change. Checks in `warn` and `log` mode never hold a change, so they run last and only when nothing
+ * that holds the change failed: they judge only an attempt that settles. A check left out that way is skipped.
  * Verdicts keep the order of `names`.
  */
 export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
     const verdicts: Verdict[] = [];
     const listed = names.map((name, i) => ({ name, i, check: p.config.checks[name] }));
-    const scripts = listed.filter(({ check }) => !check || (check.mode !== 'log' && check.type === 'script'));
-    const costly = listed.filter(({ check }) => check && check.mode !== 'log' && check.type !== 'script');
-    const logged = listed.filter(({ check }) => check?.mode === 'log');
+    const late = (mode?: string) => mode === 'log' || mode === 'warn';
+    const scripts = listed.filter(({ check }) => !check || (!late(check.mode) && check.type === 'script'));
+    const costly = listed.filter(({ check }) => check && !late(check.mode) && check.type !== 'script');
+    const logged = listed.filter(({ check }) => late(check?.mode));
     const run = (stage: typeof listed) =>
       Effect.forEach(
         stage,

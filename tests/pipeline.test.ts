@@ -1846,7 +1846,7 @@ describe('over', () => {
     expect(failingChecks([held])).toEqual([held]);
   });
 
-  it('sends warn findings back alongside a failing check that holds the change', async () => {
+  it('skips warn checks on an attempt a check that holds the change fails, and runs them on the one that settles', async () => {
     let judged = 0;
     const { seen, result } = await run(
       hubWith([
@@ -1860,12 +1860,14 @@ describe('over', () => {
     );
     const attempts = seen.filter(spec => spec.system.startsWith('You work.'));
     expect(attempts).toHaveLength(2);
-    expect(attempts[1]!.prompt).toContain('### style\n\n```text\nnit\n```');
+    expect(attempts[1]!.prompt).not.toContain('### style');
     expect(attempts[1]!.prompt).toContain('### small\n\n```text\ntoo big\n```');
     expect(result.run).toMatchObject({ status: 'succeeded', attempt: 2 });
+    expect(untimed(result.outcome?.checks)?.[0]).toMatchObject({ check: 'style', pass: false, findings: 'nit' });
+    expect(untimed(result.outcome?.checks)?.[0]).not.toHaveProperty('skipped');
   });
 
-  it('runs log checks only once no check that holds the change failed', async () => {
+  it('runs warn and log checks only once no check that holds the change failed', async () => {
     const checks = (lint: string) =>
       hubWith([
         { name: 'lint', data: { type: 'script', run: lint, mode: 'block' } },
