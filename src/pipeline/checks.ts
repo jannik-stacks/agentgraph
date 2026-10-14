@@ -208,11 +208,18 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
   return (item: Item): Effect.Effect<Judged> =>
     Effect.gen(function* () {
       if (!bot) return { pass: false, findings: `unknown bot "${check.bot}"` };
-      const key = digest(check.name, bot.name, check.body, skill?.body ?? '', positionless(item.text));
+      const answers = yield* Effect.promise(() => (answered ??= answerSection(a, p)));
+      const key = digest(
+        check.name,
+        bot.name,
+        check.body,
+        skill?.body ?? '',
+        positionless(item.text),
+        ...(answers ? [answers] : [])
+      );
       const same = (yield* Effect.promise(judged)).find(run => run.passed === key);
       if (same) return { pass: true, findings: `unchanged since run ${same.id}, which passed it` };
       const context = yield* Effect.promise(() => (preloaded ??= issueContext(issuesOf(p), p.event, preload)));
-      const answers = yield* Effect.promise(() => (answered ??= answerSection(a, p)));
       const prompt = [
         skill?.body,
         check.body,

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -1975,6 +1975,33 @@ describe('over', () => {
     );
     expect(prompt).not.toContain('Before the brief.');
     expect(prompt).not.toContain('Criterion 1');
+  });
+
+  it('judges an unchanged item again when a human answers after the brief', async () => {
+    const dir = temp('issues');
+    const file = join(dir, '7-task.md');
+    const said = (author: string, minute: number, body: string) =>
+      `## @${author} at 2026-10-14T07:0${minute}:00.000Z\n\n${body}`;
+    writeFileSync(
+      file,
+      [
+        '---\ntitle: Task\n---\n\nDo it.',
+        said('bothub[bot]', 1, 'Criterion 1.\n\n<!-- bothub:e/triage/brief/reply-1 -->'),
+        said('morgan', 2, '/bothub Keep titles whole.'),
+      ].join('\n\n')
+    );
+    const issues = localIssues(dir, { repo: 'acme/app' });
+    const config = hubWith([{ name: 'met', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Met?' }]);
+    config.workflows.triage!.jobs.loop!.needs = ['brief'];
+    const store = openStore(temp('store'));
+
+    await run(config, judged, {}, { issues, store });
+    appendFileSync(file, `\n\n${said('morgan', 3, 'Actually, cut them at 80 characters.')}`);
+    const { seen } = await run(config, judged, {}, { issues, store });
+
+    const prompts = seen.filter(spec => spec.system.startsWith('You judge.')).map(spec => spec.prompt);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain('cut them at 80 characters.');
   });
 
   it('runs a script once per file', async () => {
