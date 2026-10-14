@@ -1762,6 +1762,54 @@ describe('over', () => {
     ]);
   });
 
+  const blocking = (name: string, run: string) => ({ name, data: { type: 'script', run, mode: 'block' } });
+  const baseIssues = async (issues: ReturnType<typeof trackedIssues>) =>
+    (await issues.list()).filter(issue => issue.title.endsWith('fails on the base branch'));
+
+  it('files one issue for a check red on base, and runs it on a base commit once across events', async () => {
+    const { calls, launch } = recording();
+    const issues = trackedIssues();
+    const config = hubWith([blocking('old', 'echo FAIL tests/old.test.ts; exit 1')]);
+    const { p } = await run(config, judged, {}, { launch, issues });
+    const again = await Effect.runPromise(runPlanned(planned('loop'), { ...p, event: { ...p.event, id: 'again' } }));
+    expect(again.outcome?.checks?.[0]).toMatchObject({
+      gating: false,
+      findings: expect.stringMatching(/^red on base/),
+    });
+    expect(calls.filter(call => call.startsWith('script'))).toHaveLength(3);
+    const filed = await baseIssues(issues);
+    expect(filed).toMatchObject([{ title: 'Check old fails on the base branch', state: 'open' }]);
+    expect(filed[0]!.body).toMatch(/^`old` fails on [0-9a-f]{40}, .*\n\n### old\n\n[^]*FAIL tests\/old\.test\.ts/);
+  });
+
+  it('files no second issue for a check red on base while the first is open', async () => {
+    const issues = trackedIssues();
+    const title = 'Check old fails on the base branch';
+    await issues.create({ title, body: 'Earlier.' });
+    const { result } = await run(
+      hubWith([blocking('old', 'echo FAIL tests/old.test.ts; exit 1')]),
+      judged,
+      {},
+      { issues }
+    );
+    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: false });
+    expect(await baseIssues(issues)).toMatchObject([{ title, body: 'Earlier.' }]);
+  });
+
+  it('still gates a check that passes on base, and files nothing', async () => {
+    const issues = trackedIssues();
+    const { result } = await run(
+      hubWith([blocking('new', 'test ! -f src/a.ts || { echo FAIL tests/old.test.ts; exit 1; }')]),
+      judged,
+      {},
+      { issues }
+    );
+    expect(untimed(result.outcome?.checks)).toEqual([
+      { check: 'new', gating: true, pass: false, findings: 'FAIL tests/old.test.ts' },
+    ]);
+    expect(await baseIssues(issues)).toEqual([]);
+  });
+
   it('asks a human once when a check could not run, without sending it back to the bot', async () => {
     const { calls, launch } = recording('down');
     const issues = trackedIssues();

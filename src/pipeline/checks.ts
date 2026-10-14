@@ -414,14 +414,25 @@ export const withGaps = (body: string, checks: Verdict[], p: Pick<Pipeline, 'con
   return `${body.trimEnd()}\n\n## Known gaps\n\n${[...gaps.map(line), ...named].join('\n')}`;
 };
 
-const baseRuns = new WeakMap<Pipeline, Map<string, Promise<Judged>>>();
+const baseRuns = new WeakMap<Pipeline['store'], Map<string, Promise<Judged>>>();
 
 const pathsIn = (text = '') => text.match(/[\w.@-]+(?:\/[\w.@-]+)+/g) ?? [];
+
+/** Files an issue that `check` fails on the base commit `base`, unless one about that check is still open. */
+const fileRedBase = async (check: string, base: string, judged: Judged, p: Pipeline) => {
+  const issues = issuesOf(p);
+  if (!issues) return;
+  const title = `Check ${check} fails on the base branch`;
+  if ((await issues.list()).some(issue => issue.title === title)) return;
+  const body = `\`${check}\` fails on ${base}, before any change, so every change on top of it fails it too.`;
+  await issues.create({ title, body: `${body}\n\n${findingsFor([{ check, gating: true, ...judged }])}` });
+};
 
 /**
  * Marks a failing gating script check "red on base" when it fails on the change's base too and names files, each one
  * the base run names too and the change does not touch. Such a check does not gate, so it costs no attempt and never
- * reaches the bot. Each check runs once per base, in a worktree at that commit.
+ * reaches the bot. Each check runs once per base commit across events, in a worktree at that commit, and a failure
+ * there is filed as an issue (see `fileRedBase`).
  */
 const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<Verdict[]> => {
   const scriptOf = (v: Verdict) => {
@@ -430,8 +441,8 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
     return red && v.gating && holds(v, p) && pathsIn(v.findings).length ? check : undefined;
   };
   if (!verdicts.some(scriptOf)) return verdicts;
-  const runs = baseRuns.get(p) ?? new Map<string, Promise<Judged>>();
-  baseRuns.set(p, runs);
+  const runs = baseRuns.get(p.store) ?? new Map<string, Promise<Judged>>();
+  baseRuns.set(p.store, runs);
   const id = `${a.worktree}-base`;
   let tree: Promise<string> | undefined;
   const onBase = ({ name, run }: Extract<Defined<Check>, { type: 'script' }>) => {
@@ -440,8 +451,16 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
       tree ??= p.workspaces.create({ repo: p.event.repo, ref: a.base }, id).then(({ path }) => path);
       const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
       const access = { hub: p.hub, readonly: true };
-      const judged = tree.then(cwd => runScript(run, cwd, timeout, scriptEnv(a, p), launcher(p), access));
-      runs.set(key, judged.then(scriptVerdict));
+      const judged = tree
+        .then(cwd => runScript(run, cwd, timeout, scriptEnv(a, p), launcher(p), access))
+        .then(scriptVerdict)
+        .then(async v => {
+          if (v.blocked) runs.delete(key);
+          else if (!v.pass) await fileRedBase(name, a.base, v, p).catch(() => {});
+          return v;
+        });
+      runs.set(key, judged);
+      judged.catch(() => runs.delete(key));
     }
     return runs.get(key)!;
   };
