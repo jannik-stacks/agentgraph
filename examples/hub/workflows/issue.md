@@ -24,6 +24,7 @@ jobs:
     skill: review
     preload: [issue, recall]
     returns: [reply]
+    mode: warn
 human: seed example, untraced
 ---
 

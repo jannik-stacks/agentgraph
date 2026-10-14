@@ -14,7 +14,7 @@ describe('hubGraph', () => {
       'trigger:issue/issue_comment /bothub,created',
       'trigger:issue/pull_request opened,synchronize',
       'job:issue/implement warn,bothub/{issue}',
-      'job:issue/review log',
+      'job:issue/review warn',
       'bot:implementor opencode,writer',
       'bot:reviewer pi,smart',
       'skill:implement',

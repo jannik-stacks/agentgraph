@@ -58,7 +58,7 @@ describe('compile', () => {
     expect(flow?.name).toBe('issue');
     expect(flow?.on.issue_comment?.guard?.associations).toEqual(['OWNER', 'MEMBER', 'COLLABORATOR']);
     expect(flow?.jobs.implement).toMatchObject({ needs: [], until: { checks: ['types', 'review'], max: 2 } });
-    expect(flow?.jobs.review?.mode).toBe('log');
+    expect(flow?.jobs.review?.mode).toBe('warn');
     expect(flow?.body).toContain('/bothub');
   });
 
@@ -308,8 +308,8 @@ describe('compile', () => {
         [
           'on: { issues: {} }',
           'jobs:',
-          '  a: { type: bot, bot: b, skill: s, over: each-file, until: { checks: [quiet] } }',
-          '  c: { type: bot, bot: b, skill: s, until: { checks: [quiet, judge] } }',
+          '  a: { type: bot, bot: b, skill: s, over: each-file, mode: warn, until: { checks: [quiet] } }',
+          '  c: { type: bot, bot: b, skill: s, mode: warn, until: { checks: [quiet, judge] } }',
         ].join('\n')
       ),
     ]);
@@ -321,6 +321,17 @@ describe('compile', () => {
     const examples = ['hub', 'bothub', 'acme-app', 'clarinet'];
     const compiled = await Promise.all(examples.map(async name => compile(await readHub(join(hub, '..', name)))));
     expect(compiled.flatMap(example => (example.ok ? example.warnings : example.errors))).toEqual([]);
+  });
+
+  it('warns that a log-mode job applies none of the proposals it returns', () => {
+    const jobs = (line: string) =>
+      compile([bot('b'), skill('s'), workflow(`on: { issues: {} }\njobs:\n  a: { type: bot, bot: b, skill: s${line} }`)]);
+    const logged = jobs('');
+    expect(logged.ok && logged.warnings.map(w => w.message)).toEqual([
+      'job "a" returns reply in log mode, which applies none of them; set "mode: warn" or "block"',
+    ]);
+    const applied = jobs(', mode: warn');
+    expect(applied.ok && applied.warnings).toEqual([]);
   });
 
   it('rejects needs cycles', () => {
