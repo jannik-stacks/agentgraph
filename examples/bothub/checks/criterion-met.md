@@ -7,8 +7,8 @@ over:
   each: node "$BOTHUB_HUB/scripts/criteria.mjs"
   max: 5
 paths: [src/**, studio/src/**, examples/bothub/scripts/**]
-mode: warn
-human: label id hole shipped twice in dogfood round 2, safety-checks item 2 and narrow-bots W1; design folded in, label id hole in dogfood round 2 run 2 review, safety-checks item 2 edge-cases judge; fails only on the criterion's own behaviour after the round 7 nitpick on Number() rounding; out of scope from dogfood round 6 (T4); reachable inputs only from dogfood x (X2); hub scripts from dogfood round 9 (T3); only the files its test names and 8 turns from the btc replay token review
+mode: block
+human: label id hole shipped twice in dogfood round 2, safety-checks item 2 and narrow-bots W1; design folded in, label id hole in dogfood round 2 run 2 review, safety-checks item 2 edge-cases judge; fails only on the criterion's own behaviour after the round 7 nitpick on Number() rounding; out of scope from dogfood round 6 (T4); reachable inputs only from dogfood x (X2); hub scripts from dogfood round 9 (T3); only the files its test names and 8 turns from the btc replay token review; holds the change after dogfood round 15, where a seen criterion FAIL shipped under Known gaps (K2)
 ---
 The item is the task, one acceptance criterion, the test that proves it, the change to the files under
 `src/`, `studio/src/` and `examples/bothub/scripts/` that its test file names, and what the brief leaves

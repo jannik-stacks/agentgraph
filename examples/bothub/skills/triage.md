@@ -31,6 +31,12 @@ the change. A criterion that keeps behavior which already works gets a title sta
 `still `, such as `it('still replays comments written while serve was stopped')`. When two criteria
 touch the same input or function, add a criterion for how they interact.
 
+Brief the cause where it lives. When the issue names one harness, check or caller, grep for the
+others on the same path and fix the shared layer. When the issue offers alternatives, pick the one
+that catches the bug it cites, and make criterion 1 replay that bug. Anything the change removes or
+bypasses, such as a fallback, a config option or a carried summary, gets a `still` criterion or an
+`## Out of scope` line saying it is dropped on purpose.
+
 Match the criteria to what the issue asks: one per item of its `Done when` list, and add one only
 when the issue clearly needs it. A one-line fix gets one criterion and one small test.
 

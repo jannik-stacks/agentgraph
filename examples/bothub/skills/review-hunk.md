@@ -20,6 +20,9 @@ input or caller, the line it goes wrong on and the smallest fix. When it goes wr
 restates a rule another module already decides (dispatch, config, the pipeline), the smallest fix is
 to call that module's function, not to copy one more of its conditions: name the function.
 
+A removed line whose behavior nothing else in the change still provides is a `FAIL` that names who
+relied on it, unless the brief drops it under `## Out of scope`. This holds on every attempt.
+
 From attempt 2 on (the prompt says so), the bot has already answered the first review, so the findings it
 gets back are about its own fixes. Answer `FAIL` only when the input you name is one a row of the issue's
 `Done when` covers, or the caller you name is broken today. Any other edge case of the new code is a
