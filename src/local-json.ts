@@ -13,7 +13,10 @@ export const isLocal = (req: Request) => {
   }
 };
 
-const fail = (error: string, status: number) => ({ response: Response.json({ error }, { status }) });
+/** A JSON error response. */
+export const fail = (error: string, status: number) => Response.json({ error }, { status });
+
+const refuse = (error: string, status: number) => ({ response: fail(error, status) });
 
 /**
  * The JSON body of a request that writes, or the response refusing it: only from localhost, only with a JSON
@@ -23,14 +26,14 @@ export const localJson = async (
   req: Request,
   maxBytes = 2 * 1024 * 1024
 ): Promise<{ input: unknown } | { response: Response }> => {
-  if (req.method !== 'POST') return fail('method not allowed', 405);
-  if (!isLocal(req)) return fail('writes are only served on localhost', 403);
-  if (!req.headers.get('content-type')?.startsWith('application/json')) return fail('expected a JSON body', 415);
+  if (req.method !== 'POST') return refuse('method not allowed', 405);
+  if (!isLocal(req)) return refuse('writes are only served on localhost', 403);
+  if (!req.headers.get('content-type')?.startsWith('application/json')) return refuse('expected a JSON body', 415);
   const text = await req.text();
-  if (text.length > maxBytes) return fail('body too large', 413);
+  if (text.length > maxBytes) return refuse('body too large', 413);
   try {
     return { input: JSON.parse(text) };
   } catch {
-    return fail('body is not JSON', 400);
+    return refuse('body is not JSON', 400);
   }
 };

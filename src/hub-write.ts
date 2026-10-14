@@ -8,7 +8,7 @@ import type { ConfigError, SourceFile } from './config.ts';
 import { botEnv, git } from './git.ts';
 import { applyChanges, commitMessage, itemKind, validateHub, type Change } from './hub-files.ts';
 import { readHub } from './load.ts';
-import { localJson } from './local-json.ts';
+import { fail, localJson } from './local-json.ts';
 
 /** Every hub item file: what `readHub` reads, plus local issues under `issues/`. */
 export const readHubItems = async (dir: string): Promise<SourceFile[]> => {
@@ -244,7 +244,7 @@ export const hubWriteRoutes =
   async (req: Request): Promise<Response | undefined> => {
     const { pathname } = new URL(req.url);
     if (pathname === '/api/hub/items') {
-      if (req.method !== 'GET') return Response.json({ error: 'method not allowed' }, { status: 405 });
+      if (req.method !== 'GET') return fail('method not allowed', 405);
       const items: HubItems = { files: await readHubItems(hubDir), git: (await hubGit(hubDir)).repo };
       return Response.json(items);
     }

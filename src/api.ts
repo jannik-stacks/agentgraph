@@ -9,7 +9,7 @@ import { fingerprint, srcDir as ownSrc } from './fingerprint.ts';
 import { hubWriteRoutes } from './hub-write.ts';
 import { liveStream, watchRuns } from './live.ts';
 import { readHub } from './load.ts';
-import { localJson } from './local-json.ts';
+import { fail, localJson } from './local-json.ts';
 import { Missing } from './pulls.ts';
 import { Invalid, comment } from './review.ts';
 import { alive, type Run, type RunStatus, type Store } from './store.ts';
@@ -35,7 +35,7 @@ const failed: RunStatus[] = ['failed', 'timed-out', 'interrupted'];
 
 /** Queued or running, and owned by a process that may still be running it. */
 export const isLive = (run: Run) => live.includes(run.status) && (!run.owner || alive(run.owner));
-const notFound = () => Response.json({ error: 'not found' }, { status: 404 });
+const notFound = () => fail('not found', 404);
 
 const diffOptions = (url: URL) => ({
   whitespace: url.searchParams.get('whitespace') === 'hide' ? ('hide' as const) : ('show' as const),
@@ -230,8 +230,7 @@ export const api = ({
       /^\/api\/stream$/,
       async (req, url) => {
         const from = resumeFrom(req, url);
-        if (from === undefined)
-          return Response.json({ error: '"from" must be a non-negative integer' }, { status: 400 });
+        if (from === undefined) return fail('"from" must be a non-negative integer', 400);
         const run = url.searchParams.get('run') || undefined;
         return new Response(liveStream({ watcher, dir: store.dir, run, from, signal: req.signal }), {
           headers: sseHeaders,
@@ -280,8 +279,7 @@ export const api = ({
       /^\/api\/runs\/([^/]+)\/events$/,
       async (_req, url, id) => {
         const from = offset(url.searchParams.get('from'));
-        if (from === undefined)
-          return Response.json({ error: '"from" must be a non-negative integer' }, { status: 400 });
+        if (from === undefined) return fail('"from" must be a non-negative integer', 400);
         if (!(await store.read(id))) return notFound();
         return Response.json(await store.events(id, from));
       },
@@ -306,8 +304,7 @@ export const api = ({
       /^\/api\/runs\/([^/]+)\/stream$/,
       async (req, url, id) => {
         const from = resumeFrom(req, url);
-        if (from === undefined)
-          return Response.json({ error: '"from" must be a non-negative integer' }, { status: 400 });
+        if (from === undefined) return fail('"from" must be a non-negative integer', 400);
         if (!(await store.read(id))) return notFound();
         return new Response(stream(id, from, req.signal), { headers: sseHeaders });
       },
@@ -323,7 +320,7 @@ export const api = ({
       return Response.json(await comment({ dir: hubDir, data: store.dir }, body.input), { status: 201 });
     } catch (e) {
       const status = e instanceof Missing ? 404 : e instanceof Invalid ? 400 : 500;
-      return Response.json({ error: (e as Error).message }, { status });
+      return fail((e as Error).message, status);
     }
   };
 
@@ -332,7 +329,7 @@ export const api = ({
     const edited = await edit(req);
     if (edited) return edited;
     if (url.pathname === '/api/comments') return commented(req);
-    if (req.method !== 'GET') return Response.json({ error: 'method not allowed' }, { status: 405 });
+    if (req.method !== 'GET') return fail('method not allowed', 405);
     for (const [pattern, route] of routes) {
       const match = pattern.exec(url.pathname);
       if (match) return route(req, url, decodeURIComponent(match[1] ?? ''), decodeURIComponent(match[2] ?? ''));
