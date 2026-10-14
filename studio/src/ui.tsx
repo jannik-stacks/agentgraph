@@ -103,7 +103,7 @@ export const Field = ({ name, children }: { name: string; children: ReactNode })
 );
 
 export const Fields = ({ children }: { children: ReactNode }) => (
-  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">{children}</dl>
+  <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2">{children}</dl>
 );
 
 export const Pre = ({ children }: { children: ReactNode }) => (

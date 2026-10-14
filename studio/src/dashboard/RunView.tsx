@@ -117,6 +117,8 @@ const Aside = ({ className, children }: { className?: string; children: ReactNod
   <li className={cx('flex items-center gap-2 px-2 py-1 text-xs', className ?? 'text-zinc-500')}>{children}</li>
 );
 
+const Name = ({ children }: { children: ReactNode }) => <span className="shrink-0 font-medium">{children}</span>;
+
 const Row = ({ children }: { children: ReactNode }) => (
   <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
 );
@@ -422,7 +424,7 @@ const TranscriptHead = ({ run, prices, open }: { run: RunRow; prices: Prices; op
   return (
     <Row>
       <StatusIcon status={run.status} level={open && run.status === 'running' ? 'job' : 'run'} />
-      <span className="font-medium">transcript</span>
+      <Name>transcript</Name>
       <span className="truncate text-zinc-500">{[run.bot, run.model].filter(Boolean).join(', ')}</span>
       <Right>
         <Elapsed startedAt={run.startedAt} endedAt={run.endedAt ?? (isLive(run.status) ? undefined : run.startedAt)} />
@@ -458,7 +460,7 @@ const VerdictStep = ({ attempt, name, runs }: { attempt: RunRow; name: string; r
     <li className="space-y-1 px-2 py-1 text-xs">
       <div className="flex min-w-0 items-center gap-2 pl-5">
         <VerdictIcon attempt={attempt} name={name} runs={runs} />
-        <span className="font-medium">verdict</span>
+        <Name>verdict</Name>
         <span className="shrink-0 text-zinc-500">
           {brief.skipped ? 'skipped' : brief.pass ? 'passed' : 'failed'}
           {!brief.gating && ', log only'}
@@ -493,7 +495,7 @@ const OutcomeStep = ({ run }: { run: RunRow }) => {
           <Tooltip tip={run.brief?.applied ? 'What the run proposed was applied' : 'Nothing was applied'}>
             <Icon name={run.brief?.applied ? 'ok' : 'skipped'} className="size-3.5 text-zinc-500" />
           </Tooltip>
-          <span className="font-medium">outcome</span>
+          <Name>outcome</Name>
           {!open && <span className="truncate text-zinc-500">{run.brief?.kinds.join(', ')}</span>}
         </Row>
       )}
@@ -552,9 +554,9 @@ const ChangesStep = ({ run }: { run: RunRow }) => {
           <Tooltip tip={run.parked ? `Work parked on ${run.parked}` : 'Files this run committed and pushed'}>
             <Icon name="pull" className="size-3.5 text-zinc-400" />
           </Tooltip>
-          <span className="font-medium">changes</span>
+          <Name>changes</Name>
           <span className="truncate font-mono text-[11px] text-zinc-500">{branch}</span>
-          {pull && <span className="text-zinc-500">#{pull.number}</span>}
+          {pull && <span className="shrink-0 text-zinc-500">#{pull.number}</span>}
         </Row>
       }
     >
@@ -918,7 +920,7 @@ export const RunView = ({
         <Row>
           <Icon name="file" className="size-3.5 text-zinc-400" />
           <Tooltip tip="What the hub stored about this run in run.json: job, bot, event, timing and ids">
-            <span className="font-medium">record</span>
+            <Name>record</Name>
           </Tooltip>
           <span className="truncate text-zinc-500">run.json</span>
         </Row>
@@ -999,7 +1001,7 @@ export const RunView = ({
                     <Tooltip tip="Where the tokens and cost of this job went">
                       <Icon name="cost" className="size-3.5 text-zinc-400" />
                     </Tooltip>
-                    <span className="font-medium">cost</span>
+                    <Name>cost</Name>
                   </Row>
                 }
               >

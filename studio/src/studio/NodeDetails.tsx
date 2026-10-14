@@ -187,13 +187,13 @@ const Value = ({ path, value }: { path: string[]; value: unknown }): ReactNode =
 
 const Properties = ({ path, entries }: { path: string[]; entries: [string, unknown][] }) =>
   entries.length ? (
-    <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2">
+    <Fields>
       {entries.map(([key, value]) => (
         <Field key={key} name={key}>
           <Value path={[...path, key]} value={value} />
         </Field>
       ))}
-    </dl>
+    </Fields>
   ) : null;
 
 const NoteList = ({
@@ -307,13 +307,13 @@ const Human = ({ value }: { value: unknown }) => (
     {typeof value === 'string' ? (
       <p className="text-zinc-700 dark:text-zinc-300">{value}</p>
     ) : (
-      <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2">
+      <Fields>
         {Object.entries(value ?? {}).map(([key, text]) => (
           <Field key={key} name={key}>
             <span className="text-zinc-700 dark:text-zinc-300">{String(text)}</span>
           </Field>
         ))}
-      </dl>
+      </Fields>
     )}
   </Section>
 );
@@ -371,7 +371,7 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
   return (
     <div className="space-y-3 rounded-lg border border-zinc-200 p-2.5 dark:border-zinc-800">
       {heading}
-      <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5">
+      <Fields>
         {context.bot !== from && (
           <Labelled name="who" title="The bot the step casts">
             <NodeChip id={context.bot} />
@@ -451,7 +451,7 @@ const StepContextView = ({ context, from, heading }: { context: StepContext; fro
             <None />
           )}
         </Labelled>
-      </dl>
+      </Fields>
       <p className="flex items-center gap-1.5 text-xs text-zinc-500">
         <KindIcon kind="note" className="size-3" />
         <Link href="/studio/notes" className="hover:text-sky-700 hover:underline dark:hover:text-sky-300">
