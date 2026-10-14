@@ -2238,9 +2238,39 @@ describe('over', () => {
       { check: 'lint', gating: true, pass: true },
     ];
     expect(withSections('Part of #7', { checks: verdicts, config }, ['gaps'])).toBe(
-      'Part of #7\n\n## Known gaps\n\n- style: criterion 3: Blocking: the crash window\n- tests: asserts the input'
+      'Part of #7\n\n## Known gaps\n\n- style: criterion 3: the crash window\n- tests: asserts the input'
     );
     expect(withSections('Part of #7', { checks: verdicts.slice(2), config }, ['gaps'])).toBe('Part of #7');
+  });
+
+  const judgedBlocking = (mode: string) =>
+    run(
+      hubWith([{ name: 'review', data: { type: 'bot', bot: 'judge', over: 'diff', mode }, body: 'Sound?' }]),
+      spec =>
+        spec.system.startsWith('You judge.')
+          ? { message: bothub([{ kind: 'reply', body: 'FAIL\n**Blocking**: src/a.ts:1 drops the reply' }]) }
+          : { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      {},
+      { issues: trackedIssues() }
+    );
+  const judgePrompt = (seen: { system: string; prompt: string }[]) =>
+    seen.find(spec => spec.system.startsWith('You judge.'))?.prompt ?? '';
+
+  it('never calls a finding blocking in a merge request when its check does not hold the change', async () => {
+    const { seen, result, p } = await judgedBlocking('warn');
+    expect(judgePrompt(seen)).toContain('This check does not hold the change, so call no finding blocking.');
+    const checks = result.outcome?.checks ?? [];
+    expect(withSections('Done.', { checks, config: p.config }, ['gaps'])).toBe(
+      'Done.\n\n## Known gaps\n\n- review: src/a.ts:1 drops the reply'
+    );
+  });
+
+  it('keeps the blocking wording of findings from a check that holds the change', async () => {
+    const { seen, result } = await judgedBlocking('block');
+    expect(judgePrompt(seen)).not.toContain('call no finding blocking');
+    expect(result.outcome?.checks?.[0]?.findings).toBe('**Blocking**: src/a.ts:1 drops the reply');
+    const ask = result.outcome?.accepted.find(proposal => proposal.kind === 'ask');
+    expect(ask?.kind === 'ask' && ask.question).toContain('**Blocking**: src/a.ts:1 drops the reply');
   });
 
   it('cuts a long gap at a sentence or word end, never mid-word', () => {

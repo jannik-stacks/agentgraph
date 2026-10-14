@@ -36,11 +36,13 @@ export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'find
   return { pass: verdict[1]!.toUpperCase() === 'PASS', ...(findings && { findings }) };
 };
 
-const verdictContract = [
-  '## Verdict',
-  'End with a `bothub` block holding one reply. Its first line is `PASS` or `FAIL`; the lines after it are your',
-  'findings, most severe first, each naming the file and line.',
-].join('\n');
+const verdictContract = (check: Check) =>
+  [
+    '## Verdict',
+    'End with a `bothub` block holding one reply. Its first line is `PASS` or `FAIL`; the lines after it are your',
+    'findings, most severe first, each naming the file and line.',
+    ...(check.mode === 'block' ? [] : ['This check does not hold the change, so call no finding blocking.']),
+  ].join('\n');
 
 /** One attempt of a job in its worktree. `merging` is set while it resolves a merge of `base` into its branch. */
 export type Attempt = {
@@ -212,7 +214,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         answers,
         eventContext(p.event, a.planned.args, undefined),
         a.parent.attempt && a.parent.attempt > 1 ? `## Attempt\n\nThis is attempt ${a.parent.attempt}.` : undefined,
-        verdictContract,
+        verdictContract(check),
         itemSection(check.over, item),
       ]
         .filter(Boolean)
@@ -406,6 +408,10 @@ export const holds = (verdict: Verdict, p: Pick<Pipeline, 'config'>) => p.config
 
 const gapLength = 200;
 
+/** A `blocking` label on a finding, which a check that does not hold the change never earns. */
+const blockingLabel =
+  /(?<![\w-])(?:\*\*|\[|\()?blocking(?:\*\*|\]|\))?\s*[:\u2013\u2014](?:\*\*)?\s*|(?:\*\*|\[|\()blocking(?:\*\*|\]|\))\s*/gi;
+
 /** Shortens a gap to a sentence or word end within `gapLength`, marking the cut. */
 const clip = (text: string) => {
   if (text.length <= gapLength) return text;
@@ -417,7 +423,9 @@ const clip = (text: string) => {
 /** The gaps a passing check named: findings lines that start with `Known gap:`. */
 const namedGaps = ({ check, pass, findings = '' }: Verdict) =>
   pass
-    ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(([, gap = '']) => `- ${check}: ${clip(gap)}`)
+    ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(
+        ([, gap = '']) => `- ${check}: ${clip(gap.replace(blockingLabel, ''))}`
+      )
     : [];
 
 const gapsSection = ({ checks, config }: SectionContext) => {
@@ -425,7 +433,10 @@ const gapsSection = ({ checks, config }: SectionContext) => {
   const named = checks.flatMap(namedGaps);
   if (!gaps.length && !named.length) return;
   const line = ({ check, findings = '' }: Verdict) => {
-    const [first = 'failed without output', next] = findings.split('\n').filter(l => l.trim());
+    const [first = 'failed without output', next] = findings
+      .replace(blockingLabel, '')
+      .split('\n')
+      .filter(l => l.trim());
     const finding = first.endsWith(':') && next ? `${first} ${next.replace(/^\s*[-*]\s*/, '')}` : first;
     return `- ${check}: ${clip(finding.replace(/^\s*[-*]\s*/, ''))}`;
   };
