@@ -2,6 +2,7 @@ import { chmodSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, temp, write } from './kit.ts';
+import { Proposal } from '../src/outputs.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');
@@ -802,6 +803,14 @@ describe('triage-brief', () => {
     expect(skill).toContain(`at most ${maxFiles} files outside \`tests/\``);
   });
 
+  it('tells the triager only the fields the ask schema accepts', () => {
+    const ask = Proposal.options.find(option => option.shape.kind.value === 'ask')!;
+    const skill = readFileSync(join(scripts, '../skills/triage.md'), 'utf8').replace(/\s+/g, ' ');
+    const fields = Object.keys(ask.shape).filter(key => key !== 'kind');
+    expect(skill).toContain(`\`ask\` has only a ${fields.map(f => `\`${f}\``).join(', ')};`);
+    expect(skill).not.toMatch(/its title is/i);
+  });
+
   it('fails a brief naming a file the safety check would fail', () => {
     const text = brief.replace(
       '- `tests/labels.test.ts`',
@@ -831,6 +840,24 @@ describe('triage-brief', () => {
       ok: true,
       out: 'triage-brief: ok',
     });
+  });
+
+  it('with --width, flags only a brief naming more than twice as many files outside tests/ as Done when rows', () => {
+    const hub = temp('brief-hub');
+    write(hub, { 'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- One.\n- Two.\n' });
+    const dir = temp('brief');
+    const named = (n: number) => Array.from({ length: n }, (_, i) => `- \`src/f${i}.ts\``).join('\n');
+    const width = (n: number) => {
+      writeFileSync(join(dir, 'reply.md'), brief.replace(/## Files\n[\s\S]*?\n\n/, `## Files\n${named(n)}\n\n`));
+      return run('triage-brief.mjs', { dir, base: '' }, ['--width', join(dir, 'reply.md')], {
+        BOTHUB_HUB: hub,
+        BOTHUB_ISSUE: '7',
+      });
+    };
+    expect(width(4)).toEqual({ ok: true, out: 'triage-width: ok' });
+    expect(findings(width(5).out)).toEqual([
+      '5 files outside tests/ for 2 Done when rows; name only the files those rows need',
+    ]);
   });
 
   it('fails a brief naming more files outside tests/ than the size cap, and says to split it', () => {

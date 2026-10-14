@@ -2,15 +2,17 @@
 // criterion one line ending in the test title and test file that prove it. Every file the brief names must sit under
 // the paths in bounds.mjs, or the roots `--within` gives, have a name the safety check accepts, and the files outside
 // tests/ must fit the size check's cap. Every path the issue's Done when names must sit under those paths too, unless
-// the brief lists it as out of scope.
+// the brief lists it as out of scope. With --width it only flags a brief naming more files outside tests/ than
+// twice the issue's Done when rows.
 //
-//   node triage-brief.mjs [--within <root>,<root>...] [reply-file]      otherwise the reply is read from BOTHUB_REPLY
+//   node triage-brief.mjs [--width] [--within <root>,<root>...] [reply-file]      otherwise the reply is read from BOTHUB_REPLY
 import { existsSync, readFileSync } from 'node:fs';
 import { capped, maxFiles, paths } from './bounds.mjs';
 import { findIssue, parseBrief } from './brief.mjs';
 import { rejects, report } from './changes.mjs';
 
 const args = process.argv.slice(2);
+const width = args.includes('--width') && args.splice(args.indexOf('--width'), 1);
 const at = args.indexOf('--within');
 const roots = at === -1 ? paths : args.splice(at, 2)[1].split(',').filter(Boolean);
 const reply = args[0] ? readFileSync(args[0], 'utf8') : process.env.BOTHUB_REPLY;
@@ -33,5 +35,13 @@ else {
     problems.push(
       `${counted.length} files outside tests/, more than the size check's cap of ${maxFiles}; split the task into tasks that each fit and ask which comes first`
     );
-  report('triage-brief', problems);
+  const rows = done.match(/^\s*([-*]|\d+\.)\s/gm)?.length ?? 0;
+  if (width)
+    report(
+      'triage-width',
+      rows && counted.length > 2 * rows
+        ? [`${counted.length} files outside tests/ for ${rows} Done when rows; name only the files those rows need`]
+        : []
+    );
+  else report('triage-brief', problems);
 }

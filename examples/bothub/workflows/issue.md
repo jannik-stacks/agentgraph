@@ -12,7 +12,7 @@ jobs:
     bot: triager
     skill: triage
     until:
-      checks: [triage-brief]
+      checks: [triage-brief, triage-width]
       max: 1
     returns: [reply, label, ask]
     tools: [issues_list, issues_get]
