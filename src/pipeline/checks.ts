@@ -387,9 +387,7 @@ const squeeze = (text: string, cap: number) => {
 /** The findings of failing verdicts for a human, each check's squeezed to `findingsCap` characters. */
 export const findingsFor = (failing: Verdict[]) =>
   failing
-    .map(
-      ({ check, findings = 'failed without output' }) => `### ${check}\n\n${fenced(squeeze(findings, findingsCap))}`
-    )
+    .map(({ check, findings = 'failed without output' }) => `### ${check}\n\n${fenced(squeeze(findings, findingsCap))}`)
     .join('\n\n');
 
 /** What a human reads when checks could not run: why, until when, and what to comment, without run ids or keys. */

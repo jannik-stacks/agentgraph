@@ -199,7 +199,8 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
       const warn = (message: string) => found.push({ path: workflow.path, message: `job "${id}" ${message}` });
       if (job.type === 'bot' && job.until && job.until.checks.every(name => checks[name]?.mode === 'log'))
         warn('loops until checks that are all in log mode, so it never repeats');
-      const applied = job.type === 'bot' ? (job.returns ?? bots[job.bot]?.returns ?? []).filter(r => landing.has(r)) : [];
+      const applied =
+        job.type === 'bot' ? (job.returns ?? bots[job.bot]?.returns ?? []).filter(r => landing.has(r)) : [];
       if (job.mode === 'log' && applied.length)
         warn(`returns ${applied.join(', ')} in log mode, which applies none of them; set "mode: warn" or "block"`);
     }

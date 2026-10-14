@@ -1778,7 +1778,11 @@ describe('over', () => {
       hubWith([{ name: 'brief', data: { type: 'script', run: 'echo FAIL tests/old.test.ts; exit 1', mode: 'block' } }]),
       () => ({ message: bothub([{ kind: 'reply', body: 'x' }]) })
     );
-    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: true, pass: false, findings: 'FAIL tests/old.test.ts' });
+    expect(result.outcome?.checks?.[0]).toMatchObject({
+      gating: true,
+      pass: false,
+      findings: 'FAIL tests/old.test.ts',
+    });
   });
 
   it('closes blocked, not done, a job whose check is red on base and that proposed no change', async () => {

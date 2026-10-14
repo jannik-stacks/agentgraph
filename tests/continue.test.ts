@@ -207,7 +207,11 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
 
   it('says how to answer when a bare comment lands on an unsure issue', async () => {
     const { hub, logs } = await setup();
-    const question = await localIssues(join(hub.dir, 'issues'), { repo: 'acme/app' }).create({ title: 'Which name?', labels: ['unsure'], parent: 7 });
+    const question = await localIssues(join(hub.dir, 'issues'), { repo: 'acme/app' }).create({
+      title: 'Which name?',
+      labels: ['unsure'],
+      parent: 7,
+    });
     const answer: BotEvent = {
       id: 'a1',
       ts: new Date().toISOString(),

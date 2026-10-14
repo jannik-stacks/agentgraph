@@ -325,7 +325,11 @@ describe('compile', () => {
 
   it('warns that a log-mode job applies none of the proposals it returns', () => {
     const jobs = (line: string) =>
-      compile([bot('b'), skill('s'), workflow(`on: { issues: {} }\njobs:\n  a: { type: bot, bot: b, skill: s${line} }`)]);
+      compile([
+        bot('b'),
+        skill('s'),
+        workflow(`on: { issues: {} }\njobs:\n  a: { type: bot, bot: b, skill: s${line} }`),
+      ]);
     const logged = jobs('');
     expect(logged.ok && logged.warnings.map(w => w.message)).toEqual([
       'job "a" returns reply in log mode, which applies none of them; set "mode: warn" or "block"',
