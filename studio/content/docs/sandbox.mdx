@@ -118,10 +118,12 @@ attempts: `<data>/cache/<hash of the hub path>` on the host, named by `BOTHUB_CA
 <Sym name="cacheEnv" /> points the common tools at it: the cargo registry, git checkouts and target
 directory, the npm cache, the pnpm store, Go's module and build caches and pip's cache. `env` wins
 over these, so a hub can move one or set its own for another tool. The key is the hub, not a
-lockfile: every one of these stores checks its own contents (by checksum, compiler version or source
-modification time), so a new lockfile or toolchain adds entries next to the old ones instead of
-invalidating them. Runs of one hub share the directory, so cargo makes concurrent builds wait for
-each other. Clear one store by deleting its subdirectory, such as `<data>/cache/<hash>/target`, or
+lockfile: every one of these stores checks its own contents (by checksum or compiler version), so a
+new lockfile or toolchain adds entries next to the old ones instead of invalidating them. The cargo
+target directory is the exception. Cargo decides what to rebuild by source modification time, and
+every run's code sits at `/work`, so each issue gets its own, `target/<hash of the repo and issue>`,
+kept for its later attempts and commands; runs without an issue share `target/shared`. Runs of one
+issue share theirs, so cargo makes concurrent builds wait for each other. Clear one store by deleting its subdirectory, such as `<data>/cache/<hash>/target`, or
 the whole directory to start clean; nothing else depends on it. `env` cannot replace what bothub
 sets itself, such as `HOME`, `TMPDIR` or the proxy settings.
 
