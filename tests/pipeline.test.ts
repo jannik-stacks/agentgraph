@@ -1893,6 +1893,15 @@ describe('over', () => {
     expect(await baseIssues(issues)).toMatchObject([{ title, body: 'Earlier.' }]);
   });
 
+  it('files nothing when the check fails on base only with other findings', async () => {
+    const issues = trackedIssues();
+    const diffOnly =
+      'test -f src/a.ts && { echo FAIL src/a.ts; exit 1; } || { echo FAIL tests/missing.test.ts; exit 1; }';
+    const { result } = await run(hubWith([blocking('diff', diffOnly)]), judged, {}, { issues });
+    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: true, findings: 'FAIL src/a.ts' });
+    expect(await baseIssues(issues)).toEqual([]);
+  });
+
   it('still gates a check that passes on base, and files nothing', async () => {
     const issues = trackedIssues();
     const { result } = await run(

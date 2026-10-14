@@ -489,8 +489,8 @@ const fileRedBase = async (check: string, base: string, judged: Judged, p: Pipel
 /**
  * Marks a failing gating script check "red on base" when it fails on the change's base too and names files, each one
  * the base run names too and the change does not touch. A change without files is never red on base. Such a check does not gate, so it costs no attempt and never
- * reaches the bot. Each check runs once per base commit across events, in a worktree at that commit, and a failure
- * there is filed as an issue (see `fileRedBase`).
+ * reaches the bot. Each check runs once per base commit across events, in a worktree at that commit, and a check
+ * marked red on base is filed as an issue (see `fileRedBase`).
  */
 const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<Verdict[]> => {
   const scriptOf = (v: Verdict) => {
@@ -512,9 +512,8 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
       const judged = tree
         .then(cwd => runScript(run, cwd, timeout, scriptEnv(a, p), launcher(p), access))
         .then(scriptVerdict)
-        .then(async v => {
+        .then(v => {
           if (v.blocked) runs.delete(key);
-          else if (!v.pass) await fileRedBase(name, a.base, v, p).catch(() => {});
           return v;
         });
       runs.set(key, judged);
@@ -532,6 +531,7 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
         const base = await onBase(check);
         const own = (path: string) => !base.findings?.includes(path) || files.some(file => path.endsWith(file));
         if (base.pass || base.blocked || pathsIn(v.findings).some(own)) return v;
+        await fileRedBase(check.name, a.base, base, p).catch(() => {});
         const why = `red on base: it fails on ${a.base.slice(0, 7)} too, only in files the change did not touch`;
         return { ...v, gating: false, findings: `${why}\n\n${v.findings}` };
       })
