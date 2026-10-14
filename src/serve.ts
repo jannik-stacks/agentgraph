@@ -165,7 +165,7 @@ export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobRes
   const results = await runEvent(jobs, p);
   for (const r of results)
     hub.log(
-      `${r.run.closure === 'deferred' || r.run.closure === 'blocked' ? 'ALERT ' : ''}${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
+      `${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
     );
   return results;
 };
@@ -299,6 +299,18 @@ export const servedHub = async (
   };
 };
 
+/** Serves the studio API of `hub` on `port`, stopping the runs it is running on request. */
+export const serveStudio = (hub: Hub, port = 5181) =>
+  serve(
+    api({
+      hubDir: hub.dir,
+      store: hub.store,
+      ...(hub.stops && { stops: hub.stops }),
+      ...(hub.hubErrors && { hubErrors: hub.hubErrors }),
+    }),
+    port
+  );
+
 /**
  * A long-running local hub: watches `<hub>/issues` and the merge requests in `<data>/pulls.jsonl`, runs the jobs
  * each change starts through the pipeline (local issues, the bothub MCP server, worktrees and merge requests of the
@@ -357,19 +369,7 @@ export const serveHub = async (
     await writeFile(primed, '');
     priming = false;
   }
-  const server = await serve(
-    api({
-      hubDir: dir,
-      store: hub.store,
-      stop: id => {
-        const stop = hub.stops?.get(id);
-        stop?.();
-        return stop !== undefined;
-      },
-      ...(hub.hubErrors && { hubErrors: hub.hubErrors }),
-    }),
-    options.port ?? 5181
-  );
+  const server = await serveStudio(hub, options.port);
   const address = server.address();
   const listening = typeof address === 'object' && address ? address.port : options.port;
   log(`serving ${dir} on http://127.0.0.1:${listening}, origin ${origin} as ${repo}`);

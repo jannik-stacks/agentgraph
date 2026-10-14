@@ -234,15 +234,9 @@ describe('POST /api/runs/:id/stop', () => {
   const stoppable = async (running: boolean) => {
     const store = openStore(mkdtempSync(join(tmpdir(), 'bothub-api-')));
     const stopped: string[] = [];
-    const handle = api({
-      hubDir,
-      store,
-      stop: id => {
-        if (running) stopped.push(id);
-        return running;
-      },
-    });
     const run = await store.create(fields);
+    const stops = new Map(running ? [[run.id, () => void stopped.push(run.id)]] : []);
+    const handle = api({ hubDir, store, stops });
     const post = (path: string, host = '127.0.0.1') => handle(new Request(`http://${host}${path}`, { method: 'POST' }));
     return { run, stopped, post, handle };
   };

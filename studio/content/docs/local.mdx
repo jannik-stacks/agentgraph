@@ -20,7 +20,9 @@ bin/bothub.mjs logs <run id> --follow
 - `logs` lists runs, newest first, and with a run id prints that run's events.
 - `serve` runs a hub's events and serves the studio API: a hub with `issues: local` watches its
   issue files (<Sym name="serveHub" />), any other receives GitHub App webhooks
-  (<Sym name="serveGitHub" />). `sim` runs a scenario without a model (<Sym name="simulate" />).
+  (<Sym name="serveGitHub" />). Before it starts, it asks each model endpoint the bots use whether
+  it takes their key (<Sym name="preflight" />), and refuses to start when one is refused, naming
+  the bots and the variable. `sim` runs a scenario without a model (<Sym name="simulate" />).
   See [Events and serving](/docs/reference/serve).
 
 Add `--json` to any of them for machine-readable output. `--data` points at a data directory

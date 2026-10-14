@@ -240,7 +240,7 @@ describe('compile', () => {
     expect(result.ok && result.config.hub).toEqual({
       issues: 'local',
       merge: { 'default-branch': 'human' },
-      'merge-request': { sections: ['closes', 'criteria', 'checks', 'gaps'] },
+      'merge-request': { sections: ['closes', 'checks', 'gaps'] },
     });
     const sectioned = compile([{ path: 'hub.yaml', source: 'merge-request: { sections: [closes] }\n' }]);
     expect(sectioned.ok && sectioned.config.hub['merge-request']).toEqual({ sections: ['closes'] });
@@ -249,7 +249,7 @@ describe('compile', () => {
     expect(empty.ok && empty.config.hub).toEqual({
       issues: 'github',
       merge: { 'default-branch': 'human' },
-      'merge-request': { sections: ['closes', 'criteria', 'checks', 'gaps'] },
+      'merge-request': { sections: ['closes', 'checks', 'gaps'] },
     });
     expect(errorsOf([{ path: 'hub.yaml', source: 'issues: jira\n' }])[0]).toMatch(/issues/);
     expect(

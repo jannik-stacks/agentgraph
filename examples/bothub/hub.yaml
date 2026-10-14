@@ -1,4 +1,6 @@
 issues: local
+merge-request:
+  sections: [closes, criteria, checks, gaps]
 deps:
   install: npm ci --no-audit --no-fund --loglevel=error && npm --prefix studio ci --no-audit --no-fund --loglevel=error
   lockfiles: [package-lock.json, studio/package-lock.json]

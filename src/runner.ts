@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
-import { appendFile, cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { createWriteStream, type WriteStream } from 'node:fs';
+import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -401,6 +402,32 @@ export const masker = (values: string[]) => {
   return (text: string) => hidden.reduce((masked, value) => masked.replaceAll(value, '***'), text);
 };
 
+/**
+ * Appends text to `file` in order, masking whole lines, so a secret split across two texts is masked too; `close`
+ * writes the unfinished last line and ends the file. The file is created on the first text.
+ */
+const maskedLog = (file: string, mask: (text: string) => string) => {
+  let out: WriteStream | undefined;
+  let rest = '';
+  const write = (text: string) =>
+    (out ??= createWriteStream(file, { flags: 'a' }).on('error', () => {})).write(mask(text));
+  return {
+    add: (text: string) => {
+      const end = (rest += text).lastIndexOf('\n') + 1;
+      if (!end) return;
+      write(rest.slice(0, end));
+      rest = rest.slice(end);
+    },
+    close: () =>
+      new Promise<void>(done => {
+        if (rest) write(rest);
+        rest = '';
+        if (!out || out.closed) return done();
+        out.end().once('close', () => done());
+      }),
+  };
+};
+
 const scrubLimit = 8 << 20;
 
 /** Masks secrets in place in every file under `dir` that contains one, a binary file without moving a byte. Never throws. */
@@ -456,9 +483,10 @@ const busyLimit = 30 * 60_000;
 
 class Stalled extends Error {}
 class Withdrawn extends Error {}
+class HumanStop extends Error {}
 
-/** The reason `until` resolves with when a human stops the run. */
-export const stoppedByHuman = 'stopped by a human';
+/** What `until` resolves with when a human stops the run. */
+export const stoppedByHuman = Symbol('stopped by a human');
 
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
@@ -484,7 +512,7 @@ export const runJob = (options: {
   launch?: Launcher;
   readonly?: boolean;
   stallMinutes?: number;
-  until?: Effect.Effect<string>;
+  until?: Effect.Effect<string | typeof stoppedByHuman>;
 }): Effect.Effect<Run> =>
   Effect.suspend(() => {
     const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed, readonly } = options;
@@ -505,22 +533,18 @@ export const runJob = (options: {
       return save({
         ...patch,
         ...(stopped && { stopped }),
-        ...(failed && {
-          ...(lastEvent && { lastEvent }),
-          ...(exit && { exit }),
-          envNames: Object.keys({ ...env, ...secrets }),
-        }),
+        ...(failed && exit && { exit }),
         endedAt: new Date().toISOString(),
       });
     };
 
     const mask = masker(Object.values(secrets ?? {}));
+    const stderr = maskedLog(join(store.home(runId), '..', 'stderr.log'), mask);
     const watch = stuckWatch();
     let seq = 0;
     let end: Extract<AgentEvent, { type: 'end' }> | undefined;
     let firstError: string | undefined;
     let stuck: string | undefined;
-    let lastEvent: Run['lastEvent'];
     let exit: Run['exit'];
     const tools = new Set<string>();
     let alive = Date.now();
@@ -543,7 +567,6 @@ export const runJob = (options: {
       if (event.type === 'end') end = event;
       if (event.type === 'error') firstError ??= event.message;
       const entry = { ts: new Date().toISOString(), seq: seq++, event };
-      lastEvent = { ts: entry.ts, type: event.type };
       onEvent?.(entry);
       stuck ??= watch(event);
       return Effect.promise(() => store.append(runId, entry)).pipe(
@@ -575,21 +598,15 @@ export const runJob = (options: {
         })
       ),
       Effect.flatMap(spec =>
-        agentEvents(
-          adapter,
-          spec,
-          { ...env, ...secrets },
-          home,
-          launcher,
-          readonly,
-          text => void appendFile(join(store.home(runId), '..', 'stderr.log'), mask(text)).catch(() => {})
-        ).pipe(
+        agentEvents(adapter, spec, { ...env, ...secrets }, home, launcher, readonly, stderr.add).pipe(
           events => (stallMinutes ? Stream.interruptWhen(events, silence(stallMinutes * 60_000)) : events),
           events =>
             until
               ? Stream.interruptWhen(
                   events,
-                  Effect.flatMap(until, why => Effect.fail(new Withdrawn(why)))
+                  Effect.flatMap(until, why =>
+                    Effect.fail(why === stoppedByHuman ? new HumanStop() : new Withdrawn(why))
+                  )
                 )
               : events,
           Stream.runForEach(record),
@@ -628,8 +645,8 @@ export const runJob = (options: {
               ...usage(),
               error: `stalled: no agent event for ${stallMinutes} minutes`,
             });
-          if (e instanceof Withdrawn && e.message === stoppedByHuman)
-            return finish({ status: 'cancelled', stopped: 'human', ...usage(), error: stoppedByHuman });
+          if (e instanceof HumanStop)
+            return finish({ status: 'cancelled', stopped: 'human', ...usage(), error: 'stopped by a human' });
           if (e instanceof Withdrawn)
             return finish({ status: 'cancelled', stopped: 'withdrawn', ...usage(), error: `withdrawn: ${e.message}` });
           if (sandboxFailed(e))
@@ -641,6 +658,7 @@ export const runJob = (options: {
       Effect.ensuring(
         Effect.promise(() =>
           Promise.all([
+            stderr.close(),
             rm(home.TMPDIR, { recursive: true, force: true }),
             scrub(home.HOME, Object.values(secrets ?? {})),
           ])

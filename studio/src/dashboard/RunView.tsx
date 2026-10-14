@@ -56,7 +56,7 @@ import {
 import { DiffFiles, DiffSummary, WhitespaceToggle } from './DiffView.tsx';
 import { CheckLines, FetchedFindings, VerdictIcon } from './EventView.tsx';
 import { fetchRunDiff, hideWhitespaceAtom } from './pulls.ts';
-import { AnswerBox } from './Review.tsx';
+import { AnswerBox, post } from './Review.tsx';
 import {
   OutcomeView,
   ProposalView,
@@ -895,6 +895,7 @@ export const RunView = ({
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [pinned, setPinned] = useState(true);
   const [rawRecord, setRawRecord] = useState(false);
+  const [stopError, setStopError] = useState<{ id: string; error: string | undefined }>();
   const [opened, setOpened] = useState(() => new Set<string>());
   if (shownId !== id) {
     setShownId(id);
@@ -976,14 +977,21 @@ export const RunView = ({
         {running && <Running run={run} />}
         {running && <Silent run={run} />}
         {run.status === 'running' && (
-          <Tooltip tip="Stop the run; its work is parked and the next /bothub comment continues it">
+          <Tooltip tip="Stop the run; its work is parked and the job's next run continues it">
             <Button
               variant="small"
-              onClick={() => void fetch(`/api/runs/${encodeURIComponent(run.id)}/stop`, { method: 'POST' })}
+              onClick={() =>
+                void post(`/api/runs/${encodeURIComponent(run.id)}/stop`).then(error =>
+                  setStopError({ id: run.id, error })
+                )
+              }
             >
               Stop
             </Button>
           </Tooltip>
+        )}
+        {stopError?.id === run.id && stopError.error && (
+          <span className="truncate text-xs text-red-600 dark:text-red-400">{stopError.error}</span>
         )}
         <span className="flex shrink-0 items-center gap-1">
           <IconButton tip="Expand every step" onClick={() => setAll('all')}>

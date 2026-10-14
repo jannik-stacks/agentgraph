@@ -103,10 +103,15 @@ export const settle = async (
   const base: Outcome = { proposals, errors, accepted, rejected, results: [], applied, ...(checks && { checks }) };
   if (!applied) return p.store.saveOutcome(run.id, base);
   const folds = (proposal: Proposal) => a.fold !== undefined && proposal.kind === 'reply';
-  const mr = toApply.some(proposal => proposal.kind === 'merge-request') && checks;
-  const issue = mr && event.number !== undefined ? await issues?.get(event.number) : undefined;
+  const mr = toApply.some(proposal => proposal.kind === 'merge-request');
+  const issue =
+    mr && event.number !== undefined
+      ? await issuesOf(p)
+          ?.get(event.number)
+          .catch(() => undefined)
+      : undefined;
   const brief = issue?.comments.findLast(c => /^## Criteria\s*$/m.test(c.body))?.body;
-  const ctx = mr ? { checks: mr, config: p.config, brief, issue: event.number } : undefined;
+  const ctx = mr ? { checks: checks ?? [], config: p.config, brief, issue: event.number } : undefined;
   const writes = toApply
     .filter(proposal => proposal.kind !== 'close' && !folds(proposal))
     .map(proposal =>

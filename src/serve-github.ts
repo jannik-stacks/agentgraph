@@ -1,8 +1,8 @@
 import { join } from 'node:path';
-import { api, serve } from './api.ts';
+import { serve } from './api.ts';
 import type { githubApp } from './github-app.ts';
 import { localIssues } from './issues-local.ts';
-import { eventQueue, handled, servedHub, type ServeOptions } from './serve.ts';
+import { eventQueue, handled, servedHub, serveStudio, type ServeOptions } from './serve.ts';
 import { webhook } from './webhook.ts';
 import { workspaces } from './workspace.ts';
 
@@ -46,10 +46,7 @@ export const serveGitHub = async (
     onError: (e, id) => log(`delivery ${id}: ${(e as Error).message}`),
   });
   const hooks = await serve(receiver, webhookPort);
-  const studio = await serve(
-    api({ hubDir: hub.dir, store: hub.store, ...(hub.hubErrors && { hubErrors: hub.hubErrors }) }),
-    options.port ?? 5181
-  );
+  const studio = await serveStudio(hub, options.port);
   const portOf = (server: typeof hooks) => (server.address() as { port: number }).port;
   log(`webhooks on http://127.0.0.1:${portOf(hooks)}, studio on http://127.0.0.1:${portOf(studio)}, hub ${hub.dir}`);
   const close = (server: typeof hooks) => new Promise(done => server.close(done));

@@ -440,6 +440,7 @@ const criteriaSection = ({ brief = '' }: SectionContext) => {
 
 const checksSection = ({ checks, config }: SectionContext) => {
   const ran = checks.filter(v => !v.skipped);
+  if (!ran.length) return;
   const open = ran.filter(v => !v.pass && (!v.gating || !holds(v, { config })));
   const names = open.map(v => `${v.check} (${config.checks[v.check]?.mode ?? 'log'})`);
   return `Checks: ${ran.filter(v => v.pass).length} of ${ran.length} passed${names.length ? `, not passed: ${names.join(', ')}` : ''}.`;
@@ -470,7 +471,7 @@ export const withSections = (body: string, ctx: SectionContext, sections: MergeS
   return [closes, body.trim(), ...rest].filter(Boolean).join('\n\n');
 };
 
-const baseRuns = new WeakMap<Pipeline['store'], Map<string, Promise<Judged>>>();
+const baseRuns = new WeakMap<Pipeline['store'], { runs: Map<string, Promise<Judged>>; filed: Set<string> }>();
 
 const pathsIn = (text = '') => text.match(/[\w.@-]+(?:\/[\w.@-]+)+/g) ?? [];
 
@@ -488,7 +489,7 @@ const fileRedBase = async (check: string, base: string, judged: Judged, p: Pipel
  * Marks a failing gating script check "red on base" when it fails on the change's base too and names files, each one
  * the base run names too and the change does not touch. A change without files is never red on base. Such a check does not gate, so it costs no attempt and never
  * reaches the bot. Each check runs once per base commit across events, in a worktree at that commit, and a check
- * marked red on base is filed as an issue (see `fileRedBase`).
+ * marked red on base is filed as an issue once per base commit (see `fileRedBase`).
  */
 const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<Verdict[]> => {
   const scriptOf = (v: Verdict) => {
@@ -497,8 +498,9 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
     return red && v.gating && holds(v, p) && pathsIn(v.findings).length ? check : undefined;
   };
   if (!verdicts.some(scriptOf)) return verdicts;
-  const runs = baseRuns.get(p.store) ?? new Map<string, Promise<Judged>>();
-  baseRuns.set(p.store, runs);
+  const cache = baseRuns.get(p.store) ?? { runs: new Map<string, Promise<Judged>>(), filed: new Set<string>() };
+  baseRuns.set(p.store, cache);
+  const { runs, filed } = cache;
   const id = `${a.worktree}-base`;
   let tree: Promise<string> | undefined;
   const onBase = ({ name, run }: Extract<Defined<Check>, { type: 'script' }>) => {
@@ -529,7 +531,11 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
         const base = await onBase(check);
         const own = (path: string) => !base.findings?.includes(path) || files.some(file => path.endsWith(file));
         if (base.pass || base.blocked || pathsIn(v.findings).some(own)) return v;
-        await fileRedBase(check.name, a.base, base, p).catch(() => {});
+        const key = `${a.base} ${check.name}`;
+        if (!filed.has(key)) {
+          filed.add(key);
+          await fileRedBase(check.name, a.base, base, p).catch(() => filed.delete(key));
+        }
         const why = `red on base: it fails on ${a.base.slice(0, 7)} too, only in files the change did not touch`;
         return { ...v, gating: false, findings: `${why}\n\n${v.findings}` };
       })

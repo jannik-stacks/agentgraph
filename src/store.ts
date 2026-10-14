@@ -73,10 +73,8 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     endedAt?: string;
     error?: string;
     reason?: string;
-    /** On a run that did not succeed: its last agent event, how its process exited and the names of the environment variables it got. */
-    lastEvent?: { ts: string; type: string };
+    /** On a run that did not succeed: how its process exited. */
     exit?: { code?: number; signal?: string };
-    envNames?: string[];
     /** Rewinds of this run: events after the smallest `after` are archived, kept for humans and never shown to bots. */
     archived?: { after: number; lesson: string; by: 'bot' | 'retry'; patch?: string }[];
   };

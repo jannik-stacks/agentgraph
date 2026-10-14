@@ -334,15 +334,15 @@ export const buildSpec = ({
 const present = (entries: [string, string | undefined][]): Record<string, string> =>
   Object.fromEntries(entries.filter((entry): entry is [string, string] => Boolean(entry[1])));
 
-/**
- * The secrets a bot's harness gets, picked from `env`: only the model proxy's URL and the bot's own key
- * (`BOTHUB_LLM_API_KEY_<BOT>`, falling back to the shared `BOTHUB_LLM_API_KEY`).
- */
-export const secretsFor = ({ name }: Pick<Defined<Bot>, 'name'>, env: Record<string, string | undefined>) =>
+/** The variable that holds a bot's key: its own `BOTHUB_LLM_API_KEY_<BOT>` when set, else the shared one. */
+export const keyVariable = ({ name }: Pick<Defined<Bot>, 'name'>, env: Record<string, string | undefined>) => {
+  const own = `BOTHUB_LLM_API_KEY_${name.toUpperCase().replaceAll('-', '_')}`;
+  return env[own] ? own : 'BOTHUB_LLM_API_KEY';
+};
+
+/** The secrets a bot's harness gets, picked from `env`: only the model proxy's URL and the bot's key (see `keyVariable`). */
+export const secretsFor = (bot: Pick<Defined<Bot>, 'name'>, env: Record<string, string | undefined>) =>
   present([
     ['BOTHUB_LLM_BASE_URL', env.BOTHUB_LLM_BASE_URL],
-    [
-      'BOTHUB_LLM_API_KEY',
-      env[`BOTHUB_LLM_API_KEY_${name.toUpperCase().replaceAll('-', '_')}`] ?? env.BOTHUB_LLM_API_KEY,
-    ],
+    ['BOTHUB_LLM_API_KEY', env[keyVariable(bot, env)]],
   ]);

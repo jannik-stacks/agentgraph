@@ -133,9 +133,10 @@ merge:
 The body of a merge request is the bot's text, followed by what the engine adds. `merge-request`
 in `hub.yaml` lists those sections, in order, from `closes` (a `Closes #N` line, or `Part of #N`
 when the brief has `Follow-up:` lines, added only if missing), `criteria` (a table of each
-criterion, its test and a verdict from the `tests` and `criterion-met` checks), `checks` (how many
-checks passed, and the `warn` and `log` ones that did not) and `gaps` (the known gaps). The default
-is all four; `[]` leaves the bot's body as written.
+criterion and its test), `checks` (how many checks passed, and the `warn` and `log` ones that did
+not) and `gaps` (the known gaps). The brief is the issue's latest comment with a `## Criteria`
+heading; `criteria` reads its numbered lines that end in `Test: it('<title>')`. The default is
+`[closes, checks, gaps]`; `[]` leaves the bot's body as written.
 
 ```yaml
 merge-request:

@@ -143,7 +143,7 @@ export const api = ({
   prices = async () => ({}),
   watch = {},
   hubErrors = () => [],
-  stop = () => false,
+  stops = new Map(),
 }: {
   hubDir: string;
   store: Store;
@@ -153,7 +153,7 @@ export const api = ({
   prices?: () => Promise<Record<string, Price & { model: string }>>;
   watch?: Parameters<typeof watchRuns>[1];
   hubErrors?: () => ConfigError[];
-  stop?: (id: string) => boolean;
+  stops?: Map<string, () => void>;
 }): Handler => {
   const running = fingerprint(srcDir);
   const watcher = watchRuns(store.dir, watch);
@@ -331,7 +331,10 @@ export const api = ({
     if (req.method !== 'POST') return fail('method not allowed', 405);
     if (!isLocal(req)) return fail('writes are only served on localhost', 403);
     if (!(await store.read(id))) return notFound();
-    return stop(id) ? Response.json({ stopped: true }, { status: 202 }) : fail('the run is not running here', 409);
+    const stop = stops.get(id);
+    if (!stop) return fail('the run is not running here', 409);
+    stop();
+    return Response.json({ stopped: true }, { status: 202 });
   };
 
   return async req => {

@@ -136,8 +136,6 @@ const command = (spec: RunSpec) => ({
     OPENCODE_DISABLE_AUTOUPDATE: '1',
     OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
     OPENCODE_DISABLE_MODELS_FETCH: '1',
-    // empty: the config dir is the run's home, not the image's read-only one
-    OPENCODE_CONFIG_DIR: '',
   },
 });
 
@@ -211,7 +209,8 @@ const parseLine = jsonLines<Line>('opencode', event);
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's
  * tool allowlist and project config is ignored. Its output names no model, so the model plugin reports the one that
  * answered; the start reports the session its first own line names, and bothub's plugins may print before it. Its
- * global config dir is the image's `/opt/opencode`, which already holds the plugin package opencode would install.
+ * global config dir in the run home links the plugin package and lockfile the image installed in `/opt/opencode`, so
+ * opencode finds them and installs nothing.
  */
 export const opencode: HarnessAdapter = {
   name: 'opencode',
@@ -224,5 +223,8 @@ export const opencode: HarnessAdapter = {
   },
   plugins: pluginIds,
   sessions: '.local/share/opencode',
-  links: { '.config/opencode': '/opt/opencode' },
+  links: {
+    '.config/opencode/node_modules': '/opt/opencode/node_modules',
+    '.config/opencode/package-lock.json': '/opt/opencode/package-lock.json',
+  },
 };

@@ -163,9 +163,9 @@ const stoppable = (id: string, p: Pipeline) => {
   const abandoned = abandonment(p);
   const { stops } = p;
   if (!stops) return abandoned;
-  const human = Effect.async<string>(resume => void stops.set(id, () => resume(Effect.succeed(stoppedByHuman)))).pipe(
-    Effect.ensuring(Effect.sync(() => void stops.delete(id)))
-  );
+  const human = Effect.async<typeof stoppedByHuman>(
+    resume => void stops.set(id, () => resume(Effect.succeed(stoppedByHuman)))
+  ).pipe(Effect.ensuring(Effect.sync(() => void stops.delete(id))));
   return abandoned ? Effect.race(abandoned, human) : human;
 };
 
@@ -236,12 +236,12 @@ const lasting = /usage limit|quota/i;
  */
 const faultOf = async (run: Run, p: Pipeline) => {
   if (run.status !== 'failed') return;
-  if (authFailure(run.error)) return 'auth';
+  const early = (await p.store.events(run.id)).every(({ event }) => event.type === 'start' || event.type === 'error');
+  if (authFailure(run.error, early)) return 'auth';
   if (run.stopped === 'stalled' || run.stopped === 'provider') return run.stopped;
   if (run.stopped) return;
   if (run.exit?.signal || run.exit?.code === 137) return 'infra';
-  const events = await p.store.events(run.id);
-  return events.every(({ event }) => event.type === 'start' || event.type === 'error') ? 'infra' : undefined;
+  return early ? 'infra' : undefined;
 };
 
 /**

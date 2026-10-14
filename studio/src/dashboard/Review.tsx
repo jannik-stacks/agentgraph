@@ -162,20 +162,24 @@ export const AddLineNote = ({ path, side, line }: { path: string; side: Side; li
   );
 };
 
-/** POSTs a review and answers with the error to show, if any. */
-const send = async (input: Review): Promise<string | undefined> => {
-  const parsed = Review.safeParse(input);
-  if (!parsed.success) return parsed.error.issues[0]?.message ?? 'not a valid comment';
-  const response = await fetch('/api/comments', {
+/** POSTs `body` as JSON to `path` and answers with the error to show, if any. */
+export const post = async (path: string, body?: unknown): Promise<string | undefined> => {
+  const response = await fetch(path, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
+    ...(body !== undefined && { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
   }).catch(() => undefined);
   if (!response) return 'the hub could not be reached';
   if (response.ok) return;
   return (
     ((await response.json().catch(() => undefined)) as { error?: string } | undefined)?.error ?? `${response.status}`
   );
+};
+
+/** POSTs a review and answers with the error to show, if any. */
+const send = async (input: Review) => {
+  const parsed = Review.safeParse(input);
+  if (!parsed.success) return parsed.error.issues[0]?.message ?? 'not a valid comment';
+  return post('/api/comments', input);
 };
 
 /**

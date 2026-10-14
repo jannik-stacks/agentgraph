@@ -410,41 +410,31 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.
     expect(await go(async () => false)).toMatchObject({ status: 'failed', stopped: 'stalled' });
   });
 
-  it('keeps the whole stderr, the last event, the exit and the env names of a failed run', async () => {
+  it('keeps the whole stderr, masked even across chunks, and the exit of a failed run', async () => {
     const { store, runId } = await setup();
-    const stalled = await Effect.runPromise(
-      runJob({
-        adapter: node(hang, asText),
-        spec,
-        timeoutMinutes: 1,
-        stallMinutes: 0.01,
-        store,
-        runId,
-        launch: unsandboxed,
-      })
-    );
-    expect(stalled.stopped).toBe('stalled');
-    expect(stalled.lastEvent).toMatchObject({ type: 'text' });
-
-    const next = await setup();
-    const noisy = `console.log('hello'); console.error('x'.repeat(10000) + ' sk-secret-value-1'); process.exit(3);`;
+    const noisy = [
+      `console.log('hello'); console.error('x'.repeat(10000) + ' sk-secret-value-1');`,
+      `process.stderr.write('split sk-secret-');`,
+      `setTimeout(() => { process.stderr.write('value-1 done'); process.exit(3); }, 100);`,
+    ].join(' ');
     const run = await Effect.runPromise(
       runJob({
         adapter: node(noisy, asText),
         spec,
         timeoutMinutes: 1,
-        store: next.store,
-        runId: next.runId,
+        store,
+        runId,
         secrets: { LLM_KEY: 'sk-secret-value-1' },
-        env: { PLAIN: 'v' },
         launch: unsandboxed,
       })
     );
-    expect(run).toMatchObject({ status: 'failed', exit: { code: 3 }, envNames: ['PLAIN', 'LLM_KEY'] });
-    expect(run.lastEvent?.type).toBe('text');
-    const log = readFileSync(join(next.store.home(next.runId), '..', 'stderr.log'), 'utf8');
+    expect(run).toMatchObject({ status: 'failed', exit: { code: 3 } });
+    const log = readFileSync(join(store.home(runId), '..', 'stderr.log'), 'utf8');
     expect(log.length).toBeGreaterThan(10000);
     expect(log).not.toContain('sk-secret-value-1');
+    expect(log).toContain(`${'x'.repeat(10000)} ***\n`);
+    expect(log.indexOf(' ***\n')).toBeLessThan(log.indexOf('split'));
+    expect(log).toMatch(/\nsplit \*\*\* done$/);
     expect(JSON.stringify(run)).not.toContain('sk-secret-value-1');
   });
 
@@ -618,7 +608,10 @@ console.log(JSON.stringify({ type: 'text', text })); console.log(${JSON.stringif
     expect(run.status).toBe('succeeded');
     expect((await store.events(runId)).map(({ event }) => event)).toContainEqual({ type: 'text', text: 'installed' });
     expect(await store.files(runId)).toEqual([]);
-    expect(opencode.links).toEqual({ '.config/opencode': '/opt/opencode' });
+    expect(opencode.links).toEqual({
+      '.config/opencode/node_modules': '/opt/opencode/node_modules',
+      '.config/opencode/package-lock.json': '/opt/opencode/package-lock.json',
+    });
   });
 
   it('removes tmp after a failed run too', async () => {

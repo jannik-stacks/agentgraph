@@ -180,7 +180,7 @@ const fakeGitHub = () => {
   return { calls, gh };
 };
 
-const unmarked = (body: string) => body.replace(/\n\n<!-- bothub:\S+ -->$/, '');
+const unmarked = (body: string) => body.replace(/\n\n<!-- bothub:[^\n]* -->$/, '');
 
 /** A local tracker holding the event's issue #7. */
 const trackedIssues = () => {
@@ -334,6 +334,10 @@ describe('secretsFor', () => {
       BOTHUB_LLM_API_KEY: 'mine',
     });
     expect(secretsFor({ name: 'implementor' }, env)).toEqual({
+      BOTHUB_LLM_BASE_URL: 'http://proxy',
+      BOTHUB_LLM_API_KEY: 'shared',
+    });
+    expect(secretsFor({ name: 'implementor' }, { ...env, BOTHUB_LLM_API_KEY_IMPLEMENTOR: '' })).toEqual({
       BOTHUB_LLM_BASE_URL: 'http://proxy',
       BOTHUB_LLM_API_KEY: 'shared',
     });
@@ -541,6 +545,36 @@ describe('runPlanned', () => {
     expect(git(origin.dir, 'show', `${branch}:src/a.ts`)).toBe('a');
     expect(git(origin.dir, 'log', '-1', '--format=%an %s', branch)).toBe('bothub[bot] bothub: implement');
     expect(calls.map(c => c.path)).toEqual(['/repos/acme/app/pulls']);
+  });
+
+  it('adds the closes line to a merge request without checks, from the GitHub issue brief', async () => {
+    const branch = 'bothub/7-please-look-at-this';
+    const message = bothub([
+      { kind: 'push', branch, files: ['src/a.ts'] },
+      { kind: 'merge-request', title: 'Add a', body: 'Adds a.', branch, into: 'main' },
+    ]);
+    const work = "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')";
+    const opened = async (issue: (path: string) => unknown) => {
+      const { calls, gh: plain } = fakeGitHub();
+      const gh = (async (method: string, path: string, body?: unknown) =>
+        method === 'GET' && path.startsWith('/repos/acme/app/issues/7') && !path.endsWith('/parent')
+          ? issue(path)
+          : plain(method, path, body)) as GitHub;
+      const p = await pipeline({ config: configFor(), gh, adapters: fake({ message, work }).adapters });
+      const result = await Effect.runPromise(runPlanned(planned('implement'), p));
+      expect(result.run.closure).toBe('handed-off');
+      return unmarked((calls.find(c => c.path.endsWith('/pulls'))!.body as { body: string }).body);
+    };
+    const brief = '## Criteria\n\n1. A works.\n\nFollow-up: B';
+    const issue = { number: 7, title: 'T', state: 'open', labels: [], html_url: 'u' };
+    const comment = { id: 1, body: brief, html_url: 'c', issue_url: 'i', author_association: 'OWNER', created_at: 't' };
+    expect(await opened(path => (path.endsWith('/comments?per_page=100') ? [comment] : issue))).toBe(
+      'Part of #7\n\nAdds a.'
+    );
+    const down = () => {
+      throw Object.assign(new Error('boom'), { status: 500 });
+    };
+    expect(await opened(down)).toBe('Closes #7\n\nAdds a.');
   });
 
   it('runs script jobs in a worktree and records their output', async () => {
@@ -815,6 +849,25 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(seen).toHaveLength(1);
     expect(result.run).toMatchObject({ stopped: 'infra', closure: 'deferred' });
     expect(result.run.reason).toContain('Authentication Error');
+  });
+
+  it('fails as the work of the bot when a tool it ran got HTTP 403', async () => {
+    const message = 'gh: Resource not accessible (HTTP 403)';
+    const { seen, adapters } = fakeHarness(() => ({
+      events: [
+        { type: 'text', text: 'opening the request' },
+        { type: 'error', message },
+      ],
+      exit: 1,
+    }));
+    const alerts: string[] = [];
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, onAlert: l => alerts.push(l) });
+    const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+
+    expect(seen).toHaveLength(1);
+    expect(result.run).toMatchObject({ closure: 'blocked', error: message });
+    expect(result.run.stopped).toBeUndefined();
+    expect(alerts).toEqual([]);
   });
 
   const outOfTurns = (calls: number): AgentEvent[] => [
@@ -1942,6 +1995,14 @@ describe('over', () => {
     const filed = await baseIssues(issues);
     expect(filed).toMatchObject([{ title: 'Check old fails on the base branch', state: 'open' }]);
     expect(filed[0]!.body).toMatch(/^`old` fails on [0-9a-f]{40}, .*\n\n### old\n\n[^]*FAIL tests\/old\.test\.ts/);
+  });
+
+  it('files one issue for a check red on base even before the tracker lists it', async () => {
+    const issues = trackedIssues();
+    const config = hubWith([blocking('old', 'echo FAIL tests/old.test.ts; exit 1')]);
+    const { p } = await run(config, judged, {}, { issues: { ...issues, list: async () => [] } });
+    await Effect.runPromise(runPlanned(planned('loop'), { ...p, event: { ...p.event, id: 'again' } }));
+    expect(await baseIssues(issues)).toHaveLength(1);
   });
 
   it('files no second issue for a check red on base while the first is open', async () => {

@@ -24,10 +24,11 @@ describe.skipIf(!up())('the sandbox image smoke test', () => {
     return run(tag);
   };
 
-  it('fails when opencode writes to the read-only root', () => {
-    const { status, stdout } = broken('rm /opt/opencode/.gitignore');
-    expect(status).not.toBe(0);
-    expect(stdout).toContain('/opt/opencode/.gitignore');
+  it('fails when the plugin install the run home links to is missing', () => {
+    expect(broken('rm /opt/opencode/package-lock.json')).toMatchObject({
+      status: 1,
+      stdout: 'missing /opt/opencode/package-lock.json\n',
+    });
   });
 
   it('fails when a tool is missing', () => {

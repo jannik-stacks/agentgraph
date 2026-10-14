@@ -376,10 +376,8 @@ const picked = async (
   return { ...worktree, base, resume: sections, ...(recheck && { recheck }) };
 };
 
-const unfinishedStatus: Run['status'][] = ['failed', 'cancelled', 'timed-out', 'interrupted'];
-
 /**
- * Parks the work of a job that stopped unfinished (failed, cancelled, timed out, blocked or deferred), beside its branch (see `parkedBranch`), so the
+ * Parks the work of a job that stopped unfinished, blocked or deferred, beside its branch (see `parkedBranch`), so the
  * branch and its merge request only get work that settled, and the next run of the job on the issue resumes from it.
  * Records the parked branch on the run; work the job may not push stays unparked, with the reason.
  */
@@ -391,9 +389,8 @@ const park = async (
   returns: Return[],
   p: Pipeline
 ) => {
-  const { closure, status } = result.run;
-  const unsettled = closure === 'blocked' || closure === 'deferred' || unfinishedStatus.includes(status);
-  if (!unsettled || worktree.merging) return result;
+  const { closure } = result.run;
+  if ((closure !== 'blocked' && closure !== 'deferred') || worktree.merging) return result;
   const { branch } = target;
   if (!branch || !returnKinds(returns).includes('push')) return result;
   try {

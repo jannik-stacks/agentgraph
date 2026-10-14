@@ -2,7 +2,7 @@
 # LiteLLM key at start, and the GitHub token never enters the container.
 #
 #   docker build -t bothub-sandbox:local infra/local/sandbox
-#   infra/local/sandbox/smoke.sh      starts it the way a run does; fails on a missing tool or a write to the root
+#   infra/local/sandbox/smoke.sh      starts it the way a run does; fails on a missing tool or plugin install
 FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
 ARG OPENCODE_VERSION=1.19.0
@@ -21,17 +21,14 @@ RUN npm install -g --no-fund --no-audit \
       oxfmt@${OXFMT_VERSION} \
  && npm cache clean --force
 
-# opencode installs @opencode-ai/plugin into each config dir before loading bothub's plugins. Installing it here,
-# and making this both the config dir and, through a link in the run home, the global one, saves that install
-# (about 10 seconds) on every run.
+# opencode installs @opencode-ai/plugin into its global config dir before loading bothub's plugins. Each run home
+# links that dir's node_modules and lockfile here, so opencode finds the install and skips it (about 10 seconds).
 RUN mkdir -p /opt/opencode \
  && cd /opt/opencode \
  && npm install --no-fund --no-audit --save-exact @opencode-ai/plugin@${OPENCODE_VERSION} \
- && printf 'node_modules\npackage.json\nbun.lock\n.gitignore\n' > .gitignore \
  && npm cache clean --force
 
-ENV OPENCODE_CONFIG_DIR=/opt/opencode \
-    DO_NOT_TRACK=1 \
+ENV DO_NOT_TRACK=1 \
     PI_TELEMETRY=0 \
     OPENCODE_DISABLE_AUTOUPDATE=1 \
     DISABLE_AUTOUPDATER=1 \

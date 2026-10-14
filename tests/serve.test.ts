@@ -90,6 +90,48 @@ describe('serveHub', () => {
     }
   });
 
+  it('stops a run it is running when the studio asks, and defers its work', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    const hanging = fakeHarness(() => ({
+      events: [reply],
+      work: 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30000)',
+    }));
+    const data = temp('serve-data');
+    const done: JobResult[][] = [];
+    const served = await serveHub({
+      hub,
+      data,
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: {},
+      port: 0,
+      interval: 20,
+      log: () => {},
+      adapters: hanging.adapters,
+      launch: unsandboxed,
+      onResults: (_, results) => done.push(results),
+    });
+    try {
+      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
+      const store = openStore(data);
+      let running;
+      while (!(running = (await store.list()).find(r => r.status === 'running')))
+        await new Promise(r => setTimeout(r, 20));
+      const stop = () => fetch(`http://127.0.0.1:${served.port}/api/runs/${running.id}/stop`, { method: 'POST' });
+      let status;
+      while ((status = (await stop()).status) === 409) await new Promise(r => setTimeout(r, 20));
+      expect(status).toBe(202);
+      while (!done.length) await new Promise(r => setTimeout(r, 20));
+      expect(done[0]![0]!.run).toMatchObject({ status: 'cancelled', stopped: 'human', closure: 'deferred' });
+    } finally {
+      await served.stop();
+    }
+  });
+
   it('keeps an event that meets a hub edit that does not compile, and runs it once the hub is fixed', async () => {
     const hub = temp('serve-hub');
     for (const [path, text] of Object.entries(files)) {

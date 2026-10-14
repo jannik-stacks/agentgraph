@@ -448,7 +448,8 @@ export type MergeSection = z.infer<typeof MergeSection>;
  * every run's worktree, read-only. `sandbox` sets up the run containers: `setup` is a script in the hub that runs as
  * root on top of the base image, `env` is set in every container, `network` is the `allowlist` egress proxy or `open`,
  * and `memory` and `cpus` replace the default limits. `merge-request.sections` names what the engine adds after a merge
- * request's body, in order: the `closes` line, the `criteria` table, the `checks` line and the `gaps`; `[]` adds nothing.
+ * request's body, in order: the `closes` line, the `criteria` table, the `checks` line and the `gaps`; all but
+ * `criteria` by default, `[]` adds nothing.
  */
 export const Hub = z.strictObject({
   issues: IssuesBackend.default('github'),
@@ -456,8 +457,8 @@ export const Hub = z.strictObject({
     .strictObject({ 'default-branch': z.enum(['human', 'bots']).default('human') })
     .default({ 'default-branch': 'human' }),
   'merge-request': z
-    .strictObject({ sections: z.array(MergeSection).default([...mergeSections]) })
-    .default({ sections: [...mergeSections] }),
+    .strictObject({ sections: z.array(MergeSection).default(['closes', 'checks', 'gaps']) })
+    .default({ sections: ['closes', 'checks', 'gaps'] }),
   deps: z
     .strictObject({
       install: z.string().min(1),
