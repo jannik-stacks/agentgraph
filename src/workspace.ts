@@ -25,8 +25,8 @@ const exists = (path: string) =>
     () => false
   );
 
-/** The branch a job's unfinished work is parked on, beside the job's own `branch`. */
-export const parkedBranch = (branch: string) => `${branch}-parked`;
+/** The branch a run's work is parked on, beside the job's own `branch`, one per run. */
+export const parkedBranch = (branch: string, runId: string) => `${branch}-parked-${runId}`;
 
 /** Where the worktree for a run lives. */
 export const worktreePath = (dataDir: string, runId: string) => join(dataDir, 'work', runId);
@@ -125,8 +125,8 @@ export const workspaces = ({
    * branch moves it forward. With `replace`, the branch is replaced instead, only while it is still at that commit.
    * A merge in progress
    * is committed whole with both parents once no conflicting file keeps a marker; then every file the branch changes
-   * against the merged-in tip must be allowed by `paths`. Work parked for the branch (see `parkedBranch`) that the run
-   * builds on counts as already listed. Reports the commit to `committed` before pushing it; when the
+   * against the merged-in tip must be allowed by `paths`. The latest work parked for the branch (see `parkedBranch`)
+   * that the run builds on counts as already listed. Reports the commit to `committed` before pushing it; when the
    * remote branch is already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it
    * refused.
    */
@@ -165,9 +165,8 @@ export const workspaces = ({
     }
 
     const tip = await run(['rev-parse', '--verify', '--quiet', ref]).catch(() => '');
-    const parked = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${parkedBranch(branch)}`]).catch(
-      () => ''
-    );
+    const kept = ['--list', `${branch}-parked*`, '--merged', 'HEAD', '--sort=-refname', '--format=%(objectname)'];
+    const [parked = ''] = (await run(['branch', ...kept])).split('\n');
     const builds = (commit: string) =>
       run(['merge-base', '--is-ancestor', commit, 'HEAD']).then(
         () => true,
@@ -201,14 +200,14 @@ export const workspaces = ({
       names(await run(['diff', '--name-only', '--no-renames', '-z', `${from}...HEAD`]));
     const changed = await diffed(merging || base);
     if (!changed.length) throw new Error(`branch "${branch}" has no changes`);
-    const since = parked && (await builds(parked)) ? parked : tip;
+    const since = parked || tip;
     const own = since && since !== base && !merging && !replace ? await diffed(since) : changed;
     const unlisted = merging ? undefined : own.find(file => !files.includes(file));
     if (unlisted) throw new Error(`"${unlisted}" changed but is not listed in the proposal`);
     const outside = checkPaths(changed, paths);
     if (outside) throw new Error(outside);
 
-    if (parked && !merging && !replace && (await builds(parked))) {
+    if (parked && !merging && !replace) {
       const floor = tip && (await builds(tip)) ? tip : base;
       const count = (to: string) => run(['rev-list', '--count', `${floor}..${to}`]).then(Number);
       if ((await count('HEAD')) - (await count(parked)) <= 1) {
@@ -221,6 +220,17 @@ export const workspaces = ({
     const lease = replace ? [`--force-with-lease=${ref}:${replace}`] : [];
     await run(['push', '-q', ...lease, origin, `HEAD:${ref}`], await auth(repo));
     return url;
+  };
+
+  /**
+   * Commits everything in a run's worktree, untracked files included, and pushes it to `branch`, without forcing.
+   */
+  const park = async (repo: string, runId: string, branch: string, message: string) => {
+    const run = (args: string[], env?: Record<string, string>) => git(worktreePath(dataDir, runId), args, env);
+    await run(['add', '-A']);
+    await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', message], botEnv);
+    await run(['push', '-q', cloneUrl(repo), `HEAD:refs/heads/${branch}`], await auth(repo));
+    await run(['update-ref', `refs/heads/${branch}`, 'HEAD']);
   };
 
   /**
@@ -258,13 +268,33 @@ export const workspaces = ({
     return git(path, ['merge-base', 'HEAD', target]);
   };
 
-  /** Deletes a run's worktree and prunes it from the mirror. Never throws. */
+  /** Whether a worktree holds work no branch has: uncommitted changes, or commits no ref reaches. */
+  const unkept = async (path: string) =>
+    !!(await git(path, ['status', '--porcelain'])) ||
+    !!(await git(path, ['rev-list', '-n', '1', 'HEAD', '--not', '--glob=refs/*']));
+
+  /**
+   * Deletes a run's worktree and prunes it from the mirror, first parking work no branch has on `bothub/kept-<runId>`
+   * (see `park`). A worktree whose work could not be parked is left in place. Never throws; resolves to the branch it
+   * parked on.
+   */
   const remove = async (repo: string, runId: string) => {
-    await rm(worktreePath(dataDir, runId), { recursive: true, force: true });
+    const path = worktreePath(dataDir, runId);
+    const kept = `bothub/kept-${runId}`;
+    let parked: string | undefined;
+    if (await exists(path))
+      try {
+        if (await unkept(path)) await park(repo, runId, (parked = kept), `bothub: ${runId} (parked)`);
+      } catch (e) {
+        console.error(`kept worktree ${path}: could not park it: ${(e as Error).message}`);
+        return;
+      }
+    await rm(path, { recursive: true, force: true });
     await serial(repo, () => git(mirrorPath(repo), ['worktree', 'prune'])).catch(() => {});
+    return parked;
   };
 
-  return { create, publish, changes, forkPoint, remove };
+  return { create, publish, park, changes, forkPoint, remove };
 };
 
 export type Workspaces = ReturnType<typeof workspaces>;

@@ -796,9 +796,13 @@ describe('parking', { timeout: 20_000 }, () => {
 
   it('parks a blocked job beside its branch, leaving the branch alone', async () => {
     const { origin, result } = await blockedRun();
-    expect(result.run).toMatchObject({ closure: 'blocked', reason: 'the name is unclear', parked: 'bothub/7-parked' });
-    expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
-    expect(git(origin.dir, 'rev-parse', 'bothub/7-parked^')).toBe(origin.main);
+    expect(result.run).toMatchObject({
+      closure: 'blocked',
+      reason: 'the name is unclear',
+      parked: expect.stringMatching(/^bothub\/7-parked-/),
+    });
+    expect(git(origin.dir, 'show', `${result.run.parked}:src/a.ts`)).toBe('a');
+    expect(git(origin.dir, 'rev-parse', `${result.run.parked}^`)).toBe(origin.main);
     expect(git(origin.dir, 'branch', '--list', 'bothub/7')).toBe('');
   });
 
@@ -812,11 +816,15 @@ describe('parking', { timeout: 20_000 }, () => {
     const p = await pipeline({ config, issues, adapters }, origin);
     const result = await Effect.runPromise(runPlanned(planned('parking'), p));
 
-    expect(result.run).toMatchObject({ status: 'skipped', closure: 'deferred', parked: 'bothub/7-parked' });
-    expect(git(origin.dir, 'show', 'bothub/7-parked:src/b.ts')).toBe('b');
+    expect(result.run).toMatchObject({
+      status: 'skipped',
+      closure: 'deferred',
+      parked: expect.stringMatching(/^bothub\/7-parked-/),
+    });
+    expect(git(origin.dir, 'show', `${result.run.parked}:src/b.ts`)).toBe('b');
     const [said] = (await issues.get(7))!.comments;
     expect(said!.body).toMatch(
-      /^triage\/parking was deferred: bot "bot" used its 1 runs .*, the next one frees up at \S+\. Its work so far is parked on `bothub\/7-parked`\./
+      /^triage\/parking was deferred: bot "bot" used its 1 runs .*, the next one frees up at \S+\. Its work so far is parked on `bothub\/7-parked-\S+`\./
     );
   });
 
@@ -932,7 +940,7 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(seen).toHaveLength(2);
     const resume = seen[1]!.prompt.slice(seen[1]!.prompt.indexOf('## Resuming'));
     expect(resume).toContain(`Your earlier run ${result.run.id} stopped before finishing.`);
-    expect(resume).toContain('parked on `bothub/7-parked`');
+    expect(resume).toContain(`parked on \`${result.run.parked}\``);
     expect(resume).toContain('```text\nWhich name should it get?\n```');
     expect(resume).toContain('```text\nCall it short.\n```');
     expect(resume).toContain(`In #${asked!.number}: Short, like the others.`);
@@ -966,10 +974,10 @@ describe('parking', { timeout: 20_000 }, () => {
       stopped: 'human',
       closure: 'deferred',
       reason: 'stopped by a human',
-      parked: 'bothub/7-parked',
+      parked: expect.stringMatching(/^bothub\/7-parked-/),
     });
     expect(stops.size).toBe(0);
-    expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
+    expect(git(origin.dir, 'show', `${result.run.parked}:src/a.ts`)).toBe('a');
     expect((await issues.get(7))!.comments[0]!.body).toContain('was deferred: stopped by a human');
 
     await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
@@ -985,8 +993,13 @@ describe('parking', { timeout: 20_000 }, () => {
     const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, stallMinutes: 0.01 }, origin);
     const result = await Effect.runPromise(runPlanned(planned('parking'), p));
 
-    expect(result.run).toMatchObject({ status: 'failed', stopped: 'infra', restarts: 2, parked: 'bothub/7-parked' });
-    expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
+    expect(result.run).toMatchObject({
+      status: 'failed',
+      stopped: 'infra',
+      restarts: 2,
+      parked: expect.stringMatching(/^bothub\/7-parked-/),
+    });
+    expect(git(origin.dir, 'show', `${result.run.parked}:src/a.ts`)).toBe('a');
     const again = await Effect.runPromise(runPlanned(planned('parking'), p));
     expect(again.run.attempt).toBe(1);
   });
@@ -1057,7 +1070,7 @@ describe('parking', { timeout: 20_000 }, () => {
     const { calls, gh } = fakeGitHub();
     const p = await pipeline({ config, issues: trackedIssues(), gh, adapters });
     const held = await Effect.runPromise(runPlanned(planned('parking'), p));
-    expect(held.run).toMatchObject({ closure: 'blocked', parked: 'bothub/7-parked' });
+    expect(held.run).toMatchObject({ closure: 'blocked', parked: expect.stringMatching(/^bothub\/7-parked-/) });
     down = false;
     const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
 
@@ -1069,15 +1082,68 @@ describe('parking', { timeout: 20_000 }, () => {
     });
   });
 
-  it('leaves work outside the job paths unparked and says why', async () => {
+  it('parks every run on a branch of its own, whatever it closed as, unlisted and untracked files included', async () => {
     const origin = sourceRepo();
-    const { adapters } = fake({ message: asks, work: "fs.writeFileSync('notes.md', 'n')" });
+    const { adapters } = fake(spec =>
+      spec.prompt.includes('## Resuming')
+        ? { message: pushB, work: continueB }
+        : { message: asks, work: `${writeA}; fs.writeFileSync('notes.md', 'n')` }
+    );
     const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters }, origin);
     const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+    const first = git(origin.dir, 'rev-parse', result.run.parked!);
+    const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
 
-    expect(result.run.parked).toBeUndefined();
-    expect(result.run.reason).toMatch(/^the name is unclear; not parked: .*notes\.md/);
-    expect(git(origin.dir, 'branch', '--list', 'bothub/7')).toBe('');
+    expect(result.run.reason).toBe('the name is unclear');
+    expect(git(origin.dir, 'show', `${result.run.parked}:notes.md`)).toBe('n');
+    expect(next.run.status).toBe('succeeded');
+    expect(next.run.parked).toMatch(/^bothub\/7-parked-/);
+    expect(next.run.parked).not.toBe(result.run.parked);
+    expect(git(origin.dir, 'show', `${next.run.parked}:src/b.ts`)).toBe('b');
+    expect(git(origin.dir, 'rev-parse', result.run.parked!)).toBe(first);
+  });
+
+  it('starts a new command from the latest parked run, and from scratch with fresh', async () => {
+    const writeB = "if (!fs.existsSync('src/a.ts')) process.exit(5); fs.writeFileSync('src/b.ts', 'b')";
+    const works = [
+      writeA,
+      writeB,
+      "if (!fs.existsSync('src/b.ts')) process.exit(5)",
+      "if (fs.existsSync('src/a.ts')) process.exit(5)",
+    ];
+    const { seen, adapters } = fake((_spec, call) => ({ message: asks, work: works[call - 1]! }));
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters }, sourceRepo());
+    const command = (id: string, rerun?: 'fresh') =>
+      Effect.runPromise(
+        runPlanned({ ...planned('parking'), ...(rerun && { rerun }) }, { ...p, event: { ...answer, id } })
+      );
+    await command('d1');
+    const second = await command('d2');
+    const third = await command('d3');
+    const fresh = await command('d4', 'fresh');
+
+    expect(seen[2]!.prompt).toContain(`parked on \`${second.run.parked}\``);
+    expect(third.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
+    expect(seen[3]!.prompt).not.toContain('## Resuming');
+    expect(fresh.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
+  });
+
+  it('never deletes a parked branch or a run', async () => {
+    const origin = sourceRepo();
+    const { adapters } = fake({ message: asks, work: writeA });
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters }, origin);
+    const runs: JobResult[] = [];
+    for (const [id, rerun] of [['d1'], ['d2'], ['d3', 'fresh'], ['d4']] as const)
+      runs.push(
+        await Effect.runPromise(
+          runPlanned({ ...planned('parking'), ...(rerun && { rerun }) }, { ...p, event: { ...answer, id } })
+        )
+      );
+
+    const branches = git(origin.dir, 'branch', '--list', 'bothub/7-parked-*', '--format=%(refname:short)');
+    expect(branches.split('\n').sort()).toEqual(runs.map(r => r.run.parked).sort());
+    const stored = (await p.store.list()).map(r => r.id);
+    expect(runs.every(r => stored.includes(r.run.id))).toBe(true);
   });
 
   it('starts clean when nothing is parked', async () => {

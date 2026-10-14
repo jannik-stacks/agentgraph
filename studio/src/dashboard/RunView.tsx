@@ -554,7 +554,7 @@ const FetchedDiff = ({ run }: { run: RunRow }) => {
 const ChangesStep = ({ run }: { run: RunRow }) => {
   const pulls = useAtomValue(live.pulls);
   if (!committed(run)) return null;
-  const branch = run.parked ?? run.brief?.branch;
+  const branch = run.brief?.branch ?? run.parked;
   const pull =
     run.brief?.pr !== undefined
       ? pulls.find(p => p.number === run.brief?.pr)

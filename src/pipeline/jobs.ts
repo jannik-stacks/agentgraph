@@ -246,17 +246,19 @@ const withWorktree = (
 
 /**
  * The latest earlier run of this job on the event's issue, with its outcome, when it stopped unfinished: closed
- * blocked, or deferred with its work parked.
+ * blocked, or with its work parked, and not closed done or handed off. `parked` is the latest work a run parked since
+ * the job last settled, which the next run starts from.
  */
 const unfinished = async (planned: PlannedJob, created: Run, p: Pipeline) => {
   const { repo, number } = p.event;
   if (number === undefined) return;
   const { workflow, job } = planned;
-  const last = (await p.store.runs({ repo, number, workflow, job, check: false })).find(
-    r => r.id !== created.id && (r.status !== 'skipped' || r.parked)
-  );
-  if (!last || (last.closure !== 'blocked' && !last.parked)) return;
-  return { run: last, outcome: await p.store.outcome(last.id) };
+  const runs = (await p.store.runs({ repo, number, workflow, job, check: false })).filter(r => r.id !== created.id);
+  const last = runs.find(r => r.status !== 'skipped' || r.parked);
+  if (!last || proceeds(last.closure) || (last.closure !== 'blocked' && !last.parked)) return;
+  const kept = runs.find(r => r.parked || proceeds(r.closure));
+  const parked = kept && !proceeds(kept.closure) ? kept.parked : undefined;
+  return { run: last, outcome: await p.store.outcome(last.id), ...(parked && { parked }) };
 };
 
 type Unfinished = NonNullable<Awaited<ReturnType<typeof unfinished>>>;
@@ -318,14 +320,14 @@ const lastFailing = async (run: Run | undefined, p: Pipeline): Promise<string> =
  * The prompt section for a job that resumes its unfinished run: what it asked, or why it stopped and what its checks
  * last found, and the answer.
  */
-const resumption = async ({ run, outcome }: Unfinished, planned: PlannedJob, p: Pipeline) => {
+const resumption = async ({ run, outcome, parked }: Unfinished, planned: PlannedJob, p: Pipeline) => {
   const questions = (outcome?.accepted ?? []).flatMap(proposal => (proposal.kind === 'ask' ? [proposal.question] : []));
   const said = await answers(run, questions, planned, p);
   const failing = questions.length ? '' : await lastFailing(run, p);
   return [
     '## Resuming',
-    run.parked
-      ? `Your earlier run ${run.id} stopped before finishing. Its work is parked on \`${run.parked}\` and already in this worktree: continue from it, do not start over.`
+    parked
+      ? `Your earlier run ${run.id} stopped before finishing. Its work is parked on \`${parked}\` and already in this worktree: continue from it, do not start over.`
       : `Your earlier run ${run.id} stopped before finishing.`,
     questions.length
       ? `It asked:\n\n${questions.map(fenced).join('\n\n')}`
@@ -380,37 +382,23 @@ const picked = async (
 };
 
 /**
- * Parks the work of a job that stopped unfinished, blocked or deferred, beside its branch (see `parkedBranch`), so the
- * branch and its merge request only get work that settled, and the next run of the job on the issue resumes from it.
- * Records the parked branch on the run; work the job may not push stays unparked, with the reason.
+ * Parks the final state of a job's worktree, whatever it closed as, on a branch of its own beside the job's branch
+ * (see `parkedBranch`), so no run's work is lost and the next run of the job on the issue resumes from it. Records
+ * the parked branch on the run, or why it could not park in its reason.
  */
-const park = async (
-  result: JobResult,
-  worktree: Worktree,
-  job: Job,
-  target: Target,
-  returns: Return[],
-  p: Pipeline
-) => {
-  const { closure } = result.run;
-  if ((closure !== 'blocked' && closure !== 'deferred') || worktree.merging) return result;
+const park = async (result: JobResult, worktree: Worktree, target: Target, returns: Return[], p: Pipeline) => {
   const { branch } = target;
   if (!branch || !returnKinds(returns).includes('push')) return result;
   try {
     const { files } = await p.workspaces.changes(worktree.id, worktree.base);
     if (!files.length) return result;
-    const parked = parkedBranch(branch);
-    await p.workspaces.publish(p.event.repo, worktree.id, {
-      branch: parked,
-      files,
-      ...(job.paths && { paths: job.paths }),
-      message: `bothub: ${result.job} (parked)`,
-      base: worktree.base,
-    });
+    const parked = parkedBranch(branch, worktree.id);
+    await p.workspaces.park(p.event.repo, worktree.id, parked, `bothub: ${result.job} (parked)`);
     return { ...result, run: await p.store.update(result.run.id, { parked }) };
   } catch (e) {
-    const reason = `${result.run.reason ?? closure}; not parked: ${(e as Error).message}`;
-    return { ...result, run: await p.store.update(result.run.id, { reason }) };
+    const { reason, closure, status } = result.run;
+    const why = `${reason ?? closure ?? status}; not parked: ${(e as Error).message}`;
+    return { ...result, run: await p.store.update(result.run.id, { reason: why }) };
   }
 };
 
@@ -490,7 +478,7 @@ export const runPlanned = (
         Effect.gen(function* () {
           const worktree = yield* Effect.promise(() => picked(started, planned, created, last, handoff, target, p));
           const result = yield* fanned(planned, workflow, job, created, worktree, handoff, p);
-          const parked = yield* Effect.promise(() => park(result, worktree, job, target, returns, p));
+          const parked = yield* Effect.promise(() => park(result, worktree, target, returns, p));
           yield* Effect.promise(() => tellDeferred(parked, p));
           return parked;
         }),
@@ -501,7 +489,7 @@ export const runPlanned = (
         lock: lockOf(target, returns),
         fresh: planned.rerun === 'fresh',
         ...(merge && { merge }),
-        ...(last?.run.parked && { from: last.run.parked }),
+        ...(last?.parked && { from: last.parked }),
         wait: job['timeout-minutes'] ?? defaultMinutes,
       }
     );

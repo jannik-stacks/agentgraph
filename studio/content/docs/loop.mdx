@@ -74,14 +74,18 @@ as the bot wrote them, its merge request text included.
 
 ## Parked work
 
-A job with a `branch` that may `push` and closes as blocked, whether it asked a question, stopped on
-its own or ran out of attempts, or is deferred, for example by its bot's `runs-per-day`, parks its
-work: bothub commits the worktree and pushes it to `<branch>-parked`, and records that branch on the
-run as `parked`. The job's own branch and its merge request only get work whose checks settled.
-Work outside the job's `paths` is not pushed, and the run's reason says why. A deferred job also
+Every run of a job with a `branch` that may `push` parks its work, whatever it closed as: bothub
+commits the whole worktree, untracked files and files outside the job's `paths` included, pushes it
+to a new branch `<branch>-parked-<run id>`, and records that branch on the run as `parked`. Parked
+branches are never moved or deleted, and neither are runs, so every attempt can be read back later.
+Any other worktree bothub removes, such as a check's or one a stopped process left behind, first has
+work no branch holds pushed to `bothub/kept-<run id>`; a worktree it cannot push stays on disk.
+The job's own branch and its merge request only get work whose checks settled. A deferred job also
 comments on the issue with the reason, when a budget frees up, and where its work waits.
 
-The next run of that job on the same issue starts from the parked branch. Its prompt gets a
+When the last run stopped unfinished, because it asked a question, ran out of attempts, stalled or
+was deferred, for example by its bot's `runs-per-day`, the next run of that job on the same issue
+starts from the latest parked branch, unless the command is `/bothub fresh`. The resumed run's prompt gets a
 `## Resuming` section with what the stopped run asked, or why it stopped and what its last failing
 checks found, and what the human answered: the text of the comment that started the run, and
 comments on the `unsure` issues it opened. The checks measure the change from where the branch forked, so the parked work is checked

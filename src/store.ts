@@ -45,7 +45,7 @@ export const self: Owner = { pid: process.pid, token: randomBytes(8).toString('h
 /**
  * One job execution, or a skipped job with its `reason`, persisted as `runs/<id>/run.json`. `closure` says what
  * happened to the work, `stopped` why it ended outside its bot's work, `base` is the commit its worktree started from, `model` the model the harness reported and
- * `approval` the issue a gated job waits on and `parked` the branch a blocked job left its work on.
+ * `approval` the issue a gated job waits on and `parked` the branch its work was parked on.
  */
 export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
   Pick<Extract<AgentEvent, { type: 'end' }>, 'costUsd' | 'turns'> & {
@@ -350,8 +350,8 @@ const unfinished = (run: Run, outcome: Outcome | undefined) =>
 
 /**
  * Marks runs left unfinished by a process that is gone as `interrupted`: still queued or running, or stopped while
- * applying. Removes their worktrees and temporary files and resolves to the runs it marked. Runs whose process may
- * still be alive are left alone.
+ * applying. Removes their worktrees and temporary files, recording the branch their work was parked on as `parked`,
+ * and resolves to the runs it marked. Runs whose process may still be alive are left alone.
  */
 export const reconcile = async (store: Store, workspaces: Pick<Workspaces, 'remove'>, me: Owner = self) => {
   const marked: Run[] = [];
@@ -361,10 +361,9 @@ export const reconcile = async (store: Store, workspaces: Pick<Workspaces, 'remo
       run.status === 'queued' || run.status === 'running'
         ? `the process running it stopped while it was ${run.status}`
         : 'the process running it stopped while applying';
-    marked.push(
-      await store.update(run.id, { status: 'interrupted', error: reason, endedAt: new Date().toISOString() })
-    );
-    await workspaces.remove(run.event.repo, run.id);
+    const parked = await workspaces.remove(run.event.repo, run.id);
+    const ended = { status: 'interrupted', error: reason, endedAt: new Date().toISOString() } as const;
+    marked.push(await store.update(run.id, { ...ended, ...(parked && { parked }) }));
     await rm(store.tmp(run.id), { recursive: true, force: true });
   }
   return marked;
