@@ -1203,3 +1203,49 @@ describe('slicers for the narrow judges', () => {
     expect(found[0]!.hunk).toContain('+const x = 2;');
   });
 });
+
+describe('removed', () => {
+  const found = (before: string, after: string, extra: Record<string, string> = {}) =>
+    items(
+      run('removed.mjs', change({ 'src/a.ts': before, ...extra }, { 'src/a.ts': after }), [], {
+        BOTHUB_HUB: temp('empty'),
+      }).out
+    ).map(i => [i.kind, i.removed]);
+
+  it('names a removed argument, with the hunk that replaces it', () => {
+    const repo = change({ 'src/a.ts': 'send(task, next.summary);\n' }, { 'src/a.ts': 'send(task);\n' });
+    const [item] = items(run('removed.mjs', repo, [], { BOTHUB_HUB: temp('empty') }).out);
+    expect(item).toMatchObject({ kind: 'argument', file: 'src/a.ts', line: 1, removed: ['send(task, next.summary);'] });
+    expect(item!.replacing).toContain('+send(task);');
+  });
+
+  it('names a removed fallback, a removed ternary and a removed export', () => {
+    expect(found('const a = x ?? y;\n', 'const a = x;\n')).toEqual([['branch', ['const a = x ?? y;']]]);
+    expect(found('const a = own.length ? own : roots;\n', 'const a = roots;\n')).toEqual([
+      ['branch', ['const a = own.length ? own : roots;']],
+    ]);
+    expect(found('export const gone = 1;\nexport const kept = 2;\n', 'export const kept = 2;\n')).toEqual([
+      ['export', ['export const gone = 1;']],
+    ]);
+  });
+
+  it('leaves out a line the change adds back elsewhere and an edit that keeps the branch', () => {
+    expect(found('const a = x ?? y;\n', 'const b = 1;\n', { 'src/b.ts': '' })).toEqual([
+      ['branch', ['const a = x ?? y;']],
+    ]);
+    const moved = change(
+      { 'src/a.ts': 'export const f = 1;\n' },
+      { 'src/a.ts': '', 'src/b.ts': 'export const f = 1;\n' }
+    );
+    expect(run('removed.mjs', moved, [], { BOTHUB_HUB: temp('empty') }).out).toBe('');
+    expect(found('const a = x ?? y;\n', 'const a = x ?? z;\n')).toEqual([]);
+  });
+
+  it('ignores tests and comments', () => {
+    const repo = change(
+      { 'src/a.ts': '// a ?? b\n', 'tests/a.test.ts': 'send(a, b.c);\n' },
+      { 'src/a.ts': '', 'tests/a.test.ts': 'send(a);\n' }
+    );
+    expect(run('removed.mjs', repo, [], { BOTHUB_HUB: temp('empty') }).out).toBe('');
+  });
+});
