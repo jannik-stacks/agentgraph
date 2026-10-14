@@ -1,3 +1,4 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { Effect } from 'effect';
@@ -124,6 +125,7 @@ export const pipelineFor = (hub: Hub, config: Config, event: BotEvent): Pipeline
       if (e.type === 'start' || e.type === 'end' || e.type === 'error')
         hub.log(`${run.workflow}/${run.job} ${run.id} ${e.type}${'message' in e ? ` ${e.message}` : ''}`);
     }),
+  onAlert: hub.log,
   onCheck: hub.onCheck ?? ((run, check, verdict) => hub.log(checkLine(run, check, verdict))),
 });
 
@@ -259,9 +261,19 @@ export type ServeOptions = {
   retry?: Pick<WorkerOptions<BotEvent>, 'tries' | 'backoff'>;
 };
 
+/** A log that writes each line with its ISO time to stderr and `<data>/serve.log`. */
+export const stamped = (data: string) => {
+  mkdirSync(data, { recursive: true });
+  return (line: string) => {
+    const stamp = `${new Date().toISOString()} ${line}\n`;
+    process.stderr.write(stamp);
+    appendFileSync(join(data, 'serve.log'), stamp);
+  };
+};
+
 /** The `Hub` for a served hub directory, with its store, worktrees and limiter in `data`. */
 export const servedHub = async (
-  { hub, data, env, log = line => process.stderr.write(`${line}\n`), adapters, launch, concurrency = 4 }: ServeOptions,
+  { hub, data, env, log = stamped(resolve(data)), adapters, launch, concurrency = 4 }: ServeOptions,
   spaces: (root: string) => Workspaces,
   backend: Hub['backend']
 ): Promise<Hub> => {
