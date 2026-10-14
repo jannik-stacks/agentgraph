@@ -318,8 +318,9 @@ describe('compile', () => {
       'checks/tuned.md: no job lists it in "until" or "requires", so it never runs',
       'workflows/w.md: job "a" loops until checks that are all in log mode, so it never repeats',
     ]);
-    const examples = compile(await readHub(hub));
-    expect(examples.ok && examples.warnings).toEqual([]);
+    const examples = ['hub', 'bothub', 'acme-app', 'clarinet'];
+    const compiled = await Promise.all(examples.map(async name => compile(await readHub(join(hub, '..', name)))));
+    expect(compiled.flatMap(example => (example.ok ? example.warnings : example.errors))).toEqual([]);
   });
 
   it('rejects needs cycles', () => {
