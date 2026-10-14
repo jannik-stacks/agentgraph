@@ -3,7 +3,7 @@ import { hubFile } from '../../../../src/config.ts';
 import { type ItemKind, itemKind, itemName, noteKindOf } from '../../../../src/hub-files.ts';
 import { NoteKind } from '../../../../src/schema.ts';
 import { listKindAtom } from '../../state.ts';
-import { Button, Tooltip } from '../../ui.tsx';
+import { Button, heading, Tooltip } from '../../ui.tsx';
 import { ItemList, type Row, RowPreview } from '../ItemList.tsx';
 import { createItemAtom, draftHubAtom, draftsAtom, editItemAtom, parseCached } from './hub-edits.ts';
 import { KindIcon } from '../icons.tsx';
@@ -77,7 +77,7 @@ export const HubItems = () => {
         return (
           <section key={group.kind} className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{group.title}</h3>
+              <h3 className={heading}>{group.title}</h3>
               <span className="text-[11px] text-zinc-400">{group.hint}</span>
               <span className="ml-auto flex gap-1">
                 {group.kind === 'note' ? (

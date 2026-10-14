@@ -22,7 +22,7 @@ import { eventIdAtom, infoAtom, navigateAtom, runIdAtom, runPageAtom } from '../
 import { Icon } from '../studio/icons.tsx';
 import { Link } from '../Providers.tsx';
 import { cx, Disclosure, IconButton, Tooltip } from '../ui.tsx';
-import { Ago, Cost, Elapsed, formatTokens, Io, paneHeader, Running, StatusIcon, useEnter } from './bits.tsx';
+import { Ago, Amount, Cost, Elapsed, formatTokens, Io, paneHeader, Running, StatusIcon, useEnter } from './bits.tsx';
 import { fetchEvents, fetchOutcome, live, pricesAtom, recordKey } from './live.ts';
 import {
   attemptsOf,
@@ -113,6 +113,10 @@ const Step = ({
   );
 };
 
+const Aside = ({ className, children }: { className?: string; children: ReactNode }) => (
+  <li className={cx('flex items-center gap-2 px-2 py-1 text-xs', className ?? 'text-zinc-500')}>{children}</li>
+);
+
 const Row = ({ children }: { children: ReactNode }) => (
   <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
 );
@@ -160,17 +164,15 @@ const ToolLine = memo(function ToolLine({
               tip={`Result: ${tool.resultChars.toLocaleString()} characters, about ${formatTokens(cost.result)} tokens\nRead again by ${tool.carried} later ${tool.carried === 1 ? 'call' : 'calls'}: ${formatTokens(cost.carried)} tokens in all`}
             >
               <span className="inline-flex items-center text-fd-muted-foreground tabular-nums">
-                {formatTokens(cost.carried || cost.result)}
-                <Icon name="in" className="size-3" />
+                <Amount value={cost.carried || cost.result} glyph="in" />
                 {tool.carried > 1 && <span className="ml-0.5">x{tool.carried}</span>}
               </span>
             </Tooltip>
             <Tooltip
               tip={`Arguments: ${tool.argChars.toLocaleString()} characters, about ${formatTokens(cost.args)} tokens`}
             >
-              <span className="inline-flex items-center text-fd-muted-foreground tabular-nums">
-                {formatTokens(cost.args)}
-                <Icon name="out" className="size-3" />
+              <span className="text-fd-muted-foreground tabular-nums">
+                <Amount value={cost.args} glyph="out" />
               </span>
             </Tooltip>
             {cost.estimated !== undefined && (
@@ -336,26 +338,25 @@ const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord
   return (
     <ul className="py-0.5">
       {start?.model && start.model !== run.model && (
-        <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
+        <Aside>
           <Tooltip tip="Model the harness reported">
             <Icon name="model" className="size-3" />
           </Tooltip>
           <span>{start.model}</span>
-        </li>
+        </Aside>
       )}
       {first && (
-        <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
+        <Aside>
           <Tooltip tip="Setup: the first call's input, system prompt, preloaded notes, task and tool definitions">
             <span className="inline-flex items-center gap-1.5">
               <Icon name="file" className="size-3 text-zinc-400" />
               setup
-              <span className="inline-flex items-center text-fd-muted-foreground tabular-nums">
-                {formatTokens(first.inputTokens)}
-                <Icon name="in" className="size-3" />
+              <span className="text-fd-muted-foreground tabular-nums">
+                <Amount value={first.inputTokens} glyph="in" />
               </span>
             </span>
           </Tooltip>
-        </li>
+        </Aside>
       )}
       {recalls.length > 0 && (
         <Step id={`${run.id}:recalled`} auto={false} head={<RecalledHead recalls={recalls} />}>
@@ -379,21 +380,21 @@ const Transcript = ({ run, records, price }: { run: RunRow; records: EventRecord
       ))}
       {live && records.length > 0 && <Working run={run} records={records} />}
       {errors.map((message, i) => (
-        <li key={i} className="px-2 py-1 text-xs text-red-600 dark:text-red-400">
+        <Aside key={i} className="text-red-600 dark:text-red-400">
           {message}
-        </li>
+        </Aside>
       ))}
       {end && (!end.ok || end.turns !== undefined) && (
-        <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
+        <Aside>
           {!end.ok && <StatusIcon status="failed" tip="The harness failed" />}
           {end.ok ? `finished after ${end.turns} turns` : 'the harness failed'}
-        </li>
+        </Aside>
       )}
       {!records.length && (
-        <li className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500">
+        <Aside>
           {live && <StatusIcon status={run.status} className="size-3" />}
           {live ? 'Waiting for the first event.' : 'No events.'}
-        </li>
+        </Aside>
       )}
     </ul>
   );

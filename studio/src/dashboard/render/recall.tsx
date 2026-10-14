@@ -2,7 +2,7 @@ import type { EventRecord } from '../../../../src/store.ts';
 import type { AgentEvent } from '../../../../src/types.ts';
 import { Icon, KindIcon } from '../../studio/icons.tsx';
 import { Tooltip } from '../../ui.tsx';
-import { formatTokens } from '../bits.tsx';
+import { Amount } from '../bits.tsx';
 
 type Recall = Extract<AgentEvent, { type: 'recall' }>;
 type Item = Recall['items'][number];
@@ -53,9 +53,8 @@ const kindTip = (item: Item) =>
 
 const Tokens = ({ n, tip }: { n: number; tip: string }) => (
   <Tooltip tip={tip}>
-    <span className="inline-flex items-center text-fd-muted-foreground tabular-nums">
-      {formatTokens(n)}
-      <Icon name="in" className="size-3" />
+    <span className="text-fd-muted-foreground tabular-nums">
+      <Amount value={n} glyph="in" />
     </span>
   </Tooltip>
 );

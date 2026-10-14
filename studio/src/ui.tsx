@@ -112,9 +112,11 @@ export const Pre = ({ children }: { children: ReactNode }) => (
   </pre>
 );
 
+export const heading = 'text-xs font-semibold uppercase tracking-wide text-zinc-500';
+
 export const Section = ({ title, children }: { title: string; children: ReactNode }) => (
   <section className="space-y-2">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h3>
+    <h3 className={heading}>{title}</h3>
     {children}
   </section>
 );

@@ -320,7 +320,7 @@ export const LastActivity = ({ activity, className }: { activity: Activity | und
   );
 };
 
-const Amount = ({ value, glyph }: { value: number; glyph: 'in' | 'out' }) => (
+export const Amount = ({ value, glyph }: { value: number; glyph: 'in' | 'out' }) => (
   <span className="inline-flex items-center">
     <Num value={value} format={formatTokens} />
     <Icon name={glyph} className="size-3" />

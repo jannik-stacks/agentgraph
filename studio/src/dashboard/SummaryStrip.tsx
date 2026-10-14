@@ -5,7 +5,7 @@ import { sum } from '../../../src/usage.ts';
 import { sinceFilterAtom, sortAtom, statusFilterAtom } from '../state.ts';
 import { Icon } from '../studio/icons.tsx';
 import { cx, Tooltip } from '../ui.tsx';
-import { age, Dot, formatTokens, formatUsd, Num } from './bits.tsx';
+import { age, Amount, Dot, formatUsd, Num } from './bits.tsx';
 import { pricesAtom } from './live.ts';
 import { costOfRuns, isFailed, isLive, type Prices } from './model.ts';
 
@@ -144,14 +144,8 @@ export const SummaryStrip = ({ runs: rows }: { runs: RunRow[] }) => {
           )}
         >
           <span className="inline-flex items-center gap-2 text-fd-muted-foreground">
-            <span className="inline-flex items-center">
-              <Num value={s.tally.in} format={formatTokens} />
-              <Icon name="in" className="size-3" />
-            </span>
-            <span className="inline-flex items-center">
-              <Num value={s.tally.out + s.tally.reasoning} format={formatTokens} />
-              <Icon name="out" className="size-3" />
-            </span>
+            <Amount value={s.tally.in} glyph="in" />
+            <Amount value={s.tally.out + s.tally.reasoning} glyph="out" />
           </span>
           <Num value={Math.max(estimated, s.cost.billed)} format={formatUsd} />
           <Spark values={s.hourly} />

@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { accepted } from '../../../src/preload.ts';
 import { NoteKind } from '../../../src/schema.ts';
 import { editPathAtom, hrefAtom, navigateAtom } from '../state.ts';
-import { Badge, Chip, cx, Muted } from '../ui.tsx';
+import { Badge, Chip, cx, heading, Muted } from '../ui.tsx';
 import { ChangesTray } from './edit/ChangesTray.tsx';
 import { createItemAtom } from './edit/hub-edits.ts';
 import { ItemEditor } from './edit/ItemEditor.tsx';
@@ -43,7 +43,7 @@ export const NotesView = () => {
             <section key={kind} className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <KindIcon kind="note" />
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{kind}</h2>
+                <h2 className={heading}>{kind}</h2>
                 <span className="text-[11px] text-zinc-400">{notes.length}</span>
                 <button
                   type="button"

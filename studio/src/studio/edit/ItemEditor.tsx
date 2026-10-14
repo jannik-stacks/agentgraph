@@ -15,7 +15,7 @@ import { modelNames } from '../../../../src/prices.ts';
 import { Harness, HubTool, NoteKind } from '../../../../src/schema.ts';
 import type { GraphModel } from '../../graph-model.ts';
 import { filesAtom, hrefAtom, navigateAtom, selectedNodeAtom } from '../../state.ts';
-import { Button, cx, Segmented, useCommittedText } from '../../ui.tsx';
+import { Button, cx, heading, Segmented, useCommittedText } from '../../ui.tsx';
 import { nodeTarget, refId } from '../hub-refs.ts';
 import { type IconKind, KindIcon } from '../icons.tsx';
 import {
@@ -83,7 +83,7 @@ const BodyEditor = ({ label, body, onChange }: { label: string; body: string; on
   return (
     <section className="space-y-1.5">
       <div className="flex items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</h3>
+        <h3 className={heading}>{label}</h3>
         <Segmented options={modes} value={mode} onChange={setMode} className="ml-auto text-xs capitalize" />
       </div>
       {preview ? (
