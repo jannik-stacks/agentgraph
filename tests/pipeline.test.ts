@@ -1762,6 +1762,14 @@ describe('over', () => {
     ]);
   });
 
+  it('never marks a check red on base when the change touches no files', async () => {
+    const { result } = await run(
+      hubWith([{ name: 'brief', data: { type: 'script', run: 'echo FAIL tests/old.test.ts; exit 1', mode: 'block' } }]),
+      () => ({ message: bothub([{ kind: 'reply', body: 'x' }]) })
+    );
+    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: true, pass: false, findings: 'FAIL tests/old.test.ts' });
+  });
+
   const blocking = (name: string, run: string) => ({ name, data: { type: 'script', run, mode: 'block' } });
   const baseIssues = async (issues: ReturnType<typeof trackedIssues>) =>
     (await issues.list()).filter(issue => issue.title.endsWith('fails on the base branch'));

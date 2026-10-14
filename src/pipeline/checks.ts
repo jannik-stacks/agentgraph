@@ -430,7 +430,7 @@ const fileRedBase = async (check: string, base: string, judged: Judged, p: Pipel
 
 /**
  * Marks a failing gating script check "red on base" when it fails on the change's base too and names files, each one
- * the base run names too and the change does not touch. Such a check does not gate, so it costs no attempt and never
+ * the base run names too and the change does not touch. A change without files is never red on base. Such a check does not gate, so it costs no attempt and never
  * reaches the bot. Each check runs once per base commit across events, in a worktree at that commit, and a failure
  * there is filed as an issue (see `fileRedBase`).
  */
@@ -466,6 +466,7 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
   };
   try {
     const { files } = await p.workspaces.changes(a.worktree, a.base);
+    if (!files.length) return verdicts;
     return await Promise.all(
       verdicts.map(async v => {
         const check = scriptOf(v);
