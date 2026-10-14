@@ -10,7 +10,6 @@ model_list:
   - { model_name: fast, litellm_params: *local }
   - { model_name: smart, litellm_params: *local }
   - { model_name: writer, litellm_params: *local }
-  - { model_name: review, litellm_params: *local }
   - { model_name: luna, litellm_params: *local }
 
 litellm_settings:

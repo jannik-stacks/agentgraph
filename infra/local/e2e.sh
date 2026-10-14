@@ -4,8 +4,7 @@
 #
 #   e2e.sh <data-dir> [source-repo]     source-repo defaults to the acme-app checkout above bothub
 #
-# The copy runs triage on opencode with smart, implement on opencode with smart and review on opencode
-# with review (which falls back to smart without an Anthropic key), with at most two attempts and
+# The copy runs triage, implement and review on opencode with smart, with at most two attempts and
 # short timeouts. The hub's checks install the kit's dependencies inside the sandbox themselves.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
@@ -29,7 +28,7 @@ set_field "$hub/bots/triager.md" model smart
 set_field "$hub/bots/implementor.md" harness opencode
 set_field "$hub/bots/implementor.md" model smart
 set_field "$hub/bots/reviewer.md" harness opencode
-set_field "$hub/bots/reviewer.md" model review
+set_field "$hub/bots/reviewer.md" model smart
 sed -i.bak 's/^      max: 3$/      max: 1/; s/timeout-minutes: 45/timeout-minutes: 15/; s/timeout-minutes: 20/timeout-minutes: 8/; s/timeout-minutes: 10/timeout-minutes: 6/' \
   "$hub/workflows/issue.md" && rm -f "$hub/workflows/issue.md.bak"
 

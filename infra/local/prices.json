@@ -2,7 +2,6 @@
   "aliases": {
     "smart": "chatgpt/gpt-6.1-sol",
     "writer": "chatgpt/gpt-6.1-sol",
-    "review": "anthropic/claude-opus-5-5",
     "luna": "chatgpt/gpt-6-luna",
     "fast": "ollama_chat/qwen3.5:4b",
     "local": "ollama_chat/qwen3.5:4b"

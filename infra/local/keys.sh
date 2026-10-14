@@ -16,10 +16,10 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 
 # bot | allowed aliases | USD per day | requests per minute | tokens per minute
 # Subscription models report $0 spend, so for smart, writer and luna the rpm/tpm limits and
-# bothub's runs-per-day budget are what actually bite; the dollar budget covers review.
+# bothub's runs-per-day budget are what actually bite; the dollar budget covers API-key models.
 BOTS=(
   "implementor   smart,writer,fast,local,luna   10  30  400000"
-  "reviewer      review,smart,fast,local,luna    5  20  300000"
+  "reviewer      smart,fast,local,luna           5  20  300000"
   "triager       smart,fast,local,luna            1  20  100000"
   "checker       fast,local,luna                  1  30  200000"
   "claim-checker fast,local,luna                  1  30  200000"

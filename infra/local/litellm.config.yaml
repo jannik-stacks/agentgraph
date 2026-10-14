@@ -24,13 +24,6 @@ model_list:
     litellm_params:
       model: chatgpt/gpt-6-luna
 
-  # A different model family, so review does not share the author's blind spots. Without an
-  # Anthropic key the call fails and the fallback below routes it to smart.
-  - model_name: review
-    litellm_params:
-      model: os.environ/BOTHUB_MODEL_REVIEW
-      api_key: os.environ/ANTHROPIC_API_KEY
-
   # Local models through Ollama. qwen3.5 thinks by default; think: false keeps replies short.
   - model_name: fast
     litellm_params:
@@ -47,7 +40,6 @@ model_list:
 litellm_settings:
   drop_params: true
   request_timeout: 600
-  fallbacks: [{ review: [smart] }]
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
