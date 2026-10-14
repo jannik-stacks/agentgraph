@@ -55,7 +55,9 @@ Script checks always run again.
 `max` counts retries after the first attempt and defaults to 2. The count runs per issue across
 runs of the job: a rerun of the same event, such as after a restart, or a human comment before the
 limit goes on from the last attempt. It starts over after work that closed done or handed off, and
-when a human comments after a run that used every attempt. The loop also stops once the attempts
+when a human comments after a run that used every attempt. An attempt that ended outside the
+bot's work does not count: out of turns, stalled, a provider or sandbox fault, a fault that
+outlasted its restarts, or stopped by a human. The loop also stops once the attempts
 and checks have spent the bot's `usd-per-run`. When `block` checks still fail after the last one, the run is marked failed, every proposal except `ask` is held back, and bothub adds
 an `ask` that names the failing checks and the run, and quotes each check's findings, cut to a
 readable length. Every attempt is stored

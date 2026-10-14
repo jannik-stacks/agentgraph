@@ -9,7 +9,7 @@ import { roles, type Issues } from '../issues.ts';
 import { approved, extractProposals, validate } from '../outputs.ts';
 import { runScript, type ScriptResult } from '../runner.ts';
 import type { Closure, Job, ProposalKind, Return } from '../schema.ts';
-import type { Run, Store } from '../store.ts';
+import type { Run, Stopped, Store } from '../store.ts';
 import type { BotEvent } from '../types.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
@@ -261,10 +261,13 @@ const unfinished = async (planned: PlannedJob, created: Run, p: Pipeline) => {
 
 type Unfinished = NonNullable<Awaited<ReturnType<typeof unfinished>>>;
 
+const refunded: Stopped[] = ['turns', 'stalled', 'provider', 'sandbox', 'infra', 'human'];
+
 /**
  * The attempts the job already used on the event's issue, which `until.max` goes on counting: none when it starts over
  * or fans out, after work that closed done or handed off, or for a human's new command after a run that used them all.
- * An attempt that ran out of turns does not count.
+ * An attempt that ended outside its bot's work (out of turns, a stall, a provider or sandbox fault, a fault that
+ * outlasted its restarts, or a human's stop) does not count.
  */
 const usedAttempts = async (planned: PlannedJob, job: Extract<Job, { type: 'bot' }>, p: Pipeline) => {
   const { repo, number, id, actor } = p.event;
@@ -274,7 +277,7 @@ const usedAttempts = async (planned: PlannedJob, job: Extract<Job, { type: 'bot'
   const last = runs.find(r => r.attempt !== undefined);
   if (!last?.attempt || proceeds(last.closure)) return 0;
   const human = last.event.id !== id && !actor.login.endsWith('[bot]');
-  const used = last.stopped === 'turns' ? last.attempt - 1 : last.attempt;
+  const used = last.stopped && refunded.includes(last.stopped) ? last.attempt - 1 : last.attempt;
   return human && last.attempt > job.until.max ? 0 : used;
 };
 

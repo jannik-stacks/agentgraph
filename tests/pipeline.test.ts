@@ -977,14 +977,18 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
   });
 
-  it('parks the work of a run that stalled through its restarts', async () => {
+  it('parks the work of a run that stalled through its restarts and charges it no attempt', async () => {
     const origin = sourceRepo();
-    const { adapters } = fake({ message: asks, work: hang });
+    const { adapters } = fake((_spec, call) =>
+      call > 3 ? { message: pushB, work: continueB } : { message: asks, work: hang }
+    );
     const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, stallMinutes: 0.01 }, origin);
     const result = await Effect.runPromise(runPlanned(planned('parking'), p));
 
     expect(result.run).toMatchObject({ status: 'failed', stopped: 'infra', restarts: 2, parked: 'bothub/7-parked' });
     expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
+    const again = await Effect.runPromise(runPlanned(planned('parking'), p));
+    expect(again.run.attempt).toBe(1);
   });
 
   it('folds the parked commit into the commit that lands on the branch', async () => {
