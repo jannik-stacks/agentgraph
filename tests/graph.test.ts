@@ -16,7 +16,7 @@ describe('hubGraph', () => {
       'job:issue/implement warn,bothub/{issue}',
       'job:issue/review log',
       'bot:implementor opencode,writer',
-      'bot:reviewer pi,review',
+      'bot:reviewer pi,smart',
       'skill:implement',
       'skill:review-file',
       'skill:review',
