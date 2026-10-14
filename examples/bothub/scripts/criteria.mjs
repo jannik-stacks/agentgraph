@@ -1,7 +1,7 @@
-// One JSON line per acceptance criterion in the triage brief, carrying the task, the criterion, the test that proves
-// it with its code, the change to the src/, studio/src/ and hub script files that test file names (the whole change
-// when it names none) and the brief's out-of-scope list, so a reviewer judges one criterion against its own code
-// without fetching anything, and a criterion whose files did not change keeps its earlier verdict.
+// One JSON line per acceptance criterion in the triage brief, carrying the task, the criterion and the others, the test
+// that proves it with its code, the change to the src/, studio/src/ and hub script files that test file names (the
+// whole change when it names none) and the brief's out-of-scope list, so a reviewer judges one criterion against its
+// own code without fetching anything, and a criterion whose files did not change keeps its earlier verdict.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
@@ -58,6 +58,7 @@ if (text) {
         path: `criterion ${n}`,
         task,
         criterion,
+        ...(criteria.length > 1 && { 'other criteria': criteria.filter(c => c.n !== n).map(c => c.text) }),
         test: `it('${title}') in ${file}`,
         ...(code && { 'test code': code }),
         change: clip(changeText(sha, own.length ? own : roots, 'function')),

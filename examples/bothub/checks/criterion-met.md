@@ -8,7 +8,7 @@ over:
   max: 5
 paths: [src/**, studio/src/**, examples/bothub/scripts/**]
 mode: block
-human: label id hole shipped twice in dogfood round 2, safety-checks item 2 and narrow-bots W1; design folded in, label id hole in dogfood round 2 run 2 review, safety-checks item 2 edge-cases judge; fails only on the criterion's own behaviour after the round 7 nitpick on Number() rounding; out of scope from dogfood round 6 (T4); reachable inputs only from dogfood x (X2); hub scripts from dogfood round 9 (T3); only the files its test names and 8 turns from the btc replay token review; holds the change after dogfood round 15, where a seen criterion FAIL shipped under Known gaps (K2); a FAIL quotes the criterion's words with an input they cover, other edges go to Known gaps, after four attempts each chased a deeper edge in round 19 (item 80)
+human: label id hole shipped twice in dogfood round 2, safety-checks item 2 and narrow-bots W1; design folded in, label id hole in dogfood round 2 run 2 review, safety-checks item 2 edge-cases judge; fails only on the criterion's own behaviour after the round 7 nitpick on Number() rounding; out of scope from dogfood round 6 (T4); reachable inputs only from dogfood x (X2); hub scripts from dogfood round 9 (T3); only the files its test names and 8 turns from the btc replay token review; holds the change after dogfood round 15, where a seen criterion FAIL shipped under Known gaps (K2); a FAIL quotes the criterion's words with an input they cover, other edges go to Known gaps, after four attempts each chased a deeper edge in round 19 (item 80); a test asserting the opposite of a row fails after round 20 passed one that kept "Blocking" on a passing check (item 90)
 ---
 The item is the task, one acceptance criterion, the test that proves it, the change to the files under
 `src/`, `studio/src/` and `examples/bothub/scripts/` that its test file names, and what the brief leaves
@@ -18,7 +18,9 @@ Look for one concrete sequence of events within what the criterion and the task 
 the changed code does not do what the criterion says: an add, a remove, a re-add by a human through
 the tracker, a restart, an empty or repeated input. Follow every code path that changes the state
 the criterion is about, each changed function in full, and check each one keeps the invariant the
-criterion needs.
+criterion needs. Read the test code too: an assertion that expects what this criterion or one of the
+other criteria rules out, such as a wording a row says must never appear, is a FAIL on its own;
+quote the assertion and the row.
 
 FAIL only when the stated behaviour is missing or wrong: quote the words of the criterion the
 sequence breaks, give a concrete input those words cover, and the line it goes wrong on. The

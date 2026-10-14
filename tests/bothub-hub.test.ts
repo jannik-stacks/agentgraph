@@ -1072,6 +1072,7 @@ describe('slicers for the narrow judges', () => {
     expect(found[1]).toMatchObject({
       task: 'Replay labels added while serve was stopped, once each.',
       criterion: 'A label removed and added again by hand runs again.',
+      'other criteria': ['A label added while serve was stopped runs once after a restart.', 'Comments still replay.'],
       'out of scope': ['GitHub polling.'],
     });
     expect(found[1]!.change).toContain('+export const labelId');
