@@ -414,18 +414,26 @@ export const holds = (verdict: Verdict, p: Pick<Pipeline, 'config'>) => p.config
 
 const gapLength = 200;
 
+/** Shortens a gap to a sentence or word end within `gapLength`, marking the cut. */
+const clip = (text: string) => {
+  if (text.length <= gapLength) return text;
+  const head = text.slice(0, gapLength);
+  const end = Math.max(head.lastIndexOf('. '), head.lastIndexOf('; '));
+  return end > gapLength / 2 ? head.slice(0, end + 1) : `${head.slice(0, head.lastIndexOf(' '))} …`;
+};
+
 /** The gaps a passing check named: findings lines that start with `Known gap:`. */
 const namedGaps = ({ check, pass, findings = '' }: Verdict) =>
-  pass ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(([, gap]) => `- ${check}: ${gap}`) : [];
+  pass ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(([, gap = '']) => `- ${check}: ${clip(gap)}`) : [];
 
 const gapsSection = ({ checks, config }: SectionContext) => {
   const gaps = checks.filter(v => !v.pass && !v.skipped && !v.blocked && (!v.gating || !holds(v, { config })));
-  const named = checks.flatMap(namedGaps).map(l => l.slice(0, gapLength + 2));
+  const named = checks.flatMap(namedGaps);
   if (!gaps.length && !named.length) return;
   const line = ({ check, findings = '' }: Verdict) => {
     const [first = 'failed without output', next] = findings.split('\n').filter(l => l.trim());
     const finding = first.endsWith(':') && next ? `${first} ${next.replace(/^\s*[-*]\s*/, '')}` : first;
-    return `- ${check}: ${finding.replace(/^\s*[-*]\s*/, '').slice(0, gapLength)}`;
+    return `- ${check}: ${clip(finding.replace(/^\s*[-*]\s*/, ''))}`;
   };
   return `## Known gaps\n\n${[...gaps.map(line), ...named].join('\n')}`;
 };

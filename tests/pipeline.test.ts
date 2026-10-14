@@ -2036,6 +2036,16 @@ describe('over', () => {
     expect(withSections('Part of #7', { checks: verdicts.slice(2), config }, ['gaps'])).toBe('Part of #7');
   });
 
+  it('cuts a long gap at a sentence or word end, never mid-word', () => {
+    const config = hubWith([{ name: 'style', data: { type: 'script', run: 'true', mode: 'warn' } }]);
+    const sentence = `${'word '.repeat(30).trim()}. ${'tail '.repeat(30)}`;
+    const words = 'abcdefghij '.repeat(30);
+    const gap = (findings: string) =>
+      withSections('', { checks: [{ check: 'style', gating: true, pass: false, findings }], config }, ['gaps']);
+    expect(gap(sentence)).toMatch(/word\.$/);
+    expect(gap(words)).toMatch(/abcdefghij …$/);
+  });
+
   it('renders the engine sections after the bot text, closes first', () => {
     const config = hubWith([
       { name: 'tests', data: { type: 'script', run: 'true', mode: 'block' } },
