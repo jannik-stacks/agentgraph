@@ -33,9 +33,10 @@ touch the same input or function, add a criterion for how they interact.
 
 Brief the cause where it lives. When the issue names one harness, check or caller, grep for the
 others on the same path and fix the shared layer. When the issue offers alternatives, pick the one
-that catches the bug it cites, and make criterion 1 replay that bug. Anything the change removes or
-bypasses, such as a fallback, a config option or a carried summary, gets a `still` criterion or an
-`## Out of scope` line saying it is dropped on purpose.
+that catches the bug it cites, and make criterion 1 replay that bug. Existing behavior the change
+touches, such as a fallback, a config option or a carried summary, stays and gets a `still`
+criterion; drop it only when the issue says to. When the issue asks for something to reach every
+check, caller or harness, the task covers all of them, not the first one.
 
 Match the criteria to what the issue asks: one per item of its `Done when` list, and add one only
 when the issue clearly needs it. A one-line fix gets one criterion and one small test.
@@ -44,7 +45,7 @@ Name under `## Files` only what the `Done when` rows need, about two files outsi
 row; the triage-width check flags more.
 
 When the issue is several tasks, because it needs more than five criteria or more files than the
-cap below, brief the first one. It delivers at least one row of the issue's "Done when" end to end
+cap below, brief the first one. It delivers what the issue's title asks for and at least one row of the issue's "Done when" end to end
 through the code path that exists today, so its criteria test that path; a new module only later
 tasks would call is not a first task. Say in the task that it is the first of several, and list each
 remaining task under `## Out of scope` as a line starting with `Follow-up:`.
