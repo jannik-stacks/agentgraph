@@ -85,6 +85,48 @@ body {
   }
 }
 
+@property --bhm-fade-start {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --bhm-fade-end {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes bhm-fade-start {
+  to {
+    --bhm-fade-start: 2.5rem;
+  }
+}
+
+@keyframes bhm-fade-end {
+  from {
+    --bhm-fade-end: 2.5rem;
+  }
+}
+
+/* Fades the edge of a scroll box that still has content past it, growing and shrinking with the scroll. */
+.bhm-scroll-fade {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black var(--bhm-fade-start),
+    black calc(100% - var(--bhm-fade-end)),
+    transparent
+  );
+  animation:
+    bhm-fade-start linear both,
+    bhm-fade-end linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range:
+    0 2.5rem,
+    calc(100% - 2.5rem) 100%;
+}
+
 :root {
   --bhm-code-bg: color-mix(in oklab, var(--color-zinc-50) 70%, white);
 }

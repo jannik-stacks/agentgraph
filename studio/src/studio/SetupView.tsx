@@ -61,7 +61,7 @@ export const SetupView = () => {
   const file = files.find(f => fileKey(f) === selected) ?? files[0];
   return (
     <div className="flex h-full">
-      <nav className="w-72 shrink-0 overflow-y-auto border-r border-zinc-200 p-3 dark:border-zinc-800">
+      <nav className="bhm-scroll-fade w-72 shrink-0 overflow-y-auto border-r border-zinc-200 p-3 dark:border-zinc-800">
         {roots.map(root => (
           <Tree key={root.name} dir={root} selected={file ? fileKey(file) : null} onSelect={select} />
         ))}

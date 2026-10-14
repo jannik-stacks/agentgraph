@@ -6,7 +6,7 @@ import { eventIdAtom, runIdAtom, runPageAtom } from '../state.ts';
 import { Icon, KindIcon } from '../studio/icons.tsx';
 import { cx, IconButton, Muted } from '../ui.tsx';
 import { Cost, Elapsed, Io, LastActivity, paneHeader, Running, StatusIcon } from './bits.tsx';
-import { EventLine } from './Groups.tsx';
+import { EventLine, EventLinks } from './Groups.tsx';
 import { fetchOutcome, live, pricesAtom } from './live.ts';
 import { checksOf, costOfRuns, groupRuns, isLive, type JobNode } from './model.ts';
 import { FindingsLine, Text, VerdictView } from './render/index.tsx';
@@ -244,9 +244,12 @@ export const EventView = ({
           </IconButton>
         )}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
+      <div className="bhm-scroll-fade min-h-0 flex-1 overflow-y-auto py-1">
+        <div className="mx-3 mt-1 flex flex-wrap items-center gap-1 empty:hidden">
+          <EventLinks group={group} />
+        </div>
         {body && (
-          <div className="mx-3 my-2 max-h-48 overflow-y-auto border-l-2 border-zinc-200 pl-3 dark:border-zinc-800">
+          <div className="bhm-scroll-fade mx-3 my-2 max-h-48 overflow-y-auto border-l-2 border-zinc-200 pl-3 dark:border-zinc-800">
             <Text text={body} />
           </div>
         )}

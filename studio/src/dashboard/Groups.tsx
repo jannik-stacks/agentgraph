@@ -125,8 +125,19 @@ const PullChips = ({ event }: { event: string }) => {
   ));
 };
 
-/** The header line of an event: status, trigger, issue, title, actor, links, totals and age. */
-export const EventLine = ({ group, links = true }: { group: Group; links?: boolean }) => {
+/** The runs an event started or was started by, and the merge requests its runs opened. */
+export const EventLinks = ({ group }: { group: Group }) => (
+  <>
+    {group.causedBy && <LinkChip link={group.causedBy} direction="from" />}
+    {group.caused.map(link => (
+      <LinkChip key={link.event} link={link} direction="to" />
+    ))}
+    <PullChips event={group.event.id} />
+  </>
+);
+
+/** The header line of an event: status, trigger, issue, title, actor, totals and age. */
+export const EventLine = ({ group }: { group: Group }) => {
   const prices = useAtomValue(pricesAtom);
   const { event } = group;
   const cost = costOfRuns(group.runs, prices);
@@ -143,13 +154,10 @@ export const EventLine = ({ group, links = true }: { group: Group; links?: boole
       <Tooltip tip={`Triggered by ${event.trigger}${event.action ? ` ${event.action}` : ''}`}>
         <Icon name={triggerGlyph(event)} className="size-3.5 text-zinc-500" />
       </Tooltip>
-      <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-        {event.number !== undefined && <span className="text-zinc-500">#{event.number}</span>}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        {event.number !== undefined && <span className="shrink-0 text-zinc-500">#{event.number}</span>}
         <span className="truncate font-medium">{eventTitle(event)}</span>
         <span className="shrink-0 text-xs text-zinc-500">{event.actor.login}</span>
-        {links && group.causedBy && <LinkChip link={group.causedBy} direction="from" />}
-        {links && group.caused.map(link => <LinkChip key={link.event} link={link} direction="to" />)}
-        {links && <PullChips event={event.id} />}
       </span>
       <Io tally={group.tally} className="shrink-0 text-xs" />
       <Cost billed={cost.billed} estimated={cost.estimated} tally={group.tally} className="w-12 justify-end text-xs" />
@@ -213,6 +221,7 @@ export const GroupRow = memo(function GroupRow({
       >
         <EventLine group={group} />
         <div className="mt-1 flex flex-wrap items-center gap-1 pl-[2.75rem]">
+          <EventLinks group={group} />
           {shown.map((job, i) => (
             <Node key={job.key} job={job} after={i > 0} run={run} />
           ))}

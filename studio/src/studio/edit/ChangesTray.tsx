@@ -119,7 +119,7 @@ export const ChangesTray = () => {
         )}
       </div>
       {open && changes.length > 0 && (
-        <div className="max-h-[42vh] space-y-2 overflow-y-auto px-3 pb-3">
+        <div className="bhm-scroll-fade max-h-[42vh] space-y-2 overflow-y-auto px-3 pb-3">
           {errors.length > 0 && (
             <ul className="space-y-1 text-xs">
               {errors.map((e, i) => (

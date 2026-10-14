@@ -976,7 +976,7 @@ export const RunView = ({
           const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - pinnedSlack;
           if (atBottom !== pinned) setPinned(atBottom);
         }}
-        className="min-h-0 flex-1 overflow-y-auto py-1"
+        className="bhm-scroll-fade min-h-0 flex-1 overflow-y-auto py-1"
       >
         <Steps value={steps}>
           {run.check ? (

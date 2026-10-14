@@ -262,7 +262,7 @@ const PullColumns = ({
   };
   return (
     <div className="flex items-start gap-4 px-4 py-3">
-      <aside className="sticky top-3 hidden max-h-[calc(100dvh-6rem)] w-64 shrink-0 space-y-4 overflow-y-auto md:block">
+      <aside className="bhm-scroll-fade sticky top-3 hidden max-h-[calc(100dvh-6rem)] w-64 shrink-0 space-y-4 overflow-y-auto md:block">
         {files && <FileTree files={files} onPick={pick} />}
         <RunLinks pull={pull} />
       </aside>
