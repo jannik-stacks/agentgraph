@@ -1770,6 +1770,12 @@ describe('over', () => {
     expect(result.outcome?.checks?.[0]).toMatchObject({ gating: true, pass: false, findings: 'FAIL tests/old.test.ts' });
   });
 
+  it('closes blocked, not done, a job whose check is red on base and that proposed no change', async () => {
+    const { result } = await run(hubWith([blocking('old', 'echo FAIL tests/old.test.ts; exit 1')]), judged);
+    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: false });
+    expect(result.run).toMatchObject({ closure: 'blocked', reason: 'checks still failing, red on base: old' });
+  });
+
   const blocking = (name: string, run: string) => ({ name, data: { type: 'script', run, mode: 'block' } });
   const baseIssues = async (issues: ReturnType<typeof trackedIssues>) =>
     (await issues.list()).filter(issue => issue.title.endsWith('fails on the base branch'));

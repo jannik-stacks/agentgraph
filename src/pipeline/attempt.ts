@@ -356,7 +356,12 @@ const attempts = (
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, validated.accepted, a, p, verdicts)
         );
-        return yield* finish(planned, run, outcome, kinds, p, merging);
+        const done = yield* finish(planned, run, outcome, kinds, p, merging);
+        const dead = checks.filter(v => !v.pass && !v.gating && holds(v, p) && v.findings?.startsWith('red on base'));
+        if (done.run.closure !== 'done' || !dead.length) return done;
+        const reason = `checks still failing, red on base: ${dead.map(v => v.check).join(', ')}`;
+        const blocked = yield* Effect.promise(() => p.store.update(done.run.id, closed('blocked', reason)));
+        return { ...done, run: blocked };
       }
 
       /** Holds every proposal but the asks and asks a human `question`; a `failed` reason also fails the run. */
