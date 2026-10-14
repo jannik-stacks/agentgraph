@@ -12,21 +12,6 @@ import type { Run, Verdict } from '../store.ts';
 import { type Pipeline, agent, issuesOf, launcher } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, eventContext, fenced, handoffEnv, session } from './prompt.ts';
 
-/** Whether a check run crashed: it failed without a reason outside its work. */
-const crashed = (run: Run) => run.status === 'failed' && run.stopped === undefined;
-
-/** The longest wait for a provider limit to reset, and the wait when the error names no reset. */
-const resetCap = 5 * 60_000;
-const providerBackoff = 30_000;
-
-/** How long to wait before running a check again that the provider refused; undefined when not worth one retry. */
-export const providerWait = (run: Pick<Run, 'stopped' | 'error'>, now = Date.now()) => {
-  if (run.stopped !== 'provider') return;
-  const reset = resetOf(run.error);
-  const wait = reset ? reset.getTime() - now + 1000 : providerBackoff;
-  return wait <= resetCap ? Math.max(wait, 0) : undefined;
-};
-
 /**
  * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A final
  * message without any `bothub` block is read as the reply. A check that cannot decide (there is no reply, or the first
@@ -232,16 +217,6 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       ]
         .filter(Boolean)
         .join('\n\n');
-      const create = () =>
-        p.store.create({
-          workflow: a.planned.workflow,
-          job: a.planned.job,
-          bot: bot.name,
-          harness: bot.harness,
-          event: p.event,
-          parent: a.parent.id,
-          check: check.name,
-        });
       const spec = session({
         config: p.config,
         bot: check['max-turns'] ? { ...bot, 'max-turns': check['max-turns'] } : bot,
@@ -252,17 +227,21 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         tools: effectiveTools(bot, {}),
         access: p,
       });
-      const judge = Effect.gen(function* () {
-        const created = yield* Effect.promise(create);
-        return yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
-      });
-      const first = yield* judge;
-      const wait = providerWait(first.run);
-      const again = crashed(first.run) || wait !== undefined;
-      const { run, final } = again ? yield* Effect.andThen(Effect.sleep(wait ?? 0), judge) : first;
+      const created = yield* Effect.promise(() =>
+        p.store.create({
+          workflow: a.planned.workflow,
+          job: a.planned.job,
+          bot: bot.name,
+          harness: bot.harness,
+          event: p.event,
+          parent: a.parent.id,
+          check: check.name,
+        })
+      );
+      const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
       const verdict = verdictOf(run, final);
       if (verdict.pass) yield* Effect.promise(() => p.store.update(run.id, { passed: key }));
-      return { ...verdict, runs: [...new Set([first.run.id, run.id])] };
+      return { ...verdict, runs: [run.id] };
     });
 };
 
@@ -424,7 +403,9 @@ const clip = (text: string) => {
 
 /** The gaps a passing check named: findings lines that start with `Known gap:`. */
 const namedGaps = ({ check, pass, findings = '' }: Verdict) =>
-  pass ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(([, gap = '']) => `- ${check}: ${clip(gap)}`) : [];
+  pass
+    ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(([, gap = '']) => `- ${check}: ${clip(gap)}`)
+    : [];
 
 const gapsSection = ({ checks, config }: SectionContext) => {
   const gaps = checks.filter(v => !v.pass && !v.skipped && !v.blocked && (!v.gating || !holds(v, { config })));

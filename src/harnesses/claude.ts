@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
 import { jsonLines } from './lines.ts';
+import { modelTimeouts } from './timeouts.ts';
 
 type Block =
   | { type: 'text'; text: string }
@@ -85,6 +86,8 @@ const command = (spec: RunSpec) => {
       ...(process.env.CLAUDE_CONFIG_DIR && { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }),
       DISABLE_AUTOUPDATER: '1',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      API_TIMEOUT_MS: String(modelTimeouts.headersMs),
+      CLAUDE_STREAM_IDLE_TIMEOUT_MS: String(modelTimeouts.idleMs),
     },
   };
 };

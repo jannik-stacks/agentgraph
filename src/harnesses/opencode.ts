@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { opencodeMcpConfig } from '../mcp-config.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
 import { jsonLines } from './lines.ts';
+import { modelTimeouts } from './timeouts.ts';
 import { sources } from '../usage.ts';
 
 type ToolState =
@@ -83,7 +84,12 @@ const config = (spec: RunSpec) => ({
     [provider]: {
       npm: '@ai-sdk/openai',
       name: provider,
-      options: { baseURL: '{env:BOTHUB_LLM_BASE_URL}', apiKey: '{env:BOTHUB_LLM_API_KEY}' },
+      options: {
+        baseURL: '{env:BOTHUB_LLM_BASE_URL}',
+        apiKey: '{env:BOTHUB_LLM_API_KEY}',
+        headerTimeout: modelTimeouts.headersMs,
+        chunkTimeout: modelTimeouts.idleMs,
+      },
       models: { [alias(spec)]: {} },
     },
   },

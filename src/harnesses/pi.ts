@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../types.ts';
 import { jsonLines } from './lines.ts';
+import { modelTimeouts } from './timeouts.ts';
 
 type Block = { type: 'text'; text: string } | { type: string };
 
@@ -122,4 +123,9 @@ const event = (line: Line): AgentEvent[] => {
 const parseLine = jsonLines<Line>('pi', event);
 
 /** pi in print mode with JSON events, limited to the spec's tools and the bothub model proxy. */
-export const pi: HarnessAdapter = { name: 'pi', command, parseLine };
+export const pi: HarnessAdapter = {
+  name: 'pi',
+  command,
+  parseLine,
+  home: { '.pi/agent/settings.json': JSON.stringify({ httpIdleTimeoutMs: modelTimeouts.idleMs }) },
+};

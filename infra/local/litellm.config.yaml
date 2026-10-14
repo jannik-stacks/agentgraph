@@ -37,9 +37,22 @@ model_list:
       api_base: os.environ/OLLAMA_API_BASE
       think: false
 
+# Timeouts are shortest here: a stream silent for stream_timeout seconds fails and is retried once, before the
+# harness's own wait (src/harnesses/timeouts.ts) runs out. Each alias has one deployment, so there is no fallback.
 litellm_settings:
   drop_params: true
   request_timeout: 600
+  stream_timeout: 120
+  num_retries: 1
+
+router_settings:
+  retry_policy:
+    AuthenticationErrorRetries: 0
+    BadRequestErrorRetries: 0
+    ContentPolicyViolationErrorRetries: 0
+    TimeoutErrorRetries: 1
+    RateLimitErrorRetries: 1
+    InternalServerErrorRetries: 1
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

@@ -21,8 +21,8 @@ export type RunStatus =
 
 /**
  * Why a run stopped for a reason outside its bot's work: out of runs for the day, out of time, a sandbox that never
- * started, a provider that refused it, caught in a loop, dead twice before its bot did anything (`infra`), or out of
- * turns twice (`turns`), or stopped by a human (`human`).
+ * started, a provider fault, caught in a loop, a fault that outlasted its restarts or a refused key (`infra`), or out
+ * of turns twice (`turns`), or stopped by a human (`human`).
  */
 export type Stopped =
   | 'budget'
@@ -63,6 +63,8 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     base?: string;
     approval?: number;
     parked?: string;
+    /** How many times the run's session was restarted after a fault outside the bot's work. */
+    restarts?: number;
     /** A digest of the event's issue title and body when the run started. */
     issue?: string;
     /** On a check run that passed, the key of the check and the item it judged (see `judgeWith`). */

@@ -30,16 +30,16 @@ export const closed = (closure: Closure, reason?: string): Pick<Run, 'closure' |
  * question is `blocked`, a merge request `handed-off`, any other write (a merge too) `done`. A push without a merge
  * request is `handed-off` when a later job needs this one, it resolves a merge or its branch already has an open
  * request, otherwise `blocked`. A job that may push but
- * changed nothing, or one that wrote nothing at all, is `no-op`. A skipped run, a provider limit, a sandbox that
- * never started, a run that died before its bot did anything or one a human stopped is `deferred`;
+ * changed nothing, or one that wrote nothing at all, is `no-op`. A skipped run, a provider fault, a stall, a sandbox
+ * that never started, a fault that outlasted its restarts or a run a human stopped is `deferred`;
  * any other failure, or an effect that failed to apply, is `blocked`.
  */
 export const closureOf = (run: Run, outcome: Outcome | undefined, returns: ProposalKind[], taken = false) => {
   if (run.status === 'skipped') return closed('deferred', run.reason);
   const asked = outcome && kindsOf(outcome).includes('ask');
   if (run.status !== 'succeeded') {
-    if (run.stopped === 'provider') return closed('deferred', `the provider refused the run: ${run.error}`);
-    if (['sandbox', 'infra', 'turns', 'human'].includes(run.stopped ?? '')) return closed('deferred', run.error);
+    if (['sandbox', 'infra', 'provider', 'stalled', 'turns', 'human'].includes(run.stopped ?? ''))
+      return closed('deferred', run.error);
     if (run.stopped === 'withdrawn') return closed('no-op', run.error);
     return closed('blocked', asked ? 'asked a human' : (run.error ?? `the run ${run.status}`));
   }

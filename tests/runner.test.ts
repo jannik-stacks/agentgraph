@@ -11,6 +11,7 @@ import {
   homeEnv,
   limiter,
   masker,
+  providerFault,
   runJob,
   runScript,
   sandboxed,
@@ -86,6 +87,21 @@ afterEach(async () => {
 const waitFor = async (check: () => Promise<boolean>) => {
   for (let i = 0; i < 200 && !(await check()); i++) await new Promise(r => setTimeout(r, 10));
 };
+
+describe('providerFault', () => {
+  it.each([
+    'Our servers are currently overloaded. Please try again later.',
+    "litellm.BadRequestError: Ollama_chatException - Got unexpected response from Ollama: {'error': 'XML syntax error on line 9'}",
+    'No deployments available for selected model, Try again in 5 seconds.',
+    'Rate limit exceeded for api_key: x. Limit type: requests.',
+    'HTTP 503 service unavailable',
+  ])('treats %s as a provider fault', error => expect(providerFault.test(error)).toBe(true));
+
+  it.each(['checks still failing after 4 attempts', 'used all 60 turns', 'x-api-key header is required'])(
+    'leaves %s to its own class',
+    error => expect(providerFault.test(error)).toBe(false)
+  );
+});
 
 describe('agentEnv', () => {
   it('passes only the allowlist, adapter env and explicit secrets', () => {
@@ -369,9 +385,8 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.
     expect(alive(pid)).toBe(false);
   });
 
-  it('alerts on a stall and keeps the whole stderr, the last event, the exit and the env names of a failed run', async () => {
+  it('keeps the whole stderr, the last event, the exit and the env names of a failed run', async () => {
     const { store, runId } = await setup();
-    const alerts: string[] = [];
     const stalled = await Effect.runPromise(
       runJob({
         adapter: node(hang, asText),
@@ -381,10 +396,9 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.
         store,
         runId,
         launch: unsandboxed,
-        onAlert: line => alerts.push(line),
       })
     );
-    expect(alerts).toEqual([`ALERT stalled ${runId} 0.01`]);
+    expect(stalled.stopped).toBe('stalled');
     expect(stalled.lastEvent).toMatchObject({ type: 'text' });
 
     const next = await setup();

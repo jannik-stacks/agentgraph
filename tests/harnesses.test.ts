@@ -80,6 +80,8 @@ describe('opencode', () => {
     expect(config.provider.bothub.options).toEqual({
       baseURL: '{env:BOTHUB_LLM_BASE_URL}',
       apiKey: '{env:BOTHUB_LLM_API_KEY}',
+      headerTimeout: 120_000,
+      chunkTimeout: 180_000,
     });
     expect(config.provider.bothub.npm).toBe('@ai-sdk/openai');
     expect(config.provider.bothub.models).toEqual({ coder: {} });

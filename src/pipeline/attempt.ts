@@ -1,4 +1,3 @@
-import { stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { effectivePreload, returnKinds, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
@@ -32,7 +31,6 @@ import {
 import { carried, onRequest, openerOf, seeded, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
-import { authFailure } from '../preflight.ts';
 
 /** The issue context a planned job preloads, read from `issues`, or GitHub's issues when only `gh` is given. */
 const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: Pipeline) => {
@@ -89,44 +87,6 @@ const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Ru
   return recorded.length ? { ...extracted, proposals: [...recorded, ...extracted.proposals] } : extracted;
 };
 
-/** Whether a run failed before its bot did anything, for no reason outside its work. */
-const diedEarly = async (run: Run, p: Pipeline) =>
-  run.status === 'failed' &&
-  !run.stopped &&
-  (await p.store.events(run.id)).every(({ event }) => event.type === 'start' || event.type === 'error');
-
-const infraWait = 10_000;
-
-/**
- * Runs `ran` on `current`, and when it died before its bot did anything, once more on a new run after `infraWait`. A
- * second such death stops that run as `infra`, which defers the job. An authentication error is not retried.
- */
-const retried = (ran: (run: Run) => ReturnType<typeof agent>, current: Run, p: Pipeline) =>
-  Effect.gen(function* () {
-    const first = yield* ran(current);
-    if (!(yield* Effect.promise(() => diedEarly(first.run, p)))) return first;
-    let again = first;
-    if (!authFailure(first.run.error)) {
-      yield* Effect.sleep(infraWait);
-      const {
-        id,
-        status: _status,
-        error: _error,
-        owner: _owner,
-        startedAt: _start,
-        endedAt: _end,
-        ...same
-      } = first.run;
-      again = yield* ran(yield* Effect.promise(() => p.store.create({ ...same, parent: id })));
-      if (!(yield* Effect.promise(() => diedEarly(again.run, p)))) return again;
-    }
-    const why = stripVTControlCharacters(again.run.error ?? '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const error = `the bot's run died ${again === first ? 'on an authentication error' : 'twice'} before it did anything${why ? ` (${why.slice(0, 200)})` : ''}`;
-    return { ...again, run: yield* Effect.promise(() => p.store.update(again.run.id, { stopped: 'infra', error })) };
-  });
-
 /** How many model calls the harness itself made in `run`. */
 const turnsOf = async (run: Run, p: Pipeline) =>
   (await p.store.events(run.id)).filter(({ event }) => event.type === 'usage' && !event.source).length;
@@ -168,7 +128,7 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
  * in that count, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a fan-out adds its
  * section to the prompt. A reply with text but no readable proposals block first gets one format-only follow-up
  * attempt, in the same session when the harness can continue it, which `until.max` does not count. An agent that
- * died before doing anything runs once more (see `retried`). An attempt that uses all of the bot's `max-turns` goes on
+ * met a fault outside its work restarts (see `agent`). An attempt that uses all of the bot's `max-turns` goes on
  * once under the same attempt number and in its session; running out again defers the job. With a `recheck` reply, the first attempt
  * takes that reply instead of running the bot, so only the checks run again.
  */
@@ -242,7 +202,7 @@ const attempts = (
       const now = new Date().toISOString();
       const { run, final } =
         recheck === undefined
-          ? yield* retried(on => agent(bot, spec, timeoutMinutes, on, p, env), current, p)
+          ? yield* agent(bot, spec, timeoutMinutes, current, p, env)
           : {
               run: yield* Effect.promise(() =>
                 p.store.update(current.id, { status: 'succeeded', startedAt: now, endedAt: now })

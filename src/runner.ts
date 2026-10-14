@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { appendFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { loadedMarker } from './harnesses/opencode-surfacer.ts';
 import { Cause, Duration, Effect, Stream } from 'effect';
@@ -28,10 +28,24 @@ import type { AgentEvent, HarnessAdapter, RunSpec } from './types.ts';
 /** Errors that mean the provider refused the run for now: rate and usage limits, quotas, overload. */
 export const providerLimit = /\b(429|rate[ -]?limit|usage limit|quota|overloaded)\b/i;
 
-/** When a provider limit resets, read from a `Limit resets at: <UTC date and time>` line in its error. */
-export const resetOf = (error = '') => {
+/**
+ * Errors a later run may not meet: provider limits and overload, server errors, dropped or idle connections and
+ * tool calls the model server could not parse.
+ */
+export const providerFault = new RegExp(
+  `${providerLimit.source}|\\b(?:(?:http|status)[ :]*5\\d\\d|internal server error|service unavailable|bad gateway|terminated|econnreset|econnrefused|socket hang up|fetch failed|other side closed|idle timeout|timed? ?out|midstreamfallbackerror|error parsing tool call|xml syntax error|unexpected response from ollama|no deployments available)\\b`,
+  'i'
+);
+
+/**
+ * When a provider limit resets, read from a `Limit resets at: <UTC date and time>` line in its error, or from a
+ * `retry-after: <seconds>` or `try again in <seconds>` in it.
+ */
+export const resetOf = (error = '', now = Date.now()) => {
   const at = /resets? at:?\s*(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)/i.exec(error);
-  return at ? new Date(`${at[1]}T${at[2]}Z`) : undefined;
+  if (at) return new Date(`${at[1]}T${at[2]}Z`);
+  const after = /(?:retry[- ]after|try again in):?\s*(\d+(?:\.\d+)?)/i.exec(error);
+  return after ? new Date(now + Number(after[1]) * 1000) : undefined;
 };
 
 const inherited = ['PATH', 'HOME', 'LANG', 'TMPDIR', 'USER', 'TERM'];
@@ -50,9 +64,14 @@ export const homeEnv = (home: string, tmp: string) => ({
   TMPDIR: tmp,
 });
 
-/** Creates every directory `homeEnv` points at. */
-const makeHome = (env: ReturnType<typeof homeEnv>) =>
-  Promise.all(Object.values(env).map(dir => mkdir(dir, { recursive: true })));
+/** Creates every directory `homeEnv` points at, then the files the harness reads from its home. */
+const makeHome = async (env: ReturnType<typeof homeEnv>, files: Record<string, string> = {}) => {
+  await Promise.all(Object.values(env).map(dir => mkdir(dir, { recursive: true })));
+  for (const [path, text] of Object.entries(files)) {
+    await mkdir(dirname(join(env.HOME, path)), { recursive: true });
+    await writeFile(join(env.HOME, path), text);
+  }
+};
 
 /** The spec to run: with the earlier run's sessions copied into the new home, or without a session to continue. */
 const handOver = async (adapter: HarnessAdapter, spec: RunSpec, home: string): Promise<RunSpec> => {
@@ -403,9 +422,10 @@ export const stoppedByHuman = 'stopped by a human';
  * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
  * Secret values are masked in stored events, errors and the home's files; `env` reaches the harness unmasked. A run caught in a loop
  * (see `stuckWatch`) is stopped with `stuck: …`; a sandbox that is unavailable or a container that never started fails with
- * `sandbox-failed: …`, and nothing runs on the host. A harness silent for `stallMinutes` fails as stalled, and a run
- * is cancelled as withdrawn once `until` resolves with a reason. Each of these, a timeout and a provider limit are
- * recorded as the run's `stopped`.
+ * `sandbox-failed: …`, and nothing runs on the host. A harness silent for `stallMinutes` fails as stalled, and so does
+ * one whose tool call stays open that long while only usage events come; a run is cancelled as withdrawn once `until`
+ * resolves with a reason. Each of these, a timeout and a provider fault (see `providerFault`) are recorded as the
+ * run's `stopped`.
  * Never fails; interruption records `cancelled` after the process group is killed.
  */
 export const runJob = (options: {
@@ -421,14 +441,13 @@ export const runJob = (options: {
   readonly?: boolean;
   stallMinutes?: number;
   until?: Effect.Effect<string>;
-  onAlert?: (line: string) => void;
 }): Effect.Effect<Run> =>
   Effect.suspend(() => {
     const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed, readonly } = options;
-    const { stallMinutes, until, env, onAlert } = options;
+    const { stallMinutes, until, env } = options;
     const save = (patch: Partial<Omit<Run, 'id'>>) => Effect.promise(() => store.update(runId, patch));
     const finish = (patch: Partial<Omit<Run, 'id'>>) => {
-      const stopped = patch.stopped ?? (providerLimit.test(patch.error ?? '') ? 'provider' : undefined);
+      const stopped = patch.stopped ?? (providerFault.test(patch.error ?? '') ? 'provider' : undefined);
       const failed = patch.status !== 'succeeded';
       return save({
         ...patch,
@@ -450,8 +469,18 @@ export const runJob = (options: {
     let stuck: string | undefined;
     let lastEvent: Run['lastEvent'];
     let exit: Run['exit'];
+    const tools = new Set<string>();
+    let alive = Date.now();
+    const silence = (ms: number): Effect.Effect<never, Stalled> =>
+      Effect.suspend(() => {
+        const left = alive + ms - Date.now();
+        return left > 0 ? Effect.flatMap(Effect.sleep(left), () => silence(ms)) : Effect.fail(new Stalled());
+      });
     const record = (raw: AgentEvent) => {
       const event = JSON.parse(mask(JSON.stringify(raw))) as AgentEvent;
+      if (event.type === 'tool_call') tools.add(event.id);
+      if (event.type === 'tool_result') tools.delete(event.id);
+      if (event.type !== 'usage' || !tools.size) alive = Date.now();
       if (event.type === 'end') end = event;
       if (event.type === 'error') firstError ??= event.message;
       const entry = { ts: new Date().toISOString(), seq: seq++, event };
@@ -482,7 +511,7 @@ export const runJob = (options: {
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
       Effect.zipRight(
         Effect.tryPromise({
-          try: () => makeHome(home).then(() => handOver(adapter, spec, home.HOME)),
+          try: () => makeHome(home, adapter.home).then(() => handOver(adapter, spec, home.HOME)),
           catch: e => e as Error,
         })
       ),
@@ -496,8 +525,7 @@ export const runJob = (options: {
           readonly,
           text => void appendFile(join(store.home(runId), '..', 'stderr.log'), mask(text)).catch(() => {})
         ).pipe(
-          events =>
-            stallMinutes ? Stream.timeoutFail(events, () => new Stalled(), Duration.minutes(stallMinutes)) : events,
+          events => (stallMinutes ? Stream.interruptWhen(events, silence(stallMinutes * 60_000)) : events),
           events =>
             until
               ? Stream.interruptWhen(
@@ -534,15 +562,13 @@ export const runJob = (options: {
               error: `timed out after ${timeoutMinutes} minutes`,
             });
           if (stuck) return finish({ status: 'failed', stopped: 'stuck', ...usage(), error: `stuck: ${stuck}` });
-          if (e instanceof Stalled) {
-            onAlert?.(`ALERT stalled ${runId} ${stallMinutes}`);
+          if (e instanceof Stalled)
             return finish({
               status: 'failed',
               stopped: 'stalled',
               ...usage(),
               error: `stalled: no agent event for ${stallMinutes} minutes`,
             });
-          }
           if (e instanceof Withdrawn && e.message === stoppedByHuman)
             return finish({ status: 'cancelled', stopped: 'human', ...usage(), error: stoppedByHuman });
           if (e instanceof Withdrawn)

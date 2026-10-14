@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { apply } from '../apply.ts';
 import type { Config, Defined } from '../config.ts';
@@ -13,7 +14,8 @@ import type { McpTool } from '../mcp.ts';
 import type { loadPrices } from '../prices.ts';
 import { githubPulls, type Pulls } from '../pulls.ts';
 import { hubBox } from '../hub-sandbox.ts';
-import { runJob, sandboxed, stoppedByHuman, sandboxedWith, type Launcher, type limiter } from '../runner.ts';
+import { authFailure } from '../preflight.ts';
+import { resetOf, runJob, sandboxed, stoppedByHuman, sandboxedWith, type Launcher, type limiter } from '../runner.ts';
 import type { Bot, Closure, Harness } from '../schema.ts';
 import { Summarizer, summarizeRun } from '../summaries.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from '../store.ts';
@@ -173,7 +175,7 @@ const stoppable = (id: string, p: Pipeline) => {
  * is recorded on the run. A silent harness is stopped after `stallMinutes`, and a run whose issue was abandoned is
  * withdrawn.
  */
-export const agent = (
+const once = (
   bot: Defined<Bot>,
   spec: RunSpec,
   timeoutMinutes: number,
@@ -206,7 +208,6 @@ export const agent = (
         launch: launcher(p),
         readonly,
         stallMinutes: p.stallMinutes ?? 10,
-        ...(p.onAlert && { onAlert: p.onAlert }),
         ...(until && { until }),
         onEvent: record => {
           if (record.event.type === 'start') model ??= record.event.model;
@@ -222,4 +223,86 @@ export const agent = (
     const costed = yield* Effect.promise(() => priced(recorded, p));
     yield* Effect.promise(() => summarize(bot, run.id, p));
     return { run: costed, final: result ?? lastText };
+  });
+
+const restartBudget = 2;
+const backoff = 10_000;
+const resetCap = 5 * 60_000;
+const lasting = /usage limit|quota/i;
+
+/**
+ * The fault outside the bot's work a failed run met: a refused key (`auth`), a stall, a provider fault, or a crash
+ * of the harness or its container (`infra`), which a run that died before its bot did anything counts as.
+ */
+const faultOf = async (run: Run, p: Pipeline) => {
+  if (run.status !== 'failed') return;
+  if (authFailure(run.error)) return 'auth';
+  if (run.stopped === 'stalled' || run.stopped === 'provider') return run.stopped;
+  if (run.stopped) return;
+  if (run.exit?.signal || run.exit?.code === 137) return 'infra';
+  const events = await p.store.events(run.id);
+  return events.every(({ event }) => event.type === 'start' || event.type === 'error') ? 'infra' : undefined;
+};
+
+/**
+ * How long to wait before running again after `run` failed: until the reset or retry-after its error names, at once
+ * after a stall, otherwise a backoff that grows with each restart. Undefined when that is more than 5 minutes off, or
+ * for a usage limit or quota that names no reset.
+ */
+export const retryWait = (run: Pick<Run, 'stopped' | 'error'>, restarts = 0, now = Date.now()) => {
+  const reset = resetOf(run.error, now);
+  if (!reset && lasting.test(run.error ?? '')) return;
+  const wait = reset ? reset.getTime() - now + 1000 : run.stopped === 'stalled' ? 0 : backoff * 3 ** restarts;
+  return wait <= resetCap ? Math.max(wait, 0) : undefined;
+};
+
+/**
+ * Runs one agent session (see `once`), and while it fails on a fault outside the bot's work (see `faultOf`), runs it
+ * again on a new run after `retryWait`, in a fresh session told why the last one stopped, up to 2 restarts. A refused
+ * key is never run again. Giving up stops the last run as `infra` with its own error, records its `restarts` and
+ * raises one alert.
+ */
+export const agent = (
+  bot: Defined<Bot>,
+  spec: RunSpec,
+  timeoutMinutes: number,
+  run: Run,
+  p: Pipeline,
+  env: Record<string, string> = {},
+  readonly = false
+) =>
+  Effect.gen(function* () {
+    let ran = yield* once(bot, spec, timeoutMinutes, run, p, env, readonly);
+    for (let restarts = 0; ; restarts++) {
+      const fault = yield* Effect.promise(() => faultOf(ran.run, p));
+      if (!fault) return ran;
+      const why = stripVTControlCharacters(ran.run.error ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 300);
+      const wait = fault === 'auth' || restarts >= restartBudget ? undefined : retryWait(ran.run, restarts);
+      if (wait === undefined) {
+        p.onAlert?.(`ALERT ${fault} ${ran.run.id} ${why} restarts=${restarts}`);
+        return { ...ran, run: yield* Effect.promise(() => p.store.update(ran.run.id, { stopped: 'infra', restarts })) };
+      }
+      yield* Effect.sleep(wait);
+      const { id, workflow, job, event, check, attempt, issue } = ran.run;
+      const next = yield* Effect.promise(() =>
+        p.store.create({
+          workflow,
+          job,
+          event,
+          bot: bot.name,
+          harness: bot.harness,
+          parent: id,
+          restarts: restarts + 1,
+          ...(check && { check }),
+          ...(attempt && { attempt }),
+          ...(issue && { issue }),
+        })
+      );
+      const { session: _, ...fresh } = spec;
+      const prompt = `${spec.prompt}\n\n## Restarted\n\nYour last run stopped before it finished. Why it stopped: ${why || fault}. Its work so far is still in the worktree; carry on from there.`;
+      ran = yield* once(bot, { ...fresh, prompt }, timeoutMinutes, next, p, env, readonly);
+    }
   });

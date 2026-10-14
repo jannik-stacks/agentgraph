@@ -123,4 +123,6 @@ export type HarnessAdapter = {
   sessions?: string;
   /** The ids of bothub's own plugins the run loads; each marks itself loaded in the run home. */
   plugins?: (spec: RunSpec) => string[];
+  /** Files the harness reads from its home, by path under it, written into the run home before it starts. */
+  home?: Record<string, string>;
 };

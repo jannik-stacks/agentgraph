@@ -15,7 +15,7 @@ import {
   couldNotRun,
   failingChecks,
   handoffEnv,
-  providerWait,
+  retryWait,
   renderBranch,
   runPlan,
   runPlanned,
@@ -786,23 +786,24 @@ describe('parking', { timeout: 20_000 }, () => {
     );
   });
 
-  it(
-    'runs an agent that died before doing anything once more, then defers and says so on the issue',
-    { timeout: 40_000 },
-    async () => {
-      const issues = trackedIssues();
-      const { seen, adapters } = fakeHarness(() => ({ events: [], exit: 137 }));
-      const p = await pipeline({ config: configFor(), issues, adapters });
-      const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+  it('restarts an agent that died before doing anything twice, then defers, alerts and says so on the issue', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const tick = setInterval(() => vi.advanceTimersByTime(1000), 5);
+    const issues = trackedIssues();
+    const alerts: string[] = [];
+    const { seen, adapters } = fakeHarness(() => ({ events: [], exit: 137 }));
+    const p = await pipeline({ config: configFor(), issues, adapters, onAlert: line => alerts.push(line) });
+    const result = await Effect.runPromise(runPlanned(planned('parking'), p)).finally(() => {
+      clearInterval(tick);
+      vi.useRealTimers();
+    });
 
-      expect(seen).toHaveLength(2);
-      expect(result.run).toMatchObject({ stopped: 'infra', closure: 'deferred', attempt: 1 });
-      const [said] = (await issues.get(7))!.comments;
-      expect(said!.body).toBe(
-        "triage/parking was deferred: the bot's run died twice before it did anything (exited with code 137). It continues when it runs again."
-      );
-    }
-  );
+    expect(seen).toHaveLength(3);
+    expect(result.run).toMatchObject({ stopped: 'infra', closure: 'deferred', attempt: 1, restarts: 2 });
+    expect(alerts).toEqual([`ALERT infra ${result.run.id} exited with code 137 restarts=2`]);
+    const [said] = (await issues.get(7))!.comments;
+    expect(said!.body).toBe('triage/parking was deferred: exited with code 137. It continues when it runs again.');
+  });
 
   it('does not run an agent again after an authentication error, and defers with the reason', async () => {
     const issues = trackedIssues();
@@ -813,7 +814,7 @@ describe('parking', { timeout: 20_000 }, () => {
 
     expect(seen).toHaveLength(1);
     expect(result.run).toMatchObject({ stopped: 'infra', closure: 'deferred' });
-    expect(result.run.reason).toContain('authentication error');
+    expect(result.run.reason).toContain('Authentication Error');
   });
 
   const outOfTurns = (calls: number): AgentEvent[] => [
@@ -923,13 +924,13 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
   });
 
-  it('parks the work of a run stopped as stalled', async () => {
+  it('parks the work of a run that stalled through its restarts', async () => {
     const origin = sourceRepo();
     const { adapters } = fake({ message: asks, work: hang });
-    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, stallMinutes: 0.02 }, origin);
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, stallMinutes: 0.01 }, origin);
     const result = await Effect.runPromise(runPlanned(planned('parking'), p));
 
-    expect(result.run).toMatchObject({ status: 'failed', stopped: 'stalled', parked: 'bothub/7-parked' });
+    expect(result.run).toMatchObject({ status: 'failed', stopped: 'infra', restarts: 2, parked: 'bothub/7-parked' });
     expect(git(origin.dir, 'show', 'bothub/7-parked:src/a.ts')).toBe('a');
   });
 
@@ -1128,7 +1129,7 @@ describe('closure', () => {
       closure(run({ status: 'failed', stopped: 'provider', error: 'HTTP 429: rate limit' }), undefined, []).closure
     ).toBe('deferred');
     expect(closure(run({ status: 'failed', stopped: 'stalled', error: 'stalled' }), undefined, []).closure).toBe(
-      'blocked'
+      'deferred'
     );
     expect(
       closure(run({ status: 'cancelled', stopped: 'withdrawn', error: 'withdrawn: #1 was closed' }), undefined, [])
@@ -1934,18 +1935,15 @@ describe('over', () => {
     expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
   });
 
-  it('retries a crashed check run once, then asks a human instead of handing off', async () => {
+  it('asks a human when a check run fails, instead of handing off', async () => {
     const { seen, result } = await run(
       hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'warn' }, body: 'Small?' }]),
       spec => (spec.system.startsWith('You judge.') ? { ok: false, message: '' } : { work }),
       {},
       { issues: trackedIssues() }
     );
-    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(2);
-    expect(result.outcome?.checks?.[0]).toMatchObject({
-      blocked: true,
-      runs: [expect.any(String), expect.any(String)],
-    });
+    expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toHaveLength(1);
+    expect(result.outcome?.checks?.[0]).toMatchObject({ blocked: true, runs: [expect.any(String)] });
     expect(result.run).toMatchObject({ closure: 'blocked' });
   });
 
@@ -1962,9 +1960,9 @@ describe('over', () => {
             : { ok: false, message: '', error: limited(new Date(Date.now() - 60_000)) }
     );
     expect(judged).toBe(2);
-    expect(result.outcome?.checks?.[0]).toMatchObject({ pass: true, runs: [expect.any(String), expect.any(String)] });
+    expect(result.outcome?.checks?.[0]).toMatchObject({ pass: true, runs: [expect.any(String)] });
     const far = new Date('2026-10-13T19:00:00Z');
-    expect(providerWait({ stopped: 'provider', error: limited(far) }, far.getTime() - 3_600_000)).toBeUndefined();
+    expect(retryWait({ stopped: 'provider', error: limited(far) }, 0, far.getTime() - 3_600_000)).toBeUndefined();
   });
 
   it('tells a human about a provider limit plainly, with its reset and without keys or run ids', () => {
