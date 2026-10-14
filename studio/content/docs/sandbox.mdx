@@ -85,6 +85,9 @@ without docker and never starts an agent.
 
 The image is built from `infra/local/sandbox`; the code is on [Runs](/docs/reference/runs).
 After a rebuild, `infra/local/sandbox/smoke.sh` starts it the way a run does and fails on a missing tool or a write to the read-only root.
+opencode's plugin package is installed in the image at `/opt/opencode`, and each run home links its
+`.config/opencode` there, so a run starts its plugins in about a second instead of installing the
+package first.
 
 ## The hub's environment
 

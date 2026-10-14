@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect } from 'effect';
+import { Effect, Fiber, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compile, type Config } from '../src/config.ts';
 import type { GitHub } from '../src/github-app.ts';
@@ -1810,6 +1810,70 @@ describe('over', () => {
       { check: 'small', gating: true, pass: false, skipped: true, findings: 'not run: a script check failed' },
       { check: 'lint', gating: true, pass: false, findings: 'bad' },
     ]);
+  });
+
+  const judgedLogging =
+    (log: string, ms = 0) =>
+    (spec: RunSpec) =>
+      spec.system.startsWith('You judge.')
+        ? {
+            message: bothub([{ kind: 'reply', body: 'PASS' }]),
+            work: `fs.appendFileSync(${JSON.stringify(log)}, 'judge\\n'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${ms})`,
+          }
+        : { work };
+
+  /** Runs the job on a test clock that jumps past the head start once a script check created `started`. */
+  const runPastHeadStart = async (config: Config, behave: Parameters<typeof fake>[0], started: string) => {
+    const { adapters } = fake(behave);
+    const p = await pipeline({ config, adapters, env: { BOTHUB_LLM_API_KEY: 'key' } }, origin());
+    const begun = () => vi.waitFor(() => expect(existsSync(started)).toBe(true), { timeout: 10_000, interval: 20 });
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const job = yield* Effect.fork(runPlanned(planned('loop'), p));
+        yield* Effect.promise(begun);
+        yield* TestClock.adjust('30 seconds');
+        return yield* Fiber.join(job);
+      }).pipe(Effect.provide(TestContext.TestContext))
+    );
+    return { result, p };
+  };
+
+  it('starts bot checks beside a script check still running past the head start', async () => {
+    const log = logFile();
+    const { result } = await runPastHeadStart(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+        {
+          name: 'tests',
+          data: { type: 'script', run: `touch ${log}.started; sleep 2; echo done >> ${log}`, mode: 'block' },
+        },
+      ]),
+      judgedLogging(log),
+      `${log}.started`
+    );
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual(['judge', 'done']);
+    expect(result.outcome?.checks?.map(v => v.pass)).toEqual([true, true]);
+  });
+
+  it('stops and skips the bot checks when a slow script check fails after they started', async () => {
+    const log = logFile();
+    const { result, p } = await runPastHeadStart(
+      hubWith([
+        { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
+        {
+          name: 'tests',
+          data: { type: 'script', run: `touch ${log}.started; sleep 1; echo bad; exit 1`, mode: 'block' },
+        },
+      ]),
+      judgedLogging(log, 20_000),
+      `${log}.started`
+    );
+    expect(untimed(result.outcome?.checks)).toEqual([
+      { check: 'small', gating: true, pass: false, skipped: true, findings: 'not run: a script check failed' },
+      { check: 'tests', gating: true, pass: false, findings: 'bad' },
+    ]);
+    expect((await p.store.runs({ check: true })).map(run => run.status)).toEqual(['cancelled']);
+    expect(readFileSync(log, 'utf8')).toBe('judge\n');
   });
 
   it("limits a bot check's runs to its own max-turns", async () => {

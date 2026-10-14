@@ -35,6 +35,12 @@ bot and decide checks run after that, only when no `block` script failed, so a b
 pays for a review. Checks in `log` mode run last, and only when no `block` check failed, so they
 judge only the attempt that goes through. A check left out this way is skipped with the reason in
 its findings.
+The bot stage does not wait for slow script checks. Once every script check has passed or run for
+30 seconds, the bot checks, and the `log` checks after them, start beside the script checks still
+running. A fast failure, such as a lint or type error, still stops the attempt before any review
+starts. When a slow script check fails later, the running bot checks are stopped and skipped, so the
+verdicts and what goes back to the bot are the same as when the stages run one after the other;
+only the review work done before the failure is spent.
 A failing script check runs once more on the change's base. When it fails there too and names only
 files the base run names and the change did not touch, it is red on base: it does not gate, costs
 no attempt and never goes back to the bot, and the merge request lists it under Known gaps.

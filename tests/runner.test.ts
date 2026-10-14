@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
@@ -558,6 +558,23 @@ console.log(${JSON.stringify(end(true))});`;
       '.local/share/opencode/storage/session/ses_1.json',
       '.pi/agent/sessions/session-1.jsonl',
     ]);
+  });
+
+  it("links the adapter's home paths to where the container keeps them, so opencode skips its plugin install", async () => {
+    const { store, runId } = await setup();
+    const target = mkdtempSync(join(tmpdir(), 'bothub-link-'));
+    writeFileSync(join(target, 'package.json'), 'installed');
+    const script = `const fs = require('fs'), path = require('path');
+const text = fs.readFileSync(path.join(process.env.HOME, '.config', 'tool', 'package.json'), 'utf8');
+console.log(JSON.stringify({ type: 'text', text })); console.log(${JSON.stringify(end(true))});`;
+    const adapter = { ...node(script), links: { '.config/tool': target } };
+    const run = await Effect.runPromise(
+      runJob({ adapter, spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
+    );
+    expect(run.status).toBe('succeeded');
+    expect((await store.events(runId)).map(({ event }) => event)).toContainEqual({ type: 'text', text: 'installed' });
+    expect(await store.files(runId)).toEqual([]);
+    expect(opencode.links).toEqual({ '.config/opencode': '/opt/opencode' });
   });
 
   it('removes tmp after a failed run too', async () => {

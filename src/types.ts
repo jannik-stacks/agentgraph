@@ -125,4 +125,6 @@ export type HarnessAdapter = {
   plugins?: (spec: RunSpec) => string[];
   /** Files the harness reads from its home, by path under it, written into the run home before it starts. */
   home?: Record<string, string>;
+  /** Links in the run home, by path under it, to a path inside the run container. */
+  links?: Record<string, string>;
 };

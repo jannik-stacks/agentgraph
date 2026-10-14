@@ -1,4 +1,4 @@
-import { Effect } from 'effect';
+import { Effect, Fiber } from 'effect';
 import { effectivePreload, effectiveTools, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import { decideCheck } from '../decide.ts';
@@ -324,12 +324,21 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
     });
   });
 
-/** Runs one check (see `judgeCheck`), timed, telling `onCheck` when it starts and ends. */
+/** Runs one check (see `judgeCheck`), timed, telling `onCheck` when it starts and ends, or is stopped. */
 const runCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
     const start = Date.now();
     p.onCheck?.(a.parent, check.name);
-    const verdict = yield* judgeCheck(check, a, p);
+    const stopped: Verdict = {
+      check: check.name,
+      gating: check.mode !== 'log',
+      pass: false,
+      skipped: true,
+      findings: 'stopped',
+    };
+    const verdict = yield* Effect.onInterrupt(judgeCheck(check, a, p), () =>
+      Effect.sync(() => p.onCheck?.(a.parent, check.name, stopped))
+    );
     const end = Date.now();
     const timed: Verdict = {
       ...verdict,
@@ -532,12 +541,20 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
   }
 };
 
+/** How long the gating script checks run before the later stages start beside the ones still running. */
+const headStart = 30_000;
+
 /**
- * Runs the named checks in stages, each all at once: the gating script checks first, then, only when none that holds
- * the change failed, the gating bot and decide checks, so the cheap gates spare the costly ones. A failing script check
- * that is red on base (see `redOnBase`) does not hold the change. Checks in `warn` and `log` mode never hold a change, so they run last and only when nothing
- * that holds the change failed: they judge only an attempt that settles. A check left out that way is skipped.
- * Verdicts keep the order of `names`.
+ * Runs the named checks in stages: the gating script checks first, then, only when none that holds the change failed,
+ * the gating bot and decide checks, so the cheap gates spare the costly ones. Checks in `warn` and `log` mode never
+ * hold a change, so they run last and only when nothing that holds the change failed: they judge only an attempt that
+ * settles. A check left out that way is skipped. A failing script check that is red on base (see `redOnBase`) does not
+ * hold the change.
+ *
+ * The later stages do not wait for slow script checks: once every script check has passed or run for `headStart`,
+ * they start beside the ones still running. Should a script check then hold the change, they are
+ * stopped and skipped, so the verdicts are those of running the stages one after the other. Verdicts keep the order
+ * of `names`.
  */
 export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
@@ -564,14 +581,21 @@ export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
         verdicts[i] = { check: name, gating: check?.mode !== 'log', pass: false, skipped: true, findings };
       });
     const held = (ran: Verdict[]) => ran.some(v => v.gating && !v.skipped && !v.pass && holds(v, p));
-    const ran = yield* run(scripts);
+    const rest = Effect.gen(function* () {
+      if (held(yield* run(costly))) skip(logged, 'not run: a check that holds the change failed');
+      else yield* run(logged);
+    });
+    const scripting = yield* Effect.fork(run(scripts));
+    yield* Effect.ignore(Effect.timeout(Fiber.await(scripting), headStart));
+    const ahead = held(scripts.flatMap(({ i }) => verdicts[i] ?? [])) ? undefined : yield* Effect.fork(rest);
+    const ran = yield* Fiber.join(scripting);
     const scripted = yield* Effect.promise(() => redOnBase(ran, a, p));
     scripts.forEach(({ i }, k) => (verdicts[i] = scripted[k]!));
     if (held(scripted)) {
+      if (ahead) yield* Fiber.interrupt(ahead);
       skip(costly, 'not run: a script check failed');
       skip(logged, 'not run: a check that holds the change failed');
-    } else if (held(yield* run(costly))) skip(logged, 'not run: a check that holds the change failed');
-    else yield* run(logged);
+    } else yield* ahead ? Fiber.join(ahead) : rest;
     return verdicts;
   });
 

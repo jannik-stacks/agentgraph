@@ -21,8 +21,9 @@ RUN npm install -g --no-fund --no-audit \
       oxfmt@${OXFMT_VERSION} \
  && npm cache clean --force
 
-# opencode installs @opencode-ai/plugin into its config dir before loading bothub's plugins. Installing it here,
-# and making this the config dir, saves that install on every run.
+# opencode installs @opencode-ai/plugin into each config dir before loading bothub's plugins. Installing it here,
+# and making this both the config dir and, through a link in the run home, the global one, saves that install
+# (about 10 seconds) on every run.
 RUN mkdir -p /opt/opencode \
  && cd /opt/opencode \
  && npm install --no-fund --no-audit --save-exact @opencode-ai/plugin@${OPENCODE_VERSION} \

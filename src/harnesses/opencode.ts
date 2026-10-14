@@ -208,7 +208,8 @@ const parseLine = jsonLines<Line>('opencode', event);
 /**
  * opencode 1.x one-shot `run` against the bothub model proxy. Permissions deny everything outside the spec's
  * tool allowlist and project config is ignored. Its output names no model, so the model plugin reports the one that
- * answered; the start reports the session its first own line names, and bothub's plugins may print before it.
+ * answered; the start reports the session its first own line names, and bothub's plugins may print before it. Its
+ * global config dir is the image's `/opt/opencode`, which already holds the plugin package opencode would install.
  */
 export const opencode: HarnessAdapter = {
   name: 'opencode',
@@ -221,4 +222,5 @@ export const opencode: HarnessAdapter = {
   },
   plugins: pluginIds,
   sessions: '.local/share/opencode',
+  links: { '.config/opencode': '/opt/opencode' },
 };

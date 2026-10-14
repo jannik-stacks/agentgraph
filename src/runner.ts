@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { appendFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -64,12 +64,17 @@ export const homeEnv = (home: string, tmp: string) => ({
   TMPDIR: tmp,
 });
 
-/** Creates every directory `homeEnv` points at, then the files the harness reads from its home. */
-const makeHome = async (env: ReturnType<typeof homeEnv>, files: Record<string, string> = {}) => {
+/** Creates every directory `homeEnv` points at, then the files and links the harness finds in its home. */
+const makeHome = async (env: ReturnType<typeof homeEnv>, { home = {}, links = {} }: HarnessAdapter) => {
   await Promise.all(Object.values(env).map(dir => mkdir(dir, { recursive: true })));
-  for (const [path, text] of Object.entries(files)) {
+  for (const [path, text] of Object.entries(home)) {
     await mkdir(dirname(join(env.HOME, path)), { recursive: true });
     await writeFile(join(env.HOME, path), text);
+  }
+  for (const [path, target] of Object.entries(links)) {
+    await rm(join(env.HOME, path), { recursive: true, force: true });
+    await mkdir(dirname(join(env.HOME, path)), { recursive: true });
+    await symlink(target, join(env.HOME, path));
   }
 };
 
@@ -511,7 +516,7 @@ export const runJob = (options: {
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
       Effect.zipRight(
         Effect.tryPromise({
-          try: () => makeHome(home, adapter.home).then(() => handOver(adapter, spec, home.HOME)),
+          try: () => makeHome(home, adapter).then(() => handOver(adapter, spec, home.HOME)),
           catch: e => e as Error,
         })
       ),
