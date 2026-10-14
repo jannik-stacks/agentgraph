@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { timeKinds } from './spans.ts';
+
+/** What a span's time went to: the agent's own work, build and test commands, a human, a stall, or anything else. */
+export const timeKinds = ['build', 'test', 'model', 'edit', 'read', 'wait', 'stall', 'other'] as const;
 
 const regex = (source: string) => {
   try {

@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { timeKinds } from './schema.ts';
 import type { EventRecord, Outcome, Run, Store } from './store.ts';
 
-/** What a span's time went to: the agent's own work, build and test commands, a human, a stall, or anything else. */
-export const timeKinds = ['build', 'test', 'model', 'edit', 'read', 'wait', 'stall', 'other'] as const;
 type TimeKind = (typeof timeKinds)[number];
 
 /** Shell command patterns, tried in order after a hub's own (see `timeKind`). */
