@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react';
-import { Button } from '../ui.tsx';
+import { Button, cx, field } from '../ui.tsx';
 import { fold } from './collapse.ts';
 
 export type Row = {
@@ -79,7 +79,7 @@ export const ItemList = ({
         placeholder="Filter"
         value={query}
         onChange={e => setQuery(e.target.value)}
-        className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-[13px] outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-900"
+        className={cx(field, 'w-full')}
       />
       {found.length ? (
         <ul className={frame}>

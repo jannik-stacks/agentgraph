@@ -271,6 +271,9 @@ export const Disclosure = ({
   );
 };
 
+export const field =
+  'rounded border border-zinc-300 bg-white px-2 py-1 text-[13px] outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-900';
+
 const buttons = {
   default:
     'rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-sky-600 dark:hover:text-sky-300',

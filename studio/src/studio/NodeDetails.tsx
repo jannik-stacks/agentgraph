@@ -7,7 +7,7 @@ import { type GraphModel, type GraphNode, modeTone, type StepContext } from '../
 import { type SourceFile, SourceView } from '../source/SourceView.tsx';
 import { Link } from '../Providers.tsx';
 import { filesAtom, hrefAtom, navigateAtom } from '../state.ts';
-import { Badge, Chip, Chips, cx, Disclosure, Field, Fields, InfoTip, Pre, Section, Tooltip } from '../ui.tsx';
+import { Badge, Button, Chip, Chips, cx, Disclosure, Field, Fields, InfoTip, Pre, Section, Tooltip } from '../ui.tsx';
 import { mono, nodeTarget, refId, refKind } from './hub-refs.ts';
 import { KindIcon, kindTitle } from './icons.tsx';
 
@@ -234,15 +234,12 @@ const NoteList = ({
   );
 };
 
-const editButton =
-  'rounded border border-zinc-300 px-2 py-0.5 text-xs normal-case tracking-normal text-zinc-700 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-sky-600 dark:hover:text-sky-300';
-
 const EditButton = ({ path, label = 'Edit' }: { path: string; label?: string }) => {
   const navigate = useSetAtom(navigateAtom);
   return (
-    <button type="button" className={editButton} onClick={() => navigate({ query: { edit: path } })}>
+    <Button className="normal-case tracking-normal" onClick={() => navigate({ query: { edit: path } })}>
       {label}
-    </button>
+    </Button>
   );
 };
 

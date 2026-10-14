@@ -13,6 +13,7 @@ import {
   Chip,
   cx,
   Disclosure,
+  field,
   RemovableChip,
   Segmented,
   Select,
@@ -105,8 +106,6 @@ const shapeOf = (schema: JsonSchema): Shape => {
   return { kind: 'yaml' };
 };
 
-const field =
-  'rounded border border-zinc-300 bg-white px-2 py-1 text-[13px] outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-900';
 const input = `${field} w-full`;
 
 const EnumField = ({ options, value, onChange, path, required }: FieldProps & { options: string[] }) => {

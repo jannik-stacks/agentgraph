@@ -15,7 +15,7 @@ import { modelNames } from '../../../../src/prices.ts';
 import { Harness, HubTool, NoteKind } from '../../../../src/schema.ts';
 import type { GraphModel } from '../../graph-model.ts';
 import { filesAtom, hrefAtom, navigateAtom, selectedNodeAtom } from '../../state.ts';
-import { Button, cx, heading, Segmented, useCommittedText } from '../../ui.tsx';
+import { Button, cx, field, heading, Segmented, useCommittedText } from '../../ui.tsx';
 import { nodeTarget, refId } from '../hub-refs.ts';
 import { type IconKind, KindIcon } from '../icons.tsx';
 import {
@@ -99,7 +99,7 @@ const BodyEditor = ({ label, body, onChange }: { label: string; body: string; on
       ) : (
         <textarea
           aria-label={label}
-          className="min-h-48 w-full rounded border border-zinc-300 bg-white p-2 font-mono text-xs leading-relaxed outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-900"
+          className={cx(field, 'min-h-48 w-full font-mono text-xs leading-relaxed')}
           value={text}
           rows={Math.min(30, Math.max(8, text.split('\n').length + 2))}
           onChange={e => change(e.target.value)}

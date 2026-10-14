@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { accepted } from '../../../src/preload.ts';
 import { NoteKind } from '../../../src/schema.ts';
 import { editPathAtom, hrefAtom, navigateAtom } from '../state.ts';
-import { Badge, Chip, cx, heading, Muted } from '../ui.tsx';
+import { Badge, Button, Chip, cx, heading, Muted } from '../ui.tsx';
 import { ChangesTray } from './edit/ChangesTray.tsx';
 import { createItemAtom } from './edit/hub-edits.ts';
 import { ItemEditor } from './edit/ItemEditor.tsx';
@@ -10,9 +10,6 @@ import { useHubModel } from './hub-model.ts';
 import { StudioLayout } from './StudioLayout.tsx';
 import { nodeTarget } from './hub-refs.ts';
 import { KindIcon } from './icons.tsx';
-
-const add =
-  'rounded border border-dashed border-zinc-300 px-1.5 text-[11px] leading-5 text-zinc-500 hover:border-sky-400 hover:text-sky-700 dark:border-zinc-700 dark:hover:border-sky-600 dark:hover:text-sky-300';
 
 /** Every note by kind, each opening in the editor. */
 export const NotesView = () => {
@@ -45,13 +42,9 @@ export const NotesView = () => {
                 <KindIcon kind="note" />
                 <h2 className={heading}>{kind}</h2>
                 <span className="text-[11px] text-zinc-400">{notes.length}</span>
-                <button
-                  type="button"
-                  className={cx(add, 'ml-auto')}
-                  onClick={() => create({ kind: 'note', note: kind })}
-                >
+                <Button variant="dashed" className="ml-auto" onClick={() => create({ kind: 'note', note: kind })}>
                   + {kind}
-                </button>
+                </Button>
               </div>
               {notes.length ? (
                 <ul className="divide-y divide-zinc-100 rounded border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">

@@ -4,7 +4,7 @@ import type { Run } from '../../../src/store.ts';
 import { type Continue, Review } from '../../../src/schema.ts';
 import { Markdown } from '../Markdown.tsx';
 import { Icon } from '../studio/icons.tsx';
-import { Button, cx, IconButton, Segmented, tones, Tooltip } from '../ui.tsx';
+import { Button, cx, field, IconButton, Segmented, tones, Tooltip } from '../ui.tsx';
 import { age } from './bits.tsx';
 
 export type Side = 'old' | 'new';
@@ -86,7 +86,7 @@ const Editor = ({
           placeholder={placeholder}
           rows={rows}
           autoFocus={autoFocus}
-          className="block w-full resize-y rounded border border-zinc-300 bg-white px-2 py-1 font-sans text-xs outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-950"
+          className={cx(field, 'block w-full resize-y font-sans text-xs')}
         />
       ) : (
         <div className="min-h-16 rounded border border-zinc-200 px-2 py-1 dark:border-zinc-800">
