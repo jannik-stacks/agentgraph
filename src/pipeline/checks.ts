@@ -271,7 +271,7 @@ const scriptEnv = (a: Attempt, p: Pipeline) => ({
  */
 const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
   Effect.gen(function* () {
-    const done = (result: Pick<Verdict, 'pass' | 'findings' | 'runs' | 'skipped' | 'blocked'>): Verdict => ({
+    const done = (result: Pick<Verdict, 'pass' | 'findings' | 'failed' | 'runs' | 'skipped' | 'blocked'>): Verdict => ({
       check: check.name,
       gating: check.mode !== 'log',
       ...result,
@@ -305,12 +305,12 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       concurrency: check.concurrency ?? itemConcurrency,
     });
     const runs = judged.flatMap(verdict => verdict.runs ?? []);
-    const findings = judged
-      .flatMap(({ findings, pass }, i) =>
-        findings ? [{ pass, text: items.length > 1 ? `${items[i]?.label}:\n${findings}` : findings }] : []
-      )
-      .sort((x, y) => Number(x.pass) - Number(y.pass))
-      .map(({ text }) => text);
+    const labeled = judged.flatMap(({ findings, pass }, i) =>
+      findings ? [{ pass, text: items.length > 1 ? `${items[i]?.label}:\n${findings}` : findings }] : []
+    );
+    const failed = labeled.filter(({ pass }) => !pass).map(({ text }) => text);
+    const passed = labeled.filter(({ pass }) => pass).map(({ text }) => text);
+    const findings = [...failed, ...passed];
     const blocked = judged.filter(verdict => verdict.blocked);
     if (blocked.length && items.length > 1) {
       const why = blocked[0]?.findings?.split('\n')[0] ?? 'no output';
@@ -321,6 +321,7 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline) =>
       ...(blocked.length && { blocked: true }),
       ...(runs.length && { runs }),
       ...(findings.length && { findings: findings.join('\n\n') }),
+      ...(failed.length && passed.length && { failed: failed.join('\n\n') }),
     });
   });
 
@@ -372,10 +373,13 @@ const squeeze = (text: string, cap: number) => {
   return [...head, `… ${lines.length - head.length - tail.length} lines …`, ...tail].join('\n');
 };
 
-/** The findings of failing verdicts for a human, each check's squeezed to `findingsCap` characters. */
-export const findingsFor = (failing: Verdict[]) =>
+/** The failing items' findings of failing verdicts for a human, each check's squeezed to `cap` characters. */
+export const findingsFor = (failing: Verdict[], cap = findingsCap) =>
   failing
-    .map(({ check, findings = 'failed without output' }) => `### ${check}\n\n${fenced(squeeze(findings, findingsCap))}`)
+    .map(
+      ({ check, failed, findings = 'failed without output' }) =>
+        `### ${check}\n\n${fenced(squeeze(failed ?? findings, cap))}`
+    )
     .join('\n\n');
 
 /** What a human reads when checks could not run: why, until when, and what to comment, without run ids or keys. */

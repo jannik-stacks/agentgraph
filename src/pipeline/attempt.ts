@@ -120,6 +120,9 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
         .catch(() => undefined)
     : undefined;
 
+/** How many characters of each failing check's findings a question to a human shows before squeezing them. */
+const questionCap = 8000;
+
 /**
  * Runs the job's bot, then its `until` checks. While a check that holds the change fails, its findings go back as a
  * new attempt in the same worktree but a fresh session (see `seeded`), with the findings of failing `warn` checks
@@ -372,7 +375,7 @@ const attempts = (
           ? overBudget(what.join(' and '), attempt)
           : `${what.join(' and ')} after ${attempt} attempts`;
         const names = [...holding.map(v => v.check), ...left].join(', ');
-        const question = `${reason}: ${names}. The findings are in run ${run.id}.\n\n${findingsFor(holding)}`;
+        const question = `${reason}: ${names}. The findings are in run ${run.id}.\n\n${findingsFor(holding, questionCap)}`;
         return yield* askHuman(reason, question.trim(), reason);
       }
 

@@ -91,6 +91,8 @@ export type Verdict = {
   skipped?: boolean;
   blocked?: boolean;
   findings?: string;
+  /** The failing items' findings alone, when passing items found something too. */
+  failed?: string;
   runs?: string[];
   startedAt?: string;
   endedAt?: string;

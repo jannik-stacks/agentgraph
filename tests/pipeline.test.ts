@@ -2175,6 +2175,37 @@ describe('over', () => {
     expect(result.outcome?.checks?.[0]?.findings).toContain('item 1:\nbad a');
   });
 
+  const askAfterAttempts = async () => {
+    const script =
+      'test "$BOTHUB_ITEM" = a || { echo "fine $BOTHUB_ITEM"; exit 0; }; ' +
+      'seq 60 | sed "s/.*/line & of a finding the human must read to answer the question/"; exit 1';
+    const { result } = await run(
+      hubWith([
+        { name: 'lint', data: { type: 'script', over: { each: "printf 'a\\nb\\n'" }, run: script, mode: 'block' } },
+      ]),
+      { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      {},
+      { issues: trackedIssues() }
+    );
+    const ask = result.outcome?.accepted.find(proposal => proposal.kind === 'ask');
+    return { result, question: ask?.kind === 'ask' ? ask.question : '' };
+  };
+
+  it('shows every failing finding of a question after failed attempts in full', async () => {
+    const { question } = await askAfterAttempts();
+    const lines = Array.from({ length: 60 }, (_, i) => `line ${i + 1} of a finding`);
+    expect(lines.filter(line => !question.includes(line))).toEqual([]);
+    expect(question).toContain('checks still failing after 2 attempts: lint.');
+    expect(question).not.toMatch(/… \d+ lines …/);
+  });
+
+  it('leaves the findings of passing items out of a question after failed attempts', async () => {
+    const { result, question } = await askAfterAttempts();
+    expect(result.outcome?.checks?.[0]?.findings).toContain('item 2:\nfine b');
+    expect(question).toContain('item 1:\nline 1 of a finding');
+    expect(question).not.toContain('fine b');
+  });
+
   it('settles with its warn findings once every check that holds the change passes', async () => {
     const { seen, result } = await run(
       hubWith([
@@ -2519,6 +2550,7 @@ describe('over', () => {
         findings: expect.stringMatching(
           /^src\/a.ts @@ -0,0 \+1 @@:\nProbability of yes 0.100, threshold 0.5. Is this hunk free of secrets\?/
         ),
+        failed: expect.stringMatching(/^src\/a.ts @@ -0,0 \+1 @@:\nProbability of yes 0.100/),
       },
     ]);
   });
