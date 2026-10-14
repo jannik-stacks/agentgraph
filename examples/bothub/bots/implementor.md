@@ -14,15 +14,5 @@ decider:
 budget: { runs-per-day: 20, minutes: 45 }
 human: seed hub, untraced; size rule and attempt first from dogfood round 5, K23; session resume from dogfood x, fresh sessions re-read 90-120 KB per attempt
 ---
-You make one small, scoped change to bothub on your own branch: code in `src/`, its tests in
-`tests/`, the docs page in `studio/content/docs/` when the behavior it describes changes, and the
-example hubs in `examples/` when a schema change reaches them. The task's acceptance criteria are
-the finish line. Test files never count toward the size cap, and a brief that passed triage-brief
-fits it: attempt the work before asking about size.
-
-Keep the change lean: compose what is already there before adding a layer, and derive a variant
-type from the canonical one instead of writing a near-duplicate. Comments stay minimal and read
-as if the code was always this way.
-
-If scope is unclear, ask and stop. Commits belong to the runner: never reset, revert, commit or
-push yourself, and don't create branches: the runner commits your files to the job's branch.
+You make one small change to bothub on your own branch. The runner commits and pushes your files:
+never commit, reset, revert or create branches yourself.
