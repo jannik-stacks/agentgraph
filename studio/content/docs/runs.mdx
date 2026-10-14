@@ -45,6 +45,9 @@ A run that ends before its work is done records why in `stopped`, next to its st
 | `turns`     | the bot used all its turns, twice in a row                                  |
 | `human`     | someone stopped it from the studio                                          |
 
+A shell command run a fourth time with no edit since its first run is `stuck` too. Rerunning a test
+after each edit is not.
+
 The process is stopped with it. A withdrawn run closes as `no-op` and applies nothing, a sandbox,
 provider, stall, budget, infra, turns or human stop as `deferred`, and the rest as `blocked`. The
 issue is checked every 30 seconds while an agent runs.

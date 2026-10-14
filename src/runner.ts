@@ -454,16 +454,32 @@ const scrub = async (dir: string, secrets: string[]) => {
 
 const stuckPairs = 4;
 const stuckErrors = 3;
+const stuckRepeats = 3;
+const edits = /edit|write|patch/i;
+const writes =
+  /(^|[^\d&])>(?!&|\s*\/dev\/null)|\b(sed|perl) -i|\btee\b|\bgit (apply|checkout|restore|stash|reset)\b|\b(mv|cp|rm|touch|patch)\b/;
 
 /**
- * Watches a run's events for a loop: the same tool call with the same result 4 times in a row, or the same error 3
- * times in a row. Returns the reason once it sees one.
+ * Watches a run's events for a loop: the same tool call with the same result 4 times in a row, the same error 3 times
+ * in a row, or the same shell command run again 3 times with nothing edited since its first run. Returns the reason
+ * once it sees one.
  */
 export const stuckWatch = () => {
   const calls = new Map<string, string>();
   const streak = { pair: '', pairs: 0, error: '', errors: 0 };
+  const repeats = new Map<string, number>();
   return (event: AgentEvent): string | undefined => {
-    if (event.type === 'tool_call') calls.set(event.id, JSON.stringify([event.tool, event.input]));
+    if (event.type === 'tool_call') {
+      calls.set(event.id, JSON.stringify([event.tool, event.input]));
+      const input = event.input as { command?: unknown } | undefined;
+      const command = /^bash$/i.test(event.tool) && typeof input?.command === 'string' ? input.command : undefined;
+      if (edits.test(event.tool) || (command && writes.test(command))) repeats.clear();
+      if (command) {
+        const n = repeats.has(command) ? repeats.get(command)! + 1 : 0;
+        repeats.set(command, n);
+        if (n >= stuckRepeats) return `the same command ${n + 1} times with no edit between: ${command.slice(0, 200)}`;
+      }
+    }
     if (event.type === 'tool_result') {
       const pair = JSON.stringify([calls.get(event.id), event.ok, event.output]);
       streak.pairs = pair === streak.pair ? streak.pairs + 1 : 1;

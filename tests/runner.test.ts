@@ -551,6 +551,22 @@ describe('stuckWatch', () => {
     };
     expect([pair('a1'), pair('a2'), pair('a3'), pair('b1'), pair('a4')]).toEqual(Array(5).fill(undefined));
   });
+
+  it('stops a shell command run a fourth time with nothing edited since, and not an edit-test loop', () => {
+    const test = "cargo nextest run -p clarity-repl -E 'test(test_simulate_transaction)'";
+    const call = (tool: string, input: object) => ({ type: 'tool_call' as const, id: tool, tool, input });
+    const bash = (command: string) => call('bash', { command });
+    const loop = [bash(test), call('edit', { filePath: 'a.rs' }), bash(test), call('edit', { filePath: 'a.rs' })];
+    const fixing = stuckWatch();
+    expect([...loop, ...loop, ...loop].map(fixing)).toEqual(Array(12).fill(undefined));
+    const sedded = stuckWatch();
+    const viaShell = [bash(test), bash(test), bash("sed -i 's/a/b/' a.rs"), bash(test), bash(test), bash(test)];
+    expect(viaShell.map(sedded)).toEqual(Array(6).fill(undefined));
+    const watch = stuckWatch();
+    const reruns = [bash(test), call('read', { filePath: 'a.rs' }), bash(test), bash('git status'), bash(test)];
+    expect(reruns.map(watch)).toEqual(Array(5).fill(undefined));
+    expect(watch(call('Bash', { command: test }))).toBe(`the same command 4 times with no edit between: ${test}`);
+  });
 });
 
 describe('masker', () => {
