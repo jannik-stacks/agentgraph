@@ -49,6 +49,7 @@ export type Pipeline = {
   adapters?: Record<Harness, HarnessAdapter>;
   launch?: Launcher;
   onEvent?: (run: Run, record: EventRecord) => void;
+  onAlert?: (line: string) => void;
   onCheck?: (attempt: Run, check: string, verdict?: Verdict) => void;
   /** Minutes a harness may stay silent before its run is stopped, 10 unless set. */
   stallMinutes?: number;
@@ -192,6 +193,7 @@ export const agent = (
         launch: launcher(p),
         readonly,
         stallMinutes: p.stallMinutes ?? 10,
+        ...(p.onAlert && { onAlert: p.onAlert }),
         ...(until && { until }),
         onEvent: record => {
           if (record.event.type === 'start') model ??= record.event.model;

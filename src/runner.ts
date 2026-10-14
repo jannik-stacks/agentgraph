@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -90,7 +90,7 @@ const kill = (pid: number | undefined) => {
   } catch {}
 };
 
-type Exited = { code: number | null } | { error: Error };
+type Exited = { code: number | null; signal: NodeJS.Signals | null } | { error: Error };
 
 /**
  * Starts `command` in its own process group, writing `input` to its stdin when given. `closed` resolves once it
@@ -113,7 +113,7 @@ const start = (
   child.stderr?.on('data', on.stderr);
   const closed = new Promise<Exited>(resolve => {
     child.once('error', error => resolve({ error }));
-    child.once('close', code => resolve({ code }));
+    child.once('close', (code, signal) => resolve({ code, signal }));
   });
   const stop = () => {
     kill(child.pid);
@@ -123,7 +123,7 @@ const start = (
 };
 
 /** Raw stdout of a child process; fails on spawn errors or a non-zero exit, and stops it on release. */
-const output = (command: Command) =>
+const output = (command: Command, sink?: (text: string) => void) =>
   Stream.asyncPush<Uint8Array, Error>(emit =>
     Effect.acquireRelease(
       Effect.sync(() => {
@@ -131,6 +131,7 @@ const output = (command: Command) =>
         const { closed, stop } = start(command, {
           stdout: chunk => emit.single(chunk),
           stderr: chunk => {
+            sink?.(chunk.toString());
             stderr = (stderr + chunk.toString()).slice(-stderrLimit);
           },
         });
@@ -140,7 +141,10 @@ const output = (command: Command) =>
             : exit.code === 0
               ? emit.end()
               : emit.fail(
-                  Object.assign(new Error(stderr.trim() || `exited with code ${exit.code}`), { exitCode: exit.code })
+                  Object.assign(new Error(stderr.trim() || `exited with code ${exit.code}`), {
+                    exitCode: exit.code,
+                    signal: exit.signal,
+                  })
                 )
         );
         return { ended, stop };
@@ -310,7 +314,8 @@ export const agentEvents = (
   secrets?: Record<string, string>,
   home?: ReturnType<typeof homeEnv>,
   launch: Launcher = sandboxed,
-  readonly = false
+  readonly = false,
+  sink?: (text: string) => void
 ): Stream.Stream<AgentEvent, Error> =>
   Stream.unwrap(
     Effect.tryPromise({
@@ -326,7 +331,7 @@ export const agentEvents = (
           started = first.length > 0;
           return [...first, ...events];
         };
-        return output(command).pipe(Stream.decodeText(), Stream.splitLines, Stream.mapConcat(parse));
+        return output(command, sink).pipe(Stream.decodeText(), Stream.splitLines, Stream.mapConcat(parse));
       })
     )
   );
@@ -413,14 +418,25 @@ export const runJob = (options: {
   readonly?: boolean;
   stallMinutes?: number;
   until?: Effect.Effect<string>;
+  onAlert?: (line: string) => void;
 }): Effect.Effect<Run> =>
   Effect.suspend(() => {
     const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed, readonly } = options;
-    const { stallMinutes, until, env } = options;
+    const { stallMinutes, until, env, onAlert } = options;
     const save = (patch: Partial<Omit<Run, 'id'>>) => Effect.promise(() => store.update(runId, patch));
     const finish = (patch: Partial<Omit<Run, 'id'>>) => {
       const stopped = patch.stopped ?? (providerLimit.test(patch.error ?? '') ? 'provider' : undefined);
-      return save({ ...patch, ...(stopped && { stopped }), endedAt: new Date().toISOString() });
+      const failed = patch.status !== 'succeeded';
+      return save({
+        ...patch,
+        ...(stopped && { stopped }),
+        ...(failed && {
+          ...(lastEvent && { lastEvent }),
+          ...(exit && { exit }),
+          envNames: Object.keys({ ...env, ...secrets }),
+        }),
+        endedAt: new Date().toISOString(),
+      });
     };
 
     const mask = masker(Object.values(secrets ?? {}));
@@ -429,11 +445,14 @@ export const runJob = (options: {
     let end: Extract<AgentEvent, { type: 'end' }> | undefined;
     let firstError: string | undefined;
     let stuck: string | undefined;
+    let lastEvent: Run['lastEvent'];
+    let exit: Run['exit'];
     const record = (raw: AgentEvent) => {
       const event = JSON.parse(mask(JSON.stringify(raw))) as AgentEvent;
       if (event.type === 'end') end = event;
       if (event.type === 'error') firstError ??= event.message;
       const entry = { ts: new Date().toISOString(), seq: seq++, event };
+      lastEvent = { ts: entry.ts, type: event.type };
       onEvent?.(entry);
       stuck ??= watch(event);
       return Effect.promise(() => store.append(runId, entry)).pipe(
@@ -465,7 +484,9 @@ export const runJob = (options: {
         })
       ),
       Effect.flatMap(spec =>
-        agentEvents(adapter, spec, { ...env, ...secrets }, home, launch, readonly).pipe(
+        agentEvents(adapter, spec, { ...env, ...secrets }, home, launch, readonly, text =>
+          void appendFile(join(store.home(runId), '..', 'stderr.log'), mask(text)).catch(() => {})
+        ).pipe(
           events =>
             stallMinutes ? Stream.timeoutFail(events, () => new Stalled(), Duration.minutes(stallMinutes)) : events,
           events =>
@@ -493,6 +514,8 @@ export const runJob = (options: {
                 error: reason() ?? (end ? 'agent reported failure' : 'agent exited without a result'),
               }),
         onFailure: e => {
+          const { exitCode, signal } = e as { exitCode?: number | null; signal?: string | null };
+          if (exitCode != null || signal) exit = { ...(exitCode != null && { code: exitCode }), ...(signal && { signal }) };
           if (Cause.isTimeoutException(e))
             return finish({
               status: 'timed-out',
@@ -501,13 +524,15 @@ export const runJob = (options: {
               error: `timed out after ${timeoutMinutes} minutes`,
             });
           if (stuck) return finish({ status: 'failed', stopped: 'stuck', ...usage(), error: `stuck: ${stuck}` });
-          if (e instanceof Stalled)
+          if (e instanceof Stalled) {
+            onAlert?.(`ALERT stalled ${runId} ${stallMinutes}`);
             return finish({
               status: 'failed',
               stopped: 'stalled',
               ...usage(),
               error: `stalled: no agent event for ${stallMinutes} minutes`,
             });
+          }
           if (e instanceof Withdrawn)
             return finish({ status: 'cancelled', stopped: 'withdrawn', ...usage(), error: `withdrawn: ${e.message}` });
           if (sandboxFailed(e))

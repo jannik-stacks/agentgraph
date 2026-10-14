@@ -369,6 +369,46 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.
     expect(alive(pid)).toBe(false);
   });
 
+  it('alerts on a stall and keeps the whole stderr, the last event, the exit and the env names of a failed run', async () => {
+    const { store, runId } = await setup();
+    const alerts: string[] = [];
+    const stalled = await Effect.runPromise(
+      runJob({
+        adapter: node(hang, asText),
+        spec,
+        timeoutMinutes: 1,
+        stallMinutes: 0.01,
+        store,
+        runId,
+        launch: unsandboxed,
+        onAlert: line => alerts.push(line),
+      })
+    );
+    expect(alerts).toEqual([`ALERT stalled ${runId} 0.01`]);
+    expect(stalled.lastEvent).toMatchObject({ type: 'text' });
+
+    const next = await setup();
+    const noisy = `console.log('hello'); console.error('x'.repeat(10000) + ' sk-secret-value-1'); process.exit(3);`;
+    const run = await Effect.runPromise(
+      runJob({
+        adapter: node(noisy, asText),
+        spec,
+        timeoutMinutes: 1,
+        store: next.store,
+        runId: next.runId,
+        secrets: { LLM_KEY: 'sk-secret-value-1' },
+        env: { PLAIN: 'v' },
+        launch: unsandboxed,
+      })
+    );
+    expect(run).toMatchObject({ status: 'failed', exit: { code: 3 }, envNames: ['PLAIN', 'LLM_KEY'] });
+    expect(run.lastEvent?.type).toBe('text');
+    const log = readFileSync(join(next.store.home(next.runId), '..', 'stderr.log'), 'utf8');
+    expect(log.length).toBeGreaterThan(10000);
+    expect(log).not.toContain('sk-secret-value-1');
+    expect(JSON.stringify(run)).not.toContain('sk-secret-value-1');
+  });
+
   it('withdraws a run once its work is abandoned, and stops the process', async () => {
     const { store, runId } = await setup();
     const until = Effect.promise(() => waitFor(async () => (await store.events(runId)).length > 0)).pipe(
