@@ -160,7 +160,7 @@ export type HubTool = z.infer<typeof HubTool>;
 export const IssuesBackend = z.enum(['github', 'local']);
 export type IssuesBackend = z.infer<typeof IssuesBackend>;
 
-export const Harness = z.enum(['opencode', 'pi']);
+export const Harness = z.enum(['opencode', 'pi', 'claude']);
 export type Harness = z.infer<typeof Harness>;
 
 /**
@@ -241,9 +241,9 @@ export const Bot = z
     },
     { error: issue => (issue.code === 'unrecognized_keys' ? unknownBotKeys(issue.keys, issue.input) : undefined) }
   )
-  .refine(bot => bot.harness !== 'pi' || bot.resume !== 'session', {
+  .refine(bot => bot.harness === 'opencode' || bot.resume !== 'session', {
     path: ['resume'],
-    message: 'pi cannot resume its session yet; use resume: summary',
+    message: 'only opencode can resume its session yet; use resume: summary',
   });
 export type Bot = z.infer<typeof Bot>;
 

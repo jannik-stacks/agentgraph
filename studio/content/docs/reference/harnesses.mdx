@@ -1,10 +1,10 @@
 ---
 title: Harnesses
-description: The agent programs a bot runs in, opencode and pi, behind one small adapter.
+description: The agent programs a bot runs in, opencode, pi and claude, behind one small adapter.
 ---
 
-A harness is the agent CLI a bot runs in, picked by the bot's `harness`: **opencode** or **pi**.
-Both talk only to the LiteLLM proxy, where a bot's `model` is an alias. The pipeline turns a job
+A harness is the agent CLI a bot runs in, picked by the bot's `harness`: **opencode**, **pi** or
+**claude**. opencode and pi talk only to the LiteLLM proxy, where a bot's `model` is an alias. The pipeline turns a job
 into a session spec with <Sym name="buildSpec" />.
 
 <Fields name="RunSpec" />
@@ -22,15 +22,23 @@ An adapter builds the command for a spec and parses one output line at a time; t
 
 opencode is the primary harness, with real tool allowlists and the bothub MCP server mounted. pi is
 light and fast, with all-or-nothing tools and no MCP client, so it suits read-only bots.
-`bothub sim` swaps both for a scripted adapter, see [Events and serving](/docs/reference/serve#sim).
+`bothub sim` swaps every harness for a scripted adapter, see [Events and serving](/docs/reference/serve#sim).
+
+claude is Claude Code in print mode on the operator's own subscription, so review can come from a
+different model family than the authors. Its `model` is a Claude model name such as `opus`, and
+`max-turns` is passed on. It runs with project memory, settings, hooks, plugins and MCP servers
+off, and denies every tool outside the allowlist without asking. It gets no hub tools. Its usage
+is recorded per model under a `claude-code/` name that no price table lists, so its runs cost
+nothing on the scoreboard. The sandbox cannot run it yet, see [Sandbox](/docs/sandbox).
 
 ## Tool names
 
 A bot's `tools` are lowercase harness tool names plus hub tools like `issues_get`, and
 `bothub check` rejects any other name. For opencode they are read, edit, write, bash, grep, glob,
-list, webfetch, websearch, todowrite and task; for pi, read, bash, edit, write, grep, find and ls.
+list, webfetch, websearch, todowrite and task; for pi, read, bash, edit, write, grep, find and ls;
+for claude, read, grep, glob, edit, write, bash, webfetch and websearch.
 
 opencode also takes a pattern, `bash(git diff*)`, which allows only matching commands. It checks
 every part of a compound command on its own, so `cd kit && npx vitest run` is denied under
-`bash(npx vitest*)` unless `bash(cd *)` is listed too. pi has no patterns, and `bothub check`
-rejects them on pi bots.
+`bash(npx vitest*)` unless `bash(cd *)` is listed too. claude takes the same patterns. pi has no
+patterns, and `bothub check` rejects them on pi bots.

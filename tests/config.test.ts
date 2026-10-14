@@ -85,7 +85,7 @@ describe('compile', () => {
       /session is replaced by resume and history; remove it; Unrecognized keys: "can"/
     );
     expect(errorsOf([of('pi', 'resume: session')]).join()).toMatch(
-      /pi cannot resume its session yet; use resume: summary/
+      /only opencode can resume its session yet; use resume: summary/
     );
     const result = compile([of('opencode', 'resume: session\nhistory: issue')]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -286,6 +286,15 @@ describe('compile', () => {
     ]);
     const quiet = compile([file('bots/p.md', 'harness: pi\ntools: [read]\nreturns: [reply]')]);
     expect(quiet.ok && quiet.warnings).toEqual([]);
+  });
+
+  it('takes patterns on claude bots and warns that they get no hub tools', () => {
+    const result = compile([
+      file('bots/c.md', 'harness: claude\ntools: [read, bash(git diff*), issues_get]\nreturns: [reply]\nmax-turns: 4'),
+    ]);
+    expect(result.ok && result.warnings.map(w => w.message)).toEqual([
+      'lists hub tools (issues_get) that claude runs do not get',
+    ]);
   });
 
   it('warns about fields it does not enforce, checks that never run and loops that never repeat', async () => {

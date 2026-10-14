@@ -1,7 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
+import { Chunk, Effect, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { harnesses } from '../src/harnesses/index.ts';
+import { loadPrices } from '../src/prices.ts';
+import { agentEvents, unsandboxed } from '../src/runner.ts';
 import type { AgentEvent, RunSpec } from '../src/types.ts';
 
 const spec: RunSpec = {
@@ -13,7 +17,7 @@ const spec: RunSpec = {
   maxTurns: 5,
 };
 
-const fixture = (harness: 'opencode' | 'pi', name: string) =>
+const fixture = (harness: keyof typeof harnesses, name: string) =>
   readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8')
     .split('\n')
     .flatMap(line => harnesses[harness].parseLine(line));
@@ -321,5 +325,117 @@ describe('pi', () => {
     expect(parseLine('{"type":"message_end","message":{"role":"user","content":"hi"}}')).toEqual([]);
     expect(parseLine('')).toEqual([]);
     expect(types(parseLine('not json'))).toEqual(['error']);
+  });
+});
+
+describe('claude', () => {
+  const { command, parseLine } = harnesses.claude;
+
+  it('builds a print-mode argv limited to the allowlist, with the prompt after --', () => {
+    const { cmd, args } = command(spec);
+    expect(cmd).toBe('claude');
+    expect(args.slice(-4)).toEqual(['--append-system-prompt', spec.system, '--', spec.prompt]);
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '--print',
+        '--safe-mode',
+        '--restricted',
+        '--strict-mcp-config',
+        '--no-session-persistence',
+      ])
+    );
+    const flag = (name: string) => args[args.indexOf(name) + 1];
+    expect(flag('--output-format')).toBe('stream-json');
+    expect(flag('--permission-mode')).toBe('dontAsk');
+    expect(flag('--tools')).toBe('Read,Bash');
+    expect(flag('--allowedTools')).toBe('Read,Bash(git diff*),Bash(git log*)');
+    expect(flag('--model')).toBe('coder');
+    expect(flag('--max-turns')).toBe('5');
+    expect(args.join(' ')).not.toMatch(/dangerously|bypassPermissions|acceptEdits/);
+  });
+
+  it('disables every tool for an empty allowlist or hub tools only, and leaves the model to the CLI', () => {
+    const { model: _, maxTurns: __, ...bare } = spec;
+    const { args } = command({ ...bare, tools: ['issues_get'] });
+    expect(args[args.indexOf('--tools') + 1]).toBe('');
+    expect(args).not.toContain('--allowedTools');
+    expect(args).not.toContain('--model');
+    expect(args).not.toContain('--max-turns');
+  });
+
+  it('logs in as the host user and passes no key', () => {
+    const { env } = command(spec);
+    expect(env.HOME).toBe(process.env.HOME);
+    expect(Object.keys(env).join()).not.toMatch(/KEY|TOKEN/);
+  });
+
+  it('parses a run into start, tool call and result, text, usage per model and end', () => {
+    const events = fixture('claude', 'claude-run.jsonl');
+    expect(types(events)).toEqual(['start', 'tool_call', 'tool_result', 'text', 'usage', 'end']);
+    expect(events[0]).toEqual({
+      type: 'start',
+      session: 'e47727a3-ac6e-4f15-8327-b47a312c26d1',
+      model: 'claude-code/claude-haiku-5-5',
+    });
+    expect(events[1]).toEqual({
+      type: 'tool_call',
+      id: 'toolu_01',
+      tool: 'Read',
+      input: { file_path: '/tmp/x/add.js' },
+    });
+    expect(events[2]).toMatchObject({ type: 'tool_result', id: 'toolu_01', ok: true });
+    expect(events[4]).toEqual({
+      type: 'usage',
+      inputTokens: 4 + 8401 + 2340,
+      outputTokens: 177,
+      cachedInputTokens: 8401,
+      model: 'claude-code/claude-haiku-5-5',
+    });
+    expect(events[5]).toMatchObject({ type: 'end', ok: true, turns: 2, result: expect.stringContaining('a - b') });
+  });
+
+  it('reports no cost, and no price table prices its models', async () => {
+    expect(fixture('claude', 'claude-run.jsonl').some(e => 'costUsd' in e)).toBe(false);
+    const file = join(import.meta.dirname, '..', 'infra', 'local', 'prices.json');
+    const prices = await loadPrices({ file, env: {} })();
+    expect(prices['claude-opus-5-5']).toBeDefined();
+    expect(prices['claude-code/claude-opus-5-5']).toBeUndefined();
+  });
+
+  it('reports a failed run with its reason, and malformed JSON', () => {
+    const failed = JSON.stringify({
+      type: 'result',
+      subtype: 'error_max_turns',
+      is_error: true,
+      num_turns: 5,
+      modelUsage: {},
+    });
+    expect(parseLine(failed)).toEqual([
+      { type: 'error', message: 'error_max_turns' },
+      { type: 'end', ok: false, turns: 5 },
+    ]);
+    expect(parseLine('{"type":"rate_limit_event"}')).toEqual([]);
+    expect(parseLine('')).toEqual([]);
+    expect(types(parseLine('{"type":'))).toEqual(['error']);
+  });
+
+  it('runs a fake claude binary through the runner', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'bothub-claude-'));
+    const argv = join(bin, 'argv.json');
+    const fake = join(bin, 'claude');
+    const replay = JSON.stringify(readFileSync(join(import.meta.dirname, 'fixtures', 'claude-run.jsonl'), 'utf8'));
+    const record = `require('fs').writeFileSync(${JSON.stringify(argv)}, JSON.stringify(process.argv.slice(2)))`;
+    writeFileSync(fake, `#!${process.execPath}\n${record};\nprocess.stdout.write(${replay});\n`);
+    chmodSync(fake, 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = [bin, path].join(delimiter);
+    try {
+      const run = agentEvents(harnesses.claude, { ...spec, cwd: bin }, undefined, undefined, unsandboxed);
+      const events = Chunk.toArray(await Effect.runPromise(Stream.runCollect(run)));
+      expect(types(events)).toEqual(['start', 'tool_call', 'tool_result', 'text', 'usage', 'end']);
+      expect(JSON.parse(readFileSync(argv, 'utf8')).at(-1)).toBe(spec.prompt);
+    } finally {
+      process.env.PATH = path;
+    }
   });
 });

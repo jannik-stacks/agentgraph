@@ -111,6 +111,7 @@ export const compile = (files: SourceFile[]): Compiled => {
 export const harnessToolNames: Record<Harness, readonly string[]> = {
   opencode: ['read', 'edit', 'write', 'bash', 'grep', 'glob', 'list', 'webfetch', 'websearch', 'todowrite', 'task'],
   pi: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'],
+  claude: ['read', 'grep', 'glob', 'edit', 'write', 'bash', 'webfetch', 'websearch'],
 };
 
 /** Why a tool entry means nothing to the bot's harness: an unknown name, or a pattern pi cannot take. */
@@ -120,7 +121,7 @@ const toolProblem = (harness: Harness, tool: string) => {
   const known = harnessToolNames[harness];
   if (!known.includes(name))
     return `lists tool "${tool}", which ${harness} does not have (one of ${known.join(', ')}, or a hub tool)`;
-  if (pattern !== undefined && harness !== 'opencode') return `lists tool "${tool}", but ${harness} takes no patterns`;
+  if (pattern !== undefined && harness === 'pi') return `lists tool "${tool}", but ${harness} takes no patterns`;
 };
 
 const references = (config: Config): ConfigError[] => {
@@ -168,13 +169,14 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
   const found: ConfigError[] = [];
   for (const bot of Object.values(bots)) {
     const warn = (message: string) => found.push({ path: bot.path, message });
-    if (bot.harness === 'pi') {
-      if (bot['max-turns'] !== undefined)
-        warn('"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it');
+    const { harness } = bot;
+    if (harness === 'pi' && bot['max-turns'] !== undefined)
+      warn('"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it');
+    if (harness !== 'opencode') {
       const served = hubTools(bot);
-      if (served.length) warn(`lists hub tools (${served.join(', ')}) that pi runs do not get`);
-      if (bot.preload?.some(recallOf)) warn('preloads recall, which pi runs do not get');
-      if (bot.decider) warn('asks decider questions, which pi runs do not get');
+      if (served.length) warn(`lists hub tools (${served.join(', ')}) that ${harness} runs do not get`);
+      if (bot.preload?.some(recallOf)) warn(`preloads recall, which ${harness} runs do not get`);
+      if (bot.decider) warn(`asks decider questions, which ${harness} runs do not get`);
     }
   }
   for (const check of Object.values(checks))

@@ -101,5 +101,12 @@ export const fakeHarness = (behave: (spec: RunSpec, call: number) => Behaviour) 
     },
     parseLine: line => (line.trim() ? [JSON.parse(line) as AgentEvent] : []),
   };
-  return { seen, adapters: { opencode: adapter, pi: { ...adapter, name: 'pi' as const } } };
+  return {
+    seen,
+    adapters: {
+      opencode: adapter,
+      pi: { ...adapter, name: 'pi' as const },
+      claude: { ...adapter, name: 'claude' as const },
+    },
+  };
 };

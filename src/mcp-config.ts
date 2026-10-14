@@ -33,12 +33,13 @@ export const opencodeMcpConfig = ({ command, args, env }: McpServer) => ({
   mcp: { [serverName]: { type: 'local', command: [command, ...args], environment: env, enabled: true } },
 });
 
-/** The names a harness's tool allowlist uses for the bothub tools. pi has no MCP client, so it gets none. */
+/** The names a harness's tool allowlist uses for the bothub tools. pi and claude runs get none. */
 export const mcpToolNames = (harness: Harness, tools: McpTool[]): string[] => {
   switch (harness) {
     case 'opencode':
       return tools.map(tool => `${serverName}_${tool}`);
     case 'pi':
+    case 'claude':
       return [];
   }
 };

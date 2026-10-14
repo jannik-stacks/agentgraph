@@ -86,12 +86,16 @@ After a rebuild, `infra/local/sandbox/smoke.sh` starts it the way a run does and
 
 ## Harnesses
 
-A bot's `harness` picks the agent program. Both talk only to the model proxy.
+A bot's `harness` picks the agent program. opencode and pi talk only to the model proxy.
 
 | Harness    | Notes                                                                                   |
 | ---------- | --------------------------------------------------------------------------------------- |
 | `opencode` | The primary choice. Real tool allowlists, including patterned bash, one process per run |
 | `pi`       | Light and fast. Tools are all or nothing, so it suits read-only bots                    |
+| `claude`   | Claude Code on the operator's subscription. Not runnable in the sandbox yet             |
+
+The sandbox image has no Claude Code and no login, and the egress proxy does not allow Anthropic,
+so a `claude` run fails there with nothing run on the host.
 
 Each is a small adapter; see [Harnesses](/docs/reference/harnesses).
 
@@ -105,7 +109,6 @@ spent what.
 | ----------------- | ----------------------------------------------------------- |
 | `smart`, `writer` | A ChatGPT subscription through LiteLLM's `chatgpt` provider |
 | `luna`            | The same subscription, a small chat model for decide calls  |
-| `review`          | An Anthropic key, a different family from the authors       |
 | `fast`            | Ollama running `qwen3.5:4b` locally                         |
 
 Ollama also serves `tev1:0.8b` through its decision API, for small yes, no and scoring questions
