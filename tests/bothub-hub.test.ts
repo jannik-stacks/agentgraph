@@ -374,6 +374,17 @@ describe('tests', () => {
     });
   });
 
+  it('runs the suite under a symlinked temp dir, so a resolved path never matches an unresolved root', () => {
+    const repo = suite(
+      "import { realpathSync } from 'node:fs';",
+      "import { tmpdir } from 'node:os';",
+      "it('resolves the temp dir to itself', () => expect(realpathSync(tmpdir())).toBe(tmpdir()));"
+    );
+    const { ok, out } = run('tests.mjs', repo);
+    expect(ok).toBe(false);
+    expect(out).toContain('FAIL tests/a.test.ts > resolves the temp dir to itself');
+  });
+
   it('names the failing tests first when the error log runs long', () => {
     const repo = suite(
       "it('adds', () => expect(1 + 1).toBe(2));",
