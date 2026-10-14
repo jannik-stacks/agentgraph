@@ -260,11 +260,7 @@ export const DashboardView = () => {
         </div>
         <div className="min-h-0 flex-1">
           {shown ? (
-            <RunView
-              key={'follow' in page ? 'follow' : shown}
-              id={shown}
-              variant={'follow' in page ? 'follow' : 'page'}
-            />
+            <RunView id={shown} variant={'follow' in page ? 'follow' : 'page'} />
           ) : rows ? (
             <Muted>Waiting for a run to start.</Muted>
           ) : (
@@ -298,7 +294,7 @@ export const DashboardView = () => {
           (selected || event) && (
             <Modal onClose={close}>
               {selected ? (
-                <RunView key={selected} id={selected} onClose={close} />
+                <RunView id={selected} onClose={close} />
               ) : (
                 event && <EventView key={event} id={event} onClose={close} />
               )}
@@ -307,7 +303,7 @@ export const DashboardView = () => {
         ) : (
           <div className="min-w-0 flex-1">
             {selected ? (
-              <RunView key={selected} id={selected} />
+              <RunView id={selected} />
             ) : event ? (
               <EventView key={event} id={event} />
             ) : (

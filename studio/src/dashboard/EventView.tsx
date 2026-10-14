@@ -37,7 +37,7 @@ const Line = ({
   const prices = useAtomValue(pricesAtom);
   const cost = costOfRuns(runs, prices);
   const one = runs.length === 1 ? runs[0] : undefined;
-  const running = one && isLive(one.status) ? one : undefined;
+  const running = liveOf(runs);
   const body = (
     <>
       {icon}
@@ -101,10 +101,12 @@ export const FetchedFindings = ({ attempt, name, line = false }: { attempt: RunR
   return line ? <FindingsLine verdict={verdict} /> : <VerdictView verdict={verdict} />;
 };
 
+const liveOf = (runs: RunRow[]) => runs.findLast(r => isLive(r.status));
+
 /** The verdict of check `name` on `attempt` as an icon in its status and tone, with what it means as the tip. */
 export const VerdictIcon = ({ attempt, name, runs }: { attempt: RunRow; name: string; runs: RunRow[] }) => {
   const brief = attempt.brief?.checks?.find(v => v.check === name);
-  const last = runs.at(-1);
+  const last = liveOf(runs) ?? runs.at(-1);
   if (brief && !(last && isLive(last.status)))
     return (
       <StatusIcon
@@ -151,7 +153,7 @@ export const CheckLines = ({ attempt, rows, depth }: { attempt: RunRow; rows: Ru
         }
         runs={runs}
         depth={depth}
-        onSelect={runs.length ? () => select(runs.at(-1)!.id) : undefined}
+        onSelect={runs.length ? () => select((liveOf(runs) ?? runs.at(-1)!).id) : undefined}
       >
         {!runs.length && (
           <Suspense fallback={null}>

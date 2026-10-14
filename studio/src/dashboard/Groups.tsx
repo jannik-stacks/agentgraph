@@ -121,8 +121,10 @@ export const EventLine = ({ group }: { group: Group }) => {
   const prices = useAtomValue(pricesAtom);
   const { event } = group;
   const cost = costOfRuns(group.runs, prices);
+  const select = useSetAtom(runIdAtom);
   const live = group.runs.filter(r => r.status === 'running');
   const running = live.length;
+  const current = live.at(-1);
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <StatusIcon
@@ -141,8 +143,18 @@ export const EventLine = ({ group }: { group: Group }) => {
       </span>
       <Io tally={group.tally} className="shrink-0 text-xs" />
       <Cost billed={cost.billed} estimated={cost.estimated} tally={group.tally} className="w-12 justify-end text-xs" />
-      {live[0] ? (
-        <Running run={live[0]} />
+      {current ? (
+        <button
+          type="button"
+          aria-label="Show the running run"
+          onClick={e => {
+            e.stopPropagation();
+            select(current.id);
+          }}
+          className="shrink-0 rounded-full"
+        >
+          <Running run={current} />
+        </button>
       ) : (
         <Tooltip tip={`Started ${new Date(group.startedAt).toLocaleString()}`} className="w-14 shrink-0 justify-end">
           <span className="text-xs text-zinc-500">{age(group.startedAt)}</span>

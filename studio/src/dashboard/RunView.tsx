@@ -3,6 +3,7 @@ import {
   createContext,
   memo,
   type ReactNode,
+  startTransition,
   Suspense,
   use,
   useCallback,
@@ -418,11 +419,12 @@ const FetchedTranscript = ({ run, price }: { run: RunRow; price: Price | undefin
   <Transcript run={run} records={use(fetchEvents(run.id, run.status))} price={price} />
 );
 
-/** The records of `run`: streamed when it is the followed run, fetched once otherwise. */
+/** The records of `run`: streamed while it is live and followed, fetched once otherwise. */
 const RunTranscript = ({ run, prices }: { run: RunRow; prices: Prices }) => {
   const followed = useAtomValue(live.followed);
   const price = run.model ? prices[run.model] : undefined;
-  if (followed?.id === run.id) return <Transcript run={run} records={followed.records} price={price} />;
+  if (isLive(run.status) && followed?.id === run.id)
+    return <Transcript run={run} records={followed.records} price={price} />;
   return (
     <Suspense fallback={<div className="min-h-7" />}>
       <FetchedTranscript run={run} price={price} />
@@ -751,7 +753,7 @@ const Stepper = ({
   const select = useSetAtom(runIdAtom);
   const go = useEffectEvent((step: number) => {
     const next = list[at + step];
-    if (next) select(next.id);
+    if (next) startTransition(() => select(next.id));
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -888,27 +890,40 @@ export const RunView = ({
   const navigate = useSetAtom(navigateAtom);
   const select = useSetAtom(runIdAtom);
   const setRunPage = useSetAtom(runPageAtom);
+  const [shownId, setShownId] = useState(id);
   const [mode, setMode] = useState<Mode>('auto');
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [pinned, setPinned] = useState(true);
   const [rawRecord, setRawRecord] = useState(false);
+  const [opened, setOpened] = useState(() => new Set<string>());
+  if (shownId !== id) {
+    setShownId(id);
+    setMode('auto');
+    setOverrides({});
+    setPinned(true);
+    setRawRecord(false);
+    setOpened(new Set());
+  }
   const scroller = useRef<HTMLDivElement>(null);
   const toggle = useCallback((step: string, open: boolean) => setOverrides(o => ({ ...o, [step]: open })), []);
-  const opened = useRef(new Set<string>());
   const steps = useMemo(
     () => ({
       isOpen: (step: string, auto: boolean, stay: boolean) => {
-        if (stay && auto) opened.current.add(step);
-        const fallback = stay ? opened.current.has(step) : auto;
+        if (stay && auto) opened.add(step);
+        const fallback = stay ? opened.has(step) : auto;
         return overrides[step] ?? (mode === 'all' ? true : mode === 'none' ? false : fallback);
       },
       toggle,
     }),
-    [mode, overrides, toggle]
+    [mode, overrides, toggle, opened]
   );
   const execution = useMemo(() => (rows ? executionOf(rows, id) : undefined), [rows, id]);
   const running = execution ? isLive(execution.run.status) : false;
   const streamed = followed?.records.length ?? 0;
+
+  useLayoutEffect(() => {
+    scroller.current?.scrollTo({ top: 0 });
+  }, [id]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
