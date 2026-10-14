@@ -44,6 +44,7 @@ jobs:
         - criterion-met
         - removed
         - state-transitions
+        - reduce
         - review-src
         - near-duplicate
         - review-docs

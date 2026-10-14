@@ -1119,6 +1119,16 @@ describe('slicers for the narrow judges', () => {
     expect(criteriaFor("import { gone } from '../src/gone.ts';\n")).toContain('+export const o = 2;');
   });
 
+  it('reduce: one item with the criteria and the added lines under file and line', () => {
+    const repo = change({ 'src/labels.ts': labels.before }, { 'src/labels.ts': labels.after });
+    const env = { BOTHUB_BRIEF: join(hubWith(brief), 'issues/1-labels.md') };
+    writeFileSync(env.BOTHUB_BRIEF, brief);
+    const [item] = items(run('reduce.mjs', repo, [], env).out);
+    expect(item!['done when']).toHaveLength(3);
+    expect(item!.added).toContain('src/labels.ts:');
+    expect(item!.added).toContain(': export const labelId');
+  });
+
   it('scope: only the changed files the brief does not name', () => {
     const repo = change(
       { 'src/labels.ts': labels.before, 'src/serve.ts': 'export const s = 1;\n' },

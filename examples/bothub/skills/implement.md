@@ -7,7 +7,8 @@ and nothing the brief does not ask for. Read narrowly: `grep` for the function, 
 part with `offset` and `limit`.
 
 Write each criterion's test first, with the title and in the file the brief names; it must fail on
-the old code unless its title starts with `still `. One test per criterion and no others: test
+the old code unless its title starts with `still `, which a Done-when row asks for (existing
+behaviour stays) or which guards code the change edits. One test per criterion and no others: test
 through the entry point the brief names, build inputs with the helpers already in the test file,
 use the smallest input that fails on the old code, and assert at most three things. Reuse what
 another module already decides instead of restating its rules. Before writing a parser or an
@@ -20,6 +21,8 @@ Run from the repository root, one command at a time:
 - `node_modules/.bin/tsc --noEmit`
 - before you finish:
   `BOTHUB_HUB=/hub BOTHUB_ISSUE=<issue> BOTHUB_BASE=$(git merge-base HEAD main-worktree/HEAD) node /hub/scripts/fast.mjs`
+
+Before pushing, reread the diff and delete anything the criteria do not need.
 
 Never `npm install`, `npm ci` or `npx`.
 
