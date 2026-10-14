@@ -1,6 +1,6 @@
 ---
 harness: pi
-model: review
+model: smart
 tools: [read, grep, find]
 returns: [reply]
 skills: [review, review-file]

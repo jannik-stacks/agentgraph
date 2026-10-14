@@ -1,6 +1,6 @@
 ---
 harness: opencode
-model: review
+model: smart
 tools: [read, grep, glob, notes_search]
 returns: [reply]
 max-turns: 20

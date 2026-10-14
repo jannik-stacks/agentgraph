@@ -1,6 +1,6 @@
 ---
 harness: opencode
-model: review
+model: smart
 tools: [read, grep, glob, issues_list, issues_get, runs_read]
 returns: [reply, ask]
 skills: [retro]
