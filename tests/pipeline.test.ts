@@ -25,6 +25,7 @@ import {
   type JobResult,
   type Pipeline,
 } from '../src/pipeline.ts';
+import { eventContext } from '../src/pipeline/prompt.ts';
 import { limiter, unsandboxed, type Launcher } from '../src/runner.ts';
 import { SandboxError } from '../src/sandbox.ts';
 import { openStore, type Outcome, type Run, type Verdict } from '../src/store.ts';
@@ -294,6 +295,15 @@ describe('buildSpec', () => {
     expect(spec.prompt).toContain('Branch: bothub/7-please-look-at-this');
     expect(spec.system).toContain('"branch": "bothub/7-please-look-at-this"');
     expect(spec.system).toContain('Use the branch `bothub/7-please-look-at-this`.');
+  });
+});
+
+describe('eventContext', () => {
+  it('leaves out a URL that is a hub file path the sandbox does not have', () => {
+    expect(eventContext({ ...event, url: 'issues/1-x.md#comment-1' }, undefined, undefined)).not.toContain('URL:');
+    expect(eventContext({ ...event, url: 'https://github.com/acme/app/issues/7' }, undefined, undefined)).toContain(
+      'URL: https://github.com/acme/app/issues/7'
+    );
   });
 });
 

@@ -900,7 +900,7 @@ describe('triage-brief', () => {
 
   it('with --width, flags only a brief naming more than twice as many files outside tests/ as Done when rows', () => {
     const hub = temp('brief-hub');
-    write(hub, { 'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- One.\n- Two.\n' });
+    write(hub, { 'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- One.\n- Two.\n- Three.\n' });
     const dir = temp('brief');
     const named = (n: number) => Array.from({ length: n }, (_, i) => `- \`src/f${i}.ts\``).join('\n');
     const width = (n: number) => {
@@ -910,10 +910,22 @@ describe('triage-brief', () => {
         BOTHUB_ISSUE: '7',
       });
     };
-    expect(width(4)).toEqual({ ok: true, out: 'triage-width: ok' });
-    expect(findings(width(5).out)).toEqual([
-      '5 files outside tests/ for 2 Done when rows; name only the files those rows need',
+    expect(width(6)).toEqual({ ok: true, out: 'triage-width: ok' });
+    expect(findings(width(7).out)).toEqual([
+      '7 files outside tests/ for 3 Done when rows; name only the files those rows need',
     ]);
+  });
+
+  it('with --width, flags a brief with more criteria than Done when rows', () => {
+    const hub = temp('brief-hub');
+    write(hub, { 'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- One.\n- Two.\n' });
+    const dir = temp('brief');
+    writeFileSync(join(dir, 'reply.md'), brief);
+    const { out } = run('triage-brief.mjs', { dir, base: '' }, ['--width', join(dir, 'reply.md')], {
+      BOTHUB_HUB: hub,
+      BOTHUB_ISSUE: '7',
+    });
+    expect(findings(out)).toEqual(['3 criteria for 2 Done when rows; map the criteria one to one onto the rows']);
   });
 
   it('fails a brief naming more files outside tests/ than the size cap, and says to split it', () => {

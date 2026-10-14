@@ -14,4 +14,5 @@ would be different if the code under test had not changed? FAIL naming an assert
 either way, such as one that compares against `undefined` or against the input it was given.
 Also FAIL an assertion that only restates data files the change edits, such as re-reading an
 example workflow and checking its keys, instead of checking what the code does with them;
-otherwise PASS.
+otherwise PASS. A test whose title is the named test of one of the brief's criteria is required: never
+remove it, even when it starts with `still `.

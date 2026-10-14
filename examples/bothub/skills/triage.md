@@ -38,8 +38,9 @@ touches, such as a fallback, a config option or a carried summary, stays and get
 criterion; drop it only when the issue says to. When the issue asks for something to reach every
 check, caller or harness, the task covers all of them, not the first one.
 
-Match the criteria to what the issue asks: one per item of its `Done when` list, and add one only
-when the issue clearly needs it. A one-line fix gets one criterion and one small test.
+Match the criteria to what the issue asks: when it has a `Done when` list, one criterion per row,
+no more and no fewer, and fold any extra case into the row it belongs to. Without a list, add one
+only when the issue clearly needs it. A one-line fix gets one criterion and one small test.
 
 Name under `## Files` only what the `Done when` rows need, about two files outside `tests/` per
 row; the triage-width check flags more.

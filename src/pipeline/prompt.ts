@@ -95,7 +95,7 @@ export const eventContext = (event: BotEvent, args: string | undefined, branch: 
     `Repository: ${event.repo}`,
     event.number !== undefined && `Number: #${event.number}`,
     `Actor: @${event.actor.login} (${event.actor.association})`,
-    event.url && `URL: ${event.url}`,
+    event.url?.startsWith('http') && `URL: ${event.url}`,
     `Trigger: ${event.trigger}${event.action ? ` (${event.action})` : ''}`,
     event.ref && `Ref: ${event.ref}`,
     branch && `Branch: ${branch}`,

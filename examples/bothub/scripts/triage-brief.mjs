@@ -3,7 +3,7 @@
 // the paths in bounds.mjs, or the roots `--within` gives, have a name the safety check accepts, and the files outside
 // tests/ must fit the size check's cap. Every path the issue's Done when names must sit under those paths too, unless
 // the brief lists it as out of scope. With --width it only flags a brief naming more files outside tests/ than
-// twice the issue's Done when rows.
+// twice the issue's Done when rows, or more criteria than Done when rows.
 //
 //   node triage-brief.mjs [--width] [--within <root>,<root>...] [reply-file]      otherwise the reply is read from BOTHUB_REPLY
 import { existsSync, readFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ const roots = at === -1 ? paths : args.splice(at, 2)[1].split(',').filter(Boolea
 const reply = args[0] ? readFileSync(args[0], 'utf8') : process.env.BOTHUB_REPLY;
 if (reply === undefined) console.log('triage-brief: no reply to check; it is read from BOTHUB_REPLY');
 else {
-  const { files, outOfScope, problems } = parseBrief(reply);
+  const { criteria, files, outOfScope, problems } = parseBrief(reply);
   const inside = path => roots.some(root => path.startsWith(root));
   for (const file of files.filter(file => !inside(file)))
     problems.push(`${file} is outside what the change may touch (${roots.join(', ')}); leave it out of scope or ask`);
@@ -39,9 +39,14 @@ else {
   if (width)
     report(
       'triage-width',
-      rows && counted.length > 2 * rows
-        ? [`${counted.length} files outside tests/ for ${rows} Done when rows; name only the files those rows need`]
-        : []
+      [
+        ...(rows && counted.length > 2 * rows
+          ? [`${counted.length} files outside tests/ for ${rows} Done when rows; name only the files those rows need`]
+          : []),
+        ...(rows && criteria.length > rows
+          ? [`${criteria.length} criteria for ${rows} Done when rows; map the criteria one to one onto the rows`]
+          : []),
+      ]
     );
   else report('triage-brief', problems);
 }
