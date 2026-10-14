@@ -11,10 +11,11 @@ import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
 import { approvals, continuation, issuesOf, onRequest, runPlan, type JobResult, type Pipeline } from './pipeline.ts';
+import { hubLauncher } from './pipeline/context.ts';
 import { loadPrices } from './prices.ts';
 import { localPulls } from './pulls.ts';
 import { fileQueue, worker, type Queued, type WorkerOptions } from './queue.ts';
-import { limiter, sandboxed } from './runner.ts';
+import { limiter } from './runner.ts';
 import { openStore, reconcile, type Run, type Verdict } from './store.ts';
 import type { BotEvent } from './types.ts';
 import { workspaces, type Workspaces } from './workspace.ts';
@@ -370,7 +371,7 @@ export const warmDeps = async ({
   data,
   repo,
   workspaces: spaces,
-  launch = sandboxed,
+  launch,
   log,
 }: {
   hub: string;
@@ -382,11 +383,12 @@ export const warmDeps = async ({
 }) => {
   const compiled = compile(await readHub(hub));
   const deps = compiled.ok ? compiled.config.hub.deps : undefined;
-  if (!deps) return;
+  if (!compiled.ok || !deps) return;
+  const launcher = hubLauncher({ config: compiled.config, hub, data, ...(launch && { launch }) });
   const id = `prewarm-${Date.now()}`;
   try {
     const tree = await spaces.create({ repo }, id);
-    await prepareDeps(tree.path, deps, join(data, 'deps'), launch, hub);
+    await prepareDeps(tree.path, deps, join(data, 'deps'), launcher, hub);
     log('deps ready');
   } catch (e) {
     log(`deps not prewarmed: ${(e as Error).message}`);

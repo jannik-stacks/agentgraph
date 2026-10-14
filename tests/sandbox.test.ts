@@ -5,6 +5,7 @@ import { bothubServer } from '../src/mcp-config.ts';
 import {
   bothubArg,
   bothubPaths,
+  containerEnv,
   dockerRun,
   gitMounts,
   inside,
@@ -107,6 +108,15 @@ describe('dockerRun', () => {
     ]);
   });
 
+  it('adds the open network and the cache only when asked', () => {
+    expect(run.args.filter(arg => arg === '--network')).toHaveLength(1);
+    const open = dockerRun({ ...base, user: '501:20', open: true, cache: '/data/cache/h' });
+    expect(open.args.join(' ')).toContain('--network bothub-sandbox --network bothub-open');
+    expect(open.args).toContain('type=bind,src=/data/cache/h,dst=/cache');
+    expect(open.args).toContain('BOTHUB_CACHE=/cache');
+    expect(run.args.join(' ')).not.toContain('BOTHUB_CACHE');
+  });
+
   it('mounts the worktree read-only when asked', () => {
     const ro = dockerRun({ ...base, user: '501:20', worktree: '/data/work/r1', readonly: true });
     expect(ro.args).toContain('type=bind,src=/data/work/r1,dst=/work,readonly');
@@ -118,6 +128,15 @@ describe('dockerRun', () => {
     expect(run.args).toContain('HOME=/home/agent');
     expect(run.env).toEqual({ BOTHUB_LLM_API_KEY: 'sk-secret' });
     expect(run.args.slice(-5)).toEqual(['bothub-sandbox:local', 'opencode', 'run', '--', 'hi']);
+  });
+});
+
+describe('containerEnv', () => {
+  it('routes through the egress proxy unless the network is open', () => {
+    expect(containerEnv({})).toMatchObject({ HTTPS_PROXY: 'http://egress:8888', NO_PROXY: expect.any(String) });
+    const open = containerEnv({}, true);
+    expect(Object.keys(open).filter(key => /proxy/i.test(key))).toEqual([]);
+    expect(open.BOTHUB_DECIDE_URL).toBe(containerEnv({}).BOTHUB_DECIDE_URL);
   });
 });
 

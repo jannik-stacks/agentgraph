@@ -8,6 +8,9 @@ import type { RunSpec } from './types.ts';
 /** The internal docker network every run container joins; it has no route out except the proxies on it. */
 export const sandboxNetwork = 'bothub-sandbox';
 
+/** The network a hub with `network: open` adds, for a route out without the egress proxy. */
+const openNetwork = 'bothub-open';
+
 /** A sandbox that is misconfigured or unavailable. Runs fail with it instead of falling back to the host. */
 export class SandboxError extends Error {
   readonly code = 'ESANDBOX';
@@ -44,6 +47,14 @@ export const sandboxConfig = (env: Record<string, string | undefined> = process.
 
 export type Mount = { src: string; dst: string; readonly?: boolean };
 
+/** What a hub changes in its run containers: the image and limits, extra env, an open network and a cache directory. */
+export type Box = {
+  config?: Partial<Pick<ReturnType<typeof sandboxConfig>, 'image' | 'memory' | 'cpus'>>;
+  env?: Record<string, string>;
+  open?: boolean;
+  cache?: string;
+};
+
 /** Fixed paths inside a run container. */
 export const inside = {
   work: '/work',
@@ -52,23 +63,29 @@ export const inside = {
   hub: '/hub',
   data: '/data',
   bothub: '/opt/bothub',
+  cache: '/cache',
 };
 
 const proxy = 'http://egress:8888';
 const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
 
 /**
- * The environment every run container starts with: the allowlisted egress proxy, the decision API relay, and npm
- * and git settings.
+ * The environment every run container starts with: the allowlisted egress proxy unless the network is `open`, the
+ * decision API relay, and npm and git settings.
  */
-export const containerEnv = (env: Record<string, string | undefined> = process.env): Record<string, string> => ({
+export const containerEnv = (
+  env: Record<string, string | undefined> = process.env,
+  open = false
+): Record<string, string> => ({
   TMPDIR: inside.tmp,
-  HTTPS_PROXY: proxy,
-  HTTP_PROXY: proxy,
-  https_proxy: proxy,
-  http_proxy: proxy,
-  NO_PROXY: direct,
-  no_proxy: direct,
+  ...(!open && {
+    HTTPS_PROXY: proxy,
+    HTTP_PROXY: proxy,
+    https_proxy: proxy,
+    http_proxy: proxy,
+    NO_PROXY: direct,
+    no_proxy: direct,
+  }),
   BOTHUB_DECIDE_URL: 'http://ollama.internal:11434',
   BOTHUB_DECIDE_MODEL: env.BOTHUB_DECIDE_MODEL ?? 'tev1:0.8b',
   npm_config_update_notifier: 'false',
@@ -96,7 +113,8 @@ const hostUser = () => `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 10
  * limits, the internal network and no image pulls. The worktree is `/work` and the working directory, read-only with
  * `readonly`; `home` is mounted as `/home/agent` when given; `stdin` keeps stdin open. `env` is set in argv; `secrets`
  * are passed by name only, so their values come from the docker client's environment (the returned `env`) and never
- * appear in argv.
+ * appear in argv. `open` adds a network with a route out; `cache` is a host directory mounted read-write at `/cache`
+ * and named by `BOTHUB_CACHE`.
  * @throws SandboxError for a root user or a mount of `/`, `/run`, `/var/run` or a docker socket.
  */
 export const dockerRun = ({
@@ -112,6 +130,8 @@ export const dockerRun = ({
   user = hostUser(),
   stdin = false,
   readonly = false,
+  open = false,
+  cache,
 }: {
   name: string;
   worktree: string;
@@ -125,6 +145,8 @@ export const dockerRun = ({
   user?: string;
   stdin?: boolean;
   readonly?: boolean;
+  open?: boolean;
+  cache?: string | undefined;
 }) => {
   if (!/^[1-9][0-9]*:[0-9]+$/.test(user)) throw new SandboxError(`refusing to run a container as user "${user}"`);
   return {
@@ -140,6 +162,7 @@ export const dockerRun = ({
       name,
       '--network',
       sandboxNetwork,
+      ...(open ? ['--network', openNetwork] : []),
       '--read-only',
       '--tmpfs',
       `${inside.tmp}:rw,exec,nosuid,nodev,size=1g`,
@@ -158,10 +181,14 @@ export const dockerRun = ({
       config.pids,
       ...bind({ src: worktree, dst: inside.work, readonly }),
       ...(home ? bind({ src: home, dst: inside.home }) : []),
+      ...(cache ? bind({ src: cache, dst: inside.cache }) : []),
       ...mounts.flatMap(bind),
       '--workdir',
       inside.work,
-      ...Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
+      ...Object.entries({ ...env, ...(cache && { BOTHUB_CACHE: inside.cache }) }).flatMap(([key, value]) => [
+        '-e',
+        `${key}=${value}`,
+      ]),
       ...Object.keys(secrets).flatMap(key => ['-e', key]),
       config.image,
       cmd,
@@ -172,21 +199,31 @@ export const dockerRun = ({
 };
 
 /**
- * Checks that docker answers, the sandbox network exists and is internal, and the image is present.
+ * Runs the docker client and resolves its trimmed stdout.
+ * @throws SandboxError with the end of its stderr.
+ */
+export const docker = (args: string[], timeout = 30_000) =>
+  new Promise<string>((done, fail) =>
+    execFile('docker', args, { timeout, maxBuffer: 64 << 20 }, (error, stdout, stderr) =>
+      error
+        ? fail(new SandboxError(`docker ${args[0]} ${args[1]}: ${(stderr || error.message).trim().slice(-2000)}`))
+        : done(stdout.trim())
+    )
+  );
+
+/**
+ * Checks that docker answers, the sandbox network exists and is internal, and the image is present. With `open`, creates
+ * the open network when it is missing.
  * @throws SandboxError naming what is missing.
  */
-export const sandboxReady = async (config = sandboxConfig()) => {
-  const docker = (args: string[]) =>
-    new Promise<string>((done, fail) =>
-      execFile('docker', args, { timeout: 30_000 }, (error, stdout, stderr) =>
-        error
-          ? fail(new SandboxError(`docker ${args[0]} ${args[1]}: ${(stderr || error.message).trim()}`))
-          : done(stdout.trim())
-      )
-    );
+export const sandboxReady = async (config = sandboxConfig(), open = false) => {
   const internal = await docker(['network', 'inspect', '--format', '{{.Internal}}', sandboxNetwork]);
   if (internal !== 'true') throw new SandboxError(`the ${sandboxNetwork} network is not internal`);
   await docker(['image', 'inspect', '--format', '{{.Id}}', config.image]);
+  if (open)
+    await docker(['network', 'inspect', openNetwork])
+      .catch(() => docker(['network', 'create', openNetwork]))
+      .catch(() => docker(['network', 'inspect', openNetwork]));
 };
 
 /**

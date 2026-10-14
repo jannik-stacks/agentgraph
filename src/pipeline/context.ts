@@ -12,7 +12,8 @@ import type { McpServer } from '../mcp-config.ts';
 import type { McpTool } from '../mcp.ts';
 import type { loadPrices } from '../prices.ts';
 import { githubPulls, type Pulls } from '../pulls.ts';
-import { runJob, sandboxed, type Launcher, type limiter } from '../runner.ts';
+import { hubBox } from '../hub-sandbox.ts';
+import { runJob, sandboxed, sandboxedWith, type Launcher, type limiter } from '../runner.ts';
 import type { Bot, Closure, Harness } from '../schema.ts';
 import { Summarizer, summarizeRun } from '../summaries.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from '../store.ts';
@@ -57,10 +58,16 @@ export type Pipeline = {
   pollMs?: number;
 };
 
-/** How the pipeline starts commands: in the sandbox unless `launch` says otherwise, with the hub's `deps` ready. */
+/** The hub's sandbox, as its `sandbox` settings change it, unless `launch` replaces it. */
+export const hubLauncher = (p: Pick<Pipeline, 'config' | 'hub' | 'data' | 'launch'>) => {
+  const { sandbox } = p.config.hub;
+  return p.launch ?? (sandbox && p.hub ? sandboxedWith(hubBox(sandbox, p.hub, p.data)) : sandboxed);
+};
+
+/** How the pipeline starts commands: in the hub's sandbox unless `launch` says otherwise, with the hub's `deps` ready. */
 export const launcher = (p: Pipeline) => {
-  const launch = p.launch ?? sandboxed;
   const { deps } = p.config.hub;
+  const launch = hubLauncher(p);
   return deps && p.data ? withDeps(launch, deps, join(p.data, 'deps'), p.hub) : launch;
 };
 

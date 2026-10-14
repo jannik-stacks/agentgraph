@@ -441,7 +441,9 @@ const inRepo = z
  * `hub.yaml`: hub-wide settings. `issues` picks where issues, plans, specs and open questions live;
  * `merge.default-branch` says who merges into the default branch: only a `human`, or `bots` too. `deps` installs the
  * repository's dependencies once per content of its `lockfiles`, in the sandbox, and links the `dirs` it leaves into
- * every run's worktree, read-only.
+ * every run's worktree, read-only. `sandbox` sets up the run containers: `setup` is a script in the hub that runs as
+ * root on top of the base image, `env` is set in every container, `network` is the `allowlist` egress proxy or `open`,
+ * and `memory` and `cpus` replace the default limits.
  */
 export const Hub = z.strictObject({
   issues: IssuesBackend.default('github'),
@@ -454,6 +456,20 @@ export const Hub = z.strictObject({
       lockfiles: z.array(inRepo).min(1),
       dirs: z.array(inRepo).min(1),
       'timeout-minutes': z.int().positive().default(15),
+    })
+    .optional(),
+  sandbox: z
+    .strictObject({
+      setup: inRepo.exactOptional(),
+      env: z
+        .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'must be an environment variable name'), z.string())
+        .default({}),
+      network: z.enum(['allowlist', 'open']).default('allowlist'),
+      memory: z
+        .string()
+        .regex(/^[1-9][0-9]*[kmg]?$/i, 'must be a positive size such as 8g')
+        .exactOptional(),
+      cpus: z.number().positive().exactOptional(),
     })
     .optional(),
   human,

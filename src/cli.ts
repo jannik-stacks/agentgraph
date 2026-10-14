@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -163,6 +163,13 @@ const check = defineCommand({
     if (asJson(args.json) && !result.ok) print(JSON.stringify(result));
     if (!result.ok) {
       if (!asJson(args.json)) for (const e of result.errors) fail(`${e.path}: ${e.message}`);
+      return 2;
+    }
+    const setup = result.config.hub.sandbox?.setup;
+    if (setup && !(await stat(join(args.dir, setup)).catch(() => undefined))?.isFile()) {
+      const message = `sandbox.setup ${setup} is not a file in the hub`;
+      if (asJson(args.json)) print(JSON.stringify({ ok: false, errors: [{ path: 'hub.yaml', message }] }));
+      else fail(`hub.yaml: ${message}`);
       return 2;
     }
     const issues = await hubIssues(result.config, args.dir, 'hub/issues')

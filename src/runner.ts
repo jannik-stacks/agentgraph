@@ -18,6 +18,7 @@ import {
   SandboxError,
   sandboxReady,
   specInside,
+  type Box,
 } from './sandbox.ts';
 import type { Defined } from './config.ts';
 import type { Bot } from './schema.ts';
@@ -155,7 +156,7 @@ const output = (command: Command) =>
 /**
  * A command inside a run container with `worktree` at `/work`, read-only with `readonly`. `home` is mounted as
  * `/home/agent` (otherwise `HOME` is the container's tmpfs `/tmp`), and `env` cannot move it; secrets travel by name, and the docker client gets
- * the host allowlist.
+ * the host allowlist. `box` is what the hub changes in the container.
  */
 const contained = async ({
   name,
@@ -168,6 +169,7 @@ const contained = async ({
   args,
   stdin,
   readonly = false,
+  box = {},
 }: {
   name: string;
   worktree: string;
@@ -179,9 +181,10 @@ const contained = async ({
   args: string[];
   stdin?: boolean;
   readonly?: boolean;
+  box?: Box;
 }): Promise<Command> => {
-  const config = sandboxConfig();
-  await sandboxReady(config);
+  const config = { ...sandboxConfig(), ...box.config };
+  await sandboxReady(config, box.open);
   const container = containerName(name);
   const run = dockerRun({
     config,
@@ -189,12 +192,19 @@ const contained = async ({
     worktree,
     home,
     mounts: [...mounts, ...(await gitMounts(worktree, readonly)), ...(await depsMounts(worktree, readonly))],
-    env: { ...containerEnv(), ...env, ...(home ? homeEnv(inside.home, inside.tmp) : { HOME: inside.tmp }) },
+    env: {
+      ...box.env,
+      ...containerEnv(process.env, box.open),
+      ...env,
+      ...(home ? homeEnv(inside.home, inside.tmp) : { HOME: inside.tmp }),
+    },
     ...(secrets && { secrets }),
     cmd,
     args,
     ...(stdin && { stdin }),
     readonly,
+    open: !!box.open,
+    cache: box.cache,
   });
   return { ...run, env: agentEnv(run.env), cwd: worktree, stop: removeContainer(container) };
 };
@@ -208,7 +218,8 @@ export const containedCommand = (
   spec: RunSpec,
   secrets: Record<string, string> = {},
   home?: string,
-  readonly = false
+  readonly = false,
+  box?: Box
 ) => {
   const { spec: seen, mounts } = specInside(spec);
   const { cmd, args, env } = adapter.command(seen);
@@ -222,6 +233,7 @@ export const containedCommand = (
     secrets: { ...secrets, BOTHUB_LLM_BASE_URL: sandboxConfig().llmUrl },
     cmd,
     args: args.map(bothubArg),
+    ...(box && { box }),
   });
 };
 
@@ -244,10 +256,14 @@ export type Launcher = {
   startFailed: (error: Error & { exitCode?: number; code?: unknown }) => boolean;
 };
 
-/** Starts every command in a hardened run container; fails when the sandbox is unavailable. */
-export const sandboxed: Launcher = {
-  agent: (adapter, spec, secrets, home, readonly) => containedCommand(adapter, spec, secrets, home?.HOME, readonly),
-  script: (script, cwd, env, { hub, readonly } = {}) =>
+/**
+ * Starts every command in a hardened run container, changed by the `box` it resolves first; fails when the sandbox is
+ * unavailable.
+ */
+export const sandboxedWith = (box: () => Promise<Box> = async () => ({})): Launcher => ({
+  agent: async (adapter, spec, secrets, home, readonly) =>
+    containedCommand(adapter, spec, secrets, home?.HOME, readonly, await box()),
+  script: async (script, cwd, env, { hub, readonly } = {}) =>
     contained({
       name: 'script',
       worktree: cwd,
@@ -257,9 +273,13 @@ export const sandboxed: Launcher = {
       args: ['-c', script],
       stdin: true,
       ...(readonly && { readonly }),
+      box: await box(),
     }),
   startFailed: error => error.exitCode === 125 || typeof error.code === 'string',
-};
+});
+
+/** Starts every command in the base sandbox. */
+export const sandboxed = sandboxedWith();
 
 /**
  * Starts commands directly on this machine with a private home and an allowlisted env, without isolation; scripts get

@@ -1,4 +1,4 @@
-import { cpSync, existsSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cli, main } from '../src/cli.ts';
@@ -57,6 +57,21 @@ describe('cli', () => {
     expect(JSON.parse(io.out[1] ?? '').errors[0].message).toBe('no bots, skills, checks, workflows or notes found');
     expect(await main(['check', '--dir', join(examples, 'hub'), '--no-json'])).toBe(0);
     expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 1 workflow (2 jobs), 5 notes\n');
+  });
+
+  it('check validates the hub sandbox and fails on a setup script it cannot find', async () => {
+    const dir = temp('cli-hub');
+    cpSync(join(examples, 'hub'), dir, { recursive: true });
+    const io = capture();
+    writeFileSync(join(dir, 'hub.yaml'), 'sandbox:\n  network: wide\n');
+    expect(await main(['check', '--dir', dir, '--no-json'])).toBe(2);
+    expect(io.err.join('')).toMatch(/hub\.yaml[^]*sandbox\.network/);
+    writeFileSync(join(dir, 'hub.yaml'), 'sandbox:\n  setup: sandbox/setup.sh\n  network: open\n');
+    expect(await main(['check', '--dir', dir, '--no-json'])).toBe(2);
+    expect(io.err.at(-1)).toBe('bothub: hub.yaml: sandbox.setup sandbox/setup.sh is not a file in the hub\n');
+    mkdirSync(join(dir, 'sandbox'));
+    writeFileSync(join(dir, 'sandbox', 'setup.sh'), '#!/bin/sh\n');
+    expect(await main(['check', '--dir', dir, '--no-json'])).toBe(0);
   });
 
   it('check prints the warnings of a hub that compiles', async () => {
