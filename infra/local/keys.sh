@@ -19,8 +19,8 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 # bothub's runs-per-day budget are what actually bite; the dollar budget covers API-key models.
 BOTS=(
   "implementor   smart,writer,fast,local,luna   10  30  400000"
-  "reviewer      smart,fast,local,luna           5  20  300000"
-  "triager       smart,fast,local,luna            1  20  100000"
+  "reviewer      smart,fast,local,luna           5  60  900000"
+  "triager       smart,fast,local,luna            1  30  300000"
   "checker       fast,local,luna                  1  30  200000"
   "claim-checker fast,local,luna                  1  30  200000"
 )
