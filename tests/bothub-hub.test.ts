@@ -578,6 +578,21 @@ describe('enum-copy', () => {
     });
     expect(run('enum-copy.mjs', repo)).toEqual({ ok: true, out: 'enum-copy: ok' });
   });
+
+  it('fails a named number the change shares between src/ and a hub script, but not 0, 1, 2 or a length', () => {
+    const repo = change(
+      { 'examples/bothub/scripts/criteria.mjs': 'const item = { calls: 5, tries: 1 };\nif (s.length > 3) go();\n' },
+      {
+        'src/checks.ts': 'if (judgment.calls !== 5 || tries === 1 || s.length > 3 || other: 5) stop();\n',
+        'examples/bothub/scripts/criteria.mjs':
+          'const item = { calls: 5, tries: 1, budget: 9 };\nif (s.length > 3) go();\n',
+      }
+    );
+    expect(findings(run('enum-copy.mjs', repo).out)).toEqual([
+      'examples/bothub/scripts/criteria.mjs:1: `calls = 5` is also in src/checks.ts; keep the number in one place',
+      'src/checks.ts:1: `calls = 5` is also in examples/bothub/scripts/criteria.mjs; keep the number in one place',
+    ]);
+  });
 });
 
 describe('unused-exports', () => {
