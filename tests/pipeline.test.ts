@@ -1952,6 +1952,31 @@ describe('over', () => {
     expect(at('## Verdict')).toBeLessThan(at('## Changes'));
   });
 
+  it('gives a check bot the answers a human gave after the brief, without the issue preloaded', async () => {
+    const dir = temp('issues');
+    const said = (author: string, minute: number, body: string) =>
+      `## @${author} at 2026-10-14T07:0${minute}:00.000Z\n\n${body}`;
+    writeFileSync(
+      join(dir, '7-task.md'),
+      [
+        '---\ntitle: Task\n---\n\nDo it.',
+        said('morgan', 1, 'Before the brief.'),
+        said('bothub[bot]', 2, 'Criterion 1: titles stay whole.\n\n<!-- bothub:e/triage/brief/reply-1 -->'),
+        said('morgan', 3, '/bothub Shorten titles over 256 characters at a sentence boundary.'),
+      ].join('\n\n')
+    );
+    const issues = localIssues(dir, { repo: 'acme/app' });
+    const config = hubWith([{ name: 'met', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Met?' }]);
+    config.workflows.triage!.jobs.loop!.needs = ['brief'];
+    const { seen } = await run(config, judged, {}, { issues });
+    const prompt = seen.find(spec => spec.system.startsWith('You judge.'))!.prompt;
+    expect(prompt).toContain(
+      '## Answers after the brief\n\nWhere these differ from the brief, they win.\n\n```text\nShorten titles over 256 characters at a sentence boundary.\n```'
+    );
+    expect(prompt).not.toContain('Before the brief.');
+    expect(prompt).not.toContain('Criterion 1');
+  });
+
   it('runs a script once per file', async () => {
     const log = logFile();
     const script = `printf '%s' "$BOTHUB_ITEM" | sed -n 1p >> ${log}`;

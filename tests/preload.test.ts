@@ -2,10 +2,20 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import { accepted, issueContext, recallQuery, runContext } from '../src/preload.ts';
+import { accepted, answersAfterBrief, issueContext, recallQuery, runContext } from '../src/preload.ts';
 import type { Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
 import { temp } from './kit.ts';
+
+const event: BotEvent = {
+  id: 'e',
+  ts: 't',
+  source: 'local',
+  trigger: 'issue_comment',
+  repo: 'a/b',
+  number: 6,
+  actor: { login: 'morgan', association: 'OWNER' },
+};
 
 describe('runContext', () => {
   const bot = {
@@ -45,16 +55,6 @@ describe('runContext', () => {
 });
 
 describe('issueContext', () => {
-  const event: BotEvent = {
-    id: 'e',
-    ts: 't',
-    source: 'local',
-    trigger: 'issue_comment',
-    repo: 'a/b',
-    number: 6,
-    actor: { login: 'morgan', association: 'OWNER' },
-  };
-
   it('renders the issue with comments, then its parent, links and sub-issues', async () => {
     const dir = temp('issues');
     const file = (name: string, front: string, body: string) =>
@@ -113,6 +113,40 @@ describe('issueContext', () => {
     const issues = localIssues(dir, { repo: 'a/b' });
     expect(await issueContext(issues, event, ['issue'])).toBe('## Issue #6: Step\n\nState: open\n\nDo it.');
     expect(await issueContext(issues, { ...event, number: 99 }, ['issue'])).toBeUndefined();
+  });
+});
+
+describe('answersAfterBrief', () => {
+  it('collects human answers on the issue and its questions after the latest brief, without the command', async () => {
+    const dir = temp('issues');
+    const said = (author: string, minute: number, body: string) =>
+      `## @${author} at 2026-10-14T07:0${minute}:00.000Z\n\n${body}`;
+    const file = (name: string, front: string, ...parts: string[]) =>
+      writeFileSync(join(dir, name), `---\n${front}\n---\n\n${parts.join('\n\n')}\n`);
+    file(
+      '6-step.md',
+      'title: Titles',
+      'Keep titles whole.',
+      said('morgan', 1, 'Old answer.'),
+      said('bothub[bot]', 2, 'Brief.\n\n<!-- bothub:e/issue/triage/reply-1 -->'),
+      said('morgan', 3, '/bothub'),
+      said('bothub[bot]', 4, 'A bot note.'),
+      said('morgan', 6, '/bothub Keep the full question in the body.')
+    );
+    file(
+      '7-cut.md',
+      'title: Cut?\nlabels: [unsure]\nparent: 6',
+      'Cut long titles?',
+      said('morgan', 5, 'Yes, at a sentence boundary.')
+    );
+    file('8-other.md', 'title: Other\nparent: 6', 'A step.', said('morgan', 7, 'Not an answer.'));
+    const issues = localIssues(dir, { repo: 'a/b' });
+    expect(await answersAfterBrief(issues, event, 'issue', ['triage'])).toEqual([
+      'Keep the full question in the body.',
+      'Yes, at a sentence boundary.',
+    ]);
+    expect(await answersAfterBrief(issues, event, 'issue', ['review'])).toEqual([]);
+    expect(await answersAfterBrief(issues, event, 'issue', [])).toEqual([]);
   });
 });
 

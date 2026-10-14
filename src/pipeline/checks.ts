@@ -5,7 +5,7 @@ import { decideCheck } from '../decide.ts';
 import { digest } from '../fingerprint.ts';
 import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.ts';
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
-import { issueContext } from '../preload.ts';
+import { answersAfterBrief, issueContext } from '../preload.ts';
 import { providerLimit, resetOf, runScript, type ScriptResult } from '../runner.ts';
 import type { Check, Job, Over } from '../schema.ts';
 import type { Run, Verdict } from '../store.ts';
@@ -162,6 +162,15 @@ const scriptVerdict = ({ ok, output, stopped }: ScriptResult): Judged => {
   return { pass: true, ...(tail && { findings: tail }) };
 };
 
+/** What humans answered after the brief the attempt's job started from, which overrides the brief where they differ. */
+const answerSection = async (a: Attempt, p: Pipeline) => {
+  const said = await answersAfterBrief(issuesOf(p), p.event, a.planned.workflow, a.job.needs);
+  if (!said.length) return;
+  return ['## Answers after the brief', 'Where these differ from the brief, they win.', ...said.map(fenced)].join(
+    '\n\n'
+  );
+};
+
 /**
  * How a check judges one item. A bot check passes an item without a run when an earlier check run of the same job on
  * the same issue passed it for the same check, bot and skill, with the item unchanged but for where it sits (see
@@ -185,6 +194,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
   const skill = check.skill ? p.config.skills[check.skill] : undefined;
   const preload = bot ? effectivePreload(bot, {}) : [];
   let preloaded: Promise<string | undefined> | undefined;
+  let answered: Promise<string | undefined> | undefined;
   let earlier: Promise<Run[]> | undefined;
   const { repo, number, id } = p.event;
   const judged = () =>
@@ -202,10 +212,12 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       const same = (yield* Effect.promise(judged)).find(run => run.passed === key);
       if (same) return { pass: true, findings: `unchanged since run ${same.id}, which passed it` };
       const context = yield* Effect.promise(() => (preloaded ??= issueContext(issuesOf(p), p.event, preload)));
+      const answers = yield* Effect.promise(() => (answered ??= answerSection(a, p)));
       const prompt = [
         skill?.body,
         check.body,
         context,
+        answers,
         eventContext(p.event, a.planned.args, undefined),
         a.parent.attempt && a.parent.attempt > 1 ? `## Attempt\n\nThis is attempt ${a.parent.attempt}.` : undefined,
         verdictContract,

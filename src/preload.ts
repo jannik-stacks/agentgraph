@@ -46,6 +46,9 @@ const renderIssue = (issue: Issue, level: number, label = '') =>
     .filter(Boolean)
     .join('\n\n');
 
+const briefMarker = (workflow: string, needs: string[]) =>
+  new RegExp(`<!-- bothub:\\S*/${workflow}/(?:${needs.join('|')})/\\S*reply-\\d+ -->`);
+
 /**
  * What recall searches with for a job of `workflow`, read from the issue `context` `issueContext` rendered: the latest
  * reply a job it `needs` posted on the issue, its brief, without the marker bothub wrote; otherwise the issue's title
@@ -54,9 +57,36 @@ const renderIssue = (issue: Issue, level: number, label = '') =>
 export const recallQuery = (context: string | undefined, workflow: string, needs: string[]) => {
   if (!context?.startsWith('## Issue ')) return;
   const [issue, ...comments] = context.split(/\n\n#{3,} @\S+ at \S+\n\n/);
-  const marker = new RegExp(`<!-- bothub:\\S*/${workflow}/(?:${needs.join('|')})/\\S*reply-\\d+ -->`);
+  const marker = briefMarker(workflow, needs);
   const brief = needs.length ? comments.findLast(comment => marker.test(comment)) : undefined;
   return brief ? brief.slice(0, brief.search(marker)).trim() : issue;
+};
+
+const questionsOn = async (issues: Issues, number: number) => {
+  const asked = await issues.list({ parent: number, label: roles.unsure, state: 'all' });
+  return (await Promise.all(asked.map(q => issues.get(q.number)))).filter(q => q !== undefined);
+};
+
+/**
+ * What humans wrote on the event's issue and on the questions asked on it after the latest brief a job of `workflow`
+ * it `needs` posted there, each without a leading command.
+ */
+export const answersAfterBrief = async (
+  issues: Issues | undefined,
+  event: BotEvent,
+  workflow: string,
+  needs: string[]
+): Promise<string[]> => {
+  if (!issues || event.number === undefined || !needs.length) return [];
+  const issue = await issues.get(event.number);
+  const marker = briefMarker(workflow, needs);
+  const brief = issue?.comments.findLast(comment => marker.test(comment.body));
+  if (!issue || !brief) return [];
+  return [issue, ...(await questionsOn(issues, issue.number))]
+    .flatMap(({ comments }) => comments)
+    .filter(comment => !comment.author.endsWith('[bot]') && comment.ts > brief.ts)
+    .map(comment => comment.body.replace(/^\/\S+/, '').trim())
+    .filter(Boolean);
 };
 
 /**
@@ -72,8 +102,7 @@ export const issueContext = async (issues: Issues | undefined, event: BotEvent, 
   if (!issue) return;
   const sections = wantsIssue ? [renderIssue(issue, 2, 'Issue ')] : [];
   if (wantsIssue) {
-    const asked = await issues.list({ parent: issue.number, label: roles.unsure, state: 'all' });
-    const questions = (await Promise.all(asked.map(q => issues.get(q.number)))).filter(q => q !== undefined);
+    const questions = await questionsOn(issues, issue.number);
     if (questions.length)
       sections.push(['## Questions asked on this issue', ...questions.map(q => renderIssue(q, 3))].join('\n\n'));
   }
