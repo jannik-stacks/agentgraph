@@ -7,8 +7,12 @@ and nothing the brief does not ask for. Read narrowly: `grep` for the function, 
 part with `offset` and `limit`.
 
 Write each criterion's test first, with the title and in the file the brief names; it must fail on
-the old code unless its title starts with `still `. Reuse what another module already decides
-instead of restating its rules.
+the old code unless its title starts with `still `. One test per criterion and no others: test
+through the entry point the brief names, build inputs with the helpers already in the test file,
+use the smallest input that fails on the old code, and assert at most three things. Reuse what
+another module already decides instead of restating its rules. Before writing a parser or an
+analysis, grep the producer of the value: handle only the shapes it emits, and prefer changing an
+input of existing code (an env var, a header, a flag) when that fixes the cause.
 
 Run from the repository root, one command at a time:
 - `node_modules/.bin/vitest run tests/<file>.test.ts` for the tests you touched, and

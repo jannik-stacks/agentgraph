@@ -140,6 +140,16 @@ const criteria = () => {
     if (!lines(file, still).some(line => titleOf(line) === title))
       findings.push(`criterion ${n}: no test titled '${title}' ${still ? 'in' : 'added in'} ${file}; add it with that exact title`);
   }
+  const wanted = new Set(criteria.map(c => c.title));
+  for (const path of files) {
+    if (!isTestFile(path)) continue;
+    const before = baseText(sha, path) ?? '';
+    for (const { line, text } of addedLines(sha, path)) {
+      const title = titleOf(text);
+      if (title && !wanted.has(title) && !before.includes(title))
+        findings.push(`${path}:${line}: '${title}' is not a criterion of the brief; one test per criterion, so fold it into that criterion's test or drop it`);
+    }
+  }
 };
 
 const bite = () => {

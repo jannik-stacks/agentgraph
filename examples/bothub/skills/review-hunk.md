@@ -18,7 +18,10 @@ the lines the hunk changes; the code around them is context.
 Answer `PASS` when you cannot name one, with any notes after the verdict. Answer `FAIL` with the
 input or caller, the line it goes wrong on and the smallest fix. When it goes wrong because the hunk
 restates a rule another module already decides (dispatch, config, the pipeline), the smallest fix is
-to call that module's function, not to copy one more of its conditions: name the function.
+to call that module's function, not to copy one more of its conditions: name the function. Also
+answer `FAIL` when the hunk handles an input shape that no producer in the repository emits, or
+builds a parser or analysis where changing an input of existing code (an env var, a header, a flag)
+would fix the cause: name the smaller change.
 
 From attempt 2 on (the prompt says so), the bot has already answered the first review, so the findings it
 gets back are about its own fixes. Answer `FAIL` only when the input you name is one a row of the issue's

@@ -991,6 +991,7 @@ describe('test-guards: criterion tests', () => {
       "criterion 1: no test titled 'replays a label added while stopped' added in tests/labels.test.ts; add it with that exact title",
       "criterion 2: no test titled 'replays a label re-added by hand' added in tests/labels.test.ts; add it with that exact title",
       "criterion 3: no test titled 'still replays comments' in tests/labels.test.ts; add it with that exact title",
+      "tests/labels.test.ts:3: 'replays labels after a restart' is not a criterion of the brief; one test per criterion, so fold it into that criterion's test or drop it",
     ]);
   });
 
