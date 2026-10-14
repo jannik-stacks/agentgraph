@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { docker, SandboxError, sandboxConfig, type Box } from './sandbox.ts';
+import { docker, inside, SandboxError, sandboxConfig, type Box } from './sandbox.ts';
 import type { Hub } from './schema.ts';
 
 type HubSandbox = NonNullable<Hub['sandbox']>;
@@ -57,14 +57,28 @@ export const hubCache = async (data: string, hub: string) => {
   return dir;
 };
 
-/** What a hub's `sandbox` changes in its run containers, resolved when one starts. */
+/**
+ * Where common package managers and build tools keep their caches inside the hub's cache directory. Each store checks
+ * its own contents (by checksum, compiler version or source mtime), so one directory per hub serves every run.
+ */
+export const cacheEnv = {
+  CARGO_HOME: `${inside.cache}/cargo`,
+  CARGO_TARGET_DIR: `${inside.cache}/target`,
+  npm_config_cache: `${inside.cache}/npm`,
+  pnpm_config_store_dir: `${inside.cache}/pnpm-store`,
+  GOMODCACHE: `${inside.cache}/go/mod`,
+  GOCACHE: `${inside.cache}/go/build`,
+  PIP_CACHE_DIR: `${inside.cache}/pip`,
+};
+
+/** What a hub's `sandbox` changes in its run containers, resolved when one starts; its `env` wins over `cacheEnv`. */
 export const hubBox = (sandbox: HubSandbox, hub: string, data?: string) => async (): Promise<Box> => ({
   config: {
     ...(sandbox.setup && { image: await hubImage(sandboxConfig().image, hub, sandbox.setup) }),
     ...(sandbox.memory && { memory: sandbox.memory }),
     ...(sandbox.cpus && { cpus: String(sandbox.cpus) }),
   },
-  env: sandbox.env,
+  env: data ? { ...cacheEnv, ...sandbox.env } : sandbox.env,
   open: sandbox.network === 'open',
   ...(data && { cache: await hubCache(data, hub) }),
 });

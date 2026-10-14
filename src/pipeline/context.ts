@@ -65,10 +65,10 @@ export type Pipeline = {
   pollMs?: number;
 };
 
-/** The hub's sandbox, as its `sandbox` settings change it, unless `launch` replaces it. */
+/** The hub's sandbox, as its `sandbox` settings change it, with its cache, unless `launch` replaces it. */
 export const hubLauncher = (p: Pick<Pipeline, 'config' | 'hub' | 'data' | 'launch'>) => {
-  const { sandbox } = p.config.hub;
-  return p.launch ?? (sandbox && p.hub ? sandboxedWith(hubBox(sandbox, p.hub, p.data)) : sandboxed);
+  const { sandbox = { env: {}, network: 'allowlist' } } = p.config.hub;
+  return p.launch ?? (p.hub ? sandboxedWith(hubBox(sandbox, p.hub, p.data)) : sandboxed);
 };
 
 /** How the pipeline starts commands: in the hub's sandbox unless `launch` says otherwise, with the hub's `deps` ready. */

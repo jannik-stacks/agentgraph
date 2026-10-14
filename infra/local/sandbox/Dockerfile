@@ -11,8 +11,12 @@ ARG OXLINT_VERSION=1.87.0
 ARG OXFMT_VERSION=0.72.0
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates git procps ripgrep \
+ && apt-get install -y --no-install-recommends ca-certificates git mold procps ripgrep \
  && rm -rf /var/lib/apt/lists/*
+
+# Rust, when a hub's setup installs it: link with mold and keep only line tables in dev and test builds, since
+# relinking test binaries is most of an edit-to-test cycle.
+RUN printf '#!/bin/sh\nexec "${CC:-cc}" -fuse-ld=mold "$@"\n' > /usr/local/bin/cc-mold && chmod 755 /usr/local/bin/cc-mold
 
 RUN npm install -g --no-fund --no-audit \
       opencode-ai@${OPENCODE_VERSION} \
@@ -32,7 +36,10 @@ ENV DO_NOT_TRACK=1 \
     PI_TELEMETRY=0 \
     OPENCODE_DISABLE_AUTOUPDATE=1 \
     DISABLE_AUTOUPDATER=1 \
-    GIT_TERMINAL_PROMPT=0
+    GIT_TERMINAL_PROMPT=0 \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/local/bin/cc-mold \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/local/bin/cc-mold \
+    CARGO_PROFILE_DEV_DEBUG=line-tables-only
 
 # The run's worktree is mounted here, HOME is the run's own home and /tmp is tmpfs (read-only root).
 WORKDIR /work

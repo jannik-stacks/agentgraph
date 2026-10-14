@@ -101,9 +101,6 @@ sandbox:
   network: open
   env:
     RUSTUP_HOME: /usr/local/rustup
-    CARGO_HOME: /cache/cargo
-    CARGO_TARGET_DIR: /cache/target
-    pnpm_config_store_dir: /cache/pnpm-store
 ```
 
 `setup` is an executable script in the hub, with a `#!` line. <Sym name="hubImage" /> runs it as
@@ -116,13 +113,22 @@ the root filesystem is read-only when a run starts, so a tool that installs itse
 fails there. `examples/clarinet` sets up Rust and pnpm for clarinet. The base image itself is
 unchanged, and hubs without `setup` run on it.
 
-Every container of a hub with `sandbox` gets a cache directory at `/cache`, read-write and kept
-between runs: `<data>/cache/<hash of the hub path>` on the host, named by `BOTHUB_CACHE`. `env`
-points the tools at it, here the cargo registry and target directory and the pnpm store, so a
-second attempt reuses what the first one built. A setup script can instead install wrappers that
-read `BOTHUB_CACHE`. Runs of one hub share the directory, so cargo makes concurrent builds wait for
-each other. Delete the directory to start clean. `env` cannot replace what bothub sets itself,
-such as `HOME`, `TMPDIR` or the proxy settings.
+Every container of a hub gets a cache directory at `/cache`, read-write and kept between runs and
+attempts: `<data>/cache/<hash of the hub path>` on the host, named by `BOTHUB_CACHE`.
+<Sym name="cacheEnv" /> points the common tools at it: the cargo registry, git checkouts and target
+directory, the npm cache, the pnpm store, Go's module and build caches and pip's cache. `env` wins
+over these, so a hub can move one or set its own for another tool. The key is the hub, not a
+lockfile: every one of these stores checks its own contents (by checksum, compiler version or source
+modification time), so a new lockfile or toolchain adds entries next to the old ones instead of
+invalidating them. Runs of one hub share the directory, so cargo makes concurrent builds wait for
+each other. Clear one store by deleting its subdirectory, such as `<data>/cache/<hash>/target`, or
+the whole directory to start clean; nothing else depends on it. `env` cannot replace what bothub
+sets itself, such as `HOME`, `TMPDIR` or the proxy settings.
+
+For Rust, the base image links with mold and keeps only line tables in dev and test builds
+(`CARGO_TARGET_<triple>_LINKER` and `CARGO_PROFILE_DEV_DEBUG`). Relinking the test binaries is most
+of an edit-to-test cycle, and both cut it: on clarinet, one edit then one `cargo nextest run -p
+clarity-repl` went from about 37 to 11 seconds.
 
 `network` is `allowlist` unless set. `open` also joins the `bothub-open` network, which bothub
 creates when it is missing, and drops the egress proxy settings, so the run reaches any host:
