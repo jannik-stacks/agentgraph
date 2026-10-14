@@ -205,6 +205,26 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(ran.map(item => laneOf({ id: item.id, item }))).toEqual(['acme/app#7']);
   });
 
+  it('says how to answer when a bare comment lands on an unsure issue', async () => {
+    const { hub, logs } = await setup();
+    const question = await localIssues(join(hub.dir, 'issues'), { repo: 'acme/app' }).create({ title: 'Which name?', labels: ['unsure'], parent: 7 });
+    const answer: BotEvent = {
+      id: 'a1',
+      ts: new Date().toISOString(),
+      source: 'local',
+      trigger: 'issue_comment',
+      action: 'created',
+      repo: 'acme/app',
+      number: question.number,
+      actor: { login: 'morgan', association: 'OWNER' },
+      body: 'call it b',
+    };
+    expect(await handleEvent(answer, hub)).toEqual([]);
+    expect(logs).toContain(
+      `#${question.number} is an open question; start the answer with /bothub to continue the work`
+    );
+  });
+
   it('starts nothing on a merged request or from a bot', async () => {
     const { hub, origin, pulls, seen, logs, commentEvent } = await setup();
     await pulls.comment(1, { author: 'helper[bot]', body: '/bothub again' });

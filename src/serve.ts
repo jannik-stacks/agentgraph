@@ -7,6 +7,7 @@ import { prepareDeps } from './deps.ts';
 import { plan, withdrawn, type PlannedJob } from './dispatch.ts';
 import { srcDir } from './fingerprint.ts';
 import { git } from './git.ts';
+import { roles } from './issues.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { bothubServer } from './mcp-config.ts';
@@ -150,6 +151,14 @@ export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobRes
   }
   const jobs = plan(event, config).filter(job => !continued || job.workflow === continued.workflow);
   hub.log(described(event, jobs.length));
+  if (!jobs.length && issues && event.trigger === 'issue_comment' && event.number !== undefined) {
+    const issue = event.actor.login.endsWith('[bot]') ? undefined : await issues.get(event.number);
+    const command = Object.values(config.workflows)
+      .map(workflow => workflow.on.issue_comment?.command)
+      .find(Boolean);
+    if (issue?.labels.includes(roles.unsure) && command)
+      hub.log(`#${issue.number} is an open question; start the answer with ${command} to continue the work`);
+  }
   const results = await runEvent(jobs, p);
   for (const r of results)
     hub.log(
