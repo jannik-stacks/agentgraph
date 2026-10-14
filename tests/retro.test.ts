@@ -18,7 +18,9 @@ const data = (runs: Run[], pulls: object[] = []) => {
         [
           `runs/${id}/events.jsonl`,
           [{ type: 'start' }, ...events]
-            .map((event, seq) => JSON.stringify({ ts: '2026-10-13T10:00:01.000Z', seq, event }))
+            .map(({ ts = '2026-10-13T10:00:01.000Z', ...event }: { ts?: string }, seq) =>
+              JSON.stringify({ ts, seq, event })
+            )
             .join('\n'),
         ],
       ])
@@ -322,6 +324,87 @@ describe('retro.mjs', () => {
       'skipped-criterion: loads, in the image',
       'slow-check: criterion-met',
     ]);
+  });
+
+  describe('wasted time', () => {
+    const t = (s: number) => new Date(Date.parse('2026-10-13T10:00:01.000Z') + s * 1000).toISOString();
+    const call = (s: number, tool: string, input: object, output = '', took = 0) => [
+      { ts: t(s), type: 'tool_call', id: `c${s}`, tool, input },
+      { ts: t(s + took), type: 'tool_result', id: `c${s}`, ok: true, output },
+    ];
+    const ran = (n: number, run: object, events: object[], outcome = {}) => ({
+      id: id(n),
+      run: { status: 'succeeded', event, ...run },
+      events,
+      outcome,
+    });
+    const only = (dir: string, invariant: string, args: string[] = []) =>
+      retro(dir, args)
+        .filter(item => item.key.startsWith(invariant))
+        .map(item => [item.key, (item as { evidence?: string }).evidence]);
+
+    it('flags a silent tail and a stall, and whether the attempt was charged', () => {
+      const dir = data([
+        ran(1, { endedAt: t(300) }, call(1, 'read', { filePath: 'a' })),
+        ran(2, { stopped: 'stalled', status: 'failed', endedAt: t(2), check: 'tests' }, []),
+        ran(3, { endedAt: t(10) }, call(1, 'read', { filePath: 'a' })),
+      ]);
+      expect(only(dir, 'silent-tail')).toEqual([
+        ['silent-tail: issue/implement', '299 s silent, attempt not charged'],
+        ['silent-tail: tests', 'stalled'],
+      ]);
+    });
+
+    it('flags time spent rerunning a test with no edit between, and not reruns after an edit', () => {
+      const test = { command: 'npx vitest run' };
+      const rerun = [
+        ...call(10, 'bash', test, '', 30),
+        ...call(45, 'read', { filePath: 'a' }),
+        ...call(75, 'bash', test, '', 25),
+      ];
+      const edited = [
+        ...call(10, 'bash', test, '', 30),
+        ...call(45, 'edit', { filePath: 'a' }),
+        ...call(75, 'bash', test, '', 25),
+      ];
+      const dir = data([ran(1, { endedAt: t(110) }, rerun), ran(2, { endedAt: t(110), job: 'fix' }, edited)]);
+      expect(only(dir, 'rerun-cost')).toEqual([['rerun-cost: issue/implement', '55 s of 110 s on reruns']]);
+    });
+
+    it('flags time on calls the sandbox refused and on commands a hub check runs anyway', () => {
+      const hub = temp('retro-hub');
+      write(hub, { 'checks/tests.md': '---\ntype: script\nrun: node "$BOTHUB_HUB/scripts/tests.mjs"\n---\nq' });
+      const dir = data([
+        ran(1, { endedAt: t(80) }, call(5, 'bash', { command: 'touch /etc/x' }, 'EROFS: read-only file system', 70)),
+        ran(2, { endedAt: t(80), job: 'fix' }, call(5, 'bash', { command: 'node /hub/scripts/tests.mjs' }, 'ok', 65)),
+      ]);
+      expect(only(dir, 'futile-calls', ['--hub', hub])).toEqual([
+        ['futile-calls: issue/implement', '75 s'],
+        ['futile-calls: issue/fix', '70 s'],
+      ]);
+      expect(only(dir, 'futile-calls')).toEqual([['futile-calls: issue/implement', '75 s']]);
+    });
+
+    it('flags one latency spike over 2 minutes, and not two short ones in a short run', () => {
+      const slow = call(130, 'grep', { pattern: 'x' });
+      const short = [...call(50, 'read', { filePath: 'a' }), ...call(110, 'read', { filePath: 'b' })];
+      const dir = data([ran(1, { endedAt: t(140) }, slow), ran(2, { endedAt: t(120), job: 'fix' }, short)]);
+      expect(only(dir, 'latency-spike')).toEqual([['latency-spike: issue/implement', '1 gaps, longest 130 s']]);
+    });
+
+    it('flags an attempt lost to a fault with no check feedback, and a check that could not run', () => {
+      const dir = data([
+        ran(1, { status: 'failed', stopped: 'infra', error: 'HTTP 500', endedAt: t(1) }, []),
+        ran(2, { endedAt: t(1), job: 'fix' }, [], {
+          checks: [{ check: 'tests', pass: false, blocked: true, findings: 'run x failed: HTTP 500' }],
+        }),
+        ran(3, { status: 'failed', stopped: 'stuck', endedAt: t(1), job: 'loop' }, []),
+      ]);
+      expect(only(dir, 'attempt-waste')).toEqual([
+        ['attempt-waste: issue/implement: infra', 'HTTP 500'],
+        ['attempt-waste: tests: could not run', 'run x failed: HTTP 500'],
+      ]);
+    });
   });
 
   it('gives each item a stable id from its key, and reports nothing for a clean run', () => {

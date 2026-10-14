@@ -43,6 +43,13 @@ const front = (hub, kind, field) => {
   return Object.fromEntries(names.map(file => [file.slice(0, -3), value(file)]).filter(([, v]) => v));
 };
 
+/** The script files the checks under `<hub>/checks` run. */
+const checkScripts = hub =>
+  readdirSync(join(hub, 'checks')).flatMap(file => {
+    const run = /^run:(.*)$/m.exec(read(join(hub, 'checks', file)))?.[1] ?? '';
+    return run.match(/[\w-]+\.(mjs|js|sh|py)\b/g) ?? [];
+  });
+
 /** The number of items in the `Done when` list of issue `n` under `<hub>/issues`. */
 const doneWhen = (hub, n) => {
   const dir = hub ? join(hub, 'issues') : '';
@@ -137,6 +144,50 @@ const environment = {
   'terminal escapes': /\[\d+(;\d+)*m\S/,
   killed: /exited with code (137|143)\b/,
 };
+
+/** Where wasted time starts to count, tuned together. */
+const waste = {
+  silentTailSeconds: 120,
+  rerunShare: 0.15,
+  futileSeconds: 60,
+  spikeSeconds: 45,
+  spikesPerHour: 3,
+  spikeMaxSeconds: 120,
+};
+const verifying = /\b(vitest|jest|nextest|pytest|tsc|cargo (test|build|check|clippy)|npm (test|run)|pnpm|go (test|build)|make)\b|tests\.mjs|fast\.mjs/;
+const futile = /EROFS|read-only file system|permission denied|operation not permitted/i;
+const external = ['stalled', 'provider', 'infra'];
+const at = e => Date.parse(e?.ts);
+const wall = r => ((Date.parse(r.run.endedAt) || at(r.events.at(-1))) - at(r.events[0])) / 1000;
+const commandOf = e => (/^bash$/i.test(e.tool) && typeof e.input?.command === 'string' ? e.input.command : undefined);
+const name = r => r.run.check ?? job(r);
+/** Each tool call with the seconds from the event before it to the call, and to its result. */
+const spans = r => {
+  const done = new Map(r.events.filter(e => e.type === 'tool_result').map(e => [e.id, at(e)]));
+  let prev;
+  return r.events.flatMap(e => {
+    if (e.type !== 'tool_call') {
+      if (['tool_result', 'start', 'text'].includes(e.type)) prev = at(e);
+      return [];
+    }
+    const start = prev ?? at(e);
+    return [{ e, before: (at(e) - start) / 1000, cost: (Math.max(at(e), done.get(e.id) ?? 0) - start) / 1000 }];
+  });
+};
+/** The seconds spent on test, build and typecheck commands run again with no edit since their last run. */
+const rerunSeconds = r => {
+  const since = new Set();
+  let sum = 0;
+  for (const { e, cost } of spans(r)) {
+    if (/edit|write|patch/i.test(e.tool)) since.clear();
+    const command = commandOf(e);
+    if (!command) continue;
+    if (since.has(command) && verifying.test(command)) sum += cost;
+    since.add(command);
+  }
+  return sum;
+};
+const seconds = n => `${Math.round(n)} s`;
 
 /** The runs of one job on one issue, oldest first, and each with the run before it. */
 const chains = jobs => Object.values(Object.groupBy(jobs, r => `${job(r)}#${r.run.event?.number}`));
@@ -634,6 +685,73 @@ const invariants = {
           .map(e => hit(r, gist(e.error), e.error))
       ),
   },
+  'silent-tail': {
+    means: 'a run went quiet for over 2 minutes before it ended, or stalled',
+    find: ({ runs, jobs }) =>
+      runs.flatMap(r => {
+        const tail = ((Date.parse(r.run.endedAt) || 0) - at(r.events.at(-1))) / 1000;
+        if (r.run.stopped !== 'stalled' && !(tail > waste.silentTailSeconds)) return [];
+        const next = jobs.find(o => o.id > r.id && job(o) === job(r) && o.run.attempt && o.run.parent !== r.id);
+        const same = o => o.run.event?.number === r.run.event?.number;
+        const charged =
+          r.run.check || !r.run.attempt
+            ? ''
+            : next && same(next)
+              ? `, attempt ${next.run.attempt > r.run.attempt ? '' : 'not '}charged`
+              : ', no later attempt';
+        return [hit(r, name(r), `${r.run.stopped === 'stalled' ? 'stalled' : `${seconds(tail)} silent`}${charged}`)];
+      }),
+  },
+  'rerun-cost': {
+    means: 'a run spent over 15% of its time rerunning a test, build or typecheck with no edit since the last run',
+    find: ({ runs }) =>
+      runs.flatMap(r => {
+        const spent = rerunSeconds(r);
+        return spent > waste.rerunShare * wall(r)
+          ? [hit(r, name(r), `${seconds(spent)} of ${seconds(wall(r))} on reruns`)]
+          : [];
+      }),
+  },
+  'futile-calls': {
+    means: 'an attempt spent over a minute on calls the sandbox refused or commands a hub check runs at handoff anyway',
+    find: ({ runs, scripts }) =>
+      runs.flatMap(r => {
+        const failed = new Set(r.events.filter(e => e.type === 'tool_result' && futile.test(e.output ?? '')).map(e => e.id));
+        const checked = e => scripts.some(script => commandOf(e)?.includes(script));
+        const spent = spans(r)
+          .filter(({ e }) => failed.has(e.id) || checked(e))
+          .reduce((sum, { cost }) => sum + cost, 0);
+        return spent > waste.futileSeconds ? [hit(r, name(r), seconds(spent))] : [];
+      }),
+  },
+  'latency-spike': {
+    means: 'the model took over 45 s before a read, grep, glob or edit, 3 or more times an hour or once over 2 minutes',
+    find: ({ runs }) =>
+      runs.flatMap(r => {
+        const gaps = spans(r)
+          .filter(({ e, before }) => /^(read|grep|glob|edit)$/i.test(e.tool) && before > waste.spikeSeconds)
+          .map(({ before }) => before);
+        const often = gaps.length >= waste.spikesPerHour * Math.max(1, wall(r) / 3600);
+        return often || gaps.some(gap => gap > waste.spikeMaxSeconds)
+          ? [hit(r, name(r), `${gaps.length} gaps, longest ${seconds(Math.max(...gaps))}`)]
+          : [];
+      }),
+  },
+  'attempt-waste': {
+    means: 'an attempt ended on a stall, provider or infra fault or a cancel with no check feedback, or a check could not run',
+    find: ({ jobs }) =>
+      jobs.flatMap(r => {
+        const lost =
+          r.run.attempt &&
+          (external.includes(r.run.stopped) || r.run.status === 'cancelled') &&
+          !(r.outcome.checks ?? []).length;
+        const blocked = (r.outcome.checks ?? []).filter(c => c.blocked);
+        return [
+          ...(lost ? [hit(r, `${job(r)}: ${r.run.stopped ?? r.run.status}`, r.run.error ?? r.run.reason)] : []),
+          ...blocked.map(c => hit(r, `${c.check}: could not run`, c.findings)),
+        ];
+      }),
+  },
   unmetered: {
     means: 'recall judged candidates and no usage record counts its tokens',
     find: ({ runs }) =>
@@ -657,6 +775,7 @@ export const retro = (runs, { hub, pulls = [] } = {}) => {
     modes: front(hub, 'checks', 'mode'),
     types: front(hub, 'checks', 'type'),
     checks: Object.keys(front(hub, 'checks', 'type')),
+    scripts: Object.values(front(hub, 'checks', 'run')).length ? checkScripts(hub) : [],
     resume: bot => (hub ? (resumes[bot] ?? 'none') : 'session'),
   };
   return Object.entries(invariants).flatMap(([invariant, { means, find }]) =>

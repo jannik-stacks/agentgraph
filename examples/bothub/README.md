@@ -16,7 +16,7 @@ its branch, and the run that starts after the answer resumes from it.
 `/retro` on an issue starts `workflows/retro.md`, the hub looking at its own runs. A maintainer
 runs `node scripts/retro.mjs <data> --hub <hub>` on the host, which turns finished runs into one
 JSON line per anomaly: a job that stopped without a word, a finding no attempt fixed, a retry no
-blocking check asked for, an environment error, a criterion test no run ran, a check over 5 minutes. Pasted under `/retro`, each line nobody has judged
+blocking check asked for, an environment error, a criterion test no run ran, a check over 5 minutes, time lost to a silent tail, test reruns with no edit, refused or redundant calls, a slow model or an attempt that got no check feedback. Its thresholds sit together in `waste`. Pasted under `/retro`, each line nobody has judged
 yet goes to the retro bot, which replies that it is expected or files it as a sub-issue naming the
 invariant that found it.
 
