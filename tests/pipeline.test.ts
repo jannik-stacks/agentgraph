@@ -1127,6 +1127,17 @@ describe('runPlan', () => {
     ]);
   });
 
+  it('hears each job as it ends, before the next job starts', async () => {
+    const heard: string[] = [];
+    const p = await pipeline({
+      config: configFor(),
+      onEvent: (run, { event }) => event.type === 'start' && heard.push(`${run.job} start`),
+      onJob: r => heard.push(`${r.job} ${r.run.status}`),
+    });
+    await Effect.runPromise(runPlan([triage, planned('summarize')], p));
+    expect(heard).toEqual(['triage start', 'triage succeeded', 'summarize start', 'summarize succeeded']);
+  });
+
   it('reuses a done job on the same issue until the issue changes', async () => {
     const { seen, adapters } = fake((spec, call) => ({
       ok: !(spec.system.includes('Summarize the thread.') && call < 3),

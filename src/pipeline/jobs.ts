@@ -652,6 +652,7 @@ const runWorkflows = (planned: PlannedJob[], p: Pipeline): Effect.Effect<JobResu
             ...(own.pr !== undefined && { pr: own.pr }),
           });
           results.push(result);
+          p.onJob?.(result);
         }
         return results;
       }),

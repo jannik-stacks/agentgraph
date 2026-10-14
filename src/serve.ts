@@ -127,6 +127,10 @@ export const pipelineFor = (hub: Hub, config: Config, event: BotEvent): Pipeline
         hub.log(`${run.workflow}/${run.job} ${run.id} ${e.type}${'message' in e ? ` ${e.message}` : ''}`);
     }),
   onAlert: hub.log,
+  onJob: r =>
+    hub.log(
+      `${r.run.closure === 'deferred' || r.run.closure === 'blocked' ? 'ALERT ' : ''}${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
+    ),
   onCheck: hub.onCheck ?? ((run, check, verdict) => hub.log(checkLine(run, check, verdict))),
 });
 
@@ -136,7 +140,7 @@ const described = (event: BotEvent, jobs: number) =>
 /**
  * Runs one event: an event whose label was removed before it ran is dropped, a comment on a merge request bothub
  * opened continues the issue it was for (see `continuation`), and any other runs the jobs it plans (see `runEvent`).
- * Logs the plan and each job's result.
+ * Logs the plan, and each job's result as it ends.
  */
 export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobResult[]> => {
   const config = await hub.config();
@@ -162,12 +166,7 @@ export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobRes
     if (issue?.labels.includes(roles.unsure) && command)
       hub.log(`#${issue.number} is an open question; start the answer with ${command} to continue the work`);
   }
-  const results = await runEvent(jobs, p);
-  for (const r of results)
-    hub.log(
-      `${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
-    );
-  return results;
+  return runEvent(jobs, p);
 };
 
 /**

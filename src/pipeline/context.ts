@@ -32,7 +32,7 @@ import { secretsFor } from './prompt.ts';
  * attempt's reply as `BOTHUB_REPLY`. `issues` defaults to GitHub's when `gh` is given and also feeds
  * `preload`; `mcp` starts the server for a run's hub tools, which are left out without it. Harnesses and scripts
  * run in the sandbox; `launch` replaces it only in tests and the simulator. `onCheck` hears each check of an attempt
- * start, without a verdict, and end, with it.
+ * start, without a verdict, and end, with it, and `onJob` each job's result as the job ends.
  */
 export type Pipeline = {
   config: Config;
@@ -52,6 +52,7 @@ export type Pipeline = {
   launch?: Launcher;
   onEvent?: (run: Run, record: EventRecord) => void;
   onAlert?: (line: string) => void;
+  onJob?: (result: JobResult) => void;
   onCheck?: (attempt: Run, check: string, verdict?: Verdict) => void;
   /** Minutes a harness may stay silent before its run is stopped, 10 unless set. */
   stallMinutes?: number;

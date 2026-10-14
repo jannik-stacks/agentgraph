@@ -71,6 +71,12 @@ issue/implement 2026-10-13T10-27-07-656Z-9693d9 check tests start
 issue/implement 2026-10-13T10-27-07-656Z-9693d9 check tests pass in 41.3s
 ```
 
+Each job's result is logged as that job ends, not once the whole event is done:
+
+```text
+issue/implement: succeeded, done 2026-10-13T10-27-07-656Z-9693d9
+```
+
 Removing the label withdraws the work. Before an item runs, <Sym name="withdrawn" /> checks that
 the label which started it is still on the issue and drops the item if not. A job already running
 is stopped as withdrawn when its label is removed or its issue closed. bothub adds no status labels of its own: waiting work is in the queue's `list`, and
