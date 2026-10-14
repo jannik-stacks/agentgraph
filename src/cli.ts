@@ -455,36 +455,35 @@ const serveCmd = defineCommand({
     }
     const because = logExit(stamped(root));
     const common = { hub: args.hub, data: root, env, port: Number(args.port), concurrency: at };
-    let stop: () => Promise<void>;
-    try {
-      if (config.hub.issues === 'local') {
-        if (!args.repo) {
-          fail('a hub with `issues: local` needs --repo, a local bare repository');
-          return 2;
-        }
-        ({ stop } = await serveHub({
-          ...common,
-          origin: await localOrigin(args.repo),
-          ...(args.name && { repo: args.name }),
-          ...(args.prewarm && { prewarm: true }),
-        }));
-      } else {
-        const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
-        if (!appId || !keyFile || !secret) {
-          fail('serving GitHub needs BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE and BOTHUB_WEBHOOK_SECRET');
-          return 2;
-        }
-        ({ stop } = await serveGitHub({
-          ...common,
-          app: githubApp({ appId, privateKey: await readFile(keyFile, 'utf8') }),
-          secret,
-          ...(args.repos && { repos: args.repos.split(',').map(r => r.trim()) }),
-          webhookPort: Number(args['webhook-port']),
-        }));
-      }
-    } catch (e) {
-      because(`on error: ${(e as Error).message}`);
+    const failed = (e: Error): never => {
+      because(`on error: ${e.message}`);
       throw e;
+    };
+    let stop: () => Promise<void>;
+    if (config.hub.issues === 'local') {
+      if (!args.repo) {
+        fail('a hub with `issues: local` needs --repo, a local bare repository');
+        return 2;
+      }
+      ({ stop } = await serveHub({
+        ...common,
+        origin: await localOrigin(args.repo),
+        ...(args.name && { repo: args.name }),
+        ...(args.prewarm && { prewarm: true }),
+      }).catch(failed));
+    } else {
+      const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
+      if (!appId || !keyFile || !secret) {
+        fail('serving GitHub needs BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE and BOTHUB_WEBHOOK_SECRET');
+        return 2;
+      }
+      ({ stop } = await serveGitHub({
+        ...common,
+        app: githubApp({ appId, privateKey: await readFile(keyFile, 'utf8') }),
+        secret,
+        ...(args.repos && { repos: args.repos.split(',').map(r => r.trim()) }),
+        webhookPort: Number(args['webhook-port']),
+      }).catch(failed));
     }
     process.stderr.write(`sandbox ${settings.image} on ${sandboxNetwork}, data ${root}\n`);
     because(

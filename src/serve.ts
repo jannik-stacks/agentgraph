@@ -281,7 +281,7 @@ export const stamped = (data: string) => {
 };
 
 /** The model key variables set in `env`, by name only, each with the bots that use it. */
-export const modelKeys = (env: Record<string, string | undefined>, config?: Config) => {
+const modelKeys = (env: Record<string, string | undefined>, config?: Config) => {
   const keys = Object.keys(env)
     .filter(key => key.startsWith('BOTHUB_LLM_API_KEY') && env[key])
     .sort();

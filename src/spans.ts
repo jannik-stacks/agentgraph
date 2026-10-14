@@ -5,10 +5,10 @@ import type { EventRecord, Outcome, Run, Store } from './store.ts';
 
 /** What a span's time went to: the agent's own work, build and test commands, a human, a stall, or anything else. */
 export const timeKinds = ['build', 'test', 'model', 'edit', 'read', 'wait', 'stall', 'other'] as const;
-export type TimeKind = (typeof timeKinds)[number];
+type TimeKind = (typeof timeKinds)[number];
 
 /** Shell command patterns, tried in order after a hub's own (see `timeKind`). */
-export const defaultPatterns: [TimeKind, string][] = [
+const defaultPatterns: [TimeKind, string][] = [
   ['wait', String.raw`^\s*sleep\b`],
   ['read', String.raw`^\s*(cat|head|tail|ls|find|grep|rg|wc|sed -n|git (diff|log|show|status|blame))\b`],
   ['test', String.raw`\b(test|tests|vitest|jest|pytest|mocha|nextest|playwright)\b`],
@@ -16,7 +16,7 @@ export const defaultPatterns: [TimeKind, string][] = [
 ];
 
 /** Hub patterns by kind, as `hub.yaml`'s `time-kinds` gives them. */
-export type TimePatterns = Partial<Record<TimeKind, string[]>>;
+type TimePatterns = Partial<Record<TimeKind, string[]>>;
 
 const shells = /^(bash|shell|sh)$/i;
 const edits = /edit|write|patch/i;

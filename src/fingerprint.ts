@@ -63,7 +63,7 @@ const linesAdded = (a: string | undefined, b: string | undefined) => {
 };
 
 /** `path +added -removed` for each file that differs between two versions of a hub. */
-export const diffstat = (a: Record<string, string>, b: Record<string, string>) =>
+const diffstat = (a: Record<string, string>, b: Record<string, string>) =>
   [...new Set([...Object.keys(a), ...Object.keys(b)])]
     .sort()
     .filter(path => a[path] !== b[path])
