@@ -389,6 +389,36 @@ describe('tests', () => {
   });
 });
 
+describe('old-tests', () => {
+  const negative = (title: string, sum: number) => addTest(`it('${title}', () => expect(add(-3, 1)).toBe(${sum}));`);
+  const edited = (title: string) =>
+    withModules(
+      change(
+        { 'src/add.ts': adder, 'tests/add.test.ts': negative(title, -2) },
+        { 'src/add.ts': clamped, 'tests/add.test.ts': negative(title, 0), 'tests/new.test.ts': negative('new', -2) }
+      )
+    );
+
+  it('names an old test the change edited to pass, and leaves the worktree alone', () => {
+    const repo = edited('adds a negative sum');
+    const status = git(repo.dir, 'status', '--porcelain');
+    expect(run('old-tests.mjs', repo, [], { BOTHUB_HUB: temp('empty') })).toEqual({
+      ok: false,
+      out: "tests/add.test.ts: the base's 'adds a negative sum' fails against the change: AssertionError: expected +0 to be -2 // Object.is equality\nold-tests: 1 finding",
+    });
+    expect(git(repo.dir, 'status', '--porcelain')).toBe(status);
+  });
+
+  it('leaves out the criterion tests of the brief', () => {
+    const repo = edited('replays a label added while stopped');
+    write(repo.dir, { 'brief.md': brief });
+    expect(run('old-tests.mjs', repo, [], { BOTHUB_BRIEF: join(repo.dir, 'brief.md') })).toEqual({
+      ok: true,
+      out: 'old-tests: ok',
+    });
+  });
+});
+
 describe('fast', () => {
   it('runs each check with its own command and fails only on a finding of a block check', () => {
     const hub = temp('fast-hub');
