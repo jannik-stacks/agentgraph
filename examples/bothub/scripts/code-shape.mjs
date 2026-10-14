@@ -1,11 +1,13 @@
 // Structure rules on the TypeScript a change adds under src/ and studio/src: components defined at module level,
 // routes loaded lazily, schema unions told apart by `type`, and the studio's UI rules on its TSX. Softer hints, state
-// copied in an effect and type unions told apart by another field, are printed without failing the check.
+// copied in an effect and type unions told apart by another field, are printed without failing the check. In the hub
+// scripts, a field an item sends to a model that gathers text with no clip or limit fails.
 import { lineIndex, parse, reporter, sources, walk } from './ast.mjs';
 import { report } from './changes.mjs';
 import { studioFile, studioUi } from './studio-ui.mjs';
 
 const code = path => /^(src|studio\/src)\/.*\.(ts|tsx|mts)$/.test(path) && !path.startsWith('studio/src/lab/');
+const slicer = path => /^examples\/bothub\/scripts\/.*\.mjs$/.test(path);
 const entries = new Set(['studio/src/App.tsx', 'studio/src/main.tsx']);
 
 const functions = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression']);
@@ -32,9 +34,37 @@ const valueImports = program =>
     return [];
   });
 
+const gathers = /\b(readFileSync|execFileSync|sources)\(|Text\(/;
+const bounded = /slice\(|clip|max|limit/i;
+
+/** Fields of the items a script prints that gather text with no clip or limit, in their value or its declaration. */
+const unbounded = (program, text, lineOf) => {
+  const codeOf = node => text.slice(node.start, node.end);
+  const declared = new Map();
+  walk(program, node => {
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') declared.set(node.id.name, codeOf(node));
+  });
+  const found = [];
+  walk(program, node => {
+    const [item] = node.type === 'CallExpression' && codeOf(node.callee) === 'console.log' ? node.arguments : [];
+    if (item?.type !== 'CallExpression' || codeOf(item.callee) !== 'JSON.stringify') return;
+    walk(item.arguments[0], field => {
+      if (field.type !== 'Property' || field.value.type === 'ObjectExpression') return;
+      const texts = [codeOf(field.value)];
+      walk(field.value, (name, parents) => {
+        const parent = parents.at(-1);
+        const property = parent?.type === 'MemberExpression' && parent.property === name && !parent.computed;
+        if (name.type === 'Identifier' && !property) texts.push(declared.get(name.name) ?? '');
+      });
+      if (texts.some(code => gathers.test(code)) && !texts.some(code => bounded.test(code))) found.push(lineOf(field.start));
+    });
+  });
+  return found;
+};
+
 const { findings, add } = reporter();
 const hinted = reporter();
-for (const source of sources(code)) {
+for (const source of sources(path => code(path) || slicer(path))) {
   const { path, code: text } = source;
   const { program, error } = parse(path, text);
   const lineOf = lineIndex(text);
@@ -44,6 +74,10 @@ for (const source of sources(code)) {
   }
 
   if (studioFile(path)) studioUi(source, program, lineOf, add);
+  if (slicer(path)) {
+    for (const line of unbounded(program, text, lineOf)) add(source, line, 'a field sent to a model with no clip or limit');
+    continue;
+  }
 
   if (entries.has(path)) {
     for (const node of valueImports(program)) {

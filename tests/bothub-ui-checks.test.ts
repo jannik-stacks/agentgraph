@@ -249,6 +249,26 @@ type Item = { kind: 'text'; text: string } | { kind: 'tool'; name: string };
     expect(out).toContain('studio/src/Field.tsx:6: hint: a union told apart by "kind"; prefer "type"');
     expect(out.split('\n').at(-1)).toBe('code-shape: ok');
   });
+
+  it('fails a hub script field that sends the whole repository to a model, and passes a clipped one', () => {
+    const repo = studioChange(
+      {},
+      {
+        'examples/bothub/scripts/slice.mjs': `const all = execFileSync('git', ['ls-files']).split('\\n').map(path => readFileSync(path));
+const some = all.slice(0, maxHelpers);
+const rows = criteria.map(c => c.text);
+console.log(JSON.stringify({ path: 'change', rows, ...(all.length && {
+  every: all.join('\\n'),
+  some,
+}) }));
+`,
+      }
+    );
+    const { ok, out } = check('code-shape.mjs', repo);
+    expect(ok).toBe(false);
+    expect(out).toContain('examples/bothub/scripts/slice.mjs:5: a field sent to a model with no clip or limit');
+    expect(out).toContain('code-shape: 1 finding');
+  });
 });
 
 describe('rules check, guards', () => {
