@@ -194,7 +194,7 @@ describe('retro.mjs', () => {
     const hub = temp('retro-hub');
     write(hub, {
       'issues/2-x.md': '---\ntitle: x\n---\n## Done when\n\n- one\n- two\n\n## @morgan at now\n',
-      'workflows/issue.md': '---\njobs:\n  implement:\n    until:\n      checks: [coverage]\n      max: 2\n---\n',
+      'workflows/issue.md': '---\njobs:\n  implement:\n    until:\n      checks: [coverage]\n      max: 1\n---\n',
     });
     expect(keys(dir, ['--hub', hub])).toEqual(
       expect.arrayContaining([
@@ -207,6 +207,45 @@ describe('retro.mjs', () => {
       ])
     );
     expect(keys(dir).filter(key => /^(wide-brief|over-attempts)/.test(key))).toEqual([]);
+  });
+
+  it('flags a repeated line only for the same finding, once per check, and counts attempts from a human answer', () => {
+    const fanOut = (blocking: string) =>
+      failing('review-src', `a.ts:1:\n${blocking}\n\nb.ts:2:\nunchanged since run X, which passed it`);
+    const ask = { kind: 'ask', question: 'checks still failing after 2 attempts: review-src.' };
+    const docs = failing('docs', 'x.md:1: overstates it\nx.md:4: tagline');
+    const on = (comment: string, run: object = {}) => ({
+      status: 'succeeded',
+      event: { ...event, id: comment },
+      ...run,
+    });
+    const runs = [
+      { id: id(1), run: on('c1'), outcome: fanOut('Blocking: a.ts:5 treats a name as a substring') },
+      {
+        id: id(2),
+        run: on('c1', { parent: id(1), attempt: 2 }),
+        outcome: { ...fanOut('Blocking: a.ts:5 treats a name as a substring'), accepted: [{ kind: 'push' }, ask] },
+      },
+      { id: id(3), run: on('c2'), outcome: fanOut('Blocking: a.ts:9 an absolute prefix matches any directory') },
+      { id: id(4), run: on('c2'), outcome: docs },
+      { id: id(5), run: on('c3'), outcome: docs },
+    ];
+    const hub = temp('retro-hub');
+    write(hub, {
+      'workflows/issue.md': '---\njobs:\n  implement:\n    until:\n      checks: [docs]\n      max: 1\n---\n',
+      'checks/size.md': '---\ntype: script\n---\n',
+    });
+    const found = (rs: Run[]) =>
+      keys(data(rs), ['--hub', hub]).filter(key => /^(same-line|over-attempts|ask-about-check)/.test(key));
+    expect(found(runs.slice(0, 4))).toEqual([]);
+    expect(found(runs)).toEqual(['same-line: docs: x.md:1', 'over-attempts: issue/implement#2']);
+    const question = (q: string) => ({
+      id: id(6),
+      run: { status: 'succeeded', job: 'triage', event },
+      outcome: { accepted: [{ kind: 'ask', question: q }] },
+    });
+    expect(found([question('Should a supplied-diff size limit block it?')])).toEqual([]);
+    expect(found([question('Should the `size` check allow 12 files?')])).toEqual(['ask-about-check: size']);
   });
 
   it('flags an empty turn after an engine ask, shipped gaps, fast script failures, a pushed park and a flat decider', () => {

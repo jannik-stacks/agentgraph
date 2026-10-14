@@ -101,7 +101,17 @@ const gist = text =>
     .slice(0, 120);
 const section = (text, heading) =>
   new RegExp(`^## ${heading}\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, 'm').exec(text ?? '')?.[1] ?? '';
-const places = text => new Set(String(text ?? '').match(/[\w./-]+\.\w+:\d+/g) ?? []);
+const place = /[\w./-]+\.\w+:\d+/g;
+/** Each place a finding names with what it says there, leaving out fan-out items that passed unchanged. */
+const claims = text =>
+  String(text ?? '')
+    .split(/^(?=[\w./-]+\.\w+:\d+:$)/m)
+    .flatMap(part => {
+      const [head, ...body] = part.split('\n');
+      if (/^[\w./-]+\.\w+:\d+:$/.test(head)) return [{ place: head.slice(0, -1), text: body.join('\n') }];
+      return part.split('\n').flatMap(line => (line.match(place) ?? []).map(at => ({ place: at, text: line })));
+    })
+    .filter(claim => !/^\s*unchanged since run \S+, which passed it/.test(claim.text));
 const testFile = /(^|\/)tests?\/|\.test\./;
 const added = (r, keep) =>
   calls(r, /edit|write|patch/)
@@ -244,7 +254,7 @@ const invariants = {
     means: 'a bot asked a human about a check or a hub limit, which an answer cannot change',
     find: ({ jobs, checks }) => {
       const named = c =>
-        new RegExp(c.includes('-') ? `\\b${c}\\b` : `\`${c}\`|\\b${c} (check|finding|cap|limit|threshold)`, 'i');
+        new RegExp(c.includes('-') ? `\\b${c}\\b` : `\`${c}\`|\\b${c} (check|finding)`, 'i');
       const limit = /allowed (edit )?paths|\b(file|size) cap\b|raise the (cap|limit)/i;
       return jobs.flatMap(r =>
         asks(r)
@@ -334,30 +344,34 @@ const invariants = {
       ),
   },
   'same-line': {
-    means: 'a new run on an issue failed the same check on the same line as the run before it',
+    means: 'a new run on an issue failed the same check with the same finding on a line as the run before it',
     find: ({ chains }) =>
       chains.flatMap(chain =>
         pairs(chain.filter(r => (r.outcome.checks ?? []).some(c => !c.skipped)))
           .filter(([prev, cur]) => !attempt(prev, cur))
           .flatMap(([prev, cur]) =>
             failing(cur).flatMap(c => {
-              const before = failing(prev).filter(p => p.check === c.check).flatMap(p => [...places(p.findings)]);
-              const same = [...places(c.findings)].filter(place => before.includes(place));
-              return same.map(place => hit(cur, `${c.check}: ${place}`, c.findings));
+              const before = failing(prev).filter(p => p.check === c.check).flatMap(p => claims(p.findings));
+              const same = claims(c.findings).filter(x =>
+                before.some(b => b.place === x.place && overlap(words(b.text), words(x.text)) >= 0.6)
+              );
+              return same.length ? [hit(cur, `${c.check}: ${same[0].place}`, c.findings)] : [];
             })
           )
       ),
   },
   'over-attempts': {
-    means: "a job ran more attempts on one issue than its until.max, so a new run reset the count",
+    means: "since the last human answer, a job ran more than one attempt plus until.max on one issue, so a new run reset the count",
     find: ({ chains, writing, hub }) =>
       chains
         .filter(chain => writing.has(job(chain[0])))
         .flatMap(chain => {
           const max = maxAttempts(hub, chain[0].run.workflow, chain[0].run.job);
           const ran = chain.filter(r => r.run.status !== 'skipped');
-          return max && ran.length > max
-            ? [hit(ran.at(-1), `${job(chain[0])}#${chain[0].run.event?.number}`, `${ran.length} attempts, until.max ${max}`)]
+          const answered = (r, i) => i && asks(ran[i - 1]).length && r.run.event?.id !== ran[i - 1].run.event?.id;
+          const since = ran.slice(Math.max(0, ran.findLastIndex(answered)));
+          return max && since.length > max + 1
+            ? [hit(since.at(-1), `${job(chain[0])}#${chain[0].run.event?.number}`, `${since.length} attempts, until.max ${max}`)]
             : [];
         }),
   },
