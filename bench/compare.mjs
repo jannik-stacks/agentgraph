@@ -1,12 +1,13 @@
 // Deterministic metrics comparing candidate diff A (bothub) with B (the merged change), both against the checkout in
-// --repo. Run from the bothub root: the TS parser is resolved from studio/node_modules.
+// --repo.
 //   node bench/compare.mjs --repo DIR --a A.diff --b B.diff [--followups f.json] [--tests-a CMD] [--tests-b CMD]
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { lineIndex, parse, walk } from '../examples/bothub/scripts/ast.mjs';
+import { fileDiffs } from '../src/over.ts';
 
 const round = n => Math.round(n * 1000) / 1000;
 const ratio = (a, b) => (b ? round(a / b) : null);
@@ -17,40 +18,33 @@ const jaccard = (a, b) => {
 const minus = (a, b) => [...a].filter(x => !b.has(x)).sort();
 
 /** Files of a unified diff with each hunk's added and removed lines and their line numbers. */
-export const parseDiff = text => {
-  const files = [];
-  let file;
-  let hunk;
-  let o = 0;
-  let n = 0;
-  for (const line of text.split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      file = { path: line.split(' b/').pop(), hunks: [] };
-      files.push(file);
-      hunk = undefined;
-    } else if (!file) continue;
-    else if (line.startsWith('+++ b/')) file.path = line.slice(6);
-    else if (line.startsWith('@@')) {
+export const parseDiff = text =>
+  fileDiffs(text).map(({ label, text: part }) => {
+    const file = { path: label, hunks: [] };
+    let hunk;
+    let o = 0;
+    let n = 0;
+    for (const line of part.split('\n')) {
       const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
-      if (!m) continue;
-      o = +m[1];
-      n = +m[3];
-      hunk = { oldStart: o, oldLen: m[2] === undefined ? 1 : +m[2], added: [], removed: [], anchors: [] };
-      file.hunks.push(hunk);
-    } else if (!hunk) continue;
-    else if (line.startsWith('+')) {
-      hunk.added.push({ line: n++, text: line.slice(1) });
-      hunk.anchors.push(o - 1);
-    } else if (line.startsWith('-')) hunk.removed.push({ line: o++, text: line.slice(1) });
-    else if (line.startsWith(' ')) {
-      o++;
-      n++;
+      if (m) {
+        o = +m[1];
+        n = +m[3];
+        hunk = { oldStart: o, oldLen: m[2] === undefined ? 1 : +m[2], added: [], removed: [], anchors: [] };
+        file.hunks.push(hunk);
+      } else if (!hunk) continue;
+      else if (line.startsWith('+')) {
+        hunk.added.push({ line: n++, text: line.slice(1) });
+        hunk.anchors.push(o - 1);
+      } else if (line.startsWith('-')) hunk.removed.push({ line: o++, text: line.slice(1) });
+      else if (line.startsWith(' ')) {
+        o++;
+        n++;
+      }
     }
-  }
-  return files;
-};
+    return file;
+  });
 
-const kindOf = path =>
+export const kindOf = path =>
   /(^|\/)(tests?|__tests__|spec)\//.test(path) || /\.(test|spec)\.\w+$|_test\.\w+$/.test(path)
     ? 'tests'
     : /\.mdx?$|(^|\/)docs?\//.test(path) && !/(^|\/)(workflows|skills|prompts)\//.test(path)
@@ -62,7 +56,17 @@ const addedOf = file => file.hunks.flatMap(h => h.added);
 const removedOf = file => file.hunks.flatMap(h => h.removed);
 
 const size = files => {
-  const out = { added: 0, removed: 0, files: files.length, src: 0, srcAdded: 0, srcNonBlank: 0, tests: 0, docs: 0 };
+  const out = {
+    added: 0,
+    removed: 0,
+    files: files.length,
+    src: 0,
+    srcAdded: 0,
+    srcNonBlank: 0,
+    tests: 0,
+    testsAdded: 0,
+    docs: 0,
+  };
   for (const f of files) {
     const a = addedOf(f).length;
     const r = removedOf(f).length;
@@ -70,6 +74,7 @@ const size = files => {
     out.removed += r;
     out[kindOf(f.path)] += a + r;
     if (kindOf(f.path) === 'src') out.srcAdded += a;
+    if (kindOf(f.path) === 'tests') out.testsAdded += a;
     if (kindOf(f.path) === 'src') out.srcNonBlank += [...addedOf(f), ...removedOf(f)].filter(l => l.text.trim()).length;
   }
   return out;
@@ -99,15 +104,20 @@ const baseText = (repo, path) => {
 /** The text of each touched file after the diff applies, via git apply in a scratch directory. */
 const applied = (repo, diffText, files) => {
   const dir = mkdtempSync(join(tmpdir(), 'bench-apply-'));
-  for (const f of files) {
-    const text = baseText(repo, f.path);
-    if (text === undefined) continue;
-    mkdirSync(dirname(join(dir, f.path)), { recursive: true });
-    writeFileSync(join(dir, f.path), text);
+  try {
+    for (const f of files) {
+      const text = baseText(repo, f.path);
+      if (text === undefined) continue;
+      mkdirSync(dirname(join(dir, f.path)), { recursive: true });
+      writeFileSync(join(dir, f.path), text);
+    }
+    writeFileSync(join(dir, 'change.diff'), diffText);
+    spawnSync('git', ['apply', '--unsafe-paths', 'change.diff'], { cwd: dir, encoding: 'utf8' });
+    const texts = new Map(files.map(f => [f.path, baseText(dir, f.path)]));
+    return path => texts.get(path);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-  writeFileSync(join(dir, 'change.diff'), diffText);
-  spawnSync('git', ['apply', '--unsafe-paths', 'change.diff'], { cwd: dir, encoding: 'utf8' });
-  return path => (existsSync(join(dir, path)) ? readFileSync(join(dir, path), 'utf8') : undefined);
 };
 
 const rustDecl =
@@ -333,19 +343,24 @@ const followupMetric = (followups, aFiles, bFiles) => {
   return { hunks: results.length, aCaught: results.filter(r => r.aTouches).length, results };
 };
 
-const runTests = (repo, diffText, cmd) => {
+/** Runs `cmd` in a scratch copy of `repo` with the diff applied. */
+export const runTests = (repo, diffText, cmd) => {
   const dir = mkdtempSync(join(tmpdir(), 'bench-tests-'));
-  cpSync(repo, dir, { recursive: true, filter: src => !/(^|\/)(node_modules|target|\.git)$/.test(src) });
-  if (existsSync(join(repo, 'node_modules'))) symlinkSync(join(repo, 'node_modules'), join(dir, 'node_modules'));
-  writeFileSync(join(dir, 'change.diff'), diffText);
-  const patch = spawnSync('git', ['apply', '--unsafe-paths', 'change.diff'], { cwd: dir, encoding: 'utf8' });
-  if (patch.status !== 0) return { applied: false, error: patch.stderr.slice(0, 300) };
-  const run = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', timeout: 600000 });
-  return { applied: true, exit: run.status, ok: run.status === 0, tail: (run.stdout + run.stderr).slice(-300) };
+  try {
+    cpSync(repo, dir, { recursive: true, filter: src => !/(^|\/)(node_modules|target|\.git)$/.test(src) });
+    if (existsSync(join(repo, 'node_modules'))) symlinkSync(join(repo, 'node_modules'), join(dir, 'node_modules'));
+    writeFileSync(join(dir, 'change.diff'), diffText);
+    const patch = spawnSync('git', ['apply', '--unsafe-paths', 'change.diff'], { cwd: dir, encoding: 'utf8' });
+    if (patch.status !== 0) return { applied: false, error: patch.stderr.slice(0, 300) };
+    const run = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', timeout: 600000 });
+    return { applied: true, exit: run.status, ok: run.status === 0, tail: (run.stdout + run.stderr).slice(-300) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 };
 
-export const compare = ({ repo, a, b, followups, testsA, testsB }) => {
-  const [da, db] = [readFileSync(a, 'utf8'), readFileSync(b, 'utf8')];
+/** Compares diff texts `a` and `b` against the checkout in `repo`. */
+export const compare = ({ repo, a: da, b: db, followups, testsA, testsB }) => {
   const [fa, fb] = [parseDiff(da), parseDiff(db)];
   const [sa, sb] = [symbolSet(repo, da, fa), symbolSet(repo, db, fb)];
   const out = {
@@ -355,7 +370,7 @@ export const compare = ({ repo, a, b, followups, testsA, testsB }) => {
     tests: { a: testStats(fa), b: testStats(fb) },
     style: styleMetric(fa, fb),
   };
-  if (followups) out.followups = followupMetric(JSON.parse(readFileSync(followups, 'utf8')), fa, fb);
+  if (followups) out.followups = followupMetric(followups, fa, fb);
   if (testsA || testsB)
     out.testRuns = { a: testsA && runTests(repo, da, testsA), b: testsB && runTests(repo, db, testsB) };
   return out;
@@ -373,5 +388,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     },
   });
   if (!values.repo || !values.a || !values.b) throw new Error('usage: compare.mjs --repo DIR --a A.diff --b B.diff');
-  console.log(JSON.stringify(compare({ ...values, testsA: values['tests-a'], testsB: values['tests-b'] }), null, 2));
+  const read = file => file && readFileSync(file, 'utf8');
+  const { repo, a, b, followups } = values;
+  const tests = { testsA: values['tests-a'], testsB: values['tests-b'] };
+  const mined = followups && JSON.parse(read(followups));
+  console.log(JSON.stringify(compare({ repo, a: read(a), b: read(b), followups: mined, ...tests }), null, 2));
 }

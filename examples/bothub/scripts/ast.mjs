@@ -8,11 +8,11 @@ import { pathToFileURL } from 'node:url';
 import { addedLines, base, changedFiles } from './changes.mjs';
 
 const resolveParser = () => {
-  try {
-    return createRequire(join(process.cwd(), 'studio/package.json')).resolve('rolldown/parseAst');
-  } catch {
-    throw new Error('rolldown/parseAst is missing: the studio dependencies must be installed to parse TSX');
-  }
+  for (const from of [join(process.cwd(), 'studio/package.json'), new URL('../../../studio/package.json', import.meta.url)])
+    try {
+      return createRequire(from).resolve('rolldown/parseAst');
+    } catch {}
+  throw new Error('rolldown/parseAst is missing: the studio dependencies must be installed to parse TSX');
 };
 
 const { parseAst } = await import(pathToFileURL(resolveParser()).href);
