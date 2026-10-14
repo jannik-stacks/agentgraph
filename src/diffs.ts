@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { git, gitStatus } from './git.ts';
+import { readJsonl } from './jsonl.ts';
 import { commentsIn, fold, type Op, type Pull } from './pulls.ts';
 import type { Run, Store } from './store.ts';
 
@@ -123,17 +124,7 @@ const firstWith = async (repos: string[], rev: string) => {
   for (const repo of repos) if (await has(repo, rev)) return repo;
 };
 
-const readOps = async (file: string) =>
-  (await readFile(file, 'utf8').catch(() => ''))
-    .split('\n')
-    .filter(Boolean)
-    .flatMap(line => {
-      try {
-        return [JSON.parse(line) as Op];
-      } catch {
-        return [];
-      }
-    });
+const readOps = (file: string) => readJsonl<Op>(file);
 
 /** A merge request with where its change is measured from: the target's tip, or where it was when the request merged. */
 type Located = Pull & { base: string; head: string; repo: string };

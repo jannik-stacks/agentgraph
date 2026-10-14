@@ -1,9 +1,9 @@
-import { readFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { effectivePreload, returnKinds, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import { harnesses } from '../harnesses/index.ts';
+import { readJsonl } from '../jsonl.ts';
 import { fanOut, type Item } from '../over.ts';
 import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
@@ -81,18 +81,10 @@ const formatOnly = (errors: string[], last?: string) =>
 
 /** The notes a run proposed with `notes_add`, ahead of those in its final message. */
 const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Run, p: Pipeline) => {
-  const text = await readFile(proposalsFile(p.store.home(run.id)), 'utf8').catch(() => '');
-  const recorded = text
-    .split('\n')
-    .filter(Boolean)
-    .flatMap(line => {
-      try {
-        const parsed = Proposal.safeParse(JSON.parse(line));
-        return parsed.success ? [parsed.data] : [];
-      } catch {
-        return [];
-      }
-    });
+  const recorded = (await readJsonl(proposalsFile(p.store.home(run.id)))).flatMap(line => {
+    const parsed = Proposal.safeParse(line);
+    return parsed.success ? [parsed.data] : [];
+  });
   return recorded.length ? { ...extracted, proposals: [...recorded, ...extracted.proposals] } : extracted;
 };
 

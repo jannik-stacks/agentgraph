@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { appendFile, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import type { ApplyResult } from './apply.ts';
+import { missing, readJsonl } from './jsonl.ts';
 import type { PlannedJob } from './dispatch.ts';
 import type { extractProposals, Validated } from './outputs.ts';
 import type { Closure, Harness } from './schema.ts';
@@ -116,7 +117,6 @@ export type EventRecord = { ts: string; seq: number; event: AgentEvent };
 export const runId = (now = new Date()) =>
   `${now.toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`;
 
-const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 const code = (e: unknown) => (e as NodeJS.ErrnoException).code;
 
 /**
@@ -218,20 +218,8 @@ export const openStore = (dir: string, owner: Owner = self) => {
   };
 
   /** Events with `seq >= from`; a trailing partial line from an in-flight append is skipped. */
-  const events = async (id: string, from = 0) => {
-    let text: string;
-    try {
-      text = await readFile(join(runDir(id), 'events.jsonl'), 'utf8');
-    } catch (e) {
-      if (missing(e)) return [];
-      throw e;
-    }
-    return text
-      .split('\n')
-      .slice(0, -1)
-      .map(line => JSON.parse(line) as EventRecord)
-      .filter(record => record.seq >= from);
-  };
+  const events = async (id: string, from = 0) =>
+    (await readJsonl<EventRecord>(join(runDir(id), 'events.jsonl'))).filter(record => record.seq >= from);
 
   const ends = new Map<string, { size: number; seq: number; queue: Promise<unknown> }>();
   /**

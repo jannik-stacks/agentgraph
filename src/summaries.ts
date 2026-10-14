@@ -1,5 +1,6 @@
 import { appendFile, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { missing, readJsonl } from './jsonl.ts';
 import type { Proposal } from './outputs.ts';
 import { inside } from './sandbox.ts';
 import type { EventRecord, Outcome, Run } from './store.ts';
@@ -338,18 +339,6 @@ const append = (dir: string, run: string, records: SummaryRecord[]) =>
     ? appendFile(summariesFile(dir, run), records.map(r => JSON.stringify(r)).join('\n') + '\n')
     : Promise.resolve();
 
-const readJsonl = async <T>(file: string): Promise<T[]> => {
-  try {
-    return (await readFile(file, 'utf8'))
-      .split('\n')
-      .slice(0, -1)
-      .map(line => JSON.parse(line) as T);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw e;
-  }
-};
-
 const eventsOf = (dir: string, run: string) => readJsonl<EventRecord>(join(dir, 'runs', run, 'events.jsonl'));
 
 /**
@@ -439,7 +428,7 @@ const runsIn = async (dir: string) => {
   try {
     return (await readdir(join(dir, 'runs'))).sort().reverse();
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if (missing(e)) return [];
     throw e;
   }
 };

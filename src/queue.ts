@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { missing } from './jsonl.ts';
 import { alive, self, type Owner } from './store.ts';
 
 /**
@@ -27,7 +28,6 @@ export type Queue<T> = {
 const hashed = (id: string) => createHash('sha256').update(id).digest('hex').slice(0, 24);
 const pending = /^(\d{13}-\d{6})-([0-9a-f]{24})\.json$/;
 const claimed = /^(\d{13}-\d{6})-([0-9a-f]{24})\.json\.(\d+)-(.+)$/;
-const gone = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 let seq = 0;
 
 /**
@@ -62,7 +62,7 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
         const m = claimed.exec(name);
         if (m && !alive({ pid: Number(m[3]), token: m[4] ?? '' }, owner))
           await rename(join(dir, name), join(dir, `${m[1]}-${m[2]}.json`)).catch(e => {
-            if (!gone(e)) throw e;
+            if (!missing(e)) throw e;
           });
       }
     })());
@@ -86,7 +86,7 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
       for (const name of await names()) {
         if (!pending.test(name)) continue;
         const entry = await read(name).catch(e => {
-          if (gone(e)) return;
+          if (missing(e)) return;
           throw e;
         });
         if (!entry || !accept(entry)) continue;
@@ -94,7 +94,7 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
         try {
           await rename(join(dir, name), join(dir, taken));
         } catch (e) {
-          if (gone(e)) continue;
+          if (missing(e)) continue;
           throw e;
         }
         return { ...(await read(taken)), taken: owner };
@@ -128,7 +128,7 @@ export const fileQueue = <T>(dir: string, owner: Owner = self): Queue<T> => {
           const m = claimed.exec(name);
           if (!m && !pending.test(name)) return;
           const entry = await read(name).catch(e => {
-            if (gone(e)) return;
+            if (missing(e)) return;
             throw e;
           });
           return entry && { ...entry, ...(m && { taken: { pid: Number(m[3]), token: m[4] ?? '' } }) };

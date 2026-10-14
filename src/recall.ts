@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { parse } from 'yaml';
 import type { Config } from './config.ts';
 import { ask } from './decide.ts';
+import { missing } from './jsonl.ts';
 import type { Issue } from './issues.ts';
 import { type Asker, type Origin, visible, type SummaryRecord } from './summaries.ts';
 import { tokensOf } from './usage.ts';
@@ -66,7 +67,7 @@ export const loadSynonyms = async (file: string) => {
   try {
     return synonyms((parse(await readFile(file, 'utf8')) ?? []) as string[][]);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return synonyms([]);
+    if (missing(e)) return synonyms([]);
     throw e;
   }
 };

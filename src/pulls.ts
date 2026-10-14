@@ -450,4 +450,3 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
 
   return { ...pulls, events, comment };
 };
-

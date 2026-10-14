@@ -1,6 +1,7 @@
 import { type FSWatcher, watch } from 'node:fs';
 import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readJsonl } from './jsonl.ts';
 import { proseLine } from './outputs.ts';
 import { fold, type Op, type Pull } from './pulls.ts';
 import type { EventRecord, Outcome, Run } from './store.ts';
@@ -158,9 +159,7 @@ export const watchRuns = (dir: string, { pollMs = 1000, sweepEvery = 15, useWatc
     const sig = await signature(file);
     if (sig === pullsSig) return false;
     pullsSig = sig;
-    const ops = (await readFile(file, 'utf8').catch(() => ''))
-      .split('\n')
-      .flatMap(line => (line ? (parse<Op>(line) ?? []) : []));
+    const ops = await readJsonl<Op>(file);
     pulls = fold(ops, n => `#${n}`).map(({ number, title, branch, into, state, origin }) => ({
       number,
       title,
