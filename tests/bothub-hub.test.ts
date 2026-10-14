@@ -1141,6 +1141,29 @@ describe('slicers for the narrow judges', () => {
     expect(item!.added).toContain(': export const labelId');
   });
 
+  const reduced = (after: Record<string, string>) => {
+    const repo = change({ 'src/ast.ts': 'export const parseSource = (code: string) => code;\n' }, after);
+    const env = { BOTHUB_BRIEF: join(hubWith(brief), 'issues/1-labels.md') };
+    writeFileSync(env.BOTHUB_BRIEF, brief);
+    return items(run('reduce.mjs', repo, [], env).out)[0]!;
+  };
+
+  it('reduce: shows each new function with the existing helpers that share a word with it', () => {
+    const item = reduced({ 'src/tests.ts': 'const parseTests = (code: string) => code.split("it(");\n' });
+    expect(item.helpers).toEqual([
+      {
+        function: 'src/tests.ts:1: const parseTests = (code: string) => code.split("it(");',
+        existing: ['src/ast.ts:1: export const parseSource = (code: string) => code;'],
+      },
+    ]);
+  });
+
+  it('reduce: lists no helpers for a new function nothing in the repo shares a word with', () => {
+    const item = reduced({ 'src/clock.ts': 'export function tickOnce() {\n  return 1;\n}\n' });
+    expect(item.added).toContain('src/clock.ts:1: export function tickOnce() {');
+    expect(item).not.toHaveProperty('helpers');
+  });
+
   it('scope: only the changed files the brief does not name', () => {
     const repo = change(
       { 'src/labels.ts': labels.before, 'src/serve.ts': 'export const s = 1;\n' },

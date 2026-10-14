@@ -14,6 +14,10 @@ Name added lines that can go without losing a row: a test no row names, a `still
 change does not touch, a fixture or helper used once, a branch for an input no producer emits, a
 rule another module already decides.
 
+Under `helpers`, each new function comes with existing exports whose names share a word with it.
+Should the change call one of them instead? When one already does the new function's job, name the
+new function and the export to use. A new function not listed there is never a finding for this.
+
 FAIL listing each as `file:line`, with what to delete. PASS when nothing can go.
 
 From attempt 2 on (the prompt says so), FAIL only on a whole test, function or file that can go. From
