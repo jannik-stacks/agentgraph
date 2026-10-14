@@ -1,5 +1,17 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { appendFile, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import type { ApplyResult } from './apply.ts';
 import { missing, readJsonl } from './jsonl.ts';
@@ -157,7 +169,7 @@ const credentials = new Set(['auth.json', '.credentials.json']);
 
 /**
  * An append-only run store rooted at `dir`. Each run lives in `runs/<id>/`: `run.json`, `events.jsonl`,
- * `outcome.json`, the harness's private `home/` and, while it runs, `tmp/`.
+ * `outcome.json`, the harness's private `home/` and its `tmp/`.
  */
 export const openStore = (dir: string, owner: Owner = self) => {
   const runDir = (id: string) => join(dir, 'runs', id);
@@ -376,7 +388,7 @@ export const reconcile = async (store: Store, workspaces: Pick<Workspaces, 'remo
     const parked = await workspaces.remove(run.event.repo, run.id);
     const ended = { status: 'interrupted', error: reason, endedAt: new Date().toISOString() } as const;
     marked.push(await store.update(run.id, { ...ended, ...(parked && { parked }) }));
-    await rm(store.tmp(run.id), { recursive: true, force: true });
+    await rmdir(store.tmp(run.id)).catch(() => {});
   }
   return marked;
 };

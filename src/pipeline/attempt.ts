@@ -87,10 +87,15 @@ const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Ru
   return recorded.length ? { ...extracted, proposals: [...recorded, ...extracted.proposals] } : extracted;
 };
 
-/** The ran attempt with the commit its worktree ended at as its `head`, when the worktree can be read. */
-const withHead = async <R extends { run: Run }>(ran: R, worktree: string, p: Pipeline): Promise<R> => {
+/**
+ * The ran attempt with the commit its worktree ended at as its `head`, when the worktree can be read, which the
+ * mirror also keeps under the local ref `refs/bothub/attempts/<worktree>/<n>`.
+ */
+const withHead = async <R extends { run: Run }>(ran: R, worktree: string, n: number, p: Pipeline): Promise<R> => {
   const head = await p.workspaces.snapshot(worktree).catch(() => undefined);
-  return head ? { ...ran, run: await p.store.update(ran.run.id, { head }) } : ran;
+  if (!head) return ran;
+  await p.workspaces.keep(worktree, n, head).catch(() => {});
+  return { ...ran, run: await p.store.update(ran.run.id, { head }) };
 };
 
 /** How many model calls the harness itself made in `run`. */
@@ -188,6 +193,7 @@ const attempts = (
     let prompt = task;
     let session: RunSpec['session'];
     let reformats = 0;
+    let snapshots = 0;
     let reformatting = false;
     let resumed = false;
     let reuse = true;
@@ -212,7 +218,7 @@ const attempts = (
       const { run, final } =
         recheck === undefined
           ? yield* Effect.flatMap(agent(bot, spec, timeoutMinutes, current, p, env), ran =>
-              Effect.promise(() => withHead(ran, worktree.id, p))
+              Effect.promise(() => withHead(ran, worktree.id, ++snapshots, p))
             )
           : {
               run: yield* Effect.promise(() =>

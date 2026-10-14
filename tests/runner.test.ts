@@ -594,21 +594,21 @@ describe('run directory', () => {
       .map(entry => relative(dir, join(entry.parentPath, entry.name)))
       .sort();
 
-  it('gives the harness a private home that is kept and a tmp dir that is removed', async () => {
+  it('gives the harness a private home that is kept and a tmp dir that is kept', async () => {
     const { store, runId } = await setup();
     const script = `const fs = require('fs'), path = require('path'), e = process.env;
 const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
 put(path.join(e.HOME, '.pi', 'agent', 'sessions', 'session-1.jsonl'), '{"type":"session"}\\n');
 put(path.join(e.XDG_DATA_HOME, 'opencode', 'storage', 'session', 'ses_1.json'), '{}');
-put(path.join(e.TMPDIR, 'scratch.txt'), 'gone');
+put(path.join(e.TMPDIR, 'scratch.txt'), 'kept');
 console.log(${JSON.stringify(end(true))});`;
     const run = await Effect.runPromise(
       runJob({ adapter: node(script), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })
     );
     expect(run.status).toBe('succeeded');
     const dir = join(store.home(runId), '..');
-    expect(existsSync(store.tmp(runId))).toBe(false);
-    expect(readdirSync(dir).sort()).toEqual(['events.jsonl', 'home', 'prompt.md', 'run.json']);
+    expect(readFileSync(join(store.tmp(runId), 'scratch.txt'), 'utf8')).toBe('kept');
+    expect(readdirSync(dir).sort()).toEqual(['events.jsonl', 'home', 'prompt.md', 'run.json', 'tmp']);
     expect(readFileSync(join(dir, 'prompt.md'), 'utf8')).toBe(promptFile(spec));
     expect(tree(dir)).toEqual([
       'events.jsonl',
@@ -616,6 +616,7 @@ console.log(${JSON.stringify(end(true))});`;
       'home/.pi/agent/sessions/session-1.jsonl',
       'prompt.md',
       'run.json',
+      'tmp/scratch.txt',
     ]);
     expect(await store.files(runId)).toEqual([
       '.local/share/opencode/storage/session/ses_1.json',
@@ -643,7 +644,7 @@ console.log(JSON.stringify({ type: 'text', text })); console.log(${JSON.stringif
     });
   });
 
-  it('removes tmp after a failed run too', async () => {
+  it('drops an empty tmp after a failed run', async () => {
     const { store, runId } = await setup();
     const run = await Effect.runPromise(
       runJob({ adapter: node(`process.exit(2)`), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed })

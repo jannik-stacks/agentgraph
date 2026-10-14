@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { unsandboxed } from '../src/runner.ts';
@@ -183,6 +183,11 @@ describe('bench driver', () => {
       fileJaccard: 0.5,
       timedOut: false,
     });
-    expect(readdirSync(tmpdir()).filter(name => name.startsWith('bench-run-'))).toEqual(before);
+    const kept = (row as { kept: string }).kept;
+    expect(readdirSync(kept).sort()).toEqual(['data', 'diff.patch', 'hub']);
+    expect(readFileSync(join(kept, 'diff.patch'), 'utf8')).toContain('fix.txt');
+    expect(readdirSync(tmpdir()).filter(name => name.startsWith('bench-run-'))).toEqual(
+      [...before, basename(kept)].sort()
+    );
   });
 });

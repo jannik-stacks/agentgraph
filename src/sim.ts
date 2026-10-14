@@ -445,7 +445,7 @@ export const simulate = async (file: string, out: (line: string) => void): Promi
       );
     return results;
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(join(root, 'origin.git'), { recursive: true, force: true });
   }
 };
 

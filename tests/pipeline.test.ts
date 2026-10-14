@@ -630,6 +630,33 @@ describe('until', () => {
     ]);
   });
 
+  it('keeps each attempt as a local ref in the mirror and on its run', async () => {
+    const origin = sourceRepo();
+    const dataDir = temp('pipeline');
+    const { adapters } = fake((_spec, call) => ({
+      message: replyAndAsk,
+      work: call === 2 ? "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')" : '',
+    }));
+    const p = await pipeline(
+      {
+        config: configFor(),
+        issues: trackedIssues(),
+        adapters,
+        store: openStore(dataDir),
+        workspaces: workspaces({ dataDir, cloneUrl: () => origin.dir }),
+      },
+      origin
+    );
+    await Effect.runPromise(runPlanned(planned('loop'), p));
+    const runs = (await p.store.list()).reverse();
+    const mirror = join(dataDir, 'repos', `${event.repo}.git`);
+    expect(runs.map(r => git(mirror, 'rev-parse', `refs/bothub/attempts/${runs[0]!.id}/${r.attempt}`))).toEqual(
+      runs.map(r => r.head)
+    );
+    expect(git(mirror, 'show', `${runs[1]!.head}:src/a.ts`)).toBe('a');
+    expect(git(origin.dir, 'for-each-ref', 'refs/bothub')).toBe('');
+  });
+
   it('starts a follow-up of a resume: session bot fresh, with what the attempt did and its change', async () => {
     const config = configFor();
     config.bots.bot = { ...config.bots.bot!, resume: 'session' };

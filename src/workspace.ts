@@ -224,12 +224,13 @@ export const workspaces = ({
 
   /**
    * Commits everything in a run's worktree, untracked files included, and pushes it to `branch`, without forcing.
+   * With `push` false the branch stays in the mirror only.
    */
-  const park = async (repo: string, runId: string, branch: string, message: string) => {
+  const park = async (repo: string, runId: string, branch: string, message: string, push = true) => {
     const run = (args: string[], env?: Record<string, string>) => git(worktreePath(dataDir, runId), args, env);
     await run(['add', '-A']);
     await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', message], botEnv);
-    await run(['push', '-q', cloneUrl(repo), `HEAD:refs/heads/${branch}`], await auth(repo));
+    if (push) await run(['push', '-q', cloneUrl(repo), `HEAD:refs/heads/${branch}`], await auth(repo));
     await run(['update-ref', `refs/heads/${branch}`, 'HEAD']);
   };
 
@@ -273,6 +274,10 @@ export const workspaces = ({
       return run(['commit-tree', tree, '-p', head, '-m', `bothub: ${runId}`]);
     });
 
+  /** Points the local mirror ref `refs/bothub/attempts/<runId>/<n>` at `commit`, so no gc prunes it. Never pushed. */
+  const keep = (runId: string, n: number, commit: string) =>
+    git(worktreePath(dataDir, runId), ['update-ref', `refs/bothub/attempts/${runId}/${n}`, commit]);
+
   /** The commit where a run's worktree forked from `branch`, a ref, a commit, or the default branch when none is given. */
   const forkPoint = async (repo: string, runId: string, branch?: string) => {
     const path = worktreePath(dataDir, runId);
@@ -290,9 +295,9 @@ export const workspaces = ({
     !!(await git(path, ['rev-list', '-n', '1', 'HEAD', '--not', '--glob=refs/*']));
 
   /**
-   * Deletes a run's worktree and prunes it from the mirror, first parking work no branch has on `bothub/kept-<runId>`
-   * (see `park`). A worktree whose work could not be parked is left in place. Never throws; resolves to the branch it
-   * parked on.
+   * Deletes a run's worktree and prunes it from the mirror, first keeping work no branch has on the local
+   * mirror branch `bothub/kept-<runId>` (see `park`), never pushed. A worktree whose work could not be kept is left in
+   * place. Never throws; resolves to the branch it kept the work on.
    */
   const remove = async (repo: string, runId: string) => {
     const path = worktreePath(dataDir, runId);
@@ -300,9 +305,9 @@ export const workspaces = ({
     let parked: string | undefined;
     if (await exists(path))
       try {
-        if (await unkept(path)) await park(repo, runId, (parked = kept), `bothub: ${runId} (parked)`);
+        if (await unkept(path)) await park(repo, runId, (parked = kept), `bothub: ${runId} (parked)`, false);
       } catch (e) {
-        console.error(`kept worktree ${path}: could not park it: ${(e as Error).message}`);
+        console.error(`kept worktree ${path}: could not keep it: ${(e as Error).message}`);
         return;
       }
     await rm(path, { recursive: true, force: true });
@@ -310,7 +315,7 @@ export const workspaces = ({
     return parked;
   };
 
-  return { create, publish, park, changes, snapshot, forkPoint, remove };
+  return { create, publish, park, changes, snapshot, keep, forkPoint, remove };
 };
 
 export type Workspaces = ReturnType<typeof workspaces>;

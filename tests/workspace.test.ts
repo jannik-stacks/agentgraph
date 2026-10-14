@@ -80,21 +80,16 @@ describe('workspaces', () => {
     await expect(ws.remove('acme/unknown', 'run-9')).resolves.toBeUndefined();
   });
 
-  it('parks the work of a dirty worktree before removing it, and keeps the worktree when it cannot', async () => {
-    const { origin, dataDir, ws } = setup();
+  it('keeps the work of a dirty worktree in the mirror before removing it, without pushing', async () => {
+    const { origin, ws, mirror } = setup();
     const { path } = await ws.create({ repo: 'acme/app' }, 'run-1');
     commit(path, { 'kept.txt': 'kept\n' });
     writeFileSync(join(path, 'new.txt'), 'new\n');
     expect(await ws.remove('acme/app', 'run-1')).toBe('bothub/kept-run-1');
     expect(existsSync(path)).toBe(false);
-    expect(git(origin.dir, 'show', 'bothub/kept-run-1:kept.txt')).toBe('kept');
-    expect(git(origin.dir, 'show', 'bothub/kept-run-1:new.txt')).toBe('new');
-
-    const offline = workspaces({ dataDir, cloneUrl: () => join(dataDir, 'gone') });
-    const { path: other } = await ws.create({ repo: 'acme/app' }, 'run-2');
-    writeFileSync(join(other, 'new.txt'), 'new\n');
-    expect(await offline.remove('acme/app', 'run-2')).toBeUndefined();
-    expect(readFileSync(join(other, 'new.txt'), 'utf8')).toBe('new\n');
+    expect(git(mirror, 'show', 'bothub/kept-run-1:kept.txt')).toBe('kept');
+    expect(git(mirror, 'show', 'bothub/kept-run-1:new.txt')).toBe('new');
+    expect(git(origin.dir, 'branch', '--list', 'bothub/kept-*')).toBe('');
   });
 
   it('rejects unknown refs and unsafe repository names', async () => {

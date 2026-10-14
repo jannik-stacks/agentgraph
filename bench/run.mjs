@@ -173,7 +173,8 @@ const against = (repo, diff, kase, tests) => {
 /**
  * Runs one case on a copy of `hub` with `patch` applied: a bare origin sharing `clone`'s objects with `main` at the
  * case's base, the case's issue filed in a fresh local tracker and started with `command`, served until nothing is
- * left to run or `timeout` ms pass. Resolves to the case's metrics; every temporary directory is removed.
+ * left to run or `timeout` ms pass. Resolves to the case's metrics and `kept`, the directory holding its run data, hub copy with
+ * its tracker, and `diff.patch`; only the shared clones are removed.
  */
 export const runCase = async ({
   hub,
@@ -258,9 +259,10 @@ export const runCase = async ({
       sh('git', ['-C', base, 'checkout', '-q', '--detach', kase.base]);
       compared = against(base, diff, kase, tests);
     }
-    return { ...measure({ records, modes, pull }), ...compared, timedOut, wallMs: Date.now() - started };
+    writeFileSync(join(root, 'diff.patch'), diff);
+    return { ...measure({ records, modes, pull }), ...compared, timedOut, wallMs: Date.now() - started, kept: root };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    for (const shared of ['origin.git', 'base']) rmSync(join(root, shared), { recursive: true, force: true });
   }
 };
 

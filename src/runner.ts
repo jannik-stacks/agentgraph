@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { createWriteStream, type WriteStream } from 'node:fs';
-import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, rmdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -510,7 +510,7 @@ export const stoppedByHuman = Symbol('stopped by a human');
 
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
- * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
+ * The harness gets the run's own `home/` and `tmp/`, both kept afterwards (an empty `tmp/` goes), and runs in the sandbox.
  * What it was asked is kept as `prompt.md` (see `promptFile`).
  * Secret values are masked in stored events, errors and the home's files; `env` reaches the harness unmasked. A run caught in a loop
  * (see `stuckWatch`) is stopped with `stuck: …`; a sandbox that is unavailable or a container that never started fails with
@@ -684,8 +684,8 @@ export const runJob = (options: {
         Effect.promise(() =>
           Promise.all([
             stderr.close(),
-            rm(home.TMPDIR, { recursive: true, force: true }),
             scrub(home.HOME, Object.values(secrets ?? {})),
+            scrub(home.TMPDIR, Object.values(secrets ?? {})).then(() => rmdir(home.TMPDIR).catch(() => {})),
           ])
         )
       )
