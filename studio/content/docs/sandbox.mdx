@@ -17,7 +17,8 @@ Every harness run, script job and script check is one hardened `docker run --rm`
   touched; for checks and the scripts their `over` runs, the worktree and its git admin
   directory are read-only too,
 - the internal `bothub-sandbox` network with no route out. The run can reach the model proxy, an
-  egress proxy that only allows GitHub and the npm registry, and a relay to the host's Ollama.
+  egress proxy that only allows GitHub and the npm registry, and a relay to the host's Ollama. A
+  hub can open the network instead (see [The hub's environment](#the-hubs-environment)).
 
 Besides the worktree, its git admin directory and the run home, the only mounts are read-only:
 the bare mirror, bothub's own code for the MCP server, the hub, the run store and the hub's
@@ -76,13 +77,69 @@ did not cause.
 The environment can set the image (`BOTHUB_SANDBOX_IMAGE`), the resource limits
 (`BOTHUB_SANDBOX_MEMORY`, `BOTHUB_SANDBOX_CPUS`, `BOTHUB_SANDBOX_PIDS`) and the model proxy URL
 (`BOTHUB_SANDBOX_LLM_URL`). Limits must be positive. The network, the user and the isolation flags
-are fixed. Hub files have no field that changes the sandbox.
+are fixed. `sandbox` in `hub.yaml` can change the image, the network and the environment, nothing
+else.
 
 `bothub sim` is the one exception. Its harness is a script that replays a scenario, so it runs
 without docker and never starts an agent.
 
 The image is built from `infra/local/sandbox`; the code is on [Runs](/docs/reference/runs).
 After a rebuild, `infra/local/sandbox/smoke.sh` starts it the way a run does and fails on a missing tool or a write to the read-only root.
+
+## The hub's environment
+
+The base image has Node, git and the harnesses, enough for a TypeScript repository. A repository
+that needs more, such as a Rust toolchain, a pinned pnpm or system libraries, gets it from
+`sandbox` in `hub.yaml`:
+
+```yaml
+sandbox:
+  setup: sandbox/setup.sh
+  network: open
+  env:
+    RUSTUP_HOME: /usr/local/rustup
+    CARGO_HOME: /cache/cargo
+    CARGO_TARGET_DIR: /cache/target
+    npm_config_store_dir: /cache/pnpm-store
+```
+
+`setup` is an executable script in the hub, with a `#!` line. <Sym name="hubImage" /> runs it as
+root in one image layer on top of the base image, with full network, and tags the result
+`bothub-sandbox-hub:<hash>` of the base image's id and the script's content. The image is built
+before the first container that needs it and reused until the script or the base image changes.
+The script reads what the repository already pins (`rust-toolchain`, `.nvmrc`, `packageManager` in
+`package.json`, the CI workflows) and installs that. A toolchain must be installed by the script:
+the root filesystem is read-only when a run starts, so a tool that installs itself on first use
+fails there. `examples/clarinet` sets up Rust and pnpm for clarinet. The base image itself is
+unchanged, and hubs without `setup` run on it.
+
+Every container of a hub with `sandbox` gets a cache directory at `/cache`, read-write and kept
+between runs: `<data>/cache/<hash of the hub path>` on the host, named by `BOTHUB_CACHE`. `env`
+points the tools at it, here the cargo registry and target directory and the pnpm store, so a
+second attempt reuses what the first one built. A setup script can instead install wrappers that
+read `BOTHUB_CACHE`. Runs of one hub share the directory, so cargo makes concurrent builds wait for
+each other. Delete the directory to start clean. `env` cannot replace what bothub sets itself,
+such as `HOME`, `TMPDIR` or the proxy settings.
+
+`network` is `allowlist` unless set. `open` also joins the `bothub-open` network, which bothub
+creates when it is missing, and drops the egress proxy settings, so the run reaches any host:
+crates.io, rustup, any package registry. What stays the same:
+
+- model keys stay out of the container. Bots still reach models only through LiteLLM with their own
+  virtual key; the master key and the provider credentials live in LiteLLM's container,
+- the data directory, the docker socket, the GitHub token and the rest of the host filesystem are
+  still not mounted.
+
+What changes: whatever the run can read, its worktree, its bot's key and what it fetched, it can
+send anywhere, not only to GitHub. It can also reach services on the operator's machine through
+docker's host gateway (`host.docker.internal` under Docker Desktop), including ports bound to
+`127.0.0.1` such as the bothub API, and the local network. Choose `open` for repositories whose
+toolchain needs it, and keep anything that must not be reachable from a run off the host.
+
+`memory` (such as `10g`) and `cpus` (such as `8`) replace the limits from the environment for the
+hub's containers. A bot's `concurrency` still decides how many of them run at once.
+
+`bothub check` validates the fields and fails when `setup` is not a file in the hub.
 
 ## Harnesses
 
