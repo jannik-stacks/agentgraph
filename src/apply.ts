@@ -86,6 +86,13 @@ const comment = async (ctx: Context, body: string, key: string): Promise<Outcome
   return { status: 'applied', ...(url && { url }) };
 };
 
+/** Comments why the issue already has what it asks for, then closes it. */
+const resolve = async (ctx: Context, reason: string, key: string): Promise<Outcome> => {
+  const posted = await comment(ctx, reason, key);
+  await tracker(ctx).close(target(ctx));
+  return posted;
+};
+
 const label = async (ctx: Context, { kind: _, ...change }: Extract<Proposal, { kind: 'label' }>) => {
   await tracker(ctx).label(target(ctx), change);
   return { status: 'applied' } as const;
@@ -196,7 +203,9 @@ const applyOne = async (proposal: Proposal, journal: Journal, ctx: Context): Pro
         files: proposal.files.map(file => ({ path: file.path, content: 'content' in file ? file.content : null })),
       });
     case 'close':
-      return { status: 'skipped', reason: 'a closure is not a write' };
+      return proposal.resolved
+        ? resolve(ctx, proposal.reason, key)
+        : { status: 'skipped', reason: 'a closure is not a write' };
   }
 };
 
@@ -212,11 +221,12 @@ const effects = (accepted: Proposal[], prefix: string) => {
 };
 
 /**
- * Applies accepted proposals: pushes first, then the rest in order. Replies, labels and questions go through
- * `issues` (or GitHub's issues when only `gh` is given); pushes go to git and merge requests to `pulls`. The planned
- * effects are recorded as `pending` before the first one is applied, and each is recorded as it lands. An effect an
- * earlier run recorded as applied is not repeated; one it left pending is checked against what is already there. A
- * failure is reported and does not stop the rest, but a merge request whose branch failed to push is skipped.
+ * Applies accepted proposals: pushes first, then the rest in order. Replies, labels, questions and closes that resolve
+ * the issue go through `issues` (or GitHub's issues when only `gh` is given); pushes go to git and merge requests to
+ * `pulls`. The planned effects are recorded as `pending` before the first one is applied, and each is recorded as it
+ * lands. An effect an earlier run recorded as applied is not repeated; one it left pending is checked against what is
+ * already there. A failure is reported and does not stop the rest, but a merge request whose branch failed to push is
+ * skipped.
  */
 export const apply = async (accepted: Proposal[], ctx: Context): Promise<ApplyResult[]> => {
   const planned = effects(accepted, ctx.prefix ?? ctx.event.id);

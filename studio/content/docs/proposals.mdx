@@ -27,7 +27,7 @@ one JSON object per line. The full type is <Sym name="Proposal" />.
 | `note`          | `note`, `slug`, `title`, `body`            | Proposes a note under `notes/` with status `proposed`    |
 | `hub`           | `title`, `body`, `files`                   | Proposes whole hub files, or deletes them                |
 | `ask`           | `question`                                 | Asks a human and waits                                   |
-| `close`         | `as`, `reason`                             | Not a write: says the job stopped short of done, and why |
+| `close`         | `as`, `reason`, `resolved`                 | Says the job stopped short of done, and why              |
 
 ## Returns
 
@@ -65,6 +65,9 @@ explicitly allowed is rejected with a reason.
 - A merge request must come from a `bothub/` branch, the job's `branch` when it has one, and go
   into the job's rendered `into` or the default branch. Leaving `into` out means the job's `into`,
   or the default branch when the job has none. A branch never goes into itself.
+- A `close` is always allowed. With `resolved: true` it says the issue already has what it asks
+  for: it must be `no-op` and the job must return `reply`, and its reason is posted on the issue,
+  which is then closed. Jobs that need this one do not run.
 - At most three replies, three notes and one of every other kind per run.
 
 Accepted proposals are applied by <Sym name="apply" /> only after the job's checks pass, only when the job is not in

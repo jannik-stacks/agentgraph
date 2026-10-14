@@ -112,6 +112,13 @@ describe('validate', () => {
   it('always allows a close and keeps the approved label for humans', () => {
     const close: Proposal = { kind: 'close', as: 'no-op', reason: 'already done' };
     expect(validate([close], { returns: [] }, 'warn').accepted).toEqual([close]);
+    const reason = (proposal: Proposal, returns: Return[]) =>
+      validate([proposal], { returns }, 'warn').rejected[0]?.reason;
+    expect(reason({ ...close, resolved: true }, ['reply'])).toBeUndefined();
+    expect(reason({ ...close, resolved: true }, [])).toBe('resolving the issue comments on it, which needs "reply"');
+    expect(reason({ ...close, as: 'blocked', resolved: true }, ['reply'])).toBe(
+      'only a "no-op" close resolves the issue'
+    );
     const label: Proposal = { kind: 'label', add: ['approved'] };
     expect(validate([label], { returns: ['label'] }, 'warn').rejected[0]?.reason).toBe(
       'only a human adds the "approved" label'

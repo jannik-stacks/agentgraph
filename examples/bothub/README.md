@@ -7,7 +7,9 @@ item.
 ## The loop
 
 `/bothub` on an issue starts `workflows/issue.md`. The triager writes a brief in a fixed template,
-with at most five criteria that each name the test proving them. The implementor works on
+with at most five criteria that each name the test proving them. When the code already does everything the
+issue asks for, the triager closes the issue instead, naming where that lives and the tests that
+cover it, and nothing is implemented. The implementor works on
 `bothub/<issue>` until every check passes, at most four attempts (`max: 3` follow-ups after the
 first): the scripts first, then the narrow judges. A failing gating check goes back to the
 implementor with its findings. A human merges. A job that blocks on a question parks its work on

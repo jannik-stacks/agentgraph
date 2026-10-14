@@ -13,8 +13,8 @@ export const NoteProposal = z.strictObject({
 });
 
 /**
- * A write an agent asks the hub to make on its behalf. `close` is not a write: it states that the job stopped short
- * of done, and why.
+ * A write an agent asks the hub to make on its behalf. `close` states that the job stopped short of done, and why; it
+ * writes only when `resolved` says the issue already has what it asks for: the reason is posted and the issue closed.
  */
 export const Proposal = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('reply'), body: text }),
@@ -45,7 +45,12 @@ export const Proposal = z.discriminatedUnion('kind', [
       .max(50),
   }),
   z.strictObject({ kind: z.literal('ask'), question: text }),
-  z.strictObject({ kind: z.literal('close'), as: Closure.extract(['blocked', 'deferred', 'no-op']), reason: text }),
+  z.strictObject({
+    kind: z.literal('close'),
+    as: Closure.extract(['blocked', 'deferred', 'no-op']),
+    reason: text,
+    resolved: z.literal(true).optional(),
+  }),
 ]);
 export type Proposal = z.infer<typeof Proposal>;
 
@@ -172,6 +177,10 @@ const check = (proposal: Proposal, allowance: Allowance): string | undefined => 
       );
     case 'label':
       return proposal.add?.includes(approved) ? `only a human adds the "${approved}" label` : undefined;
+    case 'close':
+      if (!proposal.resolved) return;
+      if (proposal.as !== 'no-op') return 'only a "no-op" close resolves the issue';
+      return returns.includes('reply') ? undefined : 'resolving the issue comments on it, which needs "reply"';
     case 'hub': {
       const globs = returns.flatMap(entry => hubGlobs(entry) ?? []);
       for (const { path } of proposal.files) {
@@ -187,8 +196,9 @@ const check = (proposal: Proposal, allowance: Allowance): string | undefined => 
  * Checks proposals against what a job allows: its effective `returns`, its `paths` for pushed files, its rendered
  * `branch` for pushes and merge requests, its rendered `into` (or the default branch) as the only targets of a merge
  * request, the `hub(<globs>)` it returns for hub file changes, at most 3 replies and 1 of every other kind. A `close`
- * is always allowed. Fails closed: every proposal that is not explicitly allowed is rejected with a reason. `apply`
- * says whether the job's mode lets accepted proposals land. A `merge` is checked against the request when it lands.
+ * is always allowed; one that resolves the issue must be `no-op` and needs `reply`. Fails closed: every proposal that
+ * is not explicitly allowed is rejected with a reason. `apply` says whether the job's mode lets accepted proposals
+ * land. A `merge` is checked against the request when it lands.
  */
 export const validate = (proposals: Proposal[], allowance: Allowance, mode: Mode): Validated => {
   const kinds = new Set(allowance.returns.map(kindOf));

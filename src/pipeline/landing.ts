@@ -113,7 +113,7 @@ export const settle = async (
   const brief = issue?.comments.findLast(c => /^## Criteria\s*$/m.test(c.body))?.body;
   const ctx = mr ? { checks: checks ?? [], config: p.config, brief, issue: event.number } : undefined;
   const writes = toApply
-    .filter(proposal => proposal.kind !== 'close' && !folds(proposal))
+    .filter(proposal => (proposal.kind !== 'close' || proposal.resolved) && !folds(proposal))
     .map(proposal =>
       proposal.kind === 'merge-request' && ctx
         ? { ...proposal, body: withSections(proposal.body, ctx, p.config.hub['merge-request'].sections) }

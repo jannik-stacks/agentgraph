@@ -1138,6 +1138,44 @@ describe('runPlan', () => {
     expect(heard).toEqual(['triage start', 'triage succeeded', 'summarize start', 'summarize succeeded']);
   });
 
+  const triaged = (message: string, work = '') => {
+    const config = configFor();
+    config.workflows.triage!.jobs.summarize!.needs = ['loop'];
+    return { config, ...fake({ message, work }) };
+  };
+
+  it('closes an issue that is already built with where it lives and its tests, and runs no job after triage', async () => {
+    const issues = trackedIssues();
+    const reason = 'Already built: `retry` in src/a.ts, covered by tests/a.test.ts.';
+    const { seen, config, adapters } = triaged(bothub([{ kind: 'close', as: 'no-op', resolved: true, reason }]));
+    const p = await pipeline({ config, issues, adapters });
+    const results = await Effect.runPromise(runPlan([planned('loop'), planned('summarize')], p));
+
+    expect(results.map(r => [r.job, r.run.closure, r.run.reason])).toEqual([
+      ['loop', 'no-op', reason],
+      ['summarize', 'deferred', 'needs "loop" (no-op) to be done'],
+    ]);
+    expect(seen).toHaveLength(1);
+    const issue = await issues.get(7);
+    expect(issue?.state).toBe('closed');
+    expect(issue?.comments.map(c => unmarked(c.body))).toEqual([reason]);
+  });
+
+  it('still runs the next job when triage finds the issue only partly built', async () => {
+    const issues = trackedIssues();
+    const brief = bothub([{ kind: 'reply', body: '## Task\nAdd the missing half.' }]);
+    const { seen, config, adapters } = triaged(brief, "fs.mkdirSync('src'); fs.writeFileSync('src/a.ts', 'a')");
+    const p = await pipeline({ config, issues, adapters });
+    const results = await Effect.runPromise(runPlan([planned('loop'), planned('summarize')], p));
+
+    expect(results.map(r => [r.job, r.run.status, r.run.closure])).toEqual([
+      ['loop', 'succeeded', 'done'],
+      ['summarize', 'succeeded', 'no-op'],
+    ]);
+    expect(seen).toHaveLength(2);
+    expect((await issues.get(7))?.state).toBe('open');
+  });
+
   it('reuses a done job on the same issue until the issue changes', async () => {
     const { seen, adapters } = fake((spec, call) => ({
       ok: !(spec.system.includes('Summarize the thread.') && call < 3),
