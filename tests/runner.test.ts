@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
@@ -8,6 +8,7 @@ import { pi } from '../src/harnesses/pi.ts';
 import {
   agentEnv,
   agentEvents,
+  busyProbe,
   homeEnv,
   limiter,
   masker,
@@ -385,6 +386,30 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.
     expect(alive(pid)).toBe(false);
   });
 
+  it('waits out a silent harness while its launcher reports work, and stalls once it reports none', async () => {
+    const withBusy = (busy: () => Promise<boolean>): Launcher => ({
+      ...unsandboxed,
+      agent: async (...args) => ({ ...(await unsandboxed.agent(...args)), busy }),
+    });
+    const quiet = `console.log('pid ' + process.pid); setTimeout(() => { console.log(${JSON.stringify(end(true))}); process.exit(); }, 1500); ${orphanExit}`;
+    const go = async (busy: () => Promise<boolean>) => {
+      const { store, runId } = await setup();
+      return Effect.runPromise(
+        runJob({
+          adapter: node(quiet, line => (line.startsWith('pid') ? [] : json(line))),
+          spec,
+          timeoutMinutes: 1,
+          stallMinutes: 0.01,
+          store,
+          runId,
+          launch: withBusy(busy),
+        })
+      );
+    };
+    expect(await go(async () => true)).toMatchObject({ status: 'succeeded' });
+    expect(await go(async () => false)).toMatchObject({ status: 'failed', stopped: 'stalled' });
+  });
+
   it('keeps the whole stderr, the last event, the exit and the env names of a failed run', async () => {
     const { store, runId } = await setup();
     const stalled = await Effect.runPromise(
@@ -498,6 +523,25 @@ describe('the sandbox', () => {
       runJob({ adapter: node(''), spec, timeoutMinutes: 1, store, runId, launch: broken })
     );
     expect(run).toMatchObject({ status: 'failed', error: 'sandbox-failed: no daemon' });
+  });
+
+  it('counts only work below the harness as busy, and a failed probe as idle', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'bothub-fake-docker-'));
+    const ps = join(bin, 'ps.txt');
+    writeFileSync(join(bin, 'docker'), `#!/bin/sh\n[ -f ${ps} ] || exit 1\ncat ${ps}\n`, { mode: 0o755 });
+    const probe = busyProbe('box');
+    const sample = (lines: string[]) => {
+      writeFileSync(ps, ['1 0 00:00:00', ...lines, '99 0 00:00:00'].join('\n'));
+      return withEnv({ PATH: `${bin}:${process.env.PATH}` }, probe);
+    };
+    expect(await sample(['6 1 00:00:01'])).toBe(false);
+    expect(await sample(['6 1 00:00:09'])).toBe(false);
+    expect(await sample(['6 1 00:00:09', '40 6 00:00:00'])).toBe(true);
+    expect(await sample(['6 1 00:00:12', '40 6 00:00:00'])).toBe(false);
+    expect(await sample(['6 1 00:00:12', '40 6 00:00:01'])).toBe(true);
+    expect(await sample(['6 1 00:00:12', '41 6 00:00:00'])).toBe(true);
+    rmSync(ps);
+    expect(await withEnv({ PATH: `${bin}:${process.env.PATH}` }, probe)).toBe(false);
   });
 });
 

@@ -63,6 +63,12 @@ ALERT provider 2026-10-15T00-41-02-118Z-3f9a1c HTTP 500 Internal Server Error re
 
 The class is `stalled`, `provider`, `infra` or `auth`. A blip that a restart got past logs nothing.
 
+The stall watch tells a busy tool from a hung model call. When the harness has been silent for 10
+minutes, it looks inside the run's container at the processes the harness started: if they are still
+starting or using CPU (a cold build), the run keeps waiting, checking every minute, up to 30 minutes of
+silence. The harness's own CPU does not count, so a harness waiting on a hung model call with no tool
+running stalls at 10. Runs outside the sandbox have no such probe.
+
 Each layer gives up sooner than the one above it. LiteLLM fails a silent stream after 2 minutes and
 retries once, the harnesses wait 2 minutes for a response to start and 3 minutes between chunks
 (`modelTimeouts`), and the runner's stall watch fires after 10.

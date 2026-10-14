@@ -103,10 +103,39 @@ export const agentEnv = (
   ...secrets,
 });
 
-type Command = { cmd: string; args: string[]; env: Record<string, string>; cwd: string; stop?: () => void };
+type Command = {
+  cmd: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd: string;
+  stop?: () => void;
+  busy?: () => Promise<boolean>;
+};
 
 /** Removes a container whatever state it is in; killing the docker client alone would leave it running. */
 const removeContainer = (name: string) => () => void execFile('docker', ['rm', '-f', name], () => {});
+
+/**
+ * Whether a container's tools did work since the last call: the processes below the harness (parent pid above 1, which
+ * leaves out the init, the harness itself and the probe) differ in pid or CPU time. A harness waiting on a model call
+ * with no tool running is idle; so is a failed probe or one that takes over 30 seconds. The first call with tools
+ * running says busy.
+ */
+export const busyProbe = (container: string) => {
+  let last: string | undefined;
+  return () =>
+    new Promise<boolean>(resolve =>
+      execFile('docker', ['exec', container, 'ps', '-eo', 'pid=,ppid=,time='], { timeout: 30_000 }, (error, stdout) => {
+        if (error) return resolve(false);
+        const seen = stdout
+          .split('\n')
+          .filter(line => Number(line.trim().split(/\s+/)[1]) > 1)
+          .join('\n');
+        resolve(seen !== '' && seen !== last);
+        last = seen;
+      })
+    );
+};
 
 const kill = (pid: number | undefined) => {
   try {
@@ -234,7 +263,13 @@ const contained = async ({
     open: !!box.open,
     cache: box.cache,
   });
-  return { ...run, env: agentEnv(run.env), cwd: worktree, stop: removeContainer(container) };
+  return {
+    ...run,
+    env: agentEnv(run.env),
+    cwd: worktree,
+    stop: removeContainer(container),
+    busy: busyProbe(container),
+  };
 };
 
 /**
@@ -416,6 +451,9 @@ export const stuckWatch = () => {
   };
 };
 
+/** How long a silent run that still shows work is waited for. */
+const busyLimit = 30 * 60_000;
+
 class Stalled extends Error {}
 class Withdrawn extends Error {}
 
@@ -427,8 +465,9 @@ export const stoppedByHuman = 'stopped by a human';
  * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
  * Secret values are masked in stored events, errors and the home's files; `env` reaches the harness unmasked. A run caught in a loop
  * (see `stuckWatch`) is stopped with `stuck: …`; a sandbox that is unavailable or a container that never started fails with
- * `sandbox-failed: …`, and nothing runs on the host. A harness silent for `stallMinutes` fails as stalled, and so does
- * one whose tool call stays open that long while only usage events come; a run is cancelled as withdrawn once `until`
+ * `sandbox-failed: …`, and nothing runs on the host. A harness silent for `stallMinutes` fails as stalled, unless its
+ * sandbox still shows work (a long tool), which is waited out for up to 30 minutes. One whose tool
+ * call stays open that long while only usage events come fails the same way. A run is cancelled as withdrawn once `until`
  * resolves with a reason. Each of these, a timeout and a provider fault (see `providerFault`) are recorded as the
  * run's `stopped`.
  * Never fails; interruption records `cancelled` after the process group is killed.
@@ -450,6 +489,15 @@ export const runJob = (options: {
   Effect.suspend(() => {
     const { adapter, spec, timeoutMinutes, store, runId, secrets, onEvent, launch = sandboxed, readonly } = options;
     const { stallMinutes, until, env } = options;
+    let busy: Command['busy'];
+    const launcher: Launcher = {
+      ...launch,
+      agent: async (...args) => {
+        const command = await launch.agent(...args);
+        busy = command.busy;
+        return command;
+      },
+    };
     const save = (patch: Partial<Omit<Run, 'id'>>) => Effect.promise(() => store.update(runId, patch));
     const finish = (patch: Partial<Omit<Run, 'id'>>) => {
       const stopped = patch.stopped ?? (providerFault.test(patch.error ?? '') ? 'provider' : undefined);
@@ -479,7 +527,13 @@ export const runJob = (options: {
     const silence = (ms: number): Effect.Effect<never, Stalled> =>
       Effect.suspend(() => {
         const left = alive + ms - Date.now();
-        return left > 0 ? Effect.flatMap(Effect.sleep(left), () => silence(ms)) : Effect.fail(new Stalled());
+        if (left > 0) return Effect.flatMap(Effect.sleep(left), () => silence(ms));
+        if (!busy || Date.now() - alive >= busyLimit) return Effect.fail(new Stalled());
+        return Effect.promise(busy).pipe(
+          Effect.flatMap(working =>
+            working ? Effect.flatMap(Effect.sleep(Math.min(ms, 60_000)), () => silence(ms)) : Effect.fail(new Stalled())
+          )
+        );
       });
     const record = (raw: AgentEvent) => {
       const event = JSON.parse(mask(JSON.stringify(raw))) as AgentEvent;
@@ -526,7 +580,7 @@ export const runJob = (options: {
           spec,
           { ...env, ...secrets },
           home,
-          launch,
+          launcher,
           readonly,
           text => void appendFile(join(store.home(runId), '..', 'stderr.log'), mask(text)).catch(() => {})
         ).pipe(

@@ -136,6 +136,8 @@ const command = (spec: RunSpec) => ({
     OPENCODE_DISABLE_AUTOUPDATE: '1',
     OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
     OPENCODE_DISABLE_MODELS_FETCH: '1',
+    // empty: the config dir is the run's home, not the image's read-only one
+    OPENCODE_CONFIG_DIR: '',
   },
 });
 
