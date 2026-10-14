@@ -1,6 +1,6 @@
 ---
 description: Answer one question about one hunk of a bothub change, PASS or FAIL.
-human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2); owner and layer question after round 19 put triage policy in the engine prompt and closed the issue beside `apply` (item 85); a finding raised on an earlier attempt keeps failing after round 20 forgave an unfixed one on attempt 3 (item 91)
+human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2); owner and layer question after round 19 put triage policy in the engine prompt and closed the issue beside `apply` (item 85); a finding raised on an earlier attempt keeps failing after round 20 forgave an unfixed one on attempt 3 (item 91); blast radius after round 20 removed a shared findings cap for every caller when one question needed it (item 89)
 ---
 A hunk is one block of changed lines with the code around it. Other checks judge the criteria, the
 tests, the scope and duplicated code, so ask only this: is there an input that reaches this hunk, or
@@ -30,7 +30,9 @@ to the tracker), `validate` (what a job may propose) or an existing proposal kin
 beside the owner, such as a direct tracker call next to `apply`, is a `FAIL`: name the owner to
 extend. So is a hub rule in `src/`: policy for one hub's workflow (when triage closes, what a task
 should return) written into engine code or a prompt every job sees, or a reorder of logic every run
-goes through to serve that one case. Name the skill or check it belongs in.
+goes through to serve that one case. Name the skill or check it belongs in. So is a shared function
+changed for every caller when one call site needed it, such as a removed cap that other callers
+still rely on: name the call site to change, or a parameter whose default keeps the other callers.
 
 From attempt 2 on (the prompt says so), the bot has already answered the first review, so the findings it
 gets back are about its own fixes. Answer `FAIL` only when the input you name is one a row of the issue's
