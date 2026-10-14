@@ -35,7 +35,6 @@ describe('opencode', () => {
       'run',
       '--format',
       'json',
-      '--pure',
       '--title',
       'bothub',
       '--agent',
@@ -95,7 +94,8 @@ describe('opencode', () => {
     expect(config).toMatchObject({ share: 'disabled', snapshot: false, compaction: { auto: false, prune: false } });
     expect(config.tool_output).toEqual({ max_lines: 300, max_bytes: 16_384 });
     expect(config.instructions).toBeUndefined();
-    expect(config.plugin).toBeUndefined();
+    expect(config.plugin).toEqual([expect.stringMatching(/\/src\/harnesses\/opencode-trim\.ts$/)]);
+    expect(command({ ...spec, tools: ['bash(ls*)'] }).args).toContain('--pure');
     expect(env).toMatchObject({
       OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       OPENCODE_DISABLE_CLAUDE_CODE: '1',
@@ -103,7 +103,6 @@ describe('opencode', () => {
       OPENCODE_DISABLE_AUTOCOMPACT: '1',
       OPENCODE_DISABLE_PRUNE: '1',
     });
-    expect(args).toContain('--pure');
     expect(args.slice(0, args.indexOf('--'))).not.toEqual(
       expect.arrayContaining(['--continue', '--session', '--share'])
     );
@@ -120,8 +119,9 @@ describe('opencode', () => {
     expect(config.plugin).toEqual([
       [expect.stringMatching(/\/src\/harnesses\/opencode-surfacer\.ts$/), surfacer],
       [expect.stringMatching(/\/src\/harnesses\/opencode-decider\.ts$/), decider],
+      expect.stringMatching(/\/src\/harnesses\/opencode-trim\.ts$/),
     ]);
-    expect(config.plugin.every(([path]: [string]) => existsSync(path))).toBe(true);
+    expect(config.plugin.every((p: string | [string]) => existsSync([p].flat()[0]!))).toBe(true);
     expect(args).not.toContain('--pure');
     expect(config).toMatchObject({ share: 'disabled', compaction: { auto: false } });
     expect(JSON.parse(env.OPENCODE_PERMISSION ?? '').history).toBeUndefined();
@@ -131,7 +131,7 @@ describe('opencode', () => {
       decider: { questions: [], task: '' },
     });
     expect(JSON.parse(withHistory.env.OPENCODE_PERMISSION ?? '').history).toBe('allow');
-    expect(JSON.parse(withHistory.env.OPENCODE_CONFIG_CONTENT ?? '').plugin).toHaveLength(1);
+    expect(JSON.parse(withHistory.env.OPENCODE_CONFIG_CONTENT ?? '').plugin).toHaveLength(2);
   });
 
   it('recalls on a new session only, never again on a resumed one', () => {

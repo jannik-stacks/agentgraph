@@ -44,20 +44,24 @@ const permission = (tools: string[]) => {
 
 const plugin = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 
+const trims = (spec: RunSpec) => spec.tools.some(t => t === 'read' || t === 'grep');
+
 /**
- * bothub's own opencode plugins for the run: the surfacer and the decider, each only when configured. A resumed session
- * recalls nothing again.
+ * bothub's own opencode plugins for the run: the output trimmer when the bot can read or grep, and the surfacer and
+ * decider, each only when configured. A resumed session recalls nothing again.
  */
 const plugins = (spec: RunSpec) => [
   ...(spec.surfacer
     ? [[plugin('./opencode-surfacer.ts'), spec.session ? { ...spec.surfacer, recall: undefined } : spec.surfacer]]
     : []),
   ...(spec.decider?.questions.length ? [[plugin('./opencode-decider.ts'), spec.decider]] : []),
+  ...(trims(spec) ? [plugin('./opencode-trim.ts')] : []),
 ];
 
 const pluginIds = (spec: RunSpec) => [
   ...(spec.surfacer ? ['bothub-surfacer'] : []),
   ...(spec.decider?.questions.length ? ['bothub-decider'] : []),
+  ...(trims(spec) ? ['bothub-trim'] : []),
 ];
 
 /**
