@@ -1250,6 +1250,26 @@ describe('budgets', () => {
       error: 'spent $1.00 of the $0.5 budget in 1 attempts with checks still failing',
     });
   });
+  it('prices each call by the model that answered, and luna as its own model', async () => {
+    const { adapters } = fakeHarness(() => ({
+      events: [
+        { type: 'start', model: 'review' },
+        { type: 'usage', inputTokens: 1_000_000, outputTokens: 0 },
+        { type: 'start', model: 'smart' },
+        { type: 'usage', inputTokens: 1_000_000, outputTokens: 0 },
+        { type: 'usage', inputTokens: 1_000_000, outputTokens: 0, model: 'luna', source: 'decider' },
+        { type: 'end', ok: true, result: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      ],
+    }));
+    const prices = async () => ({
+      review: { model: 'r', input: 5, output: 0 },
+      smart: { model: 's', input: 1, output: 0 },
+      luna: { model: 'l', input: 0.25, output: 0 },
+    });
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters, env: {}, prices });
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(result.run.costUsd).toBeCloseTo(6.25);
+  });
 });
 
 describe('memory', () => {

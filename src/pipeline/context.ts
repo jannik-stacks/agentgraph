@@ -109,11 +109,16 @@ const outOfRuns = async (bot: Defined<Bot>, store: Store, now = Date.now()) => {
   return `bot "${bot.name}" used its ${cap} runs for the last 24 hours, the next one frees up at ${frees}`;
 };
 
-/** The run with its `costUsd` at list prices when its harness reported none and its model has a price. */
+/** The run with its `costUsd` at list prices when its harness reported none, each call priced by the model that answered. */
 const priced = async (run: Run, p: Pipeline) => {
-  if (run.costUsd || !run.model || !p.prices) return run;
-  const price = (await p.prices())[run.model];
-  const usd = estimate(tally((await p.store.events(run.id)).map(record => record.event)), price);
+  if (run.costUsd || !p.prices) return run;
+  const prices = await p.prices();
+  let model = run.model;
+  let usd = 0;
+  for (const { event } of await p.store.events(run.id)) {
+    if (event.type === 'start' && event.model) model = event.model;
+    if (event.type === 'usage') usd += estimate(tally([event]), prices[event.model ?? model ?? '']) ?? 0;
+  }
   return usd ? p.store.update(run.id, { costUsd: usd }) : run;
 };
 

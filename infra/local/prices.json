@@ -3,11 +3,13 @@
     "smart": "chatgpt/gpt-6.1-sol",
     "writer": "chatgpt/gpt-6.1-sol",
     "review": "anthropic/claude-opus-5-5",
+    "luna": "chatgpt/gpt-6-luna",
     "fast": "ollama_chat/qwen3.5:4b",
     "local": "ollama_chat/qwen3.5:4b"
   },
   "models": {
     "gpt-6.1-sol": { "input": 1.25, "cached": 0.125, "output": 10 },
+    "gpt-6-luna": { "input": 0.25, "cached": 0.025, "output": 2 },
     "gpt-5": { "input": 1.25, "cached": 0.125, "output": 10 },
     "gpt-5-mini": { "input": 0.25, "cached": 0.025, "output": 2 },
     "claude-opus-5-5": { "input": 5, "cached": 0.5, "output": 25 },
