@@ -300,9 +300,11 @@ const ProposalsFence = ({ code }: { code: string }) => {
       summary={
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <Icon name="file" className="size-3" />
-          <span>proposes</span>
-          <span className="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">
-            {proposals.map(p => p.kind).join(', ') || 'nothing'}
+          <span>
+            proposes{' '}
+            <span className="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">
+              {proposals.map(p => p.kind).join(', ') || 'nothing'}
+            </span>
           </span>
           {errors.length > 0 && <span className="text-red-600 dark:text-red-400">{errors.length} unreadable</span>}
         </span>
