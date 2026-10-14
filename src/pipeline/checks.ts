@@ -207,6 +207,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         check.body,
         context,
         eventContext(p.event, a.planned.args, undefined),
+        a.parent.attempt && a.parent.attempt > 1 ? `## Attempt\n\nThis is attempt ${a.parent.attempt}.` : undefined,
         verdictContract,
         itemSection(check.over, item),
       ]
@@ -377,16 +378,21 @@ export const holds = (verdict: Verdict, p: Pick<Pipeline, 'config'>) => p.config
 
 const gapLength = 200;
 
-/** A merge request body with a "Known gaps" section: each failing `warn` or `log` check and its first finding. */
+/** The gaps a passing check named: findings lines that start with `Known gap:`. */
+const namedGaps = ({ check, pass, findings = '' }: Verdict) =>
+  pass ? [...findings.matchAll(/^\s*[-*]?\s*Known gap:\s*(.+)$/gm)].map(([, gap]) => `- ${check}: ${gap}`) : [];
+
+/** A merge request body with a "Known gaps" section: each failing `warn` or `log` check's first finding, and the gaps passing checks named. */
 export const withGaps = (body: string, checks: Verdict[], p: Pick<Pipeline, 'config'>) => {
   const gaps = checks.filter(v => !v.pass && !v.skipped && !v.blocked && (!v.gating || !holds(v, p)));
-  if (!gaps.length) return body;
+  const named = checks.flatMap(namedGaps).map(l => l.slice(0, gapLength + 2));
+  if (!gaps.length && !named.length) return body;
   const line = ({ check, findings = '' }: Verdict) => {
     const [first = 'failed without output', next] = findings.split('\n').filter(l => l.trim());
     const finding = first.endsWith(':') && next ? `${first} ${next.replace(/^\s*[-*]\s*/, '')}` : first;
     return `- ${check}: ${finding.replace(/^\s*[-*]\s*/, '').slice(0, gapLength)}`;
   };
-  return `${body.trimEnd()}\n\n## Known gaps\n\n${gaps.map(line).join('\n')}`;
+  return `${body.trimEnd()}\n\n## Known gaps\n\n${[...gaps.map(line), ...named].join('\n')}`;
 };
 
 const baseRuns = new WeakMap<Pipeline, Map<string, Promise<Judged>>>();

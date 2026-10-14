@@ -1758,6 +1758,38 @@ describe('over', () => {
     expect(withGaps('Part of #7', verdicts.slice(2), { config })).toBe('Part of #7');
   });
 
+  it('tells a bot check its attempt from the second on', async () => {
+    let judged = 0;
+    const { seen } = await run(
+      hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' }], {
+        until: { checks: ['small'], max: 2 },
+      }),
+      spec =>
+        spec.system.startsWith('You judge.')
+          ? { message: bothub([{ kind: 'reply', body: ++judged === 1 ? 'FAIL\ntoo big' : 'PASS' }]) }
+          : { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) }
+    );
+    const prompts = seen.filter(spec => spec.system.startsWith('You judge.')).map(spec => spec.prompt);
+    expect(prompts[0]).not.toContain('## Attempt');
+    expect(prompts[1]).toContain('## Attempt\n\nThis is attempt 2.');
+  });
+
+  it('lists the gaps a passing check names under Known gaps, and holds a failing one', () => {
+    const config = hubWith([{ name: 'review', data: { type: 'script', run: 'true', mode: 'block' } }]);
+    const deferred: Verdict = {
+      check: 'review',
+      gating: true,
+      pass: true,
+      findings: 'Known gap: a 2 GB reply, src/a.ts:9\nnote: fine',
+    };
+    expect(withGaps('Part of #7', [deferred], { config })).toBe(
+      'Part of #7\n\n## Known gaps\n\n- review: a 2 GB reply, src/a.ts:9'
+    );
+    const held: Verdict = { check: 'review', gating: true, pass: false, findings: 'a Done-when input, src/a.ts:3' };
+    expect(withGaps('Part of #7', [held], { config })).toBe('Part of #7');
+    expect(failingChecks([held])).toEqual([held]);
+  });
+
   it('sends warn findings back alongside a failing check that holds the change', async () => {
     let judged = 0;
     const { seen, result } = await run(
