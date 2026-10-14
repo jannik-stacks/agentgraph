@@ -108,7 +108,15 @@ const retried = (ran: (run: Run) => ReturnType<typeof agent>, current: Run, p: P
     let again = first;
     if (!authFailure(first.run.error)) {
       yield* Effect.sleep(infraWait);
-      const { id, status: _status, error: _error, owner: _owner, startedAt: _start, endedAt: _end, ...same } = first.run;
+      const {
+        id,
+        status: _status,
+        error: _error,
+        owner: _owner,
+        startedAt: _start,
+        endedAt: _end,
+        ...same
+      } = first.run;
       again = yield* ran(yield* Effect.promise(() => p.store.create({ ...same, parent: id })));
       if (!(yield* Effect.promise(() => diedEarly(again.run, p)))) return again;
     }

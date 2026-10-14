@@ -3,7 +3,9 @@ import { secretsFor } from './pipeline/prompt.ts';
 
 /** Whether error text says the model endpoint refused the key. */
 export const authFailure = (text: string | undefined) =>
-  /\b40[13]\b|authentication error|malformed api key|invalid api key|incorrect api key/i.test(text ?? '');
+  /\b(?:http|status|code)[ :]*40[13]\b|authentication error|malformed api key|invalid api key|incorrect api key/i.test(
+    text ?? ''
+  );
 
 /**
  * One authenticated `GET <base>/models` per distinct endpoint and key the hub's bots use. Resolves to a line for each

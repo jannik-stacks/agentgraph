@@ -51,5 +51,6 @@ describe('preflight', () => {
   it('recognises auth failures', () => {
     expect(authFailure('Authentication Error, Malformed API Key passed in.')).toBe(true);
     expect(authFailure('HTTP 429 rate limited')).toBe(false);
+    expect(authFailure('failed at src/a.ts:401')).toBe(false);
   });
 });

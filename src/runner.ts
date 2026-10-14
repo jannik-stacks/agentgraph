@@ -484,8 +484,14 @@ export const runJob = (options: {
         })
       ),
       Effect.flatMap(spec =>
-        agentEvents(adapter, spec, { ...env, ...secrets }, home, launch, readonly, text =>
-          void appendFile(join(store.home(runId), '..', 'stderr.log'), mask(text)).catch(() => {})
+        agentEvents(
+          adapter,
+          spec,
+          { ...env, ...secrets },
+          home,
+          launch,
+          readonly,
+          text => void appendFile(join(store.home(runId), '..', 'stderr.log'), mask(text)).catch(() => {})
         ).pipe(
           events =>
             stallMinutes ? Stream.timeoutFail(events, () => new Stalled(), Duration.minutes(stallMinutes)) : events,
@@ -515,7 +521,8 @@ export const runJob = (options: {
               }),
         onFailure: e => {
           const { exitCode, signal } = e as { exitCode?: number | null; signal?: string | null };
-          if (exitCode != null || signal) exit = { ...(exitCode != null && { code: exitCode }), ...(signal && { signal }) };
+          if (exitCode != null || signal)
+            exit = { ...(exitCode != null && { code: exitCode }), ...(signal && { signal }) };
           if (Cause.isTimeoutException(e))
             return finish({
               status: 'timed-out',
