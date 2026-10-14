@@ -949,6 +949,41 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(git(origin.dir, 'show', 'bothub/7:src/a.ts')).toBe('a');
   });
 
+  it('records the ask, the answer that resumed it, the link between the runs and where each attempt left its work', async () => {
+    const { issues, p, result } = await blockedRun();
+    const [asked] = await issues.list({ label: 'unsure' });
+    const later = { ...answer, ts: new Date(Date.now() + 60_000).toISOString() };
+    const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: later }));
+
+    const ask = (await p.store.events(result.run.id)).find(r => r.event.type === 'human');
+    expect(ask?.event).toEqual({ type: 'human', on: 'ask', url: asked!.url });
+    const [first] = await p.store.events(next.run.id);
+    expect(first!.event).toEqual({
+      type: 'human',
+      on: 'answer',
+      by: later.actor.login,
+      at: later.ts,
+      asked: result.run.id,
+    });
+    expect(next.run.previous).toBe(result.run.id);
+    const mirror = join(p.store.dir, 'repos', `${p.event.repo}.git`);
+    expect(git(mirror, 'show', `${result.run.head}:src/a.ts`)).toBe('a');
+    expect(git(mirror, 'show', `${next.run.head}:src/b.ts`)).toBe('b');
+    const spans = readFileSync(join(p.store.dir, 'runs', next.run.id, 'spans.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line));
+    expect(spans.find(s => s.name === 'human_wait')).toMatchObject({
+      start: ask!.ts,
+      end: later.ts,
+      attributes: {
+        'bothub.time.kind': 'wait',
+        'bothub.human.by': later.actor.login,
+        'bothub.run.asked': result.run.id,
+      },
+    });
+  });
+
   const sleep = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)';
   const hang = `${writeA}; ${sleep}`;
 

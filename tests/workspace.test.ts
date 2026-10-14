@@ -57,6 +57,20 @@ describe('workspaces', () => {
     await expect(ws.changes('run-9', base)).rejects.toThrow('no worktree for run "run-9"');
   });
 
+  it('snapshots the worktree as a commit on top of its head without touching it', async () => {
+    const { ws, mirror } = setup();
+    const { path, head } = await ws.create({ repo: 'acme/app' }, 'run-1');
+    expect(await ws.snapshot('run-1')).toBe(head);
+    writeFileSync(join(path, 'README.md'), 'changed\n');
+    writeFileSync(join(path, 'new.txt'), 'new\n');
+    const shot = await ws.snapshot('run-1');
+    expect(git(mirror, 'rev-parse', `${shot}^`)).toBe(head);
+    expect(git(mirror, 'show', `${shot}:new.txt`)).toBe('new');
+    expect(git(mirror, 'show', `${shot}:README.md`)).toBe('changed');
+    expect(git(path, 'rev-parse', 'HEAD')).toBe(head);
+    expect(git(path, 'status', '--porcelain')).toBe('M README.md\n?? new.txt');
+  });
+
   it('removes the worktree and prunes it from the mirror', async () => {
     const { ws, mirror } = setup();
     const { path } = await ws.create({ repo: 'acme/app' }, 'run-1');

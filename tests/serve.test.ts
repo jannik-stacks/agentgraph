@@ -1,9 +1,10 @@
+import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
 import { localPulls } from '../src/pulls.ts';
-import { checkLine, laneOf, localOrigin, serveHub, warmDeps } from '../src/serve.ts';
+import { checkLine, laneOf, localOrigin, logExit, serveHub, warmDeps } from '../src/serve.ts';
 import { fileQueue } from '../src/queue.ts';
 import { unsandboxed, type Launcher } from '../src/runner.ts';
 import { SandboxError } from '../src/sandbox.ts';
@@ -85,6 +86,62 @@ describe('serveHub', () => {
       expect((await res.json()).map((r: { job: string }) => r.job)).toEqual(['answer']);
       const again = await localIssues(join(hub, 'issues'), { repo: 'acme/app' }).get(1);
       expect(again?.comments).toHaveLength(2);
+    } finally {
+      await served.stop();
+    }
+  });
+
+  it('records the engine and hub on every run, keeps each hub version and logs its keys and every hub change', async () => {
+    const hub = temp('serve-hub');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(hub, path, '..'), { recursive: true });
+      writeFileSync(join(hub, path), text);
+    }
+    const data = temp('serve-data');
+    const lines: string[] = [];
+    const done: JobResult[][] = [];
+    const served = await serveHub({
+      hub,
+      data,
+      origin: bareOrigin(),
+      repo: 'acme/app',
+      env: { BOTHUB_LLM_API_KEY: 'k1', BOTHUB_LLM_API_KEY_OTHER: 'k2' },
+      port: 0,
+      interval: 20,
+      log: line => lines.push(line),
+      adapters,
+      launch: unsandboxed,
+      onResults: (_, results) => done.push(results),
+    });
+    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
+    const next = async (n: number) => {
+      while (done.length < n) await new Promise(r => setTimeout(r, 20));
+      return done[n - 1]![0]!.run;
+    };
+    try {
+      expect(lines[0]).toBe('model keys: BOTHUB_LLM_API_KEY (helper), BOTHUB_LLM_API_KEY_OTHER');
+      await issues.comment(1, '/bothub why');
+      const first = await next(1);
+      expect(first.engine?.src).toMatch(/^[0-9a-f]{16}$/);
+      expect(lines).toContain(`hub ${first.hub}`);
+      const kept = JSON.parse(readFileSync(join(data, 'hubs', `${first.hub}.json`), 'utf8'));
+      expect(Object.keys(kept).sort()).toEqual(
+        Object.keys(files)
+          .filter(f => !f.startsWith('issues/'))
+          .sort()
+      );
+      expect(readdirSync(join(data, 'runs', first.id)).sort()).toEqual(
+        expect.arrayContaining(['events.jsonl', 'prompt.md', 'run.json', 'spans.jsonl'])
+      );
+      writeFileSync(
+        join(hub, 'skills/answer.md'),
+        files['skills/answer.md']!.replace('Answer it.', 'Answer it briefly.')
+      );
+      await issues.comment(1, '/bothub again');
+      const second = await next(2);
+      expect(second.hub).not.toBe(first.hub);
+      expect(second.previous).toBe(first.id);
+      expect(lines).toContain(`hub ${first.hub} -> ${second.hub}: skills/answer.md +1 -1`);
     } finally {
       await served.stop();
     }
@@ -613,5 +670,21 @@ describe('checkLine and laneOf', () => {
     expect(checkLine(run, 'tests', { ...verdict, blocked: true })).toBe('pr/fix r1 check tests blocked');
     expect(checkLine(run, 'tests', { ...verdict, skipped: true })).toBe('pr/fix r1 check tests skipped');
     expect(checkLine(run, 'tests', verdict)).toBe('pr/fix r1 check tests fail');
+  });
+});
+
+describe('logExit', () => {
+  it('logs why and with which code the process exits, an uncaught error first', () => {
+    const lines: string[] = [];
+    const proc = new EventEmitter();
+    const because = logExit(line => lines.push(line), proc);
+    proc.emit('uncaughtExceptionMonitor', new Error('boom'));
+    because('on SIGTERM');
+    proc.emit('exit', 1);
+    expect(lines).toEqual(['serve exits on error: boom with code 1']);
+    const quiet = new EventEmitter();
+    logExit(line => lines.push(line), quiet)('on SIGINT');
+    quiet.emit('exit', 0);
+    expect(lines[1]).toBe('serve exits on SIGINT with code 0');
   });
 });

@@ -42,6 +42,20 @@ describe('openStore', () => {
     expect(readdirSync(join(dir, 'runs', run.id)).sort()).toEqual(['run.json']);
   });
 
+  it('links each run to the run before it on the same issue and job, whatever event started it', async () => {
+    const store = openStore(temp());
+    const on = (number: number, id: string) => ({ ...fields, event: { ...event, id, number } });
+    const first = await store.create(on(1, 'e1'), runId(new Date(1)));
+    await store.create({ ...on(1, 'e1'), job: 'other' }, runId(new Date(2)));
+    await store.create(on(2, 'e1'), runId(new Date(3)));
+    const check = await store.create({ ...on(1, 'e1'), check: 'lint', parent: first.id }, runId(new Date(4)));
+    const next = await store.create(on(1, 'e2'), runId(new Date(5)));
+    expect(first.previous).toBeUndefined();
+    expect(check.previous).toBeUndefined();
+    expect(next.previous).toBe(first.id);
+    expect((await store.create(fields)).previous).toBeUndefined();
+  });
+
   it('returns nothing for unknown runs and rejects updates to them', async () => {
     const store = openStore(temp());
     expect(await store.read('nope')).toBeUndefined();
