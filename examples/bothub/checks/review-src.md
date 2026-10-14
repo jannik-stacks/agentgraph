@@ -1,6 +1,6 @@
 ---
 type: bot
-description: Each code hunk in src/, studio/src/ and the hub scripts handles every input that reaches it and breaks no caller.
+description: Each code hunk in src/, studio/src/ and the hub scripts handles every input that reaches it, breaks no caller, and adds no second path beside the owner of its behaviour and no hub rule in src/.
 bot: reviewer
 skill: review-hunk
 over:

@@ -1,6 +1,6 @@
 ---
 description: Answer one question about one hunk of a bothub change, PASS or FAIL.
-human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2)
+human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2); owner and layer question after round 19 put triage policy in the engine prompt and closed the issue beside `apply` (item 85)
 ---
 A hunk is one block of changed lines with the code around it. Other checks judge the criteria, the
 tests, the scope and duplicated code, so ask only this: is there an input that reaches this hunk, or
@@ -24,6 +24,13 @@ builds a parser or analysis where changing an input of existing code (an env var
 would fix the cause: name the smaller change. The same goes for a hunk that scans the filesystem
 (a recursive directory walk, or one scan per input token) where an existing file list or index
 already answers it, such as `git ls-files`.
+
+Ask too whether the behaviour the hunk adds already has an owner: a hub skill, `apply` (every write
+to the tracker), `validate` (what a job may propose) or an existing proposal kind. A second path
+beside the owner, such as a direct tracker call next to `apply`, is a `FAIL`: name the owner to
+extend. So is a hub rule in `src/`: policy for one hub's workflow (when triage closes, what a task
+should return) written into engine code or a prompt every job sees, or a reorder of logic every run
+goes through to serve that one case. Name the skill or check it belongs in.
 
 From attempt 2 on (the prompt says so), the bot has already answered the first review, so the findings it
 gets back are about its own fixes. Answer `FAIL` only when the input you name is one a row of the issue's
