@@ -129,7 +129,7 @@ export const pipelineFor = (hub: Hub, config: Config, event: BotEvent): Pipeline
   onAlert: hub.log,
   onJob: r =>
     hub.log(
-      `${r.run.closure === 'deferred' || r.run.closure === 'blocked' ? 'ALERT ' : ''}${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
+      `${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
     ),
   onCheck: hub.onCheck ?? ((run, check, verdict) => hub.log(checkLine(run, check, verdict))),
 });

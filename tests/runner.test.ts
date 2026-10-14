@@ -351,7 +351,7 @@ require('fs').writeFileSync(require('path').join(e.HOME, 'opencode.db'), Buffer.
     const loop = (line: string): AgentEvent[] =>
       line
         ? [
-            { type: 'tool_call', id: line, tool: 'bash', input: { command: 'ls' } },
+            { type: 'tool_call', id: line, tool: 'read', input: { filePath: 'a.txt' } },
             { type: 'tool_result', id: line, ok: true, output: 'a.txt' },
           ]
         : [];
