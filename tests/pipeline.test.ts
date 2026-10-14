@@ -624,7 +624,7 @@ describe('until', () => {
     expect(result.outcome?.proposals.at(-1)).toEqual({ kind: 'ask', question });
     expect((await issues.list({ label: 'unsure' })).map(i => [i.number, i.parent, i.title])).toEqual([
       [8, 7, 'Is the name right?'],
-      [9, 7, question.length > 80 ? `${question.slice(0, 79)}…` : question],
+      [9, 7, 'checks still failing after 2 attempts: exists.'],
     ]);
     expect((await issues.get(7))?.comments.map(c => unmarked(c.body))).toEqual([
       '@octocat needs a human: #8',
@@ -770,6 +770,42 @@ describe('parking', { timeout: 20_000 }, () => {
       );
     }
   );
+
+  const outOfTurns = (calls: number): AgentEvent[] => [
+    { type: 'start', session: 's1' },
+    ...Array.from({ length: calls }, () => ({ type: 'usage' as const, inputTokens: 1, outputTokens: 1 })),
+    { type: 'end', ok: true, result: bothub([{ kind: 'reply', body: 'Done.' }]) },
+  ];
+
+  it('goes on once after the bot runs out of turns, under the same attempt', async () => {
+    const { seen, adapters } = fakeHarness((_spec, call) => ({ events: outOfTurns(call === 1 ? 7 : 6), work: writeA }));
+    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters });
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.prompt).toContain('## Out of turns\n\nYour last attempt used all 7 turns before it finished.');
+    expect(result.run).toMatchObject({ status: 'succeeded', closure: 'done', attempt: 1 });
+    const runs = (await p.store.list()).reverse();
+    expect(runs.map(r => [r.attempt, r.stopped, r.error])).toEqual([
+      [1, 'turns', 'used all 7 turns'],
+      [1, undefined, undefined],
+    ]);
+  });
+
+  it('defers a bot out of turns twice, says so on the issue and charges no attempt', async () => {
+    const issues = trackedIssues();
+    const { seen, adapters } = fakeHarness(() => ({ events: outOfTurns(7), work: writeA }));
+    const p = await pipeline({ config: configFor(), issues, adapters });
+    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
+
+    expect(seen).toHaveLength(2);
+    expect(result.run).toMatchObject({ stopped: 'turns', closure: 'deferred', attempt: 1 });
+    expect((await issues.get(7))!.comments.map(c => c.body)).toEqual([
+      'triage/loop was deferred: used all 7 turns twice. It continues when it runs again.',
+    ]);
+    const again = await Effect.runPromise(runPlanned(planned('loop'), p));
+    expect(again.run.attempt).toBe(1);
+  });
 
   it('resumes from the parked branch with the question and the answer', async () => {
     const { issues, origin, seen, p, result } = await blockedRun();

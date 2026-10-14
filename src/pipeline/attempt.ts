@@ -123,6 +123,10 @@ const retried = (ran: (run: Run) => ReturnType<typeof agent>, current: Run, p: P
     return { ...again, run: yield* Effect.promise(() => p.store.update(again.run.id, { stopped: 'infra', error })) };
   });
 
+/** How many model calls the harness itself made in `run`. */
+const turnsOf = async (run: Run, p: Pipeline) =>
+  (await p.store.events(run.id)).filter(({ event }) => event.type === 'usage' && !event.source).length;
+
 const costOf = async (ids: string[], store: Store) =>
   (await Promise.all(ids.map(id => store.read(id)))).reduce((sum, run) => sum + (run?.costUsd ?? 0), 0);
 
@@ -161,8 +165,9 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
  * in that count, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a fan-out adds its
  * section to the prompt. A reply with text but no readable proposals block first gets one format-only follow-up
  * attempt, in the same session when the harness can continue it, which `until.max` does not count. An agent that
- * died before doing anything runs once more (see `retried`). With a `recheck` reply, the first attempt takes that
- * reply instead of running the bot, so only the checks run again.
+ * died before doing anything runs once more (see `retried`). An attempt that uses all of the bot's `max-turns` goes on
+ * once under the same attempt number; running out again defers the job. With a `recheck` reply, the first attempt
+ * takes that reply instead of running the bot, so only the checks run again.
  */
 const attempts = (
   planned: PlannedJob,
@@ -212,23 +217,25 @@ const attempts = (
     let session = worktree.session;
     let reformats = 0;
     let reformatting = false;
+    let resumed = false;
+    let reuse = true;
     const start = first.attempt ?? 1;
     for (let attempt = start; ; attempt++) {
-      const current =
-        attempt === start
-          ? first
-          : yield* Effect.promise(() =>
-              p.store.create({
-                ...planned,
-                bot: bot.name,
-                harness: bot.harness,
-                event: p.event,
-                parent: parent.id,
-                attempt,
-              })
-            );
+      const current = reuse
+        ? first
+        : yield* Effect.promise(() =>
+            p.store.create({
+              ...planned,
+              bot: bot.name,
+              harness: bot.harness,
+              event: p.event,
+              parent: parent.id,
+              attempt,
+            })
+          );
       const spec = { ...built.spec, prompt, ...(session && { session }) };
-      const recheck = attempt === start && !item ? worktree.recheck : undefined;
+      const recheck = reuse && !item ? worktree.recheck : undefined;
+      reuse = false;
       const now = new Date().toISOString();
       const { run, final } =
         recheck === undefined
@@ -261,6 +268,22 @@ const attempts = (
         ...(merging && { merging }),
         ...(replies.length && { reply: replies.join('\n\n') }),
       };
+      const turns = spec.maxTurns;
+      if (turns && !run.stopped && (yield* Effect.promise(() => turnsOf(run, p))) >= turns) {
+        const error = `used all ${turns} turns${resumed ? ' twice' : ''}`;
+        const capped = yield* Effect.promise(() =>
+          p.store.update(run.id, { status: 'failed', stopped: 'turns', error })
+        );
+        const outcome = yield* Effect.promise(() => settle(capped, extracted, validated, undefined, a, p));
+        if (resumed) return yield* finish(planned, capped, outcome, kinds, p, merging);
+        const next = yield* Effect.promise(() => carried(bot.resume, run, p));
+        session = next.session;
+        prompt = `${followUp(task, [], [], attempt, max + 1, [], next.summary)}\n\n## Out of turns\n\nYour last attempt used all ${turns} turns before it finished. Its changes are still in this worktree. Finish the work, then end with your proposals.`;
+        parent = capped;
+        resumed = true;
+        attempt--;
+        continue;
+      }
       const succeeded = run.status === 'succeeded';
       const problems = succeeded ? proposalProblems(extracted, validated, kinds) : [];
       const reformat = !reformatting && succeeded && problems.length > 0 && unformatted(extracted, final);

@@ -39,7 +39,8 @@ export const closureOf = (run: Run, outcome: Outcome | undefined, returns: Propo
   const asked = outcome && kindsOf(outcome).includes('ask');
   if (run.status !== 'succeeded') {
     if (run.stopped === 'provider') return closed('deferred', `the provider refused the run: ${run.error}`);
-    if (run.stopped === 'sandbox' || run.stopped === 'infra') return closed('deferred', run.error);
+    if (run.stopped === 'sandbox' || run.stopped === 'infra' || run.stopped === 'turns')
+      return closed('deferred', run.error);
     if (run.stopped === 'withdrawn') return closed('no-op', run.error);
     return closed('blocked', asked ? 'asked a human' : (run.error ?? `the run ${run.status}`));
   }

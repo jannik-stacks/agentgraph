@@ -91,9 +91,11 @@ const label = async (ctx: Context, { kind: _, ...change }: Extract<Proposal, { k
   return { status: 'applied' } as const;
 };
 
+/** A question's first line, else its first sentence or what precedes its first colon, cut only as a last resort. */
 const title = (question: string) => {
   const line = question.trim().split('\n')[0] ?? question;
-  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+  const whole = [line, line.split(/(?<=[.?!]) /)[0]!, line.split(': ')[0]!].find(part => part.length <= 80);
+  return whole ?? `${line.slice(0, 79)}…`;
 };
 
 /**

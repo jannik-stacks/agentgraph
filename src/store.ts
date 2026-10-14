@@ -20,9 +20,19 @@ export type RunStatus =
 
 /**
  * Why a run stopped for a reason outside its bot's work: out of runs for the day, out of time, a sandbox that never
- * started, a provider that refused it, caught in a loop, or dead twice before its bot did anything (`infra`).
+ * started, a provider that refused it, caught in a loop, dead twice before its bot did anything (`infra`), or out of
+ * turns twice (`turns`).
  */
-export type Stopped = 'budget' | 'timeout' | 'stalled' | 'withdrawn' | 'sandbox' | 'provider' | 'stuck' | 'infra';
+export type Stopped =
+  | 'budget'
+  | 'timeout'
+  | 'stalled'
+  | 'withdrawn'
+  | 'sandbox'
+  | 'provider'
+  | 'stuck'
+  | 'infra'
+  | 'turns';
 
 /** The process that created a run: its pid and a token minted once per process start. */
 export type Owner = { pid: number; token: string };

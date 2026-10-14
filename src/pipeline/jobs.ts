@@ -264,6 +264,7 @@ type Unfinished = NonNullable<Awaited<ReturnType<typeof unfinished>>>;
 /**
  * The attempts the job already used on the event's issue, which `until.max` goes on counting: none when it starts over
  * or fans out, after work that closed done or handed off, or for a human's new command after a run that used them all.
+ * An attempt that ran out of turns does not count.
  */
 const usedAttempts = async (planned: PlannedJob, job: Extract<Job, { type: 'bot' }>, p: Pipeline) => {
   const { repo, number, id, actor } = p.event;
@@ -273,7 +274,8 @@ const usedAttempts = async (planned: PlannedJob, job: Extract<Job, { type: 'bot'
   const last = runs.find(r => r.attempt !== undefined);
   if (!last?.attempt || proceeds(last.closure)) return 0;
   const human = last.event.id !== id && !actor.login.endsWith('[bot]');
-  return human && last.attempt > job.until.max ? 0 : last.attempt;
+  const used = last.stopped === 'turns' ? last.attempt - 1 : last.attempt;
+  return human && last.attempt > job.until.max ? 0 : used;
 };
 
 /**
