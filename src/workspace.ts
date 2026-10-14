@@ -222,40 +222,45 @@ export const workspaces = ({
     return url;
   };
 
-  /**
-   * Commits everything in a run's worktree, untracked files included, and pushes it to `branch`, without forcing.
-   */
-  const park = async (repo: string, runId: string, branch: string, message: string) => {
-    const run = (args: string[], env?: Record<string, string>) => git(worktreePath(dataDir, runId), args, env);
-    await run(['add', '-A']);
-    await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', message], botEnv);
-    await run(['push', '-q', cloneUrl(repo), `HEAD:refs/heads/${branch}`], await auth(repo));
-    await run(['update-ref', `refs/heads/${branch}`, 'HEAD']);
-  };
-
-  /**
-   * Files a run changed since `base`, committed or not, and their diff (limited to `only` when given), with `context`
-   * lines around each hunk or the whole enclosing `function`. Reads through a copy of the index, so the worktree's own
-   * index is untouched.
-   */
-  const changes = async (runId: string, base: string, only: string[] = [], context?: number | 'function') => {
+  /** Runs `use` with git in a run's worktree on a copy of its index, so the worktree's own index is untouched. */
+  const scratched = async <T>(runId: string, use: (run: (args: string[]) => Promise<string>) => Promise<T>) => {
     const path = worktreePath(dataDir, runId);
     if (!(await exists(path))) throw new Error(`no worktree for run "${runId}"`);
     const index = await git(path, ['rev-parse', '--path-format=absolute', '--git-path', 'index']);
     const scratch = `${index}.bothub-${randomBytes(4).toString('hex')}`;
     await copyFile(index, scratch).catch(() => {});
     try {
-      const env = { GIT_INDEX_FILE: scratch };
-      const run = (args: string[]) => git(path, args, env);
+      return await use(args => git(path, args, { ...botEnv, GIT_INDEX_FILE: scratch }));
+    } finally {
+      await rm(scratch, { force: true });
+    }
+  };
+
+  /**
+   * Files a run changed since `base`, committed or not, and their diff (limited to `only` when given), with `context`
+   * lines around each hunk or the whole enclosing `function`.
+   */
+  const changes = (runId: string, base: string, only: string[] = [], context?: number | 'function') =>
+    scratched(runId, async run => {
       await run(['add', '-A']);
       const files = names(await run(['diff', '--cached', '--name-only', '--no-renames', '-z', base]));
       const around = context === undefined ? [] : context === 'function' ? ['--function-context'] : [`-U${context}`];
       const diff = await run(['diff', '--cached', '--no-renames', ...around, base, '--', ...only]);
       return { files, diff };
-    } finally {
-      await rm(scratch, { force: true });
-    }
-  };
+    });
+
+  /**
+   * A commit of a run's worktree as it is now, committed or not: its `HEAD` when nothing is uncommitted, otherwise a
+   * new commit on top of it that no branch points at. The worktree is left as it was.
+   */
+  const snapshot = (runId: string) =>
+    scratched(runId, async run => {
+      await run(['add', '-A']);
+      const tree = await run(['write-tree']);
+      const head = await run(['rev-parse', 'HEAD']);
+      if (tree === (await run(['rev-parse', 'HEAD^{tree}']))) return head;
+      return run(['commit-tree', tree, '-p', head, '-m', `bothub: ${runId}`]);
+    });
 
   /** The commit where a run's worktree forked from `branch`, a ref, a commit, or the default branch when none is given. */
   const forkPoint = async (repo: string, runId: string, branch?: string) => {
@@ -294,7 +299,7 @@ export const workspaces = ({
     return parked;
   };
 
-  return { create, publish, park, changes, forkPoint, remove };
+  return { create, publish, changes, snapshot, forkPoint, remove };
 };
 
 export type Workspaces = ReturnType<typeof workspaces>;

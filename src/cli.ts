@@ -19,7 +19,7 @@ import { McpTool, serveMcp } from './mcp.ts';
 import { buildSpec, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
 import { sandboxConfig, sandboxNetwork } from './sandbox.ts';
-import { handleEvent, localOrigin, serveHub } from './serve.ts';
+import { handleEvent, localOrigin, logExit, serveHub, stamped } from './serve.ts';
 import { serveGitHub } from './serve-github.ts';
 import { simulate } from './sim.ts';
 import { compareSpend } from './spend.ts';
@@ -126,6 +126,8 @@ const describe = (e: AgentEvent): string => {
       return `recall ${e.on} ${e.items.filter(i => i.fate === 'surfaced' || i.fate === 'returned').length}/${e.items.length}, ${e.tokens} tokens`;
     case 'decision':
       return `decision ${e.on}${e.tool ? ` ${e.tool}` : ''} ${e.p === undefined ? `unanswered: ${oneLine(e.error ?? '')}` : `p ${e.p.toFixed(2)}`}${e.acted ? ', acted' : ''}`;
+    case 'human':
+      return [`human ${e.on}`, e.by && `by @${e.by}`, e.url].filter(Boolean).join(' ');
   }
 };
 
@@ -451,38 +453,46 @@ const serveCmd = defineCommand({
       for (const line of refused) fail(`ALERT ${line}`);
       return 2;
     }
+    const because = logExit(stamped(root));
     const common = { hub: args.hub, data: root, env, port: Number(args.port), concurrency: at };
     let stop: () => Promise<void>;
-    if (config.hub.issues === 'local') {
-      if (!args.repo) {
-        fail('a hub with `issues: local` needs --repo, a local bare repository');
-        return 2;
+    try {
+      if (config.hub.issues === 'local') {
+        if (!args.repo) {
+          fail('a hub with `issues: local` needs --repo, a local bare repository');
+          return 2;
+        }
+        ({ stop } = await serveHub({
+          ...common,
+          origin: await localOrigin(args.repo),
+          ...(args.name && { repo: args.name }),
+          ...(args.prewarm && { prewarm: true }),
+        }));
+      } else {
+        const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
+        if (!appId || !keyFile || !secret) {
+          fail('serving GitHub needs BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE and BOTHUB_WEBHOOK_SECRET');
+          return 2;
+        }
+        ({ stop } = await serveGitHub({
+          ...common,
+          app: githubApp({ appId, privateKey: await readFile(keyFile, 'utf8') }),
+          secret,
+          ...(args.repos && { repos: args.repos.split(',').map(r => r.trim()) }),
+          webhookPort: Number(args['webhook-port']),
+        }));
       }
-      ({ stop } = await serveHub({
-        ...common,
-        origin: await localOrigin(args.repo),
-        ...(args.name && { repo: args.name }),
-        ...(args.prewarm && { prewarm: true }),
-      }));
-    } else {
-      const { BOTHUB_APP_ID: appId, BOTHUB_APP_KEY_FILE: keyFile, BOTHUB_WEBHOOK_SECRET: secret } = env;
-      if (!appId || !keyFile || !secret) {
-        fail('serving GitHub needs BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE and BOTHUB_WEBHOOK_SECRET');
-        return 2;
-      }
-      ({ stop } = await serveGitHub({
-        ...common,
-        app: githubApp({ appId, privateKey: await readFile(keyFile, 'utf8') }),
-        secret,
-        ...(args.repos && { repos: args.repos.split(',').map(r => r.trim()) }),
-        webhookPort: Number(args['webhook-port']),
-      }));
+    } catch (e) {
+      because(`on error: ${(e as Error).message}`);
+      throw e;
     }
     process.stderr.write(`sandbox ${settings.image} on ${sandboxNetwork}, data ${root}\n`);
-    await new Promise<void>(done => {
-      process.once('SIGINT', done);
-      process.once('SIGTERM', done);
-    });
+    because(
+      await new Promise<string>(done => {
+        process.once('SIGINT', () => done('on SIGINT'));
+        process.once('SIGTERM', () => done('on SIGTERM'));
+      })
+    );
     await stop();
     return 0;
   },

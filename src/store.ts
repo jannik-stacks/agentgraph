@@ -61,6 +61,14 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     closure?: Closure;
     owner?: Owner;
     base?: string;
+    /** A commit holding the attempt's worktree as its agent left it, on top of `base`'s line. */
+    head?: string;
+    /** The run before this one on the same issue and job, whatever event started it. */
+    previous?: string;
+    /** The engine that ran it: its commit, whether the source differed from it, and a hash of the source. */
+    engine?: { commit?: string; dirty?: boolean; src: string };
+    /** A hash of the hub files the run's event was planned with (see `hubVersion`). */
+    hub?: string;
     approval?: number;
     parked?: string;
     /** How many times the run's session was restarted after a fault outside the bot's work. */
@@ -177,10 +185,14 @@ export const openStore = (dir: string, owner: Owner = self) => {
   const write = (run: Run) => writeJson(runFile(run.id), run);
   const read = (id: string) => readJson<Run>(runFile(id));
 
-  /** Records a new run, `queued` unless `status` says otherwise. */
+  /** Records a new run, `queued` unless `status` says otherwise, linked to the `previous` run of its issue and job. */
   const create = async (fields: Omit<Run, 'id' | 'status'> & Partial<Pick<Run, 'status'>>, id = runId()) => {
+    const { repo, number } = fields.event;
+    const { workflow, job, check } = fields;
+    const previous =
+      number === undefined || check ? undefined : (await runs({ repo, number, workflow, job, check: false }))[0]?.id;
     await mkdir(runDir(id), { recursive: true });
-    return write({ status: 'queued', owner, ...fields, id });
+    return write({ status: 'queued', owner, ...(previous && { previous }), ...fields, id });
   };
 
   const update = async (id: string, patch: Partial<Omit<Run, 'id'>>) => {

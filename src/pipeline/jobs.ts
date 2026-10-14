@@ -11,7 +11,7 @@ import { runScript, type ScriptResult } from '../runner.ts';
 import type { Closure, Job, ProposalKind, Return } from '../schema.ts';
 import type { Run, Stopped, Store } from '../store.ts';
 import type { BotEvent } from '../types.ts';
-import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
+import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip, trace } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, failingChecks, findingsFor, holds, issueEnv, runOnItem } from './checks.ts';
 import { continuing, saidSince, seeded } from './continue.ts';
@@ -472,6 +472,16 @@ export const runPlanned = (
     const returns = effectiveReturns(bot, job);
     const last =
       planned.rerun === 'fresh' || merge ? undefined : yield* Effect.promise(() => unfinished(planned, created, p));
+    if (last?.outcome?.accepted.some(proposal => proposal.kind === 'ask') && !p.event.actor.login.endsWith('[bot]'))
+      yield* Effect.promise(() =>
+        p.store.add(created.id, {
+          type: 'human',
+          on: 'answer',
+          by: p.event.actor.login,
+          at: p.event.ts,
+          asked: last.run.id,
+        })
+      );
     return yield* withWorktree(
       created,
       started =>
@@ -557,7 +567,11 @@ const gate = async (planned: PlannedJob, job: Job, p: Pipeline): Promise<JobResu
     const waiting = (await p.store.runs({ event: p.event.id, job: planned.job })).filter(
       r => r.closure === 'blocked' && r.approval === asked.number
     );
-    for (const run of waiting) await p.store.update(run.id, closed('done', `approved in #${asked.number}`));
+    for (const run of waiting) {
+      await p.store.update(run.id, closed('done', `approved in #${asked.number}`));
+      await p.store.add(run.id, { type: 'human', on: 'answer', ...(asked.url && { url: asked.url }), asked: run.id });
+      await trace(run.id, p);
+    }
     return;
   }
   const issue =
@@ -569,7 +583,12 @@ const gate = async (planned: PlannedJob, job: Job, p: Pipeline): Promise<JobResu
       ...(parent !== undefined && { parent }),
     }));
   if (!asked && parent !== undefined) await issues.comment(parent, `@${actor.login} needs a human: #${issue.number}`);
-  return skip(planned, `waiting for approval in #${issue.number}`, p, 'blocked', { approval: issue.number });
+  const held = await skip(planned, `waiting for approval in #${issue.number}`, p, 'blocked', {
+    approval: issue.number,
+  });
+  await p.store.add(held.run.id, { type: 'human', on: 'ask', ...(issue.url && { url: issue.url }) });
+  await trace(held.run.id, p);
+  return held;
 };
 
 /**

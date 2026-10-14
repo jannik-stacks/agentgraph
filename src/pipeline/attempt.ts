@@ -87,6 +87,12 @@ const withTools = async (extracted: ReturnType<typeof extractProposals>, run: Ru
   return recorded.length ? { ...extracted, proposals: [...recorded, ...extracted.proposals] } : extracted;
 };
 
+/** The ran attempt with the commit its worktree ended at as its `head`, when the worktree can be read. */
+const withHead = async <R extends { run: Run }>(ran: R, worktree: string, p: Pipeline): Promise<R> => {
+  const head = await p.workspaces.snapshot(worktree).catch(() => undefined);
+  return head ? { ...ran, run: await p.store.update(ran.run.id, { head }) } : ran;
+};
+
 /** How many model calls the harness itself made in `run`. */
 const turnsOf = async (run: Run, p: Pipeline) =>
   (await p.store.events(run.id)).filter(({ event }) => event.type === 'usage' && !event.source).length;
@@ -205,7 +211,9 @@ const attempts = (
       const now = new Date().toISOString();
       const { run, final } =
         recheck === undefined
-          ? yield* agent(bot, spec, timeoutMinutes, current, p, env)
+          ? yield* Effect.flatMap(agent(bot, spec, timeoutMinutes, current, p, env), ran =>
+              Effect.promise(() => withHead(ran, worktree.id, p))
+            )
           : {
               run: yield* Effect.promise(() =>
                 p.store.update(current.id, { status: 'succeeded', startedAt: now, endedAt: now })

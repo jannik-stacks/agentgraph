@@ -49,8 +49,10 @@ export type RunSpec = {
 export type AgentEvent =
   | { type: 'start'; session?: string; model?: string }
   | { type: 'text'; text: string }
-  | { type: 'tool_call'; id: string; tool: string; input: unknown }
-  | { type: 'tool_result'; id: string; ok: boolean; output?: string }
+  /** `at` is when the tool started, when the harness reports it apart from when the event was seen. */
+  | { type: 'tool_call'; id: string; tool: string; input: unknown; at?: string }
+  /** `ms` is how long the tool ran, when the harness reports it. */
+  | { type: 'tool_result'; id: string; ok: boolean; output?: string; ms?: number }
   | {
       type: 'usage';
       /** All input of one model call, cached input included. */
@@ -58,7 +60,11 @@ export type AgentEvent =
       outputTokens: number;
       /** The part of `inputTokens` read from the provider's prompt cache. */
       cachedInputTokens?: number;
+      /** The part of `inputTokens` written to the provider's prompt cache. */
+      cacheWriteTokens?: number;
       reasoningTokens?: number;
+      /** Why the model stopped, as the harness reports it. */
+      finish?: string;
       /** What the harness says this call cost. */
       costUsd?: number;
       /** What made the call; a harness's own calls leave it out. */
@@ -73,6 +79,18 @@ export type AgentEvent =
     }
   | { type: 'end'; ok: boolean; turns?: number; result?: string; costUsd?: number }
   | { type: 'error'; message: string }
+  | {
+      /**
+       * A human in the loop: the run asked one (`ask`, posted at `url`), or started from a human's answer (`answer`,
+       * by `by` at `at`) to what the run `asked` asked.
+       */
+      type: 'human';
+      on: 'ask' | 'answer';
+      url?: string;
+      by?: string;
+      at?: string;
+      asked?: string;
+    }
   | {
       /**
        * What the memory surfacer weighed: before a model turn (`turn`) or for a `history` call. Each item is a note,

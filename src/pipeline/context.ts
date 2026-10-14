@@ -17,6 +17,7 @@ import { hubBox } from '../hub-sandbox.ts';
 import { authFailure } from '../preflight.ts';
 import { resetOf, runJob, sandboxed, stoppedByHuman, sandboxedWith, type Launcher, type limiter } from '../runner.ts';
 import type { Bot, Closure, Harness } from '../schema.ts';
+import { writeSpans } from '../spans.ts';
 import { Summarizer, summarizeRun } from '../summaries.ts';
 import type { EventRecord, Outcome, Run, Store, Verdict } from '../store.ts';
 import type { BotEvent, HarnessAdapter, RunSpec } from '../types.ts';
@@ -104,8 +105,13 @@ export const skip = async (
     reason,
     ...extra,
   });
+  await trace(run.id, p);
   return { ...planned, run };
 };
+
+/** Writes a run's spans with the hub's time kinds (see `writeSpans`). */
+export const trace = (id: string, p: Pick<Pipeline, 'store' | 'config'>) =>
+  writeSpans(p.store, id, p.config.hub['time-kinds']);
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -223,6 +229,7 @@ const once = (
     const recorded = reported ? yield* Effect.promise(() => p.store.update(run.id, { model: reported })) : finished;
     const costed = yield* Effect.promise(() => priced(recorded, p));
     yield* Effect.promise(() => summarize(bot, run.id, p));
+    yield* Effect.promise(() => trace(run.id, p));
     return { run: costed, final: result ?? lastText };
   });
 

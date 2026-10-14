@@ -501,12 +501,17 @@ class Stalled extends Error {}
 class Withdrawn extends Error {}
 class HumanStop extends Error {}
 
+/** The system prompt and prompt a harness gets, as `prompt.md` in the run directory. */
+export const promptFile = ({ system, prompt }: Pick<RunSpec, 'system' | 'prompt'>) =>
+  `# System\n\n${system}\n\n# Prompt\n\n${prompt}\n`;
+
 /** What `until` resolves with when a human stops the run. */
 export const stoppedByHuman = Symbol('stopped by a human');
 
 /**
  * Runs one stored run to completion: marks it running, appends every event, and records the final status.
  * The harness gets the run's own `home/`, kept afterwards, and `tmp/`, removed afterwards, and runs in the sandbox.
+ * What it was asked is kept as `prompt.md` (see `promptFile`).
  * Secret values are masked in stored events, errors and the home's files; `env` reaches the harness unmasked. A run caught in a loop
  * (see `stuckWatch`) is stopped with `stuck: …`; a sandbox that is unavailable or a container that never started fails with
  * `sandbox-failed: …`, and nothing runs on the host. A harness silent for `stallMinutes` fails as stalled, unless its
@@ -609,7 +614,11 @@ export const runJob = (options: {
     return save({ status: 'running', startedAt: new Date().toISOString() }).pipe(
       Effect.zipRight(
         Effect.tryPromise({
-          try: () => makeHome(home, adapter).then(() => handOver(adapter, spec, home.HOME)),
+          try: async () => {
+            await makeHome(home, adapter);
+            await writeFile(join(store.home(runId), '..', 'prompt.md'), mask(promptFile(spec)));
+            return handOver(adapter, spec, home.HOME);
+          },
           catch: e => e as Error,
         })
       ),

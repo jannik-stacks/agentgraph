@@ -12,6 +12,7 @@ import {
   homeEnv,
   limiter,
   masker,
+  promptFile,
   providerFault,
   runJob,
   runScript,
@@ -306,18 +307,28 @@ describe('runJob', () => {
     expect(alive(await pidOf(store, runId))).toBe(false);
   });
 
-  it('masks secret values in stored events, the error and home files', async () => {
+  it('masks secret values in stored events, the error, the prompt and home files', async () => {
     const { store, runId } = await setup();
     const script = `const e = process.env;
 require('fs').writeFileSync(require('path').join(e.HOME, 'log.txt'), 'key ' + e.BOTHUB_LLM_API_KEY);
 console.log('the key is ' + e.BOTHUB_LLM_API_KEY); console.error('bad ' + e.BOTHUB_LLM_API_KEY); process.exit(1);`;
     const secrets = { BOTHUB_LLM_API_KEY: 'sk-secret-value-123' };
+    const leaky = { ...spec, prompt: 'use sk-secret-value-123' };
     const run = await Effect.runPromise(
-      runJob({ adapter: node(script, asText), spec, timeoutMinutes: 1, store, runId, launch: unsandboxed, secrets })
+      runJob({
+        adapter: node(script, asText),
+        spec: leaky,
+        timeoutMinutes: 1,
+        store,
+        runId,
+        launch: unsandboxed,
+        secrets,
+      })
     );
     expect(run).toMatchObject({ status: 'failed', error: 'bad ***' });
     expect((await store.events(runId)).map(r => r.event)).toEqual([{ type: 'text', text: 'the key is ***' }]);
     expect(readFileSync(join(store.home(runId), 'log.txt'), 'utf8')).toBe('key ***');
+    expect(readFileSync(join(store.home(runId), '..', 'prompt.md'), 'utf8')).toContain('# Prompt\n\nuse ***');
   });
 
   it('passes env to the harness without masking it', async () => {
@@ -597,11 +608,13 @@ console.log(${JSON.stringify(end(true))});`;
     expect(run.status).toBe('succeeded');
     const dir = join(store.home(runId), '..');
     expect(existsSync(store.tmp(runId))).toBe(false);
-    expect(readdirSync(dir).sort()).toEqual(['events.jsonl', 'home', 'run.json']);
+    expect(readdirSync(dir).sort()).toEqual(['events.jsonl', 'home', 'prompt.md', 'run.json']);
+    expect(readFileSync(join(dir, 'prompt.md'), 'utf8')).toBe(promptFile(spec));
     expect(tree(dir)).toEqual([
       'events.jsonl',
       'home/.local/share/opencode/storage/session/ses_1.json',
       'home/.pi/agent/sessions/session-1.jsonl',
+      'prompt.md',
       'run.json',
     ]);
     expect(await store.files(runId)).toEqual([

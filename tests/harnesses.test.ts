@@ -199,24 +199,27 @@ describe('opencode', () => {
       id: 'call_mock1',
       tool: 'read',
       input: { path: 'a.txt', filePath: 'a.txt' },
+      at: '2026-10-12T12:33:08.619Z',
     });
-    expect(events[2]).toMatchObject({ type: 'tool_result', id: 'call_mock1', ok: true });
+    expect(events[2]).toMatchObject({ type: 'tool_result', id: 'call_mock1', ok: true, ms: expect.any(Number) });
     expect((events[2] as { output: string }).output).toContain('1: hi');
-    expect(events[3]).toEqual({ type: 'usage', inputTokens: 1200, outputTokens: 20 });
+    expect(events[3]).toEqual({ type: 'usage', inputTokens: 1200, outputTokens: 20, finish: 'tool-calls' });
     expect(events[6]).toEqual({ type: 'end', ok: true });
   });
 
-  it('reports cached input, reasoning and cost per step when there are any', () => {
+  it('reports cached input, cache writes, reasoning, cost and why the step ended when there are any', () => {
     const line =
-      '{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":100,"output":20,"reasoning":5,"cache":{"read":900,"write":0}},"cost":0.002}}';
+      '{"type":"step_finish","part":{"type":"step-finish","reason":"tool-calls","tokens":{"input":100,"output":20,"reasoning":5,"cache":{"read":900,"write":50}},"cost":0.002}}';
     expect(parseLine(line)).toEqual([
       {
         type: 'usage',
-        inputTokens: 1000,
+        inputTokens: 1050,
         outputTokens: 20,
         cachedInputTokens: 900,
+        cacheWriteTokens: 50,
         reasoningTokens: 5,
         costUsd: 0.002,
+        finish: 'tool-calls',
       },
     ]);
   });

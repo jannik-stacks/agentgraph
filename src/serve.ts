@@ -6,7 +6,8 @@ import { api, serve } from './api.ts';
 import { compile, type Config, type ConfigError } from './config.ts';
 import { prepareDeps } from './deps.ts';
 import { plan, withdrawn, type PlannedJob } from './dispatch.ts';
-import { srcDir } from './fingerprint.ts';
+import { engine, hubVersions, srcDir } from './fingerprint.ts';
+import { keyVariable } from './pipeline/prompt.ts';
 import { git } from './git.ts';
 import { roles } from './issues.ts';
 import { localIssues } from './issues-local.ts';
@@ -100,15 +101,22 @@ export type Hub = Pick<Pipeline, 'store' | 'workspaces' | 'limit' | 'env'> &
     data: string;
     config: () => Promise<Config>;
     hubErrors?: () => ConfigError[];
+    /** The hash of the hub's files now (see `hubVersions`), recorded on every run. */
+    version?: () => Promise<string>;
     backend: (event: BotEvent, config: Config) => Backend;
     log: (line: string) => void;
   };
 
-/** The pipeline one event of `hub` runs through. */
-export const pipelineFor = (hub: Hub, config: Config, event: BotEvent): Pipeline => ({
+/** The pipeline one event of `hub` runs through, with `stamp` on every run it creates. */
+export const pipelineFor = (
+  hub: Hub,
+  config: Config,
+  event: BotEvent,
+  stamp: Pick<Run, 'engine' | 'hub'> = {}
+): Pipeline => ({
   config,
   event,
-  store: hub.store,
+  store: { ...hub.store, create: (fields, id) => hub.store.create({ ...stamp, ...fields }, id) },
   workspaces: hub.workspaces,
   limit: hub.limit,
   env: hub.env,
@@ -150,7 +158,8 @@ export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobRes
     return [];
   }
   const event = continued?.event ?? delivered;
-  const p = pipelineFor(hub, config, event);
+  const version = await hub.version?.().catch(() => undefined);
+  const p = pipelineFor(hub, config, event, { engine: await engine(), ...(version && { hub: version }) });
   const issues = issuesOf(p);
   if (issues && (await withdrawn(event, issues))) {
     hub.log(`event ${event.id} dropped, its label "${event.label}" was removed`);
@@ -271,6 +280,27 @@ export const stamped = (data: string) => {
   };
 };
 
+/** The model key variables set in `env`, by name only, each with the bots that use it. */
+export const modelKeys = (env: Record<string, string | undefined>, config?: Config) => {
+  const keys = Object.keys(env)
+    .filter(key => key.startsWith('BOTHUB_LLM_API_KEY') && env[key])
+    .sort();
+  const bots = Object.values(config?.bots ?? {});
+  const users = (key: string) => bots.filter(bot => keyVariable(bot, env) === key).map(bot => bot.name);
+  return keys.map(key => (users(key).length ? `${key} (${users(key).join(', ')})` : key)).join(', ') || 'none';
+};
+
+/**
+ * Logs one line when the process exits: why, as `because` last said or an uncaught error, and its exit code.
+ * Resolves to `because`.
+ */
+export const logExit = (log: (line: string) => void, proc: NodeJS.EventEmitter = process) => {
+  let why = '';
+  proc.once('uncaughtExceptionMonitor', (e: Error) => (why = `on error: ${e.message}`));
+  proc.once('exit', (code: number) => log(`serve exits${why && ` ${why}`} with code ${code}`));
+  return (reason: string) => void (why ||= reason);
+};
+
 /** The `Hub` for a served hub directory, with its store, worktrees and limiter in `data`. */
 export const servedHub = async (
   { hub, data, env, log = stamped(resolve(data)), adapters, launch, concurrency = 4 }: ServeOptions,
@@ -280,6 +310,10 @@ export const servedHub = async (
   const dir = resolve(hub);
   const root = resolve(data);
   const compiled = compiledHub(dir, log);
+  log(`model keys: ${modelKeys(env, await compiled.config().catch(() => undefined))}`);
+  const version = hubVersions(dir, root, (from, to, stat) =>
+    log(from ? `hub ${from} -> ${to}: ${stat.join(', ')}` : `hub ${to}`)
+  );
   return {
     dir,
     data: root,
@@ -290,6 +324,7 @@ export const servedHub = async (
     env,
     config: compiled.config,
     hubErrors: compiled.errors,
+    version,
     prices: loadPrices({ file: join(srcDir, '..', 'infra', 'local', 'prices.json'), env }),
     backend,
     log,

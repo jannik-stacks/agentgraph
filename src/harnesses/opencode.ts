@@ -5,10 +5,12 @@ import { jsonLines } from './lines.ts';
 import { modelTimeouts } from './timeouts.ts';
 import { sources } from '../usage.ts';
 
+type Time = { time?: { start?: number; end?: number } };
+
 type ToolState =
-  | { status: 'completed'; input?: unknown; output?: string }
-  | { status: 'error'; input?: unknown; error?: string }
-  | { status: string; input?: unknown };
+  | ({ status: 'completed'; input?: unknown; output?: string } & Time)
+  | ({ status: 'error'; input?: unknown; error?: string } & Time)
+  | ({ status: string; input?: unknown } & Time);
 
 type Part =
   | { type: 'text'; text: string }
@@ -144,9 +146,17 @@ const tool = (part: Extract<Part, { type: 'tool' }>): AgentEvent[] => {
   const { state } = part;
   if (state.status !== 'completed' && state.status !== 'error') return [];
   const output = 'output' in state ? state.output : 'error' in state ? state.error : undefined;
+  const { start, end } = state.time ?? {};
+  const timed = typeof start === 'number' && typeof end === 'number' && end >= start;
   return [
-    { type: 'tool_call', id, tool: part.tool, input: state.input },
-    { type: 'tool_result', id, ok: state.status === 'completed', ...(output !== undefined && { output }) },
+    { type: 'tool_call', id, tool: part.tool, input: state.input, ...(timed && { at: new Date(start).toISOString() }) },
+    {
+      type: 'tool_result',
+      id,
+      ok: state.status === 'completed',
+      ...(output !== undefined && { output }),
+      ...(timed && { ms: end - start }),
+    },
   ];
 };
 
@@ -159,8 +169,10 @@ const step = (part: Extract<Part, { type: 'step-finish' }>): AgentEvent[] => {
           inputTokens: (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0),
           outputTokens: t.output ?? 0,
           ...(t.cache?.read && { cachedInputTokens: t.cache.read }),
+          ...(t.cache?.write && { cacheWriteTokens: t.cache.write }),
           ...(t.reasoning && { reasoningTokens: t.reasoning }),
           ...(part.cost && { costUsd: part.cost }),
+          finish: part.reason,
         },
       ]
     : [];

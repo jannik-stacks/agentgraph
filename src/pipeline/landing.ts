@@ -8,7 +8,7 @@ import type { Pull, Pulls } from '../pulls.ts';
 import type { Closure, ProposalKind } from '../schema.ts';
 import type { Outcome, Run, Verdict } from '../store.ts';
 import { summarizeOutcome } from '../summaries.ts';
-import { type JobResult, type Pipeline, issuesOf, pullsOf } from './context.ts';
+import { type JobResult, type Pipeline, issuesOf, pullsOf, trace } from './context.ts';
 import type { Handoff } from './prompt.ts';
 import { stepsInto } from './attempt.ts';
 import { type Attempt, failingChecks, runChecks, withSections } from './checks.ts';
@@ -101,7 +101,11 @@ export const settle = async (
   const applied = toApply !== undefined && allowed && (gh !== undefined || issues !== undefined || pulls !== undefined);
   const { paths } = a.job;
   const base: Outcome = { proposals, errors, accepted, rejected, results: [], applied, ...(checks && { checks }) };
-  if (!applied) return p.store.saveOutcome(run.id, base);
+  if (!applied) {
+    const saved = await p.store.saveOutcome(run.id, base);
+    await trace(run.id, p);
+    return saved;
+  }
   const folds = (proposal: Proposal) => a.fold !== undefined && proposal.kind === 'reply';
   const mr = toApply.some(proposal => proposal.kind === 'merge-request');
   const issue =
@@ -154,12 +158,18 @@ export const settle = async (
     handoff.branch && handoff.pr === undefined
       ? (await pulls?.list({ branch: handoff.branch }).catch(() => []))?.[0]
       : undefined;
-  return p.store.saveOutcome(run.id, {
+  const saved = await p.store.saveOutcome(run.id, {
     ...base,
     results: [...results, ...folded],
     ...handoff,
     ...(open && { pr: open.number }),
   });
+  const asks = results.flatMap(({ kind, status, url }) =>
+    kind === 'ask' && status === 'applied' ? [{ type: 'human', on: 'ask', ...(url && { url }) } as const] : []
+  );
+  if (asks.length) await p.store.add(run.id, ...asks);
+  await trace(run.id, p);
+  return saved;
 };
 
 /**
@@ -303,5 +313,6 @@ export const finish = (
     const ended = landed && { status: run.status, endedAt: new Date().toISOString() };
     const final = await p.store.update(run.id, { ...ended, ...closureOf(run, outcome, kinds, taken) });
     await remember(final, outcome, p);
+    await trace(run.id, p);
     return { ...planned, run: final, ...(outcome && { outcome }) };
   });

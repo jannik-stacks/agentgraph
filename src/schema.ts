@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import { timeKinds } from './spans.ts';
+
+const regex = (source: string) => {
+  try {
+    return Boolean(new RegExp(source));
+  } catch {
+    return false;
+  }
+};
 
 /**
  * `human`: notes for humans on any hub item, as plain text or a map of strings. Never shown to a model and never
@@ -449,7 +458,8 @@ export type MergeSection = z.infer<typeof MergeSection>;
  * root on top of the base image, `env` is set in every container, `network` is the `allowlist` egress proxy or `open`,
  * and `memory` and `cpus` replace the default limits. `merge-request.sections` names what the engine adds after a merge
  * request's body, in order: the `closes` line, the `criteria` table, the `checks` line and the `gaps`; all but
- * `criteria` by default, `[]` adds nothing.
+ * `criteria` by default, `[]` adds nothing. `time-kinds` adds shell command patterns by the kind of time they take,
+ * tried before the defaults (see `timeKind`).
  */
 export const Hub = z.strictObject({
   issues: IssuesBackend.default('github'),
@@ -481,6 +491,9 @@ export const Hub = z.strictObject({
       cpus: z.number().positive().exactOptional(),
     })
     .optional(),
+  'time-kinds': z
+    .partialRecord(z.enum(timeKinds), z.array(z.string().refine(regex, 'must be a regular expression')))
+    .default({}),
   human,
 });
 export type Hub = z.infer<typeof Hub>;
