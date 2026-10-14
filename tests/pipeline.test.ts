@@ -2330,7 +2330,7 @@ describe('over', () => {
     );
   });
 
-  it('tells a bot check its attempt from the second on', async () => {
+  it('tells a bot check its attempt and earlier findings from the second on', async () => {
     let judged = 0;
     const { seen } = await run(
       hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' }], {
@@ -2343,7 +2343,8 @@ describe('over', () => {
     );
     const prompts = seen.filter(spec => spec.system.startsWith('You judge.')).map(spec => spec.prompt);
     expect(prompts[0]).not.toContain('## Attempt');
-    expect(prompts[1]).toContain('## Attempt\n\nThis is attempt 2.');
+    expect(prompts[1]).toContain('## Attempt\n\nThis is attempt 2.\n\nEarlier attempts failed this check with:');
+    expect(prompts[1]).toContain('too big');
   });
 
   it('lists the gaps a passing check names under Known gaps, and holds a failing one', () => {

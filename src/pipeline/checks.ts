@@ -161,7 +161,8 @@ const answerSection = async (a: Attempt, p: Pipeline) => {
 /**
  * How a check judges one item. A bot check passes an item without a run when an earlier check run of the same job on
  * the same issue passed it for the same check, bot and skill, with the item unchanged but for where it sits (see
- * `positionless`): a later attempt or a conflict resolution judges only the items that changed.
+ * `positionless`): a later attempt or a conflict resolution judges only the items that changed. From the second
+ * attempt on, a bot check sees what it failed earlier attempts of the job with, so an unfixed finding stays a finding.
  */
 const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline) => {
   if (check.type === 'script')
@@ -183,15 +184,23 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
   let preloaded: Promise<string | undefined> | undefined;
   let answered: Promise<string | undefined> | undefined;
   let earlier: Promise<Run[]> | undefined;
+  let raised: Promise<string> | undefined;
   const { repo, number, id } = p.event;
-  const judged = () =>
-    (earlier ??= p.store.runs({
+  const ofJob = (check: boolean) =>
+    p.store.runs({
       repo,
       ...(number === undefined ? { event: id } : { number }),
       workflow: a.planned.workflow,
       job: a.planned.job,
-      check: true,
-    }));
+      check,
+    });
+  const judged = () => (earlier ??= ofJob(true));
+  const attempt = a.parent.attempt ?? 1;
+  const raisedBefore = async () => {
+    const outcomes = await Promise.all((await ofJob(false)).map(run => p.store.outcome(run.id)));
+    const failed = outcomes.flatMap(o => o?.checks?.filter(v => v.check === check.name && !v.pass) ?? []);
+    return failed.length ? `\n\nEarlier attempts failed this check with:\n\n${findingsFor(failed.slice(0, 3))}` : '';
+  };
   return (item: Item): Effect.Effect<Judged> =>
     Effect.gen(function* () {
       if (!bot) return { pass: false, findings: `unknown bot "${check.bot}"` };
@@ -207,13 +216,14 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       const same = (yield* Effect.promise(judged)).find(run => run.passed === key);
       if (same) return { pass: true, findings: `unchanged since run ${same.id}, which passed it` };
       const context = yield* Effect.promise(() => (preloaded ??= issueContext(issuesOf(p), p.event, preload)));
+      const before = attempt > 1 ? yield* Effect.promise(() => (raised ??= raisedBefore())) : '';
       const prompt = [
         skill?.body,
         check.body,
         context,
         answers,
         eventContext(p.event, a.planned.args, undefined),
-        a.parent.attempt && a.parent.attempt > 1 ? `## Attempt\n\nThis is attempt ${a.parent.attempt}.` : undefined,
+        attempt > 1 ? `## Attempt\n\nThis is attempt ${attempt}.${before}` : undefined,
         verdictContract(check),
         itemSection(check.over, item),
       ]

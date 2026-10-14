@@ -1,6 +1,6 @@
 ---
 description: Answer one question about one hunk of a bothub change, PASS or FAIL.
-human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2); owner and layer question after round 19 put triage policy in the engine prompt and closed the issue beside `apply` (item 85)
+human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2); owner and layer question after round 19 put triage policy in the engine prompt and closed the issue beside `apply` (item 85); a finding raised on an earlier attempt keeps failing after round 20 forgave an unfixed one on attempt 3 (item 91)
 ---
 A hunk is one block of changed lines with the code around it. Other checks judge the criteria, the
 tests, the scope and duplicated code, so ask only this: is there an input that reaches this hunk, or
@@ -38,5 +38,7 @@ gets back are about its own fixes. Answer `FAIL` only when the input you name is
 its line, and that line fails with the change. A failure of the new code itself, such as an error it
 does not catch or a cache key it builds, is not a broken caller. Any other edge case of the new code
 is a gap: answer `PASS` and write one line `Known gap: <input>, <line>` for each; they go into the
-merge request's Known gaps. From attempt 3 on, answer `PASS` and list every finding as a known gap.
-Without an attempt line in the prompt, this paragraph does not apply.
+merge request's Known gaps. From attempt 3 on, answer `PASS` and list every new finding as a known
+gap. A finding the attempt section says an earlier attempt failed with is not new: when this hunk
+still has it, answer `FAIL` on any attempt and say it was raised before. Without an attempt line in
+the prompt, this paragraph does not apply.
