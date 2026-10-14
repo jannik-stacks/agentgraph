@@ -11,6 +11,8 @@ anecdotes. The plan behind it is in `drafts/tuning.md`.
 - `compare.mjs` compares two diffs against a checkout: size, file and symbol overlap, scope creep,
   test and style statistics, and optionally test runs.
 - `run.mjs` splits cases, runs settings over them and summarizes the rows.
+- `timeline.mjs DATA ISSUE` prints one issue's runs from a data directory: engine and hub per run,
+  where the wall time went, checks, human waits, cost and each attempt's diff.
 
 ## Splits
 
@@ -45,18 +47,18 @@ minutes pass), then measures and deletes everything.
 
 ## Rows
 
-| Field                                                      | Meaning                                                                                     |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `closure`                                                  | `merge-request`, or the closure of the first blocked or deferred job, else the last job's   |
-| `attempts`, `maxAttempt`                                   | job runs in all, and the highest attempt number                                             |
-| `questions`                                                | `ask` proposals accepted                                                                    |
-| `falseHolds`                                               | holding check failures on an earlier attempt of a job whose final attempt passed that check |
-| `usd`, `tokensIn`, `tokensOut`, `tokensCached`, `calls`    | usage from every run's events                                                               |
-| `wallMs`, `busyMs`                                         | wall time, and the time at least one run was running                                        |
-| `added`, `addedNoTests`, `files`                           | the merge request's diff                                                                    |
-| `mergedAdded`, `mergedAddedNoTests`                        | the merged change's diff                                                                    |
-| `fileJaccard`, `symbolJaccard`, `followupsCaught`          | overlap with the merged change                                                              |
-| `ownTests`, `mergedTestsOnOurCode`, `ourTestsOnMergedCode` | with `--tests CMD`, the command run on each mix of code and tests                           |
+| Field | Meaning |
+| --- | --- |
+| `closure` | `merge-request`, or the closure of the first blocked or deferred job, else the last job's |
+| `attempts`, `maxAttempt` | job runs in all, and the highest attempt number |
+| `questions` | `ask` proposals accepted |
+| `falseHolds` | holding check failures on an earlier attempt of a job whose final attempt passed that check |
+| `usd`, `tokensIn`, `tokensOut`, `tokensCached`, `calls` | usage from every run's events |
+| `wallMs`, `busyMs` | wall time, and the time at least one run was running |
+| `added`, `addedNoTests`, `files` | the merge request's diff |
+| `mergedAdded`, `mergedAddedNoTests` | the merged change's diff |
+| `fileJaccard`, `symbolJaccard`, `followupsCaught` | overlap with the merged change |
+| `ownTests`, `mergedTestsOnOurCode`, `ourTestsOnMergedCode` | with `--tests CMD`, the command run on each mix of code and tests |
 
 `summary` gives, per setting, the median, min and max of every numeric field, and for each setting
 other than the baseline (`--baseline`) the median per-case difference of medians against it, with

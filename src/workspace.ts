@@ -222,6 +222,17 @@ export const workspaces = ({
     return url;
   };
 
+  /**
+   * Commits everything in a run's worktree, untracked files included, and pushes it to `branch`, without forcing.
+   */
+  const park = async (repo: string, runId: string, branch: string, message: string) => {
+    const run = (args: string[], env?: Record<string, string>) => git(worktreePath(dataDir, runId), args, env);
+    await run(['add', '-A']);
+    await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', message], botEnv);
+    await run(['push', '-q', cloneUrl(repo), `HEAD:refs/heads/${branch}`], await auth(repo));
+    await run(['update-ref', `refs/heads/${branch}`, 'HEAD']);
+  };
+
   /** Runs `use` with git in a run's worktree on a copy of its index, so the worktree's own index is untouched. */
   const scratched = async <T>(runId: string, use: (run: (args: string[]) => Promise<string>) => Promise<T>) => {
     const path = worktreePath(dataDir, runId);
@@ -299,7 +310,7 @@ export const workspaces = ({
     return parked;
   };
 
-  return { create, publish, changes, snapshot, forkPoint, remove };
+  return { create, publish, park, changes, snapshot, forkPoint, remove };
 };
 
 export type Workspaces = ReturnType<typeof workspaces>;
