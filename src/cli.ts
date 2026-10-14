@@ -9,6 +9,7 @@ import { Effect } from 'effect';
 import { z } from 'zod';
 import { compile, type Config } from './config.ts';
 import { plan } from './dispatch.ts';
+import { preflight } from './preflight.ts';
 import { harnesses } from './harnesses/index.ts';
 import { githubApp } from './github-app.ts';
 import { toEvent } from './github.ts';
@@ -445,6 +446,11 @@ const serveCmd = defineCommand({
     const config = await compiled(args.hub);
     if (!config) return 2;
     const env = await loadEnv(root);
+    const refused = await preflight(config, env);
+    if (refused.length) {
+      for (const line of refused) fail(`ALERT ${line}`);
+      return 2;
+    }
     const common = { hub: args.hub, data: root, env, port: Number(args.port), concurrency: at };
     let stop: () => Promise<void>;
     if (config.hub.issues === 'local') {
