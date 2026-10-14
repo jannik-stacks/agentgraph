@@ -162,7 +162,7 @@ export const handleEvent = async (delivered: BotEvent, hub: Hub): Promise<JobRes
   const results = await runEvent(jobs, p);
   for (const r of results)
     hub.log(
-      `${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
+      `${r.run.closure === 'deferred' || r.run.closure === 'blocked' ? 'ALERT ' : ''}${r.workflow}/${r.job}: ${r.run.status}${r.run.closure ? `, ${r.run.closure}` : ''} ${r.run.id}${r.run.reason ? `, ${r.run.reason}` : ''}`
     );
   return results;
 };

@@ -794,6 +794,18 @@ describe('parking', { timeout: 20_000 }, () => {
     }
   );
 
+  it('does not run an agent again after an authentication error, and defers with the reason', async () => {
+    const issues = trackedIssues();
+    const message = 'Authentication Error, Malformed API Key passed in.';
+    const { seen, adapters } = fakeHarness(() => ({ events: [{ type: 'error', message }], exit: 1 }));
+    const p = await pipeline({ config: configFor(), issues, adapters });
+    const result = await Effect.runPromise(runPlanned(planned('parking'), p));
+
+    expect(seen).toHaveLength(1);
+    expect(result.run).toMatchObject({ stopped: 'infra', closure: 'deferred' });
+    expect(result.run.reason).toContain('authentication error');
+  });
+
   const outOfTurns = (calls: number): AgentEvent[] => [
     { type: 'start', session: 's1' },
     ...Array.from({ length: calls }, () => ({ type: 'usage' as const, inputTokens: 1, outputTokens: 1 })),

@@ -32,6 +32,7 @@ import {
 import { carried, onRequest, openerOf, seeded, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
+import { authFailure } from '../preflight.ts';
 
 /** The issue context a planned job preloads, read from `issues`, or GitHub's issues when only `gh` is given. */
 const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: Pipeline) => {
@@ -98,20 +99,23 @@ const infraWait = 10_000;
 
 /**
  * Runs `ran` on `current`, and when it died before its bot did anything, once more on a new run after `infraWait`. A
- * second such death stops that run as `infra`, which defers the job.
+ * second such death stops that run as `infra`, which defers the job. An authentication error is not retried.
  */
 const retried = (ran: (run: Run) => ReturnType<typeof agent>, current: Run, p: Pipeline) =>
   Effect.gen(function* () {
     const first = yield* ran(current);
     if (!(yield* Effect.promise(() => diedEarly(first.run, p)))) return first;
-    yield* Effect.sleep(infraWait);
-    const { id, status: _status, error: _error, owner: _owner, startedAt: _start, endedAt: _end, ...same } = first.run;
-    const again = yield* ran(yield* Effect.promise(() => p.store.create({ ...same, parent: id })));
-    if (!(yield* Effect.promise(() => diedEarly(again.run, p)))) return again;
+    let again = first;
+    if (!authFailure(first.run.error)) {
+      yield* Effect.sleep(infraWait);
+      const { id, status: _status, error: _error, owner: _owner, startedAt: _start, endedAt: _end, ...same } = first.run;
+      again = yield* ran(yield* Effect.promise(() => p.store.create({ ...same, parent: id })));
+      if (!(yield* Effect.promise(() => diedEarly(again.run, p)))) return again;
+    }
     const why = stripVTControlCharacters(again.run.error ?? '')
       .replace(/\s+/g, ' ')
       .trim();
-    const error = `the bot's run died twice before it did anything${why ? ` (${why.slice(0, 200)})` : ''}`;
+    const error = `the bot's run died ${again === first ? 'on an authentication error' : 'twice'} before it did anything${why ? ` (${why.slice(0, 200)})` : ''}`;
     return { ...again, run: yield* Effect.promise(() => p.store.update(again.run.id, { stopped: 'infra', error })) };
   });
 
