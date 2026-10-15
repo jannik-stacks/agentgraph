@@ -45,8 +45,6 @@ export const layers = (s: Settings): Layer.Layer<Services> => {
   return Layer.mergeAll(
     githubForge(app, globalThis.fetch, token),
     fileStore(s.data),
-    harnesses(s).pipe(
-      Layer.provideMerge(docker({ data: s.data, origin: `https://github.com/${s.repo}.git`, token }))
-    )
+    harnesses(s).pipe(Layer.provideMerge(docker({ data: s.data, origin: `https://github.com/${s.repo}.git`, token })))
   );
 };

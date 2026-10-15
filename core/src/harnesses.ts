@@ -34,7 +34,8 @@ const permission = (tools: string[]) => {
     const [, name = tool, glob] = pattern(tool);
     const current = rules[name];
     if (glob === undefined) rules[name] = 'allow';
-    else if (current !== 'allow') rules[name] = { ...(typeof current === 'object' ? current : { '*': 'deny' }), [glob]: 'allow' };
+    else if (current !== 'allow')
+      rules[name] = { ...(typeof current === 'object' ? current : { '*': 'deny' }), [glob]: 'allow' };
   }
   return rules;
 };
@@ -113,7 +114,10 @@ const opencode: Adapter = {
     const session: Piece[] = typeof line.sessionID === 'string' ? [{ type: 'session', id: line.sessionID }] : [];
     const part = line.part ?? {};
     if (line.type === 'error')
-      return [...session, { type: 'done', ended: 'error', error: line.error?.data?.message ?? line.error?.name ?? 'opencode error' }];
+      return [
+        ...session,
+        { type: 'done', ended: 'error', error: line.error?.data?.message ?? line.error?.name ?? 'opencode error' },
+      ];
     if (part.type === 'text' && part.text) return [...session, { type: 'text', text: part.text }];
     if (part.type === 'tool' && (part.state?.status === 'completed' || part.state?.status === 'error')) {
       const { state } = part;
@@ -146,7 +150,11 @@ const opencode: Adapter = {
       const reason: string = part.reason;
       if (reason === 'tool-calls') return [...session, ...usage];
       const ended: Ended = reason === 'stop' ? 'stop' : reason === 'length' ? 'cap' : 'error';
-      return [...session, ...usage, { type: 'done', ended, ...(ended === 'error' && { error: `finished with ${reason}` }) }];
+      return [
+        ...session,
+        ...usage,
+        { type: 'done', ended, ...(ended === 'error' && { error: `finished with ${reason}` }) },
+      ];
     }
     return session;
   },
@@ -228,23 +236,38 @@ const claude: Adapter = {
           if (b.type !== 'tool_result') return [];
           const call = calls.get(b.tool_use_id);
           return [
-            { type: 'tool', id: b.tool_use_id, name: call?.name ?? '', input: call?.input, ok: !b.is_error, output: blockText(b.content) },
+            {
+              type: 'tool',
+              id: b.tool_use_id,
+              name: call?.name ?? '',
+              input: call?.input,
+              ok: !b.is_error,
+              output: blockText(b.content),
+            },
           ];
         });
       if (line.type !== 'result') return [];
-      const denied = (line.permission_denials ?? []).map(
-        (d: any): Piece => ({ type: 'tool', id: d.tool_use_id, name: d.tool_name, input: d.tool_input, ok: false, denied: true })
-      );
-      const usage = Object.values(line.modelUsage ?? {}).map(
-        (u: any): Piece => ({
-          type: 'usage',
-          input: u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens,
-          output: u.outputTokens,
-          cached: u.cacheReadInputTokens,
-        })
-      );
-      const ended: Ended = line.subtype === 'success' && !line.is_error ? 'stop' : line.subtype === 'error_max_turns' ? 'cap' : 'error';
-      return [...denied, ...usage, { type: 'done', ended, ...(ended === 'error' && { error: line.result || line.subtype || 'claude failed' }) }];
+      const denied = (line.permission_denials ?? []).map((d: any): Piece => ({
+        type: 'tool',
+        id: d.tool_use_id,
+        name: d.tool_name,
+        input: d.tool_input,
+        ok: false,
+        denied: true,
+      }));
+      const usage = Object.values(line.modelUsage ?? {}).map((u: any): Piece => ({
+        type: 'usage',
+        input: u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens,
+        output: u.outputTokens,
+        cached: u.cacheReadInputTokens,
+      }));
+      const ended: Ended =
+        line.subtype === 'success' && !line.is_error ? 'stop' : line.subtype === 'error_max_turns' ? 'cap' : 'error';
+      return [
+        ...denied,
+        ...usage,
+        { type: 'done', ended, ...(ended === 'error' && { error: line.result || line.subtype || 'claude failed' }) },
+      ];
     };
   },
 };
@@ -323,8 +346,11 @@ const pi: Adapter = {
       if (line.type === 'agent_end' && !line.willRetry) {
         const last = (line.messages ?? []).filter((x: any) => x.role === 'assistant').at(-1);
         const reason = last?.stopReason;
-        const ended: Ended = !last || reason === 'error' || reason === 'aborted' ? 'error' : reason === 'length' ? 'cap' : 'stop';
-        return [{ type: 'done', ended, ...(ended === 'error' && { error: last?.errorMessage ?? 'pi produced no reply' }) }];
+        const ended: Ended =
+          !last || reason === 'error' || reason === 'aborted' ? 'error' : reason === 'length' ? 'cap' : 'stop';
+        return [
+          { type: 'done', ended, ...(ended === 'error' && { error: last?.errorMessage ?? 'pi produced no reply' }) },
+        ];
       }
       return [];
     };
@@ -353,7 +379,10 @@ const keysOf = (keys: Redacted.Redacted) =>
   );
 
 /** List prices in USD per million tokens, keyed by upstream model, and the proxy's aliases for them. */
-type Prices = { aliases?: Record<string, string>; models?: Record<string, { input: number; output: number; cached?: number }> };
+type Prices = {
+  aliases?: Record<string, string>;
+  models?: Record<string, { input: number; output: number; cached?: number }>;
+};
 
 /** The usage's list price when the harness reports none, as a subscription through the proxy does. */
 const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
@@ -365,7 +394,8 @@ const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usa
     .map(model => prices.models?.[model] ?? prices.models?.[bare(model)])
     .find(Boolean);
   if (!price) return usage;
-  const usd = ((u.input - cached) * price.input + cached * (price.cached ?? price.input) + u.output * price.output) / 1e6;
+  const usd =
+    ((u.input - cached) * price.input + cached * (price.cached ?? price.input) + u.output * price.output) / 1e6;
   return { ...usage, usd };
 };
 

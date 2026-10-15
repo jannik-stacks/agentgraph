@@ -71,7 +71,12 @@ describe('the session loop', () => {
     const { exit } = await session(spec, sample('opencode-denied.jsonl'), 0, undefined, prices);
     const usage = Exit.isSuccess(exit) ? exit.value.filter(e => e.type === 'usage') : [];
     expect(usage[0]).toEqual({ type: 'usage', input: 3201, output: 19, usd: (3201 * 1.25 + 19 * 10) / 1e6 });
-    expect(usage[1]).toEqual({ type: 'usage', input: 3263, output: 19, usd: (191 * 1.25 + 3072 * 0.125 + 19 * 10) / 1e6 });
+    expect(usage[1]).toEqual({
+      type: 'usage',
+      input: 3263,
+      output: 19,
+      usd: (191 * 1.25 + 3072 * 0.125 + 19 * 10) / 1e6,
+    });
     const { events: unpriced } = await events(spec, sample('opencode-denied.jsonl'));
     expect(unpriced.filter(e => e.type === 'usage').every(e => e.type === 'usage' && e.usd === undefined)).toBe(true);
   });
