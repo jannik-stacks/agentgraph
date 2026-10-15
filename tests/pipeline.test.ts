@@ -1154,6 +1154,28 @@ describe('parking', { timeout: 20_000 }, () => {
     });
   });
 
+  it('does not count a recheck that runs no agent against the attempt budget', async () => {
+    const config = configFor();
+    const until = { checks: ['judged'], max: 1 };
+    Object.assign(config.workflows.triage!.jobs.parking!, { returns: ['push', 'merge-request', 'ask'], until });
+    const request = { kind: 'merge-request', title: 'Add a', body: 'Closes #7', branch: 'bothub/7', into: 'main' };
+    let judged = 0;
+    const { seen, adapters } = fake(spec => {
+      if (!spec.prompt.startsWith('Judge this file.'))
+        return { message: bothub([{ kind: 'push', branch: 'bothub/7', files: ['src/a.ts'] }, request]), work: writeA };
+      judged++;
+      if (judged === 1) return { ok: false };
+      return { message: bothub([{ kind: 'reply', body: judged === 2 ? 'FAIL\nsrc/a.ts:1 is wrong' : 'PASS' }]) };
+    });
+    const { gh } = fakeGitHub();
+    const p = await pipeline({ config, issues: trackedIssues(), gh, adapters });
+    await Effect.runPromise(runPlanned(planned('parking'), p));
+    const next = await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
+
+    expect(seen.filter(spec => !spec.prompt.startsWith('Judge this file.'))).toHaveLength(2);
+    expect(next.run).toMatchObject({ closure: 'handed-off', attempt: 3 });
+  });
+
   it('parks every run on a branch of its own, whatever it closed as, unlisted and untracked files included', async () => {
     const origin = sourceRepo();
     const { adapters } = fake(spec =>

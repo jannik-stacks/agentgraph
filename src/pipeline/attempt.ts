@@ -223,6 +223,7 @@ const attempts = (
       const spec = { ...built.spec, prompt, ...(session && { session }) };
       const recheck = reuse && !item ? worktree.recheck : undefined;
       reuse = false;
+      if (recheck !== undefined) reformats++;
       const now = new Date().toISOString();
       const { run, final } =
         recheck === undefined
