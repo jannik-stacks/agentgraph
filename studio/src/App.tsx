@@ -5,6 +5,7 @@ import { navigateAtom, pageAtom, routes } from './state.ts';
 import { cx, Link, Muted } from './ui.tsx';
 
 const GraphPage = lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage })));
+const ViewsPage = lazy(() => import('./graph/views/ViewsPage.tsx').then(m => ({ default: m.ViewsPage })));
 const RunsPage = lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage })));
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
@@ -24,7 +25,7 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   }
 }
 
-const labels = { graph: 'Graph', runs: 'Runs' };
+const labels = { graph: 'Graph', views: 'Views', runs: 'Runs' };
 
 export const App = () => {
   const { route } = useAtomValue(pageAtom);
@@ -54,6 +55,7 @@ export const App = () => {
         <Boundary key={route}>
           <Suspense fallback={<Muted>Loading.</Muted>}>
             {route === 'graph' && <GraphPage />}
+            {route === 'views' && <ViewsPage />}
             {route === 'runs' && <RunsPage />}
           </Suspense>
         </Boundary>

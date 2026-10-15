@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { builtinModules } from 'node:module';
 import { defineConfig, type Plugin } from 'vite';
+import { fixtures } from './fixtures.ts';
 
 const builtins = new Set(builtinModules);
 
@@ -28,7 +29,7 @@ const server = {
 
 export default defineConfig({
   appType: 'spa',
-  plugins: [noNodeInBrowser(), react(), tailwindcss()],
+  plugins: [noNodeInBrowser(), fixtures(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
   server: { ...server, warmup: { clientFiles: ['./src/main.tsx'] } },
   preview: server,

@@ -17,7 +17,7 @@ const getJson = async <T>(path: string): Promise<T> => {
   return value;
 };
 
-export const routes = ['graph', 'runs'] as const;
+export const routes = ['graph', 'views', 'runs'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
 export const locationAtom = atom(readLocation());
@@ -36,12 +36,14 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
 const segments = atom(get => get(locationAtom).path.split('/').filter(Boolean));
 
 /**
- * The page: the graph at `/graph`, the run list at `/runs` with one run at `/runs/<id>`, and the merge requests at
- * `/pulls` with one at `/pulls/<n>`. Merge requests sit under the runs route.
+ * The page: the graph at `/graph`, the graph views over core's fixtures at `/views`, the run list at `/runs` with one
+ * run at `/runs/<id>`, and the merge requests at `/pulls` with one at `/pulls/<n>`. Merge requests sit under the runs
+ * route.
  */
 export const pageAtom = atom(get => {
   const [page, id] = get(segments);
   if (page === 'graph') return { route: 'graph' as const };
+  if (page === 'views') return { route: 'views' as const };
   if (page === 'runs') return { route: 'runs' as const, run: id ? decodeURIComponent(id) : null };
   if (page === 'pulls') return { route: 'runs' as const, pull: id && /^\d+$/.test(id) ? Number(id) : null };
   return { route: undefined };
@@ -60,7 +62,8 @@ export const runIdAtom = atom(
   }
 );
 
-const queryParam = (key: string) =>
+/** One query parameter of the location, written in place. */
+export const queryParam = (key: string) =>
   atom(
     get => get(locationAtom).query.get(key),
     (get, set, value: string | null) => {
