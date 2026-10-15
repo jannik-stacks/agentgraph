@@ -12,6 +12,7 @@ import { plan } from './dispatch.ts';
 import { preflight } from './preflight.ts';
 import { harnesses } from './harnesses/index.ts';
 import { githubApp } from './github-app.ts';
+import { setupAppCommand } from './github-setup.ts';
 import { senderTrust, toEvent } from './github.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
@@ -499,7 +500,7 @@ const serveCmd = defineCommand({
   },
 });
 
-const shown = { check, run, serve: serveCmd, logs, sim };
+const shown = { check, run, serve: serveCmd, logs, sim, 'setup-app': setupAppCommand };
 const commands: Record<string, CommandDef<any>> = { ...shown, mcp };
 
 export const cli = defineCommand({

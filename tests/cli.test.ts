@@ -230,8 +230,8 @@ describe('cli', () => {
 });
 
 describe('cli surface', () => {
-  it('lists five commands and keeps mcp hidden', async () => {
-    expect(Object.keys(cli.subCommands as object)).toEqual(['check', 'run', 'serve', 'logs', 'sim']);
+  it('lists six commands and keeps mcp hidden', async () => {
+    expect(Object.keys(cli.subCommands as object)).toEqual(['check', 'run', 'serve', 'logs', 'sim', 'setup-app']);
     capture();
     expect(await main(['plan'])).toBe(2);
     expect(await main(['mcp', '--dir', join(examples, 'payloads')])).toBe(2);

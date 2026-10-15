@@ -1,155 +1,63 @@
 # GitHub App for bothub
 
-GitHub mode runs the same workflows as local mode, with events coming from a GitHub App webhook
-instead of `issues/*.md`. `bothub serve` on a hub without `issues: local` listens on two ports on
-127.0.0.1:
+bothub acts on GitHub as one App. Every step and bot uses it; the step and bot show in the commit
+message and under each comment. Commits go through the Git data API, so GitHub signs them and they
+show as Verified, which a "require signed commits" rule needs.
 
-| Port | What | Exposed |
+The App is private, has no webhook, and asks for four repository permissions: contents write, pull
+requests write, issues write, metadata read. It never gets workflows or administration.
+
+## Settings
+
+bothub reads the App from the environment, so the same settings work on a laptop, in a container
+and in Kubernetes:
+
+| Variable | What |
+|---|---|
+| `BOTHUB_APP_ID` | the App id |
+| `BOTHUB_APP_SLUG` | the App slug; `@<slug>` in a comment works like `/bothub` |
+| `BOTHUB_APP_KEY_FILE` | path to the private key (PEM, as GitHub hands it out) |
+| `BOTHUB_INSTALLATION_ID` | the installation on the repository |
+
+Locally they go in `~/.bothub/.env` (or `$BOTHUB_DATA/.env`) or the shell. In Kubernetes, put the
+key in a Secret mounted as a file into the runner only, and set the variables on the runner:
+
+```sh
+kubectl -n bothub create secret generic bothub-app \
+  --from-file=key.pem=$HOME/.config/bothub/<slug>/key.pem
+```
+
+Keys never live in a repository and never appear in logs.
+
+## Create the App
+
+```sh
+bothub setup-app                      # the App belongs to your account
+bothub setup-app --org acme       # the App belongs to the organization
+```
+
+1. The command prints `http://127.0.0.1:5189/`; open it in the browser where you are signed in. The
+   page sends the manifest to GitHub.
+2. On GitHub, click **Create GitHub App**. For `--org`, you must be an owner of the organization or
+   one of its GitHub App managers.
+3. GitHub sends you back; the command saves `~/.config/bothub/<slug>/key.pem` and `app.env`, both
+   readable only by you, and forwards you to the install page.
+4. On the install page, pick **Only select repositories**, choose the one repository, click
+   **Install**. The command adds `BOTHUB_INSTALLATION_ID` to `app.env` and exits.
+
+Who must approve the install:
+
+| App owner | Repository owner | Install |
 |---|---|---|
-| 5183 | webhook receiver (signature checked, nothing else served) | yes, through a tunnel |
-| 5181 | studio API | no, localhost only |
+| your account | your account | you install it |
+| the organization | the organization | an organization owner installs it, or anyone with admin on the repository can request it |
+| your account | an organization | a repository admin can only request it; an organization owner approves under the organization's settings, GitHub Apps, pending requests |
 
-Everything below uses placeholders (`YOUR-USER`, `bothub-sandbox`, `hooks-dev.example.com`).
-Secrets live in the data directory (`~/.bothub` or `$BOTHUB_DATA`), never in this repository.
+When the install was only requested, the command says so and exits; once an owner approves, the
+installation id is the number at the end of the installation's settings URL. Add it to `app.env`.
 
-## Files
+Then copy the lines of `app.env` into `~/.bothub/.env`.
 
-- `app-manifest.json`: the app definition. Permissions: contents, issues and pull requests
-  read and write, metadata read. Events: issues, issue comments, pull requests, pull request
-  reviews and review comments, pushes.
-- `create-app.html`: a small page that posts the manifest to GitHub (the manifest flow) and
-  shows the command that exchanges the returned code for the app's credentials.
+## Webhooks later
 
-## Setup
-
-1. **Test repository.** Create a private repository such as `acme/sandbox` with one
-   commit on `main`. Keep the app installed only there while testing.
-
-2. **Tunnel.** Start one (see below) so you know the public webhook URL.
-
-3. **Edit the manifest.** In `app-manifest.json`, set `name` (app names are global on GitHub)
-   and `hook_attributes.url` to the tunnel URL. Leave `redirect_url` as is.
-
-4. **Create the app.** Serve this directory and open the page:
-
-   ```sh
-   python3 -m http.server 8000 --bind 127.0.0.1 -d infra/github
-   open http://localhost:8000/create-app.html
-   ```
-
-   Click "Create on GitHub", confirm on GitHub, and you land back on the page with a command.
-   Run it within an hour; it writes `~/.bothub/github-app.json` with the app id, private key and
-   webhook secret:
-
-   ```sh
-   (umask 077; curl -fsS -X POST https://api.github.com/app-manifests/CODE/conversions > ~/.bothub/github-app.json)
-   ```
-
-5. **Private key.** GitHub hands out a PKCS#1 key; bothub signs with Web Crypto, which needs
-   PKCS#8. Convert it and drop the original:
-
-   ```sh
-   cd ~/.bothub
-   jq -r .pem github-app.json > github-app.pkcs1.pem
-   openssl pkcs8 -topk8 -nocrypt -in github-app.pkcs1.pem -out github-app.pem
-   chmod 600 github-app.pem
-   rm github-app.pkcs1.pem
-   ```
-
-6. **Environment.** Append to `~/.bothub/.env`, then delete the JSON:
-
-   ```sh
-   cd ~/.bothub
-   echo "BOTHUB_APP_ID=$(jq -r .id github-app.json)" >> .env
-   echo "BOTHUB_APP_KEY_FILE=$HOME/.bothub/github-app.pem" >> .env
-   echo "BOTHUB_WEBHOOK_SECRET=$(jq -r .webhook_secret github-app.json)" >> .env
-   chmod 600 .env
-   jq -r .html_url github-app.json   # note the app page, then:
-   rm github-app.json
-   ```
-
-   If `webhook_secret` came back empty, generate one (`openssl rand -hex 32`), put it in `.env` and
-   paste it under the app's settings, Webhook secret.
-
-7. **Install.** Open `<app page>/installations/new`, choose "Only select repositories" and pick
-   the test repository. The installation id is the number at the end of the URL you land on;
-   `bothub serve` looks it up per repository, `bothub run` needs it as
-   `BOTHUB_INSTALLATION_ID` in `.env`.
-
-8. **Hub.** Use a hub whose `hub.yaml` has `issues: github` (the default).
-
-9. **Serve.**
-
-   ```sh
-   bothub serve --hub path/to/hub --repos acme/sandbox
-   ```
-
-   `--repos` is an allowlist; deliveries from other repositories are acknowledged and ignored.
-
-10. **End to end.** Comment `/bothub <task>` on an issue in the test repository as its owner. The
-    app's Advanced tab lists every delivery with the response bothub gave: 202 accepted, 200
-    already seen, 204 not an event bothub handles, 401 bad signature. Its Redeliver button sends
-    one again.
-
-## Local webhook delivery
-
-| | smee.io | cloudflared |
-|---|---|---|
-| Account | none | none for a quick tunnel, a Cloudflare zone for a fixed hostname |
-| URL | fixed per channel | quick tunnel: new random URL on every start; named tunnel: fixed |
-| Path | GitHub to smee.io, then a client on your machine pulls and re-posts | GitHub to Cloudflare's edge, then through an outbound connection to your port |
-| Privacy | anyone with the channel URL can read the payloads | only your service sees them |
-| Signatures | the client re-posts the JSON; if deliveries fail with 401 through smee but pass when sent straight to the port, the body was re-encoded | raw bytes pass through untouched |
-| Later | dev only | the same tunnel fronts the VPS in milestone 5 |
-
-Use **cloudflared**. It forwards the request unchanged, keeps payloads off a shared relay, and a
-named tunnel is the same piece that later puts a server behind Cloudflare with no open port.
-smee is fine for a five-minute try without any account.
-
-### cloudflared quick tunnel
-
-```sh
-brew install cloudflared
-cloudflared tunnel --url http://127.0.0.1:5183
-```
-
-It prints `https://<random>.trycloudflare.com`. Put that URL in the app's settings under
-Webhook URL; it changes every time the tunnel restarts.
-
-### cloudflared named tunnel
-
-Needs a domain on Cloudflare. Once:
-
-```sh
-cloudflared tunnel login
-cloudflared tunnel create bothub-dev
-cloudflared tunnel route dns bothub-dev hooks-dev.example.com
-```
-
-`~/.cloudflared/config.yml`:
-
-```yaml
-tunnel: bothub-dev
-credentials-file: /Users/YOUR-USER/.cloudflared/TUNNEL-ID.json
-ingress:
-  - hostname: hooks-dev.example.com
-    service: http://127.0.0.1:5183
-  - service: http_status:404
-```
-
-Then, each session:
-
-```sh
-cloudflared tunnel run bothub-dev
-```
-
-The webhook URL stays `https://hooks-dev.example.com/`. Only port 5183 is routed; never point a
-tunnel at the studio port.
-
-### smee.io
-
-Open https://smee.io/new for a channel URL, put it in the app's Webhook URL, then:
-
-```sh
-npx smee-client --url https://smee.io/CHANNEL --target http://127.0.0.1:5183/
-```
+Runs are started by hand for now, with no webhook and no tunnel. When webhooks are wanted, expose only the webhook path through a Cloudflare tunnel.
