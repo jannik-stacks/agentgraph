@@ -158,6 +158,24 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(seen).toHaveLength(4);
   });
 
+  it('runs a review round after a restart on the triage and branch the first round left', async () => {
+    const { hub, origin, pulls, seen, first, commentEvent } = await setup('', true);
+    const opened = git(origin, 'rev-parse', 'bothub/7');
+    const restarted = { ...hub, store: openStore(hub.data) };
+    await pulls.comment(1, { author: 'morgan', body: 'Call it b.', path: 'src/a.ts', line: 1 });
+    await pulls.comment(1, { author: 'morgan', body: '/bothub fix the naming' });
+    const results = await handleEvent(await commentEvent(2), restarted);
+
+    expect(first[0]!.run).toMatchObject({ attempt: 2, closure: 'done' });
+    expect(results[0]!.run.id).toBe(first[0]!.run.id);
+    expect(seen).toHaveLength(4);
+    expect(implementing(seen[3]!)).toBe(true);
+    expect(seen[3]!.prompt).toContain('```text\nOn src/a.ts:1: Call it b.\n```');
+    expect(git(origin, 'rev-parse', 'bothub/7^')).toBe(opened);
+    expect(git(origin, 'show', 'bothub/7:src/b.ts')).toBe('x');
+    expect(await pulls.list({ state: 'all' })).toHaveLength(1);
+  });
+
   it('measures a continued change from where the branch forked, starting at the merge request tip', async () => {
     const { hub, origin, pulls, seen, first, commentEvent } = await setup();
     const pushed = git(origin, 'rev-parse', 'bothub/7');
