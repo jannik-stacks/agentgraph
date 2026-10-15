@@ -24,7 +24,7 @@ const fromFixture = (name: string) => {
   const names = parse(readFileSync(join(fixture, 'hub.yaml'), 'utf8')) as {
     bots: string[];
     skills: string[];
-    checks: Record<string, string>;
+    checks: Record<string, string | { mode: string; judge: string }>;
   };
   const dir = hubDir({
     'hub.yaml': 'repo: o/r\nlimits: { minutes: 20 }\n',
@@ -36,7 +36,10 @@ const fromFixture = (name: string) => {
       ])
     ),
     ...Object.fromEntries(
-      Object.entries(names.checks).map(([c, mode]) => [`checks/${c}.md`, `---\nmode: ${mode}\nrun: make ${c}\n---\n`])
+      Object.entries(names.checks).map(([c, check]) => {
+        const { mode, judge } = typeof check === 'string' ? { mode: check, judge: undefined } : check;
+        return [`checks/${c}.md`, `---\nmode: ${mode}\nrun: make ${c}\n${judge ? `judge: ${judge}\n` : ''}---\n`];
+      })
     ),
   });
   cpSync(join(fixture, 'workflows'), join(dir, 'workflows'), { recursive: true });
