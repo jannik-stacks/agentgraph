@@ -12,7 +12,7 @@ $BOTHUB_DATA/
   serve.log                   what `serve` logged, one timestamped line each
   hubs/<hash>.json            each version of the hub's files that runs were planned with
   repos/<owner>/<repo>.git    one bare mirror per repository, refreshed before each run
-  work/<run id>/              one detached worktree per run, removed afterwards
+  work/<run id>/              one detached worktree per run, removed afterwards, its work kept on a mirror ref
   runs/<run id>/
     run.json                  status, closure, bot, harness, attempt, parent, previous, engine, hub,
                               base, head, cost, turns, error
@@ -23,7 +23,7 @@ $BOTHUB_DATA/
     summaries.jsonl           one line per step that mattered, and how the run ended
     stderr.log                the harness's whole stderr, secrets masked
     home/                     the harness's private home, kept
-    tmp/                      scratch space, removed when the run ends
+    tmp/                      scratch space, scrubbed of secrets and kept unless empty
 ```
 
 Run ids start with a timestamp (<Sym name="runId" />), so they sort in creation order. The store,
@@ -46,7 +46,8 @@ attempt before, the run a check judged, the run a restart replaced. `previous` i
 on the same issue and job, whatever event started it, so a human's new command still leads back to
 the earlier work. `base` and `head` bound what an attempt changed: `head` is a commit of its
 worktree as the agent left it, kept in the repository's mirror, so `git diff base head` shows the
-attempt's work even when nothing was pushed.
+attempt's work even when nothing was pushed. Each attempt's commit is also kept under
+`refs/bothub/attempts/<run id>/<n>` in the mirror, never pushed.
 
 Human waits are events too. A run that asked a human gets a `human` event with `on: ask` and the
 question's URL; the run a human's answer starts gets one with `on: answer`, who answered, when, and

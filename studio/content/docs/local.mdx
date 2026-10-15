@@ -17,7 +17,9 @@ bin/bothub.mjs logs <run id> --follow
 - `check` compiles a hub and prints every error, and warns about checks no job uses.
 - `run` runs the jobs a webhook payload starts on this machine. `--dry-run` lists them with each
   agent session instead of starting them.
-- `logs` lists runs, newest first, and with a run id prints that run's events.
+- `logs` lists runs, newest first, and with a run id prints that run's events. `--follow` keeps printing until the run ends, and `--spend`
+  compares the recorded model calls with the proxy's spend logs.
+- `mcp` serves a hub's tools over MCP on stdio. `--help` does not list it.
 - `serve` runs a hub's events and serves the studio API: a hub with `issues: local` watches its
   issue files (<Sym name="serveHub" />), any other receives GitHub App webhooks
   (<Sym name="serveGitHub" />). Before it starts, it asks each model endpoint the bots use whether
@@ -25,7 +27,7 @@ bin/bothub.mjs logs <run id> --follow
   the bots and the variable. `sim` runs a scenario without a model (<Sym name="simulate" />).
   See [Events and serving](/docs/reference/serve).
 
-Add `--json` to any of them for machine-readable output. `--data` points at a data directory
+Add `--json` for machine-readable output; it is the default when stdout is not a terminal. `--data` points at a data directory
 other than `$BOTHUB_DATA` or `~/.bothub`.
 
 ## BHM
@@ -109,7 +111,7 @@ docker build -t bothub-sandbox:local sandbox
 ```
 
 Copy the `BOTHUB_LLM_API_KEY_<BOT>` lines from `.keys.env` into `$BOTHUB_DATA/.env`, then point
-bothub at the proxy with `BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000`. The ChatGPT login for
+bothub at the proxy with `BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000/v1`. The ChatGPT login for
 `smart` and `writer` runs once from the CLI; `infra/local/README.md` has the steps.
 
 `docker compose --profile sandbox --profile ollama down` stops everything and

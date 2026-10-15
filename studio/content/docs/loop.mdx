@@ -79,7 +79,7 @@ commits the whole worktree, untracked files and files outside the job's `paths` 
 to a new branch `<branch>-parked-<run id>`, and records that branch on the run as `parked`. Parked
 branches are never moved or deleted, and neither are runs, so every attempt can be read back later.
 Any other worktree bothub removes, such as a check's or one a stopped process left behind, first has
-work no branch holds pushed to `bothub/kept-<run id>`; a worktree it cannot push stays on disk.
+work no branch holds committed to the local mirror branch `bothub/kept-<run id>`, which is never pushed; a worktree it cannot keep stays on disk.
 The job's own branch and its merge request only get work whose checks settled. A deferred job also
 comments on the issue with the reason, when a budget frees up, and where its work waits.
 

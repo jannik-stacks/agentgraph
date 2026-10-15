@@ -1,0 +1,92 @@
+# Changelog
+
+## 0.1.0
+
+The first versioned release.
+
+### Engine
+
+- Workflows start jobs from GitHub events or local issue files. A job casts a bot, hands it a
+  skill and may stop on `until` or `requires`.
+- Bots run on the opencode, pi or Claude Code harness. Each attempt ends in proposals that bothub
+  validates before anything reaches the repository.
+- Attempts repeat until the gating checks pass or the attempts run out. Failing findings go back
+  to the bot. A human merges.
+- Work that is parked or deferred resumes on the next run. Stalls, provider faults and crashed
+  harnesses restart the session, at most twice per attempt, with a prompt that says why.
+- Per-bot runs-per-day budgets, stop reasons recorded on each run, and a stop button.
+- `serve` logs which model keys it loaded and why and how it exited, and refuses to start when a
+  model endpoint rejects a bot's key.
+- Context for each run: preloaded notes, surfaced notes and a decider model.
+- A mirror per repository and one worktree per run.
+
+### Hubs and checks
+
+- A hub is config: `hub.yaml`, bots, skills, checks, workflows and notes. `bothub check`
+  validates it and fails closed.
+- Checks are scripts or narrow bot judges, in modes `log`, `warn` and `block`. A script slices the
+  change into hunks, items or files, and a bot answers one question per piece.
+- A check that already fails on the base commit in files the change did not touch is marked red on
+  base. It does not hold the change, and the failure is filed once per base commit.
+- Example hubs: `bothub`, `acme-app`, `clarinet`, `hub`. `bothub sim` replays scripted
+  scenarios against a hub.
+
+### Sandbox
+
+- Every harness run, script job and script check runs in a throwaway container with a read-only
+  root, dropped capabilities, resource limits and a private network.
+- The container reaches the model proxy, an egress proxy that allows GitHub and the npm registry,
+  and a relay to Ollama. No token goes in. Pushes happen on the host.
+- When docker or the image is missing the run fails as `sandbox-failed`. Nothing runs on the host.
+- Hubs set their own environment: dependencies, setup script and an open network when needed.
+- A LiteLLM proxy with one virtual key per bot (`infra/local`), and `logs --spend` to compare
+  recorded calls with the proxy's logs.
+
+### Observability
+
+- Each run leaves `run.json`, `prompt.md`, `events.jsonl`, `summaries.jsonl`, `outcome.json`,
+  `stderr.log` and `spans.jsonl`. Secrets are masked.
+- Traces: `spans.jsonl` holds the run as OpenTelemetry-shaped spans, metadata only, with a `run`
+  span and `model_request`, `tool_use`, `check`, `ask`, `human_wait` and `stall` spans.
+- Time buckets: every span carries a kind (model, edit, read, build, test, wait, stall, other).
+  Hubs add shell patterns for build and test in `hub.yaml`.
+- Timeline: `bench/timeline.mjs DATA ISSUE` prints one issue's runs, checks, human waits, cost and
+  wall time per bucket, with wall time minus build and test.
+- Every run records the engine commit and a hash of the hub's files; each hub version is kept
+  under `hubs/`. Runs link to their parent and to the previous run on the issue.
+
+### Data kept
+
+- Runs, parked branches and mirrors are never deleted.
+- Each attempt's commit is kept under `refs/bothub/attempts/<run id>/<n>` in the mirror.
+- Every run's work is parked on `<branch>-parked-<run id>`. A worktree removed for any other
+  reason first keeps unsaved work on `bothub/kept-<run id>`, locally only.
+- A run's `home/` and its `tmp/` are kept after scrubbing secrets.
+- The bench driver keeps each case's diff and data directory.
+
+### Studio
+
+- Studio draws each workflow as steps, bots and checks, shows what a job would see, and edits hub
+  files with a save and commit action that commits as `update` and never pushes.
+- Dashboard: runs, live events, diffs, pull requests, questions that need a human, and a stop
+  button.
+- Docs tab with the reference generated from the source.
+
+### Bench
+
+- `bench/mine.mjs` mines cases from merged pull requests, `bench/run.mjs` splits cases and runs
+  hub settings over them, `bench/compare.mjs` compares diffs, and `bench/timeline.mjs` prints an
+  issue's timeline.
+
+### Known limits
+
+- The `over` script's item cap fails both bot checks after a full attempt; the script stage does
+  not yet count items and warn the bot first.
+- Concurrent runs of a hub share one cargo target directory, so one run can test another run's
+  build.
+- A hub change reaches only events after it. A run in flight keeps the old hub, and nothing warns
+  about the runs it affects.
+- Review questions that apply to every hub live in the bothub hub only.
+- An answered design is not challenged for how far it reaches.
+- Run records are written to local disk. The `Files` interface for other backends is not wired
+  in.
