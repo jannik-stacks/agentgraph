@@ -1,5 +1,6 @@
 import { Config, Layer, type Redacted } from 'effect';
-import { Forge, githubForge } from './forge.ts';
+import { Forge } from './forge.ts';
+import { githubForge } from './github.ts';
 import { docker, Sandbox } from './sandbox.ts';
 import { harnesses, Session } from './session.ts';
 import { fileStore, Store } from './store.ts';
