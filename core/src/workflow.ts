@@ -84,7 +84,8 @@ const Front = Schema.Struct({
 
 const decode = Schema.decodeUnknownEither(Front, { onExcessProperty: 'error', errors: 'all' });
 
-const split = (text: string): { data: unknown; body: string } => {
+/** Splits a markdown file into its parsed YAML frontmatter and its trimmed body. */
+export const split = (text: string): { data: unknown; body: string } => {
   const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(text);
   return m ? { data: parse(m[1] ?? '') ?? {}, body: (m[2] ?? '').trim() } : { data: {}, body: text.trim() };
 };
