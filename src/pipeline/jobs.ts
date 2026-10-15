@@ -333,7 +333,9 @@ const resumption = async ({ run, outcome, parked }: Unfinished, planned: Planned
       ? `It asked:\n\n${questions.map(fenced).join('\n\n')}`
       : run.reason && `Why it stopped: ${run.reason}.`,
     failing && `Its checks last found:\n\n${failing}`,
-    said.length ? `The human answered:\n\n${said.map(fenced).join('\n\n')}` : 'No answer was found; read the issue.',
+    said.length
+      ? `The human answered:\n\n${said.map(fenced).join('\n\n')}\n\nAn answer settles only what you asked. The issue's Done-when is still the scope: do not widen the change past it because of an answer.`
+      : 'No answer was found; read the issue.',
   ]
     .filter(Boolean)
     .join('\n\n');

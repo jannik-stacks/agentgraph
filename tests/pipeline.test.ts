@@ -970,6 +970,7 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(resume).toContain(`parked on \`${result.run.parked}\``);
     expect(resume).toContain('```text\nWhich name should it get?\n```');
     expect(resume).toContain('```text\nCall it short.\n```');
+    expect(resume).toContain('An answer settles only what you asked.');
     expect(resume).toContain(`In #${asked!.number}: Short, like the others.`);
     expect(next.run.base).toBe(origin.main);
     expect(git(origin.dir, 'show', 'bothub/7:src/b.ts')).toBe('b');
