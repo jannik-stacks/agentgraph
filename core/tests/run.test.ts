@@ -69,13 +69,17 @@ const write = (path: string, content: string): AgentEvent => ({
 });
 const reply = (...proposals: Proposal[]): AgentEvent => ({
   type: 'end',
-  final: `Done.\n\n\`\`\`bothub\n${JSON.stringify(proposals)}\n\`\`\``,
+  final: `Done.\n\n\`\`\`bothub\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
   ended: 'stop',
   exit: 0,
 });
 const push: Proposal = { kind: 'push', branch: 'bothub/7', message: 'Add hello' };
 const pull: Proposal = { kind: 'pull', branch: 'bothub/7', into: 'main', title: 'Add hello', body: 'Closes #7' };
-const judged: AgentEvent[] = [start('j'), { type: 'usage', input: 4, output: 2, usd: 0.25 }, { type: 'text', text: 'PASS, no claims' }];
+const judged: AgentEvent[] = [
+  start('j'),
+  { type: 'usage', input: 4, output: 2, usd: 0.25 },
+  { type: 'text', text: 'PASS, no claims' },
+];
 
 /** The file doubles, with every session spec recorded. */
 const services = (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {

@@ -62,8 +62,16 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Proposal[];
   try {
     items = JSON.parse(source);
   } catch (e) {
-    return { proposals: [], problems: [`bothub block: ${(e as Error).message}`] };
+    try {
+      items = source
+        .split('\n')
+        .filter(line => line.trim())
+        .map(line => JSON.parse(line));
+    } catch {
+      return { proposals: [], problems: [`bothub block: ${(e as Error).message}`] };
+    }
   }
+  if (items !== null && typeof items === 'object' && !Array.isArray(items)) items = [items];
   if (!Array.isArray(items)) return { proposals: [], problems: ['bothub block: a JSON array of proposals'] };
   const proposals: Proposal[] = [];
   const problems: string[] = [];
@@ -248,7 +256,7 @@ export const attempt = (
         run.carry,
         [
           'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
-          'opens pull requests and posts comments from them, so do not run git or gh yourself. One line per kind:',
+          'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
           ...kinds.map(k => shapes[k as Proposal['kind']]),
         ].join('\n'),
       ]
@@ -311,7 +319,11 @@ export const gate = (
   step: Step,
   left: Work & { run: string; proposals: Proposal[] },
   hub: Hub
-): Effect.Effect<{ outcome: Outcome; usd: number }, SandboxError | SessionStop | StoreError, Sandbox | Session | Store> =>
+): Effect.Effect<
+  { outcome: Outcome; usd: number },
+  SandboxError | SessionStop | StoreError,
+  Sandbox | Session | Store
+> =>
   Effect.gen(function* () {
     const checks = step.checks.map(name => ({ ...hub.checks[name]!, name }));
     const holds = (c: Check) => c.mode === 'block' || c.mode === 'stop';
@@ -329,14 +341,19 @@ export const gate = (
 
     const stops = failed('stop');
     if (stops.length > 0)
-      return { outcome: { kind: 'stop', why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n') }, usd };
+      return {
+        outcome: { kind: 'stop', why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n') },
+        usd,
+      };
     const returns = 'bot' in step.does ? hub.bots[step.does.bot]?.returns : undefined;
     const rejected: Applied[] = left.proposals
       .filter(p => returns && !returns.includes(p.kind))
       .map(p => ({ proposal: p, ok: false, reason: `${step.name} may not propose ${p.kind}` }));
     const failing = failed('block');
     const outcome: Outcome =
-      failing.length > 0 || rejected.length > 0 ? { kind: 'refused', failing, rejected, problems: [] } : { kind: 'pass' };
+      failing.length > 0 || rejected.length > 0
+        ? { kind: 'refused', failing, rejected, problems: [] }
+        : { kind: 'pass' };
     return { outcome, usd };
   });
 
