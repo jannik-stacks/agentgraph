@@ -22,6 +22,18 @@ Run them as `node bin/bothub.mjs <command>`, or `bothub <command>` once installe
 
 Each command takes `--help`.
 
+## What a bot loads from the repo
+
+A bot's harness can load the target repo's own instructions and skills. `loads` lists what: `instructions`
+(AGENTS.md and CLAUDE.md, once when they are the same text), `skills` or `skills/<name>`. The default is
+`[instructions, skills]`; set it in `hub.yaml` for all bots or in a bot file for one. A named skill missing from the
+repo fails the run. A hub skill of the same name wins, and the run record marks the repo one as shadowed. Repo guidance
+is advice: the job's skill and the bot's role win where they conflict. `tools` and `mcp` entries, which would run the
+repo's own code, are accepted by the schema but no harness supports them yet, so `check` fails on them. The repo's
+project config never applies: its permissions, models and providers stay ours. A job that changes AGENTS.md,
+CLAUDE.md, `.agents/` or `.claude/` fails unless the issue names the file. `check` also fails a `context: resume` on
+a harness that cannot continue sessions. Each run records everything it loaded, hub and repo, in `loaded`.
+
 ## Local quickstart
 
 1. Validate a hub and dry-run a webhook, which needs no model or container.
