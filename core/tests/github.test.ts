@@ -16,7 +16,7 @@ const { privateKey, publicKey } = generateKeyPairSync('rsa', {
 const app = { repo: 'o/r', id: '42', key: Redacted.make(privateKey) };
 
 type Reply = { status?: number; body?: unknown; headers?: Record<string, string> };
-type Route = unknown | ((body: any, headers: Headers) => Reply);
+type Route = unknown | ((body: any, headers: Headers, path: string) => Reply);
 type Call = { method: string; path: string; body?: any; headers: Headers };
 
 /** A fetch that answers from `routes`, keyed `METHOD /path?query` or `METHOD /path`, and records every call. */
@@ -34,9 +34,9 @@ const fake = (routes: Record<string, Route>) => {
     const headers = new Headers(init.headers);
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ method, path: u.pathname + u.search, body, headers });
-    const route = all[`${method} ${u.pathname}${u.search}`] ?? all[`${method} ${u.pathname}`];
+    const route = all[`${method} ${u.pathname}${u.search}`] ?? all[`${method} ${u.pathname}`] ?? all[`${method} *`];
     if (route === undefined) return new Response('{"message":"Not Found"}', { status: 404 });
-    const r: Reply = typeof route === 'function' ? route(body, headers) : { body: route };
+    const r: Reply = typeof route === 'function' ? route(body, headers, u.pathname) : { body: route };
     const status = r.status ?? 200;
     return new Response(status === 304 ? null : JSON.stringify(r.body ?? {}), { status, headers: r.headers ?? {} });
   };
@@ -335,17 +335,52 @@ describe('githubForge', () => {
       const content = Buffer.from(base64, 'base64');
       return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
     };
-    const dataApi = (dir: string, base: string, more: Record<string, Route> = {}) =>
-      fake({
-        [`GET /repos/o/r/git/commits/${base}`]: { sha: base },
+    /**
+     * The Git data API over a bare repo standing in for GitHub, set as the checkout's origin. Its commits get another
+     * committer, as GitHub's signed ones do, so they differ from the local ones.
+     */
+    const dataApi = (dir: string, base: string, more: Record<string, Route> = {}) => {
+      const bare = mkdtempSync(join(tmpdir(), 'core-github-bare-'));
+      const env = { ...process.env, GIT_AUTHOR_NAME: 'helper[bot]', GIT_AUTHOR_EMAIL: 'b@b' };
+      const remote = (...args: string[]) =>
+        execFileSync('git', ['-C', bare, ...args], {
+          encoding: 'utf8',
+          env: { ...env, GIT_COMMITTER_NAME: 'GitHub', GIT_COMMITTER_EMAIL: 'noreply@github.com' },
+        }).trim();
+      execFileSync('git', ['clone', '-q', '--bare', dir, bare]);
+      execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', bare]);
+      const signed = new Set([base]);
+      const tip = (ref: string) => remote('for-each-ref', '--format=%(objectname)', `refs/${ref}`);
+      return fake({
+        'GET *': (_: unknown, __: Headers, path: string) => {
+          const ref = /\/git\/ref\/(.+)$/.exec(path)?.[1];
+          const sha = ref ? tip(ref) : /\/git\/commits\/(\w+)$/.exec(path)?.[1];
+          return sha && (ref || signed.has(sha)) ? { body: ref ? { object: { sha } } : { sha } } : { status: 404 };
+        },
         'POST /repos/o/r/git/blobs': (body: { content: string }) => ({ body: { sha: blobSha(body.content) } }),
         'POST /repos/o/r/git/trees': () => ({
           body: { sha: execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim() },
         }),
-        'POST /repos/o/r/git/commits': { sha: 'remote1' },
-        'POST /repos/o/r/git/refs': () => ({ status: 201, body: {} }),
+        'POST /repos/o/r/git/commits': (body: { message: string; tree: string; parents: string[] }) => {
+          remote('fetch', '-q', dir, 'HEAD');
+          const sha = remote('commit-tree', body.tree, ...body.parents.flatMap(p => ['-p', p]), '-m', body.message);
+          signed.add(sha);
+          return { body: { sha } };
+        },
+        'POST /repos/o/r/git/refs': (body: { ref: string; sha: string }) => {
+          remote('update-ref', body.ref, body.sha);
+          return { status: 201, body: {} };
+        },
+        'PATCH *': (body: { sha: string }, _: Headers, path: string) => {
+          const ref = `refs/${/\/git\/refs\/(.+)$/.exec(path)![1]}`;
+          const forward = remote('merge-base', tip(ref.slice(5)), body.sha) === tip(ref.slice(5));
+          if (!forward) return { status: 422, body: { message: 'Update is not a fast forward' } };
+          remote('update-ref', ref, body.sha);
+          return { body: {} };
+        },
         ...more,
       });
+    };
 
     it('commits the checkout and replays it through the Git data API onto a new branch', async () => {
       const { dir, git, base } = repo();
@@ -358,12 +393,39 @@ describe('githubForge', () => {
           forge.apply(7, { kind: 'push', branch: 'bothub/7', message: 'Fix the typo' }, dir)
         )
       );
-      expect(applied).toMatchObject({ ok: true, url: 'https://github.com/o/r/commit/remote1' });
-      expect(git('log', '-1', '--format=%s')).toBe('Fix the typo');
+      const head = git('rev-parse', 'HEAD');
+      expect(applied).toMatchObject({ ok: true, url: `https://github.com/o/r/commit/${head}` });
+      expect(git('log', '-1', '--format=%s %cn')).toBe('Fix the typo GitHub');
+      expect(git('status', '--porcelain')).toBe('');
       const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body;
       expect(commit).toEqual({ message: 'Fix the typo\n', tree: git('rev-parse', 'HEAD^{tree}'), parents: [base] });
       expect(f.calls.filter(c => c.path === '/repos/o/r/git/blobs')).toHaveLength(2);
-      expect(f.calls.at(-1)!.body).toEqual({ ref: 'refs/heads/bothub/7', sha: 'remote1' });
+      expect(f.calls.find(c => c.path === '/repos/o/r/git/refs')!.body).toEqual({
+        ref: 'refs/heads/bothub/7',
+        sha: head,
+      });
+    });
+
+    it('builds the next push on the signed head, so it is a fast-forward', async () => {
+      const { dir, git, base } = repo();
+      const f = dataApi(dir, base);
+      const push = (message: string) =>
+        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch: 'bothub/7', message }, dir));
+      const [first, second] = await run(
+        f,
+        Effect.gen(function* () {
+          writeFileSync(join(dir, 'a.txt'), 'two\n');
+          const first = yield* push('First');
+          const signed = git('rev-parse', 'HEAD');
+          writeFileSync(join(dir, 'a.txt'), 'three\n');
+          return [{ ...first, signed }, yield* push('Second')];
+        })
+      );
+      expect(first!.ok).toBe(true);
+      expect(second).toMatchObject({ ok: true });
+      expect(git('rev-parse', 'HEAD^')).toBe((first as { signed: string }).signed);
+      expect(git('log', '--format=%s %cn')).toBe('Second GitHub\nFirst GitHub\nbase t');
+      expect(f.calls.find(c => c.method === 'PATCH')!.body).toEqual({ sha: git('rev-parse', 'HEAD'), force: false });
     });
 
     it('only moves an existing branch forward', async () => {
@@ -382,7 +444,7 @@ describe('githubForge', () => {
       );
       expect(applied.ok).toBe(false);
       expect(applied.reason).toMatch(/fast forward/);
-      expect(f.calls.at(-1)!.body).toEqual({ sha: 'remote1', force: false });
+      expect(f.calls.at(-1)!.body).toEqual({ sha: expect.stringMatching(/^[0-9a-f]{40}$/), force: false });
     });
 
     it('refuses a branch that leaves the refs path', async () => {

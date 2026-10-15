@@ -95,12 +95,12 @@ const appJwt = (id: string, pem: string, now: number) => {
   return `${input}.${sign('sha256', Buffer.from(input), key).toString('base64url')}`;
 };
 
-const git = (dir: string, args: string[]) =>
+const git = (dir: string, args: string[], env: Record<string, string> = {}) =>
   Effect.async<Buffer, ForgeError>(resume => {
     execFile(
       'git',
       ['-C', dir, ...args],
-      { encoding: 'buffer', maxBuffer: 256 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
+      { encoding: 'buffer', maxBuffer: 256 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env } },
       (error, stdout, stderr) =>
         resume(
           error
@@ -459,7 +459,21 @@ export const githubForge = (
         if (head === tip) return head;
         if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: false });
         else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head });
+        yield* settle(dir, branch, head);
         return head;
+      });
+
+    /** Fetches the pushed head and moves `HEAD` onto it; the trees are equal, so the files stay as they are. */
+    const settle = (dir: string, branch: string, head: string) =>
+      Effect.gen(function* () {
+        const t = yield* token;
+        const auth = {
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+          GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${t}`).toString('base64')}`,
+        };
+        yield* git(dir, ['fetch', '-q', 'origin', `refs/heads/${branch}`], auth);
+        yield* git(dir, ['reset', '-q', '--soft', head]);
       });
 
     /** The tree entries that turn `parent`'s tree into `commit`'s, uploading each changed blob. */
