@@ -359,7 +359,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
     });
     const halt = (e: SandboxError | SessionStop | ForgeError) => {
       const why = `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
-      return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
+      const said = `Stopped by a runner error (${e._tag}). The details are in the trace of run ${current.id}.`;
+      return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
     };
     yield* walk.pipe(Effect.scoped, Effect.catchTags({ SandboxError: halt, SessionStop: halt, ForgeError: halt }));
     return current;

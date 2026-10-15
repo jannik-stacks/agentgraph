@@ -213,7 +213,9 @@ describe('drive', () => {
     const { run } = services(where, []);
     const stopped = await run(drive(w, fresh(), hub));
     expect(stopped).toMatchObject({ step: 'triage', status: 'stopped' });
-    expect(stopped.reason).toBe('SessionStop: no scripted session left');
+    expect(stopped.reason).toBe('Stopped by a runner error (SessionStop). The details are in the trace of run run-7.');
+    const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
+    expect(stops).toContainEqual({ kind: 'stop', why: 'SessionStop: no scripted session left' });
     const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions).toEqual([{ resumed: false, ended: 'provider', usd: 0 }]);
   }, 30_000);
