@@ -42,6 +42,7 @@ invariant that found it.
 | criterion-met | bot, `review` | each criterion, over `src/`, `studio/src/` and `examples/bothub/scripts/` | warn | Is there a sequence of events within the brief under which the change does not do what the criterion states? Other edge cases are notes |
 | review-src | bot, `review` | each code hunk in `src/`, `studio/src/` and `examples/bothub/scripts/`, rename-only hunks left out | block | Does the hunk mishandle an input or break a caller? |
 | near-duplicate, review-docs | bot, `review` | each file's new exports, or each docs hunk | warn | Does an existing export already do this; does each docs statement hold? |
+| docs-stale | bot, `review` | each docs paragraph that names an export the change touches | warn | Does the paragraph still hold against the changed code? |
 | docs-tone-provenance, docs-tone-repeats | bot, `review` | each docs hunk | warn | Does it say where an idea came from; does it say a thing twice? |
 | docs-tone-tagline, scope, review-tests | bot, `review` | each docs hunk, file outside the brief or test hunk | log | A tagline after a dash; does the file serve the task; does each assertion bite? |
 | docs-tone-marketing, tooltip-text | bot, `fast` | each docs hunk or tooltip | log | Is it free of selling words; does the tooltip say what the thing does? |

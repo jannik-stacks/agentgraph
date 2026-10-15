@@ -450,6 +450,22 @@ describe('docs-sync check', () => {
   });
 });
 
+describe('docs-mentions script', () => {
+  it('prints the docs paragraphs that name an export the change touches, and no others', () => {
+    const docs = 'studio/content/docs/sandbox.mdx';
+    const code = '/** Env. */\nexport const cacheEnv = { A: 1 };\n\nexport const other = 2;\n';
+    const repo = change(
+      { 'src/box.ts': code, [docs]: 'Intro.\n\n<Sym name="cacheEnv" /> shares the target.\n\nAbout `other`.\n' },
+      { 'src/box.ts': code.replace('A: 1', 'A: 2') }
+    );
+    const { ok, out } = check('docs-mentions.mjs', repo, 'src/', 'studio/content/docs/');
+    expect(ok).toBe(true);
+    expect(out.split('\n').map(line => JSON.parse(line))).toEqual([
+      { file: docs, line: 3, hunk: '<Sym name="cacheEnv" /> shares the target.', 'changed code': ['cacheEnv in src/box.ts'] },
+    ]);
+  });
+});
+
 describe('unused-exports check', () => {
   it('fails an export no other file uses and passes one that is imported', () => {
     const repo = studioChange(

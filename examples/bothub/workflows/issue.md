@@ -48,6 +48,7 @@ jobs:
         - review-src
         - near-duplicate
         - review-docs
+        - docs-stale
         - docs-tone-provenance
         - docs-tone-repeats
         - risky

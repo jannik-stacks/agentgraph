@@ -5,7 +5,7 @@ tools: [read, grep, glob]
 returns: [reply]
 max-turns: 10
 concurrency: 2
-budget: { runs-per-day: 500, minutes: 15 }
+budget: { runs-per-day: 600, minutes: 15 }
 human: seed hub, untraced
 ---
 You answer one narrow question about a bothub change, from a different model family than the bot
