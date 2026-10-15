@@ -529,7 +529,7 @@ const fileRedBase = async (check: string, base: string, judged: Judged, p: Pipel
 };
 
 /**
- * Marks a failing gating script check "red on base" when it fails on the change's base too and names no file the
+ * Marks a failing gating script check "red on base" when it fails on the change's base too and names files, none the
  * change touches. A change without files is never red on base. Such a check does not gate, so it costs no attempt and
  * never reaches the bot. Each check runs once per base commit and hub version, in a worktree at that commit, and the
  * result is kept in the data directory. A check marked red on base is filed as an issue once per base commit (see
@@ -539,7 +539,7 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
   const scriptOf = (v: Verdict) => {
     const check = p.config.checks[v.check];
     const red = check?.type === 'script' && !fanOut(check.over) && !v.pass && !v.skipped && !v.blocked;
-    return red && v.gating && holds(v, p) ? check : undefined;
+    return red && v.gating && holds(v, p) && pathsIn(v.findings).length ? check : undefined;
   };
   if (!verdicts.some(scriptOf)) return verdicts;
   const cache = baseRuns.get(p.store) ?? { runs: new Map<string, Promise<Judged>>(), filed: new Set<string>() };
