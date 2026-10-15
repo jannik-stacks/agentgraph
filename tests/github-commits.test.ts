@@ -77,6 +77,13 @@ describe('pushCommits', () => {
     expect(git(remote.dir, 'cat-file', '-p', 'feature:other.txt')).toBe('other');
   });
 
+  it('refuses a branch name that would leave the refs path', async () => {
+    const { local, github, client } = setup();
+    for (const branch of ['bothub/../../x', 'bothub//x', './x'])
+      await expect(pushCommits(client, { repo: 'acme/app', cwd: local, branch })).rejects.toThrow('invalid branch');
+    expect(github.calls).toEqual([]);
+  });
+
   it('refuses history that shares no commit with GitHub', async () => {
     const { local, client } = setup();
     const orphan = temp('orphan');

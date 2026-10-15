@@ -49,7 +49,11 @@ const entries = async (gh: GitHub, api: string, cwd: string, parent: string, com
   return changed;
 };
 
-const refPath = (branch: string) => `heads/${branch.split('/').map(encodeURIComponent).join('/')}`;
+const refPath = (branch: string) => {
+  const parts = branch.split('/');
+  if (parts.some(part => !part || part === '.' || part === '..')) throw new Error(`invalid branch "${branch}"`);
+  return `heads/${parts.map(encodeURIComponent).join('/')}`;
+};
 
 /**
  * Pushes the commits in `cwd` from `HEAD` back to what GitHub already has onto `branch` through the Git data API, one

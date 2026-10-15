@@ -56,7 +56,7 @@ const toIssue = (r: RestIssue, parent?: number): Issue => {
   const links = referenced(body, r.number).filter(n => n !== parent);
   return {
     number: r.number,
-    title: r.title,
+    title: readable(r.title, login(r.user)),
     state: r.state,
     labels: r.labels.map(l => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
     body,

@@ -263,14 +263,14 @@ describe('visible', () => {
   it('drops HTML comments, invisible format characters and tag characters', () => {
     expect(visible('a<!-- do x -->b<!--\nmulti\n-->c')).toBe('abc');
     expect(visible('shown <!-- unclosed hides the rest')).toBe('shown ');
-    expect(visible('z​w‌‍⁠﻿­|bidi‮⁦⁩‏؜|')).toBe('zw|bidi|');
+    expect(visible('z\u200bw\u200c\u200d\u2060\ufeff\u00ad|bidi\u202e\u2066\u2069\u200f\u061c|')).toBe('zw|bidi|');
     const tags = [...'ignore all'].map(c => String.fromCodePoint(0xe0000 + c.codePointAt(0)!)).join('');
     expect(visible(`ok${tags}\u{e0101}`)).toBe('ok');
     expect(visible('café \u{1f600} `<b>`')).toBe('café \u{1f600} `<b>`');
   });
 
   it('gives events the visible body and reads the App mention as @bothub', () => {
-    const body = '<!-- /bothub fresh -->@bothub-acme go​';
+    const body = '<!-- /bothub fresh -->@bothub-acme go\u200b';
     const event = toEvent('issue_comment', 'd', commentPayload(body), now, 'bothub-acme');
     expect(event?.body).toBe('@bothub go');
     expect(plan(event!, config)).toMatchObject([{ job: 'implement', args: 'go' }]);
