@@ -52,7 +52,7 @@ describe('serveGitHub', () => {
           deliveryId,
         });
       expect((await send('acme/app', 'd1')).status).toBe(202);
-      expect((await send('acme/app', 'd1')).status).toBe(200);
+      expect((await send('acme/app', 'd1')).status).toBe(202);
       expect((await send('other/repo', 'd2')).status).toBe(202);
       await served.idle();
       expect(lines.filter(l => l.startsWith('event push'))).toEqual(['event push on acme/app by @x: 0 jobs']);
@@ -84,47 +84,6 @@ describe('serveGitHub', () => {
       await served.idle();
       expect((await openStore(options.data).read(stale.id))?.status).toBe('interrupted');
       expect(lines).toContain('event issue_comment (created) on acme/app#1 by @morgan: 0 jobs');
-    } finally {
-      await served.stop();
-    }
-  });
-
-  it('drops a labeled delivery whose label was removed before it ran', async () => {
-    const lines: string[] = [];
-    const issue = {
-      number: 4,
-      title: 't',
-      state: 'open',
-      body: '',
-      html_url: 'u',
-      labels: [],
-      author_association: 'OWNER',
-    };
-    const options = quiet(lines, (_, path) => {
-      if (path === '/repos/acme/app/issues/4') return issue;
-      if (path.startsWith('/repos/acme/app/issues/4/comments')) return [];
-      throw Object.assign(new Error('not found'), { status: 404 });
-    });
-    const served = await serveGitHub({ hub: temp('hub'), ...options });
-    try {
-      const payload = {
-        action: 'labeled',
-        repository: { full_name: 'acme/app' },
-        sender: { login: 'morgan' },
-        label: { name: 'bot:helper' },
-        issue: { ...issue, user: { login: 'morgan' } },
-      };
-      const sent = await replay({
-        url: `http://127.0.0.1:${served.ports.webhook}/`,
-        secret: 'test-secret',
-        event: 'issues',
-        payload: JSON.stringify(payload),
-        deliveryId: 'd1',
-      });
-      expect(sent.status).toBe(202);
-      await served.idle();
-      expect(lines).toContain('event d1 dropped, its label "bot:helper" was removed');
-      expect(lines.some(line => line.startsWith('event issues'))).toBe(false);
     } finally {
       await served.stop();
     }

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, mkdtempSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -76,27 +76,17 @@ const setup = (dir = mkdtempSync(join(tmpdir(), 'bothub-live-')), watch = {}) =>
   return { dir, store, get };
 };
 
-const seqs = (messages: Message[]) =>
-  messages.flatMap(m => (m.event === 'record' ? [(m.data as EventRecord).seq] : []));
-
 describe('live stream', () => {
-  it('sends a snapshot, the followed run in order, and runs as they change', async () => {
+  it('sends a snapshot, then runs as they change', async () => {
     const { store, get } = setup();
     const { id } = await store.create({ ...fields, status: 'running' });
-    for (const seq of [0, 1]) await store.append(id, record(seq));
     const abort = new AbortController();
-    const stream = reader(await get(`/api/stream?run=${id}`, { signal: abort.signal }));
-    const first = await stream.until(m => m.event === 'record' && (m.data as EventRecord).seq === 1);
-    expect(first[0]).toMatchObject({ event: 'snapshot', data: { runs: [{ id, tally: { calls: 0 } }], pulls: [] } });
-    expect(first.find(m => m.event === 'outcome')).toMatchObject({ data: { id, outcome: null } });
-    expect(seqs(first)).toEqual([0, 1]);
-    expect(first.at(-1)?.id).toBe('1');
+    const stream = reader(await get('/api/stream', { signal: abort.signal }));
+    const [first] = await stream.until(m => m.event === 'snapshot');
+    expect(first).toMatchObject({ event: 'snapshot', data: { runs: [{ id, tally: { calls: 0 } }], pulls: [] } });
 
-    for (const seq of [2, 3, 4]) await store.append(id, record(seq));
+    for (const seq of [0, 1, 2, 3, 4]) await store.append(id, record(seq));
     await store.append(id, { ts: '', seq: 5, event: { type: 'usage', inputTokens: 100, outputTokens: 7 } });
-    const appended = await stream.until(m => m.event === 'record' && (m.data as EventRecord).seq === 5);
-    expect(seqs(appended)).toEqual([2, 3, 4, 5]);
-
     const other = await store.create(fields);
     const created = await stream.until(m => m.event === 'run' && (m.data as { id: string }).id === other.id);
     expect(created.at(-1)?.data).toMatchObject({ status: 'queued' });
@@ -109,44 +99,13 @@ describe('live stream', () => {
     abort.abort();
   });
 
-  it('hears appends through fs.watch without waiting for a poll', async () => {
+  it('hears a new run through fs.watch without waiting for a poll', async () => {
     const { store, get } = setup(undefined, { pollMs: 60_000 });
-    const { id } = await store.create({ ...fields, status: 'running' });
     const abort = new AbortController();
-    const stream = reader(await get(`/api/stream?run=${id}`, { signal: abort.signal }));
-    await stream.until(m => m.event === 'outcome');
-    await store.append(id, record(0));
-    const seen = await stream.until(m => m.event === 'record');
-    expect(seqs(seen)).toEqual([0]);
-    abort.abort();
-  });
-
-  it('resumes after Last-Event-ID without repeating or dropping a record', async () => {
-    const { store, get } = setup();
-    const { id } = await store.create({ ...fields, status: 'running' });
-    for (const seq of [0, 1, 2, 3]) await store.append(id, record(seq));
-    const abort = new AbortController();
-    const stream = reader(
-      await get(`/api/stream?run=${id}`, { signal: abort.signal, headers: { 'last-event-id': '1' } })
-    );
-    const seen = await stream.until(m => m.event === 'record' && (m.data as EventRecord).seq === 3);
-    expect(seqs(seen)).toEqual([2, 3]);
-    abort.abort();
-    expect((await get(`/api/stream?run=${id}&from=x`)).status).toBe(400);
-  });
-
-  it('sends a line that arrives in two writes once, when it is complete', async () => {
-    const { dir, store, get } = setup();
-    const { id } = await store.create({ ...fields, status: 'running' });
-    const file = join(dir, 'runs', id, 'events.jsonl');
-    const line = JSON.stringify(record(0, 'ünïcode')) + '\n';
-    appendFileSync(file, line.slice(0, 20));
-    const abort = new AbortController();
-    const stream = reader(await get(`/api/stream?run=${id}`, { signal: abort.signal }));
-    await stream.until(m => m.event === 'outcome');
-    appendFileSync(file, line.slice(20));
-    const seen = await stream.until(m => m.event === 'record');
-    expect(seen.at(-1)?.data).toMatchObject({ seq: 0, event: { text: 'ünïcode' } });
+    const stream = reader(await get('/api/stream', { signal: abort.signal }));
+    await stream.until(m => m.event === 'snapshot');
+    const { id } = await store.create(fields);
+    await stream.until(m => m.event === 'run' && (m.data as { id: string }).id === id);
     abort.abort();
   });
 

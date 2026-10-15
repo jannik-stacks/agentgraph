@@ -12,10 +12,9 @@ The fields are on `Issues` in [src/issues.ts](../../src/issues.ts).
 ## Context
 
 A run reads in three ways, and none writes. Preload is rendered into the prompt before the run:
-the triggering issue and its links (`issueContext`). What a run takes in, uses and
-returns is worked out by one function, shared by the pipeline and the studio.
+the triggering issue and its links (`issueContext`).
 
-See `runContext` in [src/preload.ts](../../src/preload.ts).
+See `issueContext` in [src/preload.ts](../../src/preload.ts).
 
 Before the first model turn, the opencode `surfacer` plugin surfaces accepted notes and
 summaries of earlier runs, searched with the brief or the issue (`recallQuery`).

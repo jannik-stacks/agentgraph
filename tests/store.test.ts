@@ -2,9 +2,6 @@ import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compile } from '../src/config.ts';
-import { dispatch } from '../src/dispatch.ts';
-import { readHub } from '../src/load.ts';
 import { alive, openStore, reconcile, runId } from '../src/store.ts';
 import type { BotEvent } from '../src/types.ts';
 
@@ -76,9 +73,7 @@ describe('openStore', () => {
 
     const flat = temp();
     writeFileSync(join(flat, 'runs'), '');
-    writeFileSync(join(flat, 'deliveries'), '');
     await expect(openStore(flat).list()).rejects.toThrow('ENOTDIR');
-    await expect(openStore(flat).deliver('gh-1')).rejects.toThrow('EEXIST');
   });
 
   it('lists runs newest first', async () => {
@@ -149,14 +144,7 @@ describe('openStore', () => {
   });
 });
 
-describe('delivery ledger and branch locks', () => {
-  it('sees each delivery once, across store handles', async () => {
-    const dir = temp();
-    expect(await openStore(dir).deliver('gh-1')).toBe(true);
-    expect(await openStore(dir).deliver('gh-1')).toBe(false);
-    expect(await openStore(dir).deliver('gh-2')).toBe(true);
-  });
-
+describe('branch locks', () => {
   it('holds a lock for a live owner and takes over one a stopped process left', async () => {
     const dir = temp();
     const store = openStore(dir);
@@ -168,15 +156,6 @@ describe('delivery ledger and branch locks', () => {
     const stopped = openStore(dir, { pid: process.pid, token: 'gone' });
     expect('release' in (await stopped.lock('acme/app:bothub/8', 'r3'))).toBe(true);
     expect('release' in (await store.lock('acme/app:bothub/8', 'r4'))).toBe(true);
-  });
-
-  it('plans an event once per delivery id', async () => {
-    const compiled = compile(await readHub(join(import.meta.dirname, '../examples/hub')));
-    if (!compiled.ok) throw new Error('example hub');
-    const store = openStore(temp());
-    const comment: BotEvent = { ...event, id: 'gh-9', number: 3, action: 'created', body: '/bothub fix it' };
-    expect((await dispatch(comment, compiled.config, store)).map(j => j.job)).toEqual(['implement']);
-    expect(await dispatch(comment, compiled.config, store)).toEqual([]);
   });
 });
 

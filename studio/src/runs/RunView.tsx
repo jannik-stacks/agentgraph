@@ -486,10 +486,7 @@ export const RunView = ({ id }: { id: string }) => {
         <PhaseWord phase={phase} status={run.status} />
         <Took startedAt={run.startedAt} endedAt={run.endedAt} />
         {run.status === 'running' && (
-          <Button
-            variant="small"
-            onClick={() => void post(`/api/runs/${encodeURIComponent(run.id)}/stop`).then(setStopError)}
-          >
+          <Button variant="small" onClick={() => void post('/rpc/runs_stop', { id: run.id }).then(setStopError)}>
             Stop
           </Button>
         )}

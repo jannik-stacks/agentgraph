@@ -6,6 +6,7 @@ import { compile } from '../src/config.ts';
 import { localIssues } from '../src/issues-local.ts';
 import { bothubServer, mcpToolNames, opencodeMcpConfig, type McpServer } from '../src/mcp-config.ts';
 import { proposalsFile, serveMcp } from '../src/mcp.ts';
+import { opNames } from '../src/ops.ts';
 import { openStore } from '../src/store.ts';
 import { temp } from './kit.ts';
 
@@ -125,6 +126,27 @@ describe('serveMcp', () => {
     const bare = connect(['runs_read', 'issues_get'], { config: compiled.config });
     expect((await bare.call('runs_read')).content[0]!.text).toBe('this server has no runs');
     expect((await bare.call('issues_get', { number: 1 })).content[0]!.text).toBe('this server has no issues');
+    await bare.close();
+  });
+});
+
+describe('operator tools', () => {
+  it('serves every op as a tool only with a runner, and sends the call to it', async () => {
+    const sent: [string, unknown][] = [];
+    const runner = async (name: string, input: unknown) => (sent.push([name, input]), { paused: false });
+    const server = connect([], { config: compiled.config, runner });
+    const { tools } = (await server.request('tools/list')).result;
+    expect(tools.map((t: { name: string }) => t.name)).toEqual(opNames);
+    expect(tools.find((t: { name: string }) => t.name === 'say').inputSchema).toMatchObject({ required: ['text'] });
+    expect(JSON.parse((await server.call('status')).content[0]!.text)).toEqual({ paused: false });
+    await server.call('say', { issue: 3, text: 'go' });
+    expect(sent).toEqual([
+      ['status', {}],
+      ['say', { issue: 3, text: 'go' }],
+    ]);
+    await server.close();
+    const bare = connect([], { config: compiled.config });
+    expect((await bare.request('tools/list')).result.tools).toEqual([]);
     await bare.close();
   });
 });

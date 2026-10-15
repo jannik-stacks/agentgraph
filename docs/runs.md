@@ -103,7 +103,7 @@ The process is stopped with it. A withdrawn run closes as `no-op` and applies no
 provider, stall, budget, infra, turns or human stop as `deferred`, and the rest as `blocked`. The
 issue is checked every 30 seconds while an agent runs.
 
-The Stop button on a running run sends `POST /api/runs/:id/stop`. Only the process that runs it can
+The Stop button on a running run calls the `runs_stop` op (`POST /rpc/runs_stop`), as `bothub runs-stop --id <run>` does. Only the process that runs it can
 stop it; any other answers 409, and the studio shows why. A stopped run parks its work and says so
 on the issue, and the job's next run continues it, told that a human stopped it.
 

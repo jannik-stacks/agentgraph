@@ -2,9 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import { accepted, answersAfterBrief, issueContext, recallQuery, runContext } from '../src/preload.ts';
+import { accepted, answersAfterBrief, issueContext, recallQuery } from '../src/preload.ts';
 import { loadedItems, repoFiles } from '../src/repo-guidance.ts';
-import { type Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
 import { temp } from './kit.ts';
 
@@ -18,32 +17,7 @@ const event: BotEvent = {
   actor: { login: 'morgan', association: 'OWNER' },
 };
 
-describe('runContext', () => {
-  const bot = {
-    name: 'b',
-    path: 'bots/b.md',
-    harness: 'opencode',
-    tools: ['read', 'notes_search'],
-    returns: ['reply', 'note', 'hub(notes/**)'],
-    role: '',
-  } as Bot;
-
-  it('preloads nothing by default and narrows what the bot returns to the step', () => {
-    expect(runContext({ bot })).toEqual({
-      preload: [],
-      harnessTools: ['read'],
-      hubTools: ['notes_search'],
-      returns: ['reply', 'note', 'hub(notes/**)'],
-    });
-    expect(runContext({ bot, step: { over: 'diff', preload: ['issue'], returns: ['reply'] } })).toEqual({
-      over: 'diff',
-      preload: ['issue'],
-      harnessTools: ['read'],
-      hubTools: ['notes_search'],
-      returns: ['reply'],
-    });
-  });
-
+describe('accepted', () => {
   it('counts a note in force when accepted or without a status', () => {
     const note = (status?: 'proposed' | 'accepted' | 'retired') => ({ ...(status && { status }) }) as never;
     expect([undefined, 'accepted', 'proposed', 'retired'].map(s => accepted(note(s as never)))).toEqual([

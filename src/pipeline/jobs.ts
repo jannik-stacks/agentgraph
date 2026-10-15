@@ -1,16 +1,15 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Effect } from 'effect';
 import { effectiveRun, effectiveReturns, jobOrder, returnKinds } from '../config.ts';
-import { isTrusted, type PlannedJob } from '../dispatch.ts';
+import type { PlannedJob } from '../dispatch.ts';
 import { digest } from '../fingerprint.ts';
 import { parkedBranch } from '../workspace.ts';
 import { fanOut } from '../over.ts';
-import { roles, type Issues } from '../issues.ts';
+import { roles } from '../issues.ts';
 import { approved, extractProposals, validate } from '../outputs.ts';
 import { runScript, type ScriptResult } from '../runner.ts';
 import type { Closure, Job, ProposalKind, Return } from '../schema.ts';
-import type { Run, Stopped, Store } from '../store.ts';
-import type { BotEvent } from '../types.ts';
+import type { Run, Stopped } from '../store.ts';
 import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip, trace } from './context.ts';
 import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, failingChecks, findingsFor, holds, issueEnv, runOnItem } from './checks.ts';
@@ -603,20 +602,6 @@ const gate = async (planned: PlannedJob, job: Job, p: Pipeline): Promise<JobResu
   await p.store.add(held.run.id, { type: 'human', on: 'ask', ...(issue.url && { url: issue.url }) });
   await trace(held.run.id, p);
   return held;
-};
-
-/**
- * The events to run again because a trusted human approved a job they hold: `issues` `labeled` on an approval issue
- * that now carries the `approved` label, with a blocked job waiting on it. Planning and running such an event again reuses the jobs that already closed.
- */
-export const approvals = async (event: BotEvent, store: Store, issues: Issues): Promise<BotEvent[]> => {
-  if (event.trigger !== 'issues' || event.action !== 'labeled' || event.number === undefined) return [];
-  if (!isTrusted(event.actor.association)) return [];
-  if (!(await issues.get(event.number))?.labels.includes(approved)) return [];
-  const waiting = (await store.runs({ repo: event.repo })).filter(
-    run => run.status === 'skipped' && run.closure === 'blocked' && run.approval === event.number
-  );
-  return [...new Map(waiting.map(run => [run.event.id, run.event])).values()];
 };
 
 /**

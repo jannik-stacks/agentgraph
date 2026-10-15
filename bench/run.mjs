@@ -19,11 +19,13 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
 import { compile } from '../src/config.ts';
-import { parseItem, renderItem } from '../src/hub-files.ts';
+import { parse, stringify } from 'yaml';
 import { localIssues } from '../src/issues-local.ts';
 import { readHub } from '../src/load.ts';
+import { parseMarkdown } from '../src/markdown.ts';
 import { fileDiffs } from '../src/over.ts';
 import { localPulls, pullsFile } from '../src/pulls.ts';
+import { callOp } from '../src/ops.ts';
 import { serveHub } from '../src/serve.ts';
 import { openStore } from '../src/store.ts';
 import { sum, tally } from '../src/usage.ts';
@@ -54,8 +56,15 @@ export const patchHub = (dir, patch) => {
     else if (typeof value === 'string') writeFileSync(file, value);
     else {
       const original = existsSync(file) ? readFileSync(file, 'utf8') : undefined;
-      const { data, body } = original === undefined ? { data: {}, body: '' } : parseItem(path, original);
-      writeFileSync(file, renderItem(path, { data: merge(data, value), body }, original));
+      const yamlFile = !path.endsWith('.md');
+      const { data, body } =
+        original === undefined
+          ? { data: {}, body: '' }
+          : yamlFile
+            ? { data: parse(original) ?? {}, body: '' }
+            : parseMarkdown(original);
+      const yaml = stringify(merge(data, value));
+      writeFileSync(file, yamlFile ? yaml : `---\n${yaml}---\n${body ? `\n${body}\n` : ''}`);
     }
   }
 };
@@ -215,7 +224,6 @@ export const runCase = async ({
       repo,
       env,
       port: 0,
-      interval,
       log,
       onResults: (_, r) => (results += r.length),
       ...(adapters && { adapters }),
@@ -224,7 +232,7 @@ export const runCase = async ({
     let timedOut = true;
     const over = () => Date.now() - started > timeout;
     try {
-      await issues.comment(number, command);
+      await callOp(served.runner, 'say', { issue: number, text: command, as: 'bench' });
       const settled = async () => {
         while (!over()) {
           if (results) break;

@@ -1,7 +1,6 @@
 import { createContext, type ReactNode, use, useMemo, useState } from 'react';
 import type { PullComment } from '../../../src/pulls.ts';
 import type { Run } from '../../../src/store.ts';
-import { type Continue, Review } from '../../../src/schema.ts';
 import { Markdown } from '../Markdown.tsx';
 import { Icon } from '../icons.tsx';
 import { accent, Button, cx, field, IconButton, Segmented, Tooltip } from '../ui.tsx';
@@ -28,18 +27,6 @@ const LinesContext = createContext<Lines | undefined>(undefined);
 
 /** The line comments of the diff below, when it belongs to a merge request that takes comments. */
 export const useLines = () => use(LinesContext);
-
-const continueOptions = ['changed', 'all', 'fresh', 'none'] as const satisfies readonly Continue[];
-
-const continueLabels: Record<Continue, { label: string; tip: string }> = {
-  changed: {
-    label: 'continue',
-    tip: 'The bot continues on its branch; checks look only at what changed since its last push',
-  },
-  all: { label: 'rerun all', tip: 'Every job runs again on the branch, and checks look at the whole branch' },
-  fresh: { label: 'start over', tip: 'The bot starts the branch over from its base, without its earlier work' },
-  none: { label: 'just comment', tip: 'Only the comment is written; no bot runs' },
-};
 
 const Thread = ({ comments }: { comments: PullComment[] }) =>
   comments.length ? (
@@ -177,16 +164,17 @@ export const post = async (path: string, body?: unknown): Promise<string | undef
   );
 };
 
-/** POSTs a review and answers with the error to show, if any. */
-const send = async (input: Review) => {
-  const parsed = Review.safeParse(input);
-  if (!parsed.success) return parsed.error.issues[0]?.message ?? 'not a valid comment';
-  return post('/api/comments', input);
+/** Says a review as one comment, its line comments listed under the body, and answers with the error to show, if any. */
+const send = async (target: { pull: number } | { issue: number }, body: string, lines: LineDraft[]) => {
+  const notes = lines.map(l => `- \`${l.path}:${l.line}\` ${l.body}`);
+  const text = [body.trim(), notes.join('\n')].filter(Boolean).join('\n\n');
+  if (!text) return 'write a comment';
+  return post('/rpc/say', { ...target, text });
 };
 
 /**
- * The comment box at the bottom of a merge request or under a bot's question: a Markdown comment and how the bot
- * continues, sent with the line comments collected for the review as one comment.
+ * The comment box at the bottom of a merge request or under a bot's question: a Markdown comment, sent with the line
+ * comments collected for the review as one comment.
  */
 const CommentBox = ({
   target,
@@ -200,17 +188,11 @@ const CommentBox = ({
   placeholder?: string;
 }) => {
   const [body, setBody] = useState('');
-  const [how, setHow] = useState<Continue>('changed');
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
   const submit = async () => {
     setSending(true);
-    const failed = await send({
-      ...target,
-      body,
-      continue: how,
-      lines: lines.map(({ path, side, line, body }) => ({ path, side, line, body })),
-    });
+    const failed = await send(target, body, lines);
     setSending(false);
     setError(failed);
     if (failed) return;
@@ -221,25 +203,13 @@ const CommentBox = ({
     <div className="space-y-2 rounded-md border border-zinc-200 p-2 dark:border-zinc-800">
       <Editor value={body} onChange={setBody} placeholder={placeholder} />
       <div className="flex flex-wrap items-center gap-2">
-        <Segmented
-          aria-label="How the bot continues"
-          options={continueOptions}
-          value={how}
-          onChange={setHow}
-          label={option => (
-            <Tooltip tip={continueLabels[option].tip} action="Pick">
-              <span>{continueLabels[option].label}</span>
-            </Tooltip>
-          )}
-          className="text-[11px]"
-        />
         {lines.length > 0 && (
           <span className="text-[11px] text-zinc-500">
             {lines.length} line {lines.length === 1 ? 'comment' : 'comments'} in this review
           </span>
         )}
         <Button variant="primary" className="ml-auto" disabled={sending} onClick={() => void submit()}>
-          {how === 'none' ? 'Comment' : 'Comment and continue'}
+          Comment
         </Button>
       </div>
       {error && <p className={cx('text-xs', accent.text)}>{error}</p>}

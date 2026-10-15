@@ -1,30 +1,12 @@
-import { effectivePreload, effectiveReturns, effectiveTools, harnessTools, type Config } from './config.ts';
+import type { Config } from './config.ts';
 import { roles, type Issue, type Issues } from './issues.ts';
-import type { Bot, Job, Preload } from './schema.ts';
+import type { Preload } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
 type Note = Config['notes'][number];
 
 /** Whether a note is in force: accepted, or without a status. Proposed notes wait for a human. */
 export const accepted = (note: Note) => (note.status ?? 'accepted') === 'accepted';
-
-/**
- * What a run of `bot` starts with, given the `step` that casts it: what it looks at (`over`) and is preloaded with,
- * the harness tools and hub tools it can use, and what it may return.
- */
-export const runContext = ({
-  bot,
-  step = {},
-}: {
-  bot: Bot;
-  step?: Partial<Pick<Extract<Job, { type: 'bot' }>, 'over' | 'preload' | 'tools' | 'returns'>>;
-}) => ({
-  ...(step.over && { over: step.over }),
-  preload: effectivePreload(bot, step),
-  harnessTools: harnessTools(bot),
-  hubTools: effectiveTools(bot, step),
-  returns: effectiveReturns(bot, step),
-});
 
 const facts = (issue: Issue) =>
   [

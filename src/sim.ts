@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 import { compile, returnKinds, type Config } from './config.ts';
 import { botEnv, git } from './git.ts';
-import { dispatch, plan, type PlannedJob } from './dispatch.ts';
+import { plan, type PlannedJob } from './dispatch.ts';
 import type { Issues } from './issues.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
@@ -35,7 +35,7 @@ export type SimStep = z.infer<typeof Step>;
 
 /**
  * Faults to seed. `crash` stops the process once `after` effects of the job have landed (0: before any), then the sim
- * restarts, reconciles and retries the event. `redeliver` delivers the first event a second time at the end.
+ * restarts, reconciles and retries the event. `redeliver` runs the first event a second time at the end.
  * `apply-fails` makes the first push, merge request or reply fail to apply.
  */
 const Faults = z.strictObject({
@@ -358,7 +358,7 @@ export const simulate = async (file: string, out: (line: string) => void): Promi
     const handle = async (event: BotEvent) => {
       const by = `#${event.number} by @${event.actor.login}`;
       print(`\nevent  ${event.trigger} (${event.action}) on ${by}: ${oneLine(event.body ?? '')}`);
-      const jobs = await dispatch(event, config, store);
+      const jobs = plan(event, config);
       print(`plan   ${jobs.map(j => `${j.workflow}/${j.job}`).join(', ') || 'no jobs'}`);
       current = '';
       const done = await runOnce(jobs, event);
@@ -386,13 +386,19 @@ export const simulate = async (file: string, out: (line: string) => void): Promi
 
     const started: BotEvent[] = [];
     for (const { comment } of scenario.start) {
-      const events: BotEvent[] = [];
-      const watching = issues.watch(event => events.push(event), { interval: 20 });
-      await watching.ready;
       await localIssues(dir, { repo, as: comment.as }).comment(comment.issue, comment.body);
-      while (!events.length) await new Promise(done => setTimeout(done, 10));
-      watching.stop();
-      const [event] = events as [BotEvent];
+      const said = (await issues.get(comment.issue))?.comments.length ?? 0;
+      const event: BotEvent = {
+        id: `local-${comment.issue}-comment-${said}`,
+        ts: new Date().toISOString(),
+        source: 'local',
+        trigger: 'issue_comment',
+        action: 'created',
+        repo,
+        number: comment.issue,
+        actor: { login: comment.as, association: comment.as.endsWith('[bot]') ? 'NONE' : 'OWNER' },
+        body: comment.body,
+      };
       started.push(event);
       await handle(event);
       if (!scenario.parallel) await drain();
@@ -400,9 +406,11 @@ export const simulate = async (file: string, out: (line: string) => void): Promi
     await drain();
     const [first] = started;
     if (faults.redeliver && first) {
-      const again = await dispatch(first, config, store);
-      print(`\nredeliver ${first.id}: ${again.length ? 'planned again' : 'dropped, already delivered'}`);
-      if (again.length) results.push(...((await runOnce(again, first)) ?? []));
+      const ran = new Set(results.map(r => r.run.id));
+      const again = (await runOnce(plan(first, config), first)) ?? [];
+      const fresh = again.filter(r => !ran.has(r.run.id));
+      print(`\nredeliver ${first.id}: ${fresh.length ? `${fresh.length} jobs ran again` : 'every job reused'}`);
+      results.push(...fresh);
     }
 
     print('\nresults');

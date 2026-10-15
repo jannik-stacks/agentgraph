@@ -1,9 +1,8 @@
 import type { GitHub, GitHubError } from './github-app.ts';
 import { isTrusted } from './dispatch.ts';
 import { visible } from './github.ts';
-import { changeEvent, matches, type Comment, type Issue, type Issues } from './issues.ts';
+import { matches, type Comment, type Issue, type Issues } from './issues.ts';
 import { Association } from './schema.ts';
-import type { BotEvent } from './types.ts';
 
 type RestUser = { login: string };
 type RestIssue = {
@@ -82,8 +81,8 @@ const toComment = (c: RestComment): Comment => {
 
 /**
  * Issues in a GitHub repository over the REST client. Parents and steps use the sub-issues API; `links` are the
- * other issues a body mentions as `#<n>`. `watch` polls for new issues, state changes and comments. Text from people
- * comes back `visible`, and comments from outside the collaborators are withheld.
+ * other issues a body mentions as `#<n>`. Text from people comes back `visible`, and comments from outside the
+ * collaborators are withheld.
  */
 export const githubIssues = (gh: GitHub, repo: string): Issues => {
   const base = `/repos/${repo}/issues`;
@@ -116,58 +115,6 @@ export const githubIssues = (gh: GitHub, repo: string): Issues => {
     await gh('POST', `${base}/${parent}/sub_issues`, { sub_issue_id: id });
   };
 
-  const watch: Issues['watch'] = (onEvent, { interval = 60_000 } = {}) => {
-    let since = new Date().toISOString();
-    const emitted = new Set<string>();
-    const emit = (key: string, event: BotEvent | undefined) => {
-      if (!event || emitted.has(key)) return;
-      emitted.add(key);
-      onEvent(event);
-    };
-    const poll = async () => {
-      const from = since;
-      since = new Date().toISOString();
-      const query = `since=${encodeURIComponent(from)}&sort=updated&direction=asc&per_page=100`;
-      const [issues, comments] = await Promise.all([
-        gh<RestIssue[]>('GET', `${base}?state=all&${query}`),
-        gh<RestComment[]>('GET', `${base}/comments?${query}`),
-      ]);
-      for (const r of issues) {
-        if (r.pull_request) continue;
-        const issue = toIssue(r);
-        const sender = login(r.user);
-        const at = (id: string) => ({ repo, id, association: () => association(r.author_association) });
-        if (r.created_at >= from)
-          emit(
-            `opened-${r.id}`,
-            changeEvent({ kind: 'issues', action: 'opened', issue, sender }, at(`poll-${r.id}-opened`))
-          );
-        if (r.closed_at && r.closed_at >= from)
-          emit(
-            `closed-${r.id}-${r.closed_at}`,
-            changeEvent({ kind: 'issues', action: 'closed', issue, sender }, at(`poll-${r.id}-closed`))
-          );
-      }
-      for (const c of comments) {
-        const number = Number(/\/issues\/(\d+)$/.exec(c.issue_url)?.[1]);
-        if (!number || c.created_at < from) continue;
-        const issue: Issue = {
-          number,
-          title: '',
-          state: 'open',
-          labels: [],
-          body: '',
-          comments: [],
-          url: c.html_url.split('#')[0] ?? c.html_url,
-        };
-        const at = { repo, id: `poll-comment-${c.id}`, association: () => association(c.author_association) };
-        emit(`comment-${c.id}`, changeEvent({ kind: 'issue_comment', issue, comment: toComment(c) }, at));
-      }
-    };
-    const timer = setInterval(() => void poll().catch(() => {}), interval);
-    return { ready: Promise.resolve(), stop: () => clearInterval(timer) };
-  };
-
   return {
     backend: 'github',
     list,
@@ -189,6 +136,5 @@ export const githubIssues = (gh: GitHub, repo: string): Issues => {
       await gh('PATCH', `${base}/${number}`, { state: 'closed' });
     },
     link,
-    watch,
   };
 };

@@ -1,17 +1,10 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compile } from '../src/config.ts';
-import { plan } from '../src/dispatch.ts';
 import type { GitHub, GitHubError } from '../src/github-app.ts';
 import { githubIssues } from '../src/issues-github.ts';
 import { localIssues, parseIssue, renderIssue } from '../src/issues-local.ts';
-import type { BotEvent } from '../src/types.ts';
 import { temp } from './kit.ts';
-
-const until = async (check: () => boolean) => {
-  for (let i = 0; i < 200 && !check(); i++) await new Promise(done => setTimeout(done, 5));
-};
 
 describe('localIssues', () => {
   it('creates numbered files, filters, labels, links and closes', async () => {
@@ -94,113 +87,6 @@ describe('localIssues', () => {
     expect(renderIssue(issue)).toBe(source);
     expect(() => parseIssue('spec.md', source)).toThrow('<number>-<slug>.md');
     expect(() => parseIssue('1-x.md', '---\nstate: open\n---\n')).toThrow('1-x.md');
-  });
-
-  it('watches the directory and emits webhook-shaped events', async () => {
-    const dir = temp('issues');
-    writeFileSync(join(dir, '1-task.md'), '---\ntitle: Task\n---\n\nDo it.\n');
-    const events: BotEvent[] = [];
-    const { ready, stop } = localIssues(dir, { repo: 'acme/app' }).watch(e => events.push(e), { interval: 5 });
-    await ready;
-    await localIssues(dir, { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub go');
-    await localIssues(dir, { repo: 'acme/app' }).comment(1, '/bothub loop');
-    await localIssues(dir, { repo: 'acme/app' }).create({ title: 'New' });
-    await until(() => events.length >= 3);
-    stop();
-    expect(events.map(e => [e.trigger, e.action, e.number, e.actor, e.body, e.source])).toEqual([
-      ['issue_comment', 'created', 1, { login: 'morgan', association: 'OWNER' }, '/bothub go', 'local'],
-      ['issue_comment', 'created', 1, { login: 'bothub[bot]', association: 'NONE' }, '/bothub loop', 'local'],
-      ['issues', 'opened', 2, { login: 'bothub[bot]', association: 'NONE' }, '', 'local'],
-    ]);
-
-    const result = compile([
-      {
-        path: 'workflows/w.md',
-        source: '---\non: { issue_comment: { command: /bothub } }\njobs:\n  a: { type: script, run: echo }\n---\n',
-      },
-    ]);
-    if (!result.ok) throw new Error(JSON.stringify(result.errors));
-    expect(events.slice(0, 2).map(e => plan(e, result.config).length)).toEqual([1, 0]);
-
-    expect(events.map(e => e.id)).toEqual([
-      expect.stringMatching(/^local-1-comment-1-[0-9a-f]{12}$/),
-      expect.stringMatching(/^local-1-comment-2-[0-9a-f]{12}$/),
-      'local-2-opened',
-    ]);
-    const again: BotEvent[] = [];
-    const watcher = localIssues(dir, { repo: 'acme/app' }).watch(e => again.push(e), { interval: 5 });
-    await watcher.ready;
-    await localIssues(dir, { repo: 'acme/app' }).label(2, { add: ['ready'] });
-    await until(() => again.length >= 1);
-    watcher.stop();
-    expect(again[0]?.id).toMatch(/^local-2-labeled-[0-9a-f]{12}$/);
-    expect(new Set([...events, ...again].map(e => e.id)).size).toBe(4);
-  });
-
-  it('notices a hand edit through file system events, closing and reopening an issue', async () => {
-    const dir = temp('issues');
-    const file = join(dir, '1-task.md');
-    writeFileSync(file, '---\ntitle: Task\nauthor: morgan\n---\n\nDo it.\n');
-    const events: BotEvent[] = [];
-    const { ready, stop } = localIssues(dir, { repo: 'acme/app' }).watch(e => events.push(e));
-    await ready;
-    await new Promise(done => setTimeout(done, 20));
-    writeFileSync(file, '---\ntitle: Task\nstate: closed\nauthor: morgan\n---\n\nDo it.\n');
-    await until(() => events.length >= 1);
-    writeFileSync(file, '---\ntitle: Task\nstate: open\nauthor: morgan\n---\n\nDo it.\n');
-    await until(() => events.length >= 2);
-    stop();
-    expect(events.map(e => [e.trigger, e.action, e.number, e.actor.login])).toEqual([
-      ['issues', 'closed', 1, 'morgan'],
-      ['issues', 'reopened', 1, 'morgan'],
-    ]);
-    expect(events[0]?.id).toMatch(/^local-1-closed-[0-9a-f]{12}$/);
-
-    const early = localIssues(temp('issues'), { repo: 'acme/app' }).watch(() => {});
-    early.stop();
-    await early.ready;
-  });
-
-  it('attributes labels and closes made through bothub to the writer, so a bot label passes no trust guard', async () => {
-    const dir = temp('issues');
-    writeFileSync(join(dir, '1-task.md'), '---\ntitle: Task\nauthor: morgan\n---\n\nDo it.\n');
-    const events: BotEvent[] = [];
-    const { ready, stop } = localIssues(dir, { repo: 'acme/app' }).watch(e => events.push(e), { interval: 5 });
-    await ready;
-    const bot = localIssues(dir, { repo: 'acme/app' });
-    await bot.label(1, { add: ['needs-input'] });
-    await until(() => events.length >= 1);
-    await localIssues(dir, { repo: 'acme/app', as: 'morgan' }).label(1, { add: ['go'] });
-    await until(() => events.length >= 2);
-    await bot.close(1);
-    await until(() => events.length >= 3);
-    writeFileSync(
-      join(dir, '1-task.md'),
-      readFileSync(join(dir, '1-task.md'), 'utf8').replace('labels: [', 'labels: [hand, ')
-    );
-    await until(() => events.length >= 4);
-    stop();
-    expect(events.map(e => [e.action, e.label, e.actor])).toEqual([
-      ['labeled', 'needs-input', { login: 'bothub[bot]', association: 'NONE' }],
-      ['labeled', 'go', { login: 'morgan', association: 'OWNER' }],
-      ['closed', undefined, { login: 'bothub[bot]', association: 'NONE' }],
-      ['labeled', 'hand', { login: 'morgan', association: 'OWNER' }],
-    ]);
-    expect((await bot.get(1))?.changes).toEqual([
-      { by: 'bothub[bot]', action: 'labeled', label: 'needs-input' },
-      { by: 'morgan', action: 'labeled', label: 'go' },
-      { by: 'bothub[bot]', action: 'closed' },
-    ]);
-
-    const result = compile([
-      {
-        path: 'workflows/w.md',
-        source:
-          '---\non: { issues: { types: [labeled], guard: { associations: [OWNER] } } }\njobs:\n  a: { type: script, run: echo }\n---\n',
-      },
-    ]);
-    if (!result.ok) throw new Error(JSON.stringify(result.errors));
-    expect(events.map(e => plan(e, result.config).length)).toEqual([0, 1, 0, 1]);
   });
 
   it('reports the file of an issue it cannot read', async () => {
@@ -334,34 +220,6 @@ describe('githubIssues', () => {
       'PATCH /repos/a/b/issues/7 {"state":"closed"}',
       'GET /repos/a/b/issues/12',
       'POST /repos/a/b/issues/7/sub_issues {"sub_issue_id":1200}',
-    ]);
-  });
-
-  it('polls for new issues and comments and emits them once', async () => {
-    const later = '2999-01-01T00:00:00Z';
-    const gh = (async (_: string, path: string) => {
-      if (path.includes('/issues/comments?'))
-        return [
-          {
-            id: 5,
-            body: '/bothub go',
-            html_url: 'https://github.com/a/b/issues/3#issuecomment-5',
-            issue_url: 'https://api.github.com/repos/a/b/issues/3',
-            user: { login: 'morgan' },
-            author_association: 'MEMBER',
-            created_at: later,
-          },
-        ];
-      return [rest(3, { created_at: later }), rest(4, { pull_request: {}, created_at: later })];
-    }) as GitHub;
-    const events: BotEvent[] = [];
-    const { stop } = githubIssues(gh, 'a/b').watch(e => events.push(e), { interval: 5 });
-    await until(() => events.length >= 2);
-    await new Promise(done => setTimeout(done, 30));
-    stop();
-    expect(events.map(e => [e.trigger, e.action, e.number, e.actor.association, e.url])).toEqual([
-      ['issues', 'opened', 3, 'OWNER', 'https://github.com/a/b/issues/3'],
-      ['issue_comment', 'created', 3, 'MEMBER', 'https://github.com/a/b/issues/3#issuecomment-5'],
     ]);
   });
 });

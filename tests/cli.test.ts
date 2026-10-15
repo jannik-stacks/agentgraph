@@ -1,7 +1,10 @@
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AddressInfo } from 'node:net';
+import { serve } from '../src/api.ts';
 import { cli, main } from '../src/cli.ts';
+import { opNames } from '../src/ops.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent } from '../src/types.ts';
 import { temp } from './kit.ts';
@@ -230,10 +233,40 @@ describe('cli', () => {
 });
 
 describe('cli surface', () => {
-  it('lists six commands and keeps mcp hidden', async () => {
-    expect(Object.keys(cli.subCommands as object)).toEqual(['check', 'run', 'serve', 'logs', 'sim', 'setup-app']);
+  it('lists six commands and one per op, and keeps mcp hidden', async () => {
+    expect(Object.keys(cli.subCommands as object)).toEqual([
+      'check',
+      'run',
+      'serve',
+      'logs',
+      'sim',
+      'setup-app',
+      ...opNames.map(name => name.replaceAll('_', '-')),
+    ]);
     capture();
     expect(await main(['plan'])).toBe(2);
     expect(await main(['mcp', '--dir', join(examples, 'payloads')])).toBe(2);
+  });
+});
+
+describe('op commands', () => {
+  it('sends an op to the served runner with flags and the text as its input', async () => {
+    const calls: [string, unknown][] = [];
+    const server = await serve(async req => {
+      calls.push([new URL(req.url).pathname, await req.json()]);
+      return Response.json(null);
+    }, 0);
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      capture();
+      expect(await main(['say', '--issue', '12', 'please look', '--url', url])).toBe(0);
+      expect(await main(['pause', '--now', '--url', url])).toBe(0);
+      expect(calls).toEqual([
+        ['/rpc/say', { issue: 12, text: 'please look' }],
+        ['/rpc/pause', { now: true }],
+      ]);
+    } finally {
+      server.close();
+    }
   });
 });

@@ -2,7 +2,7 @@ import { Effect } from 'effect';
 import { apply, type ApplyResult } from '../apply.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import type { Item } from '../over.ts';
-import { hubProposal } from '../hub-write.ts';
+import { hubProposal } from '../hub-proposal.ts';
 import { extractProposals, Proposal, type Validated } from '../outputs.ts';
 import type { Pull, Pulls } from '../pulls.ts';
 import type { Closure, ProposalKind } from '../schema.ts';

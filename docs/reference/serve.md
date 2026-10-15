@@ -2,10 +2,9 @@
 
 Where events come from, the long-running hubs, and running whole workflows without a model.
 
-Everything starts from a `BotEvent`. A GitHub delivery is checked by
-
-`webhook` and normalised by `toEvent`; a change to a local issue file is turned into the same
-event by `changeEvent`.
+Everything starts from a `BotEvent`. A GitHub delivery is checked by `webhook` and normalised by
+`toEvent`. Locally, `bothub say --issue <n> "text"` posts a comment into the file forge and the runner
+hears it the way it hears a GitHub comment.
 
 The fields are on `BotEvent` in [src/types.ts](../../src/types.ts).
 
@@ -13,20 +12,18 @@ The fields are on `BotEvent` in [src/types.ts](../../src/types.ts).
 
 `bothub serve --hub <dir>` picks its source from `hub.yaml`. With `issues: local` it is
 
-`serveHub`: it watches `issues/`, plays GitHub's part with the local bare repository given as `--repo` and
-serves the read-only `api` that BHM reads. Otherwise it is
-`serveGitHub`, the same for a GitHub App, with short-lived installation tokens that no bot ever holds. Both
-run each event through `handleEvent` and the [pipeline](pipeline.md), and queue it the same
-way.
+`serveHub`: it plays GitHub's part with the local bare repository given as `--repo` and serves the
+read-only `api` that BHM reads, with the operator ops under `POST /rpc/<op>` (see `ops` in
+[src/ops.ts](../../src/ops.ts)). Otherwise it is `serveGitHub`, the same for a GitHub App, with short-lived
+installation tokens that no bot ever holds. Both start each event's work on one `runner`, which runs it
+through `handleEvent` and the [pipeline](pipeline.md).
 
-Comments and new issues written while `serve` was stopped run when it starts again: each change
-has a delivery id derived from its content, and the ones already delivered are skipped. On the
-first start for a data directory, everything already in `issues/` is recorded as delivered
-instead, so old `/bothub` comments do not run.
+Nothing is polled. A message starts work when it arrives; a merge request a bot opened starts its
+`pull_request` workflows once the event that opened it is done.
 
-## Assignment and the queue
+## Assignment and lanes
 
-Work is assigned with a label. Adding `bot:implementor` to an issue emits an `issues` event with
+Work is assigned with a label. On GitHub, adding `bot:implementor` to an issue emits an `issues` event with
 action `labeled` and that label, one event per added label, the same shape a GitHub delivery
 has. A workflow picks it up with a `labels` filter next to `types`:
 
@@ -41,27 +38,23 @@ The `bot:` prefix is a convention, not a keyword: any label works, and the same 
 unchanged on GitHub.
 
 Every label and close bothub makes on a local issue is recorded under the issue's `changes` with
-who made it. The event it emits names that bot as the sender, with the association `NONE`, as a
-GitHub App's change has, so a bot's label never starts a workflow guarded to owners. A change
-made by hand in the file has no record and is attributed to the issue's author.
+who made it.
 
-Each new event waits in a queue before it runs. `fileQueue` keeps one JSON file per
-item under `<data>/queue/`, named so they sort in push order. Taking an item renames its file to
-carry the owning process, so two processes on one data directory never run the same item, and an
-item a stopped process had taken goes back to waiting when the queue is next opened.
+The runner keeps one lane per issue or merge request in memory and never runs two events of one
+lane at once, so the events of one issue run in the order they came. Up to `--concurrency` job
+sessions run at once across all events, 4 unless set, and check sessions have a pool of the same
+size of their own, so an attempt's reviewers never wait behind other issues' implementors. A bot's
+`concurrency` caps its own sessions, jobs and checks together, within those pools; several sessions
+on one provider key can set it to queue in bothub rather than at the model. An event a bot made
+that starts no job is logged and never run.
 
-`worker` runs up to `--concurrency` items at once, 4 unless set, and never two for the same issue or pull
-request, so the events of one issue run in the order they came. The same number caps the job sessions running at once
-across all events, and check sessions have a pool of the same size of their own, so an attempt's reviewers never wait
-behind other issues' implementors. A bot's `concurrency` caps its own sessions, jobs and checks together, within those
-pools; several sessions on one provider key can set it to queue in bothub rather than at the model. An event a bot made
-that starts no job is logged and never queued.
+`bothub pause` holds new work in `<data>/runner.json` until `bothub resume`; `--now` also stops what
+is running and holds it. When `serve` starts, runs a stopped process left unfinished are marked
+interrupted and their event runs again, reusing every job that finished.
 
 A hub edit that does not compile is logged once, and events keep running with the last version
 that compiled until it is fixed; `/api/info` lists its errors as `hubErrors` meanwhile. A hub that
-never compiled runs nothing. An item whose handling fails, for one because the hub has never
-compiled, waits and is tried again, 5 seconds later and twice as long each time after. After 5 tries it moves to
-`<data>/queue/failed/` with its last error, and `failed` lists it. Nothing is dropped.
+never compiled runs nothing.
 
 `serve` logs each check as it starts and ends, with its verdict and how long it took:
 
@@ -76,12 +69,10 @@ Each job's result is logged as that job ends, not once the whole event is done:
 issue/implement: succeeded, done 2026-10-13T10-27-07-656Z-9693d9
 ```
 
-Removing the label withdraws the work. Before an item runs, `withdrawn` checks that
-the label which started it is still on the issue and drops the item if not. A job already running
-is stopped as withdrawn when its label is removed or its issue closed. bothub adds no status labels of its own: waiting work is in the queue's `list`, and
-once it starts, its runs carry their status and closure.
+A job already running is stopped as withdrawn when its label is removed or its issue closed. bothub
+adds no status labels of its own; once work starts, its runs carry their status and closure.
 
-See `Queue` in [src/queue.ts](../../src/queue.ts).
+See `runner` in [src/serve.ts](../../src/serve.ts).
 
 ## Merge requests
 
@@ -101,7 +92,7 @@ commit, whether it merges cleanly is answered by `git merge-tree`, and a merge i
 `commit-tree` and an `update-ref` that only succeeds while `into` is still where the merge was
 checked. `serve` turns the log into `pull_request` events, `opened`, `synchronize` when a branch
 moved and `closed` once merged, by `bothub[bot]`, so a workflow can trigger on them just as on
-GitHub. Comments and labels on those requests have nowhere to go and are refused.
+GitHub. A comment on a request is a `comment` line in the same log, and `bothub say --pull <n> "text"` adds one.
 
 GitHub's pull requests sit behind the same `Pulls` interface (`githubPulls`),
 so the pipeline never knows which one it talks to. What GitHub adds is the review UI, comments and
@@ -111,7 +102,7 @@ labels on pull requests, and requests from forks.
 
 `bothub sim <scenario>` runs a hub against scripted human actions, one after another. Bots are
 replaced by a scripted harness and checks by scripts that pass or fail as told; the repository is
-a real local bare origin, and dispatch, the pipeline, the MCP server, validation, apply and the
+a real local bare origin, and planning, the pipeline, the MCP server, validation, apply and the
 local merge requests are real. The `pull_request` events that follow run until none are left, and
 `expect` names the merge requests the scenario must end with. `simulate` runs one.
 

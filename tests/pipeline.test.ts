@@ -10,7 +10,6 @@ import { findingsFor } from '../src/pipeline/checks.ts';
 import type { ApplyResult } from '../src/apply.ts';
 import type { Proposal } from '../src/outputs.ts';
 import {
-  approvals,
   buildSpec,
   closureOf as closure,
   couldNotRun,
@@ -1442,7 +1441,10 @@ describe('checks fail closed', () => {
   });
 
   it('fails a check that ended on its step cap', () => {
-    const capped = verdictOf(ok({}), bothub([{ kind: 'reply', body: 'PASS\nmaximum steps reached, review incomplete' }]));
+    const capped = verdictOf(
+      ok({}),
+      bothub([{ kind: 'reply', body: 'PASS\nmaximum steps reached, review incomplete' }])
+    );
     expect(capped.pass).toBe(false);
     expect(capped.findings).toMatch(/step cap/);
   });
@@ -1882,11 +1884,7 @@ jobs:
     expect(await issues.get(8)).toMatchObject({ title: 'Approve flow/deploy for #7 in production', parent: 7 });
     expect(seen).toHaveLength(1);
 
-    const labeled: BotEvent = { ...event, id: 'd2', trigger: 'issues', action: 'labeled', number: 8 };
-    expect(await approvals(labeled, p.store, issues)).toEqual([]);
     await issues.label(8, { add: ['approved'] });
-    expect(await approvals(labeled, p.store, issues)).toEqual([event]);
-    expect(await approvals({ ...labeled, actor: { login: 'x', association: 'NONE' } }, p.store, issues)).toEqual([]);
 
     const second = await Effect.runPromise(runPlan(jobs, p));
     expect(second.map(r => [r.job, closureOf(r)])).toEqual([

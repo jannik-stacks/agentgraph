@@ -59,9 +59,9 @@ describe('simulate', { timeout: 20_000 }, () => {
     ]);
   });
 
-  it('drops a second delivery of the same event', async () => {
+  it('reuses every job when the same event runs a second time', async () => {
     const { results, trace } = await run('redelivery.yaml');
-    expect(trace).toMatch(/redeliver local-6-comment-1-\w+: dropped, already delivered/);
+    expect(trace).toMatch(/redeliver local-6-comment-\d+: every job reused/);
     expect(results).toHaveLength(3);
   });
 

@@ -9,8 +9,6 @@ export type Delivery = { name: string; installation?: number };
 export type WebhookOptions = {
   secret: string;
   onEvent: (event: BotEvent, deliveryId: string, delivery: Delivery) => void | Promise<void>;
-  /** True when a delivery id was already handled; such deliveries are acknowledged and dropped. */
-  seen?: (deliveryId: string) => boolean | Promise<boolean>;
   onError?: (error: unknown, deliveryId: string) => void;
   /** Keeps the process alive for background work where the runtime needs it, such as a Worker's `ctx.waitUntil`. */
   waitUntil?: (work: Promise<unknown>) => void;
@@ -59,12 +57,11 @@ const installationOf = (payload: unknown) => {
 /**
  * A GitHub webhook receiver as a Web `Request` handler. Checks the signature over the raw body, maps the delivery to
  * a `BotEvent` and answers 202 before `onEvent` runs. Unhandled events get 204, bad signatures 401, bodies over
- * `maxBytes` 413, malformed deliveries 400 and repeated delivery ids 200.
+ * `maxBytes` 413 and malformed deliveries 400.
  */
 export const webhook = ({
   secret,
   onEvent,
-  seen,
   onError = () => {},
   waitUntil,
   maxBytes = defaultMaxBytes,
@@ -91,7 +88,6 @@ export const webhook = ({
       return text(400, 'malformed payload');
     }
     if (!event) return text(204);
-    if (await seen?.(deliveryId)) return text(200, 'duplicate delivery');
 
     const installation = installationOf(payload);
     const delivery: Delivery = { name, ...(installation !== undefined && { installation }) };

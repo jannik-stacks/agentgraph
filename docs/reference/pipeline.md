@@ -2,8 +2,7 @@
 
 From an event to finished jobs, and when a job counts as done.
 
-`plan` matches an event against every workflow's triggers, and `dispatch`
-wraps it with the store's delivery ledger so a redelivered webhook plans nothing.
+`plan` matches an event against every workflow's triggers.
 `runPlan` runs the planned jobs in dependency order, each in a fresh worktree.
 
 The fields are on `PlannedJob` in [src/dispatch.ts](../../src/dispatch.ts).

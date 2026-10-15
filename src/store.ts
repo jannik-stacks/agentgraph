@@ -314,18 +314,6 @@ export const openStore = (dir: string, owner: Owner = self) => {
     }
   };
 
-  /** Records a delivery id; true the first time it is seen, false for every repeat. */
-  const deliver = async (id: string) => {
-    await mkdir(join(dir, 'deliveries'), { recursive: true });
-    try {
-      await (await open(join(dir, 'deliveries', hashed(id)), 'wx')).close();
-      return true;
-    } catch (e) {
-      if (code(e) === 'EEXIST') return false;
-      throw e;
-    }
-  };
-
   /**
    * Takes the lock `name` for `run`. Resolves to a release function, or to the run holding it. A lock whose owner
    * process is gone is taken over.
@@ -364,12 +352,15 @@ export const openStore = (dir: string, owner: Owner = self) => {
     tmp,
     files,
     file,
-    deliver,
     lock,
   };
 };
 
 export type Store = ReturnType<typeof openStore>;
+
+/** Queued or running, and owned by a process that may still be running it. */
+export const isLive = (run: Run) =>
+  (run.status === 'queued' || run.status === 'running') && (!run.owner || alive(run.owner));
 
 const unfinished = (run: Run, outcome: Outcome | undefined) =>
   run.status === 'queued' ||

@@ -5,9 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
 import { localPulls } from '../src/pulls.ts';
 import { checkLine, laneOf, localOrigin, logExit, serveHub, warmDeps } from '../src/serve.ts';
-import { fileQueue } from '../src/queue.ts';
-import { unsandboxed, type Launcher } from '../src/runner.ts';
-import { SandboxError } from '../src/sandbox.ts';
+import { rpc, type OpError } from '../src/ops.ts';
+import { unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import { workspaces } from '../src/workspace.ts';
 import type { JobResult } from '../src/pipeline.ts';
@@ -54,74 +53,93 @@ describe('localOrigin', () => {
 });
 
 describe('serveHub', () => {
-  it('runs the jobs an issue comment starts, applies the reply and serves the runs', async () => {
+  const hubDir = (extra: Record<string, string> = {}) => {
     const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
+    for (const [path, text] of Object.entries({ ...files, ...extra })) {
       mkdirSync(join(hub, path, '..'), { recursive: true });
       writeFileSync(join(hub, path), text);
     }
-    const data = temp('serve-data');
+    return hub;
+  };
+  const start = async (options: Partial<Parameters<typeof serveHub>[0]> & { hub: string }) => {
     const done: [BotEvent, JobResult[]][] = [];
+    const lines: string[] = [];
     const served = await serveHub({
-      hub,
-      data,
+      data: temp('serve-data'),
       origin: bareOrigin(),
       repo: 'acme/app',
       env: {},
       port: 0,
-      interval: 20,
-      log: () => {},
+      log: line => lines.push(line),
       adapters,
       launch: unsandboxed,
       onResults: (event, results) => done.push([event, results]),
+      ...options,
     });
+    const call = rpc(`http://127.0.0.1:${served.port}`);
+    const say = (issue: number, text: string, as = 'morgan') => call('say', { issue, text, as });
+    const ran = async (n: number) => {
+      while (done.length < n) await new Promise(r => setTimeout(r, 20));
+      await served.idle();
+    };
+    return { served, done, lines, call, say, ran };
+  };
+
+  it('runs what a message starts, applies the reply and serves the runs as ops', async () => {
+    const hub = hubDir();
+    const { served, done, call, say, ran } = await start({ hub });
     try {
-      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
-      while (!done.length) await new Promise(r => setTimeout(r, 20));
+      expect(await say(1, '/bothub why')).toMatchObject({ jobs: ['issue/answer'] });
+      await ran(1);
       const [[event, results]] = done as [[BotEvent, JobResult[]]];
-      expect(event).toMatchObject({ trigger: 'issue_comment', number: 1, repo: 'acme/app' });
-      expect(results.map(r => (r.run.status === 'skipped' ? r.run.reason : r.run.status))).toEqual(['succeeded']);
-      expect(readFileSync(join(hub, 'issues', '1-question.md'), 'utf8')).toContain('Because.');
-      const res = await fetch(`http://127.0.0.1:${served.port}/api/runs`);
-      expect((await res.json()).map((r: { job: string }) => r.job)).toEqual(['answer']);
-      const again = await localIssues(join(hub, 'issues'), { repo: 'acme/app' }).get(1);
-      expect(again?.comments).toHaveLength(2);
+      expect(event).toMatchObject({ trigger: 'issue_comment', number: 1, repo: 'acme/app', body: '/bothub why' });
+      expect(results.map(r => r.run.status)).toEqual(['succeeded']);
+      const issue = await localIssues(join(hub, 'issues'), { repo: 'acme/app' }).get(1);
+      expect(issue?.comments.map(c => [c.author, c.body.split('\n')[0]])).toEqual([
+        ['morgan', '/bothub why'],
+        ['bothub[bot]', 'Because.'],
+      ]);
+      const runs = (await call('runs_list')) as { id: string; job: string }[];
+      expect(runs.map(r => r.job)).toEqual(['answer']);
+      expect(await call('runs_get', { id: runs[0]!.id })).toMatchObject({ run: { job: 'answer' } });
+      await expect(call('runs_get', { id: 'nope' })).rejects.toThrow('no run "nope"');
+      await expect(call('say', { text: 'hi' })).rejects.toThrow('name either an issue or a merge request');
+    } finally {
+      await served.stop();
+    }
+  });
+
+  it('starts nothing from a bot, and answers a mention that starts nothing', async () => {
+    const hub = hubDir({
+      'workflows/issue.md': files['workflows/issue.md']!.replace('command: /bothub', 'command: /ask'),
+    });
+    const { served, say } = await start({ hub });
+    try {
+      expect(await say(1, '/ask why', 'helper[bot]')).toBeNull();
+      expect(await say(1, '@bothub can you look?')).toMatchObject({ jobs: [] });
+      const issue = await localIssues(join(hub, 'issues'), { repo: 'acme/app' }).get(1);
+      expect(issue?.comments.at(-1)).toMatchObject({
+        author: 'bothub[bot]',
+        body: 'Nothing starts on this. Start a comment with /ask.',
+      });
     } finally {
       await served.stop();
     }
   });
 
   it('records the engine and hub on every run, keeps each hub version and logs its keys and every hub change', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
+    const hub = hubDir();
     const data = temp('serve-data');
-    const lines: string[] = [];
-    const done: JobResult[][] = [];
-    const served = await serveHub({
+    const { served, done, lines, say, ran } = await start({
       hub,
       data,
-      origin: bareOrigin(),
-      repo: 'acme/app',
       env: { BOTHUB_LLM_API_KEY: 'k1', BOTHUB_LLM_API_KEY_OTHER: 'k2' },
-      port: 0,
-      interval: 20,
-      log: line => lines.push(line),
-      adapters,
-      launch: unsandboxed,
-      onResults: (_, results) => done.push(results),
     });
-    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
-    const next = async (n: number) => {
-      while (done.length < n) await new Promise(r => setTimeout(r, 20));
-      return done[n - 1]![0]!.run;
-    };
     try {
       expect(lines[0]).toBe('model keys: BOTHUB_LLM_API_KEY (helper), BOTHUB_LLM_API_KEY_OTHER');
-      await issues.comment(1, '/bothub why');
-      const first = await next(1);
+      await say(1, '/bothub why');
+      await ran(1);
+      const first = done[0]![1][0]!.run;
       expect(first.engine?.src).toMatch(/^[0-9a-f]{16}$/);
       expect(lines).toContain(`hub ${first.hub}`);
       const kept = JSON.parse(readFileSync(join(data, 'hubs', `${first.hub}.json`), 'utf8'));
@@ -137,8 +155,9 @@ describe('serveHub', () => {
         join(hub, 'skills/answer.md'),
         files['skills/answer.md']!.replace('Answer it.', 'Answer it briefly.')
       );
-      await issues.comment(1, '/bothub again');
-      const second = await next(2);
+      await say(1, '/bothub again');
+      await ran(2);
+      const second = done[1]![1][0]!.run;
       expect(second.hub).not.toBe(first.hub);
       expect(second.previous).toBe(first.id);
       expect(lines).toContain(`hub ${first.hub} -> ${second.hub}: skills/answer.md +1 -1`);
@@ -147,325 +166,119 @@ describe('serveHub', () => {
     }
   });
 
-  it('stops a run it is running when the studio asks, and defers its work', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
+  it('stops a run on request and defers its work', async () => {
     const hanging = fakeHarness(() => ({
       events: [reply],
       work: 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30000)',
     }));
-    const data = temp('serve-data');
-    const done: JobResult[][] = [];
-    const served = await serveHub({
-      hub,
-      data,
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: () => {},
-      adapters: hanging.adapters,
-      launch: unsandboxed,
-      onResults: (_, results) => done.push(results),
-    });
+    const { served, done, call, say, ran } = await start({ hub: hubDir(), adapters: hanging.adapters });
     try {
-      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
-      const store = openStore(data);
-      let running;
-      while (!(running = (await store.list()).find(r => r.status === 'running')))
+      await say(1, '/bothub why');
+      let running: { id: string } | undefined;
+      while (
+        !(running = ((await call('runs_list')) as { id: string; status: string }[]).find(r => r.status === 'running'))
+      )
         await new Promise(r => setTimeout(r, 20));
-      const stop = () => fetch(`http://127.0.0.1:${served.port}/api/runs/${running.id}/stop`, { method: 'POST' });
+      const stop = () =>
+        call('runs_stop', { id: running!.id }).then(
+          () => 200,
+          (e: OpError) => e.status
+        );
       let status;
-      while ((status = (await stop()).status) === 409) await new Promise(r => setTimeout(r, 20));
-      expect(status).toBe(202);
-      while (!done.length) await new Promise(r => setTimeout(r, 20));
-      expect(done[0]![0]!.run).toMatchObject({ status: 'cancelled', stopped: 'human', closure: 'deferred' });
+      while ((status = await stop()) === 409) await new Promise(r => setTimeout(r, 20));
+      expect(status).toBe(200);
+      await ran(1);
+      expect(done[0]![1][0]!.run).toMatchObject({ status: 'cancelled', stopped: 'human', closure: 'deferred' });
     } finally {
       await served.stop();
     }
   });
 
-  it('keeps an event that meets a hub edit that does not compile, and runs it once the hub is fixed', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
-    const lines: string[] = [];
-    const done: [BotEvent, JobResult[]][] = [];
-    const served = await serveHub({
-      hub,
-      data: temp('serve-data'),
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: line => lines.push(line),
-      adapters,
-      launch: unsandboxed,
-      onResults: (event, results) => done.push([event, results]),
-      retry: { backoff: () => 300 },
-    });
-    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
+  it('holds work while paused and starts it on resume', async () => {
+    const { served, done, call, say, ran } = await start({ hub: hubDir() });
     try {
-      writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!.replace('tools: [read]', 'tools: [Read]'));
-      await issues.comment(1, '/bothub why');
-      while (!lines.some(line => line.includes('the hub does not compile'))) await new Promise(r => setTimeout(r, 20));
-      expect(lines.some(line => line.startsWith('hub: bots/helper.md'))).toBe(true);
-      expect(done).toEqual([]);
-
-      writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!);
-      await issues.comment(1, '/bothub why, again');
-      while (done.length < 2) await new Promise(r => setTimeout(r, 20));
+      expect(await call('pause', {})).toEqual({ paused: true, stopped: [] });
+      expect(await say(1, '/bothub later')).toMatchObject({ jobs: ['issue/answer'], held: true });
       await served.idle();
-      expect(done.map(([event, results]) => [event.body, results.map(r => r.run.status)])).toEqual([
-        ['/bothub why', ['succeeded']],
-        ['/bothub why, again', ['succeeded']],
-      ]);
+      expect(done).toEqual([]);
+      expect(await call('status')).toMatchObject({ paused: true, held: [{ issue: 1 }], live: [] });
+      expect(await call('resume')).toMatchObject({ started: [{ jobs: ['issue/answer'] }] });
+      await ran(1);
+      expect(done.map(([event]) => event.body)).toEqual(['/bothub later']);
+      expect(await call('status')).toMatchObject({ paused: false, held: [] });
     } finally {
       await served.stop();
     }
   });
 
-  it('runs an event with the last hub that compiled, and reports the broken edit on /api/info', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
+  it('triggers a named workflow on an issue with its text as arguments', async () => {
+    const { served, done, call, ran } = await start({ hub: hubDir() });
+    try {
+      await expect(call('trigger', { issue: 1 })).rejects.toThrow('name a workflow or give the comment text');
+      await expect(call('trigger', { issue: 1, workflow: 'nope' })).rejects.toThrow('no workflow "nope"');
+      expect(await call('trigger', { issue: 1, workflow: 'issue', text: 'why' })).toMatchObject({
+        jobs: ['issue/answer'],
+      });
+      await ran(1);
+      expect(done[0]![0]).toMatchObject({ trigger: 'workflow_dispatch', number: 1, body: 'why' });
+      expect(done[0]![1].map(r => r.args)).toEqual(['why']);
+    } finally {
+      await served.stop();
     }
-    const lines: string[] = [];
-    const done: BotEvent[] = [];
-    const served = await serveHub({
-      hub,
-      data: temp('serve-data'),
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: line => lines.push(line),
-      adapters,
-      launch: unsandboxed,
-      onResults: event => done.push(event),
-    });
+  });
+
+  it('runs a message with the last hub that compiled, and reports the broken edit on /api/info', async () => {
+    const hub = hubDir();
+    const { served, done, lines, say, ran } = await start({ hub });
     const info = async () =>
       (await (await fetch(`http://127.0.0.1:${served.port}/api/info`)).json()) as { hubErrors: unknown[] };
-    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
-    const ran = async (count: number) => {
-      while (done.length < count) await new Promise(r => setTimeout(r, 20));
-      await served.idle();
-    };
     try {
-      await issues.comment(1, '/bothub one');
+      await say(1, '/bothub one');
       await ran(1);
       expect((await info()).hubErrors).toEqual([]);
 
       writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!.replace('tools: [read]', 'tools: [Read]'));
-      await issues.comment(1, '/bothub two');
+      await say(1, '/bothub two');
       await ran(2);
       expect(lines).toContain('the hub does not compile (1 errors), running the last version that compiled');
       expect((await info()).hubErrors).toMatchObject([{ path: 'bots/helper.md' }]);
 
       writeFileSync(join(hub, 'bots/helper.md'), files['bots/helper.md']!);
-      await issues.comment(1, '/bothub three');
+      await say(1, '/bothub three');
       await ran(3);
       expect((await info()).hubErrors).toEqual([]);
-      expect(done.map(event => event.body)).toEqual(['/bothub one', '/bothub two', '/bothub three']);
+      expect(done.map(([event]) => event.body)).toEqual(['/bothub one', '/bothub two', '/bothub three']);
     } finally {
       await served.stop();
     }
   });
 
-  it('moves an event that keeps failing to the failed items', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
-    writeFileSync(join(hub, 'bots/helper.md'), 'not a bot');
-    const data = temp('serve-data');
-    const served = await serveHub({
-      hub,
-      data,
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: () => {},
-      launch: unsandboxed,
-      retry: { tries: 2, backoff: () => 10 },
-    });
-    try {
-      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
-      const queue = fileQueue<BotEvent>(join(data, 'queue'));
-      while (!(await queue.failed()).length) await new Promise(r => setTimeout(r, 20));
-      const [failed] = await queue.failed();
-      expect(failed).toMatchObject({ item: { body: '/bothub why' }, tries: 2 });
-      expect(failed?.error).toMatch(/^the hub does not compile/);
-      expect(await queue.list()).toEqual([]);
-    } finally {
-      await served.stop();
-    }
-  });
-
-  it('runs an event again when a job did not start', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
-    let starts = 0;
-    const flaky: Launcher = {
-      ...unsandboxed,
-      agent: async (...args) => {
-        if (++starts === 1) throw new SandboxError('installing dependencies failed: FETCH_ERROR');
-        return unsandboxed.agent(...args);
-      },
-    };
-    const lines: string[] = [];
-    const done: JobResult[][] = [];
-    const data = temp('serve-data');
-    const served = await serveHub({
-      hub,
-      data,
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: line => lines.push(line),
-      adapters,
-      launch: flaky,
-      onResults: (_event, results) => done.push(results),
-      retry: { backoff: () => 10 },
-    });
-    try {
-      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
-      while (done.length < 2) await new Promise(r => setTimeout(r, 20));
-      await served.idle();
-      expect(done.map(results => results.map(r => [r.run.status, r.run.closure]))).toEqual([
-        [['failed', 'deferred']],
-        [['succeeded', 'done']],
-      ]);
-      expect(lines).toEqual(
-        expect.arrayContaining([
-          expect.stringMatching(
-            /issue\/answer did not start: sandbox-failed: installing dependencies failed: FETCH_ERROR; trying again/
-          ),
-        ])
-      );
-      const queue = fileQueue<BotEvent>(join(data, 'queue'));
-      expect([await queue.list(), await queue.failed()]).toEqual([[], []]);
-    } finally {
-      await served.stop();
-    }
-  });
-
-  it('runs two issues at once and leaves events a bot made that start nothing out of the queue', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
-    writeFileSync(
-      join(hub, 'issues/2-other.md'),
-      '---\ntitle: Another\nstate: open\nlabels: []\nauthor: morgan\n---\n\nHow?\n'
-    );
+  it('runs two issues at once', async () => {
     const timed = fakeHarness(() => ({
       events: [reply],
       work: 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300)',
     }));
-    const lines: string[] = [];
     const data = temp('serve-data');
-    const served = await serveHub({
-      hub,
-      data,
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: line => lines.push(line),
-      adapters: timed.adapters,
-      launch: unsandboxed,
+    const hub = hubDir({
+      'issues/2-other.md': '---\ntitle: Another\nstate: open\nlabels: []\nauthor: morgan\n---\n\nHow?\n',
     });
+    const { served, say, ran } = await start({ hub, data, adapters: timed.adapters });
     try {
-      const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
-      await issues.comment(1, '/bothub one');
-      await issues.comment(2, '/bothub two');
-      while (lines.filter(line => line.includes('by @bothub[bot]: 0 jobs')).length < 2)
-        await new Promise(r => setTimeout(r, 20));
-      await served.idle();
+      await say(1, '/bothub one');
+      await say(2, '/bothub two');
+      await ran(2);
       const runs = await openStore(data).list();
       const [a, b] = runs.map(r => [Date.parse(r.startedAt!), Date.parse(r.endedAt!)] as const);
       expect(a![0] < b![1] && b![0] < a![1]).toBe(true);
-      expect(lines.filter(line => line.startsWith('issue/answer: succeeded'))).toHaveLength(2);
-      expect(lines.filter(line => line.includes('by @bothub[bot]: 0 jobs'))).toHaveLength(2);
-      expect(await fileQueue(join(data, 'queue')).list()).toEqual([]);
     } finally {
       await served.stop();
     }
   });
 
-  it('runs a comment made while it was stopped, but not what was there on its first start', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
-    const data = temp('serve-data');
-    const issues = localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' });
-    await issues.comment(1, '/bothub from before the first start');
-    const done: [BotEvent, JobResult[]][] = [];
-    const start = () =>
-      serveHub({
-        hub,
-        data,
-        origin: bareOrigin(),
-        repo: 'acme/app',
-        env: {},
-        port: 0,
-        interval: 20,
-        log: () => {},
-        adapters,
-        launch: unsandboxed,
-        onResults: (event, results) => done.push([event, results]),
-      });
-    const first = await start();
-    await first.idle();
-    await first.stop();
-    expect(done).toEqual([]);
-
-    await issues.comment(1, '/bothub while stopped');
-    const second = await start();
-    try {
-      while (!done.length) await new Promise(r => setTimeout(r, 20));
-      await second.idle();
-      expect(done.map(([event]) => event.body)).toEqual(['/bothub while stopped']);
-    } finally {
-      await second.stop();
-    }
-    const third = await start();
-    await third.idle();
-    await third.stop();
-    expect(done).toHaveLength(1);
-  });
-
-  it('marks runs a stopped process left unfinished as interrupted and runs their event again', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
+  it('marks runs a stopped process left unfinished as interrupted and runs them again', async () => {
     const data = temp('serve-data');
     const event: BotEvent = {
-      id: 'local-1-comment-0-x',
+      id: 'comment-1',
       ts: '2026-10-12T00:00:00.000Z',
       source: 'local',
       trigger: 'issue_comment',
@@ -478,38 +291,19 @@ describe('serveHub', () => {
     const gone = openStore(data, { pid: 2 ** 22 + 1, token: 'gone' });
     const stale = await gone.create({ workflow: 'issue', job: 'answer', bot: 'helper', harness: 'opencode', event });
     await gone.update(stale.id, { status: 'running', startedAt: event.ts });
-    const done: JobResult[][] = [];
-    const served = await serveHub({
-      hub,
-      data,
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: () => {},
-      adapters,
-      launch: unsandboxed,
-      onResults: (_, results) => done.push(results),
-    });
+    const { served, done } = await start({ hub: hubDir(), data });
     try {
       await served.idle();
       expect((await openStore(data).read(stale.id))?.status).toBe('interrupted');
-      expect(done.flat().map(r => (r.run.status === 'skipped' ? r.run.reason : r.run.status))).toEqual(['succeeded']);
+      expect(done.flatMap(([, results]) => results).map(r => r.run.status)).toEqual(['succeeded']);
     } finally {
       await served.stop();
     }
   });
 
-  it('queues a merge request event once however often it scans', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
-    writeFileSync(
-      join(hub, 'workflows/pr.md'),
-      [
+  it('starts the event of a merge request once, on start and after each run', async () => {
+    const hub = hubDir({
+      'workflows/pr.md': [
         '---',
         'name: pr',
         'on:',
@@ -524,8 +318,8 @@ describe('serveHub', () => {
         '---',
         'Notes.',
         '',
-      ].join('\n')
-    );
+      ].join('\n'),
+    });
     const data = temp('serve-data');
     const origin = bareOrigin();
     await localPulls({ origin, file: join(data, 'pulls.jsonl'), repo: 'acme/app' }).open({
@@ -534,58 +328,33 @@ describe('serveHub', () => {
       branch: 'feature',
       into: 'main',
     });
-    const done: BotEvent[] = [];
-    const served = await serveHub({
-      hub,
-      data,
-      origin,
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 10,
-      log: () => {},
-      launch: unsandboxed,
-      onResults: event => done.push(event),
-    });
+    const { served, done, say, ran } = await start({ hub, data, origin });
     try {
-      while (!done.length) await new Promise(r => setTimeout(r, 20));
-      await new Promise(r => setTimeout(r, 100));
-      await served.idle();
-      expect(done.map(e => [e.trigger, e.action, e.id])).toEqual([['pull_request', 'opened', 'local-pull-1-opened']]);
-      expect(await fileQueue(join(data, 'queue')).list()).toEqual([]);
+      await ran(1);
+      await say(1, '/bothub why');
+      await ran(2);
+      expect(done.map(([e]) => [e.trigger, e.action ?? null, e.id.startsWith('comment-') ? 'say' : e.id])).toEqual([
+        ['pull_request', 'opened', 'local-pull-1-opened'],
+        ['issue_comment', 'created', 'say'],
+      ]);
     } finally {
       await served.stop();
     }
+    const again = await start({ hub, data, origin });
+    await again.served.idle();
+    await again.served.stop();
+    expect(again.done).toEqual([]);
   });
 
   it('logs a merge request log it cannot read and keeps serving', async () => {
-    const hub = temp('serve-hub');
-    for (const [path, text] of Object.entries(files)) {
-      mkdirSync(join(hub, path, '..'), { recursive: true });
-      writeFileSync(join(hub, path), text);
-    }
     const data = temp('serve-data');
     writeFileSync(join(data, 'pulls.jsonl'), 'not json\n');
-    const lines: string[] = [];
-    const done: BotEvent[] = [];
-    const served = await serveHub({
-      hub,
-      data,
-      origin: bareOrigin(),
-      repo: 'acme/app',
-      env: {},
-      port: 0,
-      interval: 20,
-      log: line => lines.push(line),
-      adapters,
-      launch: unsandboxed,
-      onResults: event => done.push(event),
-    });
+    const { served, done, lines, say, ran } = await start({ hub: hubDir(), data });
     try {
       expect(lines.some(line => line.startsWith('error: ') && line.includes('JSON'))).toBe(true);
-      await localIssues(join(hub, 'issues'), { repo: 'acme/app', as: 'morgan' }).comment(1, '/bothub why');
-      while (!done.length) await new Promise(r => setTimeout(r, 20));
-      expect(done.map(e => e.body)).toEqual(['/bothub why']);
+      await say(1, '/bothub why');
+      await ran(1);
+      expect(done.map(([e]) => e.body)).toEqual(['/bothub why']);
     } finally {
       await served.stop();
     }
@@ -657,7 +426,7 @@ const LANES = [
 
 describe('checkLine and laneOf', () => {
   it.each(LANES)('keeps one lane per issue or merge request: %s', (_, fields, lane) => {
-    expect(laneOf({ id: 'e1', item: { repo: 'acme/app', ...fields } as BotEvent })).toBe(lane);
+    expect(laneOf({ id: 'e1', repo: 'acme/app', ...fields } as BotEvent)).toBe(lane);
   });
 
   it('names a check start and its verdict with its time', () => {

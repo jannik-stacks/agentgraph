@@ -1,16 +1,16 @@
-import { createHash } from 'node:crypto';
-import { watch as watchDir } from 'node:fs';
 import { mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Document, isScalar, visit } from 'yaml';
 import { z } from 'zod';
-import { nextIssueNumber } from './hub-files.ts';
-import { changeEvent, matches, type Comment, type Issue, type Issues } from './issues.ts';
+import { matches, type Comment, type Issue, type Issues } from './issues.ts';
 import { parseMarkdown } from './markdown.ts';
-import { IssueFile, type Association } from './schema.ts';
-import type { BotEvent } from './types.ts';
+import { IssueFile } from './schema.ts';
 
 const fileName = /^(\d+)-[a-z0-9-]*\.md$/;
+
+/** The number of a new issue: one above the highest of the numbered issue file names. */
+const nextIssueNumber = (names: string[]) =>
+  Math.max(0, ...names.map(name => Number(/^(\d+)-/.exec(name)?.[1] ?? 0))) + 1;
 const commentHeading = /^## @(\S+) at (\d{4}-\d\d-\d\dT[\d:.]+Z)$/gm;
 
 const slugify = (text: string) =>
@@ -19,24 +19,6 @@ const slugify = (text: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .slice(0, 50)
     .replace(/^-+|-+$/g, '') || 'issue';
-
-const digest = (...parts: unknown[]) => createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 12);
-
-/**
- * A delivery id for a local change that is the same every time the same change is seen: the issue, what changed and
- * a digest of the comment or of the issue's state after the change.
- */
-export const localId = (change: Parameters<typeof changeEvent>[0]) => {
-  const { issue } = change;
-  if (change.kind === 'issue_comment') {
-    const index = issue.comments.indexOf(change.comment) + 1;
-    return `local-${issue.number}-comment-${index}-${digest(change.comment.author, change.comment.ts, change.comment.body)}`;
-  }
-  if (change.action === 'opened') return `local-${issue.number}-opened`;
-  if (change.action === 'labeled')
-    return `local-${issue.number}-labeled-${digest(change.label, issue.state, issue.labels, issue.comments.length)}`;
-  return `local-${issue.number}-${change.action}-${digest(issue.state, issue.labels, issue.comments.length)}`;
-};
 
 /** Parses one `<n>-<slug>.md` issue file. Comments are `## @<author> at <ISO time>` sections after the body. */
 export const parseIssue = (file: string, source: string): Issue => {
@@ -85,7 +67,7 @@ export const renderIssue = ({ title, state, labels, author, parent, links, chang
  * `as`; a change without a record is a hand edit, attributed to the issue's author. Authors ending in `[bot]` count as
  * untrusted (`NONE`), everyone else as `OWNER`, since writing to the hub already takes repository access.
  */
-export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: string; as?: string }): Issues => {
+export const localIssues = (dir: string, { as = 'bothub[bot]' }: { repo: string; as?: string }): Issues => {
   let queue: Promise<unknown> = Promise.resolve();
   const serial = <T>(task: () => Promise<T>) => {
     const next = queue.catch(() => {}).then(task);
@@ -125,58 +107,6 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
 
   const record = (issue: Issue, entries: NonNullable<Issue['changes']>) =>
     entries.length ? { changes: [...(issue.changes ?? []), ...entries] } : {};
-
-  const association = (login: string): Association => (login.endsWith('[bot]') ? 'NONE' : 'OWNER');
-
-  const watch: Issues['watch'] = (onEvent, { interval, replay } = {}) => {
-    let seen: Map<number, Issue> | undefined = replay ? new Map() : undefined;
-    let scanning = Promise.resolve();
-    const emit = (event: BotEvent | undefined) => event && onEvent(event);
-    const scan = () =>
-      (scanning = scanning.then(async () => {
-        const current = new Map((await all().catch(() => [])).map(issue => [issue.number, issue]));
-        const before = seen;
-        seen = current;
-        if (!before) return;
-        const event = (change: Parameters<typeof changeEvent>[0]) =>
-          emit(changeEvent(change, { repo, id: localId(change), association, source: 'local' }));
-        for (const issue of current.values()) {
-          const old = before.get(issue.number);
-          const sender = issue.author ?? as;
-          const recorded = issue.changes?.slice(old?.changes?.length ?? 0) ?? [];
-          const by = (action: string, label?: string) =>
-            recorded.findLast(c => c.action === action && c.label === label)?.by ?? sender;
-          if (!old) event({ kind: 'issues', action: 'opened', issue, sender });
-          else {
-            if (old.state !== issue.state) {
-              const action = issue.state === 'closed' ? 'closed' : 'reopened';
-              event({ kind: 'issues', action, issue, sender: by(action) });
-            }
-            for (const label of issue.labels.filter(label => !old.labels.includes(label)))
-              event({ kind: 'issues', action: 'labeled', issue, sender: by('labeled', label), label });
-          }
-          for (const comment of issue.comments.slice(old?.comments.length ?? 0))
-            event({ kind: 'issue_comment', issue, comment });
-        }
-      }));
-    const ready = mkdir(dir, { recursive: true }).then(scan);
-    if (interval) {
-      const timer = setInterval(() => void ready.then(scan), interval);
-      return { ready, stop: () => clearInterval(timer) };
-    }
-    let watcher: ReturnType<typeof watchDir> | undefined;
-    let stopped = false;
-    void ready.then(() => {
-      if (!stopped) watcher = watchDir(dir, () => void scan());
-    });
-    return {
-      ready,
-      stop: () => {
-        stopped = true;
-        watcher?.close();
-      },
-    };
-  };
 
   return {
     backend: 'local',
@@ -235,6 +165,5 @@ export const localIssues = (dir: string, { repo, as = 'bothub[bot]' }: { repo: s
       if (!(await get(parent))) throw new Error(`no issue #${parent}`);
       await update(child, i => ({ ...i, parent }));
     },
-    watch,
   };
 };

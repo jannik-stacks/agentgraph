@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseEnv } from 'node:util';
@@ -17,11 +16,13 @@ import { senderTrust, toEvent } from './github.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { McpTool, serveMcp } from './mcp.ts';
+import { opNames, ops, rpc } from './ops.ts';
 import { buildSpec, type JobResult } from './pipeline.ts';
 import { limiter } from './runner.ts';
 import { sandboxConfig, sandboxNetwork } from './sandbox.ts';
 import { handleEvent, localOrigin, logExit, serveHub, stamped } from './serve.ts';
 import { serveGitHub } from './serve-github.ts';
+import { settings } from './settings.ts';
 import { simulate } from './sim.ts';
 import { compareSpend } from './spend.ts';
 import { openStore, runId, type Run } from './store.ts';
@@ -72,7 +73,7 @@ const compiled = async (path: string): Promise<Config | undefined> => {
 const hubIssues = (config: Config, dir: string, repo: string) =>
   config.hub.issues === 'local' ? localIssues(join(dir, 'issues'), { repo }) : undefined;
 
-const dataDir = (flag: string | undefined) => flag ?? process.env.BOTHUB_DATA ?? join(homedir(), '.bothub');
+const dataDir = (flag: string | undefined) => flag ?? settings().data;
 
 /** The process env over the data directory's `.env`; runs only receive the secrets picked from it by name. */
 const loadEnv = async (root: string) => ({
@@ -392,6 +393,7 @@ const mcp = defineCommand({
     data,
     repo: { type: 'string', description: 'Repository the issues belong to', default: 'hub/issues' },
     tools: { type: 'string', description: 'Comma-separated tools to serve', default: McpTool.options.join(',') },
+    runner: { type: 'string', description: 'Also serve the ops of the runner at this URL' },
   },
   async run({ args }) {
     const config = await compiled(args.dir);
@@ -407,6 +409,7 @@ const mcp = defineCommand({
       ...(issues && { issues }),
       ...(args.data && { store: openStore(args.data) }),
       ...(process.env.HOME && { home: process.env.HOME }),
+      ...(args.runner && { runner: rpc(args.runner) }),
     });
     return 0;
   },
@@ -425,7 +428,7 @@ const serveCmd = defineCommand({
   meta: {
     name: 'serve',
     description:
-      "Run the jobs a hub's events start and serve the studio API: local issues for a hub with `issues: local`, GitHub App webhooks otherwise",
+      "Run a hub's runner and serve its ops and the studio API; it hears the local forge for a hub with `issues: local`, GitHub App webhooks otherwise",
   },
   args: {
     hub: { ...dir, required: true },
@@ -435,7 +438,7 @@ const serveCmd = defineCommand({
     prewarm: { type: 'boolean', description: "Local issues: install the hub's deps at start, not on the first run" },
     repos: { type: 'string', description: 'GitHub: comma-separated owner/repo allowlist (default: every one)' },
     'webhook-port': { type: 'string', description: 'GitHub: webhook port, the only one to expose', default: '5183' },
-    port: { type: 'string', description: 'Studio API port', default: '5181' },
+    port: { type: 'string', description: 'Port of the ops and studio API (default: $BOTHUB_PORT or 5181)' },
     concurrency: {
       type: 'string',
       description: 'Events and agent sessions that run at once; one event at a time per issue',
@@ -443,8 +446,8 @@ const serveCmd = defineCommand({
     },
   },
   async run({ args }) {
-    const settings = sandbox();
-    if (!settings) return 2;
+    const box = sandbox();
+    if (!box) return 2;
     const at = positive('concurrency', args.concurrency);
     if (!at) return 2;
     const root = dataDir(args.data);
@@ -457,7 +460,13 @@ const serveCmd = defineCommand({
       return 2;
     }
     const because = logExit(stamped(root));
-    const common = { hub: args.hub, data: root, env, port: Number(args.port), concurrency: at };
+    const common = {
+      hub: args.hub,
+      data: root,
+      env,
+      port: args.port ? Number(args.port) : settings().port,
+      concurrency: at,
+    };
     const failed = (e: Error): never => {
       because(`on error: ${e.message}`);
       throw e;
@@ -488,7 +497,7 @@ const serveCmd = defineCommand({
         webhookPort: Number(args['webhook-port']),
       }).catch(failed));
     }
-    process.stderr.write(`sandbox ${settings.image} on ${sandboxNetwork}, data ${root}\n`);
+    process.stderr.write(`sandbox ${box.image} on ${sandboxNetwork}, data ${root}\n`);
     because(
       await new Promise<string>(done => {
         process.once('SIGINT', () => done('on SIGINT'));
@@ -500,7 +509,61 @@ const serveCmd = defineCommand({
   },
 });
 
-const shown = { check, run, serve: serveCmd, logs, sim, 'setup-app': setupAppCommand };
+const url = {
+  type: 'string',
+  description: 'The served runner (default: $BOTHUB_URL or http://127.0.0.1:5181)',
+} as const;
+const runnerUrl = (flag: string | undefined) => flag ?? settings().url;
+
+type Field = { type?: string; description?: string; items?: unknown };
+
+/** A flag's text as the JSON value its schema field takes: a number, a boolean, a list or JSON, or the text. */
+const flagValue = (field: Field, value: unknown) => {
+  if (typeof value !== 'string') return value;
+  if (field.type === 'integer' || field.type === 'number') return Number(value);
+  if (field.type === 'array') return value.split(',').filter(Boolean);
+  if (field.type === 'object') return JSON.parse(value) as unknown;
+  return value;
+};
+
+/** One command per op, each flag a field of its input, sent to the served runner. */
+const opCommands = Object.fromEntries(
+  opNames.map(name => {
+    const schema = z.toJSONSchema(ops[name].input, { io: 'input' }) as { properties?: Record<string, Field> };
+    const fields = Object.entries(schema.properties ?? {});
+    const command = defineCommand({
+      meta: { name: name.replaceAll('_', '-'), description: ops[name].description },
+      args: {
+        ...Object.fromEntries(
+          fields.map(([key, field]) => [
+            key,
+            {
+              type: key === 'text' ? 'positional' : field.type === 'boolean' ? 'boolean' : 'string',
+              description: field.description ?? key,
+              required: false,
+            },
+          ])
+        ),
+        url,
+      } as Record<string, { type: 'string' | 'boolean' | 'positional'; description: string }>,
+      async run({ args }) {
+        const input = Object.fromEntries(
+          fields.flatMap(([key, field]) => (args[key] === undefined ? [] : [[key, flagValue(field, args[key])]]))
+        );
+        try {
+          print(JSON.stringify(await rpc(runnerUrl(args.url as string | undefined))(name, input), null, 2));
+          return 0;
+        } catch (e) {
+          fail((e as Error).message);
+          return 1;
+        }
+      },
+    });
+    return [name.replaceAll('_', '-'), command];
+  })
+);
+
+const shown = { check, run, serve: serveCmd, logs, sim, 'setup-app': setupAppCommand, ...opCommands };
 const commands: Record<string, CommandDef<any>> = { ...shown, mcp };
 
 export const cli = defineCommand({

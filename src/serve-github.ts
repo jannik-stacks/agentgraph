@@ -3,15 +3,15 @@ import { serve } from './api.ts';
 import type { githubApp } from './github-app.ts';
 import { senderTrust } from './github.ts';
 import { localIssues } from './issues-local.ts';
-import { eventQueue, handled, servedHub, serveStudio, type ServeOptions } from './serve.ts';
+import { runner, servedHub, serveStudio, type ServeOptions } from './serve.ts';
 import { webhook } from './webhook.ts';
 import { workspaces } from './workspace.ts';
 
 /**
  * A hub driven by GitHub App webhooks: receives deliveries on `webhookPort` (the only port to expose through a
- * tunnel), acknowledges repeated delivery ids from the store's ledger without running them, runs the jobs as the
- * installation that covers the event's repository, and serves the studio API on `port`. Events from repositories
- * outside `repos`, when given, are ignored. Deliveries wait in `eventQueue` like `serveHub`'s. Resolves once listening.
+ * tunnel), starts each one's work on the runner once per delivery id, runs the jobs as the installation that covers
+ * the event's repository, and serves the studio API with the ops on `port`. Events from repositories outside `repos`,
+ * when given, are ignored. Resolves once listening.
  */
 export const serveGitHub = async (
   options: ServeOptions & {
@@ -31,33 +31,34 @@ export const serveGitHub = async (
     })
   );
   const { log } = hub;
-  const run = handled(hub, options.onResults);
-  const queue = await eventQueue(
-    hub,
-    async event => {
-      if (repos && !repos.includes(event.repo)) return log(`event ${event.id} from ${event.repo} ignored`);
-      await run(event);
-    },
-    options
-  );
+  const run = await runner(hub, {
+    ...(repos?.length === 1 && { repo: repos[0] }),
+    ...(options.onResults && { onResults: options.onResults }),
+  });
+  const delivered = new Set<string>();
   const receiver = webhook({
     secret,
-    seen: async id => !(await hub.store.deliver(id)),
-    onEvent: async event => queue.enqueue(await senderTrust(event, app.repoClient(event.repo)), true),
+    onEvent: async (event, id) => {
+      if (delivered.has(id)) return;
+      delivered.add(id);
+      if (repos && !repos.includes(event.repo)) return log(`event ${event.id} from ${event.repo} ignored`);
+      await run.start({ event: await senderTrust(event, app.repoClient(event.repo)) });
+    },
     ...(options.env.BOTHUB_APP_SLUG && { slug: options.env.BOTHUB_APP_SLUG }),
     onError: (e, id) => log(`delivery ${id}: ${(e as Error).message}`),
   });
   const hooks = await serve(receiver, webhookPort);
-  const studio = await serveStudio(hub, options.port);
+  const studio = await serveStudio(run, options.port);
   const portOf = (server: typeof hooks) => (server.address() as { port: number }).port;
   log(`webhooks on http://127.0.0.1:${portOf(hooks)}, studio on http://127.0.0.1:${portOf(studio)}, hub ${hub.dir}`);
   const close = (server: typeof hooks) => new Promise(done => server.close(done));
   return {
     ports: { webhook: portOf(hooks), studio: portOf(studio) },
-    idle: queue.idle,
+    runner: run,
+    idle: run.idle,
     stop: async () => {
       await Promise.all([close(hooks), close(studio)]);
-      await queue.stop();
+      await run.idle();
     },
   };
 };

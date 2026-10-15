@@ -7,7 +7,7 @@ import { localIssues } from '../src/issues-local.ts';
 import { continuation, type Pipeline } from '../src/pipeline.ts';
 import { localPulls, type Pulls } from '../src/pulls.ts';
 import { limiter, unsandboxed } from '../src/runner.ts';
-import { compiledHub, eventQueue, handleEvent, laneOf, type Hub } from '../src/serve.ts';
+import { compiledHub, handleEvent, type Hub } from '../src/serve.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
@@ -63,7 +63,8 @@ const setup = async (bot = '', retryTriage = false) => {
   const triaged: boolean[] = [];
   const { seen, adapters } = fakeHarness((spec, call) => {
     if (!implementing(spec)) triaged.push(existsSync(join(spec.cwd, 'src/a.ts')));
-    if (!implementing(spec) && retryTriage && call === 1) return { events: [{ type: 'end', ok: true, result: 'Done.' }] };
+    if (!implementing(spec) && retryTriage && call === 1)
+      return { events: [{ type: 'end', ok: true, result: 'Done.' }] };
     if (!implementing(spec))
       return { events: [{ type: 'end', ok: true, result: block([{ kind: 'reply', body: 'Brief.' }]) }] };
     const file = spec.prompt.includes('## Continuing') ? 'src/b.ts' : 'src/a.ts';
@@ -109,7 +110,22 @@ const setup = async (bot = '', retryTriage = false) => {
     body: '/bothub add a',
   };
   const first = await handleEvent(comment, hub);
-  const commentEvent = async (n: number) => (await pulls.events()).find(e => e.id === `local-pull-1-comment-${n}`)!;
+  const commentEvent = async (n: number): Promise<BotEvent> => {
+    const said = (await pulls.comments(1))[n - 1]!;
+    return {
+      id: `local-pull-1-comment-${n}`,
+      ts: said.ts,
+      source: 'local',
+      trigger: 'issue_comment',
+      action: 'created',
+      repo: 'acme/app',
+      number: 1,
+      pull: 1,
+      ref: 'refs/pull/1/head',
+      actor: { login: said.author, association: said.author.endsWith('[bot]') ? 'NONE' : 'OWNER' },
+      body: said.body,
+    };
+  };
   return { hub, origin, pulls, seen, logs, first, commentEvent, triaged };
 };
 
@@ -125,10 +141,6 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
 
     await pulls.comment(1, { author: 'morgan', body: 'Call it b.', path: 'src/a.ts', line: 1 });
     await pulls.comment(1, { author: 'morgan', body: '/bothub fix the naming' });
-    const line = await commentEvent(1);
-    expect(line).toMatchObject({ trigger: 'pull_request_review_comment', number: 1, pull: 1 });
-    expect(await handleEvent(line, hub)).toEqual([]);
-
     const results = await handleEvent(await commentEvent(2), hub);
     expect(results.map(r => [r.job, r.run.closure])).toEqual([
       ['triage', 'done'],
@@ -227,44 +239,6 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(seen[2]!.prompt).toContain('## Continuing');
     expect(seen[2]!.prompt).toMatch(/What your last run did:\n\n- [\s\S]*Your change so far:/);
     expect(readFileSync(join(hub.store.home(again!.run.id), sessions, 'db'), 'utf8')).toBe('ses_3\n');
-  });
-
-  it("queues a comment that continues an issue in the issue's lane, apart from the request's own", async () => {
-    const { hub, pulls, commentEvent } = await setup();
-    await pulls.comment(1, { author: 'morgan', body: '/bothub go on' });
-    const delivered = await commentEvent(1);
-    const ran: BotEvent[] = [];
-    const queue = await eventQueue(hub, async event => void ran.push(event), {});
-    queue.enqueue(delivered);
-    await queue.idle();
-    await queue.stop();
-    expect(laneOf({ id: delivered.id, item: delivered })).toBe('acme/app!1');
-    expect(ran).toMatchObject([{ id: delivered.id, trigger: 'issue_comment', number: 7, pull: 1 }]);
-    expect(ran.map(item => laneOf({ id: item.id, item }))).toEqual(['acme/app#7']);
-  });
-
-  it('says how to answer when a bare comment lands on an unsure issue', async () => {
-    const { hub, logs } = await setup();
-    const question = await localIssues(join(hub.dir, 'issues'), { repo: 'acme/app' }).create({
-      title: 'Which name?',
-      labels: ['unsure'],
-      parent: 7,
-    });
-    const answer: BotEvent = {
-      id: 'a1',
-      ts: new Date().toISOString(),
-      source: 'local',
-      trigger: 'issue_comment',
-      action: 'created',
-      repo: 'acme/app',
-      number: question.number,
-      actor: { login: 'morgan', association: 'OWNER' },
-      body: 'call it b',
-    };
-    expect(await handleEvent(answer, hub)).toEqual([]);
-    expect(logs).toContain(
-      `#${question.number} is an open question; start the answer with /bothub to continue the work`
-    );
   });
 
   it('starts nothing on a merged request or from a bot', async () => {

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { Config } from './config.ts';
 import type { Issues } from './issues.ts';
 import { accepted } from './preload.ts';
+import { opNames, ops, type Rpc } from './ops.ts';
 import { NoteProposal } from './outputs.ts';
 import { HubTool, Note, NoteKind } from './schema.ts';
 import type { Store } from './store.ts';
@@ -19,7 +20,7 @@ export type McpTool = z.infer<typeof McpTool>;
 /** Where `notes_add` records the notes a run proposes, under the run's home. */
 export const proposalsFile = (home: string) => join(home, '.bothub', 'proposals.jsonl');
 
-type Sources = { config: Config; issues?: Issues; store?: Store; home?: string };
+type Sources = { config: Config; issues?: Issues; store?: Store; home?: string; runner?: Rpc };
 type Tool = { description: string; input: z.ZodObject; call: (input: never, s: Sources) => Promise<unknown> };
 
 const need = <T>(source: T | undefined, name: string): T => {
@@ -99,20 +100,35 @@ const tools: Record<McpTool, Tool> = {
   },
 };
 
-/** The MCP tool descriptors for `granted`, with JSON Schemas for their inputs. */
-export const toolList = (granted: McpTool[]) =>
-  granted.map(name => ({
+/**
+ * The operator tools: every op of a runner (see `ops.ts`), served only with a `runner` to send them to and never
+ * granted to a bot.
+ */
+const opTools = (runner: Rpc): Record<string, Tool> =>
+  Object.fromEntries(
+    opNames.map(name => [
+      name,
+      { description: ops[name].description, input: ops[name].input, call: async input => runner(name, input) },
+    ])
+  );
+
+const served = (granted: McpTool[], sources: Pick<Sources, 'runner'>): Record<string, Tool> => ({
+  ...Object.fromEntries(granted.map(name => [name, tools[name]])),
+  ...(sources.runner && opTools(sources.runner)),
+});
+
+/** The MCP tool descriptors for `granted`, and the ops with a `runner`, with JSON Schemas for their inputs. */
+export const toolList = (granted: McpTool[], sources: Pick<Sources, 'runner'> = {}) =>
+  Object.entries(served(granted, sources)).map(([name, tool]) => ({
     name,
-    description: tools[name].description,
-    inputSchema: z.toJSONSchema(tools[name].input, { io: 'input' }),
+    description: tool.description,
+    inputSchema: z.toJSONSchema(tool.input, { io: 'input' }),
   }));
 
-/** Calls one granted tool and returns MCP tool-call content. Errors come back as `isError` results. */
+/** Calls one served tool and returns MCP tool-call content. Errors come back as `isError` results. */
 export const callTool = async (granted: McpTool[], name: string, args: unknown, sources: Sources) => {
-  const parsed = McpTool.safeParse(name);
-  if (!parsed.success || !granted.includes(parsed.data))
-    return { content: [{ type: 'text', text: `unknown tool "${name}"` }], isError: true };
-  const tool = tools[parsed.data];
+  const tool = served(granted, sources)[name];
+  if (!tool) return { content: [{ type: 'text', text: `unknown tool "${name}"` }], isError: true };
   const input = tool.input.safeParse(args ?? {});
   if (!input.success) return { content: [{ type: 'text', text: z.prettifyError(input.error) }], isError: true };
   try {
@@ -128,7 +144,9 @@ type Request = { jsonrpc: '2.0'; id?: string | number; method: string; params?: 
 
 /**
  * An MCP server over newline-delimited JSON-RPC on stdio: `initialize`, `ping`, `tools/list` and
- * `tools/call` for the granted tools. It writes nothing but a run's own proposals, which land only when the run ends.
+ * `tools/call` for the granted tools. Those write nothing but a run's own proposals, which land only when the run
+ * ends; with a `runner`, the operator ops are served too and act on that runner. Resolves once the input ends and
+ * every call has been answered.
  */
 export const serveMcp = (
   granted: McpTool[],
@@ -147,13 +165,14 @@ export const serveMcp = (
       case 'ping':
         return {};
       case 'tools/list':
-        return { tools: toolList(granted) };
+        return { tools: toolList(granted, sources) };
       case 'tools/call':
         return callTool(granted, String(params?.name), params?.arguments, sources);
       default:
         throw Object.assign(new Error(`method not found: ${method}`), { code: -32601 });
     }
   };
+  const pending = new Set<Promise<unknown>>();
   const lines = createInterface({ input });
   lines.on('line', line => {
     if (!line.trim()) return;
@@ -166,11 +185,15 @@ export const serveMcp = (
     }
     if (request.id === undefined) return;
     const { id } = request;
-    handle(request).then(
+    const answered = handle(request).then(
       result => send({ jsonrpc: '2.0', id, result }),
       (e: Error & { code?: number }) =>
         send({ jsonrpc: '2.0', id, error: { code: e.code ?? -32603, message: e.message } })
     );
+    pending.add(answered);
+    void answered.finally(() => pending.delete(answered));
   });
-  return new Promise<void>(resolve => lines.once('close', resolve));
+  return new Promise<void>(resolve =>
+    lines.once('close', () => void Promise.allSettled([...pending]).then(() => resolve()))
+  );
 };

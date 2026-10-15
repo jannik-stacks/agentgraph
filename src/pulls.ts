@@ -285,8 +285,8 @@ export const fold = (ops: Op[], url: (number: number) => string) => {
  * branch moved, `merge` when it landed. The default branch is the origin's `HEAD`, a request's head is its branch's
  * live commit, mirrored to `refs/pull/<n>/head` like GitHub, and a merge is `merge-tree`, `commit-tree` and a
  * compare-and-swap `update-ref` on the origin. `events` records branches that moved and returns the `pull_request`
- * events (opened, synchronize, closed) of every request in `repo` and an event per comment, with ids that stay the same
- * each time. `comment` records a comment on a request.
+ * events (opened, synchronize, closed) of every request in `repo`, with ids that stay the same each time. `comment`
+ * records a comment on a request.
  */
 export const localPulls = ({ origin, file, repo }: { origin: string; file: string; repo: string }) => {
   const git = (args: string[], env?: Record<string, string>) => gitStatus(origin, args, env);
@@ -407,21 +407,6 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
     });
   };
 
-  /** A comment as GitHub would deliver it: `issue_comment` on the request, or `pull_request_review_comment` on a line. */
-  const commentEvent = (pull: Pull, comment: PullComment, id: string): BotEvent | undefined => {
-    const user = { login: comment.author };
-    const association = comment.author.endsWith('[bot]') ? 'NONE' : 'OWNER';
-    const item = { number: pull.number, html_url: pull.url, body: pull.body, user, author_association: association };
-    const said = { body: comment.body, html_url: comment.url ?? pull.url, author_association: association };
-    const common = { action: 'created', repository: { full_name: repo }, sender: user, comment: said };
-    return comment.path
-      ? toEvent('pull_request_review_comment', id, {
-          ...common,
-          pull_request: { ...item, base: { ref: pull.into } },
-        })
-      : toEvent('issue_comment', id, { ...common, issue: { ...item, pull_request: {} } });
-  };
-
   const events = () =>
     serial(async () => {
       for (const pull of fold(await ops(), url)) {
@@ -437,9 +422,6 @@ export const localPulls = ({ origin, file, repo }: { origin: string; file: strin
           event(pull, 'opened', `${id}-opened`),
           ...pull.shas.slice(1).map(sha => event(pull, 'synchronize', `${id}-synchronize-${sha.slice(0, 12)}`)),
           pull.state === 'merged' ? event(pull, 'closed', `${id}-closed`) : undefined,
-          ...commentsIn(log, pull.number, url).map((comment, i) =>
-            commentEvent(pull, comment, `${id}-comment-${i + 1}`)
-          ),
         ];
         return found.filter(e => e !== undefined).map(e => ({ ...e, source: 'local' as const }));
       });

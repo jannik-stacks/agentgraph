@@ -30,16 +30,6 @@ const humanText = new Set([
 export const plan = (event: BotEvent, config: Config): PlannedJob[] =>
   Object.values(config.workflows).flatMap(workflow => planWorkflow(event, workflow));
 
-/**
- * Plans an event once: a delivery id already in the ledger plans nothing, so a redelivered webhook or a repeated
- * local change never starts the same jobs twice.
- */
-export const dispatch = async (
-  event: BotEvent,
-  config: Config,
-  ledger: { deliver: (id: string) => Promise<boolean> }
-): Promise<PlannedJob[]> => ((await ledger.deliver(event.id)) ? plan(event, config) : []);
-
 /** Whether an association may start jobs from text it wrote, unless a trigger's `guard` says otherwise. */
 export const isTrusted = (association: Association) => trusted.includes(association);
 
@@ -109,10 +99,3 @@ export const abandoned = async (event: BotEvent, issues: Pick<Issues, 'get'>) =>
   if (event.action === 'labeled' && event.label !== undefined && !issue.labels.includes(event.label))
     return `its label "${event.label}" was removed`;
 };
-
-/** Whether the label that started an event was removed before its jobs ran, which withdraws them. */
-export const withdrawn = async (event: BotEvent, issues: Pick<Issues, 'get'>) =>
-  event.action === 'labeled' &&
-  event.label !== undefined &&
-  event.number !== undefined &&
-  !(await issues.get(event.number))?.labels.includes(event.label);

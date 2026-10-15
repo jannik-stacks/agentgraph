@@ -45,7 +45,7 @@ const setup = async () => {
     join(data, 'pulls.jsonl'),
     `${JSON.stringify({ ts: 'x', number: 1, op: 'open', title: 'Seven', body: 'Closes #7', branch: 'bothub/7', into: 'main', job: 'issue/implement', event: 'e7', sha: head })}\n`
   );
-  const handle = api({ hubDir, store, pollMs: 10 });
+  const handle = api({ hubDir, store });
   const get = async (path: string) => {
     const response = await handle(new Request(`http://studio${path}`));
     return { status: response.status, body: await response.json() };
@@ -98,7 +98,7 @@ describe('diff routes', () => {
     const store = openStore(data);
     await store.create({ workflow: 'w', job: 'j', bot: 'b', event: event('e1', 1), status: 'succeeded', base }, 'r-ws');
     await store.saveOutcome('r-ws', outcome([{ kind: 'push', status: 'applied', sha: head }]));
-    const handle = api({ hubDir, store, pollMs: 10 });
+    const handle = api({ hubDir, store });
     const read = async (path: string) => (await handle(new Request(`http://studio${path}`))).json();
 
     const shown = await read('/api/runs/r-ws/diff');

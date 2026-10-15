@@ -318,22 +318,17 @@ const sse = (event: string, data: unknown, id?: number) =>
 
 /**
  * Server-Sent Events over a run watcher. Sends `snapshot` with every run and merge request, then `run` or `removed`
- * as runs change and `pulls` when requests do. With `run` it also sends that run's `outcome` and every event record
- * from seq `from` on as `record`, each with its seq as the event id, so a client resuming with `Last-Event-ID` misses
- * and repeats nothing. A comment line every `pingMs` keeps proxies from closing an idle stream.
+ * as runs change and `pulls` when requests do. A comment line every `pingMs` keeps proxies from closing an idle
+ * stream.
  */
 export const liveStream = ({
   watcher,
   dir,
-  run,
-  from = 0,
   signal,
   pingMs = 15_000,
 }: {
   watcher: RunWatcher;
   dir: string;
-  run?: string | undefined;
-  from?: number;
   signal: AbortSignal;
   pingMs?: number;
 }) => {
@@ -342,32 +337,8 @@ export const liveStream = ({
   return new ReadableStream<Uint8Array>({
     start(controller) {
       let open = true;
-      let next = from;
-      let offset = 0;
       let queue: Promise<unknown> = Promise.resolve();
       const send = (text: string) => open && controller.enqueue(encoder.encode(text));
-      const runDir = async () => join(await realpath(dir).catch(() => dir), 'runs', run ?? '');
-      const records = async () => {
-        if (!run) return;
-        const file = join(await runDir(), 'events.jsonl');
-        const read = await tail(file, offset);
-        if (read.size < offset) {
-          offset = 0;
-          return records();
-        }
-        offset = read.offset;
-        for (const line of read.lines) {
-          const record = parse<EventRecord>(line);
-          if (!record || record.seq < next) continue;
-          send(sse('record', record, record.seq));
-          next = record.seq + 1;
-        }
-      };
-      const outcome = async () => {
-        if (!run) return;
-        const text = await readFile(join(await runDir(), 'outcome.json'), 'utf8').catch(() => '');
-        send(sse('outcome', { id: run, outcome: parse<Outcome>(text) ?? null }));
-      };
       const snapshot = () => send(sse('snapshot', { runs: watcher.rows(), pulls: watcher.pulls() }));
       const step = (task: () => unknown) => {
         queue = queue.then(() => (open ? task() : undefined)).catch(e => fail(e as Error));
@@ -375,11 +346,8 @@ export const liveStream = ({
       const onChange = (changes: Change[] | 'reset') =>
         step(async () => {
           if (changes === 'reset') {
-            offset = 0;
             send(sse('reset', { dir, real: await realpath(dir).catch(() => null) }));
-            snapshot();
-            await outcome();
-            return records();
+            return snapshot();
           }
           for (const change of changes) {
             if ('pulls' in change) {
@@ -388,8 +356,6 @@ export const liveStream = ({
             }
             if (change.removed) send(sse('removed', { id: change.id }));
             else if (change.row) send(sse('run', change.row));
-            if (change.id === run && change.outcome) await outcome();
-            if (change.id === run && change.events) await records();
           }
         });
       const subscription = watcher.subscribe(onChange);
@@ -415,8 +381,6 @@ export const liveStream = ({
       step(async () => {
         await subscription.ready;
         snapshot();
-        await outcome();
-        await records();
       });
     },
     cancel: () => close(),

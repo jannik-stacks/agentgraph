@@ -39,7 +39,7 @@ const setup = async () => {
     },
   });
   await store.update(run.id, { status: 'succeeded', endedAt: new Date().toISOString() });
-  return { handler: api({ hubDir, store, pollMs: 5 }), runId: run.id };
+  return { handler: api({ hubDir, store }), runId: run.id };
 };
 
 const status = async (handler: ReturnType<typeof api>, path: string) => {

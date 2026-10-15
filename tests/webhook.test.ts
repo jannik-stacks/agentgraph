@@ -168,16 +168,6 @@ describe('webhook delivery', () => {
     expect((await handler(request('issue_comment', comment('x'), { 'x-github-delivery': null }))).status).toBe(400);
   });
 
-  it('acknowledges a delivery id it has seen without running it again', async () => {
-    const ids = new Set<string>();
-    const seen = (id: string) => ids.has(id) || (ids.add(id), false);
-    const { handler, received, settled } = receiver({ seen });
-    expect((await handler(request('issue_comment', comment('/bothub go')))).status).toBe(202);
-    expect((await handler(request('issue_comment', comment('/bothub go')))).status).toBe(200);
-    await settled();
-    expect(received).toHaveLength(1);
-  });
-
   it('answers before the callback finishes and reports its errors', async () => {
     let release = () => {};
     const blocked = new Promise<void>(done => (release = done));

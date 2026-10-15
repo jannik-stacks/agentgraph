@@ -20,11 +20,11 @@ docs are built. A block's header names the file and lines and opens them in VS C
 ## How one event flows
 
 ```
-BotEvent → dispatch → runPlan → runPlanned → attempts → runJob (harness) → checks → validate → apply
+BotEvent → plan → runPlan → runPlanned → attempts → runJob (harness) → checks → validate → apply
 ```
 
-An event comes from a webhook, a watched issue file or the CLI and is normalised into a
+An event comes from a webhook, a message to the local forge or the CLI and is normalised into a
 
-`BotEvent`. `dispatch` plans the jobs it starts, `runPlan`
+`BotEvent`. `plan` plans the jobs it starts, `runPlan`
 runs them in dependency order, and each bot job loops through attempts until its checks pass. Proposals from the final
 attempt are validated and applied, and everything lands in the [run store](runs.md).

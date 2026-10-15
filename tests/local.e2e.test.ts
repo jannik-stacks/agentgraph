@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
 import type { JobResult } from '../src/pipeline.ts';
 import { runScript } from '../src/runner.ts';
+import { rpc } from '../src/ops.ts';
 import { serveHub } from '../src/serve.ts';
 import { bareOrigin, commit, git, temp } from './kit.ts';
 
@@ -91,12 +92,11 @@ describe.skipIf(!(await up()))('local strategy against docker and the model prox
       repo: 'acme/rates',
       env: keys(),
       port: 0,
-      interval: 200,
       log: () => {},
       onResults: (_, results) => done.push(results),
     });
     try {
-      await localIssues(join(dir, 'issues'), { repo: 'acme/rates', as: 'morgan' }).comment(1, '/bothub');
+      await rpc(`http://127.0.0.1:${served.port}`)('say', { issue: 1, text: '/bothub', as: 'morgan' });
       while (!done.length) await new Promise(r => setTimeout(r, 500));
       const [result] = done.flat();
       expect(result && result.run.status).toBe('succeeded');
