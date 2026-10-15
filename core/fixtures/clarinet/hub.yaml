@@ -4,15 +4,15 @@ checks:
   clippy: block
   conventions-warn: warn
   conventions: block
-  criterion-met: block
-  entry-points: warn
+  criterion-met: { mode: block, judge: reviewer }
+  entry-points: { mode: warn, judge: reviewer }
   fmt: block
   limits-warn: warn
   limits: block
   reach: block
-  review-src: block
+  review-src: { mode: block, judge: reviewer }
   sdk: warn
-  simpler: block
+  simpler: { mode: block, judge: reviewer }
   tests: block
   triage-brief: block
   wasm: block

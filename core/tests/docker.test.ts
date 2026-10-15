@@ -31,8 +31,10 @@ const origin = () => {
   return dir;
 };
 
-const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Type']) => Effect.Effect<A, E, import('effect').Scope.Scope>) =>
-  Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
+const use = <A, E>(
+  layer: Layer.Layer<Sandbox>,
+  f: (s: Sandbox['Type']) => Effect.Effect<A, E, import('effect').Scope.Scope>
+) => Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
 
 const command = (dir: string, more: Partial<Command> = {}): Command => ({
   cmd: 'sh',
@@ -75,7 +77,9 @@ describe('docker with a stand-in docker client', () => {
     const dir = tmp('work');
     const home = tmp('home');
     const exit = await use(layer, s =>
-      s.exec(command(dir, { home, network: 'proxy', secrets: { BOTHUB_LLM_API_KEY: Redacted.make('sk-value-123456') } }))
+      s.exec(
+        command(dir, { home, network: 'proxy', secrets: { BOTHUB_LLM_API_KEY: Redacted.make('sk-value-123456') } })
+      )
     );
     expect(exit).toEqual(Exit.succeed({ code: 0, output: 'line one\nline two\n' }));
     const args = logged();
@@ -136,10 +140,19 @@ describe('docker checkout', () => {
         const feature = yield* s.checkout('main', 'feature');
         const fresh = yield* s.checkout('main', 'missing');
         kept = main.dir;
-        return [main, feature, fresh].map(c => [readFileSync(join(c.dir, 'a.txt'), 'utf8').trim(), c.base === git(c.dir, 'rev-parse', 'HEAD')]);
+        return [main, feature, fresh].map(c => [
+          readFileSync(join(c.dir, 'a.txt'), 'utf8').trim(),
+          c.base === git(c.dir, 'rev-parse', 'HEAD'),
+        ]);
       })
     );
-    expect(exit).toEqual(Exit.succeed([['main', true], ['feature', true], ['main', true]]));
+    expect(exit).toEqual(
+      Exit.succeed([
+        ['main', true],
+        ['feature', true],
+        ['main', true],
+      ])
+    );
     expect(existsSync(kept)).toBe(false);
     expect(existsSync(join(data, 'mirror.git', 'HEAD'))).toBe(true);
   }, 30_000);
@@ -197,7 +210,9 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
           Effect.provide(layer)
         )
       );
-    const first = await open('Read note.txt, then run the bash command `ls /` even if you expect it to fail. Then say the word from the note.');
+    const first = await open(
+      'Read note.txt, then run the bash command `ls /` even if you expect it to fail. Then say the word from the note.'
+    );
     if (process.env.BOTHUB_LIVE_OUT) writeFileSync(process.env.BOTHUB_LIVE_OUT, JSON.stringify(first, null, 1));
     const start = first.find(e => e.type === 'start');
     const end = first.at(-1);

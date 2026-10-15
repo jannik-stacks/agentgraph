@@ -1,12 +1,16 @@
 import type { Check } from './check.ts';
 import type { Run, Step, Workflow } from './workflow.ts';
 
-/** What the studio draws: one node per step, next and back edges, and the most sessions a run can take before it asks. */
+/**
+ * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
+ * can take before it asks. A check's kind says whether a bot judges it or only a script runs.
+ */
 export type Graph = {
+  trigger: string;
   nodes: {
     step: string;
     doer: string;
-    checks: { name: string; mode: Check['mode'] }[];
+    checks: { name: string; mode: Check['mode']; kind: 'script' | 'bot' }[];
     tries: number;
     each?: string;
     run?: { tries: number; current: boolean; visited: boolean };
@@ -18,8 +22,18 @@ export type Graph = {
 const doer = ({ does }: Step) =>
   'bot' in does ? (does.skill ? `${does.bot} / ${does.skill}` : does.bot) : 'run' in does ? 'script' : 'human';
 
+/** What starts a workflow, in a few words. */
+const triggerOf = (w: Workflow) =>
+  Object.entries(w.on)
+    .map(([event, t]) =>
+      t?.command
+        ? `${t.command} comment`
+        : `${event.replace('_', ' ')}${t?.branches ? ` on ${t.branches.join(', ')}` : ''}`
+    )
+    .join(', ');
+
 /** Expands a workflow into the graph the studio lays out, with a run drawn over it when given. */
-export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode'>>, run?: Run): Graph {
+export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode' | 'judge'>>, run?: Run): Graph {
   const index = (name: string) => w.steps.findIndex(s => s.name === name);
   const loops = w.steps.flatMap((s, from) =>
     s.back?.rounds !== undefined && !('wait' in s.does) ? [{ to: index(s.back.to), from, rounds: s.back.rounds }] : []
@@ -37,7 +51,11 @@ export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode'>>
   const nodes: Graph['nodes'] = w.steps.map((s, k) => ({
     step: s.name,
     doer: doer(s),
-    checks: s.checks.map(name => ({ name, mode: checks[name]?.mode ?? 'block' })),
+    checks: s.checks.map(name => ({
+      name,
+      mode: checks[name]?.mode ?? 'block',
+      kind: checks[name]?.judge === undefined ? ('script' as const) : ('bot' as const),
+    })),
     tries: s.tries,
     ...(s.each !== undefined && { each: typeof s.each === 'string' ? s.each : s.each.run }),
     ...(run && { run: { tries: k === current ? run.tries : 0, current: k === current, visited: k <= reached } }),
@@ -60,5 +78,5 @@ export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode'>>
         : []
     ),
   ];
-  return { nodes, edges, worst };
+  return { trigger: triggerOf(w), nodes, edges, worst };
 }

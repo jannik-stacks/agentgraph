@@ -38,13 +38,18 @@ describe('graphOf', () => {
     expect(g.edges.find(e => e.from === 'merge')).toEqual({ from: 'merge', to: 'implement', kind: 'back' });
   });
 
-  it('names the doer, the checks with their modes, the tries and the fan-out', () => {
+  it('names the trigger, the doer, the checks with their modes and kinds, the tries and the fan-out', () => {
     const { workflows, checks } = fixture('acme-app');
     const g = graphOf(workflows.issue!, checks);
+    expect(g.trigger).toBe('/bothub comment');
     const [triage, implement, review, merge] = g.nodes;
     expect(triage).toEqual({ step: 'triage', doer: 'triager / triage', checks: [], tries: 1 });
-    expect(implement!.checks[0]).toEqual({ name: 'safety', mode: 'stop' });
-    expect(implement!.checks.find(c => c.name === 'docs-tone')).toEqual({ name: 'docs-tone', mode: 'log' });
+    expect(implement!.checks[0]).toEqual({ name: 'safety', mode: 'stop', kind: 'script' });
+    expect(implement!.checks.find(c => c.name === 'docs-tone')).toEqual({
+      name: 'docs-tone',
+      mode: 'log',
+      kind: 'bot',
+    });
     expect(review).toMatchObject({ doer: 'reviewer / review-hunk', each: 'hunks' });
     expect(merge!.doer).toBe('human');
     expect(graphOf(workflows.merge!, checks).nodes[0]!.doer).toBe('script');

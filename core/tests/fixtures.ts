@@ -9,16 +9,18 @@ const root = join(import.meta.dirname, '..', 'fixtures');
 
 export const hubs = ['bothub', 'clarinet', 'acme-app', 'hub', 'loop'];
 
-/** A fixture hub: the names its workflows may use, the check modes and every workflow loaded. */
+/** A fixture hub: the names its workflows may use, each check's mode and judge, and every workflow loaded. */
 export const fixture = (hub: string) => {
   const dir = join(root, hub);
   const file = parse(readFileSync(join(dir, 'hub.yaml'), 'utf8')) as {
     bots: string[];
     skills: string[];
-    checks: Record<string, Check['mode']>;
+    checks: Record<string, Check['mode'] | Pick<Check, 'mode' | 'judge'>>;
   };
   const names = { bots: file.bots, skills: file.skills, checks: Object.keys(file.checks) };
-  const checks = Object.fromEntries(Object.entries(file.checks).map(([name, mode]) => [name, { mode }]));
+  const checks = Object.fromEntries(
+    Object.entries(file.checks).map(([name, check]) => [name, typeof check === 'string' ? { mode: check } : check])
+  );
   const workflows: Record<string, Workflow> = {};
   const problems: Problem[] = [];
   for (const name of readdirSync(join(dir, 'workflows'))) {

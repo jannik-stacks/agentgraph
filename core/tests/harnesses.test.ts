@@ -97,7 +97,10 @@ describe('the session loop', () => {
 
   it('resumes in the session home it was given', async () => {
     const home = mkdtempSync(join(tmpdir(), 'core-home-'));
-    const { command, events: got } = await events({ ...spec, resume: { id: 'ses_1', home } }, sample('opencode-run.jsonl'));
+    const { command, events: got } = await events(
+      { ...spec, resume: { id: 'ses_1', home } },
+      sample('opencode-run.jsonl')
+    );
     expect(command.home).toBe(home);
     expect(harnessArgs(command)).toContain('--session');
     expect(got[0]).toMatchObject({ type: 'start', home });
@@ -109,7 +112,17 @@ describe('opencode', () => {
     const { command } = await events(spec, []);
     const args = harnessArgs(command);
     const split = args.indexOf('--');
-    expect(args.slice(0, split)).toEqual(['run', '--format', 'json', '--title', 'bothub', '--agent', 'bothub', '--model', 'bothub/smart']);
+    expect(args.slice(0, split)).toEqual([
+      'run',
+      '--format',
+      'json',
+      '--title',
+      'bothub',
+      '--agent',
+      'bothub',
+      '--model',
+      'bothub/smart',
+    ]);
     expect(args.slice(split + 1)).toEqual(['fix', 'the', '"bug"', 'in\t2', 'files']);
     expect(JSON.parse(command.env.OPENCODE_PERMISSION!)).toEqual({
       '*': 'deny',
@@ -128,7 +141,13 @@ describe('opencode', () => {
     expect(got).toEqual<AgentEvent[]>([
       { type: 'start', session: 'ses_ecfe5c55cffe3r1vZYoqdYrwvF', model: 'smart', home: command.home! },
       { type: 'text', text: 'Listing files.' },
-      expect.objectContaining({ type: 'tool', id: 'call_mock1', name: 'read', ok: true, input: { path: 'a.txt', filePath: 'a.txt' } }),
+      expect.objectContaining({
+        type: 'tool',
+        id: 'call_mock1',
+        name: 'read',
+        ok: true,
+        input: { path: 'a.txt', filePath: 'a.txt' },
+      }),
       { type: 'usage', input: 1200, output: 20 },
       { type: 'text', text: 'done' },
       { type: 'usage', input: 1300, output: 5 },
@@ -137,7 +156,10 @@ describe('opencode', () => {
   });
 
   it('records denied calls and bash exit codes from the tool state of a recorded run', async () => {
-    const { events: got } = await events({ ...spec, tools: ['read', 'bash(git status*)'] }, sample('opencode-denied.jsonl'));
+    const { events: got } = await events(
+      { ...spec, tools: ['read', 'bash(git status*)'] },
+      sample('opencode-denied.jsonl')
+    );
     const tools = got.filter(e => e.type === 'tool');
     expect(tools.map(t => [t.name, t.ok, t.exit, t.denied])).toEqual([
       ['bash', true, 128, undefined],
@@ -148,7 +170,11 @@ describe('opencode', () => {
   });
 
   it('reads a step that ran out of output tokens as the cap', async () => {
-    const line = JSON.stringify({ type: 'step_finish', sessionID: 's1', part: { type: 'step-finish', reason: 'length' } });
+    const line = JSON.stringify({
+      type: 'step_finish',
+      sessionID: 's1',
+      part: { type: 'step-finish', reason: 'length' },
+    });
     const { events: got } = await events(spec, [line]);
     expect(got.at(-1)).toEqual({ type: 'end', final: '', ended: 'cap', exit: 0 });
   });
@@ -171,9 +197,14 @@ describe('claude', () => {
   const claude = { ...spec, harness: 'claude' as const };
 
   it('talks to the proxy with the bot key and keeps its config in the run home', async () => {
-    const { command } = await events({ ...claude, resume: { id: 'e477', home: mkdtempSync(join(tmpdir(), 'h-')) } }, []);
+    const { command } = await events(
+      { ...claude, resume: { id: 'e477', home: mkdtempSync(join(tmpdir(), 'h-')) } },
+      []
+    );
     const args = harnessArgs(command);
-    expect(args).toEqual(expect.arrayContaining(['--permission-mode', 'dontAsk', '--resume', 'e477', '--model', 'smart']));
+    expect(args).toEqual(
+      expect.arrayContaining(['--permission-mode', 'dontAsk', '--resume', 'e477', '--model', 'smart'])
+    );
     expect(args[args.indexOf('--tools') + 1]).toBe('Read,Bash');
     expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Bash(git diff*),Bash(git log*)');
     expect(args).not.toContain('--no-session-persistence');
@@ -187,8 +218,18 @@ describe('claude', () => {
     const { events: got } = await events(claude, sample('claude-run.jsonl'));
     const final = '`add.js` is buggy: `add` returns `a - b` instead of `a + b`.';
     expect(got).toEqual([
-      expect.objectContaining({ type: 'start', session: 'e47727a3-ac6e-4f15-8327-b47a312c26d1', model: 'claude-haiku-5-5' }),
-      expect.objectContaining({ type: 'tool', id: 'toolu_01', name: 'Read', ok: true, input: { file_path: '/tmp/x/add.js' } }),
+      expect.objectContaining({
+        type: 'start',
+        session: 'e47727a3-ac6e-4f15-8327-b47a312c26d1',
+        model: 'claude-haiku-5-5',
+      }),
+      expect.objectContaining({
+        type: 'tool',
+        id: 'toolu_01',
+        name: 'Read',
+        ok: true,
+        input: { file_path: '/tmp/x/add.js' },
+      }),
       { type: 'text', text: final },
       { type: 'usage', input: 4 + 8401 + 2340, output: 177 },
       { type: 'end', final, ended: 'stop', exit: 0 },
@@ -231,7 +272,14 @@ describe('pi', () => {
       expect.objectContaining({ type: 'start', session: '01a1301a-3f7c-754a-a9a2-2b8e888e778a', model: 'smart' }),
       { type: 'text', text: 'Listing files.' },
       { type: 'usage', input: 1200, output: 20 },
-      { type: 'tool', id: 'call_mock1', name: 'read', input: { path: 'a.txt', filePath: 'a.txt' }, ok: true, output: 'hi\n' },
+      {
+        type: 'tool',
+        id: 'call_mock1',
+        name: 'read',
+        input: { path: 'a.txt', filePath: 'a.txt' },
+        ok: true,
+        output: 'hi\n',
+      },
       { type: 'text', text: 'done' },
       { type: 'usage', input: 1300, output: 5 },
       { type: 'end', final: 'done', ended: 'stop', exit: 0 },

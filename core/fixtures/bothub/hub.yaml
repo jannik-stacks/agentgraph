@@ -3,36 +3,36 @@ skills: [implement, librarian, pr-body, principles, retro, review-hunk, triage]
 checks:
   code-shape: block
   coverage: block
-  criterion-met: block
-  docs-stale: warn
+  criterion-met: { mode: block, judge: reviewer }
+  docs-stale: { mode: warn, judge: reviewer }
   docs-sync: warn
-  docs-tone-marketing: log
-  docs-tone-provenance: warn
-  docs-tone-repeats: warn
-  docs-tone-tagline: log
+  docs-tone-marketing: { mode: log, judge: checker }
+  docs-tone-provenance: { mode: warn, judge: reviewer }
+  docs-tone-repeats: { mode: warn, judge: reviewer }
+  docs-tone-tagline: { mode: log, judge: reviewer }
   enum-copy: warn
   lesson-size: block
   lint: block
-  near-duplicate: warn
+  near-duplicate: { mode: warn, judge: reviewer }
   notes-followed: log
   old-tests: warn
   principle-named: log
   propagation: warn
-  reduce: block
-  removed: block
-  review-docs: warn
-  review-src: block
-  review-tests: log
+  reduce: { mode: block, judge: reviewer }
+  removed: { mode: block, judge: reviewer }
+  review-docs: { mode: warn, judge: reviewer }
+  review-src: { mode: block, judge: reviewer }
+  review-tests: { mode: log, judge: reviewer }
   risky: log
   rules: block
   safety: block
-  scope: log
+  scope: { mode: log, judge: reviewer }
   size: block
-  state-transitions: log
+  state-transitions: { mode: log, judge: reviewer }
   studio-build: block
   test-guards: block
   tests: block
-  tooltip-text: log
+  tooltip-text: { mode: log, judge: checker }
   triage-brief: block
   triage-width: warn
   types: block
