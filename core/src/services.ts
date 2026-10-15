@@ -1,7 +1,7 @@
 import { Config, Layer, type Redacted } from 'effect';
 import type { Forge } from './forge.ts';
 import { docker } from './docker.ts';
-import { githubForge } from './github.ts';
+import { appToken, githubForge } from './github.ts';
 import { harnesses } from './harnesses.ts';
 import type { Sandbox } from './sandbox.ts';
 import type { Session } from './session.ts';
@@ -34,9 +34,14 @@ export const settings: Config.Config<Settings> = Config.all({
 });
 
 /** The production services. Tests build their own from the file and host layers. */
-export const layers = (s: Settings): Layer.Layer<Services> =>
-  Layer.mergeAll(
-    githubForge({ repo: s.repo, ...s.app }),
+export const layers = (s: Settings): Layer.Layer<Services> => {
+  const app = { repo: s.repo, ...s.app };
+  const token = appToken(app);
+  return Layer.mergeAll(
+    githubForge(app, globalThis.fetch, token),
     fileStore(s.data),
-    harnesses(s).pipe(Layer.provideMerge(docker({ data: s.data, origin: `https://github.com/${s.repo}.git` })))
+    harnesses(s).pipe(
+      Layer.provideMerge(docker({ data: s.data, origin: `https://github.com/${s.repo}.git`, token }))
+    )
   );
+};

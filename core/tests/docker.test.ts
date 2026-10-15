@@ -130,6 +130,44 @@ describe('docker with a stand-in docker client', () => {
 });
 
 describe('docker checkout', () => {
+  it('sends the token to clone and fetch through the environment only', async () => {
+    const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+    const bin = tmp('git-bin');
+    const log = join(bin, 'log');
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\necho "argv $*" >> ${log}\necho "env $GIT_CONFIG_COUNT $GIT_CONFIG_KEY_0 $GIT_CONFIG_VALUE_0" >> ${log}\nexec ${real} "$@"\n`
+    );
+    chmodSync(join(bin, 'git'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    const data = tmp('data');
+    const token = 'ghs_secret_token_value';
+    const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+    try {
+      const layer = docker({ data, origin: origin(), token: Effect.succeed(token) });
+      const exit = await use(layer, s => Effect.zipRight(s.checkout('main'), s.checkout('main')));
+      expect(Exit.isSuccess(exit)).toBe(true);
+    } finally {
+      process.env.PATH = path;
+    }
+    const lines = readFileSync(log, 'utf8').split('\n');
+    const authed = lines.flatMap((line, i) => (line.startsWith('argv') && /clone|fetch/.test(line) ? [lines[i + 1]] : []));
+    expect(authed).toEqual([
+      `env 1 http.https://github.com/.extraheader ${header}`,
+      `env 1 http.https://github.com/.extraheader ${header}`,
+    ]);
+    const rest = lines.flatMap((line, i) => (line.startsWith('argv') && !/clone|fetch/.test(line) ? [lines[i + 1]] : []));
+    expect(rest.every(line => !line?.includes('extraheader'))).toBe(true);
+    const argv = lines.filter(line => line.startsWith('argv')).join('\n');
+    expect(argv).not.toContain(token);
+    expect(argv).not.toContain(header.split(' ').at(-1));
+    const config = readFileSync(join(data, 'mirror.git', 'config'), 'utf8');
+    expect(config).not.toContain(header.split(' ').at(-1));
+    expect(config).not.toContain(token);
+    expect(config).not.toContain('extraheader');
+  }, 30_000);
+
   it('checks out a ref or the existing branch from a mirror and removes the worktree with the scope', async () => {
     const data = tmp('data');
     const layer = docker({ data, origin: origin() });

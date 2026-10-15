@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
+import type { ForgeError } from './forge.ts';
 import { type Command, type Exit, Sandbox, SandboxError } from './sandbox.ts';
 
 const network = 'bothub-sandbox';
@@ -100,9 +101,10 @@ const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) =>
   ...c.args,
 ];
 
-const run = (cmd: string, args: string[], dir?: string) =>
+const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   Effect.async<string, SandboxError>(done => {
-    execFile(cmd, args, { cwd: dir, timeout: 600_000, maxBuffer: 64 << 20 }, (error, stdout, stderr) =>
+    const options = { env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env }, timeout: 600_000, maxBuffer: 64 << 20 };
+    execFile(cmd, args, options, (error, stdout, stderr) =>
       done(
         error
           ? Effect.fail(infra(`${cmd} ${args.slice(0, 2).join(' ')}: ${(stderr || error.message).trim().slice(-2000)}`))
@@ -110,6 +112,13 @@ const run = (cmd: string, args: string[], dir?: string) =>
       )
     );
   });
+
+/** Git config from the environment that sends `token` to github.com, so it stays out of argv and every config file. */
+const auth = (token: string) => ({
+  GIT_CONFIG_COUNT: '1',
+  GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+  GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`,
+});
 
 /** Starts `docker` with `args` in its own process group; `stop` kills it and removes the container. */
 const start = (args: string[], secrets: Command['secrets'], name: string, on: (chunk: string) => void) => {
@@ -144,9 +153,14 @@ const timeout = (c: Command) => () =>
 /**
  * One container per command, on a network whose only way out is the model proxy. Worktrees are linked worktrees of a
  * bare mirror of `origin` under `data`; the mirror is mounted read-only so git works in `/work` while its refs stay
- * untouchable.
+ * untouchable. With `token`, the mirror's clone and fetch authenticate to github.com; containers never see it.
  */
-export const docker = (o: { data: string; origin: string; image?: string }): Layer.Layer<Sandbox> =>
+export const docker = (o: {
+  data: string;
+  origin: string;
+  image?: string;
+  token?: Effect.Effect<string, ForgeError>;
+}): Layer.Layer<Sandbox> =>
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
@@ -210,10 +224,11 @@ export const docker = (o: { data: string; origin: string; image?: string }): Lay
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
               const exists = yield* Effect.promise(() => readFile(join(mirror, 'HEAD')).then(() => true, () => false));
-              if (exists) yield* run('git', ['-C', mirror, 'fetch', '--prune', 'origin']);
+              const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
+              if (exists) yield* run('git', ['-C', mirror, 'fetch', '--prune', 'origin'], env);
               else {
                 yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
-                yield* run('git', ['clone', '--mirror', o.origin, mirror]);
+                yield* run('git', ['clone', '--mirror', o.origin, mirror], env);
               }
             })
           );

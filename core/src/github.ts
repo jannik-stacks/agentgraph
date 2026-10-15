@@ -118,6 +118,80 @@ const refPath = (branch: string) =>
     ? Effect.fail(new ForgeError({ status: 422, message: `invalid branch "${branch}"` }))
     : Effect.succeed(`heads/${branch.split('/').map(encodeURIComponent).join('/')}`);
 
+/** A GitHub REST call with `auth` as the bearer; GETs are polled with ETags, so an unchanged answer is a free 304. */
+const requester = (fetch: Fetch) => {
+  const etags = new Map<string, { etag: string; data: unknown; next?: string }>();
+  return <T>(method: string, path: string, auth: string, body?: unknown) =>
+    Effect.gen(function* () {
+      const url = path.startsWith('https://') ? path : api + path;
+      const cached = method === 'GET' ? etags.get(url) : undefined;
+      const res = yield* Effect.tryPromise({
+        try: async () => {
+          const res = await fetch(url, {
+            method,
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${auth}`,
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'bothub',
+              ...(cached && { 'If-None-Match': cached.etag }),
+              ...(body !== undefined && { 'Content-Type': 'application/json' }),
+            },
+            ...(body !== undefined && { body: JSON.stringify(body) }),
+          });
+          return { status: res.status, ok: res.ok, headers: res.headers, text: await res.text() };
+        },
+        catch: e => new ForgeError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
+      });
+      if (res.status === 304 && cached) return cached as { data: T; next?: string };
+      if (!res.ok) {
+        const message = `GitHub ${method} ${path} failed with ${res.status}: ${res.text.slice(0, 200)}`;
+        return yield* new ForgeError({ status: res.status, message });
+      }
+      const data = yield* Effect.try({
+        try: () => (res.text ? JSON.parse(res.text) : undefined) as T,
+        catch: () => new ForgeError({ message: `GitHub ${method} ${path} answered with invalid JSON` }),
+      });
+      const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('link') ?? '')?.[1];
+      const out = { data, ...(next && { next }) };
+      const etag = res.headers.get('etag');
+      if (method === 'GET' && etag) etags.set(url, { etag, ...out });
+      return out;
+    });
+};
+
+/** Mints installation tokens for the App on `app.repo`, one at a time, reusing a token until a minute before it expires. */
+export const appToken = (
+  app: { repo: string; id: string; key: Redacted.Redacted },
+  fetch: Fetch = globalThis.fetch
+): Effect.Effect<string, ForgeError> => {
+  const request = requester(fetch);
+  let token: { value: string; expires: number } | undefined;
+  const minting = Effect.unsafeMakeSemaphore(1);
+  return minting.withPermits(1)(
+    Effect.suspend(() => {
+      if (token && token.expires - 60_000 > Date.now()) return Effect.succeed(token.value);
+      return Effect.gen(function* () {
+        const signed = yield* appSigned(app);
+        const { data: installation } = yield* request<{ id: number }>('GET', `/repos/${app.repo}/installation`, signed);
+        const { data } = yield* request<{ token: string; expires_at: string }>(
+          'POST',
+          `/app/installations/${installation.id}/access_tokens`,
+          signed
+        );
+        token = { value: data.token, expires: Date.parse(data.expires_at) };
+        return data.token;
+      });
+    })
+  );
+};
+
+const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
+  Effect.try({
+    try: () => appJwt(app.id, Redacted.value(app.key), Date.now()),
+    catch: e => new ForgeError({ message: (e as Error).message }),
+  });
+
 /**
  * The repo of one GitHub App installation. Reads poll fixed URLs with ETags, so an unchanged answer is a free 304.
  * Comments and reviews from anyone but owners, members and collaborators are withheld, and every text is stripped
@@ -126,74 +200,15 @@ const refPath = (branch: string) =>
  */
 export const githubForge = (
   app: { repo: string; id: string; key: Redacted.Redacted },
-  fetch: Fetch = globalThis.fetch
+  fetch: Fetch = globalThis.fetch,
+  token: Effect.Effect<string, ForgeError> = appToken(app, fetch)
 ): Layer.Layer<Forge> =>
   Layer.sync(Forge, () => {
     const repo = `/repos/${app.repo}`;
-    const etags = new Map<string, { etag: string; data: unknown; next?: string }>();
-    let token: { value: string; expires: number } | undefined;
     let slug: string | undefined;
 
-    const request = <T>(method: string, path: string, auth: string, body?: unknown) =>
-      Effect.gen(function* () {
-        const url = path.startsWith('https://') ? path : api + path;
-        const cached = method === 'GET' ? etags.get(url) : undefined;
-        const res = yield* Effect.tryPromise({
-          try: async () => {
-            const res = await fetch(url, {
-              method,
-              headers: {
-                Accept: 'application/vnd.github+json',
-                Authorization: `Bearer ${auth}`,
-                'X-GitHub-Api-Version': '2022-11-28',
-                'User-Agent': 'bothub',
-                ...(cached && { 'If-None-Match': cached.etag }),
-                ...(body !== undefined && { 'Content-Type': 'application/json' }),
-              },
-              ...(body !== undefined && { body: JSON.stringify(body) }),
-            });
-            return { status: res.status, ok: res.ok, headers: res.headers, text: await res.text() };
-          },
-          catch: e => new ForgeError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
-        });
-        if (res.status === 304 && cached) return cached as { data: T; next?: string };
-        if (!res.ok) {
-          const message = `GitHub ${method} ${path} failed with ${res.status}: ${res.text.slice(0, 200)}`;
-          return yield* new ForgeError({ status: res.status, message });
-        }
-        const data = yield* Effect.try({
-          try: () => (res.text ? JSON.parse(res.text) : undefined) as T,
-          catch: () => new ForgeError({ message: `GitHub ${method} ${path} answered with invalid JSON` }),
-        });
-        const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('link') ?? '')?.[1];
-        const out = { data, ...(next && { next }) };
-        const etag = res.headers.get('etag');
-        if (method === 'GET' && etag) etags.set(url, { etag, ...out });
-        return out;
-      });
-
-    const jwt = Effect.try({
-      try: () => appJwt(app.id, Redacted.value(app.key), Date.now()),
-      catch: e => new ForgeError({ message: (e as Error).message }),
-    });
-
-    const minting = Effect.unsafeMakeSemaphore(1);
-    const auth = minting.withPermits(1)(
-      Effect.suspend(() => {
-        if (token && token.expires - 60_000 > Date.now()) return Effect.succeed(token.value);
-        return Effect.gen(function* () {
-          const signed = yield* jwt;
-          const { data: installation } = yield* request<{ id: number }>('GET', `${repo}/installation`, signed);
-          const { data } = yield* request<{ token: string; expires_at: string }>(
-            'POST',
-            `/app/installations/${installation.id}/access_tokens`,
-            signed
-          );
-          token = { value: data.token, expires: Date.parse(data.expires_at) };
-          return data.token;
-        });
-      })
-    );
+    const request = requester(fetch);
+    const jwt = appSigned(app);
 
     const me = Effect.suspend(() =>
       slug !== undefined
@@ -204,7 +219,7 @@ export const githubForge = (
     );
 
     const gh = <T>(method: string, path: string, body?: unknown) =>
-      Effect.flatMap(auth, t => request<T>(method, path, t, body)).pipe(Effect.map(r => r.data));
+      Effect.flatMap(token, t => request<T>(method, path, t, body)).pipe(Effect.map(r => r.data));
 
     const missing = <A, R>(effect: Effect.Effect<A, ForgeError, R>) =>
       Effect.catchIf(
@@ -219,7 +234,7 @@ export const githubForge = (
         const items: T[] = [];
         let url: string | undefined = path;
         while (url) {
-          const page: { data: T[]; next?: string } = yield* Effect.flatMap(auth, t => request<T[]>('GET', url!, t));
+          const page: { data: T[]; next?: string } = yield* Effect.flatMap(token, t => request<T[]>('GET', url!, t));
           items.push(...page.data);
           url = more(page.data) ? page.next : undefined;
         }
