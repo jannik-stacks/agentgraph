@@ -70,12 +70,13 @@ export const changeEvent = (
 ): BotEvent | undefined => {
   const { issue } = change;
   const author = issue.author ?? (change.kind === 'issues' ? change.sender : change.comment.author);
+  const writer = change.kind === 'issues' ? change.sender : author;
   const item = {
     number: issue.number,
     html_url: issue.url ?? `#${issue.number}`,
     body: issue.body,
-    user: { login: author },
-    author_association: association(author),
+    user: { login: writer },
+    author_association: association(writer),
   };
   const repository = { full_name: repo };
   const payload =

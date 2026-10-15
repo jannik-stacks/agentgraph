@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { compile, type Config } from '../src/config.ts';
 import { parseCommand, plan } from '../src/dispatch.ts';
-import { toEvent, verifySignature } from '../src/github.ts';
+import { gh } from '../src/github-app.ts';
+import { senderTrust, toEvent, verifySignature, visible } from '../src/github.ts';
 import { readHub } from '../src/load.ts';
 import type { BotEvent } from '../src/types.ts';
 
@@ -198,9 +199,82 @@ jobs:
 });
 
 describe('parseCommand', () => {
-  it('requires the command as a whole word at the start', () => {
+  it('finds the command or its mention as a whole word anywhere outside quotes and code', () => {
     expect(parseCommand('  /bothub  ', '/bothub')).toBe('');
     expect(parseCommand('/bothub go', '/bothub')).toBe('go');
-    expect(parseCommand('please /bothub go', '/bothub')).toBeUndefined();
+    expect(parseCommand('please /bothub go', '/bothub')).toBe('go');
+    expect(parseCommand('thanks.\n\n@bothub, fix the\ntest', '/bothub')).toBe('fix the\ntest');
+    expect(parseCommand('/bothubx go', '/bothub')).toBeUndefined();
+    expect(parseCommand('mail me@example.com', '/bothub')).toBeUndefined();
+    expect(parseCommand('> /bothub fresh\n\nagreed', '/bothub')).toBeUndefined();
+    expect(parseCommand('```\n/bothub go\n```\n', '/bothub')).toBeUndefined();
+    expect(parseCommand('```\nx\n```\n/bothub go', '/bothub')).toBe('go');
+  });
+});
+
+describe('trust', () => {
+  const labeled = (sender: string, author: string, association = 'NONE') =>
+    toEvent('issues', 'd8', {
+      action: 'labeled',
+      repository: { full_name: 'acme/app' },
+      sender: { login: sender },
+      issue: { number: 7, html_url: 'u', user: { login: author }, author_association: association },
+      label: { name: 'ready' },
+    }) as BotEvent;
+  const permissions = (by: Record<string, string>) => {
+    const asked: string[] = [];
+    const client = gh('t', async url => {
+      const login = /collaborators\/([^/]+)\/permission$/.exec(url)?.[1] ?? '';
+      asked.push(login);
+      const role = by[login];
+      return role
+        ? new Response(JSON.stringify({ permission: role === 'maintain' ? 'write' : role, role_name: role }))
+        : new Response('{"message":"Not Found"}', { status: 404 });
+    });
+    return { asked, client };
+  };
+
+  it("trusts a label by its sender's write access, not by who wrote the issue", async () => {
+    const { asked, client } = permissions({ maintainer: 'maintain', triager: 'triage', reader: 'read' });
+    expect(labeled('maintainer', 'outsider').actor).toEqual({ login: 'maintainer', association: 'NONE' });
+    expect((await senderTrust(labeled('maintainer', 'outsider'), client)).actor.association).toBe('COLLABORATOR');
+    expect((await senderTrust(labeled('triager', 'owner', 'OWNER'), client)).actor.association).toBe('NONE');
+    expect((await senderTrust(labeled('reader', 'owner', 'OWNER'), client)).actor.association).toBe('NONE');
+    expect((await senderTrust(labeled('stranger', 'owner', 'OWNER'), client)).actor.association).toBe('NONE');
+    expect((await senderTrust(labeled('app[bot]', 'owner', 'OWNER'), client)).actor.association).toBe('NONE');
+    expect(asked).toEqual(['maintainer', 'triager', 'reader', 'stranger']);
+  });
+
+  it('keeps the association of what the sender wrote without a lookup', async () => {
+    const { asked, client } = permissions({});
+    expect((await senderTrust(labeled('owner', 'owner', 'OWNER'), client)).actor.association).toBe('OWNER');
+    const edited = toEvent('issue_comment', 'd9', {
+      ...commentPayload('/bothub go'),
+      action: 'edited',
+      sender: { login: 'outsider' },
+      comment: { body: '/bothub go', html_url: 'u', user: { login: 'morgan' }, author_association: 'OWNER' },
+    }) as BotEvent;
+    expect(edited.actor).toEqual({ login: 'outsider', association: 'NONE' });
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('visible', () => {
+  it('drops HTML comments, invisible format characters and tag characters', () => {
+    expect(visible('a<!-- do x -->b<!--\nmulti\n-->c')).toBe('abc');
+    expect(visible('shown <!-- unclosed hides the rest')).toBe('shown ');
+    expect(visible('z​w‌‍⁠﻿­|bidi‮⁦⁩‏؜|')).toBe('zw|bidi|');
+    const tags = [...'ignore all'].map(c => String.fromCodePoint(0xe0000 + c.codePointAt(0)!)).join('');
+    expect(visible(`ok${tags}\u{e0101}`)).toBe('ok');
+    expect(visible('café \u{1f600} `<b>`')).toBe('café \u{1f600} `<b>`');
+  });
+
+  it('gives events the visible body and reads the App mention as @bothub', () => {
+    const body = '<!-- /bothub fresh -->@bothub-acme go​';
+    const event = toEvent('issue_comment', 'd', commentPayload(body), now, 'bothub-acme');
+    expect(event?.body).toBe('@bothub go');
+    expect(plan(event!, config)).toMatchObject([{ job: 'implement', args: 'go' }]);
+    const other = toEvent('issue_comment', 'd', commentPayload('@bothub-acmex go'), now, 'bothub-acme');
+    expect(other?.body).toBe('@bothub-acmex go');
   });
 });

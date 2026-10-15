@@ -76,13 +76,25 @@ const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[
     }));
 };
 
-/** Returns the text after `command` when the body starts with it, otherwise `undefined`. */
+/**
+ * The text after `command` (such as `/bothub`) or its mention form (`@bothub`) in the body, or `undefined` when neither
+ * appears as a word. Quoted lines and fenced code do not count.
+ */
 export const parseCommand = (body: string, command: string): string | undefined => {
-  const text = body.trim();
-  if (!text.startsWith(command)) return;
-  const rest = text.slice(command.length);
-  if (rest && !/^\s/.test(rest)) return;
-  return rest.trim();
+  const name = command.replace(/^\//, '');
+  const word = new RegExp(`(^|\\s)[/@]${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[\\s,:])`);
+  let fenced = false;
+  let offset = 0;
+  for (const line of body.split('\n')) {
+    const start = offset;
+    offset += line.length + 1;
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    if (fenced || /^\s*>/.test(line)) continue;
+    const found = word.exec(line);
+    if (!found) continue;
+    const after = start + found.index + found[0].length;
+    return body.slice(after).replace(/^[,:]/, '').trim();
+  }
 };
 
 /**

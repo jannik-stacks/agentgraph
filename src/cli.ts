@@ -12,7 +12,7 @@ import { plan } from './dispatch.ts';
 import { preflight } from './preflight.ts';
 import { harnesses } from './harnesses/index.ts';
 import { githubApp } from './github-app.ts';
-import { toEvent } from './github.ts';
+import { senderTrust, toEvent } from './github.ts';
 import { localIssues } from './issues-local.ts';
 import { readHub } from './load.ts';
 import { McpTool, serveMcp } from './mcp.ts';
@@ -255,8 +255,12 @@ const run = defineCommand({
   async run({ args }) {
     const config = await compiled(args.dir);
     if (!config) return 2;
-    const event = toEvent(args.event, `cli-${randomUUID()}`, JSON.parse(await readFile(args.payload, 'utf8')));
     const root = resolve(dataDir(args.data));
+    const env = await loadEnv(root);
+    const app = await appFrom(env);
+    const payload = JSON.parse(await readFile(args.payload, 'utf8'));
+    const parsed = toEvent(args.event, `cli-${randomUUID()}`, payload, new Date(), env.BOTHUB_APP_SLUG);
+    const event = parsed && app ? await senderTrust(parsed, app.gh) : parsed;
     const hub = resolve(args.dir);
     if (!event || !plan(event, config).length) {
       print(asJson(args.json) ? JSON.stringify({ event, jobs: [] }) : 'no jobs');
@@ -270,8 +274,6 @@ const run = defineCommand({
     }
 
     if (!sandbox()) return 2;
-    const env = await loadEnv(root);
-    const app = await appFrom(env);
     if (!app)
       fail(
         'no GitHub App credentials (BOTHUB_APP_ID, BOTHUB_APP_KEY_FILE, BOTHUB_INSTALLATION_ID): nothing is applied'

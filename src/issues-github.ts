@@ -1,4 +1,6 @@
 import type { GitHub, GitHubError } from './github-app.ts';
+import { isTrusted } from './dispatch.ts';
+import { visible } from './github.ts';
 import { changeEvent, matches, type Comment, type Issue, type Issues } from './issues.ts';
 import { Association } from './schema.ts';
 import type { BotEvent } from './types.ts';
@@ -30,6 +32,16 @@ type RestComment = {
 
 const login = (user: RestUser | null | undefined) => user?.login ?? 'ghost';
 
+const bot = (author: string) => author.endsWith('[bot]');
+
+/** What a bot may read of a text: a bot's own text whole, with its markers; anyone else's as a reader sees it. */
+const readable = (text: string | null | undefined, author: string) => (bot(author) ? (text ?? '') : visible(text ?? ''));
+
+const association = (value: string) => {
+  const parsed = Association.safeParse(value);
+  return parsed.success ? parsed.data : 'NONE';
+};
+
 const notFound = (e: GitHubError) => {
   if (e.status !== 404) throw e;
   return undefined;
@@ -40,7 +52,7 @@ const referenced = (body: string, self: number) => [
 ];
 
 const toIssue = (r: RestIssue, parent?: number): Issue => {
-  const body = r.body ?? '';
+  const body = readable(r.body, login(r.user));
   const links = referenced(body, r.number).filter(n => n !== parent);
   return {
     number: r.number,
@@ -56,16 +68,22 @@ const toIssue = (r: RestIssue, parent?: number): Issue => {
   };
 };
 
-const toComment = (c: RestComment): Comment => ({
-  author: login(c.user),
-  ts: c.created_at,
-  body: c.body ?? '',
-  url: c.html_url,
-});
+/** A comment as bots read it; one from outside the repository's collaborators is withheld. */
+const toComment = (c: RestComment): Comment => {
+  const author = login(c.user);
+  const trusted = bot(author) || isTrusted(association(c.author_association));
+  return {
+    author,
+    ts: c.created_at,
+    body: trusted ? readable(c.body, author) : `(comment by @${author} withheld: not a collaborator)`,
+    url: c.html_url,
+  };
+};
 
 /**
  * Issues in a GitHub repository over the REST client. Parents and steps use the sub-issues API; `links` are the
- * other issues a body mentions as `#<n>`. `watch` polls for new issues, state changes and comments.
+ * other issues a body mentions as `#<n>`. `watch` polls for new issues, state changes and comments. Text from people
+ * comes back `visible`, and comments from outside the collaborators are withheld.
  */
 export const githubIssues = (gh: GitHub, repo: string): Issues => {
   const base = `/repos/${repo}/issues`;
@@ -96,11 +114,6 @@ export const githubIssues = (gh: GitHub, repo: string): Issues => {
   const link: Issues['link'] = async (parent, child) => {
     const { id } = await gh<RestIssue>('GET', `${base}/${child}`);
     await gh('POST', `${base}/${parent}/sub_issues`, { sub_issue_id: id });
-  };
-
-  const association = (value: string) => {
-    const parsed = Association.safeParse(value);
-    return parsed.success ? parsed.data : 'NONE';
   };
 
   const watch: Issues['watch'] = (onEvent, { interval = 60_000 } = {}) => {

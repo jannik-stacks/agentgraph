@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { serve } from './api.ts';
 import type { githubApp } from './github-app.ts';
+import { senderTrust } from './github.ts';
 import { localIssues } from './issues-local.ts';
 import { eventQueue, handled, servedHub, serveStudio, type ServeOptions } from './serve.ts';
 import { webhook } from './webhook.ts';
@@ -42,7 +43,8 @@ export const serveGitHub = async (
   const receiver = webhook({
     secret,
     seen: async id => !(await hub.store.deliver(id)),
-    onEvent: event => queue.enqueue(event, true),
+    onEvent: async event => queue.enqueue(await senderTrust(event, app.repoClient(event.repo)), true),
+    ...(options.env.BOTHUB_APP_SLUG && { slug: options.env.BOTHUB_APP_SLUG }),
     onError: (e, id) => log(`delivery ${id}: ${(e as Error).message}`),
   });
   const hooks = await serve(receiver, webhookPort);

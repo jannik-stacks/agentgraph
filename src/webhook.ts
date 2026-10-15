@@ -15,6 +15,8 @@ export type WebhookOptions = {
   /** Keeps the process alive for background work where the runtime needs it, such as a Worker's `ctx.waitUntil`. */
   waitUntil?: (work: Promise<unknown>) => void;
   maxBytes?: number;
+  /** The App's slug, whose `@<slug>` mention reads as `@bothub`. */
+  slug?: string;
 };
 
 /** GitHub caps webhook payloads at 25 MB; most are a few KB. */
@@ -66,6 +68,7 @@ export const webhook = ({
   onError = () => {},
   waitUntil,
   maxBytes = defaultMaxBytes,
+  slug,
 }: WebhookOptions): Handler => {
   if (!secret) throw new Error('a webhook secret is required');
   return async req => {
@@ -83,7 +86,7 @@ export const webhook = ({
     let event: BotEvent | undefined;
     try {
       payload = JSON.parse(new TextDecoder().decode(body));
-      event = toEvent(name, deliveryId, payload);
+      event = toEvent(name, deliveryId, payload, new Date(), slug);
     } catch {
       return text(400, 'malformed payload');
     }

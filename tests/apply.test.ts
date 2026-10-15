@@ -232,6 +232,7 @@ describe('apply', () => {
       body: 'done\n\n<!-- bothub:d1/reply-1 -->',
       html_url: 'c1',
       issue_url: '',
+      user: { login: 'app[bot]' },
       author_association: 'NONE',
       created_at: event.ts,
     };
