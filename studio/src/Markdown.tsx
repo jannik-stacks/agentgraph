@@ -1,10 +1,7 @@
 import { createMarkdownRenderer } from 'fumadocs-core/content/md';
 import { remarkGfm } from 'fumadocs-core/mdx-plugins/remark-gfm';
-import { CodeBlock, Pre } from 'fumadocs-ui/components/codeblock';
-import defaultMdxComponents from 'fumadocs-ui/mdx';
 import {
   type ComponentProps,
-  type CSSProperties,
   memo,
   type ReactElement,
   type ReactNode,
@@ -15,12 +12,10 @@ import {
   useState,
 } from 'react';
 import { useHighlighted } from './source/highlight.tsx';
-import { Icon } from './studio/icons.tsx';
+import { Icon } from './icons.tsx';
 import { cx, IconButton } from './ui.tsx';
 
 const { Markdown: Render } = createMarkdownRenderer({ remarkPlugins: [remarkGfm] });
-
-const padded = { '--padding-left': 'calc(var(--spacing) * 3)' } as CSSProperties;
 
 /** The one surface every code block sits on: close to the page, a hairline border, no shadow. */
 export const codeSurface =
@@ -80,51 +75,44 @@ export const Code = memo(function Code({
   }, [shown, folded]);
   const more = hidden > 0 || clipped || open;
   return (
-    <CodeBlock
-      className={cx('my-1.5 shadow-none', codeSurface, className)}
-      style={padded}
-      allowCopy={false}
-      Actions={() => (
-        <div className="absolute top-1 right-1 z-2 flex items-center gap-0.5 rounded bg-(--bhm-code-bg)/80 backdrop-blur-sm">
-          {actions}
-          {more && (
-            <IconButton
-              tip={open ? 'Show fewer lines' : 'Show every line'}
-              variant="quiet"
-              aria-pressed={open}
-              onClick={() => setOpen(!open)}
-            >
-              <Icon name={open ? 'collapse' : 'expand'} className="size-3" />
-            </IconButton>
-          )}
-          <CopyCode code={code} />
-        </div>
-      )}
-      viewportProps={{
-        className: cx(
-          compact ? 'py-1.5 text-[11px] leading-4' : 'py-2 text-[11.5px] leading-[1.6]',
-          open ? 'max-h-[40rem]' : 'max-h-96',
-          wrap && '[&_pre]:w-auto [&_:is(pre,code)]:whitespace-pre-wrap [&_:is(pre,code)]:break-all'
-        ),
-      }}
-    >
+    <div className={cx('relative my-1.5', codeSurface, className)}>
+      <div className="absolute top-1 right-1 z-2 flex items-center gap-0.5 rounded bg-(--bhm-code-bg)">
+        {actions}
+        {more && (
+          <IconButton
+            tip={open ? 'Show fewer lines' : 'Show every line'}
+            variant="quiet"
+            aria-pressed={open}
+            onClick={() => setOpen(!open)}
+          >
+            <Icon name={open ? 'collapse' : 'expand'} className="size-3" />
+          </IconButton>
+        )}
+        <CopyCode code={code} />
+      </div>
       <div
         ref={box}
-        className={cx(folded && 'overflow-y-clip')}
-        style={folded ? { maxHeight: `calc(${lines} * 1lh)` } : undefined}
+        className={cx(
+          'overflow-auto px-3',
+          compact ? 'py-1.5 text-[11px] leading-4' : 'py-2 text-[11.5px] leading-[1.6]',
+          open ? 'max-h-[40rem]' : 'max-h-96',
+          folded && 'overflow-y-clip',
+          wrap && '[&_:is(pre,code)]:break-all [&_:is(pre,code)]:whitespace-pre-wrap'
+        )}
+        style={folded ? { maxHeight: `calc(${lines} * 1lh + 1rem)` } : undefined}
       >
-        <Pre>{useHighlighted(shown, lang)}</Pre>
+        <pre className="shiki">{useHighlighted(shown, lang)}</pre>
       </div>
       {folded && (hidden > 0 || clipped) && (
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="absolute inset-x-0 bottom-0 flex h-10 items-end bg-linear-to-t from-(--bhm-code-bg) from-50% to-transparent px-3 pb-1 text-left text-[11px] text-zinc-500 hover:text-sky-700 dark:hover:text-sky-300"
+          className="absolute inset-x-0 bottom-0 flex h-8 items-end bg-(--bhm-code-bg) px-3 pb-1 text-left text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
         >
           {hidden > 0 ? `${hidden} more ${hidden === 1 ? 'line' : 'lines'}` : 'show all'}
         </button>
       )}
-    </CodeBlock>
+    </div>
   );
 });
 
@@ -145,10 +133,8 @@ const preWith =
 const a = (props: ComponentProps<'a'>) => <a {...props} target="_blank" rel="noreferrer" />;
 
 /**
- * Markdown the way the docs render it: GitHub extensions, the docs' prose styles and code blocks, the whole prose scaled
- * down for panels so inline code, links, lists and headings keep the docs' proportions.
- * Parsing is synchronous, so the first paint is already final; only code colors arrive later, in place. `code` may
- * turn an inline code span into something richer, like a link; `fences` draws fenced blocks of a language its own way.
+ * Markdown with GitHub extensions and highlighted code blocks, sized for panels. `code` may turn an inline code span into
+ * something richer, like a link; `fences` draws fenced blocks of a language its own way.
  */
 export const Markdown = memo(function Markdown({
   text,
@@ -163,7 +149,6 @@ export const Markdown = memo(function Markdown({
 }) {
   const components = useMemo(
     () => ({
-      table: defaultMdxComponents.table,
       pre: preWith(fences),
       a,
       ...(code && {
@@ -178,12 +163,7 @@ export const Markdown = memo(function Markdown({
     [code, fences]
   );
   return (
-    <div
-      className={cx(
-        'prose max-w-none [--tw-prose-size:0.8125] [&_:where(p,ul,ol,blockquote)]:my-2 [&_:where(h1,h2,h3,h4)]:mt-3 [&_:where(h1,h2,h3,h4)]:mb-1.5 [&>:first-child]:mt-0 [&>:last-child]:mb-0',
-        className
-      )}
-    >
+    <div className={cx('bhm-md', className)}>
       <Render components={components}>{text}</Render>
     </div>
   );

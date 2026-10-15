@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  changedSpans,
-  columnOf,
-  emphasisOf,
-  hunksOf,
-  type Kind,
-  pairLines,
-} from '../studio/src/dashboard/diff-lines.ts';
+import { changedSpans, columnOf, emphasisOf, hunksOf, type Kind, pairLines } from '../studio/src/runs/diff-lines.ts';
 
 const kinds = (...list: Kind[]) => list.map(kind => ({ kind, text: 'x' }));
 const lines = (...list: [Kind, string][]) => list.map(([kind, text]) => ({ kind, text }));

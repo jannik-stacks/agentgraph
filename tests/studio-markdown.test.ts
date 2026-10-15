@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { studioDir, studioModule } from './studio.ts';
 
 Object.assign(globalThis, {
-  location: new URL('http://localhost/dashboard'),
+  location: new URL('http://localhost/runs'),
   addEventListener: () => {},
   removeEventListener: () => {},
 });
@@ -18,36 +18,24 @@ const React = await load<{ createElement: (type: unknown, props?: unknown, ...ch
   'react'
 );
 const { renderToStaticMarkup } = await load<{ renderToStaticMarkup: (node: unknown) => string }>('react-dom/server');
-const { evaluate } = await load<{ evaluate: (text: string, options: unknown) => Promise<{ default: Element }> }>(
-  '@mdx-js/mdx'
-);
-const runtime = await load<object>('react/jsx-runtime');
-const { default: mdxComponents } = await load<{ default: object }>('fumadocs-ui/mdx');
 const { Markdown } = await studioModule<{ Markdown: Element }>('Markdown.tsx');
 
-const text = 'Run `bothub serve` before the [docs](https://example.com).';
-
-const docs = async () => {
-  const { default: Content } = await evaluate(text, runtime);
-  return renderToStaticMarkup(
-    React.createElement('div', { className: 'prose' }, React.createElement(Content, { components: mdxComponents }))
-  );
-};
-
-const codeSpans = (html: string) => html.match(/<code[^>]*>[^<]*<\/code>/g);
-const proseRoot = (html: string) => /^<div class="([^"]*)"/.exec(html)?.[1]?.split(' ') ?? [];
+const render = (props: Record<string, unknown>) => renderToStaticMarkup(React.createElement(Markdown, props));
 
 describe('Markdown in the studio', () => {
-  it('renders inline code with the same element and classes as the docs', async () => {
-    const studio = renderToStaticMarkup(React.createElement(Markdown, { text }));
-    expect(codeSpans(studio)).toEqual(codeSpans(await docs()));
-    expect(codeSpans(studio)).toEqual(['<code>bothub serve</code>']);
+  it('renders inline code plainly and opens links in a new tab', () => {
+    const html = render({ text: 'Run `bothub serve` before the [docs](https://example.com).' });
+    expect(html).toMatch(/^<div class="bhm-md">/);
+    expect(html).toContain('<code>bothub serve</code>');
+    expect(html).toMatch(/<a href="https:\/\/example.com" target="_blank" rel="noreferrer">docs<\/a>/);
   });
 
-  it('styles it through the docs prose, scaled rather than overridden', () => {
-    const classes = proseRoot(renderToStaticMarkup(React.createElement(Markdown, { text })));
-    expect(classes).toContain('prose');
-    expect(classes).toContain('[--tw-prose-size:0.8125]');
-    expect(classes.some(c => /^text-\[|^leading-|not-prose/.test(c))).toBe(false);
+  it('renders GitHub tables and lets a caller turn code spans into links', () => {
+    const html = render({
+      text: '| a | b |\n| - | - |\n| `x` | 2 |',
+      code: (text: string) => React.createElement('a', { href: `#${text}` }, text),
+    });
+    expect(html).toContain('<table>');
+    expect(html).toContain('<a href="#x">x</a>');
   });
 });

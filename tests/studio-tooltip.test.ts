@@ -29,21 +29,16 @@ beforeAll(async () => {
 });
 
 describe('Tooltip', () => {
-  it('puts the explanation first and the action on its own line under a divider', () => {
-    const body = tooltip(render({ tip: '3 notes matched', action: 'List them', keys: 'L' }));
-    expect(body).toContain('3 notes matched');
+  it('puts the explanation first and the action on its own line under it', () => {
+    const body = tooltip(render({ tip: '3 notes matched', action: 'List them' }));
     expect(body.indexOf('3 notes matched')).toBeLessThan(body.indexOf('List them'));
-    expect(body).toMatch(/border-t[^>]*>.*<svg[^>]*aria-hidden="true".*List them/s);
-    expect(body).toContain('<kbd');
-    expect(body).toContain('>L</kbd>');
+    expect(body).toMatch(/<span class="block[^"]*">List them<\/span>/);
   });
 
-  it('renders an action alone without the divider', () => {
+  it('renders an action alone', () => {
     const body = tooltip(render({ action: 'Open the run' }));
     expect(body).toContain('Open the run');
-    expect(body).toContain('<svg');
-    expect(body).not.toContain('border-t');
-    expect(body).not.toContain('<kbd');
+    expect(body).not.toContain('<svg');
   });
 
   it('renders an explanation alone as plain text with no icon', () => {

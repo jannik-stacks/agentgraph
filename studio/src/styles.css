@@ -1,6 +1,4 @@
 @import 'tailwindcss';
-@import 'fumadocs-ui/css/neutral.css';
-@import 'fumadocs-ui/css/preset.css';
 
 html,
 body,
@@ -12,6 +10,16 @@ body {
   @apply bg-white text-sm text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
 }
 
+:root {
+  --bhm-code-bg: var(--color-zinc-50);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bhm-code-bg: var(--color-zinc-900);
+  }
+}
+
 .react-flow {
   --xy-background-color: transparent;
 }
@@ -20,117 +28,53 @@ body {
   opacity: 0;
 }
 
-.react-flow__node {
-  transition: opacity 150ms;
+.shiki span {
+  color: var(--shiki-light);
 }
 
-@keyframes bhm-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
+@media (prefers-color-scheme: dark) {
+  .shiki span {
+    color: var(--shiki-dark);
   }
 }
 
-.bhm-enter {
-  animation: bhm-enter 160ms ease-out;
-}
+.bhm-md {
+  @apply text-[13px] leading-relaxed break-words;
 
-@keyframes bhm-halo {
-  from {
-    opacity: 0.5;
-    transform: scale(1);
+  & > :first-child {
+    @apply mt-0;
   }
-  to {
-    opacity: 0;
-    transform: scale(2.6);
+  & > :last-child {
+    @apply mb-0;
   }
-}
-
-.bhm-halo {
-  animation: bhm-halo 2s ease-out infinite;
-}
-
-@keyframes bhm-breathe {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.55);
+  & :where(p, ul, ol, blockquote, table) {
+    @apply my-2;
   }
-  50% {
-    opacity: 1;
-    transform: scale(1);
+  & :where(h1, h2, h3, h4) {
+    @apply mt-3 mb-1.5 font-semibold;
   }
-}
-
-.bhm-breathe {
-  animation: bhm-breathe 1.2s ease-in-out infinite both;
-}
-
-@keyframes bhm-live-row {
-  50% {
-    background-color: color-mix(in oklab, var(--color-sky-500) 5%, transparent);
+  & h1 {
+    @apply text-base;
   }
-}
-
-.bhm-live-row {
-  animation: bhm-live-row 3s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bhm-enter,
-  .bhm-halo,
-  .bhm-breathe,
-  .bhm-live-row {
-    animation: none;
+  & ul {
+    @apply list-disc pl-5;
   }
-}
-
-@property --bhm-fade-start {
-  syntax: '<length>';
-  inherits: false;
-  initial-value: 0px;
-}
-
-@property --bhm-fade-end {
-  syntax: '<length>';
-  inherits: false;
-  initial-value: 0px;
-}
-
-@keyframes bhm-fade-start {
-  to {
-    --bhm-fade-start: 2.5rem;
+  & ol {
+    @apply list-decimal pl-5;
   }
-}
-
-@keyframes bhm-fade-end {
-  from {
-    --bhm-fade-end: 2.5rem;
+  & a {
+    @apply underline;
   }
-}
-
-/* Fades the edge of a scroll box that still has content past it, growing and shrinking with the scroll. */
-.bhm-scroll-fade {
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    black var(--bhm-fade-start),
-    black calc(100% - var(--bhm-fade-end)),
-    transparent
-  );
-  animation:
-    bhm-fade-start linear both,
-    bhm-fade-end linear both;
-  animation-timeline: scroll(self), scroll(self);
-  animation-range:
-    0 2.5rem,
-    calc(100% - 2.5rem) 100%;
-}
-
-:root {
-  --bhm-code-bg: color-mix(in oklab, var(--color-zinc-50) 70%, white);
-}
-
-.dark {
-  --bhm-code-bg: color-mix(in oklab, var(--color-zinc-900) 45%, var(--color-zinc-950));
+  & blockquote {
+    @apply border-l-2 border-zinc-200 pl-3 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400;
+  }
+  & :not(pre) > code {
+    @apply rounded bg-zinc-100 px-1 font-mono text-[0.9em] dark:bg-zinc-800;
+  }
+  & table {
+    @apply block overflow-x-auto text-xs;
+  }
+  & :where(th, td) {
+    @apply border border-zinc-200 px-2 py-1 text-left dark:border-zinc-800;
+  }
 }

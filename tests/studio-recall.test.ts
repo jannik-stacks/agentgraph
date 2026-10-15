@@ -49,7 +49,7 @@ describe('Recalled step', () => {
       recallsOf: (r: EventRecord[]) => unknown[];
       RecalledHead: unknown;
       RecalledRows: unknown;
-    }>('dashboard/render/recall.tsx');
+    }>('runs/render/recall.tsx');
     const recalls = view.recallsOf(records);
     expect(recalls).toHaveLength(2);
     const head = renderToString(createElement(view.RecalledHead, { recalls }));

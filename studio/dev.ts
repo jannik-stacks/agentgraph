@@ -22,7 +22,7 @@ const fail = (message: string) => {
 };
 
 const prices = loadPrices({ file: join(infraDir, 'local', 'prices.json') });
-await serve(api({ hubDir, store, roots: [{ name: 'infra', dir: infraDir }], prices }), apiPort).catch((e: Error) =>
+await serve(api({ hubDir, store, prices }), apiPort).catch((e: Error) =>
   fail(`${e.message}; stop it, or pick other ports with BHM_API_PORT and BHM_PORT`)
 );
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;

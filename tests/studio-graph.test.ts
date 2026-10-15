@@ -1,33 +1,19 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compile, recallOf, type Config } from '../src/config.ts';
+import { compile, type Config } from '../src/config.ts';
 import { readHub } from '../src/load.ts';
-import { buildSpec } from '../src/pipeline.ts';
-import type { Preload } from '../src/schema.ts';
-import type { BotEvent } from '../src/types.ts';
 import { studioModule } from './studio.ts';
 
-type Node = {
-  id: string;
-  kind: string;
-  context?: {
-    step: string;
-    preload: Preload[];
-    harnessTools: string[];
-    hubTools: string[];
-    returns: string[];
-    verdict?: true;
-  }[];
-};
-type Edge = { from: string; to: string; kind: string };
-type Model = { nodes: Node[]; edges: Edge[] };
-type GraphModule = {
-  graphModel: (config: Config) => Model;
-  layerModel: (model: Model, layer: 'flow' | 'cast') => Model;
-};
+type Step = { id: string; name: string; bot?: string; run?: string; next: string[]; back: { to: string }[] };
+type Flow = { workflow: string; triggers: string[]; entry: string[]; steps: Step[] };
+type Placed = { id: string; kind: string; x: number; y: number };
+type Line = { from: string; to: string; back?: string };
 
-const { graphModel, layerModel } = await studioModule<GraphModule>('graph-model.ts');
+const { flowsOf } = await studioModule<{ flowsOf: (config: Config) => Flow[] }>('graph/model.ts');
+const { layout } = await studioModule<{ layout: (flows: Flow[]) => { placed: Placed[]; lines: Line[] } }>(
+  'graph/layout.ts'
+);
 
 const examples = join(import.meta.dirname, '..', 'examples');
 const hubs = await Promise.all(
@@ -40,107 +26,39 @@ const hubs = await Promise.all(
     })
 );
 
-const event: BotEvent = {
-  id: 'e',
-  ts: '2026-10-12T00:00:00.000Z',
-  source: 'local',
-  trigger: 'issue_comment',
-  repo: 'acme/app',
-  actor: { login: 'octocat', association: 'OWNER' },
-  body: 'Fix the fee estimate',
-};
-
-describe('studio step context', () => {
-  it.each(hubs)('%s: each job shows exactly what its run gets: preload, recall, tools and returns', (_, config) => {
-    const model = graphModel(config);
-    let jobs = 0;
-    for (const workflow of Object.values(config.workflows))
-      for (const [id, job] of Object.entries(workflow.jobs)) {
-        if (job.type !== 'bot') continue;
-        jobs++;
-        const node = model.nodes.find(n => n.id === `job:${workflow.name}/${id}`);
-        const [context] = node?.context ?? [];
-        expect(context?.step).toBe(node?.id);
-        const mcp = (tools: string[]) => ({ command: 'node', args: tools, env: {} });
-        const built = buildSpec({ config, workflow, job: id, event, cwd: '/w', hub: '/hub', data: '/data', mcp });
-        const { spec } = built;
-        expect(context!.returns).toEqual(built.returns);
-        expect(context!.harnessTools).toEqual(spec.tools.filter(t => !t.startsWith('bothub_')));
-        expect([
-          ...new Set([
-            ...context!.hubTools.filter(t => t !== 'history'),
-            ...(spec.surfacer?.recall ? ['notes_get', 'notes_search'] : []),
-          ]),
-        ]).toEqual(spec.tools.filter(t => t.startsWith('bothub_') && t !== 'bothub_notes_add').map(t => t.slice(7)));
-        const recalls = context!.preload.some(item => recallOf(item));
-        const opencode = config.bots[job.bot]!.harness === 'opencode';
-        expect(spec.surfacer?.recall !== undefined).toBe(recalls && opencode);
-        expect(spec.system).not.toContain('## Notes');
-      }
-    expect(jobs).toBeGreaterThan(0);
-  });
-
-  it.each(hubs)('%s: each bot lists the context of every step that casts it', (_, config) => {
-    const model = graphModel(config);
-    for (const bot of model.nodes.filter(n => n.kind === 'bot')) {
-      const casters = model.edges
-        .filter(e => e.to === bot.id && (e.kind === 'runs-as' || e.kind === 'fans-out'))
-        .map(e => e.from);
-      expect((bot.context ?? []).map(c => c.step).toSorted()).toEqual([...new Set(casters)].toSorted());
-    }
-  });
-});
-
-describe('studio graph layers', () => {
-  const flowKinds = ['triggers', 'needs', 'gates', 'loops-back'];
-  const castKinds = ['runs-as', 'fans-out', 'uses-skill'];
-
-  it.each(hubs)('%s: the flow layer has steps and gating checks, linked only by the flow', (_, config) => {
-    const model = graphModel(config);
-    const flow = layerModel(model, 'flow');
-    const steps = (m: Model) => m.nodes.filter(n => ['trigger', 'job', 'script'].includes(n.kind)).map(n => n.id);
-    expect(steps(flow)).toEqual(steps(model));
-    expect(flow.nodes.every(n => ['trigger', 'job', 'script', 'check'].includes(n.kind))).toBe(true);
-    expect(flow.edges.every(e => flowKinds.includes(e.kind))).toBe(true);
-    const gating = new Set(model.edges.filter(e => e.kind === 'gates').map(e => e.from));
-    expect(flow.nodes.filter(n => n.kind === 'check').every(n => gating.has(n.id))).toBe(true);
-  });
-
-  it.each(hubs)('%s: the cast layer adds bots and skills with one edge per cast, and never context', (_, config) => {
-    const cast = layerModel(graphModel(config), 'cast');
-    const kinds = new Map(cast.nodes.map(n => [n.id, n.kind]));
-    expect([...kinds.values()].some(kind => ['note', 'tool', 'issues'].includes(kind))).toBe(false);
-    for (const edge of cast.edges.filter(e => !flowKinds.includes(e.kind))) {
-      expect(castKinds).toContain(edge.kind);
-      expect(['job', 'check']).toContain(kinds.get(edge.from));
-      expect(['bot', 'skill']).toContain(kinds.get(edge.to));
-    }
-    expect(new Set(cast.edges.map(e => `${e.kind} ${e.from} ${e.to}`)).size).toBe(cast.edges.length);
-  });
-});
-
-type Placed = { id: string; position: { x: number; y: number }; measured?: { width: number; height: number } };
-type PlacedModule = {
-  applyMoves: (changes: object[], nodes: Placed[]) => Placed[];
-  decorate: (nodes: Placed[], selected: string | null, near: Set<string> | undefined) => Placed[];
-};
-
-describe('studio graph dragging', () => {
-  it('moves a node in place, keeping its measured size and every other node as it was', async () => {
-    const { applyMoves, decorate } = await studioModule<PlacedModule>('studio/placed.ts');
-    const nodes = decorate(
-      [
-        { id: 'a', position: { x: 0, y: 0 }, measured: { width: 232, height: 72 } },
-        { id: 'b', position: { x: 300, y: 0 }, measured: { width: 232, height: 72 } },
-      ],
-      null,
-      undefined
+describe('studio graph', () => {
+  it.each(hubs)('%s: every job is one step, started by the triggers or by the jobs it needs', (_, config) => {
+    const flows = flowsOf(config);
+    expect(flows.map(f => f.workflow).toSorted()).toEqual(
+      Object.values(config.workflows)
+        .map(w => w.name)
+        .toSorted()
     );
-    const moved = applyMoves([{ type: 'position', id: 'a', position: { x: 12, y: 8 }, dragging: true }], nodes);
-    expect(moved[0]).toMatchObject({ position: { x: 12, y: 8 }, measured: { width: 232, height: 72 } });
-    expect(moved[1]).toBe(nodes[1]);
-    expect(applyMoves([{ type: 'select', id: 'b', selected: true }], moved)).toBe(moved);
-    expect(decorate(moved, null, undefined)).toEqual(moved);
-    expect(decorate(moved, null, undefined).every((n, i) => n === moved[i])).toBe(true);
+    for (const flow of flows) {
+      const workflow = Object.values(config.workflows).find(w => w.name === flow.workflow)!;
+      const jobs = Object.entries(workflow.jobs);
+      expect(flow.steps.map(s => s.name)).toEqual(jobs.map(([id]) => id));
+      expect(flow.triggers).toEqual(Object.keys(workflow.on));
+      for (const [id, job] of jobs) {
+        const step = flow.steps.find(s => s.name === id)!;
+        expect(step.id).toBe(`${flow.workflow}/${id}`);
+        expect(job.type === 'bot' ? step.bot : step.run).toBeTruthy();
+        for (const need of job.needs) expect(flow.steps.find(s => s.name === need)!.next).toContain(step.id);
+        expect(flow.entry.includes(step.id)).toBe(job.needs.length === 0);
+      }
+    }
   });
+
+  it.each(hubs)(
+    '%s: the layout places every node once, apart from the others, and links only placed nodes',
+    (_, config) => {
+      const flows = flowsOf(config);
+      const { placed, lines } = layout(flows);
+      const ids = new Set(placed.map(p => p.id));
+      expect(ids.size).toBe(placed.length);
+      expect(new Set(placed.map(p => `${p.x},${p.y}`)).size).toBe(placed.length);
+      for (const step of flows.flatMap(f => f.steps)) expect(ids.has(step.id)).toBe(true);
+      for (const line of lines) expect(ids.has(line.from) && ids.has(line.to)).toBe(true);
+    }
+  );
 });

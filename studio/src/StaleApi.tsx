@@ -18,7 +18,7 @@ export const StaleApi = ({ everyMs = 3000 }: { everyMs?: number }) => {
   usePolling(poll, everyMs);
   if (!stale) return null;
   return (
-    <p role="alert" className="bg-amber-100 px-4 py-1.5 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+    <p role="alert" className="border-b border-zinc-200 px-4 py-1.5 text-sm dark:border-zinc-800">
       The API is out of date with <code>src/</code>. <code>npm run dev</code> restarts it on its own; if this stays,
       restart the dev server.
     </p>
