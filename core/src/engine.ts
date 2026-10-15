@@ -421,9 +421,10 @@ const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 
 /**
  * One look at the repo: reenter parked runs, begin new ones, drive up to `limits.working`. With `only`, it looks at
- * that thread alone and begins a run there when none was live, command or not.
+ * that thread alone and begins a run there when none was live, command or not; with `fresh` too, only when the thread
+ * never had a run.
  */
-export const tick = (hub: Hub, only?: number): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
@@ -478,7 +479,12 @@ export const tick = (hub: Hub, only?: number): Effect.Effect<Run[], ForgeError |
       if (!w || used.has(m) || m.kind !== 'comment' || !m.trusted || !open.has(m.thread)) continue;
       if (!busy.has(`${w.name}#${m.thread}`)) yield* start(w, m.thread, m.at);
     }
-    if (only !== undefined && triggered[0] && !runs.some(live) && !touched.some(r => r.thread === only))
+    if (
+      only !== undefined &&
+      triggered[0] &&
+      (fresh ? runs.length === 0 : !runs.some(live)) &&
+      !touched.some(r => r.thread === only)
+    )
       yield* start(triggered[0], only, now());
 
     const running = (yield* store.list({ status: 'running' }))
@@ -493,4 +499,12 @@ export const tick = (hub: Hub, only?: number): Effect.Effect<Run[], ForgeError |
       { concurrency: hub.limits.working }
     );
     return [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
+  });
+
+/** One pass over the open issues, one after another: each gets the same single look `tick` gives it. */
+export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+  Effect.gen(function* () {
+    const issues = (yield* Effect.flatMap(Forge, f => f.threads({ state: 'open' }))).filter(t => !t.pull);
+    const runs = yield* Effect.forEach(issues, t => tick(hub, t.number, true));
+    return runs.flat();
   });

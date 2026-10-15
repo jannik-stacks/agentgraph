@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Layer, Redacted, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { drive, tick } from '../src/engine.ts';
+import { drive, sweep, tick } from '../src/engine.ts';
 import { start as main } from '../src/main.ts';
 import { fileForge, Forge, type Message, type Proposal } from '../src/forge.ts';
 import { host } from '../src/sandbox.ts';
@@ -324,5 +324,50 @@ describe('start with one issue', () => {
     } finally {
       for (const name of Object.keys(env)) delete process.env[name];
     }
+  }, 30_000);
+});
+
+describe('sweep', () => {
+  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+
+  it('drives a new issue and a parked one with a new answer, and skips one waiting with nothing new', async () => {
+    const where = world();
+    rmSync(join(where.forge, '7.jsonl'));
+    for (const n of [8, 9])
+      writeFileSync(
+        join(where.forge, `${n}.md`),
+        `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
+      );
+    const at = '2026-10-16T00:00:00.000Z';
+    const parked = (thread: number, status: Run['status']): Run => ({
+      ...begin(small.workflows.issue!, { id: `run-${thread}`, thread, started: at }),
+      status,
+    });
+    const answer = '2026-10-16T00:00:05.000Z';
+    say(where, {
+      thread: 8,
+      kind: 'comment',
+      actor: 'morgan',
+      trusted: true,
+      at: answer,
+      comment: { id: 'a', author: 'morgan', body: '/bothub hi', at: answer },
+    });
+    const { specs, run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'Done.' })],
+      [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'Done.' })],
+    ]);
+    const touched = await run(
+      Effect.gen(function* () {
+        const store = yield* Store;
+        yield* store.put(parked(8, 'asking'));
+        yield* store.put(parked(9, 'waiting'));
+        return yield* sweep(small);
+      })
+    );
+    expect(touched.map(r => r.thread).sort()).toEqual([7, 8]);
+    expect(touched.find(r => r.thread === 9)).toBeUndefined();
+    expect(specs).toHaveLength(2);
+    expect(specs.map(s => s.prompt).join('\n')).toContain('hi');
+    expect(await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)))).toHaveProperty('length', 0);
   }, 30_000);
 });

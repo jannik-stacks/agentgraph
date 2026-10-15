@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { ConfigProvider, Effect, Layer, Schedule } from 'effect';
-import { tick } from './engine.ts';
+import { sweep, tick } from './engine.ts';
 import { loadHub } from './hub.ts';
 import { layers, settings, type Services, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
@@ -30,11 +30,11 @@ const configured = (extra: Record<string, string>) =>
 
 /**
  * Reads the settings, the App env file named by `BOTHUB_APP_ENV` and the environment, builds the services and ticks
- * every `every` minutes. With `one`, it looks at that issue once and resolves with the runs it touched. The only
- * place that leaves Effect.
+ * every `every` minutes. With `one`, it looks at that issue once, or at every open issue once when `issue` is
+ * `'all'`, and resolves with the runs it touched. The only place that leaves Effect.
  */
 export const start = (
-  one?: { hub: string; issue: number; data: string },
+  one?: { hub: string; issue: number | 'all'; data: string },
   services: (s: Settings) => Layer.Layer<Services> = layers
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
@@ -43,7 +43,9 @@ export const start = (
     ? Effect.gen(function* () {
         const hub = yield* loadHub(one.hub);
         const provider = yield* configured({ BOTHUB_REPO: hub.repo, BOTHUB_HUB: one.hub, BOTHUB_DATA: one.data });
-        return yield* provided(tick(hub, one.issue)).pipe(Effect.withConfigProvider(provider));
+        return yield* provided(one.issue === 'all' ? sweep(hub) : tick(hub, one.issue)).pipe(
+          Effect.withConfigProvider(provider)
+        );
       })
     : Effect.gen(function* () {
         const provider = yield* configured({});
