@@ -199,7 +199,8 @@ const attempts = (
       .join('\n\n');
     let prompt = task;
     let session: RunSpec['session'];
-    let reformats = 0;
+    // Attempts that do not use up the budget: reformats and agentless rechecks.
+    let uncounted = 0;
     let snapshots = 0;
     let reformatting = false;
     let resumed = false;
@@ -223,7 +224,7 @@ const attempts = (
       const spec = { ...built.spec, prompt, ...(session && { session }) };
       const recheck = reuse && !item ? worktree.recheck : undefined;
       reuse = false;
-      if (recheck !== undefined) reformats++;
+      if (recheck !== undefined) uncounted++;
       const now = new Date().toISOString();
       const { run, final } =
         recheck === undefined
@@ -280,7 +281,7 @@ const attempts = (
       reformatting = false;
       if (problems.length) {
         const error = problems.join('; ');
-        const tries = attempt - reformats;
+        const tries = attempt - uncounted;
         if ((!reformat && tries > max) || broke()) {
           const failed = yield* Effect.promise(() =>
             p.store.update(run.id, {
@@ -301,7 +302,7 @@ const attempts = (
           const resumed = resumes ? yield* Effect.promise(() => sessionOf(run, p)) : undefined;
           session = resumed;
           prompt = formatOnly(extracted.errors, resumed ? undefined : final);
-          reformats++;
+          uncounted++;
           reformatting = true;
           continue;
         }
@@ -351,7 +352,7 @@ const attempts = (
       const holding = failing.filter(v => holds(v, p));
       const fixable = failing.filter(v => !v.blocked);
       const blocked = failing.filter(v => v.blocked);
-      const exhausted = attempt - reformats > max || broke();
+      const exhausted = attempt - uncounted > max || broke();
       const verdicts = job.until ? checks : undefined;
       if (!holding.length && !blocked.length && !left.length) {
         const outcome = yield* Effect.promise(() =>
@@ -411,7 +412,7 @@ const attempts = (
         seeded(effectiveRun(p.config.hub, bot).context, ran, worktree.id, base, p)
       );
       session = undefined;
-      prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], earlier, left);
+      prompt = followUp(task, fixable, validated.rejected, attempt - uncounted + 1, max + 1, [], earlier, left);
       parent = run;
     }
   });
