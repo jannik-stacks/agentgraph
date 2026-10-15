@@ -78,7 +78,7 @@ const Shape = ({ state, on }: { state: State; on: boolean }) => {
     .filter(Boolean)
     .join(', ');
   return (
-    <g transform={`translate(${-width / 2},${-height / 2})`}>
+    <g data-step={node.step} transform={`translate(${-width / 2},${-height / 2})`}>
       <rect
         width={width}
         height={height}

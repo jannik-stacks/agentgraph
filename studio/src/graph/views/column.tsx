@@ -164,7 +164,7 @@ const Box = ({ node, run, ref }: { node: Node; run: ViewProps['run']; ref: (el: 
   const stopped = current && run?.status === 'stopped';
   const refused = current && run?.status === 'running' && node.run!.tries > 0;
   return (
-    <div ref={ref} className="relative" style={{ width: BOX }}>
+    <div ref={ref} data-step={node.step} className="relative" style={{ width: BOX }}>
       {node.each && (
         <>
           <div className="absolute inset-0 translate-x-2 translate-y-2 rounded-md border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950" />

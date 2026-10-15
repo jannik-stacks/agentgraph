@@ -88,6 +88,7 @@ const Box = ({ visit, now, end }: { visit: Visit; now: boolean; end?: End | unde
   const doer = human ? 'a human' : skill && skill !== node.step ? node.doer : bot;
   return (
     <div
+      data-step={node.step}
       className={cx(
         'flex min-h-21 w-40 shrink-0 flex-col gap-1 rounded-md border bg-white px-2.5 py-2 text-xs dark:bg-zinc-950',
         now ? accent.border : 'border-zinc-300 dark:border-zinc-700',

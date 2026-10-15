@@ -1,10 +1,13 @@
 import { useAtom } from 'jotai';
-import { Suspense, useMemo } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { fixtures } from 'virtual:fixtures';
 import { graphOf } from '../../../../core/src/graph.ts';
+import type { Trace } from '../../../../core/src/store.ts';
+import type { Outcome, Run } from '../../../../core/src/workflow.ts';
 import { queryParam } from '../../state.ts';
 import { Muted, Segmented } from '../../ui.tsx';
 import { views } from './index.ts';
+import type { Trail } from './scenarios.ts';
 
 const viewAtom = queryParam('view');
 const workflowAtom = queryParam('workflow');
@@ -34,15 +37,74 @@ const Select = ({
   </select>
 );
 
-/** Every registered graph view over a fixture workflow, as defined or with a simulated run. */
+/** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
+const trailOf = (run: Run, trace: Trace[]): Trail => {
+  let before: Pick<Run, 'status' | 'tries' | 'rounds'> = { status: 'running', tries: 0, rounds: {} };
+  return trace.flatMap(line => {
+    if (!('outcome' in line)) return [];
+    const at = { ...run, ...before, step: line.step };
+    before = line.run;
+    return [{ at, outcome: line.outcome }];
+  });
+};
+
+const detail = (o: Outcome) =>
+  o.kind === 'refused'
+    ? [
+        ...o.failing.map(v => `${v.check} failed`),
+        ...o.rejected.map(a => `${a.proposal.kind} rejected`),
+        ...o.problems,
+      ].join('; ')
+    : 'why' in o
+      ? o.why
+      : 'question' in o
+        ? o.question
+        : 'text' in o
+          ? o.text
+          : '';
+
+/** One trace line in a few words. */
+const say = (line: Trace) => {
+  if ('session' in line)
+    return `session ${line.session.resumed ? 'resumed' : 'started'}, ended ${line.session.ended}, $${line.session.usd}`;
+  if ('verdict' in line) {
+    const { check, pass, ms, findings } = line.verdict;
+    return `${check} ${pass ? 'passed' : 'failed'}${line.item ? ` on ${line.item}` : ''} in ${ms} ms${findings ? `: ${findings}` : ''}`;
+  }
+  if ('applied' in line)
+    return `${line.applied.proposal.kind} ${line.applied.ok ? 'applied' : `failed: ${line.applied.reason}`}`;
+  if ('outcome' in line) return [line.outcome.kind, detail(line.outcome)].filter(Boolean).join(': ');
+  return line.event.type;
+};
+
+/** Every registered graph view over a workflow, as defined, with a simulated run, or with a real run of the served hub. */
 export const ViewsPage = () => {
   const [viewName, setView] = useAtom(viewAtom);
   const [workflowId, setWorkflow] = useAtom(workflowAtom);
   const [runLabel, setRun] = useAtom(runAtom);
   const view = views.find(v => v.name === viewName) ?? views[0]!;
   const fixture = fixtures.find(f => f.id === workflowId) ?? fixtures.find(f => f.id === 'acme-app/issue')!;
-  const sim = fixture.runs.find(r => r.label === runLabel);
-  const graph = useMemo(() => graphOf(fixture.workflow, fixture.checks, sim?.run), [fixture, sim]);
+  const [step, setStep] = useState<string | null>(null);
+  const [real, setReal] = useState<{ fixture: string; run: Run; trace: Trace[] }[]>([]);
+  useEffect(() => {
+    const poll = () =>
+      fetch('/core/runs')
+        .then(r => (r.ok ? r.json() : []))
+        .then(setReal, () => {});
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => clearInterval(timer);
+  }, []);
+  const runs = real.filter(r => r.fixture === fixture.id);
+  const picked = runs.find(r => r.run.id === runLabel);
+  const sim = picked
+    ? {
+        label: picked.run.id,
+        run: picked.run,
+        trail: trailOf(picked.run, picked.trace),
+      }
+    : fixture.runs.find(r => r.label === runLabel);
+  const graph = useMemo(() => graphOf(fixture.workflow, fixture.checks, sim?.run), [fixture, sim?.run]);
   return (
     <div className="h-full space-y-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -59,14 +121,32 @@ export const ViewsPage = () => {
         <Select
           label="Run"
           value={sim?.label ?? definition}
-          options={[definition, ...fixture.runs.map(r => r.label)]}
+          options={[definition, ...fixture.runs.map(r => r.label), ...runs.map(r => r.run.id)]}
           onChange={label => setRun(label === definition ? null : label)}
         />
       </div>
       <p className="max-w-3xl text-xs text-zinc-500">{fixture.workflow.body}</p>
-      <Suspense fallback={<Muted>Loading.</Muted>}>
-        <view.View graph={graph} run={sim?.run} trail={sim?.trail} />
-      </Suspense>
+      <div onClick={e => setStep((e.target as Element).closest('[data-step]')?.getAttribute('data-step') ?? null)}>
+        <Suspense fallback={<Muted>Loading.</Muted>}>
+          <view.View graph={graph} run={sim?.run} trail={sim?.trail} />
+        </Suspense>
+      </div>
+      {picked && step && (
+        <ol className="max-w-3xl space-y-0.5 font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+          {picked.trace
+            .filter(line => line.step === step)
+            .map((line, i) => (
+              <li key={i} className="truncate" title={say(line)}>
+                {line.at.slice(11, 19)} {say(line)}
+                {'applied' in line && line.applied.url && (
+                  <a className="ml-1 text-sky-600 underline" href={line.applied.url} target="_blank" rel="noreferrer">
+                    {line.applied.url.replace('https://github.com/', '')}
+                  </a>
+                )}
+              </li>
+            ))}
+        </ol>
+      )}
     </div>
   );
 };
