@@ -28,19 +28,19 @@ const renderIssue = (issue: Issue, level: number, label = '') =>
     .filter(Boolean)
     .join('\n\n');
 
-const briefMarker = (workflow: string, needs: string[]) =>
-  new RegExp(`<!-- bothub:\\S*/${workflow}/(?:${needs.join('|')})/\\S*reply-\\d+ -->`);
+const briefMarker = (workflow: string, before: string[]) =>
+  new RegExp(`<!-- bothub:\\S*/${workflow}/(?:${before.join('|')})/\\S*reply-\\d+ -->`);
 
 /**
- * What recall searches with for a job of `workflow`, read from the issue `context` `issueContext` rendered: the latest
- * reply a job it `needs` posted on the issue, its brief, without the marker bothub wrote; otherwise the issue's title
+ * What recall searches with for a step of `workflow`, read from the issue `context` `issueContext` rendered: the latest
+ * reply a step `before` it posted on the issue, its brief, without the marker bothub wrote; otherwise the issue's title
  * and body.
  */
-export const recallQuery = (context: string | undefined, workflow: string, needs: string[]) => {
+export const recallQuery = (context: string | undefined, workflow: string, before: string[]) => {
   if (!context?.startsWith('## Issue ')) return;
   const [issue, ...comments] = context.split(/\n\n#{3,} @\S+ at \S+\n\n/);
-  const marker = briefMarker(workflow, needs);
-  const brief = needs.length ? comments.findLast(comment => marker.test(comment)) : undefined;
+  const marker = briefMarker(workflow, before);
+  const brief = before.length ? comments.findLast(comment => marker.test(comment)) : undefined;
   return brief ? brief.slice(0, brief.search(marker)).trim() : issue;
 };
 
@@ -50,18 +50,18 @@ const questionsOn = async (issues: Issues, number: number) => {
 };
 
 /**
- * What humans wrote on the event's issue and on the questions asked on it after the latest brief a job of `workflow`
- * it `needs` posted there, each without a leading command.
+ * What humans wrote on the event's issue and on the questions asked on it after the latest brief a step of `workflow`
+ * `before` it posted there, each without a leading command.
  */
 export const answersAfterBrief = async (
   issues: Issues | undefined,
   event: BotEvent,
   workflow: string,
-  needs: string[]
+  before: string[]
 ): Promise<string[]> => {
-  if (!issues || event.number === undefined || !needs.length) return [];
+  if (!issues || event.number === undefined || !before.length) return [];
   const issue = await issues.get(event.number);
-  const marker = briefMarker(workflow, needs);
+  const marker = briefMarker(workflow, before);
   const brief = issue?.comments.findLast(comment => marker.test(comment.body));
   if (!issue || !brief) return [];
   return [issue, ...(await questionsOn(issues, issue.number))]

@@ -48,7 +48,7 @@ export const Resume = z.enum(['none', 'summary', 'resume'], {
 export type Resume = z.infer<typeof Resume>;
 
 /**
- * Whose earlier runs a bot's `history` and recall may read: none, the same job's runs for the same event, every run on
+ * Whose earlier runs a bot's `history` and recall may read: none, the same step's runs for the same event, every run on
  * the same issue, the bot's own runs, or every run in the hub.
  */
 export const History = z.enum(['none', 'run', 'issue', 'bot', 'hub']);
@@ -123,7 +123,7 @@ const rejoin = (value: unknown) => {
   return out;
 };
 
-/** What a bot or job may return: the proposals it ends with. */
+/** What a bot or step may return: the proposals it ends with. */
 export const Returns = z.preprocess(rejoin, z.array(Return));
 
 export const NoteKind = z.enum(['decision', 'style', 'caveat']);
@@ -131,7 +131,7 @@ export type NoteKind = z.infer<typeof NoteKind>;
 
 /**
  * Context rendered into a run before it starts: the triggering issue, its linked issues, and `recall`, which surfaces
- * the accepted notes and past-run summaries most relevant to the job's brief or issue before the first turn. A recall
+ * the accepted notes and past-run summaries most relevant to the step's brief or issue before the first turn. A recall
  * `judge` model drops the search hits it scores under `cutoff`; `budget` caps the tokens the surfaced text adds.
  */
 export const Preload = z.union([
@@ -177,15 +177,12 @@ export const Harness = z.enum(['opencode', 'pi', 'claude']);
 export type Harness = z.infer<typeof Harness>;
 
 /**
- * What happened to a job's work: `done`, `handed-off` to the jobs that need it, `blocked` on a human, `deferred` until
- * something outside the run changes, or `no-op` when it changed nothing. Only `done` and `handed-off` let dependent
- * jobs start.
+ * What happened to a step's work: `done`, `handed-off` to the step after it, `blocked` on a human, `deferred` until
+ * something outside the run changes, or `no-op` when it changed nothing. Only `done` and `handed-off` let the next step
+ * start.
  */
 export const Closure = z.enum(['done', 'handed-off', 'blocked', 'deferred', 'no-op']);
 export type Closure = z.infer<typeof Closure>;
-
-const list = <T extends z.ZodType>(item: T) =>
-  z.union([item, z.array(item)]).transform(v => (Array.isArray(v) ? v : [v]));
 
 const name = z.string().regex(/^[a-z][a-z0-9-]*$/, 'must be lowercase kebab-case');
 
@@ -206,22 +203,54 @@ export const TriggerFilter = z
 
 export const On = z.partialRecord(Trigger, TriggerFilter);
 
-/** The error for unknown bot keys, with an old `session` or `resume` named by the fields that replace it. */
-const unknownBotKeys = (keys: string[], input: unknown) => {
-  const old: string[] = keys.filter(key => key === 'session' || key === 'resume');
-  if (!old.length) return;
-  const others = keys.filter(key => !old.includes(key));
-  const unknown = others.length ? `Unrecognized keys: ${others.map(key => `"${key}"`).join(', ')}` : '';
-  const { resume, share } = ((input as Record<string, unknown>).session ?? {}) as Record<string, unknown>;
-  const fields = [
-    ...(resume === 'attempts' ? ['context: summary'] : []),
-    ...(typeof share === 'string' ? [`history: ${share}`] : []),
-  ];
-  const instead = fields.length ? `write ${fields.join(' and ')}` : 'remove it';
-  const notes = old.map(key =>
-    key === 'session' ? `session is replaced by context and history; ${instead}` : 'resume is replaced by context'
-  );
-  return [...notes, unknown].filter(Boolean).join('; ');
+/** What to write instead of a key that moved or went away, read from its old value and the object holding it. */
+type Moved = Record<string, (value: unknown, input: Record<string, unknown>) => string>;
+
+/** A strict object error that says what to write instead of each moved key, then names any other unknown keys. */
+const moved = (table: Moved) => ({
+  error: (issue: { code?: string; keys?: string[]; input?: unknown }) => {
+    if (issue.code !== 'unrecognized_keys' || !issue.keys) return;
+    const input = (issue.input ?? {}) as Record<string, unknown>;
+    const known = issue.keys.filter(key => key in table);
+    if (!known.length) return;
+    const others = issue.keys.filter(key => !(key in table));
+    const unknown = others.length ? `Unrecognized keys: ${others.map(key => `"${key}"`).join(', ')}` : '';
+    return [...known.map(key => table[key]!(input[key], input)), unknown].filter(Boolean).join('; ');
+  },
+});
+
+const record = (value: unknown) => (typeof value === 'object' && value ? value : {}) as Record<string, unknown>;
+
+const flow = (value: Record<string, unknown>) =>
+  `{ ${Object.entries(value)
+    .map(([key, v]) => `${key}: ${String(v)}`)
+    .join(', ')} }`;
+
+const turns = () => 'drop "max-turns"; "minutes" and hub "limits.usd-per-run" cap a session';
+
+const botMoved: Moved = {
+  session: value => {
+    const { resume, share } = record(value);
+    const fields = [
+      ...(resume === 'attempts' ? ['context: summary'] : []),
+      ...(typeof share === 'string' ? [`history: ${share}`] : []),
+    ];
+    return `session is replaced by context and history; ${fields.length ? `write ${fields.join(' and ')}` : 'remove it'}`;
+  },
+  resume: () => 'resume is replaced by context',
+  'max-turns': turns,
+  concurrency: value =>
+    `concurrency moved to hub.yaml: write "limits: { bots: { <bot>: { sessions: ${String(value)} } } }"`,
+  budget: value => {
+    const { minutes, ...rest } = record(value);
+    return [
+      Object.keys(rest).length && `budget moved to hub.yaml: write "limits: { bots: { <bot>: ${flow(rest)} } }"`,
+      minutes !== undefined &&
+        `budget minutes moved: write "minutes: ${String(minutes)}" on the steps and checks it runs`,
+    ]
+      .filter(Boolean)
+      .join('; ');
+  },
 };
 
 /**
@@ -238,12 +267,11 @@ export const LoadEntry = z.union([
 export type LoadEntry = z.infer<typeof LoadEntry>;
 /**
  * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any hub tools (see
- * `HubTool`) the bot may call during a run; `returns` is the most it may return, which a job can only narrow.
+ * `HubTool`) the bot may call during a run; `returns` is the most it may return, which a step can only narrow.
  * `loads` is what its harness takes from the repo, instructions and skills by default; `context` is what a new run or
  * attempt starts with besides its task; `history` how far back `history` and recall reach, `issue` by default. The hub
- * sets all three for bots that do not. `concurrency` caps how many of the bot's sessions, jobs and checks together, run at once,
- * within the hub's own limit; unset, only that limit applies. `decider` lists the questions the decision model answers
- * during the bot's opencode runs (see `DeciderQuestion`); a job's own `decider` replaces it.
+ * sets all three for bots that do not. `decider` lists the questions the decision model answers during the bot's
+ * opencode runs (see `DeciderQuestion`). How much a bot may run is set in the hub's `limits`.
  */
 export const Bot = z.strictObject(
   {
@@ -258,18 +286,9 @@ export const Bot = z.strictObject(
     history: History.optional(),
     summarizer: Summarizer.optional(),
     decider: z.array(DeciderQuestion).optional(),
-    'max-turns': z.int().positive().optional(),
-    concurrency: z.int().positive().optional(),
-    budget: z
-      .strictObject({
-        'runs-per-day': z.int().positive().optional(),
-        minutes: z.number().positive().optional(),
-        'usd-per-run': z.number().positive().optional(),
-      })
-      .optional(),
     human,
   },
-  { error: issue => (issue.code === 'unrecognized_keys' ? unknownBotKeys(issue.keys, issue.input) : undefined) }
+  moved(botMoved)
 );
 export type Bot = z.infer<typeof Bot>;
 
@@ -280,25 +299,34 @@ export type Skill = z.infer<typeof Skill>;
 const script = z.string().min(1);
 
 /**
- * What a check or job looks at: once over the whole `diff`, the lines it `added`, the triggering `event`'s text or
+ * What a check or step looks at: once over the whole `diff`, the lines it `added`, the triggering `event`'s text or
  * the output of a `run` script; or once per changed file (`each-file`), per diff hunk (`each-hunk`) or per line an
- * `each` script prints, at most `max` of them. `{ each-hunk: { max, context } }` sets how many hunks it takes and
- * how much surrounding code each one shows: a number of lines, or `function` for the whole enclosing function.
+ * `each` script prints. `items` beside it caps how many items a fan-out takes.
  */
-export const Over = z.union([
-  z.enum(['diff', 'added', 'event', 'each-file', 'each-hunk']),
-  z.strictObject({ run: script }),
-  z.strictObject({ each: script, max: z.int().positive().default(50) }),
-  z.strictObject({
-    'each-hunk': z.strictObject({
-      max: z.int().positive().default(30),
-      context: z.union([z.literal('function'), z.int().min(0).max(200)]).optional(),
-    }),
-  }),
-]);
+const maxMoved = moved({ max: value => `"max" moved: write "items: ${String(value)}" beside "over"` });
+
+export const Over = z.union(
+  [
+    z.enum(['diff', 'added', 'event', 'each-file', 'each-hunk']),
+    z.strictObject({ run: script }, maxMoved),
+    z.strictObject({ each: script }, maxMoved),
+  ],
+  {
+    error: issue => {
+      const { max } = record(record(issue.input)['each-hunk']);
+      if ('each-hunk' in record(issue.input))
+        return `write "over: each-hunk"${max === undefined ? '' : ` and "items: ${String(max)}" beside it`}`;
+    },
+  }
+);
+
 export type Over = z.infer<typeof Over>;
 
-/** A missing or unknown `type`, with a guess from the first field in `hints` the value has. */
+/** How many items a fan-out takes at most: its `items`, or 30 hunks or 50 script lines when unset. */
+export const itemCap = (over: Over, items: number | undefined) =>
+  items ?? (over === 'each-hunk' ? 30 : typeof over === 'object' && 'each' in over ? 50 : undefined);
+
+/** A missing or unknown check `type`, with a guess from the first field in `hints` the value has. */
 const typeError = (types: string[], hints: [field: string, type: string][]) => ({
   error: (issue: { code?: string; input?: unknown }) => {
     if (issue.code !== 'invalid_union') return;
@@ -313,28 +341,32 @@ const typeError = (types: string[], hints: [field: string, type: string][]) => (
   },
 });
 
-/** One `type` of a check or job, naming the fields it does not take. */
+const checkMoved = moved({
+  'max-turns': turns,
+  concurrency: () => '"concurrency" on a check is gone; drop it',
+});
+
+/** One `type` of a check, naming the fields it does not take. */
 const variant = <S extends z.ZodRawShape>(what: string, shape: S) =>
   z.strictObject(shape, {
     error: issue => {
       if (issue.code !== 'unrecognized_keys') return;
+      const known = checkMoved.error(issue);
+      if (known) return known;
       const keys = issue.keys.map(key => `"${key}"`).join(', ');
       const hint = issue.keys.includes('run') ? '; to judge what a command prints, use "over: { run: <command> }"' : '';
       return `${what} does not take ${keys}${hint}`;
     },
   });
 
-/** What checks and jobs share: what they look at, which files they cover and whether they gate. */
-const step = (over: 'diff' | 'event') => ({
-  over: Over.default(over),
-  paths: z.array(z.string()).optional(),
-  mode: Mode.default('log'),
-});
+const minutes = z.number().positive().optional();
 
 const checkFields = {
-  ...step('diff'),
+  over: Over.default('diff'),
+  items: z.int().positive().optional(),
+  paths: z.array(z.string()).optional(),
+  mode: Mode.default('log'),
   description: z.string().optional(),
-  concurrency: z.int().positive().optional(),
   human,
 };
 
@@ -342,20 +374,13 @@ const checkFields = {
  * `checks/<name>.md`: what a check looks at (`over`) and who judges it. A `script` passes when it exits 0; a `bot`
  * replies PASS or FAIL to the body, added after the skill when there is one; `decide` asks the local decision model
  * the body as a yes-or-no question and passes on yes. A check whose `paths` match no changed file does not apply.
- * `concurrency` is how many of its items are judged at once. A bot check's `max-turns` limits each item's run in place
- * of the bot's own.
+ * `minutes` caps one script run or one bot session of it.
  */
 export const Check = z.discriminatedUnion(
   'type',
   [
-    variant('a script check', { type: z.literal('script'), run: script, ...checkFields }),
-    variant('a bot check', {
-      type: z.literal('bot'),
-      bot: name,
-      skill: name.optional(),
-      'max-turns': z.int().positive().optional(),
-      ...checkFields,
-    }),
+    variant('a script check', { type: z.literal('script'), run: script, minutes, ...checkFields }),
+    variant('a bot check', { type: z.literal('bot'), bot: name, skill: name.optional(), minutes, ...checkFields }),
     variant('a decide check', {
       type: z.literal('decide'),
       threshold: z.number().min(0).max(1).optional(),
@@ -373,61 +398,107 @@ export const Check = z.discriminatedUnion(
 );
 export type Check = z.infer<typeof Check>;
 
-const jobStart = { on: On.optional(), needs: list(z.string()).default([]) };
-const jobWrites = {
-  branch: z.string().optional(),
-  into: z.string().optional(),
-  requires: z.array(name).optional(),
-  returns: Returns.optional(),
-};
-const jobEnd = {
-  ...step('event'),
-  environment: z.string().optional(),
-  'timeout-minutes': z.number().positive().optional(),
-  human,
+const stepMoved = moved({
+  type: () => 'a step with "bot" runs a bot, with "run" a script; drop "type"',
+  until: value => {
+    const { checks, max = 2 } = record(value);
+    const listed = Array.isArray(checks) ? `[${checks.join(', ')}]` : '[...]';
+    return `write "checks: ${listed}" and "tries: ${Number(max) + 1}" in place of "until"`;
+  },
+  needs: () => 'steps run in the order written; drop "needs", or set "next" on the step before',
+  on: () => 'one workflow per entry point; move this step to a workflow file of its own',
+  mode: () => 'steps always apply their proposals; drop "mode"',
+  environment: () => 'put a "wait: human" step before this one in place of "environment"',
+  preload: () => 'set "preload" on the bot',
+  tools: () => 'set "tools" on the bot',
+  decider: () => 'set "decider" on the bot',
+  'timeout-minutes': value => `write "minutes: ${String(value)}" in place of "timeout-minutes"`,
+});
+
+const stepKinds = ['bot', 'run', 'wait'] as const;
+
+/** The fields each kind of step takes besides `next` and `human`. */
+const takes: Record<(typeof stepKinds)[number], string[]> = {
+  bot: [
+    'bot',
+    'skill',
+    'checks',
+    'tries',
+    'over',
+    'items',
+    'branch',
+    'into',
+    'requires',
+    'returns',
+    'minutes',
+    'paths',
+  ],
+  run: ['run', 'over', 'items', 'branch', 'into', 'requires', 'returns', 'minutes', 'paths'],
+  wait: ['wait', 'back'],
 };
 
 /**
- * A workflow step: a `bot` running a skill, or a `script`. A job that fans out with `over` runs once per item.
- * `branch` is the branch it works on, `into` where its merge requests and merges go (the default branch when unset),
- * and `requires` the checks a merge must pass on the merged tree before it lands. A script returns proposals by
- * ending its output with a `bothub` block, like a bot.
+ * A workflow step, run in the order written: a `bot` running a skill (the step's name unless `skill` says otherwise),
+ * a `run` script, or a `wait` for a human. A bot step is judged by its `checks` after every attempt and gets `tries`
+ * attempts in all, 3 by default. A step that fans out with `over` runs once per item, at most `items`. `branch` is the
+ * branch it works on, `into` where its merge requests and merges go (the default branch when unset), and `requires`
+ * the checks a merge must pass on the merged tree before it lands. A script returns proposals by ending its output
+ * with a `bothub` block, like a bot. `minutes` caps one session or script. `next` names the step after it, or `end`;
+ * a wait step goes `back` to the step before it, or the one it names, when a human answers.
  */
-export const Job = z.discriminatedUnion(
-  'type',
-  [
-    variant('a bot job', {
-      type: z.literal('bot'),
-      ...jobStart,
-      bot: name,
-      skill: name,
-      ...jobWrites,
-      until: z.strictObject({ checks: z.array(name).min(1), max: z.int().positive().default(2) }).optional(),
-      preload: z.array(Preload).optional(),
-      tools: z.array(HubTool).optional(),
-      decider: z.array(DeciderQuestion).optional(),
-      ...jobEnd,
-    }),
-    variant('a script job', { type: z.literal('script'), ...jobStart, run: script, ...jobWrites, ...jobEnd }),
-  ],
-  typeError(
-    ['bot', 'script'],
-    [
-      ['run', 'script'],
-      ['bot', 'bot'],
-    ]
+export const Step = z
+  .strictObject(
+    {
+      bot: name.optional(),
+      run: script.optional(),
+      wait: z.literal('human').optional(),
+      skill: name.optional(),
+      checks: z.array(name).min(1).optional(),
+      tries: z.int().positive().optional(),
+      over: Over.optional(),
+      items: z.int().positive().optional(),
+      branch: z.string().optional(),
+      into: z.string().optional(),
+      requires: z.array(name).optional(),
+      returns: Returns.optional(),
+      minutes,
+      next: name.optional(),
+      back: name.optional(),
+      paths: z.array(z.string()).optional(),
+      human,
+    },
+    stepMoved
   )
-);
-export type Job = z.infer<typeof Job>;
+  .superRefine((step, ctx) => {
+    const kinds = stepKinds.filter(kind => step[kind] !== undefined);
+    if (kinds.length !== 1)
+      return ctx.addIssue({ code: 'custom', message: 'a step takes exactly one of "bot", "run" or "wait"' });
+    const kind = kinds[0]!;
+    const extra = Object.keys(step).filter(
+      key => step[key as keyof typeof step] !== undefined && ![...takes[kind], 'next', 'human'].includes(key)
+    );
+    if (extra.length)
+      ctx.addIssue({
+        code: 'custom',
+        message: `a "${kind}" step does not take ${extra.map(key => `"${key}"`).join(', ')}`,
+      });
+  })
+  .transform(step => ({ ...step, over: step.over ?? ('event' as const) }));
+export type Step = z.output<typeof Step>;
 
-/** `workflows/<name>.md`: triggers to jobs. The body is an optional human description. */
-export const Workflow = z.strictObject({
-  name: name.optional(),
-  description: z.string().optional(),
-  on: On,
-  jobs: z.record(name, Job),
-  human,
-});
+/** `workflows/<name>.md`: a trigger and the steps it starts. The body describes the workflow for humans. */
+export const Workflow = z.strictObject(
+  {
+    on: On,
+    steps: z.record(name, Step).refine(steps => Object.keys(steps).length > 0, 'needs at least one step'),
+    human,
+  },
+  moved({
+    jobs: () => 'jobs are now steps: write "steps:" in the order they run, each with "bot", "run" or "wait: human"',
+    name: () => `the file name is the workflow's name; drop "name"`,
+    description: () => 'the body describes the workflow; drop "description"',
+  })
+);
 export type Workflow = z.infer<typeof Workflow>;
 
 /** `notes/<kind>/<slug>.md`: what the hub knows, surfaced to runs when relevant. The body is the note. */
@@ -467,6 +538,23 @@ const mergeSections = ['closes', 'criteria', 'checks', 'gaps'] as const;
 export const MergeSection = z.enum(mergeSections);
 export type MergeSection = z.infer<typeof MergeSection>;
 
+const perBot = {
+  'runs-per-day': z.int().positive().optional(),
+  'usd-per-run': z.number().positive().optional(),
+};
+
+/**
+ * How much may run: `minutes` for one session or script unless its step or check sets its own, `runs-per-day` for
+ * each bot, counting checks and attempts, and `usd-per-run` for one step's attempts and their checks. `bots` sets
+ * these per bot, plus `sessions`, how many of its sessions run at once.
+ */
+export const Limits = z.strictObject({
+  minutes: z.number().positive().default(30),
+  ...perBot,
+  bots: z.record(name, z.strictObject({ sessions: z.int().positive().optional(), ...perBot })).default({}),
+});
+export type Limits = z.infer<typeof Limits>;
+
 /**
  * `hub.yaml`: hub-wide settings. `issues` picks where issues, plans, specs and open questions live;
  * `merge.default-branch` says who merges into the default branch: only a `human`, or `bots` too. `deps` installs the
@@ -476,10 +564,11 @@ export type MergeSection = z.infer<typeof MergeSection>;
  * and `memory` and `cpus` replace the default limits. `merge-request.sections` names what the engine adds after a merge
  * request's body, in order: the `closes` line, the `criteria` table, the `checks` line and the `gaps`; all but
  * `criteria` by default, `[]` adds nothing. `time-kinds` adds shell command patterns by the kind of time they take,
- * tried before the defaults (see `timeKind`).
+ * tried before the defaults (see `timeKind`). `limits` caps how much runs (see `Limits`).
  */
 export const Hub = z.strictObject({
   issues: IssuesBackend.default('github'),
+  limits: Limits.default({ minutes: 30, bots: {} }),
   merge: z
     .strictObject({ 'default-branch': z.enum(['human', 'bots']).default('human') })
     .default({ 'default-branch': 'human' }),

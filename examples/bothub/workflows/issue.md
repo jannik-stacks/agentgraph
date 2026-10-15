@@ -1,71 +1,58 @@
 ---
-name: issue
-description: From a /bothub comment on a bothub issue, engine or studio, to a reviewed pull request.
 on:
   issue_comment:
     types: [created]
     command: /bothub
     guard: { associations: [OWNER, MEMBER, COLLABORATOR] }
-jobs:
+steps:
   triage:
-    type: bot
     bot: triager
-    skill: triage
-    until:
-      checks: [triage-brief, triage-width]
-      max: 1
-    returns: [reply, label, ask]
-    tools: [issues_list, issues_get]
-    mode: warn
-    timeout-minutes: 10
+    checks: [triage-brief, triage-width]
+    tries: 2
+    minutes: 10
   implement:
-    type: bot
-    needs: [triage]
     bot: implementor
-    skill: implement
     branch: bothub/{issue}
-    until:
-      checks:
-        - safety
-        - size
-        - rules
-        - lint
-        - types
-        - studio-build
-        - tests
-        - old-tests
-        - test-guards
-        - coverage
-        - code-shape
-        - unused-exports
-        - shape
-        - propagation
-        - enum-copy
-        - docs-sync
-        - criterion-met
-        - removed
-        - state-transitions
-        - reduce
-        - review-src
-        - near-duplicate
-        - review-docs
-        - docs-stale
-        - docs-tone-provenance
-        - docs-tone-repeats
-        - risky
-        - scope
-        - review-tests
-        - docs-tone-tagline
-        - docs-tone-marketing
-        - tooltip-text
-        - notes-followed
-        - principle-named
-      max: 3
-    returns: [reply, push, merge-request, note, ask]
-    tools: [issues_get, notes_search]
-    mode: warn
-    timeout-minutes: 60
-human: seed hub, until lists extended by each wave, untraced; the studio twin folded in once safety and code-shape covered studio/src
+    checks:
+      - safety
+      - size
+      - rules
+      - lint
+      - types
+      - studio-build
+      - tests
+      - old-tests
+      - test-guards
+      - coverage
+      - code-shape
+      - unused-exports
+      - shape
+      - propagation
+      - enum-copy
+      - docs-sync
+      - criterion-met
+      - removed
+      - state-transitions
+      - reduce
+      - review-src
+      - near-duplicate
+      - review-docs
+      - docs-stale
+      - docs-tone-provenance
+      - docs-tone-repeats
+      - risky
+      - scope
+      - review-tests
+      - docs-tone-tagline
+      - docs-tone-marketing
+      - tooltip-text
+      - notes-followed
+      - principle-named
+    tries: 4
+    minutes: 60
+  review:
+    wait: human
+human: seed hub, checks lists extended by each wave, untraced; the studio twin folded in once safety and code-shape covered studio/src
 ---
 A maintainer comments `/bothub` on an issue about the engine, the studio or the dashboard. The
 triager replies with a brief in a fixed template: the task, at most five criteria that each name the
@@ -80,4 +67,4 @@ through the state it touches, each code hunk, each new export, each docs hunk an
 in log mode record their answer on the attempt that goes through and never gate: each risky call,
 each run status or closure the change touches, each file outside the brief, each test hunk, two tone questions and each tooltip. A failing `block`
 check goes back to the implementor with its findings and those of failing `warn` checks; `warn`
-findings alone go through with the change. A human merges.
+findings alone go through with the change. Review waits on a human, who merges.

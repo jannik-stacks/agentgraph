@@ -6,7 +6,7 @@ import { parseEnv } from 'node:util';
 import { defineCommand, runCommand, showUsage, type CommandDef } from 'citty';
 import { Effect } from 'effect';
 import { z } from 'zod';
-import { compile, type Config } from './config.ts';
+import { compile, triesOf, type Config } from './config.ts';
 import { plan } from './dispatch.ts';
 import { preflight } from './preflight.ts';
 import { harnesses } from './harnesses/index.ts';
@@ -187,7 +187,7 @@ const check = defineCommand({
       return 2;
     }
     const { bots, skills, checks, workflows, notes } = result.config;
-    const jobs = Object.values(workflows).reduce((n, w) => n + Object.keys(w.jobs).length, 0);
+    const steps = Object.values(workflows).reduce((n, w) => n + Object.keys(w.steps).length, 0);
     if (asJson(args.json)) print(JSON.stringify({ ok: true, warnings: result.warnings }));
     else {
       for (const w of result.warnings) process.stderr.write(`warning: ${w.path}: ${w.message}\n`);
@@ -196,7 +196,7 @@ const check = defineCommand({
           count(Object.keys(bots).length, 'bot'),
           count(Object.keys(skills).length, 'skill'),
           count(Object.keys(checks).length, 'check'),
-          `${count(Object.keys(workflows).length, 'workflow')} (${count(jobs, 'job')})`,
+          `${count(Object.keys(workflows).length, 'workflow')} (${count(steps, 'step')})`,
           count(notes.length, 'note'),
           ...(issues ? [count(issues.length, 'local issue')] : []),
           ...(result.warnings.length ? [count(result.warnings.length, 'warning')] : []),
@@ -207,12 +207,12 @@ const check = defineCommand({
   },
 });
 
-/** Each planned job as a dry run shows it: a script's command, or a bot's session and harness command. */
+/** Each planned step as a dry run shows it: a script's command, or a bot's session and harness command. */
 const sessions = (config: Config, event: BotEvent, hub: string, root: string) =>
   plan(event, config).map(job => {
     const workflow = config.workflows[job.workflow];
-    const step = workflow?.jobs[job.job];
-    if (!workflow || step?.type !== 'bot') return { ...job, script: step?.type === 'script' ? step.run : '' };
+    const step = workflow?.steps[job.job];
+    if (!workflow || step?.bot === undefined) return { ...job, script: step?.run ?? '' };
     const built = buildSpec({ ...job, config, workflow, event, cwd: worktreePath(root, runId()), hub, data: root });
     const { spec, bot, timeoutMinutes, branch } = built;
     const { cmd, args } = harnesses[bot.harness].command(spec);
@@ -221,7 +221,7 @@ const sessions = (config: Config, event: BotEvent, hub: string, root: string) =>
       harness: bot.harness,
       timeoutMinutes,
       ...(branch && { branch }),
-      ...(built.job.until && { until: built.job.until }),
+      ...(built.step.checks && { checks: built.step.checks, tries: triesOf(built.step) }),
       spec,
       command: [cmd, ...args],
     };
@@ -232,7 +232,8 @@ const printSession = (s: ReturnType<typeof sessions>[number]) => {
   const shown = (arg: string) =>
     arg === s.spec.system ? '<system>' : arg === s.spec.prompt ? '<prompt>' : shellQuote(arg);
   print(`${s.workflow}/${s.job} (${s.bot}, ${s.harness}, ${s.timeoutMinutes} min)`);
-  if (s.until) print(`until: ${s.until.checks.join(', ')} pass, at most ${s.until.max} more attempts`);
+  if (s.checks) print(`checks: ${s.checks.join(', ')}, at most ${s.tries} tries`);
+
   print(`cwd: ${s.spec.cwd}`);
   const split = s.command.indexOf('--');
   const command =

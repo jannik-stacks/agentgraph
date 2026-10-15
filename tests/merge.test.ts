@@ -17,7 +17,7 @@ const script = join(import.meta.dirname, '../examples/acme-app/scripts/merge-nex
 
 const configFor = (hub = ''): Config => {
   const merging = (into: string, requires: string) =>
-    `{ type: script, run: 'node "${script}"', into: '${into}', requires: [${requires}], returns: [merge, merge-request], mode: warn }`;
+    `{ run: 'node "${script}"', into: '${into}', requires: [${requires}], returns: [merge, merge-request] }`;
   const result = compile([
     ...(hub ? [{ path: 'hub.yaml', source: hub }] : []),
     md('bots/bot.md', 'harness: opencode\ntools: [read]\nreturns: [reply, push, merge-request]', 'You code.'),
@@ -27,13 +27,13 @@ const configFor = (hub = ''): Config => {
     md(
       'workflows/plan.md',
       `on: { issue_comment: {} }
-jobs:
-  implement: { type: bot, mode: warn, bot: bot, skill: implement, branch: 'bothub/{parent}-{issue}', into: 'bothub/{parent}', returns: [push, merge-request] }`
+steps:
+  implement: { bot: bot, skill: implement, branch: 'bothub/{parent}-{issue}', into: 'bothub/{parent}', returns: [push, merge-request] }`
     ),
     md(
       'workflows/merge.md',
       `on: { pull_request: {} }
-jobs:
+steps:
   merge: ${merging('{base}', 'ok')}
   strict: ${merging('{base}', 'bad')}
   main: ${merging('main', 'ok')}`

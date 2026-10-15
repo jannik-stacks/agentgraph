@@ -75,7 +75,6 @@ const command = (spec: RunSpec) => {
       [...new Set(list.map(tool => tool.replace(/\(.*$/, '')))].join(','),
       ...(list.length ? ['--allowedTools', list.join(',')] : []),
       ...(spec.model ? ['--model', spec.model] : []),
-      ...(spec.maxTurns ? ['--max-turns', String(spec.maxTurns)] : []),
       '--append-system-prompt',
       spec.system,
       '--',

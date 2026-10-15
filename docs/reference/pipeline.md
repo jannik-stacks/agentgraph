@@ -7,11 +7,11 @@ From an event to finished jobs, and when a job counts as done.
 
 The fields are on `PlannedJob` in [src/dispatch.ts](../../src/dispatch.ts).
 
-## The until loop
+## The checks loop
 
-A bot job runs, then each check in its `until` runs against the worktree. While a `block` check
+A bot step runs, then each of its `checks` runs against the worktree. While a `block` check
 fails, its findings and those of failing `warn` checks go back to the same bot as a follow-up
-prompt, until no `block` check fails, `until.max` follow-ups are used or the bot's `usd-per-run` is
+prompt, until no `block` check fails, the step's `tries` are used or the bot's `usd-per-run` is
 spent. The loop is in
 
 `attempts`. Every check ends in a verdict.

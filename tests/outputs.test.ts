@@ -75,35 +75,34 @@ describe('validate', () => {
       { kind: 'merge-request', title: 't', body: 'b', branch: 'bothub/7-fix' },
       { kind: 'note', note: 'caveat', slug: 'fork-prs', title: 'Fork PRs?', body: 'Which repo?' },
     ];
-    expect(validate(proposals, allowed, 'warn')).toEqual({ accepted: proposals, rejected: [], apply: true });
-    expect(validate(proposals, allowed, 'log')).toEqual({ accepted: proposals, rejected: [], apply: false });
+    expect(validate(proposals, allowed)).toEqual({ accepted: proposals, rejected: [] });
   });
 
-  it('rejects kinds the job does not allow', () => {
+  it('rejects kinds the step does not allow', () => {
     const proposal: Proposal = { kind: 'label', add: ['x'] };
-    expect(validate([proposal], allowed, 'block').rejected).toEqual([
-      { proposal, reason: '"label" is not allowed for this job' },
+    expect(validate([proposal], allowed).rejected).toEqual([
+      { proposal, reason: '"label" is not allowed for this step' },
     ]);
-    expect(validate([proposal], { returns: [] }, 'block').accepted).toEqual([]);
+    expect(validate([proposal], { returns: [] }).accepted).toEqual([]);
   });
 
   it('caps replies at 3 and every other kind at 1', () => {
     const replies: Proposal[] = ['a', 'b', 'c', 'd'].map(body => ({ kind: 'reply', body }));
-    const { accepted, rejected } = validate(replies, allowed, 'warn');
+    const { accepted, rejected } = validate(replies, allowed);
     expect(accepted).toHaveLength(3);
     expect(rejected).toEqual([{ proposal: replies[3], reason: 'more than 3 "reply" proposals' }]);
     const pr: Proposal = { kind: 'merge-request', title: 't', body: '', branch: 'bothub/x' };
-    expect(validate([pr, pr], allowed, 'warn').rejected[0]?.reason).toBe('more than 1 "merge-request" proposals');
+    expect(validate([pr, pr], allowed).rejected[0]?.reason).toBe('more than 1 "merge-request" proposals');
   });
 
   it('rejects files outside paths or the repository', () => {
     const push = (files: string[]): Proposal => ({ kind: 'push', branch: 'bothub/x', files });
-    const reason = (files: string[]) => validate([push(files)], allowed, 'warn').rejected[0]?.reason;
+    const reason = (files: string[]) => validate([push(files)], allowed).rejected[0]?.reason;
     expect(reason(['src/a.ts', 'package.json'])).toBe('path "package.json" is outside the allowed paths');
     expect(reason(['src/../package.json'])).toBe('path "src/../package.json" escapes the repository');
     expect(reason(['/etc/passwd'])).toBe('path "/etc/passwd" escapes the repository');
     const anywhere = (files: string[], paths?: string[]) =>
-      validate([push(files)], { returns: ['push'], ...(paths && { paths }) }, 'warn').rejected[0]?.reason;
+      validate([push(files)], { returns: ['push'], ...(paths && { paths }) }).rejected[0]?.reason;
     expect(anywhere(['.github/workflows/ci.yml'])).toMatch(/is a GitHub workflow/);
     expect(anywhere(['.github/workflows/ci.yml'], ['**'])).toMatch(/is a GitHub workflow/);
     expect(anywhere(['.github/workflows/ci.yml'], ['.github/workflows/**'])).toBeUndefined();
@@ -113,7 +112,7 @@ describe('validate', () => {
     const files = ['src/a.ts', 'AGENTS.md', '.claude/skills/x/SKILL.md'];
     expect(checkPaths(files, undefined)).toBeUndefined();
     expect(checkPaths(files, undefined, 'Fix a')).toBe(
-      'path "AGENTS.md" is agent guidance, which a job changes only when the issue names the file'
+      'path "AGENTS.md" is agent guidance, which a step changes only when the issue names the file'
     );
     expect(checkPaths(files, undefined, 'Update AGENTS.md')).toMatch(
       /"\.claude\/skills\/x\/SKILL.md" is agent guidance/
@@ -123,34 +122,33 @@ describe('validate', () => {
 
   it('always allows a close and keeps the approved label for humans', () => {
     const close: Proposal = { kind: 'close', as: 'no-op', reason: 'already done' };
-    expect(validate([close], { returns: [] }, 'warn').accepted).toEqual([close]);
-    const reason = (proposal: Proposal, returns: Return[]) =>
-      validate([proposal], { returns }, 'warn').rejected[0]?.reason;
+    expect(validate([close], { returns: [] }).accepted).toEqual([close]);
+    const reason = (proposal: Proposal, returns: Return[]) => validate([proposal], { returns }).rejected[0]?.reason;
     expect(reason({ ...close, resolved: true }, ['reply'])).toBeUndefined();
     expect(reason({ ...close, resolved: true }, [])).toBe('resolving the issue comments on it, which needs "reply"');
     expect(reason({ ...close, as: 'blocked', resolved: true }, ['reply'])).toBe(
       'only a "no-op" close resolves the issue'
     );
     const label: Proposal = { kind: 'label', add: ['approved'] };
-    expect(validate([label], { returns: ['label'] }, 'warn').rejected[0]?.reason).toBe(
+    expect(validate([label], { returns: ['label'] }).rejected[0]?.reason).toBe(
       'only a human adds the "approved" label'
     );
   });
 
-  it('rejects branches outside bothub/ or other than the job branch', () => {
+  it('rejects branches outside bothub/ or other than the step branch', () => {
     const reason = (branch: string, branchOf?: string) =>
-      validate([{ kind: 'push', branch }], { ...allowed, branch: branchOf }, 'warn').rejected[0]?.reason;
+      validate([{ kind: 'push', branch }], { ...allowed, branch: branchOf }).rejected[0]?.reason;
     expect(reason('main')).toBe('branch "main" must be a plain name under "bothub/"');
     expect(reason('bothub/../main')).toMatch(/must be a plain name/);
     expect(reason('bothub/a b')).toMatch(/must be a plain name/);
     expect(reason('bothub/7/fix')).toBeUndefined();
     expect(reason('bothub/7-a', 'bothub/7-a')).toBeUndefined();
-    expect(reason('bothub/8-b', 'bothub/7-a')).toBe('branch "bothub/8-b" is not the job\'s branch "bothub/7-a"');
+    expect(reason('bothub/8-b', 'bothub/7-a')).toBe('branch "bothub/8-b" is not the step\'s branch "bothub/7-a"');
     const pr: Proposal = { kind: 'merge-request', title: 't', body: '', branch: 'feature' };
-    expect(validate([pr], allowed, 'warn').rejected[0]?.reason).toMatch(/must be a plain name/);
+    expect(validate([pr], allowed).rejected[0]?.reason).toMatch(/must be a plain name/);
   });
 
-  it("accepts a merge request only into the job's into or the default branch", () => {
+  it("accepts a merge request only into the step's into or the default branch", () => {
     const request = (into?: string): Proposal => ({
       kind: 'merge-request',
       title: 't',
@@ -161,26 +159,26 @@ describe('validate', () => {
     const reason = (
       into: string | undefined,
       allowance: Partial<typeof allowed> & { into?: string; defaultBranch?: string }
-    ) => validate([request(into)], { ...allowed, ...allowance }, 'warn').rejected[0]?.reason;
+    ) => validate([request(into)], { ...allowed, ...allowance }).rejected[0]?.reason;
     expect(reason(undefined, {})).toBeUndefined();
     expect(reason('main', { defaultBranch: 'main' })).toBeUndefined();
     expect(reason('release', { defaultBranch: 'main' })).toBe(
-      'merge request into "release", but this job\'s requests go into the default branch'
+      'merge request into "release", but this step\'s requests go into the default branch'
     );
     expect(reason('release', {})).toMatch(/go into the default branch/);
     expect(reason('bothub/5', { into: 'bothub/5', defaultBranch: 'main' })).toBeUndefined();
     expect(reason('main', { into: 'bothub/5', defaultBranch: 'main' })).toBeUndefined();
     expect(reason('bothub/9', { into: 'bothub/5', defaultBranch: 'main' })).toBe(
-      'merge request into "bothub/9", but this job\'s requests go into the job\'s "bothub/5"'
+      'merge request into "bothub/9", but this step\'s requests go into the step\'s "bothub/5"'
     );
     expect(reason('bothub/5-6', { into: 'bothub/5-6' })).toBe('a branch cannot be merged into itself');
     expect(reason(undefined, { into: 'bothub/5-6' })).toBe('a branch cannot be merged into itself');
   });
 
-  it('accepts a merge only from a job that returns it, once', () => {
+  it('accepts a merge only from a step that returns it, once', () => {
     const merge: Proposal = { kind: 'merge', request: 3 };
-    expect(validate([merge], allowed, 'warn').rejected[0]?.reason).toBe('"merge" is not allowed for this job');
-    const { accepted, rejected } = validate([merge, merge], { returns: ['merge'] }, 'warn');
+    expect(validate([merge], allowed).rejected[0]?.reason).toBe('"merge" is not allowed for this step');
+    const { accepted, rejected } = validate([merge, merge], { returns: ['merge'] });
     expect(accepted).toEqual([merge]);
     expect(rejected[0]?.reason).toBe('more than 1 "merge" proposals');
   });
@@ -193,16 +191,14 @@ describe('validate', () => {
       files: paths.map(path => ({ path, content: 'x' })),
     });
     const reason = (proposal: Proposal, returns: Return[] = ['hub(notes/**, skills/*.md)']) =>
-      validate([proposal], { returns }, 'warn').rejected[0]?.reason;
+      validate([proposal], { returns }).rejected[0]?.reason;
     expect(reason(hub('notes/style/a.md', 'skills/b.md'))).toBeUndefined();
     expect(reason(hub('skills/x/b.md'))).toBe('path "skills/x/b.md" is outside hub(notes/**, skills/*.md)');
-    expect(reason(hub('notes/a.md'), ['note'])).toBe('"hub" is not allowed for this job');
+    expect(reason(hub('notes/a.md'), ['note'])).toBe('"hub" is not allowed for this step');
     for (const path of ['hub.yaml', 'bots/a.md', 'workflows/w.md'])
       expect(reason(hub(path), ['hub(**)'])).toBe(`path "${path}" changes only by a human`);
     expect(reason(hub('../repo/x'), ['hub(**)'])).toBe('path "../repo/x" leaves the hub');
-    expect(
-      validate([hub('notes/a.md'), hub('notes/b.md')], { returns: ['hub(notes/**)'] }, 'warn').rejected
-    ).toHaveLength(1);
+    expect(validate([hub('notes/a.md'), hub('notes/b.md')], { returns: ['hub(notes/**)'] }).rejected).toHaveLength(1);
   });
 
   it('rejects malformed notes when extracting', () => {

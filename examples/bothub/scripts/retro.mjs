@@ -1,7 +1,7 @@
 // Turns a data directory's finished runs into anomaly items for the retro judge: one JSON line per invariant and key,
 // with what the invariant means, how often it held, the issues and runs that show it and one piece of evidence. Every
 // invariant reads only what runs leave behind: run.json, outcome.json, events.jsonl and pulls.jsonl. `--hub` adds
-// each check's mode, the check names, each bot's resume setting, each issue's Done when list and each job's until.max;
+// each check's mode, the check names, each bot's resume setting, each issue's Done when list and each step's tries;
 // without it every failing gating check counts as holding, every bot as resuming its session, and briefs and attempt
 // counts go unchecked.
 //
@@ -57,14 +57,14 @@ const doneWhen = (hub, n) => {
   return file ? (section(read(join(dir, file)), 'Done when').match(/^[-*] /gm) ?? []).length : 0;
 };
 
-/** The `until.max` a workflow under `<hub>/workflows` gives `job`. */
-const maxAttempts = (hub, workflow, job) => {
+/** The `tries` a workflow under `<hub>/workflows` gives step `job`. */
+const triesOf = (hub, workflow, job) => {
   const lines = hub ? read(join(hub, 'workflows', `${workflow}.md`)).split('\n') : [];
   const indent = line => /^\s*/.exec(line)[0].length;
   const at = lines.findIndex(line => new RegExp(`^\\s+${job}:\\s*$`).test(line));
   const end = lines.findIndex((line, i) => i > at && line.trim() && indent(line) <= indent(lines[at]));
   const block = at < 0 ? '' : lines.slice(at, end < 0 ? undefined : end).join('\n');
-  return Number(/until:[\s\S]*?max:\s*(\d+)/.exec(block)?.[1] ?? 0);
+  return Number(/^\s+tries:\s*(\d+)/m.exec(block)?.[1] ?? 0);
 };
 
 const said = ['reply', 'ask', 'merge-request', 'label'];
@@ -412,17 +412,18 @@ const invariants = {
       ),
   },
   'over-attempts': {
-    means: "since the last human answer, a job ran more than one attempt plus until.max on one issue, so a new run reset the count",
+    means: 'since the last human answer, a step ran more attempts than its tries on one issue, so a new run reset the count',
     find: ({ chains, writing, hub }) =>
       chains
         .filter(chain => writing.has(job(chain[0])))
         .flatMap(chain => {
-          const max = maxAttempts(hub, chain[0].run.workflow, chain[0].run.job);
+          const tries = triesOf(hub, chain[0].run.workflow, chain[0].run.job);
           const ran = chain.filter(r => r.run.status !== 'skipped');
           const answered = (r, i) => i && asks(ran[i - 1]).length && r.run.event?.id !== ran[i - 1].run.event?.id;
           const since = ran.slice(Math.max(0, ran.findLastIndex(answered)));
-          return max && since.length > max + 1
-            ? [hit(since.at(-1), `${job(chain[0])}#${chain[0].run.event?.number}`, `${since.length} attempts, until.max ${max}`)]
+          return tries && since.length > tries
+            ? [hit(since.at(-1), `${job(chain[0])}#${chain[0].run.event?.number}`, `${since.length} attempts, tries ${tries}`)]
+
             : [];
         }),
   },

@@ -2,10 +2,10 @@
 type: bot
 description: Nothing the change adds is more than its Done-when rows need.
 bot: reviewer
-max-turns: 4
+minutes: 15
 over:
   each: node "$BOTHUB_HUB/scripts/reduce.mjs"
-  max: 1
+items: 1
 mode: block
 human: reduction pass, changes ran 2 to 2.7 times the reference change and 88 percent of the excess was tests; like a human telling the model to cut it down; blocks by ruling before any replay calibrated it
 ---

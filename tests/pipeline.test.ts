@@ -43,14 +43,14 @@ const untimed = (verdicts: Verdict[] | undefined) =>
     return verdict;
   });
 
-const configFor = (mode = 'log'): Config => {
+const configFor = (): Config => {
   const result = compile([
     md(
       'bots/bot.md',
-      'harness: opencode\nmodel: sonnet\ntools: [read, grep]\nreturns: [reply, label, push, merge-request, ask]\nskills: [triage, notify]\nmax-turns: 7\nbudget: { minutes: 30 }',
+      'harness: opencode\nmodel: sonnet\ntools: [read, grep]\nreturns: [reply, label, push, merge-request, ask]\nskills: [triage, notify]',
       'You are a careful bot.'
     ),
-    md('bots/judge.md', 'harness: opencode\ntools: [read]\nreturns: [reply]\nmax-turns: 3', 'You judge.'),
+    md('bots/judge.md', 'harness: opencode\ntools: [read]\nreturns: [reply]', 'You judge.'),
     md('skills/triage.md', 'description: Sort an issue.', 'Triage the issue.'),
     md('skills/summarize.md', 'description: Summarize a thread.', 'Summarize the thread.'),
     md('skills/notify.md', 'description: Tell someone.', 'Notify someone.'),
@@ -66,42 +66,36 @@ const configFor = (mode = 'log'): Config => {
     md(
       'workflows/triage.md',
       `on: { issue_comment: {} }
-jobs:
-  triage: { type: bot, mode: ${mode}, bot: bot, skill: triage, timeout-minutes: 5, returns: [reply] }
-  summarize: { type: bot, needs: triage, bot: bot, skill: summarize, returns: [] }
-  notify: { type: bot, needs: [plain], bot: bot, skill: notify }
-  plain: { type: script, run: echo plain output; exit 3 }
+steps:
+  triage: { bot: bot, minutes: 5, tries: 2, returns: [reply] }
+  summarize: { bot: bot, returns: [] }
+  plain: { run: echo plain output; exit 3 }
+  notify: { bot: bot }
   implement:
-    type: bot
-    mode: warn
     bot: bot
-    skill: implement
     branch: bothub/{issue}-{slug}
     paths: ['src/**']
     returns: [push, merge-request]
   loop:
-    type: bot
-    mode: warn
     bot: bot
     skill: implement
     returns: [reply, ask]
-    until: { checks: [exists, logged], max: 1 }
+    checks: [exists, logged]
+    tries: 2
   judged:
-    type: bot
-    mode: warn
     bot: bot
     skill: implement
     returns: [reply]
-    until: { checks: [judged], max: 1 }
+    checks: [judged]
+    tries: 2
   parking:
-    type: bot
-    mode: warn
     bot: bot
     skill: implement
     branch: bothub/{issue}
     paths: ['src/**']
     returns: [push, ask]
-    until: { checks: [exists], max: 1 }`
+    checks: [exists]
+    tries: 2`
     ),
   ]);
   if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -207,6 +201,22 @@ const pipeline = async (
 };
 
 const planned = (job: string) => ({ workflow: 'triage', job, ...(job !== 'plain' && { bot: 'bot' }) });
+
+/** Gives bot `bot` its own limits in the hub. */
+const limit = (config: Config, limits: Config['hub']['limits']['bots'][string]) => {
+  config.hub = { ...config.hub, limits: { ...config.hub.limits, bots: { bot: limits } } };
+};
+
+/** Moves `first` to the front of the triage workflow, after any `extra` steps, so they run in that order. */
+const reorder = (config: Config, first: string[], extra: Record<string, unknown> = {}) => {
+  const { steps } = config.workflows.triage!;
+  const rest = Object.keys(steps).filter(id => !first.includes(id));
+  config.workflows.triage!.steps = {
+    ...extra,
+    ...Object.fromEntries([...first, ...rest].map(id => [id, steps[id]!])),
+  } as typeof steps;
+};
+
 const triage = planned('triage');
 
 describe('buildSpec', () => {
@@ -232,7 +242,7 @@ describe('buildSpec', () => {
     });
     expect(timeoutMinutes).toBe(5);
     expect(returns).toEqual(['reply']);
-    expect(spec).toMatchObject({ cwd: '/w', model: 'sonnet', tools: ['read', 'grep'], maxTurns: 7 });
+    expect(spec).toMatchObject({ cwd: '/w', model: 'sonnet', tools: ['read', 'grep'] });
     expect(spec.system.split('\n\n## ')[0]).toBe('You are a careful bot.');
     expect(spec.system.match(/^## .+$/gm)).toEqual(['## Skill: triage', '## Skills', '## What you return']);
     expect(spec.system).toContain(
@@ -276,7 +286,7 @@ describe('buildSpec', () => {
     expect(spec.prompt).not.toContain('Text:');
   });
 
-  it('recalls on opencode with the brief of the job it needs, and serves the notes tools the block names', () => {
+  it('recalls on opencode with the brief of the step before, and serves the notes tools the block names', () => {
     const bot = { ...config.bots.bot!, harness: 'opencode' as const, preload: ['issue' as const, 'recall' as const] };
     const recalling = { ...config, bots: { ...config.bots, bot } };
     const marker = '<!-- bothub:e1/triage/triage/reply-1 -->';
@@ -317,9 +327,9 @@ describe('eventContext', () => {
 
 describe('renderBranch', () => {
   it('fills placeholders from the event', () => {
-    const at = { event, args: 'Add /health, quickly!', job: 'j', workflow: 'w' };
+    const at = { event, args: 'Add /health, quickly!', step: 'j', workflow: 'w' };
     expect(renderBranch('bothub/{issue}-{slug}', at)).toBe('bothub/7-add-health-quickly');
-    expect(renderBranch('bothub/{workflow}/{job}', at)).toBe('bothub/w/j');
+    expect(renderBranch('bothub/{workflow}/{step}', at)).toBe('bothub/w/j');
     const pr = { ...at, event: { ...event, parent: 5, branch: 'bothub/5' } };
     expect(renderBranch('bothub/{parent}-{issue}', pr)).toBe('bothub/5-7');
     expect(renderBranch('{base}', pr)).toBe('bothub/5');
@@ -356,16 +366,9 @@ describe('secretsFor', () => {
 describe('context', () => {
   it('mounts granted hub tools and pins the preloaded issue context after the skill', () => {
     const result = compile([
-      md(
-        'bots/b.md',
-        'harness: opencode\ntools: [read, issues_get, notes_search]\nreturns: [reply]\npreload: [issue]\nmax-turns: 3',
-        'Role.'
-      ),
+      md('bots/b.md', 'harness: opencode\ntools: [read, issues_get]\nreturns: [reply]\npreload: [issue]', 'Role.'),
       md('skills/s.md', 'description: Do it.', 'Do it.'),
-      md(
-        'workflows/w.md',
-        'on: { issue_comment: {} }\njobs:\n  a: { type: bot, bot: b, skill: s, tools: [issues_get] }'
-      ),
+      md('workflows/w.md', 'on: { issue_comment: {} }\nsteps:\n  a: { bot: b, skill: s }'),
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
     const config = result.config;
@@ -386,15 +389,17 @@ describe('context', () => {
     expect(bare.system).not.toContain('## Hub tools');
   });
 
-  it("asks the job's decider questions, else the bot's, against the issue context, and none in a pi run", () => {
+  it("asks the bot's decider questions against the issue context, and none in a pi run", () => {
     const ask = (q: string) => `\ndecider:\n  - { on: tool_call, tools: [edit], ask: "${q}" }`;
     const files = (harness: string) => [
       md('bots/b.md', `harness: ${harness}\ntools: [read, edit]\nreturns: [reply]${ask('Bot question?')}`, 'Role.'),
-      md('skills/s.md', 'description: Do it.', 'Do it.'),
       md(
-        'workflows/w.md',
-        'on: { issue_comment: {} }\njobs:\n  a: { type: bot, bot: b, skill: s }\n  j: { type: bot, bot: b, skill: s, decider: [{ on: stop, ask: "Job question?" }] }'
+        'bots/j.md',
+        `harness: ${harness}\ntools: [read, edit]\nreturns: [reply]\ndecider: [{ on: stop, ask: "Job question?" }]`,
+        'Role.'
       ),
+      md('skills/s.md', 'description: Do it.', 'Do it.'),
+      md('workflows/w.md', 'on: { issue_comment: {} }\nsteps:\n  a: { bot: b, skill: s }\n  j: { bot: j, skill: s }'),
     ];
     const specOf = (harness: string, job: string, preloaded?: string) => {
       const result = compile(files(harness));
@@ -435,10 +440,10 @@ describe('context', () => {
 });
 
 describe('runPlanned', () => {
-  it('records proposals in log mode without applying them and removes the worktree', async () => {
+  it('records accepted and rejected proposals, applies them and removes the worktree', async () => {
     const { calls, gh } = fakeGitHub();
     const { seen, adapters } = fake();
-    const p = await pipeline({ config: configFor('log'), gh, adapters });
+    const p = await pipeline({ config: configFor(), gh, adapters });
     const result = await Effect.runPromise(runPlanned(triage, p));
 
     expect(result.run).toMatchObject({
@@ -456,11 +461,14 @@ describe('runPlanned', () => {
         { kind: 'reply', body: 'Looks like a bug.' },
         { kind: 'reply', body: 'Second reply.' },
       ],
-      rejected: [{ proposal: { kind: 'label' }, reason: '"label" is not allowed for this job' }],
-      results: [],
-      applied: false,
+      rejected: [{ proposal: { kind: 'label' }, reason: '"label" is not allowed for this step' }],
+      results: [
+        expect.objectContaining({ kind: 'reply', status: 'applied' }),
+        expect.objectContaining({ kind: 'reply', status: 'applied' }),
+      ],
+      applied: true,
     });
-    expect(calls).toEqual([]);
+    expect(calls).toHaveLength(2);
     const runDir = join(seen[0]!.cwd, '../../runs', result.run.id);
     expect(JSON.parse(readFileSync(join(runDir, 'outcome.json'), 'utf8'))).toEqual(result.outcome);
     expect(seen[0]!.cwd).toMatch(new RegExp(`work/${result.run.id}$`));
@@ -469,7 +477,7 @@ describe('runPlanned', () => {
 
   it('applies accepted proposals when the mode allows it and a client is given', async () => {
     const { calls, gh } = fakeGitHub();
-    const p = await pipeline({ config: configFor('warn'), gh });
+    const p = await pipeline({ config: configFor(), gh });
     const result = await Effect.runPromise(runPlanned(triage, p));
     expect(result.outcome).toMatchObject({
       applied: true,
@@ -495,12 +503,12 @@ describe('runPlanned', () => {
   });
 
   it('never applies without a client or after a failed run', async () => {
-    const p = await pipeline({ config: configFor('warn') });
+    const p = await pipeline({ config: configFor() });
     const result = await Effect.runPromise(runPlanned(triage, p));
     expect(result.outcome?.applied).toBe(false);
 
     const { calls, gh } = fakeGitHub();
-    const failing = await pipeline({ config: configFor('warn'), gh, adapters: fake({ ok: false }).adapters });
+    const failing = await pipeline({ config: configFor(), gh, adapters: fake({ ok: false }).adapters });
     const failed = await Effect.runPromise(runPlanned(triage, failing));
     expect(failed.run.status).toBe('failed');
     expect(failed.outcome?.applied).toBe(false);
@@ -549,7 +557,7 @@ describe('runPlanned', () => {
     ]);
     expect(result.run).toMatchObject({ closure: 'handed-off' });
     expect(result.outcome).toMatchObject({ branch, pr: 1 });
-    expect(result.outcome?.rejected[0]?.reason).toBe(`branch "bothub/other" is not the job's branch "${branch}"`);
+    expect(result.outcome?.rejected[0]?.reason).toBe(`branch "bothub/other" is not the step's branch "${branch}"`);
     expect(git(origin.dir, 'show', `${branch}:src/a.ts`)).toBe('a');
     expect(git(origin.dir, 'log', '-1', '--format=%an %s', branch)).toBe('bothub[bot] bothub triage/implement (bot)');
     expect(calls.map(c => c.path)).toEqual(['/repos/acme/app/pulls']);
@@ -845,7 +853,7 @@ describe('parking', { timeout: 20_000 }, () => {
     const origin = sourceRepo();
     const issues = trackedIssues();
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, budget: { 'runs-per-day': 1 } };
+    limit(config, { 'runs-per-day': 1 });
     const writeB = "fs.mkdirSync('src', { recursive: true }); fs.writeFileSync('src/b.ts', 'b')";
     const { adapters } = fake({ message: pushB, work: writeB });
     const p = await pipeline({ config, issues, adapters }, origin);
@@ -911,59 +919,6 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(result.run).toMatchObject({ closure: 'blocked', error: message });
     expect(result.run.stopped).toBeUndefined();
     expect(alerts).toEqual([]);
-  });
-
-  const outOfTurns = (calls: number): AgentEvent[] => [
-    { type: 'start', session: 's1' },
-    ...Array.from({ length: calls }, () => ({ type: 'usage' as const, inputTokens: 1, outputTokens: 1 })),
-    { type: 'end', ok: true, result: bothub([{ kind: 'reply', body: 'Done.' }]) },
-  ];
-
-  it('goes on once after the bot runs out of turns, under the same attempt', async () => {
-    const { seen, adapters } = fakeHarness((_spec, call) => ({ events: outOfTurns(call === 1 ? 7 : 6), work: writeA }));
-    const p = await pipeline({ config: configFor(), issues: trackedIssues(), adapters });
-    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
-
-    expect(seen).toHaveLength(2);
-    expect(seen[1]!.prompt).toContain('## Out of turns\n\nYour last attempt used all 7 turns before it finished.');
-    expect(result.run).toMatchObject({ status: 'succeeded', closure: 'done', attempt: 1 });
-    const runs = (await p.store.list()).reverse();
-    expect(runs.map(r => [r.attempt, r.stopped, r.error])).toEqual([
-      [1, 'turns', 'used all 7 turns'],
-      [1, undefined, undefined],
-    ]);
-  });
-
-  it('continues the session of a context: resume bot that ran out of turns', async () => {
-    const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, context: 'resume' };
-    const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
-    const { seen, adapters } = fakeHarness((_spec, call) => ({
-      events: outOfTurns(call === 1 ? 7 : 6),
-      work: `${writeA}; ${keep}`,
-    }));
-    const kept = { ...adapters, opencode: { ...adapters.opencode, sessions: '.sessions' } };
-    const p = await pipeline({ config, issues: trackedIssues(), adapters: kept });
-    await Effect.runPromise(runPlanned(planned('loop'), p));
-
-    expect(seen).toHaveLength(2);
-    expect(seen[1]!.session?.id).toBe('s1');
-    expect(seen[1]!.prompt).toContain('## Out of turns');
-  });
-
-  it('defers a bot out of turns twice, says so on the issue and charges no attempt', async () => {
-    const issues = trackedIssues();
-    const { seen, adapters } = fakeHarness(() => ({ events: outOfTurns(7), work: writeA }));
-    const p = await pipeline({ config: configFor(), issues, adapters });
-    const result = await Effect.runPromise(runPlanned(planned('loop'), p));
-
-    expect(seen).toHaveLength(2);
-    expect(result.run).toMatchObject({ stopped: 'turns', closure: 'deferred', attempt: 1 });
-    expect((await issues.get(7))!.comments.map(c => c.body)).toEqual([
-      'triage/loop was deferred: used all 7 turns twice. It continues when it runs again.',
-    ]);
-    const again = await Effect.runPromise(runPlanned(planned('loop'), p));
-    expect(again.run.attempt).toBe(1);
   });
 
   it('resumes from the parked branch with the question and the answer', async () => {
@@ -1129,8 +1084,8 @@ describe('parking', { timeout: 20_000 }, () => {
 
   it('runs only the checks again on work held by checks that could not run, then hands off its reply', async () => {
     const config = configFor();
-    const until = { checks: ['judged'], max: 1 };
-    Object.assign(config.workflows.triage!.jobs.parking!, { returns: ['push', 'merge-request', 'ask'], until });
+    const checks = { checks: ['judged'], tries: 2 };
+    Object.assign(config.workflows.triage!.steps.parking!, { returns: ['push', 'merge-request', 'ask'], ...checks });
     const request = { kind: 'merge-request', title: 'Add a', body: 'Closes #7', branch: 'bothub/7', into: 'main' };
     let down = true;
     const { seen, adapters } = fake(spec =>
@@ -1155,8 +1110,8 @@ describe('parking', { timeout: 20_000 }, () => {
 
   it('does not count a recheck that runs no agent against the attempt budget', async () => {
     const config = configFor();
-    const until = { checks: ['judged'], max: 1 };
-    Object.assign(config.workflows.triage!.jobs.parking!, { returns: ['push', 'merge-request', 'ask'], until });
+    const checks = { checks: ['judged'], tries: 2 };
+    Object.assign(config.workflows.triage!.steps.parking!, { returns: ['push', 'merge-request', 'ask'], ...checks });
     const request = { kind: 'merge-request', title: 'Add a', body: 'Closes #7', branch: 'bothub/7', into: 'main' };
     let judged = 0;
     const { seen, adapters } = fake(spec => {
@@ -1261,28 +1216,33 @@ const closureOf = (r: JobResult) => r.run.closure;
 describe('runPlan', () => {
   const jobs = [planned('notify'), planned('plain'), planned('summarize'), triage];
 
-  it('runs jobs in needs order and skips dependents of jobs that did not succeed', async () => {
-    const p = await pipeline({ config: configFor() });
+  it('runs steps in order and skips the steps after one that did not succeed', async () => {
+    const config = configFor();
+    reorder(config, ['plain', 'notify']);
+    const p = await pipeline({ config });
     const results = await Effect.runPromise(runPlan(jobs, p));
     expect(results.map(r => [r.job, r.run.status === 'skipped' ? r.run.reason : r.run.status, closureOf(r)])).toEqual([
-      ['triage', 'succeeded', 'done'],
-      ['summarize', 'succeeded', 'no-op'],
       ['plain', 'failed', 'blocked'],
-      ['notify', 'needs "plain" (blocked) to be done', 'deferred'],
+      ['notify', 'waits for "plain" (blocked) to be done', 'deferred'],
+      ['triage', 'waits for "notify" (deferred) to be done', 'deferred'],
+      ['summarize', 'waits for "triage" (deferred) to be done', 'deferred'],
     ]);
     const stored = await p.store.list();
-    expect(stored.filter(r => r.status === 'skipped').map(r => [r.job, r.reason])).toEqual([
-      ['notify', 'needs "plain" (blocked) to be done'],
-    ]);
+    expect(
+      stored
+        .filter(r => r.status === 'skipped')
+        .map(r => r.job)
+        .sort()
+    ).toEqual(['notify', 'summarize', 'triage']);
     expect(stored).toHaveLength(4);
   });
 
-  it('skips a dependent when the job it needs fails', async () => {
+  it('skips the next step when the one before it fails', async () => {
     const p = await pipeline({ config: configFor(), adapters: fake({ ok: false }).adapters });
     const results = await Effect.runPromise(runPlan([triage, planned('summarize')], p));
     expect(results.map(r => [r.job, r.run.status === 'skipped' ? r.run.reason : r.run.status])).toEqual([
       ['triage', 'failed'],
-      ['summarize', 'needs "triage" (blocked) to be done'],
+      ['summarize', 'waits for "triage" (blocked) to be done'],
     ]);
   });
 
@@ -1299,7 +1259,7 @@ describe('runPlan', () => {
 
   const triaged = (message: string, work = '') => {
     const config = configFor();
-    config.workflows.triage!.jobs.summarize!.needs = ['loop'];
+    reorder(config, ['loop', 'summarize']);
     return { config, ...fake({ message, work }) };
   };
 
@@ -1312,7 +1272,7 @@ describe('runPlan', () => {
 
     expect(results.map(r => [r.job, r.run.closure, r.run.reason])).toEqual([
       ['loop', 'no-op', reason],
-      ['summarize', 'deferred', 'needs "loop" (no-op) to be done'],
+      ['summarize', 'deferred', 'waits for "loop" (no-op) to be done'],
     ]);
     expect(seen).toHaveLength(1);
     const issue = await issues.get(7);
@@ -1548,7 +1508,7 @@ describe('proposals', () => {
       call === 1 ? { message, work: "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })" } : {}
     );
     const kept = sessions ? { ...adapters, opencode: { ...adapters.opencode, sessions: '.sessions' } } : adapters;
-    const p = await pipeline({ config: configFor('warn'), adapters: kept });
+    const p = await pipeline({ config: configFor(), adapters: kept });
     const result = await Effect.runPromise(runPlanned(triage, p));
 
     expect(seen).toHaveLength(2);
@@ -1564,7 +1524,7 @@ describe('proposals', () => {
 
   it('asks for the block once per attempt, then retries the task as before and blocks', async () => {
     const { seen, adapters } = fake({ message: BRIEF });
-    const p = await pipeline({ config: configFor('warn'), adapters });
+    const p = await pipeline({ config: configFor(), adapters });
     const result = await Effect.runPromise(runPlanned(triage, p));
 
     expect(seen).toHaveLength(4);
@@ -1588,7 +1548,7 @@ describe('proposals', () => {
 
   it('retries the task straight away after a reply with no text', async () => {
     const { seen, adapters } = fake((_spec, call) => (call === 1 ? { message: '' } : {}));
-    const p = await pipeline({ config: configFor('warn'), adapters });
+    const p = await pipeline({ config: configFor(), adapters });
     const result = await Effect.runPromise(runPlanned(triage, p));
     expect(seen).toHaveLength(2);
     expect(seen[1]!.prompt).toContain('## Proposal errors\n\nAttempt 2 of 2.');
@@ -1599,7 +1559,7 @@ describe('proposals', () => {
 describe('budgets', () => {
   it('defers a bot that used its runs for the day', async () => {
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, budget: { 'runs-per-day': 1 } };
+    limit(config, { 'runs-per-day': 1 });
     const { seen, adapters } = fake();
     const p = await pipeline({ config, adapters });
     await Effect.runPromise(runPlanned(triage, p));
@@ -1616,7 +1576,7 @@ describe('budgets', () => {
 
   it('defers a run whose sandbox never started and does not count it against the day', async () => {
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, budget: { 'runs-per-day': 1 } };
+    limit(config, { 'runs-per-day': 1 });
     const { seen, adapters } = fake();
     const down: Launcher = {
       ...unsandboxed,
@@ -1640,7 +1600,7 @@ describe('budgets', () => {
 
   it('stops looping once the attempts spent the run budget', async () => {
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };
+    limit(config, { 'usd-per-run': 0.5 });
     const { seen, adapters } = fake({ message: bothub([{ kind: 'reply', body: 'Done.' }]) });
     const p = await pipeline({ config, issues: trackedIssues(), adapters });
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));
@@ -1653,8 +1613,8 @@ describe('budgets', () => {
   });
 
   it('stops retrying an unusable reply once the run budget is spent', async () => {
-    const config = configFor('warn');
-    config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };
+    const config = configFor();
+    limit(config, { 'usd-per-run': 0.5 });
     const { seen, adapters } = fake({ message: '' });
     const result = await Effect.runPromise(runPlanned(triage, await pipeline({ config, adapters })));
     expect(seen).toHaveLength(1);
@@ -1663,7 +1623,7 @@ describe('budgets', () => {
 
   it('prices a run its harness reports at no cost, so the run budget still stops the loop', async () => {
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, budget: { 'usd-per-run': 0.5 } };
+    limit(config, { 'usd-per-run': 0.5 });
     const { seen, adapters } = fakeHarness(() => ({
       events: [
         { type: 'start', model: 'writer' },
@@ -1746,17 +1706,23 @@ describe('memory', () => {
         ].join('\n'),
         'You learn.'
       ),
+      md(
+        'bots/historian.md',
+        'harness: opencode\ntools: [read, notes_search, history]\nreturns: [reply]\nhistory: hub',
+        'You look back.'
+      ),
+      md('bots/bare.md', 'harness: opencode\ntools: [read, notes_search]\nreturns: [reply]\nhistory: hub', 'You look.'),
       md('bots/quiet.md', 'harness: pi\ntools: [read]\nreturns: [reply]', 'You stay quiet.'),
       md('skills/s.md', 'description: Do it.', 'Do it.'),
       md('checks/done.md', 'type: script\nrun: test -f done.txt\nmode: block'),
       md(
         'workflows/w.md',
         `on: { issue_comment: {} }
-jobs:
-  learn: { type: bot, mode: warn, bot: mem, skill: s, until: { checks: [done], max: 1 } }
-  history: { type: bot, bot: mem, skill: s, preload: [], returns: [reply] }
-  bare: { type: bot, bot: mem, skill: s, preload: [], tools: [notes_search], returns: [reply] }
-  quiet: { type: bot, bot: quiet, skill: s }`
+steps:
+  learn: { bot: mem, skill: s, checks: [done], tries: 2 }
+  history: { bot: historian, skill: s }
+  bare: { bot: bare, skill: s }
+  quiet: { bot: quiet, skill: s }`
       ),
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -1831,7 +1797,7 @@ describe('handoff', () => {
     const result = compile([
       md(
         'bots/bot.md',
-        'harness: opencode\ntools: [read]\nreturns: [reply, push, merge-request]\nmax-turns: 5',
+        'harness: opencode\ntools: [read]\nreturns: [reply, push, merge-request]',
         'You are a careful bot.'
       ),
       md('skills/implement.md', 'description: Change code.', 'Implement it.'),
@@ -1839,23 +1805,22 @@ describe('handoff', () => {
       md(
         'workflows/flow.md',
         `on: { issue_comment: {} }
-jobs:
-  implement: { type: bot, mode: warn, bot: bot, skill: implement, branch: 'bothub/{issue}-{slug}', paths: ['src/**'], returns: [push, merge-request] }
+steps:
+  implement: { bot: bot, branch: 'bothub/{issue}-{slug}', paths: ['src/**'], returns: [push, merge-request] }
   verify:
-    type: script
-    needs: implement
     run: test "$BOTHUB_BRANCH" = bothub/7-please-look-at-this && test "$BOTHUB_PR" = 1 && test -f src/a.ts
-  deploy: { type: bot, needs: verify, mode: warn, bot: bot, skill: deploy, environment: production, returns: [reply] }`
+  deploy: { bot: bot, returns: [reply] }
+  approve: { wait: human }`
       ),
     ]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
     return result.config;
   };
   const branch = 'bothub/7-please-look-at-this';
-  const jobs = ['implement', 'verify', 'deploy'].map(job => ({
+  const jobs = ['implement', 'verify', 'deploy', 'approve'].map(job => ({
     workflow: 'flow',
     job,
-    ...(job !== 'verify' && { bot: 'bot' }),
+    ...(['implement', 'deploy'].includes(job) && { bot: 'bot' }),
   }));
   const behave = (spec: RunSpec) =>
     spec.system.includes('## Skill: implement\n\nImplement it.')
@@ -1868,7 +1833,7 @@ jobs:
         }
       : { message: bothub([{ kind: 'reply', body: 'Shipped.' }]) };
 
-  it('passes the branch and pull request down, waits for approval, then resumes without redoing work', async () => {
+  it('passes the branch and pull request down, stops at a wait step, then reuses the work done', async () => {
     const { seen, adapters } = fake(behave);
     const issues = trackedIssues();
     const { gh } = fakeGitHub();
@@ -1878,25 +1843,22 @@ jobs:
     expect(first.map(r => [r.job, closureOf(r)])).toEqual([
       ['implement', 'handed-off'],
       ['verify', 'done'],
-      ['deploy', 'blocked'],
+      ['deploy', 'done'],
+      ['approve', 'blocked'],
     ]);
-    expect(first[2]?.run).toMatchObject({ status: 'skipped', reason: 'waiting for approval in #8' });
-    expect(await issues.get(8)).toMatchObject({ title: 'Approve flow/deploy for #7 in production', parent: 7 });
-    expect(seen).toHaveLength(1);
-
-    await issues.label(8, { add: ['approved'] });
+    expect(first[3]?.run).toMatchObject({ status: 'skipped', reason: 'waits for a human' });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]!.prompt).toContain(`Branch: ${branch}`);
+    expect(seen[1]!.prompt).toContain('Pull request: #1');
 
     const second = await Effect.runPromise(runPlan(jobs, p));
     expect(second.map(r => [r.job, closureOf(r)])).toEqual([
       ['implement', 'handed-off'],
       ['verify', 'done'],
       ['deploy', 'done'],
+      ['approve', 'blocked'],
     ]);
     expect(seen).toHaveLength(2);
-    expect(seen[1]!.prompt).toContain(`Branch: ${branch}`);
-    expect(seen[1]!.prompt).toContain('Pull request: #1');
-    const waited = (await p.store.list()).find(r => r.approval === 8);
-    expect(waited).toMatchObject({ closure: 'done', reason: 'approved in #8' });
   });
 
   it('exports the handoff to scripts', () => {
@@ -1949,21 +1911,20 @@ describe('over', () => {
   type Def = { name: string; data: Record<string, unknown>; body?: string };
   const hubWith = (checks: Def[], job: Record<string, unknown> = {}) => {
     const result = compile([
-      md('bots/bot.md', 'harness: opencode\ntools: [read]\nreturns: [reply]\nmax-turns: 3', 'You work.'),
-      md('bots/judge.md', 'harness: opencode\ntools: [read]\nreturns: [reply]\nmax-turns: 3', 'You judge.'),
+      md('bots/bot.md', 'harness: opencode\ntools: [read]\nreturns: [reply]', 'You work.'),
+      md('bots/judge.md', 'harness: opencode\ntools: [read]\nreturns: [reply]', 'You judge.'),
       md('skills/implement.md', 'description: Change code.', 'Implement it.'),
       ...checks.map(c => md(`checks/${c.name}.md`, JSON.stringify({ mode: 'log', ...c.data }), c.body)),
       md(
         'workflows/triage.md',
         JSON.stringify({
           on: { issue_comment: {} },
-          jobs: {
+          steps: {
             loop: {
-              type: 'bot',
               bot: 'bot',
               skill: 'implement',
               returns: ['reply'],
-              until: { checks: checks.map(c => c.name), max: 1 },
+              ...(checks.length && { checks: checks.map(c => c.name), tries: 2 }),
               ...job,
             },
           },
@@ -2003,23 +1964,15 @@ describe('over', () => {
     expect(untimed(result.outcome?.checks)).toEqual([{ check: 'hunks', gating: false, pass: true }]);
   });
 
-  it('stops at more hunks than each-hunk takes, and widens hunks by their context', async () => {
-    const log = logFile();
-    const script = `printf '%s' "$BOTHUB_ITEM" | sed -n 1p >> ${log}`;
+  it('stops at more hunks than its items allow', async () => {
+    const script = 'true';
     const { result } = await run(
-      hubWith([{ name: 'few', data: { type: 'script', over: { 'each-hunk': { max: 2 } }, run: script } }])
+      hubWith([{ name: 'few', data: { type: 'script', over: 'each-hunk', items: 2, run: script } }])
     );
     expect(result.outcome?.checks?.[0]).toMatchObject({
       pass: false,
-      findings: 'the change has 3 hunks, more than the 2 "each-hunk" takes; make a smaller change or split it',
+      findings: 'the change has 3 hunks, more than the 2 "items" allows; make a smaller change or split it',
     });
-    await run(
-      hubWith([{ name: 'wide', data: { type: 'script', over: { 'each-hunk': { context: 10 } }, run: script } }])
-    );
-    expect(readFileSync(log, 'utf8').trim().split('\n').sort()).toEqual([
-      'diff --git a/long.txt b/long.txt',
-      'diff --git a/src/a.ts b/src/a.ts',
-    ]);
   });
 
   it('refuses a change over a bot check item limit before any bot check runs, and tells the bot', async () => {
@@ -2028,13 +1981,13 @@ describe('over', () => {
         { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
         {
           name: 'hunks',
-          data: { type: 'bot', bot: 'judge', over: { 'each-hunk': { max: 2 } }, mode: 'block' },
+          data: { type: 'bot', bot: 'judge', over: 'each-hunk', items: 2, mode: 'block' },
           body: 'Fine?',
         },
       ]),
       spec => (spec.system.startsWith('You judge.') ? { message: bothub([{ kind: 'reply', body: 'PASS' }]) } : { work })
     );
-    const refusal = 'the change has 3 hunks, more than the 2 "each-hunk" takes; make a smaller change or split it';
+    const refusal = 'the change has 3 hunks, more than the 2 "items" allows; make a smaller change or split it';
     expect(seen.filter(spec => spec.system.startsWith('You judge.'))).toEqual([]);
     expect(untimed(result.outcome?.checks)).toEqual([
       {
@@ -2057,7 +2010,7 @@ describe('over', () => {
         { name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' },
         {
           name: 'hunks',
-          data: { type: 'bot', bot: 'judge', over: { 'each-hunk': { max: 3 } }, mode: 'block' },
+          data: { type: 'bot', bot: 'judge', over: 'each-hunk', items: 3, mode: 'block' },
           body: 'Fine?',
         },
       ]),
@@ -2068,17 +2021,6 @@ describe('over', () => {
       { check: 'small', pass: true },
       { check: 'hunks', pass: true },
     ]);
-  });
-
-  it('judges items at once unless its concurrency says otherwise', async () => {
-    const order = async (data: Record<string, unknown>) => {
-      const log = logFile();
-      const script = `echo start >> ${log}; sleep 0.2; echo end >> ${log}`;
-      await run(hubWith([{ name: 'slow', data: { type: 'script', over: 'each-hunk', run: script, ...data } }]));
-      return readFileSync(log, 'utf8').trim().split('\n');
-    };
-    expect(await order({ concurrency: 1 })).toEqual(['start', 'end', 'start', 'end', 'start', 'end']);
-    expect((await order({})).slice(0, 3)).toEqual(['start', 'start', 'start']);
   });
 
   const recording = (down = '') => {
@@ -2217,14 +2159,6 @@ describe('over', () => {
     expect(prompts[1]).toContain('Earlier attempts failed this check with:');
     expect(prompts[1]).toContain('too big');
     expect(result.outcome?.checks?.map(v => v.pass)).toEqual([true, true]);
-  });
-
-  it("limits a bot check's runs to its own max-turns", async () => {
-    const { seen } = await run(
-      hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', 'max-turns': 1 }, body: 'Small?' }]),
-      judged
-    );
-    expect(seen.map(spec => spec.maxTurns)).toEqual([3, 1]);
   });
 
   it('marks a script check red on base when it fails there too, only in files the change did not touch', async () => {
@@ -2605,7 +2539,8 @@ describe('over', () => {
     let judged = 0;
     const { seen } = await run(
       hubWith([{ name: 'small', data: { type: 'bot', bot: 'judge', over: 'diff', mode: 'block' }, body: 'Small?' }], {
-        until: { checks: ['small'], max: 2 },
+        checks: ['small'],
+        tries: 3,
       }),
       spec =>
         spec.system.startsWith('You judge.')
@@ -2715,7 +2650,7 @@ describe('over', () => {
     );
     const issues = localIssues(dir, { repo: 'acme/app' });
     const config = hubWith([{ name: 'met', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Met?' }]);
-    config.workflows.triage!.jobs.loop!.needs = ['brief'];
+    reorder(config, ['loop'], { brief: { bot: 'bot', over: 'event' } });
     const { seen } = await run(config, judged, {}, { issues });
     const prompt = seen.find(spec => spec.system.startsWith('You judge.'))!.prompt;
     expect(prompt).toContain(
@@ -2740,7 +2675,7 @@ describe('over', () => {
     );
     const issues = localIssues(dir, { repo: 'acme/app' });
     const config = hubWith([{ name: 'met', data: { type: 'bot', bot: 'judge', over: 'diff' }, body: 'Met?' }]);
-    config.workflows.triage!.jobs.loop!.needs = ['brief'];
+    reorder(config, ['loop'], { brief: { bot: 'bot', over: 'event' } });
     const store = openStore(temp('store'));
 
     await run(config, judged, {}, { issues, store });
@@ -2766,24 +2701,24 @@ describe('over', () => {
     const each = `test -n "$BOTHUB_BASE" && printf '%s\\n' '{"file":"docs/x.mdx","line":4}' plain`;
     const check = `test "$BOTHUB_ITEM" != plain || { echo "bad $BOTHUB_ITEM"; exit 1; }`;
     const { result } = await run(
-      hubWith([{ name: 'items', data: { type: 'script', over: { each, max: 5 }, run: check } }])
+      hubWith([{ name: 'items', data: { type: 'script', over: { each }, items: 5, run: check } }])
     );
     expect(untimed(result.outcome?.checks)).toEqual([
       { check: 'items', gating: false, pass: false, findings: 'item 2:\nbad plain' },
     ]);
   });
 
-  it('fails closed when the script prints more items than max, without judging any', async () => {
+  it('fails closed when the script prints more items than its items allow, without judging any', async () => {
     const marker = logFile();
     const { result } = await run(
-      hubWith([{ name: 'many', data: { type: 'script', over: { each: 'seq 5', max: 2 }, run: `touch ${marker}` } }])
+      hubWith([{ name: 'many', data: { type: 'script', over: { each: 'seq 5' }, items: 2, run: `touch ${marker}` } }])
     );
     expect(untimed(result.outcome?.checks)).toEqual([
       {
         check: 'many',
         gating: false,
         pass: false,
-        findings: 'the "over" script printed 5 items, more than "max" allows (2)',
+        findings: 'the "over" script printed 5 items, more than "items" allows (2)',
       },
     ]);
     expect(existsSync(marker)).toBe(false);
@@ -2897,7 +2832,7 @@ describe('over', () => {
         'workflows/triage.md',
         JSON.stringify({
           on: { issue_comment: {} },
-          jobs: { loop: { type: 'bot', bot: 'bot', skill: 'implement', returns: ['reply'] } },
+          steps: { loop: { bot: 'bot', skill: 'implement', returns: ['reply'] } },
         })
       ),
     ]);
@@ -2946,9 +2881,8 @@ describe('over', () => {
         'workflows/triage.md',
         JSON.stringify({
           on: { issue_comment: {} },
-          jobs: {
+          steps: {
             each: {
-              type: 'script',
               over: { each: "printf 'one\\ntwo\\n'" },
               run: `printf '%s/%s\\n' "$BOTHUB_ITEM" "$(cat)" >> ${log}`,
             },
@@ -2964,7 +2898,7 @@ describe('over', () => {
   });
 
   it('runs a bot job once per item, each prompt with its item', async () => {
-    const { seen, p } = await run(hubWith([], { over: { each: "printf 'one\\ntwo\\n'" }, until: undefined }), {});
+    const { seen, p } = await run(hubWith([], { over: { each: "printf 'one\\ntwo\\n'" } }), {});
     expect(seen.map(spec => spec.prompt.match(/## Item: (.*)\n\n```text\n(.*)/)?.slice(1))).toEqual([
       ['item 1', 'one'],
       ['item 2', 'two'],
@@ -2980,8 +2914,6 @@ describe('over', () => {
     const { adapters } = fake((_spec, call) => ({ message: bothub([{ kind: 'reply', body: replies[call - 1] }]) }));
     const config = hubWith([], {
       over: { each: "printf 'one\\ntwo\\nthree\\n'" },
-      until: undefined,
-      mode: 'warn',
     });
     const p = await pipeline({ config, adapters, issues, env: { BOTHUB_LLM_API_KEY: 'key' } }, origin());
     const result = await Effect.runPromise(runPlanned(planned('loop'), p));

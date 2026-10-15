@@ -5,4 +5,11 @@ deps:
   install: npm ci --no-audit --no-fund --loglevel=error && npm --prefix studio ci --no-audit --no-fund --loglevel=error
   lockfiles: [package-lock.json, studio/package-lock.json]
   dirs: [node_modules, studio/node_modules]
+limits:
+  bots:
+    checker: { runs-per-day: 300 }
+    implementor: { runs-per-day: 20 }
+    retro: { runs-per-day: 60 }
+    reviewer: { sessions: 2, runs-per-day: 600 }
+    triager: { runs-per-day: 30 }
 human: seed hub, untraced

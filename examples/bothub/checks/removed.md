@@ -2,10 +2,10 @@
 type: bot
 description: Nothing the change removes from src/ or the hub scripts is still relied on, one removed argument, field, branch, fallback or export per run.
 bot: reviewer
-max-turns: 8
+minutes: 15
 over:
   each: node "$BOTHUB_HUB/scripts/removed.mjs"
-  max: 6
+items: 6
 paths: [src/**, examples/bothub/scripts/**]
 mode: block
 human: dogfood round 13 item 55 dropped the carried summary from three follow-up prompts and every per-hunk reviewer passed it, item 56 dropped a fallback to the whole change; replays calibrated it, the item 55 diff with its brief fails on the carried summary, the item 56 diff fails on the fallback, and of three good commits two have no items and one fails on a deliberate session removal

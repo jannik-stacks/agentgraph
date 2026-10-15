@@ -25,7 +25,7 @@ import { openStore, type Store } from '../src/store.ts';
 import type { AgentEvent, HarnessAdapter, RunSpec } from '../src/types.ts';
 
 const fixturePath = join(import.meta.dirname, 'fixtures', 'pi-run.jsonl');
-const spec: RunSpec = { prompt: 'p', system: 's', cwd: tmpdir(), tools: [], maxTurns: 1 };
+const spec: RunSpec = { prompt: 'p', system: 's', cwd: tmpdir(), tools: [] };
 
 const json = (line: string): AgentEvent[] => (line.trim() ? [JSON.parse(line)] : []);
 const node = (script: string, parseLine = json): HarnessAdapter => ({
@@ -723,7 +723,9 @@ describe('runScript guards', () => {
     const started = performance.now();
     const spy = vi
       .spyOn(Date, 'now')
-      .mockImplementation(() => now + (performance.now() - started) + (performance.now() - started > 300 ? 3_600_000 : 0));
+      .mockImplementation(
+        () => now + (performance.now() - started) + (performance.now() - started > 300 ? 3_600_000 : 0)
+      );
     try {
       const script = 'for i in 1 2 3 4 5 6 7; do echo $i; sleep 0.2; done';
       const result = await runScript(script, dir(), 0.1, {}, unsandboxed, { stallMinutes: 0.01 });
@@ -786,17 +788,17 @@ describe('limiter', () => {
   const SESSIONS = [
     ['job sessions share the pool', 1, [{}, {}], 1],
     ['a check does not wait behind a job', 1, [{}, { check: true }], 2],
-    ['a bot without concurrency only has the pool', 4, [{ bot: { name: 'b' } }, { bot: { name: 'b' } }], 2],
+    ['a bot without sessions only has the pool', 4, [{ bot: { name: 'b' } }, { bot: { name: 'b' } }], 2],
     [
-      'a bot with concurrency 1 runs one session at a time, jobs and checks together',
+      'a bot with sessions 1 runs one session at a time, jobs and checks together',
       4,
-      [{ bot: { name: 'b', concurrency: 1 } }, { bot: { name: 'b', concurrency: 1 }, check: true }],
+      [{ bot: { name: 'b', sessions: 1 } }, { bot: { name: 'b', sessions: 1 }, check: true }],
       1,
     ],
     [
       'other bots are not held by a capped one',
       4,
-      [{ bot: { name: 'b', concurrency: 1 } }, { bot: { name: 'c', concurrency: 1 } }],
+      [{ bot: { name: 'b', sessions: 1 } }, { bot: { name: 'c', sessions: 1 } }],
       2,
     ],
   ] as const;

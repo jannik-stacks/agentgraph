@@ -59,7 +59,7 @@ describe('cli', () => {
     expect(io.out[0]).toBe('{"ok":true,"warnings":[]}\n');
     expect(JSON.parse(io.out[1] ?? '').errors[0].message).toBe('no bots, skills, checks, workflows or notes found');
     expect(await main(['check', '--dir', join(examples, 'hub'), '--no-json'])).toBe(0);
-    expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 1 workflow (2 jobs), 5 notes\n');
+    expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 2 workflows (3 steps), 5 notes\n');
   });
 
   it('check validates the hub sandbox and fails on a setup script it cannot find', async () => {
@@ -85,7 +85,7 @@ describe('cli', () => {
     expect(await main(['check', '--dir', dir, '--no-json'])).toBe(0);
     expect(io.err).toEqual([
       expect.stringMatching(/^warning: checks\/fine.md: .*without a "threshold"/),
-      expect.stringMatching(/^warning: checks\/fine.md: no job lists it/),
+      expect.stringMatching(/^warning: checks\/fine.md: no step lists it/),
     ]);
     expect(io.err.every(line => line.startsWith('warning: '))).toBe(true);
     expect(io.out[0]).toMatch(new RegExp(`, ${io.err.length} warnings?\\n$`));
@@ -122,6 +122,7 @@ describe('cli', () => {
         bot: 'implementor',
         args: 'add a /health endpoint with a test',
       }),
+      expect.objectContaining({ workflow: 'issue', job: 'review', script: '' }),
     ]);
   });
 
@@ -138,7 +139,8 @@ describe('cli', () => {
       harness: 'opencode',
       timeoutMinutes: 45,
       branch: 'bothub/7',
-      until: { checks: ['types', 'review'], max: 2 },
+      checks: ['types', 'review'],
+      tries: 3,
     });
     expect(job.spec.cwd.startsWith(join(data, 'work'))).toBe(true);
     expect(job.spec.system).toContain('"kind": "merge-request"');
@@ -151,7 +153,7 @@ describe('cli', () => {
     expect(await main([...args, '--dry-run', '--no-json'])).toBe(0);
     const text = io.out.join('');
     expect(text).toContain('issue/implement (implementor, opencode, 45 min)\n');
-    expect(text).toContain('until: types, review pass, at most 2 more attempts\n');
+    expect(text).toContain('checks: types, review, at most 3 tries\n');
     expect(text).toContain('--agent bothub --model bothub/writer -- <prompt>');
     expect(text).toMatch(/ -- <prompt>\n/);
     expect(existsSync(data)).toBe(false);

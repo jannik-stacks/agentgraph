@@ -186,7 +186,7 @@ describe('mcpInside and specInside', () => {
   });
 
   it('moves the spec to /work and mounts only the code parts of bothub', () => {
-    const spec: RunSpec = { prompt: 'p', system: 's', cwd: '/srv/work/r1', tools: [], maxTurns: 1, mcp: server };
+    const spec: RunSpec = { prompt: 'p', system: 's', cwd: '/srv/work/r1', tools: [], mcp: server };
     const { spec: seen, mounts } = specInside(spec);
     expect(seen.cwd).toBe('/work');
     expect(seen.mcp?.command).toBe('node');

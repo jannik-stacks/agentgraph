@@ -3,7 +3,7 @@ type: decide
 description: Each principle the reply names with a file and line shows in the hunk at that line.
 over:
   each: node "$BOTHUB_HUB/scripts/principles.mjs"
-  max: 10
+items: 10
 threshold: 0.5
 mode: log
 human: pstack principle 4c, name-dropping check; logs until fixtures separate named from followed

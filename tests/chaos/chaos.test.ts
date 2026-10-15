@@ -18,12 +18,9 @@ const md = (path: string, front: string, body = '') => ({
   source: `---\n${front}\n---\n\n${body}`,
 });
 const compiled = compile([
-  md('bots/bot.md', 'harness: opencode\ntools: [read]\nreturns: [reply]\nmax-turns: 7', 'You are a bot.'),
+  md('bots/bot.md', 'harness: opencode\ntools: [read]\nreturns: [reply]', 'You are a bot.'),
   md('skills/triage.md', 'description: Sort.', 'Triage.'),
-  md(
-    'workflows/w.md',
-    'on: { issue_comment: {} }\njobs:\n  triage: { type: bot, mode: warn, bot: bot, skill: triage, returns: [reply] }'
-  ),
+  md('workflows/w.md', 'on: { issue_comment: {} }\nsteps:\n  triage: { bot: bot, skill: triage, returns: [reply] }'),
 ]);
 if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
 const { config } = compiled;
@@ -216,7 +213,6 @@ describe('chaos: the stall watchdog', () => {
           system: 's',
           cwd: temp('cwd'),
           tools: [],
-          maxTurns: 1,
         },
         timeoutMinutes: 0.03,
         stallMinutes: 0.01,

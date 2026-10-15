@@ -1,31 +1,40 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Effect } from 'effect';
-import { effectiveRun, effectiveReturns, jobOrder, returnKinds } from '../config.ts';
+import {
+  backOf,
+  effectiveRun,
+  effectiveReturns,
+  nextOf,
+  returnKinds,
+  stepOrder,
+  stepsBefore,
+  triesOf,
+} from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import { digest } from '../fingerprint.ts';
 import { parkedBranch } from '../workspace.ts';
 import { fanOut } from '../over.ts';
 import { roles } from '../issues.ts';
-import { approved, extractProposals, validate } from '../outputs.ts';
+import { extractProposals, validate } from '../outputs.ts';
 import { runScript, type ScriptResult } from '../runner.ts';
-import type { Closure, Job, ProposalKind, Return } from '../schema.ts';
+import type { Closure, ProposalKind, Return, Step } from '../schema.ts';
 import type { Run, Stopped } from '../store.ts';
-import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip, trace } from './context.ts';
-import { type Handoff, type Target, defaultMinutes, fenced, handoffEnv, targetOf } from './prompt.ts';
+import { type JobResult, type Pipeline, issuesOf, launcher, pullsOf, skip } from './context.ts';
+import { type Handoff, type Target, fenced, handoffEnv, targetOf } from './prompt.ts';
 import { type Attempt, failingChecks, findingsFor, holds, issueEnv, runOnItem } from './checks.ts';
 import { continuing, saidSince, seeded } from './continue.ts';
 import { closed, finish, remember, settle } from './landing.ts';
-import { type Worktree, defaultBranchFor, fanned, jobItems, proposalProblems, requestsEnv } from './attempt.ts';
+import { type Worktree, defaultBranchFor, fanned, proposalProblems, requestsEnv, stepItems } from './attempt.ts';
 
 /**
- * Runs a script job: once, or once per item its `over` names with the item in `BOTHUB_ITEM` and on stdin. It fails
- * when any run fails; the output of every run is stored on the job's run. A script that may return proposals ends
+ * Runs a script step: once, or once per item its `over` names with the item in `BOTHUB_ITEM` and on stdin. It fails
+ * when any run fails; the output of every run is stored on the step's run. A script that may return proposals ends
  * its output with a `bothub` block, validated and applied like a bot's; a script that may merge also gets the open
  * requests into its `into` from `requestsEnv`.
  */
-const scriptJob = (
+const scriptStep = (
   planned: PlannedJob,
-  job: Extract<Job, { type: 'script' }>,
+  step: Step & { run: string },
   handoff: Handoff,
   target: Target,
   p: Pipeline,
@@ -36,20 +45,20 @@ const scriptJob = (
     const created = yield* Effect.promise(() =>
       store.create({ workflow: planned.workflow, job: planned.job, event, ...(issue && { issue }) })
     );
-    const timeout = job['timeout-minutes'] ?? defaultMinutes;
-    const returns = job.returns ?? [];
+    const timeout = step.minutes ?? p.config.hub.limits.minutes;
+    const returns = step.returns ?? [];
     const kinds = returnKinds(returns);
     const once = (cwd: string, env: Record<string, string>) =>
-      runScript(job.run, cwd, timeout, env, launcher(p), { hub: p.hub });
+      runScript(step.run, cwd, timeout, env, launcher(p), { hub: p.hub });
     const each = async (worktree: Worktree) => {
-      const { items, error, scope } = await jobItems(job, worktree, handoff, p);
+      const { items, error, scope } = await stepItems(step, worktree, handoff, p);
       if (error) return { ok: false, output: error, stdout: '' };
       const outputs: string[] = [];
       let stdout = '';
       let ok = true;
       let stopped: ScriptResult['stopped'];
       for (const item of items) {
-        const result = await runOnItem(job.run, item, scope, p);
+        const result = await runOnItem(step.run, item, scope, p);
         ok &&= result.ok;
         stopped ??= result.stopped;
         stdout += result.stdout;
@@ -69,7 +78,7 @@ const scriptJob = (
           ...(yield* Effect.promise(() => requestsEnv(kinds, target, p))),
         };
         const { ok, output, stdout, stopped }: ScriptResult = yield* Effect.promise(() =>
-          fanOut(job.over) ? each(worktree) : once(worktree.cwd, env)
+          fanOut(step.over) ? each(worktree) : once(worktree.cwd, env)
         );
         const ts = new Date().toISOString();
         yield* Effect.promise(async () => {
@@ -91,8 +100,8 @@ const scriptJob = (
         }
         const extracted = extractProposals(stdout);
         const defaultBranch = yield* Effect.promise(() => defaultBranchFor(kinds, p));
-        const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
-        const validated = validate(extracted.proposals, allowance, job.mode);
+        const allowance = { returns, paths: step.paths, ...target, ...(defaultBranch && { defaultBranch }) };
+        const validated = validate(extracted.proposals, allowance);
         const said = extracted.proposals.length || extracted.errors.length;
         const problems = said ? proposalProblems(extracted, validated, kinds) : [];
         const run = yield* Effect.promise(() =>
@@ -104,7 +113,7 @@ const scriptJob = (
         );
         const a: Attempt = {
           planned,
-          job,
+          step,
           worktree: worktree.id,
           cwd: worktree.cwd,
           base: worktree.base,
@@ -136,7 +145,11 @@ const startOf = async (target: Target, handoff: Handoff, p: Pipeline) => {
   if (target.branch && target.into && pullsOf(p)) return target.into;
   const { ref, pull } = p.event;
   if (ref || pull === undefined || target.branch) return ref;
-  return (await pullsOf(p)?.get(pull).catch(() => undefined))?.branch;
+  return (
+    await pullsOf(p)
+      ?.get(pull)
+      .catch(() => undefined)
+  )?.branch;
 };
 
 /**
@@ -271,21 +284,21 @@ type Unfinished = NonNullable<Awaited<ReturnType<typeof unfinished>>>;
 const refunded: Stopped[] = ['turns', 'stalled', 'provider', 'sandbox', 'infra', 'human'];
 
 /**
- * The attempts the job already used on the event's issue, which `until.max` goes on counting: none when it starts over
+ * The attempts the step already used on the event's issue, which `tries` goes on counting: none when it starts over
  * or fans out, after work that closed done or handed off, or for a human's new command after a run that used them all.
  * An attempt that ended outside its bot's work (out of turns, a stall, a provider or sandbox fault, a fault that
  * outlasted its restarts, or a human's stop) does not count.
  */
-const usedAttempts = async (planned: PlannedJob, job: Extract<Job, { type: 'bot' }>, p: Pipeline) => {
+const usedAttempts = async (planned: PlannedJob, step: Step, p: Pipeline) => {
   const { repo, number, id, actor } = p.event;
-  if (!job.until || number === undefined || planned.rerun === 'fresh' || job.over !== 'event') return 0;
+  if (!step.checks || number === undefined || planned.rerun === 'fresh' || step.over !== 'event') return 0;
   const { workflow } = planned;
   const runs = await p.store.runs({ repo, number, workflow, job: planned.job, check: false });
   const last = runs.find(r => r.attempt !== undefined);
   if (!last?.attempt || proceeds(last.closure)) return 0;
   const human = last.event.id !== id && !actor.login.endsWith('[bot]');
   const used = last.stopped && refunded.includes(last.stopped) ? last.attempt - 1 : last.attempt;
-  return human && last.attempt > job.until.max ? 0 : used;
+  return human && last.attempt >= triesOf(step) ? 0 : used;
 };
 
 /**
@@ -433,13 +446,13 @@ const tellDeferred = async (result: JobResult, p: Pipeline) => {
 };
 
 /**
- * Runs one planned job in a fresh worktree: a script, or a bot running its skill until the job's checks pass.
- * Proposals are validated and applied only once the checks pass and the mode and a GitHub client allow it. Every
- * attempt is stored as its own run, linked to the one before by `parent`; the worktree is always removed. A job
- * that needs another starts from the branch handed to it, which scripts and harnesses also get as `handoffEnv`. With
- * `merge`, the job runs again on its branch with that branch merged in, to resolve the conflicts. A `branch` or
- * `into` naming a value the event does not have blocks the job, and a merging script job with nothing to do (see
- * `nothingToMerge`) is skipped.
+ * Runs one planned step in a fresh worktree: a script, or a bot running its skill until the step's checks pass.
+ * Proposals are validated and applied only once the checks pass and a GitHub client or local tracker allows it. Every
+ * attempt is stored as its own run, linked to the one before by `parent`; the worktree is always removed. A step
+ * after another starts from the branch handed to it, which scripts and harnesses also get as `handoffEnv`. With
+ * `merge`, the step runs again on its branch with that branch merged in, to resolve the conflicts. A `branch` or
+ * `into` naming a value the event does not have blocks the step, a merging script step with nothing to do (see
+ * `nothingToMerge`) is skipped, and a wait step closes blocked on a human.
  */
 export const runPlanned = (
   planned: PlannedJob,
@@ -449,11 +462,12 @@ export const runPlanned = (
 ): Effect.Effect<JobResult> =>
   Effect.gen(function* () {
     const workflow = p.config.workflows[planned.workflow];
-    const job = workflow?.jobs[planned.job];
-    if (!workflow || !job) return yield* Effect.promise(() => skip(planned, 'the job is not in the config', p));
+    const step = workflow?.steps[planned.job];
+    if (!workflow || !step) return yield* Effect.promise(() => skip(planned, 'the step is not in the config', p));
+    if (step.wait) return yield* Effect.promise(() => skip(planned, 'waits for a human', p, 'blocked'));
     const target = targetOf(
-      job,
-      { event: p.event, args: planned.args, job: planned.job, workflow: workflow.name },
+      step,
+      { event: p.event, args: planned.args, step: planned.job, workflow: workflow.name },
       handoff
     );
     const unfilled = [target.branch, target.into].find(name => name?.includes('{'));
@@ -461,16 +475,14 @@ export const runPlanned = (
       return yield* Effect.promise(() =>
         skip(planned, `"${unfilled}" names a value this event does not have`, p, 'blocked')
       );
-    if (
-      job.type === 'script' &&
-      (yield* Effect.promise(() => nothingToMerge(returnKinds(job.returns ?? []), target, p)))
-    )
+    const { run } = step;
+    if (run !== undefined && (yield* Effect.promise(() => nothingToMerge(returnKinds(step.returns ?? []), target, p))))
       return yield* Effect.promise(() => skip(planned, 'nothing to merge or propose', p, 'no-op'));
     const issue = yield* Effect.promise(() => issueDigest(p));
-    if (job.type === 'script') return yield* scriptJob(planned, job, handoff, target, p, issue);
-    const bot = p.config.bots[job.bot];
-    if (!bot) return yield* Effect.promise(() => skip(planned, 'the job has no bot', p));
-    const used = yield* Effect.promise(() => usedAttempts(planned, job, p));
+    if (run !== undefined) return yield* scriptStep(planned, { ...step, run }, handoff, target, p, issue);
+    const bot = step.bot === undefined ? undefined : p.config.bots[step.bot];
+    if (!bot) return yield* Effect.promise(() => skip(planned, 'the step has no bot', p));
+    const used = yield* Effect.promise(() => usedAttempts(planned, step, p));
     const created = yield* Effect.promise(() =>
       p.store.create({
         workflow: planned.workflow,
@@ -478,11 +490,11 @@ export const runPlanned = (
         bot: bot.name,
         harness: bot.harness,
         event: p.event,
-        ...(job.until && { attempt: 1 + used }),
+        ...(step.checks && { attempt: 1 + used }),
         ...(issue && { issue }),
       })
     );
-    const returns = effectiveReturns(bot, job);
+    const returns = effectiveReturns(bot, step);
     const last =
       planned.rerun === 'fresh' || merge ? undefined : yield* Effect.promise(() => unfinished(planned, created, p));
     if (last?.outcome?.accepted.some(proposal => proposal.kind === 'ask') && !p.event.actor.login.endsWith('[bot]'))
@@ -500,7 +512,7 @@ export const runPlanned = (
       started =>
         Effect.gen(function* () {
           const worktree = yield* Effect.promise(() => picked(started, planned, created, last, handoff, target, p));
-          const result = yield* fanned(planned, workflow, job, created, worktree, handoff, p);
+          const result = yield* fanned(planned, workflow, step, created, worktree, handoff, p);
           const parked = yield* Effect.promise(() => park(result, worktree, target, returns, p));
           yield* Effect.promise(() => tellDeferred(parked, p));
           return parked;
@@ -513,7 +525,7 @@ export const runPlanned = (
         fresh: planned.rerun === 'fresh',
         ...(merge && { merge }),
         ...(last?.parked && { from: last.parked }),
-        wait: job['timeout-minutes'] ?? defaultMinutes,
+        wait: step.minutes ?? p.config.hub.limits.minutes,
       }
     );
   });
@@ -537,91 +549,57 @@ const reused = async (planned: PlannedJob, run: Run, p: Pipeline): Promise<JobRe
   return { ...planned, run, ...(outcome && { outcome }) };
 };
 
-/** The latest run of this event's job that already closed done or handed off, so a retry does not redo it. */
+/**
+ * The latest run of this event's step that already closed done or handed off, or that waits for a human, so a retry
+ * does not redo it.
+ */
 const reuse = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | undefined> => {
   const { workflow, job } = planned;
+  const waits = p.config.workflows[workflow]?.steps[job]?.wait !== undefined;
   const earlier = await p.store.runs({ event: p.event.id, workflow, job, check: false });
-  const run = earlier.find(r => r.status === 'succeeded' && proceeds(r.closure));
+  const run = earlier.find(r => (waits ? r.closure === 'blocked' : r.status === 'succeeded' && proceeds(r.closure)));
   return run && reused(planned, run, p);
 };
 
 /**
- * The job's latest run on the event's issue when it closed done or handed off, a job that needs it ran after it, and
- * the issue still reads as it did when that run started. A later command on the issue then picks up the job that
- * needs it without redoing this one, unless the issue changed or the command asks to rerun everything.
+ * The step's latest run on the event's issue when it closed done or handed off, the step after it ran after it, and
+ * the issue still reads as it did when that run started. A later command on the issue then picks up the step after it
+ * without redoing this one, unless the issue changed, the command asks to rerun everything, or a wait step goes back
+ * to this step.
  */
 const answered = async (planned: PlannedJob, p: Pipeline): Promise<JobResult | undefined> => {
   const { repo, number } = p.event;
-  const jobs = p.config.workflows[planned.workflow]?.jobs;
-  if (number === undefined || !jobs || planned.rerun) return;
+  const workflow = p.config.workflows[planned.workflow];
+  if (number === undefined || !workflow || planned.rerun) return;
+  const ids = Object.keys(workflow.steps);
+  if (ids.some(id => workflow.steps[id]?.wait && backOf(workflow, id) === planned.job)) return;
+  const next = nextOf(workflow, planned.job);
   const runs = await p.store.runs({ repo, number, workflow: planned.workflow, check: false });
   const at = runs.findIndex(r => r.job === planned.job && r.status !== 'skipped');
   const run = runs[at];
   if (run?.status !== 'succeeded' || !proceeds(run.closure)) return;
-  if (!runs.slice(0, at).some(r => jobs[r.job]?.needs.includes(planned.job))) return;
+  if (!runs.slice(0, at).some(r => r.job === next)) return;
   return run.issue === (await issueDigest(p)) ? reused(planned, run, p) : undefined;
 };
 
-/**
- * Holds a job with an `environment` until a human approves it: an `unsure` issue under the event's issue asks for the
- * `approved` label. Resolves to the blocked result, or to nothing once approved.
- */
-const gate = async (planned: PlannedJob, job: Job, p: Pipeline): Promise<JobResult | undefined> => {
-  const { environment } = job;
-  if (!environment) return;
-  const issues = issuesOf(p);
-  if (!issues)
-    return skip(planned, `environment "${environment}" needs an issue tracker to ask for approval`, p, 'blocked');
-  const { number: parent, actor, repo, url } = p.event;
-  const title = `Approve ${planned.workflow}/${planned.job}${parent !== undefined ? ` for #${parent}` : ''} in ${environment}`;
-  const scope = { label: roles.unsure, state: 'all', ...(parent !== undefined && { parent }) } as const;
-  const asked = (await issues.list(scope)).find(issue => issue.title === title);
-  if (asked?.labels.includes(approved)) {
-    const waiting = (await p.store.runs({ event: p.event.id, job: planned.job })).filter(
-      r => r.closure === 'blocked' && r.approval === asked.number
-    );
-    for (const run of waiting) {
-      await p.store.update(run.id, closed('done', `approved in #${asked.number}`));
-      await p.store.add(run.id, { type: 'human', on: 'answer', ...(asked.url && { url: asked.url }), asked: run.id });
-      await trace(run.id, p);
-    }
-    return;
-  }
-  const issue =
-    asked ??
-    (await issues.create({
-      title,
-      body: `Add the label \`${approved}\` to let ${planned.workflow}/${planned.job} run in \`${environment}\` for ${url ?? repo}.`,
-      labels: [roles.unsure],
-      ...(parent !== undefined && { parent }),
-    }));
-  if (!asked && parent !== undefined) await issues.comment(parent, `@${actor.login} needs a human: #${issue.number}`);
-  const held = await skip(planned, `waiting for approval in #${issue.number}`, p, 'blocked', {
-    approval: issue.number,
-  });
-  await p.store.add(held.run.id, { type: 'human', on: 'ask', ...(issue.url && { url: issue.url }) });
-  await trace(held.run.id, p);
-  return held;
-};
-
-/**
- * Runs planned jobs workflow by workflow, each in dependency order. A job starts only when every job it needs closed
- * `done` or `handed-off`, and starts from the branch and pull request they handed off. A job of this event that
- * already closed that way is reused rather than run again, as is one on the same issue whose dependent blocked after
- * it, and a job with an `environment` waits for approval.
- */
-/** The pipeline with the event's parent issue filled in, when a planned job's `branch` or `into` names it. */
+/** The pipeline with the event's parent issue filled in, when a planned step's `branch` or `into` names it. */
 const withParent = async (planned: PlannedJob[], p: Pipeline): Promise<Pipeline> => {
   const { event } = p;
   const named = planned.some(({ workflow, job }) => {
-    const definition = p.config.workflows[workflow]?.jobs[job];
-    return [definition?.branch, definition?.into].some(name => name?.includes('{parent}'));
+    const step = p.config.workflows[workflow]?.steps[job];
+    return [step?.branch, step?.into].some(name => name?.includes('{parent}'));
   });
   if (!named || event.parent !== undefined || event.number === undefined) return p;
   const parent = (await issuesOf(p)?.get(event.number))?.parent;
   return parent === undefined ? p : { ...p, event: { ...event, parent } };
 };
 
+/**
+ * Runs planned steps workflow by workflow, in the order of the walk along `next` (see `stepOrder`). A step starts only
+ * when the step before it closed `done` or `handed-off`, and starts from the branch and pull request it handed off. A
+ * step of this event that already closed that way is reused rather than run again, as is one on the same issue whose
+ * next step ran after it (see `answered`).
+ */
 export const runPlan = (planned: PlannedJob[], pipeline: Pipeline): Effect.Effect<JobResult[]> =>
   Effect.flatMap(
     Effect.promise(() => withParent(planned, pipeline)),
@@ -637,19 +615,19 @@ const runWorkflows = (planned: PlannedJob[], p: Pipeline): Effect.Effect<JobResu
         const results: JobResult[] = [];
         const closures = new Map<string, Closure | undefined>();
         const handoffs = new Map<string, Handoff>();
-        for (const id of workflow ? jobOrder(workflow) : []) {
+        for (const id of workflow ? stepOrder(workflow).order : []) {
           const job = planned.find(j => j.workflow === name && j.job === id);
-          const definition = workflow?.jobs[id];
-          if (!job || !definition) continue;
-          const blocked = definition.needs.filter(need => !proceeds(closures.get(need)));
-          const handoff: Handoff = Object.assign({}, ...definition.needs.map(need => handoffs.get(need)));
-          const reason = `needs ${blocked.map(need => `"${need}" (${closures.get(need) ?? 'not run'})`).join(', ')} to be done`;
+          if (!job || !workflow) continue;
+          const before = stepsBefore(workflow, id);
+          const blocked = before.filter(step => !proceeds(closures.get(step)));
+          const handoff: Handoff = Object.assign({}, ...before.map(step => handoffs.get(step)));
+          const reason = `waits for ${blocked.map(step => `"${step}" (${closures.get(step) ?? 'not run'})`).join(', ')} to be done`;
           const result = blocked.length
             ? yield* Effect.promise(() => skip(job, reason, p))
             : ((yield* Effect.promise(() => reuse(job, p))) ??
               (yield* Effect.promise(() => answered(job, p))) ??
-              (yield* Effect.promise(() => gate(job, definition, p))) ??
               (yield* runPlanned(job, p, handoff)));
+
           closures.set(id, result.run.closure);
           const own: Handoff = ('outcome' in result && result.outcome) || {};
           handoffs.set(id, {

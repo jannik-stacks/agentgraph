@@ -41,12 +41,12 @@ Every label and close bothub makes on a local issue is recorded under the issue'
 who made it.
 
 The runner keeps one lane per issue or merge request in memory and never runs two events of one
-lane at once, so the events of one issue run in the order they came. Up to `--concurrency` job
+lane at once, so the events of one issue run in the order they came. Up to `--concurrency` step
 sessions run at once across all events, 4 unless set, and check sessions have a pool of the same
 size of their own, so an attempt's reviewers never wait behind other issues' implementors. A bot's
-`concurrency` caps its own sessions, jobs and checks together, within those pools; several sessions
+`sessions` in `hub.yaml` `limits` caps its own sessions, steps and checks together, within those pools; several sessions
 on one provider key can set it to queue in bothub rather than at the model. An event a bot made
-that starts no job is logged and never run.
+that starts no step is logged and never run.
 
 `bothub pause` holds new work in `<data>/runner.json` until `bothub resume`; `--now` also stops what
 is running and holds it. When `serve` starts, runs a stopped process left unfinished are marked

@@ -39,7 +39,7 @@ returns: [reply, merge-request, note, hub(notes/**, skills/**)]
 
 `note` is the convenient form of a hub change: one new note, which an opencode run can also
 propose while it works with the `notes_add` tool. A run that returns a hub change ends there;
-checks then judge the run, and a failing check sends it back through `until`.
+checks then judge the run, and a failing check sends it back for another try.
 
 ## Hub changes
 

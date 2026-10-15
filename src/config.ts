@@ -17,8 +17,8 @@ import {
   type Harness,
   type Load,
   type LoadEntry,
-  type Job,
   type Preload,
+  type Step,
   type ProposalKind,
   type Return,
 } from './schema.ts';
@@ -44,7 +44,7 @@ const schemas = { bots: Bot, skills: Skill, checks: Check, workflows: Workflow }
 const definition = /(?:^|\/)(bots|skills|checks|workflows)\/([^/]+)\.md$/;
 const noteFile = /(?:^|\/)notes\/([^/]+)\/([^/]+)\.md$/;
 export const hubFile = 'hub.yaml';
-const placeholders = new Set(['issue', 'parent', 'base', 'slug', 'job', 'workflow']);
+const placeholders = new Set(['issue', 'parent', 'base', 'slug', 'step', 'workflow']);
 
 const quoted = (names: string[]) => names.map(n => `"${n}"`).join(', ');
 
@@ -100,7 +100,7 @@ export const compile = (files: SourceFile[]): Compiled => {
       fail(z.prettifyError(parsed.error));
       continue;
     }
-    const name = ('name' in parsed.data && parsed.data.name) || stem;
+    const name = stem;
     const target = config[group] as Record<string, unknown>;
     if (name in target) fail(`duplicate ${group.slice(0, -1)} "${name}"`);
     target[name] = { ...parsed.data, name, path: file.path, body: doc.body };
@@ -164,30 +164,27 @@ const references = (config: Config): ConfigError[] => {
 
   for (const workflow of Object.values(config.workflows)) {
     const fail = at(workflow.path);
-    for (const [id, job] of Object.entries(workflow.jobs))
-      for (const message of checkJob(id, job, workflow, config)) fail(message);
-    const cycle = findCycle(workflow.jobs);
-    if (cycle) fail(`needs cycle: ${cycle.join(' -> ')}`);
+    for (const [id, step] of Object.entries(workflow.steps))
+      for (const message of checkStep(id, step, workflow, config)) fail(message);
+    const walked = stepOrder(workflow);
+    if (walked.loop) fail(`steps loop back to "${walked.loop}" through "next"; a step repeats only by "tries"`);
+    for (const id of Object.keys(workflow.steps))
+      if (!walked.order.includes(id)) fail(`step "${id}" is never reached: no step's "next" leads to it`);
   }
   return errors;
 };
 
-/** Fields that compile but that the runner does not act on, or that make a job do nothing it asked for. */
-const landing = new Set<string>(['reply', 'push', 'ask', 'label', 'merge-request']);
-
+/** Fields that compile but that the runner does not act on. */
 const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
   const found: ConfigError[] = [];
   for (const bot of Object.values(bots)) {
     const warn = (message: string) => found.push({ path: bot.path, message });
     const { harness } = bot;
-    if (harness === 'pi' && bot['max-turns'] !== undefined)
-      warn('"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it');
-    if (harness !== 'opencode') {
-      const served = hubTools(bot);
-      if (served.length) warn(`lists hub tools (${served.join(', ')}) that ${harness} runs do not get`);
-      if (bot.preload?.some(recallOf)) warn(`preloads recall, which ${harness} runs do not get`);
-      if (bot.decider) warn(`asks decider questions, which ${harness} runs do not get`);
-    }
+    if (harness === 'opencode') continue;
+    const served = hubTools(bot);
+    if (served.length) warn(`lists hub tools (${served.join(', ')}) that ${harness} runs do not get`);
+    if (bot.preload?.some(recallOf)) warn(`preloads recall, which ${harness} runs do not get`);
+    if (bot.decider) warn(`asks decider questions, which ${harness} runs do not get`);
   }
   for (const check of Object.values(checks))
     if (check.type === 'decide' && check.mode !== 'log' && check.threshold === undefined)
@@ -195,97 +192,105 @@ const warnings = ({ bots, checks, workflows }: Config): ConfigError[] => {
         path: check.path,
         message: `decides in ${check.mode} mode without a "threshold"; tune one in log mode first`,
       });
-  const jobs = Object.values(workflows).flatMap(workflow => Object.values(workflow.jobs));
-  const used = new Set(
-    jobs.flatMap(job => [...(job.requires ?? []), ...((job.type === 'bot' && job.until?.checks) || [])])
-  );
+  const steps = Object.values(workflows).flatMap(workflow => Object.values(workflow.steps));
+  const used = new Set(steps.flatMap(step => [...(step.requires ?? []), ...(step.checks ?? [])]));
   for (const check of Object.values(checks))
     if (!used.has(check.name))
-      found.push({ path: check.path, message: 'no job lists it in "until" or "requires", so it never runs' });
+      found.push({ path: check.path, message: 'no step lists it in "checks" or "requires", so it never runs' });
   for (const workflow of Object.values(workflows))
-    for (const [id, job] of Object.entries(workflow.jobs)) {
-      const warn = (message: string) => found.push({ path: workflow.path, message: `job "${id}" ${message}` });
-      if (job.type === 'bot' && job.until && job.until.checks.every(name => checks[name]?.mode === 'log'))
-        warn('loops until checks that are all in log mode, so it never repeats');
-      const applied =
-        job.type === 'bot' ? (job.returns ?? bots[job.bot]?.returns ?? []).filter(r => landing.has(r)) : [];
-      if (job.mode === 'log' && applied.length)
-        warn(`returns ${applied.join(', ')} in log mode, which applies none of them; set "mode: warn" or "block"`);
-    }
+    for (const [id, step] of Object.entries(workflow.steps))
+      if (step.checks?.every(name => checks[name]?.mode === 'log'))
+        found.push({
+          path: workflow.path,
+          message: `step "${id}" has only checks in log mode, so a failing check never sends it back`,
+        });
   return found;
 };
 
-const checkJob = (id: string, job: Job, workflow: Workflow, { hub, bots, skills, checks }: Config): string[] => {
+const checkStep = (id: string, step: Step, workflow: Workflow, { hub, bots, skills, checks }: Config): string[] => {
   const errors: string[] = [];
-  const fail = (message: string) => errors.push(`job "${id}" ${message}`);
-  for (const need of job.needs) if (!(need in workflow.jobs)) fail(`needs unknown job "${need}"`);
-  for (const trigger of Object.keys(job.on ?? {}))
-    if (!(trigger in workflow.on)) fail(`triggers on "${trigger}", which the workflow does not listen to`);
-  if (job.branch && !job.branch.startsWith('bothub/')) fail(`branch "${job.branch}" must start with "bothub/"`);
+  const fail = (message: string) => errors.push(`step "${id}" ${message}`);
+  if (step.next && step.next !== end && !(step.next in workflow.steps))
+    fail(`goes next to unknown step "${step.next}"`);
+  if (step.wait) {
+    const back = backOf(workflow, id);
+    if (!back) fail('waits first, so there is no step to go back to');
+    else if (!(back in workflow.steps)) fail(`goes back to unknown step "${back}"`);
+    return errors;
+  }
+  if (step.branch && !step.branch.startsWith('bothub/')) fail(`branch "${step.branch}" must start with "bothub/"`);
   for (const [field, template] of [
-    ['branch', job.branch],
-    ['into', job.into],
+    ['branch', step.branch],
+    ['into', step.into],
   ] as const)
     for (const [, key = ''] of template?.matchAll(/\{([^}]*)\}/g) ?? [])
       if (!placeholders.has(key)) fail(`${field} uses unknown placeholder "{${key}}"`);
-  if (job.branch && job.into && `${job.branch}/`.startsWith(`${job.into}/`))
-    fail(`branch "${job.branch}" sits inside "${job.into}", and git cannot hold both; try "${job.into}-…"`);
-  for (const check of job.requires ?? []) if (!(check in checks)) fail(`requires unknown check "${check}"`);
-  for (const problem of returnProblems(job.returns ?? [])) fail(problem);
-  const bot = job.type === 'bot' ? bots[job.bot] : undefined;
-  const returns = job.returns ?? bot?.returns ?? [];
-  if (returns.includes('merge') && !job.into && hub.merge['default-branch'] === 'human')
+  if (step.branch && step.into && `${step.branch}/`.startsWith(`${step.into}/`))
+    fail(`branch "${step.branch}" sits inside "${step.into}", and git cannot hold both; try "${step.into}-…"`);
+  for (const check of step.requires ?? []) if (!(check in checks)) fail(`requires unknown check "${check}"`);
+  for (const problem of returnProblems(step.returns ?? [])) fail(problem);
+  const bot = step.bot === undefined ? undefined : bots[step.bot];
+  const returns = step.returns ?? bot?.returns ?? [];
+  if (returns.includes('merge') && !step.into && hub.merge['default-branch'] === 'human')
     fail('returns "merge" without "into", so it would merge into the default branch, which only a human does');
-  if (job.type === 'script') {
-    if (typeof job.over === 'object' && 'run' in job.over)
-      fail('runs its own command, so "over: { run }" needs type bot');
+  if (step.run !== undefined) {
+    if (typeof step.over === 'object' && 'run' in step.over)
+      fail('runs its own command, so "over: { run }" needs a bot step');
     return errors;
   }
-  if (!(job.skill in skills)) fail(`uses unknown skill "${job.skill}"`);
-  for (const check of job.until?.checks ?? []) if (!(check in checks)) fail(`waits for unknown check "${check}"`);
+  const skill = skillOf(id, step);
+  if (!(skill in skills)) fail(`uses unknown skill "${skill}"`);
+  for (const check of step.checks ?? []) if (!(check in checks)) fail(`checks unknown check "${check}"`);
   if (!bot) {
-    fail(`uses unknown bot "${job.bot}"`);
+    fail(`uses unknown bot "${step.bot}"`);
     return errors;
   }
-  for (const entry of job.returns ?? [])
+  for (const entry of step.returns ?? [])
     if (!narrows(bot.returns, entry)) fail(`returns "${entry}", which bot "${bot.name}" does not return`);
-  for (const tool of job.tools ?? [])
-    if (!hubTools(bot).includes(tool)) fail(`grants tool "${tool}", which bot "${bot.name}" does not have`);
   return errors;
 };
 
-const findCycle = (jobs: Record<string, { needs: string[] }>): string[] | undefined => {
-  const state = new Map<string, 'visiting' | 'done'>();
-  const visit = (id: string, trail: string[]): string[] | undefined => {
-    if (state.get(id) === 'done') return;
-    if (state.get(id) === 'visiting') return [...trail.slice(trail.indexOf(id)), id];
-    state.set(id, 'visiting');
-    for (const need of jobs[id]?.needs ?? []) {
-      const found = visit(need, [...trail, id]);
-      if (found) return found;
-    }
-    state.set(id, 'done');
-  };
-  for (const id of Object.keys(jobs)) {
-    const found = visit(id, []);
-    if (found) return found;
-  }
+/** The `next` that ends a workflow. */
+export const end = 'end';
+
+/** The step after `id`: its `next`, or the step written after it; nothing at the end. */
+export const nextOf = (workflow: Pick<Workflow, 'steps'>, id: string): string | undefined => {
+  const ids = Object.keys(workflow.steps);
+  const next = workflow.steps[id]?.next ?? ids[ids.indexOf(id) + 1];
+  return next === end ? undefined : next;
 };
 
-/** Job ids in dependency order, so every job comes after the jobs it needs. */
-export const jobOrder = (workflow: Pick<Workflow, 'jobs'>): string[] => {
+/** Where a wait step goes when a human answers: its `back`, or the step written before it. */
+export const backOf = (workflow: Pick<Workflow, 'steps'>, id: string): string | undefined => {
+  const ids = Object.keys(workflow.steps);
+  return workflow.steps[id]?.back ?? ids[ids.indexOf(id) - 1];
+};
+
+/** The steps that lead to `id`. */
+export const stepsBefore = (workflow: Pick<Workflow, 'steps'>, id: string) =>
+  Object.keys(workflow.steps).filter(other => nextOf(workflow, other) === id);
+
+/** The steps a workflow runs, from its first along `next`, and the step it would loop back to, if any. */
+export const stepOrder = (workflow: Pick<Workflow, 'steps'>): { order: string[]; loop?: string } => {
   const order: string[] = [];
-  const seen = new Set<string>();
-  const visit = (id: string) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    for (const need of workflow.jobs[id]?.needs ?? []) visit(need);
+  for (let id = Object.keys(workflow.steps)[0]; id !== undefined && id in workflow.steps; id = nextOf(workflow, id)) {
+    if (order.includes(id)) return { order, loop: id };
     order.push(id);
-  };
-  Object.keys(workflow.jobs).forEach(visit);
-  return order;
+  }
+  return { order };
 };
 
+/** The skill a bot step runs: its `skill`, or its own name. */
+export const skillOf = (id: string, step: Pick<Step, 'skill'>) => step.skill ?? id;
+
+/** How many attempts a bot step gets in all. */
+export const triesOf = (step: Pick<Step, 'tries'>) => step.tries ?? 3;
+
+/** The limits that apply to `bot`: the hub's, with the bot's own over them. */
+export const limitsOf = ({ limits }: Pick<Hub, 'limits'>, bot: string | undefined) => {
+  const { bots, ...hub } = limits;
+  return { ...hub, ...(bot === undefined ? {} : bots[bot]) };
+};
 const reachesHumanOnly = (glob: string) => {
   const prefix = glob.split(/[*?{[]/)[0] ?? '';
   return (
@@ -306,7 +311,7 @@ const returnProblems = (returns: Return[]) =>
     })
   );
 
-/** Whether a job's `returns` entry is within the bot's: the same kind, or hub globs a bot glob covers. */
+/** Whether a step's `returns` entry is within the bot's: the same kind, or hub globs a bot glob covers. */
 const narrows = (bot: Return[], entry: Return) => {
   const globs = hubGlobs(entry);
   if (!globs) return bot.includes(entry);
@@ -322,9 +327,9 @@ export const returnKinds = (returns: Return[]): ProposalKind[] => [
 /** The hub globs every `hub(<globs>)` entry of `returns` names. */
 export const returnGlobs = (returns: Return[]) => returns.flatMap(entry => hubGlobs(entry) ?? []);
 
-/** What a bot may return in a job: the bot's `returns`, narrowed to the job's when it has them. */
-export const effectiveReturns = (bot: Pick<Bot, 'returns'>, job: Pick<Extract<Job, { type: 'bot' }>, 'returns'>) =>
-  job.returns ? job.returns.filter(entry => narrows(bot.returns, entry)) : bot.returns;
+/** What a bot may return in a step: the bot's `returns`, narrowed to the step's when it has them. */
+export const effectiveReturns = (bot: Pick<Bot, 'returns'>, step: Pick<Step, 'returns'>) =>
+  step.returns ? step.returns.filter(entry => narrows(bot.returns, entry)) : bot.returns;
 
 /** The hub tools among a bot's `tools`. */
 export const hubTools = (bot: Pick<Bot, 'tools'>): HubTool[] =>
@@ -332,16 +337,6 @@ export const hubTools = (bot: Pick<Bot, 'tools'>): HubTool[] =>
 
 /** A bot's harness tools, without the hub tools. */
 export const harnessTools = (bot: Pick<Bot, 'tools'>) => bot.tools.filter(tool => !HubTool.safeParse(tool).success);
-
-/** The read tools a run gets: the job's `tools` when it has them, otherwise the bot's. */
-export const effectiveTools = (bot: Pick<Bot, 'tools'>, job: Pick<Extract<Job, { type: 'bot' }>, 'tools'>) =>
-  job.tools ?? hubTools(bot);
-
-/** What a run starts with: the job's `preload`, then the bot's, then nothing. */
-export const effectivePreload = (
-  bot: Pick<Bot, 'preload'>,
-  job: Pick<Extract<Job, { type: 'bot' }>, 'preload'>
-): Preload[] => job.preload ?? bot.preload ?? [];
 
 /** What a bot's runs load from the repo, start with and recall: the bot's own setting over the hub's. */
 export const effectiveRun = (

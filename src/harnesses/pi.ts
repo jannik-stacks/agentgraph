@@ -42,7 +42,6 @@ type Assistant = Extract<Message, { role: 'assistant' }>;
 
 const extension = fileURLToPath(new URL('./pi-provider.ts', import.meta.url));
 
-/** pi has no turn limit, so `spec.maxTurns` is left to the runner's timeout. */
 const command = (spec: RunSpec) => ({
   cmd: 'pi',
   args: [

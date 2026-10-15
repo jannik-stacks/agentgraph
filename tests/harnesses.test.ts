@@ -14,7 +14,6 @@ const spec: RunSpec = {
   cwd: '/tmp/x',
   model: 'coder',
   tools: ['read', 'bash(git diff*)', 'bash(git log*)'],
-  maxTurns: 5,
 };
 
 const fixture = (harness: keyof typeof harnesses, name: string) =>
@@ -99,7 +98,7 @@ describe('opencode', () => {
     });
     expect(config.provider.bothub.npm).toBe('@ai-sdk/openai');
     expect(config.provider.bothub.models).toEqual({ coder: {} });
-    expect(config.agent.bothub).toEqual({ mode: 'primary', prompt: spec.system, steps: 5 });
+    expect(config.agent.bothub).toEqual({ mode: 'primary', prompt: spec.system });
     expect(env).toMatchObject({ OPENCODE_DISABLE_PROJECT_CONFIG: '1', OPENCODE_DISABLE_CLAUDE_CODE: '1' });
     expect(JSON.stringify(env)).not.toMatch(/sk-|vk-/);
   });
@@ -376,17 +375,15 @@ describe('claude', () => {
     expect(flag('--tools')).toBe('Read,Bash');
     expect(flag('--allowedTools')).toBe('Read,Bash(git diff*),Bash(git log*)');
     expect(flag('--model')).toBe('coder');
-    expect(flag('--max-turns')).toBe('5');
     expect(args.join(' ')).not.toMatch(/dangerously|bypassPermissions|acceptEdits/);
   });
 
   it('disables every tool for an empty allowlist or hub tools only, and leaves the model to the CLI', () => {
-    const { model: _, maxTurns: __, ...bare } = spec;
+    const { model: _, ...bare } = spec;
     const { args } = command({ ...bare, tools: ['issues_get'] });
     expect(args[args.indexOf('--tools') + 1]).toBe('');
     expect(args).not.toContain('--allowedTools');
     expect(args).not.toContain('--model');
-    expect(args).not.toContain('--max-turns');
   });
 
   it('logs in as the host user and passes no key', () => {

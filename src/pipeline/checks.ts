@@ -1,19 +1,19 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Effect, Fiber } from 'effect';
-import { effectivePreload, effectiveTools, type Defined } from '../config.ts';
+import { stepsBefore, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import { decideCheck } from '../decide.ts';
 import { digest } from '../fingerprint.ts';
-import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.ts';
+import { fanOut, itemsOf, positionless, type Item } from '../over.ts';
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
 import { answersAfterBrief, issueContext } from '../preload.ts';
 import { repoFor } from '../repo-guidance.ts';
 import { providerLimit, resetOf, runScript, type ScriptAccess, type ScriptResult } from '../runner.ts';
-import type { Check, Job, MergeSection, Over } from '../schema.ts';
+import { itemCap, type Check, type MergeSection, type Over, type Step } from '../schema.ts';
 import type { Run, Verdict } from '../store.ts';
 import { type Pipeline, agent, issuesOf, launcher } from './context.ts';
-import { type Handoff, type Target, defaultMinutes, eventContext, fenced, handoffEnv, session } from './prompt.ts';
+import { type Handoff, type Target, eventContext, fenced, handoffEnv, session } from './prompt.ts';
 
 /**
  * Reads a check bot's verdict: its reply's first line is `PASS` or `FAIL`, bold or not, the rest are findings. A final
@@ -26,7 +26,8 @@ export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'find
     const findings = `run ${run.id} ${run.status}${why ? `: ${why}` : ''}`;
     return { pass: false, findings, ...(run.stopped !== 'stuck' && { blocked: true }) };
   }
-  if (/maximum steps reached/i.test(final)) return { pass: false, findings: `run ${run.id} ended on its step cap before it judged` };
+  if (/maximum steps reached/i.test(final))
+    return { pass: false, findings: `run ${run.id} ended on its step cap before it judged` };
   const { proposals } = extractProposals(final);
   const reply = proposals.find(proposal => proposal.kind === 'reply');
   const [first = '', ...rest] = (reply?.body ?? (proposals.length ? '' : final)).trim().split('\n');
@@ -48,10 +49,10 @@ const verdictContract = (check: Check) =>
     ...(check.mode === 'block' ? [] : ['This check does not hold the change, so call no finding blocking.']),
   ].join('\n');
 
-/** One attempt of a job in its worktree. `merging` is set while it resolves a merge of `base` into its branch. */
+/** One attempt of a step in its worktree. `merging` is set while it resolves a merge of `base` into its branch. */
 export type Attempt = {
   planned: PlannedJob;
-  job: Job;
+  step: Step;
   worktree: string;
   cwd: string;
   base: string;
@@ -79,33 +80,37 @@ export type Scope = {
 };
 
 /**
- * The items `over` names. A script `over` runs in the read-only worktree with `BOTHUB_BASE` set to where the change
- * starts; a script that fails, or prints more items than `max`, gives an error instead, and so does a change with
- * more hunks than an `each-hunk` takes.
+ * The items `over` names, at most `cap` of them (see `itemCap`). A script `over` runs in the read-only worktree with
+ * `BOTHUB_BASE` set to where the change starts; a script that fails, or prints more items than `cap`, gives an error
+ * instead, and so does a change with more hunks than `cap`.
  */
-export const gather = async (over: Over, scope: Scope, p: Pipeline): Promise<{ items: Item[]; error?: string }> => {
-  const hunked = hunkOptions(over);
-  if (typeof over === 'object' && !('each-hunk' in over)) {
+export const gather = async (
+  over: Over,
+  cap: number | undefined,
+  scope: Scope,
+  p: Pipeline
+): Promise<{ items: Item[]; error?: string }> => {
+  if (typeof over === 'object') {
     const script = 'each' in over ? over.each : over.run;
     const env = { ...scope.env, BOTHUB_BASE: scope.since };
     const access = { hub: p.hub, readonly: true };
     const { ok, output, stdout } = await runScript(script, scope.cwd, scope.timeout, env, launcher(p), access);
     if (!ok) return { items: [], error: `the "over" script failed: ${output || 'exited non-zero'}` };
     const items = itemsOf(over, { diff: '', output: stdout });
-    if ('each' in over && items.length > over.max)
+    if (cap !== undefined && items.length > cap)
       return {
         items: [],
-        error: `the "over" script printed ${items.length} items, more than "max" allows (${over.max})`,
+        error: `the "over" script printed ${items.length} items, more than "items" allows (${cap})`,
       };
     return { items };
   }
   if (over === 'event') return { items: itemsOf(over, { diff: '', event: p.event.body }) };
-  const { diff } = await p.workspaces.changes(scope.worktree, scope.since, scope.files, hunked?.context);
+  const { diff } = await p.workspaces.changes(scope.worktree, scope.since, scope.files);
   const items = itemsOf(over, { diff });
-  if (hunked && items.length > hunked.max)
+  if (cap !== undefined && items.length > cap)
     return {
       items: [],
-      error: `the change has ${items.length} hunks, more than the ${hunked.max} "each-hunk" takes; make a smaller change or split it`,
+      error: `the change has ${items.length} ${fanOut(over)}s, more than the ${cap} "items" allows; make a smaller change or split it`,
     };
   return { items };
 };
@@ -120,14 +125,7 @@ export const itemSection = (over: Over, item: Item) => {
     'each-file': `Changes to ${item.label}`,
     'each-hunk': `Hunk in ${item.label}`,
   };
-  const title =
-    typeof over === 'string'
-      ? titles[over]
-      : 'run' in over
-        ? 'Command output'
-        : 'each-hunk' in over
-          ? titles['each-hunk']
-          : `Item: ${item.label}`;
+  const title = typeof over === 'string' ? titles[over] : 'run' in over ? 'Command output' : `Item: ${item.label}`;
   return `## ${title}\n\n${fenced(item.text)}`;
 };
 
@@ -140,7 +138,8 @@ const checkScript = async (
   p: Pipeline,
   access: ScriptAccess & { input?: string }
 ) => {
-  const once = () => runScript(script, cwd, timeout, env, launcher(p), { ...access, stallMinutes: p.stallMinutes ?? 10 });
+  const once = () =>
+    runScript(script, cwd, timeout, env, launcher(p), { ...access, stallMinutes: p.stallMinutes ?? 10 });
   const result = await once();
   return result.stopped === 'timeout' || result.stopped === 'stalled' ? once() : result;
 };
@@ -167,9 +166,11 @@ const scriptVerdict = ({ ok, output, stopped }: ScriptResult): Judged => {
   return { pass: true, ...(tail && { findings: tail }) };
 };
 
-/** What humans answered after the brief the attempt's job started from, which overrides the brief where they differ. */
+/** What humans answered after the brief the attempt's step started from, which overrides the brief where they differ. */
 const answerSection = async (a: Attempt, p: Pipeline) => {
-  const said = await answersAfterBrief(issuesOf(p), p.event, a.planned.workflow, a.job.needs);
+  const workflow = p.config.workflows[a.planned.workflow];
+  const before = workflow ? stepsBefore(workflow, a.planned.job) : [];
+  const said = await answersAfterBrief(issuesOf(p), p.event, a.planned.workflow, before);
   if (!said.length) return;
   return ['## Answers after the brief', 'Where these differ from the brief, they win.', ...said.map(fenced)].join(
     '\n\n'
@@ -198,7 +199,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       });
   const bot = p.config.bots[check.bot];
   const skill = check.skill ? p.config.skills[check.skill] : undefined;
-  const preload = bot ? effectivePreload(bot, {}) : [];
+  const preload = bot?.preload ?? [];
   let preloaded: Promise<string | undefined> | undefined;
   let loaded: ReturnType<typeof repoFor> | undefined;
   let answered: Promise<string | undefined> | undefined;
@@ -251,12 +252,10 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
         .join('\n\n');
       const spec = session({
         config: p.config,
-        bot: check['max-turns'] ? { ...bot, 'max-turns': check['max-turns'] } : bot,
+        bot,
         returns: ['reply'],
         prompt,
         cwd: a.cwd,
-        preload,
-        tools: effectiveTools(bot, {}),
         access: p,
         ...(files && { repo: files }),
       });
@@ -271,7 +270,8 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
           check: check.name,
         })
       );
-      const { run, final } = yield* agent(bot, spec, bot.budget?.minutes ?? defaultMinutes, created, p, {}, true);
+      const minutes = check.minutes ?? p.config.hub.limits.minutes;
+      const { run, final } = yield* agent(bot, spec, minutes, created, p, {}, true);
       const verdict = verdictOf(run, final);
       if (verdict.pass) yield* Effect.promise(() => p.store.update(run.id, { passed: key }));
       return { ...verdict, runs: [run.id] };
@@ -285,7 +285,7 @@ export const issueEnv = ({ event }: Pipeline) =>
 /** The longest attempt reply a check script sees in `BOTHUB_REPLY`. */
 const replyLimit = 64_000;
 
-/** How many items of one check are judged at once, unless the check sets its own `concurrency`. */
+/** How many items of one check are judged at once. */
 const itemConcurrency = 8;
 
 /** What a check script finds in its env: the handoff, the issue, the attempt's reply and where the change starts. */
@@ -307,7 +307,7 @@ const scopeOf = async (check: Defined<Check>, a: Attempt, p: Pipeline): Promise<
     cwd: a.cwd,
     since: a.base,
     files,
-    timeout: a.job['timeout-minutes'] ?? defaultMinutes,
+    timeout: (check.type === 'decide' ? undefined : check.minutes) ?? a.step.minutes ?? p.config.hub.limits.minutes,
     env: scriptEnv(a, p),
   };
 };
@@ -319,13 +319,13 @@ const prepare = async (check: Defined<Check>, a: Attempt, p: Pipeline): Promise<
   const scope = await scopeOf(check, a, p);
   if (!scope) return;
   if (check.type === 'script' && !fanOut(check.over)) return { scope, items: [] };
-  return { scope, ...(await gather(check.over, scope, p)) };
+  return { scope, ...(await gather(check.over, itemCap(check.over, check.items), scope, p)) };
 };
 
 /**
  * Runs one check over an attempt's changes, read-only, from what `prepare` found. A check whose `paths` match no
  * changed file, or that has nothing to look at, is skipped. A script that does not fan out runs once and reads the
- * worktree itself; every other check judges the items `over` names, `concurrency` at a time, and passes only when
+ * worktree itself; every other check judges the items `over` names, a few at a time, and passes only when
  * every item passes, with the failing items' findings first. A check with any `blocked` item is blocked.
  */
 const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline, prepared?: Promise<Prepared>) =>
@@ -342,16 +342,14 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline, prepared?: P
 
     if (check.type === 'script' && !fanOut(check.over)) {
       const access = { hub: p.hub, readonly: true };
-      const result = yield* Effect.promise(() =>
-        checkScript(check.run, a.cwd, scope.timeout, scope.env, p, access)
-      );
+      const result = yield* Effect.promise(() => checkScript(check.run, a.cwd, scope.timeout, scope.env, p, access));
       return done(scriptVerdict(result));
     }
 
     if (error) return done({ pass: false, findings: error });
     if (!items.length) return skipped('nothing to look at');
     const judged = yield* Effect.forEach(items, judgeWith(check, a, scope, p), {
-      concurrency: check.concurrency ?? itemConcurrency,
+      concurrency: itemConcurrency,
     });
     const runs = judged.flatMap(verdict => verdict.runs ?? []);
     const labeled = judged.flatMap(({ findings, pass }, i) =>
@@ -573,7 +571,7 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
     const key = `${a.base} ${name}`;
     if (!runs.has(key)) {
       const file = p.data && join(p.data, 'base-checks', `${digest(a.base, a.parent.hub ?? '', name)}.json`);
-      const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
+      const timeout = a.step.minutes ?? p.config.hub.limits.minutes;
       const access = { hub: p.hub, readonly: true };
       const fresh = async () => {
         tree ??= p.workspaces.create({ repo: p.event.repo, ref: a.base }, id).then(({ path }) => path);
@@ -622,8 +620,8 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
   }
 };
 
-/** Whether `over` refuses a change with more items than its `max`. */
-const capped = (over: Over) => !!hunkOptions(over) || (typeof over === 'object' && 'each' in over);
+/** Whether a check refuses a change with more items than it takes. */
+const capped = (check: Defined<Check>) => itemCap(check.over, check.items) !== undefined;
 
 /** How long the gating script checks run before the later stages start beside the ones still running. */
 const headStart = 30_000;
@@ -633,7 +631,7 @@ const headStart = 30_000;
  * the gating bot and decide checks, so the cheap gates spare the costly ones. Checks in `warn` and `log` mode never
  * hold a change, so they run last and only when nothing that holds the change failed: they judge only an attempt that
  * settles. A check left out that way is skipped. A failing script check that is red on base (see `redOnBase`) does not
- * hold the change. A later check whose `over` takes at most `max` items counts them beside the script checks, and one
+ * hold the change. A later check whose `over` takes at most `items` counts them beside the script checks, and one
  * that refuses the change for having more fails right away, holding the change before any costly check runs.
  *
  * The later stages do not wait for slow script checks: once every script check has passed or run for `headStart`,
@@ -668,7 +666,7 @@ export const runChecks = (names: string[], a: Attempt, p: Pipeline) =>
     const held = (ran: Verdict[]) => ran.some(v => v.gating && !v.skipped && !v.pass && holds(v, p));
     const prepared = new Map(
       [...costly, ...logged].flatMap(({ i, check }) =>
-        check && capped(check.over) ? [[i, prepare(check, a, p)] as const] : []
+        check && capped(check) ? [[i, prepare(check, a, p)] as const] : []
       )
     );
     const scripting = yield* Effect.fork(run(scripts));

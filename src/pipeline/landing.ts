@@ -1,5 +1,6 @@
 import { Effect } from 'effect';
 import { apply, type ApplyResult } from '../apply.ts';
+import { nextOf } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import type { Item } from '../over.ts';
 import { hubProposal } from '../hub-proposal.ts';
@@ -96,14 +97,14 @@ const priorEffects = async (run: Run, p: Pipeline) => {
 };
 
 /**
- * Stores and returns an attempt's outcome, applying `toApply` when the mode and a GitHub client allow it. The planned
+ * Stores and returns an attempt's outcome, applying `toApply` when a GitHub client or local tracker allows it. The planned
  * effects are journalled in the outcome before the first one is applied. A run that lands a merge reads `running`
  * until the merge has landed; `finish` stores its status and end then.
  */
 export const settle = async (
   run: Run,
   { proposals, errors }: ReturnType<typeof extractProposals>,
-  { accepted, rejected, apply: allowed }: Validated,
+  { accepted, rejected }: Validated,
   toApply: Proposal[] | undefined,
   a: Attempt,
   p: Pipeline,
@@ -111,8 +112,8 @@ export const settle = async (
 ): Promise<Outcome> => {
   const { gh, issues, event, workspaces, hubPr } = p;
   const pulls = pullsOf(p);
-  const applied = toApply !== undefined && allowed && (gh !== undefined || issues !== undefined || pulls !== undefined);
-  const { paths } = a.job;
+  const applied = toApply !== undefined && (gh !== undefined || issues !== undefined || pulls !== undefined);
+  const { paths } = a.step;
   const base: Outcome = { proposals, errors, accepted, rejected, results: [], applied, ...(checks && { checks }) };
   if (!applied) {
     const saved = await p.store.saveOutcome(run.id, base);
@@ -228,7 +229,7 @@ const tryMerge = async (pull: Pull, round: number, a: Attempt, pulls: Pulls, p: 
   try {
     if (tree.conflicts.length) return { conflicts: tree.conflicts };
     const at: Attempt = { ...a, worktree: id, cwd: tree.path, base: tree.base };
-    const verdicts = await Effect.runPromise(runChecks(a.job.requires ?? [], at, p));
+    const verdicts = await Effect.runPromise(runChecks(a.step.requires ?? [], at, p));
     const failing = failingChecks(verdicts);
     if (failing.length)
       throw new Error(
@@ -240,13 +241,13 @@ const tryMerge = async (pull: Pull, round: number, a: Attempt, pulls: Pulls, p: 
   }
 };
 
-/** Runs the job that opened `pull` again, on its branch with `into` merged in, so its bot resolves the conflicts. */
+/** Runs the step that opened `pull` again, on its branch with `into` merged in, so its bot resolves the conflicts. */
 const resolveConflicts = async (pull: Pull, p: Pipeline) => {
   const [workflow = '', job = ''] = pull.origin?.job.split('/') ?? [];
-  const definition = p.config.workflows[workflow]?.jobs[job];
+  const step = p.config.workflows[workflow]?.steps[job];
   const event = (await openerOf(pull, p.store))?.event;
-  if (!definition || !event) return;
-  const planned: PlannedJob = { workflow, job, ...(definition.type === 'bot' && { bot: definition.bot }) };
+  if (!step || !event) return;
+  const planned: PlannedJob = { workflow, job, ...(step.bot && { bot: step.bot }) };
   await Effect.runPromise(runPlanned(planned, { ...p, event }, {}, pull.into));
 };
 
@@ -323,8 +324,10 @@ export const finish = (
   merging = false
 ) =>
   Effect.promise(async (): Promise<JobResult> => {
-    const jobs = Object.values(p.config.workflows[planned.workflow]?.jobs ?? {});
-    const taken = merging || jobs.some(job => job.needs.includes(planned.job));
+    const workflow = p.config.workflows[planned.workflow];
+    const next = workflow && nextOf(workflow, planned.job);
+    const taken = merging || (next !== undefined && !workflow?.steps[next]?.wait);
+
     const landed = outcome?.results.some(result => result.kind === 'merge');
     const ended = landed && { status: run.status, endedAt: new Date().toISOString() };
     const final = await p.store.update(run.id, { ...ended, ...closureOf(run, outcome, kinds, taken) });

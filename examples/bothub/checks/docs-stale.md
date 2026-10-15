@@ -2,9 +2,10 @@
 type: bot
 description: A docs paragraph that names an export the change touches still describes the code as it now behaves.
 bot: reviewer
+minutes: 15
 over:
   each: node "$BOTHUB_HUB/scripts/docs-mentions.mjs" src/ studio/content/docs/
-  max: 10
+items: 10
 paths: [src/**]
 mode: warn
 human: build-dir change in dogfood round 22 left sandbox.mdx saying runs of one hub share the cargo target directory; review-docs reads only docs hunks, and a change to code alone has none

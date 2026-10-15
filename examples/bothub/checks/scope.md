@@ -2,9 +2,10 @@
 type: bot
 description: Each changed file the triage brief does not name still serves the task.
 bot: reviewer
+minutes: 15
 over:
   each: node "$BOTHUB_HUB/scripts/scope.mjs"
-  max: 10
+items: 10
 mode: log
 human: six-angle dogfood review, narrow-bots W1 scope decide; smart separates 7 of 8 calibration files, tev1 and qwen3.5 do not, so it logs until more files confirm it
 ---

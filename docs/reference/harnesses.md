@@ -24,8 +24,7 @@ light and fast, with all-or-nothing tools and no MCP client, so it suits read-on
 `bothub sim` swaps every harness for a scripted adapter, see [Events and serving](serve.md#sim).
 
 claude is Claude Code in print mode on the operator's own subscription, so review can come from a
-different model family than the authors. Its `model` is a Claude model name such as `opus`, and
-`max-turns` is passed on. It runs with project memory, settings, hooks, plugins and MCP servers
+different model family than the authors. Its `model` is a Claude model name such as `opus`. It runs with project memory, settings, hooks, plugins and MCP servers
 off, and denies every tool outside the allowlist without asking. It gets no hub tools. Its usage
 is recorded per model under a `claude-code/` name that no price table lists, so its runs cost
 nothing on the scoreboard. The sandbox cannot run it yet, see [Sandbox](../sandbox.md).

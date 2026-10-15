@@ -126,12 +126,12 @@ const stubbed = (config: Config, verdicts: Scenario['checks']): Config => ({
       name,
       {
         ...workflow,
-        jobs: Object.fromEntries(
-          Object.entries(workflow.jobs).map(([id, job]) => [
+        steps: Object.fromEntries(
+          Object.entries(workflow.steps).map(([id, step]) => [
             id,
-            job.type === 'script' && !returnKinds(job.returns ?? []).includes('merge')
-              ? { ...job, over: 'event' as const, run: `echo "script ${id} is stubbed in the sim"` }
-              : { ...job, over: 'event' as const },
+            step.run !== undefined && !returnKinds(step.returns ?? []).includes('merge')
+              ? { ...step, over: 'event' as const, run: `echo "script ${id} is stubbed in the sim"` }
+              : { ...step, over: 'event' as const },
           ])
         ),
       },

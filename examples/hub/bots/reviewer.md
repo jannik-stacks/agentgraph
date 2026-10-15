@@ -4,7 +4,7 @@ model: smart
 tools: [read, grep, find]
 returns: [reply]
 skills: [review, review-file]
-budget: { minutes: 20 }
+preload: [issue]
 human: seed example, untraced
 ---
 

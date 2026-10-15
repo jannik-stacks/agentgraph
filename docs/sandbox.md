@@ -147,7 +147,7 @@ docker's host gateway (`host.docker.internal` under Docker Desktop), including p
 toolchain needs it, and keep anything that must not be reachable from a run off the host.
 
 `memory` (such as `10g`) and `cpus` (such as `8`) replace the limits from the environment for the
-hub's containers. A bot's `concurrency` still decides how many of them run at once.
+hub's containers. A bot's `sessions` limit still decides how many of them run at once.
 
 `bothub check` validates the fields and fails when `setup` is not a file in the hub.
 
@@ -187,8 +187,7 @@ the chat model reasons in about two sentences before it answers. An offline conf
 
 Moving an alias from an API key to a subscription is a proxy config change; no bot file changes.
 
-A bot's `budget` is enforced by the [pipeline](reference/pipeline.md): `runs-per-day` skips a
-run once the bot has started that many in the last 24 hours, `minutes` is the run timeout, and `usd-per-run` stops the until
-loop once attempts and checks have spent it. A bot's `concurrency` caps how many of its sessions
-run at once. A job with an `environment` waits until a human adds
-the `approved` label to the approval issue bothub opens for it.
+The `limits` in `hub.yaml` are enforced by the [pipeline](reference/pipeline.md): `runs-per-day` skips a
+run once the bot has started that many in the last 24 hours, `minutes` is the run timeout, and `usd-per-run` stops the checks
+loop once attempts and checks have spent it. A bot's `sessions` caps how many of its sessions
+run at once. A `wait: human` step stops the walk until a human answers.

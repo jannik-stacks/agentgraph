@@ -6,8 +6,6 @@ returns: [reply, label, ask]
 skills: [triage]
 preload: [issue, links, { recall: { judge: luna } }]
 context: resume
-max-turns: 10
-budget: { runs-per-day: 30, minutes: 10 }
 human: seed hub, untraced; session resume after an answer from dogfood x, a fresh triage re-read 103k tokens
 ---
 You turn one bothub issue into one scoped task. bothub is a TypeScript agent hub: `src/` is the

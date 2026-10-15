@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Closure, hubGlobs, humanOnly, NoteKind, type Job, type Mode, type Return } from './schema.ts';
+import { Closure, hubGlobs, humanOnly, NoteKind, type Return, type Step } from './schema.ts';
 
 const text = z.string().min(1);
 
@@ -13,7 +13,7 @@ export const NoteProposal = z.strictObject({
 });
 
 /**
- * A write an agent asks the hub to make on its behalf. `close` states that the job stopped short of done, and why; it
+ * A write an agent asks the hub to make on its behalf. `close` states that the step stopped short of done, and why; it
  * writes only when `resolved` says the issue already has what it asks for: the reason is posted and the issue closed.
  */
 export const Proposal = z.discriminatedUnion('kind', [
@@ -55,7 +55,7 @@ export const Proposal = z.discriminatedUnion('kind', [
 export type Proposal = z.infer<typeof Proposal>;
 
 export type Rejection = { proposal: Proposal; reason: string };
-export type Validated = { accepted: Proposal[]; rejected: Rejection[]; apply: boolean };
+export type Validated = { accepted: Proposal[]; rejected: Rejection[] };
 
 const block = /^(`{3,}|~{3,})[ \t]*bothub[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
 
@@ -125,9 +125,9 @@ export const checkPaths = (files: string[], globs: string[] | undefined, named?:
   for (const file of files) {
     if (file.startsWith('/') || file.split('/').includes('..')) return `path "${file}" escapes the repository`;
     if (file.startsWith('.github/workflows/') && !workflows)
-      return `path "${file}" is a GitHub workflow, which a job changes only when its paths name .github/workflows`;
+      return `path "${file}" is a GitHub workflow, which a step changes only when its paths name .github/workflows`;
     if (named !== undefined && !named.includes(file) && guidanceFiles.some(glob => matchGlob(glob, file)))
-      return `path "${file}" is agent guidance, which a job changes only when the issue names the file`;
+      return `path "${file}" is agent guidance, which a step changes only when the issue names the file`;
     if (globs && !globs.some(glob => matchGlob(glob, file))) return `path "${file}" is outside the allowed paths`;
   }
 };
@@ -156,22 +156,22 @@ export const humanOnlyPath = (path: string) => {
 const kindOf = (entry: Return) => (hubGlobs(entry) ? 'hub' : entry);
 
 /**
- * What a job may write: its effective `returns`, its `paths`, and its rendered `branch` and `into`. `defaultBranch` is
+ * What a step may write: its effective `returns`, its `paths`, and its rendered `branch` and `into`. `defaultBranch` is
  * the repository's, when known.
  */
-export type Allowance = Pick<Job, 'paths' | 'branch' | 'into'> & { returns: Return[]; defaultBranch?: string };
+type Allowance = Pick<Step, 'paths' | 'branch' | 'into'> & { returns: Return[]; defaultBranch?: string };
 
-/** Why a merge request may not target `into`: it is neither the job's `into` nor the default branch. */
+/** Why a merge request may not target `into`: it is neither the step's `into` nor the default branch. */
 const checkInto = (into: string | undefined, allowance: Allowance) => {
   if (into === undefined || into === allowance.into || into === allowance.defaultBranch) return;
-  const job = allowance.into ? `the job's "${allowance.into}"` : 'the default branch';
-  return `merge request into "${into}", but this job's requests go into ${job}`;
+  const step = allowance.into ? `the step's "${allowance.into}"` : 'the default branch';
+  return `merge request into "${into}", but this step's requests go into ${step}`;
 };
 
 const check = (proposal: Proposal, allowance: Allowance): string | undefined => {
   const { paths, branch, returns } = allowance;
   const pinned = (name: string) =>
-    branch && name !== branch ? `branch "${name}" is not the job's branch "${branch}"` : undefined;
+    branch && name !== branch ? `branch "${name}" is not the step's branch "${branch}"` : undefined;
   switch (proposal.kind) {
     case 'push':
       return checkBranch(proposal.branch) ?? pinned(proposal.branch) ?? checkPaths(proposal.files ?? [], paths);
@@ -200,14 +200,13 @@ const check = (proposal: Proposal, allowance: Allowance): string | undefined => 
 };
 
 /**
- * Checks proposals against what a job allows: its effective `returns`, its `paths` for pushed files, its rendered
+ * Checks proposals against what a step allows: its effective `returns`, its `paths` for pushed files, its rendered
  * `branch` for pushes and merge requests, its rendered `into` (or the default branch) as the only targets of a merge
  * request, the `hub(<globs>)` it returns for hub file changes, at most 3 replies and 1 of every other kind. A `close`
  * is always allowed; one that resolves the issue must be `no-op` and needs `reply`. Fails closed: every proposal that
- * is not explicitly allowed is rejected with a reason. `apply` says whether the job's mode lets accepted proposals
- * land. A `merge` is checked against the request when it lands.
+ * is not explicitly allowed is rejected with a reason. A `merge` is checked against the request when it lands.
  */
-export const validate = (proposals: Proposal[], allowance: Allowance, mode: Mode): Validated => {
+export const validate = (proposals: Proposal[], allowance: Allowance): Validated => {
   const kinds = new Set(allowance.returns.map(kindOf));
   const accepted: Proposal[] = [];
   const rejected: Rejection[] = [];
@@ -217,7 +216,7 @@ export const validate = (proposals: Proposal[], allowance: Allowance, mode: Mode
     const max = caps[proposal.kind];
     const reason =
       proposal.kind !== 'close' && !kinds.has(proposal.kind)
-        ? `"${proposal.kind}" is not allowed for this job`
+        ? `"${proposal.kind}" is not allowed for this step`
         : (check(proposal, allowance) ?? (count >= max ? `more than ${max} "${proposal.kind}" proposals` : undefined));
     if (reason) {
       rejected.push({ proposal, reason });
@@ -226,7 +225,7 @@ export const validate = (proposals: Proposal[], allowance: Allowance, mode: Mode
     counts.set(proposal.kind, count + 1);
     accepted.push(proposal);
   }
-  return { accepted, rejected, apply: mode !== 'log' };
+  return { accepted, rejected };
 };
 
 /** The first non-empty line of a message outside any code fence. */

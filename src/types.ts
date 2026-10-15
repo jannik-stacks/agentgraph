@@ -35,7 +35,6 @@ export type RunSpec = {
   cwd: string;
   model?: string;
   tools: string[];
-  maxTurns?: number;
   /** The bothub MCP server serving the run's read tools, when it has any. */
   mcp?: McpServer;
   /** The repo's own instruction files and skill directories, relative to `cwd`, for the harness to load itself. */

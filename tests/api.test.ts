@@ -43,7 +43,7 @@ describe('api', () => {
   it('serves the compiled example hub', async () => {
     const { get } = setup();
     const body = await (await get('/api/hub')).json();
-    expect(Object.keys(body.config.workflows)).toEqual(['issue']);
+    expect(Object.keys(body.config.workflows)).toEqual(['issue', 'review']);
     expect(Object.keys(body.config.bots).sort()).toEqual(['implementor', 'reviewer']);
   });
 

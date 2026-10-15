@@ -1,31 +1,28 @@
 # The loop
 
-A job is done when its checks pass, not when the bot says so.
+A step is done when its checks pass, not when the bot says so.
 
 ```
 trigger → bot runs a skill on a branch → returns → checks → findings go back to the bot → proposals applied
 ```
 
 A run ends when the bot returns. Then the checks judge it, and a failing check loops back to the
-bot through `until`.
+bot.
 
-## Until
+## Checks and tries
 
-A job with `until` runs its bot, then each listed check against the worktree. `runPlanned` starts
-the job, and the loop itself is on [Pipeline and checks](reference/pipeline.md#the-until-loop). If a gating check
+A bot step with `checks` runs its bot, then each listed check against the worktree. `runPlanned` starts
+the step, and the loop itself is on [Pipeline and checks](reference/pipeline.md#the-checks-loop). If a gating check
 fails, its findings go back to the same bot as a follow-up message in the same worktree, and the
 bot tries again.
 
 ```yaml
-jobs:
+steps:
   implement:
-    type: bot
     bot: implementor
-    skill: implement
     branch: bothub/{issue}
-    until:
-      checks: [types, tests, review]
-      max: 2
+    checks: [types, tests, review]
+    tries: 3
     returns: [push, merge-request, reply]
 ```
 
@@ -51,8 +48,8 @@ run, with that run named in its findings. Line numbers and blob ids do not count
 later attempt, or the run that resolves a merge conflict, pays only for the items it changed.
 Script checks always run again.
 
-`max` counts retries after the first attempt and defaults to 2. The count runs per issue across
-runs of the job: a rerun of the same event, such as after a restart, or a human comment before the
+`tries` counts attempts in all, the first included, and defaults to 3. The count runs per issue across
+runs of the step: a rerun of the same event, such as after a restart, or a human comment before the
 limit goes on from the last attempt. It starts over after work that closed done or handed off, and
 when a human comments after a run that used every attempt. An attempt that ended outside the
 bot's work does not count: out of turns, stalled, a provider or sandbox fault, a fault that
@@ -149,7 +146,7 @@ says who judges it.
 | `each-file`               | Every changed file on its own, one verdict each                           |
 | `each-hunk`               | Every hunk on its own, with its file header so it reads alone, at most 30 |
 | `{ run: <script> }`       | What the script prints, once                                              |
-| `{ each: <script>, max }` | One item per line the script prints, JSON or plain; `max` defaults to 50  |
+| `{ each: <script> }`      | One item per line the script prints, JSON or plain; at most 50 by default |
 
 | `type`   | Who judges                                                                          |
 | -------- | ----------------------------------------------------------------------------------- |
@@ -161,21 +158,18 @@ A script check with the default `over` runs once against the worktree. When it f
 gets its item in `BOTHUB_ITEM` and on stdin. `BOTHUB_BASE` names the commit the change started
 from, for the check and for scripts named by `over`, which run in the same sandbox.
 `BOTHUB_ISSUE` holds the event's issue or pull request number, and `BOTHUB_REPLY` what the attempt
-replied with the bodies of its merge requests. When an `each` script fails or prints more lines than `max`, the check fails with that as
+replied with the bodies of its merge requests. When an `each` script fails or prints more lines than `items`, the check fails with that as
 its finding and nothing is judged. A passing script check keeps the last lines of its output,
 shown with the run. Checks see the worktree read-only; see [Sandbox](sandbox.md).
 
-A check that fans out judges 8 items at once; `concurrency` on the check changes that. A change
-with more hunks than `each-hunk` takes fails the check with a finding that asks for a smaller
-change. The object form sets the limit and how much context each hunk carries, a number of lines
-or `function` for the whole enclosing function:
+A check that fans out judges 8 items at once. A change with more hunks than `each-hunk` takes,
+30 unless `items` says otherwise, fails the check with a finding that asks for a smaller change:
 
 ```yaml
 type: bot
 bot: reviewer
-over:
-  each-hunk: { max: 60, context: function }
-concurrency: 4
+over: each-hunk
+items: 60
 ```
 
 A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by `verdictOf`;
@@ -225,7 +219,7 @@ bot: claim-checker
 skill: check-claim
 over:
   each: node "$BOTHUB_HUB/scripts/claims/extract.mjs" --changed 'docs/**/*.mdx'
-  max: 40
+items: 40
 ```
 
 A check with `paths` applies only when the change touches a matching file. A check that applies to

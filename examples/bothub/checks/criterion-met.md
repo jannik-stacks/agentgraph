@@ -2,10 +2,10 @@
 type: bot
 description: The change to src/, studio/src/ and the hub scripts meets each acceptance criterion, one criterion per run.
 bot: reviewer
-max-turns: 8
+minutes: 15
 over:
   each: node "$BOTHUB_HUB/scripts/criteria.mjs"
-  max: 5
+items: 5
 paths: [src/**, studio/src/**, examples/bothub/scripts/**]
 mode: block
 human: label id hole shipped twice in dogfood round 2, safety-checks item 2 and narrow-bots W1; design folded in, label id hole in dogfood round 2 run 2 review, safety-checks item 2 edge-cases judge; fails only on the criterion's own behaviour after the round 7 nitpick on Number() rounding; out of scope from dogfood round 6 (T4); reachable inputs only from dogfood x (X2); hub scripts from dogfood round 9 (T3); only the files its test names and 8 turns from the btc replay token review; holds the change after dogfood round 15, where a seen criterion FAIL shipped under Known gaps (K2); a FAIL quotes the criterion's words with an input they cover, other edges go to Known gaps, after four attempts each chased a deeper edge in round 19 (item 80); a test asserting the opposite of a row fails after round 20 passed one that kept "Blocking" on a passing check (item 90)

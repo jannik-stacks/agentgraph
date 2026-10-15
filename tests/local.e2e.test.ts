@@ -26,25 +26,22 @@ const keys = () =>
 const hubFiles: Record<string, string> = {
   'hub.yaml': 'issues: local\n',
   'bots/triager.md':
-    '---\nharness: opencode\nmodel: smart\ntools: [read, grep, glob]\nreturns: [reply]\nskills: [answer]\n---\nYou answer questions about this repository.\n',
+    '---\nharness: opencode\nmodel: smart\ntools: [read, grep, glob]\nreturns: [reply]\nskills: [answer]\npreload: [issue]\n---\nYou answer questions about this repository.\n',
   'skills/answer.md':
     '---\ndescription: Answer the question from the code.\n---\nRead the code, then reply with the answer in one sentence.\n',
   'workflows/issue.md': [
     '---',
-    'name: issue',
     'on:',
     '  issue_comment:',
     '    types: [created]',
     '    command: /bothub',
     '    guard: { associations: [OWNER] }',
-    'jobs:',
+    'steps:',
     '  answer:',
     '    bot: triager',
     '    skill: answer',
     '    returns: [reply]',
-    '    mode: warn',
-    '    preload: [issue]',
-    '    timeout-minutes: 5',
+    '    minutes: 5',
     '---',
     'Answers.',
     '',

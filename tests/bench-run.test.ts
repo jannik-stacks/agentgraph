@@ -140,10 +140,10 @@ describe('bench driver', () => {
       'workflows/issue.md': [
         '---',
         'on: { issue_comment: { types: [created], command: /bothub } }',
-        'jobs:',
+        'steps:',
         '  fix:',
-        '    { type: bot, bot: coder, skill: fix, branch: "bothub/{issue}", mode: warn,',
-        '      returns: [push, merge-request], until: { checks: [flaky], max: 2 } }',
+        '    { bot: coder, skill: fix, branch: "bothub/{issue}",',
+        '      returns: [push, merge-request], checks: [flaky], tries: 3 }',
         '---',
         '',
       ].join('\n'),

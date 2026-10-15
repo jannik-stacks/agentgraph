@@ -101,7 +101,7 @@ const config = (spec: RunSpec) => ({
       models: { [alias(spec)]: {} },
     },
   },
-  agent: { [provider]: { mode: 'primary', prompt: spec.system, ...(spec.maxTurns && { steps: spec.maxTurns }) } },
+  agent: { [provider]: { mode: 'primary', prompt: spec.system } },
   ...(spec.mcp && opencodeMcpConfig(spec.mcp)),
   ...repoConfig(spec),
   plugin: plugins(spec),

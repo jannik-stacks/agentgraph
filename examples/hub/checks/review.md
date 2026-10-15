@@ -1,6 +1,7 @@
 ---
 type: bot
 bot: reviewer
+minutes: 20
 skill: review-file
 over: each-file
 mode: warn

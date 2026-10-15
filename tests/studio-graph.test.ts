@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compile, type Config } from '../src/config.ts';
+import { backOf, compile, nextOf, type Config } from '../src/config.ts';
 import { readHub } from '../src/load.ts';
 import { studioModule } from './studio.ts';
 
@@ -27,27 +27,39 @@ const hubs = await Promise.all(
 );
 
 describe('studio graph', () => {
-  it.each(hubs)('%s: every job is one step, started by the triggers or by the jobs it needs', (_, config) => {
-    const flows = flowsOf(config);
-    expect(flows.map(f => f.workflow).toSorted()).toEqual(
-      Object.values(config.workflows)
-        .map(w => w.name)
-        .toSorted()
-    );
-    for (const flow of flows) {
-      const workflow = Object.values(config.workflows).find(w => w.name === flow.workflow)!;
-      const jobs = Object.entries(workflow.jobs);
-      expect(flow.steps.map(s => s.name)).toEqual(jobs.map(([id]) => id));
-      expect(flow.triggers).toEqual(Object.keys(workflow.on));
-      for (const [id, job] of jobs) {
-        const step = flow.steps.find(s => s.name === id)!;
-        expect(step.id).toBe(`${flow.workflow}/${id}`);
-        expect(job.type === 'bot' ? step.bot : step.run).toBeTruthy();
-        for (const need of job.needs) expect(flow.steps.find(s => s.name === need)!.next).toContain(step.id);
-        expect(flow.entry.includes(step.id)).toBe(job.needs.length === 0);
-      }
+  it.each(hubs)(
+    '%s: every workflow is drawn with its steps in order, the first started by the triggers',
+    (_, config) => {
+      const workflows = Object.values(config.workflows);
+      expect(flowsOf(config).map(f => [f.workflow, f.triggers, f.entry, f.steps.map(s => s.name)])).toEqual(
+        workflows.map(w => [w.name, Object.keys(w.on), [`${w.name}/${Object.keys(w.steps)[0]}`], Object.keys(w.steps)])
+      );
     }
-  });
+  );
+
+  const steps = hubs.flatMap(([hub, config]) =>
+    Object.values(config.workflows).flatMap(workflow =>
+      Object.keys(workflow.steps).map(id => [`${hub} ${workflow.name}/${id}`, config, workflow, id] as const)
+    )
+  );
+
+  it.each(steps)(
+    '%s: casts its bot or runs its script, then goes to the next step or back',
+    (_, config, workflow, id) => {
+      const spec = workflow.steps[id]!;
+      const step = flowsOf(config)
+        .find(f => f.workflow === workflow.name)!
+        .steps.find(s => s.name === id)!;
+      const ref = (to: string | undefined) => (to === undefined ? [] : [`${workflow.name}/${to}`]);
+      expect({ id: step.id, bot: step.bot, run: step.run, next: step.next, back: step.back.map(b => b.to) }).toEqual({
+        id: `${workflow.name}/${id}`,
+        bot: spec.bot,
+        run: spec.run,
+        next: ref(nextOf(workflow, id)),
+        back: [...(spec.checks ? ref(id) : []), ...(spec.wait ? ref(backOf(workflow, id)) : [])],
+      });
+    }
+  );
 
   it.each(hubs)(
     '%s: the layout places every node once, apart from the others, and links only placed nodes',

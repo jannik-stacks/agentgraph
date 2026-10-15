@@ -2,9 +2,10 @@
 type: bot
 description: Each run status or closure value the change in src/ and studio/src/ touches keeps the work, moves on with the next event and tells a human, one value per run.
 bot: reviewer
+minutes: 15
 over:
   each: node "$BOTHUB_HUB/scripts/transitions.mjs"
-  max: 13
+items: 13
 paths: [src/**, studio/src/**]
 mode: log
 human: backlog item 5 of the takeover draft; logs until its answers are calibrated against the round's findings

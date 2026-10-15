@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { Effect } from 'effect';
 import { apply } from '../apply.ts';
-import type { Config, Defined } from '../config.ts';
+import { limitsOf, type Config, type Defined } from '../config.ts';
 import { abandoned, type PlannedJob } from '../dispatch.ts';
 import { withDeps } from '../deps.ts';
 import { harnesses } from '../harnesses/index.ts';
@@ -124,8 +124,9 @@ const day = 24 * 60 * 60 * 1000;
  * Why a bot may not start another run today, if it may not. Every run counts, attempts and checks too, except
  * runs whose sandbox never started. Says when the next run frees up.
  */
-const outOfRuns = async (bot: Defined<Bot>, store: Store, now = Date.now()) => {
-  const cap = bot.budget?.['runs-per-day'];
+const outOfRuns = async (bot: Defined<Bot>, p: Pipeline, now = Date.now()) => {
+  const { store } = p;
+  const cap = limitsOf(p.config.hub, bot.name)['runs-per-day'];
   if (!cap) return;
   const used = (await store.runs({ bot: bot.name, since: now - day })).filter(run => run.stopped !== 'sandbox');
   if (used.length < cap) return;
@@ -197,7 +198,7 @@ const once = (
   readonly = false
 ) =>
   Effect.gen(function* () {
-    const spent = yield* Effect.promise(() => outOfRuns(bot, p.store));
+    const spent = yield* Effect.promise(() => outOfRuns(bot, p));
     if (spent) {
       const skipped = yield* Effect.promise(() =>
         p.store.update(run.id, { status: 'skipped', stopped: 'budget', reason: spent })
@@ -228,7 +229,7 @@ const once = (
           p.onEvent?.(run, record);
         },
       }),
-      { bot, check: run.check !== undefined }
+      { bot: { name: bot.name, sessions: limitsOf(p.config.hub, bot.name).sessions }, check: run.check !== undefined }
     );
     const reported: string | undefined = model;
     const recorded = reported ? yield* Effect.promise(() => p.store.update(run.id, { model: reported })) : finished;

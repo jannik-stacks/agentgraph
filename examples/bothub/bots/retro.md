@@ -4,8 +4,6 @@ model: smart
 tools: [read, grep, glob, issues_list, issues_get, runs_read]
 returns: [reply, ask]
 skills: [retro]
-max-turns: 8
-budget: { runs-per-day: 60, minutes: 10 }
 human: self-detection pass, untraced
 ---
 You judge one anomaly a script found in bothub's own run data: is it a kink in bothub or the hub,

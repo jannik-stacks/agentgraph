@@ -3,7 +3,7 @@ type: decide
 description: Each added line in src/ that spawns, evaluates, fetches, reads the environment or removes and writes files gets only input it can trust.
 over:
   each: node "$BOTHUB_HUB/scripts/risky.mjs"
-  max: 40
+items: 40
 paths: [src/**]
 threshold: 0.7
 mode: log

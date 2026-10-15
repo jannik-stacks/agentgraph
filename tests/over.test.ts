@@ -75,7 +75,7 @@ describe('over', () => {
     expect(itemsOf('each-file', inputs)).toHaveLength(2);
     expect(itemsOf('each-hunk', inputs)).toHaveLength(3);
     expect(itemsOf({ run: 'x' }, inputs)).toEqual([{ label: 'output', text: 'one\ntwo' }]);
-    expect(itemsOf({ each: 'x', max: 50 }, inputs).map(i => i.text)).toEqual(['one', 'two']);
+    expect(itemsOf({ each: 'x' }, inputs).map(i => i.text)).toEqual(['one', 'two']);
   });
 
   it('has no items when there is nothing to look at', () => {
@@ -88,7 +88,7 @@ describe('over', () => {
   it('names what a fan-out runs once for', () => {
     expect(fanOut('each-file')).toBe('file');
     expect(fanOut('each-hunk')).toBe('hunk');
-    expect(fanOut({ each: 'x', max: 1 })).toBe('item');
+    expect(fanOut({ each: 'x' })).toBe('item');
     expect(fanOut({ run: 'x' })).toBeUndefined();
     expect(fanOut('diff')).toBeUndefined();
     expect(fanOut(undefined)).toBeUndefined();

@@ -4,10 +4,12 @@ import {
   compile,
   effectiveReturns,
   effectiveRun,
-  effectivePreload,
-  effectiveTools,
   harnessTools,
-  jobOrder,
+  hubTools,
+  limitsOf,
+  nextOf,
+  stepOrder,
+  triesOf,
   type SourceFile,
 } from '../src/config.ts';
 import { readHub } from '../src/load.ts';
@@ -17,7 +19,7 @@ const hub = join(import.meta.dirname, '../examples/hub');
 
 const file = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n${body}` });
 const bot = (name: string, returns = '[reply]') =>
-  file(`bots/${name}.md`, `harness: opencode\ntools: []\nreturns: ${returns}\nmax-turns: 5`, 'role');
+  file(`bots/${name}.md`, `harness: opencode\ntools: []\nreturns: ${returns}`, 'role');
 const skill = (name: string) => file(`skills/${name}.md`, 'description: does it', 'prompt');
 const workflow = (frontmatter: string) => file('workflows/w.md', frontmatter);
 const errorsOf = (files: SourceFile[]) => {
@@ -58,18 +60,17 @@ describe('compile', () => {
     const flow = workflows.issue;
     expect(flow?.name).toBe('issue');
     expect(flow?.on.issue_comment?.guard?.associations).toEqual(['OWNER', 'MEMBER', 'COLLABORATOR']);
-    expect(flow?.jobs.implement).toMatchObject({ needs: [], until: { checks: ['types', 'review'], max: 2 } });
-    expect(flow?.jobs.review?.mode).toBe('warn');
+    expect(flow?.steps.implement).toMatchObject({ bot: 'implementor', checks: ['types', 'review'], tries: 3 });
+    expect(flow?.steps.review).toMatchObject({ wait: 'human' });
+    expect(workflows.review?.steps.review).toMatchObject({ bot: 'reviewer', over: 'event' });
     expect(flow?.body).toContain('/bothub');
   });
 
   it('rejects unknown keys and old names', () => {
-    expect(errorsOf([workflow('on: {}\njobs: {}\npermissions: {}')]).join()).toMatch(/permissions/);
-    expect(errorsOf([file('bots/b.md', 'harness: codex\ntools: []\nreturns: []\nmax-turns: 1')]).join()).toMatch(
-      /harness/
-    );
+    expect(errorsOf([workflow('on: {}\nsteps: { a: { run: x } }\npermissions: {}')]).join()).toMatch(/permissions/);
+    expect(errorsOf([file('bots/b.md', 'harness: codex\ntools: []\nreturns: []')]).join()).toMatch(/harness/);
     expect(errorsOf([bot('b', '[push-branch]')]).join()).toMatch(/returns/);
-    const old = (line: string) => file('bots/b.md', `harness: opencode\ntools: []\n${line}\nmax-turns: 1`, 'role');
+    const old = (line: string) => file('bots/b.md', `harness: opencode\ntools: []\n${line}`, 'role');
     expect(errorsOf([old('can: [reply]')]).join()).toMatch(/Unrecognized key: "can"/);
     expect(errorsOf([old('returns: []\nnotes: [caveat]')]).join()).toMatch(/Unrecognized key: "notes"/);
     expect(errorsOf([old('returns: []\npreload: [notes]')])).not.toEqual([]);
@@ -111,61 +112,100 @@ describe('compile', () => {
     expect(errorsOf([bot('p', '[hub(notes/**, skills/**, checks/*.md)]')])).toEqual([]);
   });
 
-  it('lets a job narrow hub globs only to globs the bot returns', () => {
+  it('says what to write in place of the old bot, check and job keys', () => {
+    const botErrors = (lines: string) =>
+      errorsOf([file('bots/b.md', `harness: opencode\ntools: []\nreturns: []\n${lines}`, 'role')]).join();
+    expect(botErrors('max-turns: 5')).toMatch(/drop "max-turns"/);
+    expect(botErrors('concurrency: 2')).toMatch(/limits: \{ bots: \{ <bot>: \{ sessions: 2 \} \} \}/);
+    expect(botErrors('budget: { runs-per-day: 9, minutes: 5 }')).toMatch(/limits/);
+    expect(botErrors('budget: { runs-per-day: 9, minutes: 5 }')).toMatch(/minutes/);
+    const checkErrors = (lines: string) =>
+      errorsOf([file('checks/c.md', `type: bot\nbot: b\n${lines}`, 'Judge.')]).join();
+    expect(checkErrors('max-turns: 3')).toMatch(/drop "max-turns"/);
+    expect(checkErrors('concurrency: 3')).toMatch(/concurrency/);
+    expect(checkErrors('over: { each: ls, max: 4 }')).toMatch(/items: 4/);
+    expect(checkErrors('over: { each-hunk: { max: 20 } }')).toMatch(/write "over: each-hunk" and "items: 20"/);
+    const stepErrors = (step: string) => errorsOf([workflow(`on: { push: {} }\nsteps:\n  a: ${step}`)]).join();
+    expect(stepErrors('{ type: bot, bot: b }')).toMatch(/drop "type"/);
+    expect(stepErrors('{ bot: b, until: { checks: [x, y], max: 2 } }')).toMatch(
+      /write "checks: \[x, y\]" and "tries: 3" in place of "until"/
+    );
+    expect(stepErrors('{ bot: b, needs: [z] }')).toMatch(/drop "needs"/);
+    expect(stepErrors('{ bot: b, timeout-minutes: 9 }')).toMatch(/write "minutes: 9" in place of "timeout-minutes"/);
+    expect(stepErrors('{ bot: b, environment: prod }')).toMatch(/wait: human/);
+    expect(stepErrors('{ bot: b, tools: [read] }')).toMatch(/set "tools" on the bot/);
+    expect(stepErrors('{ bot: b, mode: warn }')).toMatch(/drop "mode"/);
+    expect(errorsOf([workflow('on: { push: {} }\njobs:\n  a: { type: bot, bot: b }')]).join()).toMatch(
+      /jobs are now steps: write "steps:"/
+    );
+    expect(errorsOf([workflow('name: w\non: { push: {} }\nsteps: { a: { run: x } }')]).join()).toMatch(/drop "name"/);
+  });
+
+  it('lets a step narrow hub globs only to globs the bot returns', () => {
     const errors = errorsOf([
       bot('p', '[reply, hub(notes/**)]'),
       skill('s'),
       workflow(
         [
           'on: { push: {} }',
-          'jobs:',
-          '  same: { type: bot, bot: p, skill: s, returns: [hub(notes/**)] }',
-          '  inner: { type: bot, bot: p, skill: s, returns: [hub(notes/caveat/*.md)] }',
-          '  wider: { type: bot, bot: p, skill: s, returns: [hub(skills/**)] }',
-          '  kind: { type: bot, bot: p, skill: s, returns: [note] }',
+          'steps:',
+          '  same: { bot: p, skill: s, returns: [hub(notes/**)] }',
+          '  inner: { bot: p, skill: s, returns: [hub(notes/caveat/*.md)] }',
+          '  wider: { bot: p, skill: s, returns: [hub(skills/**)] }',
+          '  kind: { bot: p, skill: s, returns: [note] }',
         ].join('\n')
       ),
     ]);
     expect(errors).toEqual([
-      'job "wider" returns "hub(skills/**)", which bot "p" does not return',
-      'job "kind" returns "note", which bot "p" does not return',
+      'step "wider" returns "hub(skills/**)", which bot "p" does not return',
+      'step "kind" returns "note", which bot "p" does not return',
     ]);
   });
 
-  it('checks references between jobs, bots, skills and checks', () => {
+  it('checks references between steps, bots, skills and checks', () => {
     const errors = errorsOf([
       bot('p'),
       skill('s'),
       workflow(
         [
           'on: { pull_request: }',
-          'jobs:',
-          '  a: { type: bot, needs: missing, bot: p, skill: s, returns: [merge-request], until: { checks: [ghost] } }',
-          '  b: { type: bot, bot: ghost, skill: s }',
-          '  c: { type: script, on: { issue_comment: {} }, run: echo }',
-          '  e: { type: bot, bot: p, skill: nope }',
-          '  f: { type: bot, bot: p, skill: s, branch: "main-{x}" }',
-          '  g: { type: script, run: echo, over: { run: ls } }',
-          '  h: { type: script, run: echo, returns: [merge] }',
-          '  i: { type: script, run: echo, branch: bothub/5/x, into: bothub/5 }',
-          '  j: { type: script, run: echo, into: "bothub/{nope}", requires: [ghost] }',
+          'steps:',
+          '  w: { wait: human }',
+          '  a: { next: missing, bot: p, skill: s, returns: [merge-request], checks: [ghost] }',
+          '  b: { bot: ghost, skill: s }',
+          '  e: { bot: p, skill: nope }',
+          '  f: { bot: p, skill: s, branch: "main-{x}" }',
+          '  g: { run: echo, over: { run: ls } }',
+          '  h: { run: echo, returns: [merge] }',
+          '  i: { run: echo, branch: bothub/5/x, into: bothub/5 }',
+          '  j: { run: echo, into: "bothub/{nope}", requires: [ghost] }',
+          '  k: { wait: human, back: ghost }',
         ].join('\n')
       ),
     ]);
     expect(errors).toEqual([
-      'job "a" needs unknown job "missing"',
-      'job "a" waits for unknown check "ghost"',
-      'job "a" returns "merge-request", which bot "p" does not return',
-      'job "b" uses unknown bot "ghost"',
-      'job "c" triggers on "issue_comment", which the workflow does not listen to',
-      'job "e" uses unknown skill "nope"',
-      'job "f" branch "main-{x}" must start with "bothub/"',
-      'job "f" branch uses unknown placeholder "{x}"',
-      'job "g" runs its own command, so "over: { run }" needs type bot',
-      'job "h" returns "merge" without "into", so it would merge into the default branch, which only a human does',
-      'job "i" branch "bothub/5/x" sits inside "bothub/5", and git cannot hold both; try "bothub/5-…"',
-      'job "j" into uses unknown placeholder "{nope}"',
-      'job "j" requires unknown check "ghost"',
+      'step "w" waits first, so there is no step to go back to',
+      'step "a" goes next to unknown step "missing"',
+      'step "a" checks unknown check "ghost"',
+      'step "a" returns "merge-request", which bot "p" does not return',
+      'step "b" uses unknown bot "ghost"',
+      'step "e" uses unknown skill "nope"',
+      'step "f" branch "main-{x}" must start with "bothub/"',
+      'step "f" branch uses unknown placeholder "{x}"',
+      'step "g" runs its own command, so "over: { run }" needs a bot step',
+      'step "h" returns "merge" without "into", so it would merge into the default branch, which only a human does',
+      'step "i" branch "bothub/5/x" sits inside "bothub/5", and git cannot hold both; try "bothub/5-…"',
+      'step "j" into uses unknown placeholder "{nope}"',
+      'step "j" requires unknown check "ghost"',
+      'step "k" goes back to unknown step "ghost"',
+      'step "b" is never reached: no step\'s "next" leads to it',
+      'step "e" is never reached: no step\'s "next" leads to it',
+      'step "f" is never reached: no step\'s "next" leads to it',
+      'step "g" is never reached: no step\'s "next" leads to it',
+      'step "h" is never reached: no step\'s "next" leads to it',
+      'step "i" is never reached: no step\'s "next" leads to it',
+      'step "j" is never reached: no step\'s "next" leads to it',
+      'step "k" is never reached: no step\'s "next" leads to it',
     ]);
     expect(errorsOf([bot('p', '[open-pr]')]).join()).toMatch(
       'there is no "open-pr"; a request to merge a branch is "merge-request"'
@@ -184,9 +224,12 @@ describe('compile', () => {
     expect(errorsOf([file('checks/c.md', 'mode: warn')])).toEqual([
       expect.stringContaining('missing "type": use one of script, bot, decide\n'),
     ]);
-    expect(errorsOf([workflow('on: { push: {} }\njobs:\n  a: { bot: p, skill: s }')])).toEqual([
-      expect.stringContaining('missing "type": use one of bot, script; it has "bot", so probably "type: bot"'),
-    ]);
+    expect(errorsOf([workflow('on: { push: {} }\nsteps:\n  a: { skill: s }')]).join()).toMatch(
+      /a step takes exactly one of "bot", "run" or "wait"/
+    );
+    expect(errorsOf([workflow('on: { push: {} }\nsteps:\n  a: { bot: p, run: x }')]).join()).toMatch(
+      /a step takes exactly one of "bot", "run" or "wait"/
+    );
   });
 
   it('rejects fields the type does not take', () => {
@@ -198,16 +241,19 @@ describe('compile', () => {
     expect(errorsOf([file('checks/c.md', 'type: decide\nbot: p\nskill: s', 'Is it fine?')])).toEqual([
       expect.stringContaining('a decide check does not take "bot", "skill"'),
     ]);
-    expect(errorsOf([workflow('on: { push: {} }\njobs:\n  b: { type: script, run: x, preload: [issue] }')])).toEqual([
-      expect.stringContaining('a script job does not take "preload"'),
+    expect(errorsOf([workflow('on: { push: {} }\nsteps:\n  b: { run: x, skill: s, checks: [c] }')])).toEqual([
+      expect.stringContaining('a "run" step does not take "skill", "checks"'),
     ]);
-    expect(errorsOf([file('checks/c.md', 'type: script\nrun: x\nover: { each: ls, max: 0 }')])).toHaveLength(1);
+    expect(errorsOf([workflow('on: { push: {} }\nsteps:\n  b: { wait: human, minutes: 3 }')])).toEqual([
+      expect.stringContaining('a "wait" step does not take "minutes"'),
+    ]);
+    expect(errorsOf([file('checks/c.md', 'type: script\nrun: x\nover: { each: ls }\nitems: 0')])).toHaveLength(1);
     expect(errorsOf([file('checks/c.md', 'type: script\nrun: x\nover: chunk')])).toHaveLength(1);
   });
 
   it('checks checks, bot skills and notes', () => {
     const result = compile([
-      { ...bot('p'), source: bot('p').source.replace('max-turns', 'skills: [gone]\nmax-turns') },
+      { ...bot('p'), source: bot('p').source.replace('returns:', 'skills: [gone]\nreturns:') },
       file('checks/gone.md', 'type: bot\nbot: p\nskill: gone'),
       file('notes/decision/a.md', 'title: A\ncheck: nope'),
       file('notes/rumor/b.md', 'title: B'),
@@ -216,7 +262,7 @@ describe('compile', () => {
       'notes/rumor/b.md: unknown note kind "rumor", expected one of "decision", "style", "caveat"',
     ]);
     const errors = errorsOf([
-      { ...bot('p'), source: bot('p').source.replace('max-turns', 'skills: [gone]\nmax-turns') },
+      { ...bot('p'), source: bot('p').source.replace('returns:', 'skills: [gone]\nreturns:') },
       file('checks/gone.md', 'type: bot\nbot: p\nskill: gone'),
       file('checks/ghost.md', 'type: bot\nbot: ghost', 'Judge it.'),
       file('checks/mute.md', 'type: bot\nbot: p'),
@@ -235,14 +281,15 @@ describe('compile', () => {
     ]);
   });
 
-  it('reads hub.yaml and checks preload and tools grants', () => {
-    const tooled = file('bots/t.md', 'harness: opencode\ntools: [read, issues_get]\nreturns: [reply]\nmax-turns: 5');
+  it('reads hub.yaml and its limits', () => {
+    const tooled = file('bots/t.md', 'harness: opencode\ntools: [read, issues_get]\nreturns: [reply]');
     const result = compile([{ path: 'hub.yaml', source: 'issues: local\n' }, tooled]);
     expect(result.ok && result.config.hub).toEqual({
       issues: 'local',
       merge: { 'default-branch': 'human' },
       'merge-request': { sections: ['closes', 'checks', 'gaps'] },
       'time-kinds': {},
+      limits: { minutes: 30, bots: {} },
     });
     const sectioned = compile([{ path: 'hub.yaml', source: 'merge-request: { sections: [closes] }\n' }]);
     expect(sectioned.ok && sectioned.config.hub['merge-request']).toEqual({ sections: ['closes'] });
@@ -253,15 +300,15 @@ describe('compile', () => {
       merge: { 'default-branch': 'human' },
       'merge-request': { sections: ['closes', 'checks', 'gaps'] },
       'time-kinds': {},
+      limits: { minutes: 30, bots: {} },
     });
     expect(errorsOf([{ path: 'hub.yaml', source: 'issues: jira\n' }])[0]).toMatch(/issues/);
-    expect(
-      errorsOf([
-        tooled,
-        skill('s'),
-        workflow('on: { push: {} }\njobs:\n  a: { type: bot, bot: t, skill: s, tools: [issues_get, runs_read] }'),
-      ])
-    ).toEqual(['job "a" grants tool "runs_read", which bot "t" does not have']);
+    const limited = compile([
+      { path: 'hub.yaml', source: 'limits: { minutes: 20, usd-per-run: 2, bots: { t: { sessions: 2 } } }\n' },
+    ]);
+    if (!limited.ok) throw new Error(JSON.stringify(limited.errors));
+    expect(limitsOf(limited.config.hub, 't')).toEqual({ minutes: 20, 'usd-per-run': 2, sessions: 2 });
+    expect(limitsOf(limited.config.hub, 'other')).toEqual({ minutes: 20, 'usd-per-run': 2 });
   });
 
   it('needs a threshold and a say before a decider question acts', () => {
@@ -286,15 +333,14 @@ describe('compile', () => {
     ]);
   });
 
-  it('warns that pi ignores max-turns and gets no hub tools or decider', () => {
+  it('warns that pi gets no hub tools or decider', () => {
     const result = compile([
       file(
         'bots/p.md',
-        'harness: pi\ntools: [read, notes_search]\nreturns: [reply]\nmax-turns: 4\ndecider: [{ on: stop, ask: Done? }]'
+        'harness: pi\ntools: [read, notes_search]\nreturns: [reply]\ndecider: [{ on: stop, ask: Done? }]'
       ),
     ]);
     expect(result.ok && result.warnings.map(w => w.message)).toEqual([
-      '"max-turns" is declared, not enforced: pi has no turn limit, only the run timeout stops it',
       'lists hub tools (notes_search) that pi runs do not get',
       'asks decider questions, which pi runs do not get',
     ]);
@@ -304,16 +350,16 @@ describe('compile', () => {
 
   it('takes patterns on claude bots and warns that they get no hub tools', () => {
     const result = compile([
-      file('bots/c.md', 'harness: claude\ntools: [read, bash(git diff*), issues_get]\nreturns: [reply]\nmax-turns: 4'),
+      file('bots/c.md', 'harness: claude\ntools: [read, bash(git diff*), issues_get]\nreturns: [reply]'),
     ]);
     expect(result.ok && result.warnings.map(w => w.message)).toEqual([
       'lists hub tools (issues_get) that claude runs do not get',
     ]);
   });
 
-  it('warns about fields it does not enforce, checks that never run and loops that never repeat', async () => {
+  it('warns about checks that never run and steps that never repeat', async () => {
     const result = compile([
-      { ...bot('b'), source: bot('b').source.replace('max-turns', 'budget: { usd-per-run: 2 }\nmax-turns') },
+      bot('b'),
       skill('s'),
       file('checks/quiet.md', 'type: script\nrun: x'),
       file('checks/judge.md', 'type: decide\nmode: block', 'Is it fine?'),
@@ -321,47 +367,33 @@ describe('compile', () => {
       workflow(
         [
           'on: { issues: {} }',
-          'jobs:',
-          '  a: { type: bot, bot: b, skill: s, over: each-file, mode: warn, until: { checks: [quiet] } }',
-          '  c: { type: bot, bot: b, skill: s, mode: warn, until: { checks: [quiet, judge] } }',
+          'steps:',
+          '  a: { bot: b, skill: s, over: each-file, checks: [quiet] }',
+          '  c: { bot: b, skill: s, checks: [quiet, judge] }',
         ].join('\n')
       ),
     ]);
     expect(result.ok && result.warnings.map(w => `${w.path}: ${w.message}`)).toEqual([
       'checks/judge.md: decides in block mode without a "threshold"; tune one in log mode first',
-      'checks/tuned.md: no job lists it in "until" or "requires", so it never runs',
-      'workflows/w.md: job "a" loops until checks that are all in log mode, so it never repeats',
+      'checks/tuned.md: no step lists it in "checks" or "requires", so it never runs',
+      'workflows/w.md: step "a" has only checks in log mode, so a failing check never sends it back',
     ]);
     const examples = ['hub', 'bothub', 'acme-app', 'clarinet'];
     const compiled = await Promise.all(examples.map(async name => compile(await readHub(join(hub, '..', name)))));
     expect(compiled.flatMap(example => (example.ok ? example.warnings : example.errors))).toEqual([]);
   });
 
-  it('warns that a log-mode job applies none of the proposals it returns', () => {
-    const jobs = (line: string) =>
-      compile([
-        bot('b'),
-        skill('s'),
-        workflow(`on: { issues: {} }\njobs:\n  a: { type: bot, bot: b, skill: s${line} }`),
-      ]);
-    const logged = jobs('');
-    expect(logged.ok && logged.warnings.map(w => w.message)).toEqual([
-      'job "a" returns reply in log mode, which applies none of them; set "mode: warn" or "block"',
+  it('rejects a loop through next and steps nothing reaches', () => {
+    const errors = errorsOf([workflow('on: {}\nsteps:\n  a: { run: x, next: b }\n  b: { run: x, next: a }')]);
+    expect(errors).toContain('steps loop back to "a" through "next"; a step repeats only by "tries"');
+    expect(errorsOf([workflow('on: {}\nsteps:\n  a: { run: x, next: end }\n  b: { run: x }')])).toEqual([
+      'step "b" is never reached: no step\'s "next" leads to it',
     ]);
-    const applied = jobs(', mode: warn');
-    expect(applied.ok && applied.warnings).toEqual([]);
-  });
-
-  it('rejects needs cycles', () => {
-    const errors = errorsOf([
-      workflow('on: {}\njobs:\n  a: { type: script, needs: b, run: x }\n  b: { type: script, needs: [a], run: x }'),
-    ]);
-    expect(errors).toContain('needs cycle: a -> b -> a');
   });
 });
 
 describe('effectiveReturns', () => {
-  it('narrows the bot to the job', () => {
+  it('narrows the bot to the step', () => {
     expect(effectiveReturns({ returns: ['reply', 'push', 'ask'] }, { returns: ['push', 'label'] })).toEqual(['push']);
     expect(effectiveReturns({ returns: ['reply'] }, {})).toEqual(['reply']);
   });
@@ -370,16 +402,9 @@ describe('effectiveReturns', () => {
 describe('effective context', () => {
   const bot = { tools: ['read', 'issues_get', 'notes_search'], preload: ['issue' as const] };
 
-  it('splits hub tools from harness tools and lets the job narrow them', () => {
+  it('splits hub tools from harness tools', () => {
     expect(harnessTools(bot)).toEqual(['read']);
-    expect(effectiveTools(bot, {})).toEqual(['issues_get', 'notes_search']);
-    expect(effectiveTools(bot, { tools: ['issues_get'] })).toEqual(['issues_get']);
-  });
-
-  it('takes the job preload, then the bot preload, then nothing', () => {
-    expect(effectivePreload(bot, { preload: ['links'] })).toEqual(['links']);
-    expect(effectivePreload(bot, {})).toEqual(['issue']);
-    expect(effectivePreload({}, {})).toEqual([]);
+    expect(hubTools(bot)).toEqual(['issues_get', 'notes_search']);
   });
 
   it('loads instructions and skills from the repo, and takes context and history, bot over hub', () => {
@@ -408,14 +433,12 @@ describe('effective context', () => {
   });
 });
 
-describe('jobOrder', () => {
-  it('puts every job after the jobs it needs', () => {
-    const jobs = {
-      ship: { needs: ['lint', 'test'] },
-      lint: { needs: ['changed'] },
-      test: { needs: ['changed'] },
-      changed: { needs: [] },
-    };
-    expect(jobOrder({ jobs } as never)).toEqual(['changed', 'lint', 'test', 'ship']);
+describe('stepOrder', () => {
+  it('walks the steps in written order, or along next', () => {
+    const steps = { triage: { bot: 'a' }, implement: { bot: 'b', next: 'ship' }, review: { wait: 'human' }, ship: {} };
+    expect(stepOrder({ steps } as never)).toEqual({ order: ['triage', 'implement', 'ship'] });
+    expect(nextOf({ steps } as never, 'ship')).toBeUndefined();
+    expect(triesOf({})).toBe(3);
+    expect(triesOf({ tries: 1 })).toBe(1);
   });
 });

@@ -196,7 +196,7 @@ describe('retro.mjs', () => {
     const hub = temp('retro-hub');
     write(hub, {
       'issues/2-x.md': '---\ntitle: x\n---\n## Done when\n\n- one\n- two\n\n## @morgan at now\n',
-      'workflows/issue.md': '---\njobs:\n  implement:\n    until:\n      checks: [coverage]\n      max: 1\n---\n',
+      'workflows/issue.md': '---\nsteps:\n  implement:\n    checks: [coverage]\n    tries: 2\n---\n',
     });
     expect(keys(dir, ['--hub', hub])).toEqual(
       expect.arrayContaining([
@@ -234,7 +234,7 @@ describe('retro.mjs', () => {
     ];
     const hub = temp('retro-hub');
     write(hub, {
-      'workflows/issue.md': '---\njobs:\n  implement:\n    until:\n      checks: [docs]\n      max: 1\n---\n',
+      'workflows/issue.md': '---\nsteps:\n  implement:\n    checks: [docs]\n    tries: 2\n---\n',
       'checks/size.md': '---\ntype: script\n---\n',
     });
     const found = (rs: Run[]) =>

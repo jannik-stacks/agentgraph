@@ -1,6 +1,6 @@
 import type { Over } from './schema.ts';
 
-/** One thing a check or job judges: its text, and a label naming it in findings when there are several. */
+/** One thing a check or step judges: its text, and a label naming it in findings when there are several. */
 export type Item = { label: string; text: string };
 
 /** The inputs `over` picks from: the diff of the change, the event's text and a script's output. */
@@ -64,15 +64,11 @@ export const positionless = (text: string) =>
     .replace(/"line":\d+/g, '"line":0')
     .replace(/index [0-9a-f]{7,}\.\.[0-9a-f]{7,}/g, 'index');
 
-/** How many hunks an `each-hunk` takes and how much code around each it shows, or `undefined` for any other `over`. */
-export const hunkOptions = (over: Over | undefined) =>
-  over === 'each-hunk' ? { max: 30 } : typeof over === 'object' && 'each-hunk' in over ? over['each-hunk'] : undefined;
-
 /** What a fan-out runs once for, or `undefined` when `over` runs once. */
 export const fanOut = (over: Over | undefined) =>
   over === 'each-file'
     ? 'file'
-    : hunkOptions(over)
+    : over === 'each-hunk'
       ? 'hunk'
       : typeof over === 'object' && 'each' in over
         ? 'item'
@@ -81,8 +77,7 @@ export const fanOut = (over: Over | undefined) =>
 /** The items `over` names from its inputs. A script `over` takes its items from `output`. */
 export const itemsOf = (over: Over, { diff, event, output = '' }: OverInputs): Item[] => {
   const one = (label: string, text: string) => (text.trim() ? [{ label, text }] : []);
-  if (typeof over === 'object')
-    return 'each-hunk' in over ? hunks(diff) : 'each' in over ? scriptItems(output) : one('output', output.trim());
+  if (typeof over === 'object') return 'each' in over ? scriptItems(output) : one('output', output.trim());
   switch (over) {
     case 'diff':
       return one('diff', diff);

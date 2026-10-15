@@ -1,11 +1,11 @@
-import type { Config } from '../../../src/config.ts';
+import { backOf, nextOf, skillOf, triesOf, type Config } from '../../../src/config.ts';
 
 /** One step of a workflow as the graph draws it. `id` is `workflow/name`, the key runs carry as `workflow/job`. */
 export type Step = {
   id: string;
   workflow: string;
   name: string;
-  /** The bot it casts, or the command it runs. */
+  /** The bot it casts, or the command it runs; neither for a step that waits for a human. */
   bot?: string;
   run?: string;
   checks: string[];
@@ -24,27 +24,29 @@ export type Flow = { workflow: string; triggers: string[]; entry: string[]; step
 export const flowsOf = (config: Config): Flow[] =>
   Object.values(config.workflows).map(workflow => {
     const name = workflow.name;
-    const id = (job: string) => `${name}/${job}`;
-    const jobs = Object.entries(workflow.jobs);
-    const steps = jobs.map(([job, spec]): Step => {
-      const until = spec.type === 'bot' ? spec.until : undefined;
+    const id = (step: string) => `${name}/${step}`;
+    const steps = Object.entries(workflow.steps).map(([step, spec]): Step => {
+      const next = nextOf(workflow, step);
+      const back = spec.wait ? backOf(workflow, step) : undefined;
       return {
-        id: id(job),
+        id: id(step),
         workflow: name,
-        name: job,
-        ...(spec.type === 'bot'
-          ? { bot: spec.bot, about: config.skills[spec.skill]?.body }
-          : { run: spec.run, about: spec.run }),
-        checks: [...(until?.checks ?? []), ...(spec.requires ?? [])],
-        ...(until && { tries: until.max }),
-        next: jobs.filter(([, other]) => other.needs.includes(job)).map(([other]) => id(other)),
-        back: until ? [{ to: id(job), label: 'check fails' }] : [],
+        name: step,
+        ...(spec.bot !== undefined && { bot: spec.bot, about: config.skills[skillOf(step, spec)]?.body }),
+        ...(spec.run !== undefined && { run: spec.run, about: spec.run }),
+        checks: [...(spec.checks ?? []), ...(spec.requires ?? [])],
+        ...(spec.checks && { tries: triesOf(spec) }),
+        next: next === undefined ? [] : [id(next)],
+        back: [
+          ...(spec.checks ? [{ to: id(step), label: 'check fails' }] : []),
+          ...(back === undefined ? [] : [{ to: id(back), label: 'a human answers' }]),
+        ],
       };
     });
     return {
       workflow: name,
       triggers: Object.keys(workflow.on),
-      entry: jobs.filter(([, spec]) => !spec.needs.length).map(([job]) => id(job)),
+      entry: Object.keys(workflow.steps).slice(0, 1).map(id),
       steps,
     };
   });

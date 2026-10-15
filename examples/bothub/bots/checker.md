@@ -3,8 +3,6 @@ harness: opencode
 model: fast
 tools: [read, grep, glob]
 returns: [reply]
-max-turns: 6
-budget: { runs-per-day: 300, minutes: 5 }
 human: narrow fast bot for one question per item, narrow-bots W1; qwen3.5 answers the docs-tone-marketing and tooltip-text questions, not near-duplicate or review-docs, so those moved to the reviewer
 ---
 You answer one narrow yes-or-no question about one item of a bothub change: a docs hunk or a

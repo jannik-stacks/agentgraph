@@ -127,6 +127,7 @@ describe('plan', () => {
   it('starts the implementor for a trusted command', () => {
     expect(plan(event('/bothub add a health check\nwith tests'), config)).toEqual([
       { workflow: 'issue', job: 'implement', bot: 'implementor', args: 'add a health check\nwith tests' },
+      { workflow: 'issue', job: 'review', args: 'add a health check\nwith tests' },
     ]);
   });
 
@@ -150,7 +151,7 @@ describe('plan', () => {
       action: 'opened',
       actor: { login: 'b', association: 'MEMBER' },
     };
-    expect(plan(pr, config)).toEqual([{ workflow: 'issue', job: 'review', bot: 'reviewer' }]);
+    expect(plan(pr, config)).toEqual([{ workflow: 'review', job: 'review', bot: 'reviewer' }]);
     expect(plan({ ...pr, action: 'closed' }, config)).toEqual([]);
   });
 });
@@ -158,17 +159,16 @@ describe('plan', () => {
 describe('plan with a branches filter', () => {
   const filtered = ((): Config => {
     const result = compile([
-      { path: 'bots/bot.md', source: '---\nharness: opencode\ntools: []\nreturns: []\nmax-turns: 5\n---\n\nBot.' },
+      { path: 'bots/bot.md', source: '---\nharness: opencode\ntools: []\nreturns: []\n---\n\nBot.' },
       { path: 'skills/go.md', source: '---\ndescription: Go.\n---\n\nGo.' },
       {
         path: 'workflows/release.md',
         source: `---
-name: release
 on:
   push: { branches: [main] }
   pull_request: { branches: [main, 'bothub/*'] }
-jobs:
-  go: { type: bot, bot: bot, skill: go }
+steps:
+  go: { bot: bot, skill: go }
 ---
 `,
       },
@@ -273,7 +273,10 @@ describe('visible', () => {
     const body = '<!-- /bothub fresh -->@bothub-acme go\u200b';
     const event = toEvent('issue_comment', 'd', commentPayload(body), now, 'bothub-acme');
     expect(event?.body).toBe('@bothub go');
-    expect(plan(event!, config)).toMatchObject([{ job: 'implement', args: 'go' }]);
+    expect(plan(event!, config)).toMatchObject([
+      { job: 'implement', args: 'go' },
+      { job: 'review', args: 'go' },
+    ]);
     const other = toEvent('issue_comment', 'd', commentPayload('@bothub-acmex go'), now, 'bothub-acme');
     expect(other?.body).toBe('@bothub-acmex go');
   });

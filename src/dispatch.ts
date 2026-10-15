@@ -5,8 +5,9 @@ import type { Association, Workflow } from './schema.ts';
 import type { BotEvent } from './types.ts';
 
 /**
- * A job an event starts, with the command's arguments and, when the command's first word asks for it, how much runs
- * again: `all` reruns the jobs before it and checks the whole branch, `fresh` also starts the branch over.
+ * A step an event starts, by its workflow and its name in `job`, with the command's arguments and, when the command's
+ * first word asks for it, how much runs again: `all` reruns the steps before it and checks the whole branch, `fresh`
+ * also starts the branch over.
  */
 export type PlannedJob = { workflow: string; job: string; bot?: string; args?: string; rerun?: Rerun };
 
@@ -24,7 +25,7 @@ const humanText = new Set([
 ]);
 
 /**
- * Decides which jobs an event starts. Events carrying human-written text are accepted only from
+ * Decides which steps an event starts. Events carrying human-written text are accepted only from
  * trusted associations unless the trigger's `guard` says otherwise.
  */
 export const plan = (event: BotEvent, config: Config): PlannedJob[] =>
@@ -55,15 +56,13 @@ const planWorkflow = (event: BotEvent, workflow: Defined<Workflow>): PlannedJob[
     }
   }
 
-  return Object.entries(workflow.jobs)
-    .filter(([, job]) => !job.on || event.trigger in job.on)
-    .map(([id, job]) => ({
-      workflow: workflow.name,
-      job: id,
-      ...(job.type === 'bot' && { bot: job.bot }),
-      ...(args !== undefined && { args }),
-      ...(rerun && { rerun }),
-    }));
+  return Object.entries(workflow.steps).map(([id, step]) => ({
+    workflow: workflow.name,
+    job: id,
+    ...(step.bot !== undefined && { bot: step.bot }),
+    ...(args !== undefined && { args }),
+    ...(rerun && { rerun }),
+  }));
 };
 
 /**

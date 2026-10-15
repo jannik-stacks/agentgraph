@@ -38,7 +38,7 @@ preload: [issue, { recall: { judge: luna } }]
 Notes are what the hub knows, surfaced when relevant. A bot never lists the notes it reads. Before
 the first model turn the `surfacer` plugin searches accepted notes and the summaries of
 earlier runs with the task, and adds the few that matter to the system prompt, each note whole. The
-task is the brief a job it `needs` posted on the issue, otherwise the issue's title and body. A run
+task is the brief an earlier step posted on the issue, otherwise the issue's title and body. A run
 with neither, such as a check, gets no recall. A resumed session is not surfaced to again.
 
 `weigh` takes the best eight by BM25. A `judge` then drops those it scores under the cutoff, and the rest
@@ -96,12 +96,9 @@ server (`serveMcp`); pi has no MCP client, so a pi bot gets preload but no hub t
 A run whose returns include `note` also gets `notes_add`, which proposes a note while it works.
 
 ```yaml
-jobs:
-  triage:
-    type: bot
-    bot: triager
-    preload: [issue, links, recall]
-    tools: [issues_get, notes_search]
+# bots/triager.md
+preload: [issue, links, recall]
+tools: [issues_get, notes_search]
 ```
 
 ## Sessions

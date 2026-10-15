@@ -2,9 +2,10 @@
 type: bot
 description: Each tooltip the change adds says what the thing is or does.
 bot: checker
+minutes: 5
 over:
   each: node "$BOTHUB_HUB/scripts/tooltips.mjs"
-  max: 30
+items: 30
 paths: [studio/src/**]
 mode: log
 human: mined from user dashboard feedback, feedback rule 7; qwen3.5 separates 7 of 8 calibration tooltips, so it logs until more tooltips confirm it

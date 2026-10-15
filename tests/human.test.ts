@@ -28,7 +28,7 @@ const files: Record<string, string> = {
   'checks/judged.md': `---\ntype: bot\nbot: judge\nskill: judge\nover: diff\nmode: warn\n${map('bot check')}\n---\n\nIs the change small?\n`,
   'checks/asked.md': `---\ntype: decide\nover: diff\n${plain('decide check')}\n---\n\nIs this change free of secrets?\n`,
   'checks/ran.md': `---\ntype: script\nrun: "true"\n${map('script check')}\n---\n`,
-  'workflows/w.md': `---\non: { issue_comment: {} }\njobs:\n  loop:\n    type: bot\n    bot: worker\n    skill: work\n    returns: [reply]\n    until: { checks: [judged, asked, ran], max: 1 }\n    ${plain('job')}\n${map('workflow')}\n---\n\nA workflow.\n`,
+  'workflows/w.md': `---\non: { issue_comment: {} }\nsteps:\n  loop:\n    bot: worker\n    skill: work\n    returns: [reply]\n    checks: [judged, asked, ran]\n    tries: 2\n    ${plain('job')}\n${map('workflow')}\n---\n\nA workflow.\n`,
   'notes/style/small.md': `---\ntitle: Small changes\n${map('note')}\n---\n\nKeep changes small.\n`,
   'notes/caveat/limits.md': `---\ntitle: Limits\nstatus: accepted\n${plain('caveat')}\n---\n\nKeep budgets short.\n`,
 };

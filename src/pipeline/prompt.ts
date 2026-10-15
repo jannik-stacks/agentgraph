@@ -1,12 +1,13 @@
 import {
   effectiveRun,
-  effectivePreload,
   effectiveReturns,
-  effectiveTools,
   harnessTools,
+  hubTools,
   recallOf,
   returnGlobs,
   returnKinds,
+  skillOf,
+  stepsBefore,
   type Config,
   type Defined,
 } from '../config.ts';
@@ -19,19 +20,17 @@ import type { RepoFiles } from '../repo-guidance.ts';
 import {
   NoteKind,
   type History,
-  type Preload,
   type Bot,
   type HubTool,
-  type Job,
+  type Preload,
   type ProposalKind,
   type Return,
+  type Step,
   type Workflow,
 } from '../schema.ts';
 import type { Outcome } from '../store.ts';
 import type { BotEvent, RunSpec } from '../types.ts';
 import type { Pipeline } from './context.ts';
-
-export const defaultMinutes = 30;
 
 const examples: Record<ProposalKind, string> = {
   reply: '{ "kind": "reply", "body": "Markdown comment on the issue or pull request" }',
@@ -75,7 +74,7 @@ const proposing = (returns: Return[], { branch, into }: Target, notesTool: boole
     '',
     'You cannot write to GitHub or the hub yourself. Your run ends when you return: end your final message with one',
     'fenced block tagged `bothub` that holds a JSON array of what you return. Only the last such block counts.',
-    'Anything the job does not allow is rejected.',
+    'Anything the step does not allow is rejected.',
     '',
     '```bothub',
     '[',
@@ -188,8 +187,6 @@ export const session = ({
   target = {},
   prompt,
   cwd,
-  preload = [],
-  tools = [],
   access = {},
   pinned = [],
   query,
@@ -201,15 +198,14 @@ export const session = ({
   target?: Target;
   prompt: string;
   cwd: string;
-  preload?: Preload[];
-  tools?: HubTool[];
   access?: HubAccess;
   pinned?: (string | undefined)[];
   query?: string | undefined;
   repo?: RepoFiles;
 }): RunSpec => {
+  const tools = hubTools(bot);
   const notesTool = bot.harness === 'opencode' && returnKinds(returns).includes('note');
-  const surfacer = surfacerFor(bot, preload, tools, access, effectiveRun(config.hub, bot).history, query);
+  const surfacer = surfacerFor(bot, bot.preload ?? [], tools, access, effectiveRun(config.hub, bot).history, query);
   const served: McpTool[] = access.mcp
     ? [
         ...new Set([
@@ -234,7 +230,6 @@ export const session = ({
     cwd,
     ...(bot.model && { model: bot.model }),
     tools: [...harnessTools(bot), ...mcpToolNames(bot.harness, served)],
-    ...(bot['max-turns'] && { maxTurns: bot['max-turns'] }),
     ...(access.mcp && served.length && { mcp: access.mcp(served) }),
     ...(surfacer && { surfacer }),
     ...(repo && { repo }),
@@ -249,26 +244,26 @@ const slugify = (text: string) =>
     .replace(/^-+|-+$/g, '');
 
 /**
- * Fills a job's `branch` or `into` template: `{issue}`, `{parent}` (the issue's parent), `{base}` (the event's branch,
- * a pull request's base), `{slug}` (from the command or event text), `{job}` and `{workflow}`. A value the event does
+ * Fills a step's `branch` or `into` template: `{issue}`, `{parent}` (the issue's parent), `{base}` (the event's branch,
+ * a pull request's base), `{slug}` (from the command or event text), `{step}` and `{workflow}`. A value the event does
  * not have stays as written.
  */
 export const renderBranch = (
   template: string,
-  { event, args, job, workflow }: { event: BotEvent; args: string | undefined; job: string; workflow: string }
+  { event, args, step, workflow }: { event: BotEvent; args: string | undefined; step: string; workflow: string }
 ) => {
   const values: Record<string, string | undefined> = {
     issue: String(event.number ?? 'new'),
     parent: event.parent === undefined ? undefined : String(event.parent),
     base: event.branch,
-    slug: slugify(args || event.body?.split('\n')[0] || job) || job,
-    job,
+    slug: slugify(args || event.body?.split('\n')[0] || step) || step,
+    step,
     workflow,
   };
   return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
 };
 
-/** The branch and pull request a job hands to the jobs that need it. */
+/** The branch and pull request a step hands to the step after it. */
 export type Handoff = Pick<Outcome, 'branch' | 'pr'>;
 
 /** A handoff as environment variables for scripts and harnesses: `BOTHUB_BRANCH` and `BOTHUB_PR`. */
@@ -277,20 +272,21 @@ export const handoffEnv = ({ branch, pr }: Handoff = {}): Record<string, string>
   ...(pr !== undefined && { BOTHUB_PR: String(pr) }),
 });
 
-/** Where a job writes: the branch it works on and where its merge requests and merges go. */
-export type Target = Pick<Job, 'branch' | 'into'>;
+/** Where a step writes: the branch it works on and where its merge requests and merges go. */
+export type Target = Pick<Step, 'branch' | 'into'>;
 
-/** A job's rendered `branch` (or the branch handed to it) and `into`. */
-export const targetOf = (job: Job, at: Parameters<typeof renderBranch>[1], from?: Handoff): Target => {
-  const branch = job.branch ? renderBranch(job.branch, at) : from?.branch;
-  const into = job.into && renderBranch(job.into, at);
+/** A step's rendered `branch` (or the branch handed to it) and `into`. */
+export const targetOf = (step: Step, at: Parameters<typeof renderBranch>[1], from?: Handoff): Target => {
+  const branch = step.branch ? renderBranch(step.branch, at) : from?.branch;
+  const into = step.into && renderBranch(step.into, at);
   return { ...(branch && { branch }), ...(into && { into }) };
 };
 
 /**
- * The agent session for a planned job. The forced skill and any `preloaded` issue context are pinned in the system
+ * The agent session for a planned step. The forced skill and any `preloaded` issue context are pinned in the system
  * prompt, so they hold for the whole run; the prompt is the event with the handed-off branch and pull request. Recall
- * searches with the brief or the issue (see `recallQuery`), else the event's text. An opencode run asks the job's or else the bot's decider questions against the issue context, or the event without it.
+ * searches with the brief or the issue (see `recallQuery`), else the event's text. An opencode run asks the bot's
+ * decider questions against the issue context, or the event without it.
  */
 export const buildSpec = ({
   config,
@@ -313,19 +309,16 @@ export const buildSpec = ({
     repo?: RepoFiles | undefined;
     handoff?: Handoff;
   }) => {
-  const job = workflow.jobs[id];
-  if (!job) throw new Error(`workflow "${workflow.name}" has no job "${id}"`);
-  if (job.type !== 'bot') throw new Error(`job "${id}" is a script`);
-  const bot = config.bots[job.bot];
-  const skill = config.skills[job.skill];
-  if (!bot || !skill) throw new Error(`job "${id}" has no bot and skill`);
-  const returns = effectiveReturns(bot, job);
-  const target = targetOf(job, { event, args, job: id, workflow: workflow.name }, handoff);
+  const step = workflow.steps[id];
+  if (!step) throw new Error(`workflow "${workflow.name}" has no step "${id}"`);
+  const bot = step.bot === undefined ? undefined : config.bots[step.bot];
+  const skill = config.skills[skillOf(id, step)];
+  if (!bot || !skill) throw new Error(`step "${id}" has no bot and skill`);
+  const returns = effectiveReturns(bot, step);
+  const target = targetOf(step, { event, args, step: id, workflow: workflow.name }, handoff);
   const { branch } = target;
   const prompt = eventContext(event, args, branch, handoff?.pr);
-  const preload = effectivePreload(bot, job);
-  const tools = effectiveTools(bot, job);
-  const questions = bot.harness === 'opencode' ? (job.decider ?? bot.decider) : undefined;
+  const questions = bot.harness === 'opencode' ? bot.decider : undefined;
   const spec = session({
     config,
     bot,
@@ -333,21 +326,19 @@ export const buildSpec = ({
     target,
     prompt,
     cwd,
-    preload,
-    tools,
     access,
     pinned: [`## Skill: ${skill.name}\n\n${skill.body}`, preloaded],
-    query: recallQuery(preloaded, workflow.name, job.needs) ?? (args || event.body),
+    query: recallQuery(preloaded, workflow.name, stepsBefore(workflow, id)) ?? (args || event.body),
     ...(repo && { repo }),
   });
   return {
     spec: questions?.length ? { ...spec, decider: { questions, task: preloaded ?? prompt } } : spec,
     bot,
-    job,
+    step,
     returns,
     branch,
     into: target.into,
-    timeoutMinutes: job['timeout-minutes'] ?? bot.budget?.minutes ?? defaultMinutes,
+    timeoutMinutes: step.minutes ?? config.hub.limits.minutes,
   };
 };
 

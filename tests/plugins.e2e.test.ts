@@ -110,7 +110,6 @@ describe.skipIf(!(await up()))('bothub opencode plugins in the sandbox', () => {
           cwd: work,
           model: 'smart',
           tools: ['read'],
-          maxTurns: 3,
           surfacer: {
             run: run.id,
             bot: 'triager',

@@ -20,9 +20,9 @@ const delay = Number(values.delay);
 const compiled = compile(await readHub(join(root, 'examples', 'hub')));
 if (!compiled.ok) throw new Error(compiled.errors.map(e => `${e.path}: ${e.message}`).join('\n'));
 const workflow = compiled.config.workflows.issue;
-const job = workflow?.jobs.implement;
-const bot = job?.type === 'bot' ? compiled.config.bots[job.bot] : undefined;
-if (!workflow || job?.type !== 'bot' || !bot) throw new Error('the example hub has no issue/implement job');
+const job = workflow?.steps.implement;
+const bot = job?.bot === undefined ? undefined : compiled.config.bots[job.bot];
+if (!workflow || !job || !bot) throw new Error('the example hub has no issue/implement step');
 
 const message = [
   'Added `GET /health` returning `{ ok: true }` with a test, and opened a pull request.',
@@ -86,11 +86,11 @@ for (const [seq, agentEvent] of events.entries()) {
 }
 
 const { proposals, errors } = extractProposals(message);
-const { accepted, rejected } = validate(
-  proposals,
-  { returns: effectiveReturns(bot, job), paths: job.paths, branch: 'bothub/7-health-endpoint' },
-  job.mode
-);
+const { accepted, rejected } = validate(proposals, {
+  returns: effectiveReturns(bot, job),
+  paths: job.paths,
+  branch: 'bothub/7-health-endpoint',
+});
 const urls: Partial<Record<string, string>> = {
   reply: 'https://github.com/acme/app/issues/7#issuecomment-2',
   'merge-request': 'https://github.com/acme/app/pull/8',

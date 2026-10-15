@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { effectiveRun, effectivePreload, returnKinds, type Defined } from '../config.ts';
+import { effectiveRun, limitsOf, returnKinds, skillOf, triesOf, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import { harnesses } from '../harnesses/index.ts';
 import { readJsonl } from '../jsonl.ts';
@@ -8,13 +8,13 @@ import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
 import { issueContext } from '../preload.ts';
 import { loadedItems, repoFor } from '../repo-guidance.ts';
-import type { Job, ProposalKind, Workflow } from '../schema.ts';
+import { itemCap, type ProposalKind, type Step, type Workflow } from '../schema.ts';
 import type { Pulls } from '../pulls.ts';
 import type { Run, Store } from '../store.ts';
 import type { RunSpec } from '../types.ts';
 import { unresolved } from '../workspace.ts';
 import { type JobResult, type Pipeline, agent, issuesOf, pullsOf } from './context.ts';
-import { type Handoff, type Target, buildSpec, defaultMinutes, fenced, handoffEnv } from './prompt.ts';
+import { type Handoff, type Target, buildSpec, fenced, handoffEnv } from './prompt.ts';
 import {
   type Attempt,
   type Scope,
@@ -29,16 +29,15 @@ import {
   itemSection,
   runChecks,
 } from './checks.ts';
-import { carried, onRequest, openerOf, seeded, sessionOf } from './continue.ts';
+import { onRequest, openerOf, seeded, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
 
-/** The issue context a planned job preloads, read from `issues`, or the forge's issues when only `gh` is given. */
-const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: Pipeline) => {
-  const job = workflow.jobs[planned.job];
-  const bot = job?.type === 'bot' ? p.config.bots[job.bot] : undefined;
-  if (job?.type !== 'bot' || !bot) return;
-  return issueContext(issuesOf(p), p.event, effectivePreload(bot, job));
+/** The issue context a planned step's bot preloads. */
+const preloadFor = async (planned: PlannedJob, p: Pipeline) => {
+  const bot = planned.bot === undefined ? undefined : p.config.bots[planned.bot];
+  if (!bot) return;
+  return issueContext(issuesOf(p), p.event, bot.preload ?? []);
 };
 
 /**
@@ -99,10 +98,6 @@ const withHead = async <R extends { run: Run }>(ran: R, worktree: string, n: num
   return { ...ran, run: await p.store.update(ran.run.id, { head }) };
 };
 
-/** How many model calls the harness itself made in `run`. */
-const turnsOf = async (run: Run, p: Pipeline) =>
-  (await p.store.events(run.id)).filter(({ event }) => event.type === 'usage' && !event.source).length;
-
 const costOf = async (ids: string[], store: Store) =>
   (await Promise.all(ids.map(id => store.read(id)))).reduce((sum, run) => sum + (run?.costUsd ?? 0), 0);
 
@@ -136,16 +131,15 @@ export const defaultBranchFor = async (kinds: ProposalKind[], p: Pipeline) =>
 const questionCap = 8000;
 
 /**
- * Runs the job's bot, then its `until` checks. While a check that holds the change fails, its findings go back as a
- * new attempt in the same worktree but a fresh session (see `seeded`), with the findings of failing `warn` checks
- * alongside; once none fails, the attempt settles with whatever the `warn` checks found. While it resolves a merge, conflict markers left in the conflicting
- * files count as a failing check. Attempts number on from `first`'s, and the loop stops past `until.max` follow-ups
- * in that count, or once the attempts and checks have spent the bot's `usd-per-run`. An `item` of a fan-out adds its
- * section to the prompt. A reply with text but no readable proposals block first gets one format-only follow-up
- * attempt, in the same session when the harness can continue it, which `until.max` does not count. An agent that
- * met a fault outside its work restarts (see `agent`). An attempt that uses all of the bot's `max-turns` goes on
- * once under the same attempt number and in its session; running out again defers the job. With a `recheck` reply, the first attempt
- * takes that reply instead of running the bot, so only the checks run again.
+ * Runs the step's bot, then its checks. While a check that holds the change fails, its findings go back as a new
+ * attempt in the same worktree but a fresh session (see `seeded`), with the findings of failing `warn` checks
+ * alongside; once none fails, the attempt settles with whatever the `warn` checks found. While it resolves a merge,
+ * conflict markers left in the conflicting files count as a failing check. Attempts number on from `first`'s, and the
+ * loop stops once that count reaches the step's `tries`, or once the attempts and checks have spent the bot's
+ * `usd-per-run`. An `item` of a fan-out adds its section to the prompt. A reply with text but no readable proposals
+ * block first gets one format-only follow-up attempt, in the same session when the harness can continue it, which
+ * `tries` does not count. An agent that met a fault outside its work restarts (see `agent`). With a `recheck` reply,
+ * the first attempt takes that reply instead of running the bot, so only the checks run again.
  */
 const attempts = (
   planned: PlannedJob,
@@ -158,7 +152,7 @@ const attempts = (
 ) =>
   Effect.gen(function* () {
     const { cwd, base, merging } = worktree;
-    const preloaded = yield* Effect.promise(() => preloadFor(planned, workflow, p));
+    const preloaded = yield* Effect.promise(() => preloadFor(planned, p));
     const repo = yield* Effect.promise(() => repoFor(p.config, p.config.bots[planned.bot ?? ''], cwd));
     const built = buildSpec({
       ...planned,
@@ -173,17 +167,22 @@ const attempts = (
       ...(p.hub && { hub: p.hub }),
       ...(p.data && { data: p.data }),
     });
-    const { bot, job, returns, branch, into, timeoutMinutes } = built;
+    const { bot, step, returns, branch, into, timeoutMinutes } = built;
     const items = loadedItems(
-      { bot: bot.path, skills: [...(bot.skills ?? []), job.skill], tools: built.spec.tools, mcp: !!built.spec.mcp },
+      {
+        bot: bot.path,
+        skills: [...(bot.skills ?? []), skillOf(planned.job, step)],
+        tools: built.spec.tools,
+        mcp: !!built.spec.mcp,
+      },
       repo
     );
     const target: Target = { ...(branch && { branch }), ...(into && { into }) };
     const kinds = returnKinds(returns);
     const defaultBranch = yield* Effect.promise(() => defaultBranchFor(kinds, p));
     const env = handoffEnv(handoff);
-    const max = job.until?.max ?? 1;
-    const cap = bot.budget?.['usd-per-run'];
+    const tries = triesOf(step);
+    const cap = limitsOf(p.config.hub, bot.name)['usd-per-run'];
     let spent = 0;
     const broke = () => cap !== undefined && spent >= cap;
     const overBudget = (what: string, attempt: number) =>
@@ -203,7 +202,6 @@ const attempts = (
     let uncounted = 0;
     let snapshots = 0;
     let reformatting = false;
-    let resumed = false;
     let reuse = true;
     const start = first.attempt ?? 1;
     for (let attempt = start; ; attempt++) {
@@ -239,14 +237,14 @@ const attempts = (
             };
       spent += run.costUsd ?? 0;
       const extracted = yield* Effect.promise(() => withTools(extractProposals(final), run, p));
-      const allowance = { returns, paths: job.paths, ...target, ...(defaultBranch && { defaultBranch }) };
-      const validated = validate(extracted.proposals, allowance, job.mode);
+      const allowance = { returns, paths: step.paths, ...target, ...(defaultBranch && { defaultBranch }) };
+      const validated = validate(extracted.proposals, allowance);
       const replies = extracted.proposals.flatMap(proposal =>
         proposal.kind === 'reply' || proposal.kind === 'merge-request' ? [proposal.body] : []
       );
       const a: Attempt = {
         planned,
-        job,
+        step,
         worktree: worktree.id,
         cwd,
         base,
@@ -259,30 +257,14 @@ const attempts = (
         ...(merging && { merging }),
         ...(replies.length && { reply: replies.join('\n\n') }),
       };
-      const turns = spec.maxTurns;
-      if (turns && !run.stopped && (yield* Effect.promise(() => turnsOf(run, p))) >= turns) {
-        const error = `used all ${turns} turns${resumed ? ' twice' : ''}`;
-        const capped = yield* Effect.promise(() =>
-          p.store.update(run.id, { status: 'failed', stopped: 'turns', error })
-        );
-        const outcome = yield* Effect.promise(() => settle(capped, extracted, validated, undefined, a, p));
-        if (resumed) return yield* finish(planned, capped, outcome, kinds, p, merging);
-        const next = yield* Effect.promise(() => carried(effectiveRun(p.config.hub, bot).context, run, p));
-        session = next.session;
-        prompt = `${followUp(task, [], [], attempt, max + 1, [], next.summary)}\n\n## Out of turns\n\nYour last attempt used all ${turns} turns before it finished. Its changes are still in this worktree. Finish the work, then end with your proposals.`;
-        parent = capped;
-        resumed = true;
-        attempt--;
-        continue;
-      }
       const succeeded = run.status === 'succeeded';
       const problems = succeeded ? proposalProblems(extracted, validated, kinds) : [];
       const reformat = !reformatting && succeeded && problems.length > 0 && unformatted(extracted, final);
       reformatting = false;
       if (problems.length) {
         const error = problems.join('; ');
-        const tries = attempt - uncounted;
-        if ((!reformat && tries > max) || broke()) {
+        const used = attempt - uncounted;
+        if ((!reformat && used >= tries) || broke()) {
           const failed = yield* Effect.promise(() =>
             p.store.update(run.id, {
               status: 'failed',
@@ -310,11 +292,11 @@ const attempts = (
           seeded(effectiveRun(p.config.hub, bot).context, run, worktree.id, base, p)
         );
         session = undefined;
-        prompt = followUp(task, [], [], tries + 1, max + 1, problems, earlier);
+        prompt = followUp(task, [], [], used + 1, tries, problems, earlier);
         continue;
       }
       const left = succeeded && merging ? yield* Effect.promise(() => unresolved(cwd, worktree.conflicts)) : [];
-      if (!succeeded || (!job.until && !left.length)) {
+      if (!succeeded || (!step.checks && !left.length)) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, succeeded ? validated.accepted : undefined, a, p)
         );
@@ -341,7 +323,7 @@ const attempts = (
         return yield* finish(planned, run, outcome, kinds, p, merging);
       }
 
-      const checks = yield* runChecks(job.until?.checks ?? [], a, p);
+      const checks = yield* runChecks(step.checks ?? [], a, p);
       spent += yield* Effect.promise(() =>
         costOf(
           checks.flatMap(v => v.runs ?? []),
@@ -352,8 +334,8 @@ const attempts = (
       const holding = failing.filter(v => holds(v, p));
       const fixable = failing.filter(v => !v.blocked);
       const blocked = failing.filter(v => v.blocked);
-      const exhausted = attempt - uncounted > max || broke();
-      const verdicts = job.until ? checks : undefined;
+      const exhausted = attempt - uncounted >= tries || broke();
+      const verdicts = step.checks ? checks : undefined;
       if (!holding.length && !blocked.length && !left.length) {
         const outcome = yield* Effect.promise(() =>
           settle(run, extracted, validated, validated.accepted, a, p, verdicts)
@@ -412,7 +394,7 @@ const attempts = (
         seeded(effectiveRun(p.config.hub, bot).context, ran, worktree.id, base, p)
       );
       session = undefined;
-      prompt = followUp(task, fixable, validated.rejected, attempt - uncounted + 1, max + 1, [], earlier, left);
+      prompt = followUp(task, fixable, validated.rejected, attempt - uncounted + 1, tries, [], earlier, left);
       parent = run;
     }
   });
@@ -428,39 +410,39 @@ const changeStart = (worktree: Worktree, handoff: Handoff, p: Pipeline) => {
   return p.workspaces.forkPoint(repo, worktree.id, from || undefined).catch(() => worktree.base);
 };
 
-/** The items a job's `over` names, from its change limited to its `paths`, and the scope to run scripts on them in. */
-export const jobItems = async (job: Job, worktree: Worktree, handoff: Handoff, p: Pipeline) => {
+/** The items a step's `over` names, from its change limited to its `paths`, and the scope to run scripts on them in. */
+export const stepItems = async (step: Step, worktree: Worktree, handoff: Handoff, p: Pipeline) => {
   const since = await changeStart(worktree, handoff, p);
-  const { paths } = job;
+  const { paths } = step;
   const changed = paths ? (await p.workspaces.changes(worktree.id, since)).files : [];
   const scope: Scope = {
     worktree: worktree.id,
     cwd: worktree.cwd,
     since,
     files: changed.filter(file => paths?.some(glob => matchGlob(glob, file))),
-    timeout: job['timeout-minutes'] ?? defaultMinutes,
+    timeout: step.minutes ?? p.config.hub.limits.minutes,
     env: { ...handoffEnv(handoff), ...issueEnv(p), BOTHUB_BASE: worktree.base },
   };
   if (paths && !scope.files.length) return { items: [], scope };
-  return { ...(await gather(job.over, scope, p)), scope };
+  return { ...(await gather(step.over, itemCap(step.over, step.items), scope, p)), scope };
 };
 
 /**
- * Runs a bot job once, or once per item its `over` names, each item as its own chain of attempts in the same
+ * Runs a bot step once, or once per item its `over` names, each item as its own chain of attempts in the same
  * worktree. Stops at the first item that does not close done or handed off.
  */
 export const fanned = (
   planned: PlannedJob,
   workflow: Defined<Workflow>,
-  job: Extract<Job, { type: 'bot' }>,
+  step: Step,
   first: Run,
   worktree: Worktree,
   handoff: Handoff,
   p: Pipeline
 ) =>
   Effect.gen(function* () {
-    if (job.over === 'event') return yield* attempts(planned, workflow, first, worktree, handoff, p);
-    const { items, error } = yield* Effect.promise(() => jobItems(job, worktree, handoff, p));
+    if (step.over === 'event') return yield* attempts(planned, workflow, first, worktree, handoff, p);
+    const { items, error } = yield* Effect.promise(() => stepItems(step, worktree, handoff, p));
     if (error || !items.length) {
       const patch: Partial<Run> = error
         ? { status: 'failed', error, ...closed('blocked', error) }
@@ -470,7 +452,7 @@ export const fanned = (
     }
     let result: JobResult | undefined;
     const replies: Item[] = [];
-    const noun = fanOut(job.over);
+    const noun = fanOut(step.over);
     for (const [index, item] of items.entries()) {
       const run =
         index === 0
@@ -479,15 +461,16 @@ export const fanned = (
               p.store.create({
                 workflow: planned.workflow,
                 job: planned.job,
-                bot: job.bot,
+                ...(step.bot && { bot: step.bot }),
                 ...(first.harness && { harness: first.harness }),
                 event: p.event,
                 parent: first.id,
-                ...(job.until && { attempt: 1 }),
+                ...(step.checks && { attempt: 1 }),
                 ...(first.issue && { issue: first.issue }),
               })
             );
-      const section = itemSection(job.over, item);
+      const section = itemSection(step.over, item);
+
       const fold = noun && { label: item.label, replies };
       result = yield* attempts(planned, workflow, run, worktree, handoff, p, { index, section, ...(fold && { fold }) });
       if (!proceeds(result.run.closure)) break;

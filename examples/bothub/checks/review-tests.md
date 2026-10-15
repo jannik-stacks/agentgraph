@@ -2,9 +2,10 @@
 type: bot
 description: Each assertion a test hunk adds checks a value the change produces.
 bot: reviewer
+minutes: 15
 over:
   each: node "$BOTHUB_HUB/scripts/hunks.mjs" tests/
-  max: 10
+items: 10
 paths: [tests/**]
 mode: log
 human: split of the broad review, narrow-bots W1, restated data from user feedback; qwen3.5 separates 3 of 6 calibration hunks and smart 5 of 6, so it logs until more hunks confirm it

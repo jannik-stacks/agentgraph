@@ -89,16 +89,27 @@ describe('loadHub', () => {
         'hub.yaml: issues is gone; threads come from the forge',
         'hub.yaml: deps is gone; remove it',
         'bots/implementor.md: skills is gone; a step names its skill',
-        'bots/implementor.md: max-turns is gone; limits.minutes in hub.yaml ends a session that hangs',
         'bots/implementor.md: returns: merge-request is now pull',
         'bots/implementor.md: returns: note is gone; memory is docs in the repo, written by a push',
         'checks/tests.md: type is gone; run makes a script check and judge a bot check',
         'checks/docs-tone.md: bot is gone; name the bot as judge',
-        'workflows/issue.md: jobs is gone; rewrite it as steps: each job becomes a step in needs order, until.checks becomes checks, over: each-hunk becomes each: hunks',
         'workflows/issue.md: on.issue_comment.guard is gone; only owners, members and collaborators reach bots',
       ])
     );
     expect(found.filter(p => p.startsWith('workflows/issue.md')).every(p => p.includes(' is gone; '))).toBe(true);
+  });
+
+  it('names max-turns on a bot and jobs in a workflow', async () => {
+    const dir = hubDir({
+      'bots/a.md': '---\nharness: opencode\nmax-turns: 40\n---\n',
+      'workflows/w.md': '---\njobs: { a: { type: bot, bot: a } }\n---\n',
+    });
+    expect(await problems(dir)).toEqual(
+      expect.arrayContaining([
+        'bots/a.md: max-turns is gone; limits.minutes in hub.yaml ends a session that hangs',
+        'workflows/w.md: jobs is gone; rewrite it as steps: each job becomes a step in needs order, until.checks becomes checks, over: each-hunk becomes each: hunks',
+      ])
+    );
   });
 
   it('names session and resume on a bot', async () => {
