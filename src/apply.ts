@@ -42,6 +42,8 @@ type Context = {
   merge?: (request: number) => Promise<Outcome>;
   /** Lands a hub change for a human to merge; resolves to where it waits, or nothing when it has nowhere to land. */
   hubPr?: (change: HubChange) => Promise<string | undefined>;
+  /** Who writes, such as the step and bot, signed under every comment and question. */
+  by?: string;
   /** Keys are `<prefix>/<kind>-<n>`; the event id by default. */
   prefix?: string;
   /** Effects recorded by earlier runs of the same event and job. */
@@ -56,7 +58,7 @@ export type HubChange = { files: { path: string; content: string | null }[]; tit
 /** The hidden marker a written comment or issue carries, so applying it again finds it. */
 export const marker = (key: string) => `<!-- bothub:${key} -->`;
 
-const marked = (body: string, key: string) => `${body}\n\n${marker(key)}`;
+const marked = (body: string, key: string, by?: string) => `${body}\n\n${by ? `bothub ${by}\n` : ''}${marker(key)}`;
 
 const tracker = ({ issues, gh, event }: Context) => {
   if (issues) return issues;
@@ -82,7 +84,7 @@ const comment = async (ctx: Context, body: string, key: string): Promise<Outcome
   const number = target(ctx);
   const posted = (await issues.get(number))?.comments.find(c => c.body.includes(marker(key)));
   if (posted) return found(posted.url, 'already posted');
-  const { url } = await issues.comment(number, marked(body, key));
+  const { url } = await issues.comment(number, marked(body, key, ctx.by));
   return { status: 'applied', ...(url && { url }) };
 };
 
@@ -120,12 +122,12 @@ const ask = async (ctx: Context, question: string, key: string): Promise<Outcome
   if (same) {
     const posted = (await issues.get(same.number))?.comments.find(c => c.body.includes(marker(key)));
     if (posted) return found(posted.url, 'already asked');
-    const { url } = await issues.comment(same.number, marked(question, key));
+    const { url } = await issues.comment(same.number, marked(question, key, ctx.by));
     return { status: 'applied', ...(url && { url }) };
   }
   const created = await issues.create({
     title: title(question),
-    body: marked(question, key),
+    body: marked(question, key, ctx.by),
     labels: [roles.unsure],
     ...(parent !== undefined && { parent }),
   });

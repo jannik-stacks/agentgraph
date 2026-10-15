@@ -138,12 +138,13 @@ export const settle = async (
     );
   if (run.status === 'succeeded' && writes.some(proposal => proposal.kind === 'merge'))
     await p.store.update(run.id, { status: 'running' });
+  const by = `${run.workflow}/${run.job}${run.bot ? ` (${run.bot})` : ''}`;
   const push: Parameters<typeof apply>[1]['push'] = async ({ kind: _, ...proposal }, journal) =>
     workspaces.publish(event.repo, a.worktree, {
       ...proposal,
       ...(paths && { paths }),
       named: await issueText(p),
-      message: `bothub: ${run.job}`,
+      message: `bothub ${by}`,
       base: a.base,
       ...(a.replace && { replace: a.replace }),
       ...journal,
@@ -158,6 +159,7 @@ export const settle = async (
     ...(issues && { issues }),
     ...(pulls && { pulls }),
     origin: { job: `${run.workflow}/${run.job}`, event: event.id },
+    by,
     ...(a.target.into && { into: a.target.into }),
     merge: request => landMerge(request, a, p),
     ...((hubPr ?? p.hub) && { hubPr: hubPr ?? hubProposal(p.hub!) }),

@@ -415,6 +415,16 @@ describe('apply', () => {
     ]);
   });
 
+  it('signs comments with the step and bot that wrote them', async () => {
+    const issues = localIssues(temp('issues'), { repo: 'acme/app', as: 'morgan' });
+    await issues.create({ title: 'Task' });
+    const local = { ...event, number: 1, source: 'local' as const };
+    await apply([{ kind: 'reply', body: 'Done.' }], { event: local, issues, push, by: 'issue/implement (implementor)' });
+    expect((await issues.get(1))?.comments.map(c => c.body)).toEqual([
+      'Done.\n\nbothub issue/implement (implementor)\n<!-- bothub:d1/reply-1 -->',
+    ]);
+  });
+
   it('asks a question once per issue, adding a later run of it to the open question as a comment', async () => {
     const issues = localIssues(temp('issues'), { repo: 'acme/app', as: 'morgan' });
     await issues.create({ title: 'Task' });

@@ -181,7 +181,7 @@ const fakeGitHub = () => {
   return { calls, gh };
 };
 
-const unmarked = (body: string) => body.replace(/\n\n<!-- bothub:[^\n]* -->$/, '');
+const unmarked = (body: string) => body.replace(/\n\n(?:bothub [^\n]*\n)?<!-- bothub:[^\n]* -->$/, '');
 
 /** A local tracker holding the event's issue #7. */
 const trackedIssues = () => {
@@ -490,8 +490,8 @@ describe('runPlanned', () => {
       ],
     });
     expect(calls.map(c => c.body)).toEqual([
-      { body: 'Looks like a bug.\n\n<!-- bothub:d1/triage/triage/reply-1 -->' },
-      { body: 'Second reply.\n\n<!-- bothub:d1/triage/triage/reply-2 -->' },
+      { body: 'Looks like a bug.\n\nbothub triage/triage (bot)\n<!-- bothub:d1/triage/triage/reply-1 -->' },
+      { body: 'Second reply.\n\nbothub triage/triage (bot)\n<!-- bothub:d1/triage/triage/reply-2 -->' },
     ]);
   });
 
@@ -552,7 +552,7 @@ describe('runPlanned', () => {
     expect(result.outcome).toMatchObject({ branch, pr: 1 });
     expect(result.outcome?.rejected[0]?.reason).toBe(`branch "bothub/other" is not the job's branch "${branch}"`);
     expect(git(origin.dir, 'show', `${branch}:src/a.ts`)).toBe('a');
-    expect(git(origin.dir, 'log', '-1', '--format=%an %s', branch)).toBe('bothub[bot] bothub: implement');
+    expect(git(origin.dir, 'log', '-1', '--format=%an %s', branch)).toBe('bothub[bot] bothub triage/implement (bot)');
     expect(calls.map(c => c.path)).toEqual(['/repos/acme/app/pulls']);
   });
 
@@ -1082,7 +1082,7 @@ describe('parking', { timeout: 20_000 }, () => {
     await issues.comment(asked!.number, 'Short, like the others.');
     await Effect.runPromise(runPlanned(planned('parking'), { ...p, event: answer }));
 
-    expect(git(origin.dir, 'log', '--format=%s', `${origin.main}..bothub/7`)).toBe('bothub: parking');
+    expect(git(origin.dir, 'log', '--format=%s', `${origin.main}..bothub/7`)).toBe('bothub triage/parking (bot)');
     expect(git(origin.dir, 'rev-parse', 'bothub/7^')).toBe(origin.main);
   });
 
