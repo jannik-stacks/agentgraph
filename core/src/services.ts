@@ -1,8 +1,10 @@
 import { Config, Layer, type Redacted } from 'effect';
-import { Forge } from './forge.ts';
+import type { Forge } from './forge.ts';
+import { docker } from './docker.ts';
 import { githubForge } from './github.ts';
-import { docker, Sandbox } from './sandbox.ts';
-import { harnesses, Session } from './session.ts';
+import { harnesses } from './harnesses.ts';
+import type { Sandbox } from './sandbox.ts';
+import type { Session } from './session.ts';
 import { fileStore, Store } from './store.ts';
 
 export type Services = Forge | Store | Session | Sandbox;
@@ -14,7 +16,7 @@ export type Settings = {
   data: string;
   port: number;
   every: number;
-  proxy: { url: string; key: Redacted.Redacted };
+  proxy: { url: string; keys: Redacted.Redacted };
   app: { id: string; key: Redacted.Redacted };
 };
 
@@ -24,7 +26,10 @@ export const settings: Config.Config<Settings> = Config.all({
   data: Config.string('BOTHUB_DATA').pipe(Config.withDefault('.bothub-data')),
   port: Config.port('BOTHUB_PORT').pipe(Config.withDefault(5191)),
   every: Config.number('BOTHUB_EVERY').pipe(Config.withDefault(5)),
-  proxy: Config.all({ url: Config.string('BOTHUB_PROXY_URL'), key: Config.redacted('BOTHUB_PROXY_KEY') }),
+  proxy: Config.all({
+    url: Config.string('BOTHUB_PROXY_URL').pipe(Config.withDefault('http://litellm:4000/v1')),
+    keys: Config.redacted('BOTHUB_PROXY_KEYS'),
+  }),
   app: Config.all({ id: Config.string('BOTHUB_APP_ID'), key: Config.redacted('BOTHUB_APP_KEY') }),
 });
 
@@ -33,5 +38,5 @@ export const layers = (s: Settings): Layer.Layer<Services> =>
   Layer.mergeAll(
     githubForge({ repo: s.repo, ...s.app }),
     fileStore(s.data),
-    harnesses.pipe(Layer.provideMerge(docker))
+    harnesses(s).pipe(Layer.provideMerge(docker({ data: s.data, origin: `https://github.com/${s.repo}.git` })))
   );

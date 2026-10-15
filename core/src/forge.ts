@@ -1,4 +1,4 @@
-import { Context, Data, Layer, type Effect, type Redacted, type Stream } from 'effect';
+import { Context, Data, Layer, type Effect, type Stream } from 'effect';
 import { todo, todoStream } from './todo.ts';
 
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
@@ -59,10 +59,6 @@ const stub = (name: string): Forge['Type'] => ({
   since: () => todoStream(`${name}.since`),
   apply: () => todo(`${name}.apply`),
 });
-
-/** GitHub through an App installation, polled with ETags. */
-export const githubForge = (_app: { repo: string; id: string; key: Redacted.Redacted }): Layer.Layer<Forge> =>
-  Layer.succeed(Forge, stub('githubForge'));
 
 /** Threads, comments and applied proposals in one JSON file. */
 export const fileForge = (_file: string): Layer.Layer<Forge> => Layer.succeed(Forge, stub('fileForge'));
