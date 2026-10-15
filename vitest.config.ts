@@ -13,7 +13,7 @@ const local = [
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'core/**/*.test.ts'],
     globalSetup: ['tests/setup/global.ts'],
     setupFiles: ['tests/setup/processes.ts'],
     coverage: {
