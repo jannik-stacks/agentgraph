@@ -26,6 +26,8 @@ The first versioned release.
   validates it and fails closed.
 - Checks are scripts or narrow bot judges, in modes `log`, `warn` and `block`. A script slices the
   change into hunks, items or files, and a bot answers one question per piece.
+- A change with more items than a check takes is refused before any bot check runs, and the bot
+  hears which check refused it and by how much.
 - A check that already fails on the base commit in files the change did not touch is marked red on
   base. It does not hold the change, and the failure is filed once per base commit.
 - Example hubs: `bothub`, `acme-app`, `clarinet`, `hub`. `bothub sim` replays scripted
@@ -80,10 +82,8 @@ The first versioned release.
 
 ### Known limits
 
-- The `over` script's item cap fails both bot checks after a full attempt; the script stage does
-  not yet count items and warn the bot first.
-- Concurrent runs of a hub share one cargo target directory, so one run can test another run's
-  build.
+- Each issue gets its own cargo build directory under the hub's cache, and nothing prunes old
+  ones, so the cache grows with the number of issues.
 - A hub change reaches only events after it. A run in flight keeps the old hub, and nothing warns
   about the runs it affects.
 - Review questions that apply to every hub live in the bothub hub only.
