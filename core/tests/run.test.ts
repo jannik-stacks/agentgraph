@@ -123,7 +123,11 @@ describe('drive', () => {
 
     // the refused try pushed nothing; the passing one did, and opened pull request #8
     const forge = await run(Effect.flatMap(Forge, f => f.thread(7)));
-    expect(forge.comments.map(c => c.body)).toEqual(['/bothub', 'Brief: add hello.txt', 'still not right']);
+    expect(forge.comments.map(c => c.body)).toEqual([
+      '/bothub',
+      'Brief: add hello.txt',
+      'still not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
+    ]);
     const pr = await run(Effect.flatMap(Forge, f => f.thread(8)));
     expect(pr.pull).toMatchObject({ branch: 'bothub/7', into: 'main' });
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello world');

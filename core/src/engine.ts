@@ -359,7 +359,11 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
         });
         if ((next.status === 'asking' || next.status === 'stopped') && next.reason) {
-          const said = yield* Effect.either(land(next, [{ kind: 'reply', body: next.reason }]));
+          const body =
+            next.status === 'asking'
+              ? `${next.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`
+              : next.reason;
+          const said = yield* Effect.either(land(next, [{ kind: 'reply', body }]));
           if (Either.isRight(said))
             yield* store.trace(next.id, ...said.right.map(applied => ({ at: now(), step: next.step, applied })));
         }
