@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Fiber, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -2249,6 +2249,15 @@ describe('over', () => {
     const filed = await baseIssues(issues);
     expect(filed).toMatchObject([{ title: 'Check old fails on the base branch', state: 'open' }]);
     expect(filed[0]!.body).toMatch(/^`old` fails on [0-9a-f]{40}, .*\n\n### old\n\n[^]*FAIL tests\/old\.test\.ts/);
+  });
+
+  it('keeps a base failure in the data directory and ignores paths that differ between runs', async () => {
+    const data = temp('base-data');
+    const noisy = 'echo "at /tmp/$$/x.mjs:1 in node_modules/dep/a.js:2"; exit 1';
+    const { result } = await run(hubWith([blocking('old', noisy)]), judged, {}, { data });
+    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: false, findings: expect.stringMatching(/^red on base/) });
+    const [kept = ''] = readdirSync(join(data, 'base-checks'));
+    expect(JSON.parse(readFileSync(join(data, 'base-checks', kept), 'utf8'))).toMatchObject({ pass: false });
   });
 
   it('files one issue for a check red on base even before the tracker lists it', async () => {

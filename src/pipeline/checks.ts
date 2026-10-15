@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { Effect, Fiber } from 'effect';
 import { effectivePreload, effectiveTools, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
@@ -527,16 +529,17 @@ const fileRedBase = async (check: string, base: string, judged: Judged, p: Pipel
 };
 
 /**
- * Marks a failing gating script check "red on base" when it fails on the change's base too and names files, each one
- * the base run names too and the change does not touch. A change without files is never red on base. Such a check does not gate, so it costs no attempt and never
- * reaches the bot. Each check runs once per base commit across events, in a worktree at that commit, and a check
- * marked red on base is filed as an issue once per base commit (see `fileRedBase`).
+ * Marks a failing gating script check "red on base" when it fails on the change's base too and names no file the
+ * change touches. A change without files is never red on base. Such a check does not gate, so it costs no attempt and
+ * never reaches the bot. Each check runs once per base commit and hub version, in a worktree at that commit, and the
+ * result is kept in the data directory. A check marked red on base is filed as an issue once per base commit (see
+ * `fileRedBase`).
  */
 const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<Verdict[]> => {
   const scriptOf = (v: Verdict) => {
     const check = p.config.checks[v.check];
     const red = check?.type === 'script' && !fanOut(check.over) && !v.pass && !v.skipped && !v.blocked;
-    return red && v.gating && holds(v, p) && pathsIn(v.findings).length ? check : undefined;
+    return red && v.gating && holds(v, p) ? check : undefined;
   };
   if (!verdicts.some(scriptOf)) return verdicts;
   const cache = baseRuns.get(p.store) ?? { runs: new Map<string, Promise<Judged>>(), filed: new Set<string>() };
@@ -547,12 +550,20 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
   const onBase = ({ name, run }: Extract<Defined<Check>, { type: 'script' }>) => {
     const key = `${a.base} ${name}`;
     if (!runs.has(key)) {
-      tree ??= p.workspaces.create({ repo: p.event.repo, ref: a.base }, id).then(({ path }) => path);
+      const file = p.data && join(p.data, 'base-checks', `${digest(a.base, a.parent.hub ?? '', name)}.json`);
       const timeout = a.job['timeout-minutes'] ?? defaultMinutes;
       const access = { hub: p.hub, readonly: true };
-      const judged = tree
-        .then(cwd => runScript(run, cwd, timeout, scriptEnv(a, p), launcher(p), access))
-        .then(scriptVerdict)
+      const fresh = async () => {
+        tree ??= p.workspaces.create({ repo: p.event.repo, ref: a.base }, id).then(({ path }) => path);
+        const v = scriptVerdict(await runScript(run, await tree, timeout, scriptEnv(a, p), launcher(p), access));
+        if (file && !v.blocked) {
+          await mkdir(dirname(file), { recursive: true });
+          await writeFile(file, JSON.stringify(v)).catch(() => {});
+        }
+        return v;
+      };
+      const judged = (file ? readFile(file, 'utf8').then(text => JSON.parse(text) as Judged) : Promise.reject())
+        .catch(fresh)
         .then(v => {
           if (v.blocked) runs.delete(key);
           return v;
@@ -570,8 +581,8 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
         const check = scriptOf(v);
         if (!check) return v;
         const base = await onBase(check);
-        const own = (path: string) => !base.findings?.includes(path) || files.some(file => path.endsWith(file));
-        if (base.pass || base.blocked || pathsIn(v.findings).some(own)) return v;
+        const touched = (path: string) => files.some(file => path.endsWith(file));
+        if (base.pass || base.blocked || pathsIn(v.findings).some(touched)) return v;
         const key = `${a.base} ${check.name}`;
         if (!filed.has(key)) {
           filed.add(key);
