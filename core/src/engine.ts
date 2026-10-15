@@ -1,13 +1,12 @@
-import { Effect, Either, ParseResult, Schema, Stream } from 'effect';
+import { Chunk, Effect, Either, ParseResult, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
-import { Forge, type Applied, type ForgeError, type Proposal, type Thread } from './forge.ts';
+import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
 import type { Hub } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, type SessionSpec, type SessionStop } from './session.ts';
 import { Store, type StoreError, type Trace } from './store.ts';
-import { todo } from './todo.ts';
-import { transition, type Doc, type Outcome, type Run, type Step, type Workflow } from './workflow.ts';
+import { begin, reenter, transition, type Doc, type Outcome, type Run, type Step, type Workflow } from './workflow.ts';
 
 type Work = { dir: string; base: string };
 
@@ -366,5 +365,80 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
     return current;
   });
 
-/** One look at the repo: reenter parked runs, begin new ones, drive up to `limits.working`. */
-export const tick = (_hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> => todo('tick');
+const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
+
+/**
+ * One look at the repo: reenter parked runs, begin new ones, drive up to `limits.working`. With `only`, it looks at
+ * that thread alone and begins a run there when none was live, command or not.
+ */
+export const tick = (hub: Hub, only?: number): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const forge = yield* Forge;
+    const mine = (r: { thread: number }) => only === undefined || r.thread === only;
+    const runs = (yield* store.list()).filter(mine);
+    const parked = yield* Effect.forEach(
+      runs.filter(r => r.status === 'asking' || r.status === 'waiting'),
+      r =>
+        Effect.map(Stream.runLast(store.read(r.id)), last => ({
+          run: r,
+          at: last._tag === 'Some' ? last.value.at : r.started,
+        }))
+    );
+    const started = runs
+      .map(r => r.started)
+      .sort()
+      .at(-1);
+    const cursor = started === undefined ? '' : [started, ...parked.map(p => p.at)].sort()[0]!;
+    const messages = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor))).filter(mine);
+    const used = new Set<Message>();
+    const touched: Run[] = [];
+
+    for (const { run, at } of parked) {
+      const w = hub.workflows[run.workflow];
+      const m = w && messages.find(m => m.thread === run.thread && m.at > at && reenter(w, run, m));
+      if (!w || !m) continue;
+      used.add(m);
+      const outcome = reenter(w, run, m)!;
+      const next = transition(w, run, outcome);
+      yield* store.trace(run.id, {
+        at: now(),
+        step: run.step,
+        outcome,
+        run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
+      });
+      yield* store.put(next);
+      touched.push(next);
+    }
+
+    const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.thread}`));
+    const open = new Set((yield* forge.threads({ state: 'open' })).map(t => t.number));
+    const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
+    const start = (w: Workflow, thread: number, at: string) =>
+      Effect.gen(function* () {
+        const run = begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at });
+        busy.add(`${w.name}#${thread}`);
+        yield* store.put(run);
+        touched.push(run);
+      });
+    for (const m of messages) {
+      const w = triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!));
+      if (!w || used.has(m) || m.kind !== 'comment' || !m.trusted || !open.has(m.thread)) continue;
+      if (!busy.has(`${w.name}#${m.thread}`)) yield* start(w, m.thread, m.at);
+    }
+    if (only !== undefined && triggered[0] && !runs.some(live) && !touched.some(r => r.thread === only))
+      yield* start(triggered[0], only, now());
+
+    const running = (yield* store.list({ status: 'running' }))
+      .filter(mine)
+      .sort((a, b) => a.started.localeCompare(b.started));
+    const driven = yield* Effect.forEach(
+      running.filter(r => hub.workflows[r.workflow]),
+      r =>
+        drive(hub.workflows[r.workflow]!, r, hub).pipe(
+          Effect.catchAll(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
+        ),
+      { concurrency: hub.limits.working }
+    );
+    return [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
+  });

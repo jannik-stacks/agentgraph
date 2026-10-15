@@ -2,11 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Chunk, Effect, Layer, Stream } from 'effect';
+import { Chunk, Effect, Layer, Redacted, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { drive } from '../src/engine.ts';
+import { drive, tick } from '../src/engine.ts';
+import { start as main } from '../src/main.ts';
 import { fileForge, Forge, type Message, type Proposal } from '../src/forge.ts';
 import { host } from '../src/sandbox.ts';
+import type { Settings } from '../src/services.ts';
 import { scripted, Session, type AgentEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import { begin, reenter, transition, type Run } from '../src/workflow.ts';
@@ -38,6 +40,7 @@ const world = () => {
   mkdirSync(seed);
   git(seed, 'init', '-q', '-b', 'main');
   writeFileSync(join(seed, 'README.md'), 'demo\n');
+  writeFileSync(join(seed, 'package.json'), JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }));
   git(seed, 'add', '-A');
   git(seed, 'commit', '-q', '-m', 'init');
   git(root, 'clone', '-q', '--bare', seed, 'origin.git');
@@ -213,5 +216,78 @@ describe('drive', () => {
     expect(stopped.reason).toBe('SessionStop: no scripted session left');
     const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions).toEqual([{ resumed: false, ended: 'provider', usd: 0 }]);
+  }, 30_000);
+});
+
+const say = (where: ReturnType<typeof world>, m: Message) =>
+  appendFileSync(join(where.forge, `${m.thread}.jsonl`), `${JSON.stringify(m)}\n`);
+
+describe('tick', () => {
+  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+
+  it('begins a run from a trusted command, drives it, and begins again only on a new command', async () => {
+    const where = world();
+    const at = '2026-10-16T00:00:01.000Z';
+    say(where, {
+      thread: 7,
+      kind: 'comment',
+      actor: 'mallory[bot]',
+      trusted: false,
+      at,
+      comment: { id: 'x', author: 'mallory[bot]', body: '/bothub', at },
+    });
+    const { specs, run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply(push)],
+      [start('b'), reply({ kind: 'reply', body: 'Nothing left to do.' })],
+    ]);
+    const first = await run(tick(small));
+    expect(first.map(r => [r.id, r.status])).toEqual([['issue-7-20261016000000000', 'done']]);
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(await run(tick(small))).toEqual([]);
+    where.human('/bothub once more', '2026-10-17T00:00:00.000Z');
+    const second = await run(tick(small));
+    expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
+    expect(specs).toHaveLength(2);
+    expect(specs[1]!.prompt).toContain('@morgan: /bothub once more');
+  }, 30_000);
+});
+
+describe('start with one issue', () => {
+  it('reads the App env file, loads the hub, drives the issue to the merge wait, then reenters on the merge', async () => {
+    const where = world();
+    const key = join(where.root, 'app.pem');
+    writeFileSync(key, 'PEM');
+    writeFileSync(
+      join(where.root, 'app.env'),
+      `BOTHUB_APP_ID=42\nBOTHUB_APP_SLUG=stx-bothub\nBOTHUB_APP_KEY_FILE="${key}"\nBOTHUB_INSTALLATION_ID=7\n`
+    );
+    const env = { BOTHUB_APP_ENV: join(where.root, 'app.env'), BOTHUB_PROXY_KEYS: 'implementor=k1,reviewer=k2' };
+    Object.assign(process.env, env);
+    const seen: Settings[] = [];
+    const turns = [
+      [start('i'), write('hello.txt', 'TODO\n'), reply(push)],
+      [start('i'), write('hello.txt', 'hello\n'), reply(push)],
+      [start('r'), reply({ kind: 'reply', body: 'Looks right.' })],
+    ];
+    const doubles = (s: Settings) => {
+      seen.push(s);
+      return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), host(where.origin), scripted(turns));
+    };
+    const one = { hub: join(import.meta.dirname, '..', '..', 'examples', 'sandbox'), issue: 7, data: where.data };
+    try {
+      const parked = await main(one, doubles);
+      expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
+      expect(seen[0]).toMatchObject({ repo: 'acme/sandbox', data: where.data, app: { id: '42' } });
+      expect(Redacted.value(seen[0]!.app.key)).toBe('PEM');
+      expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
+      expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+
+      const later = new Date(Date.now() + 1000).toISOString();
+      say(where, { thread: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
+      const done = await main(one, doubles);
+      expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
+    } finally {
+      for (const name of Object.keys(env)) delete process.env[name];
+    }
   }, 30_000);
 });
