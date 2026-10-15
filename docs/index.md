@@ -1,0 +1,42 @@
+# What bothub is
+
+A personal agent hub driven by GitHub, configured as code.
+
+bothub runs coding agents against your repositories when something happens on GitHub. A comment
+like `/bothub` on an issue, a new pull request or a weekly schedule starts a workflow; bots do the
+work on their own branch, deterministic checks decide when the work is done, and every change
+reaches GitHub through a proposal that bothub validates first.
+
+## Config as code
+
+Everything a hub does lives in a hub repo as Markdown files with YAML frontmatter. The
+frontmatter is the machine part, the body is prose for the model or for you.
+
+```
+hub/
+  hub.yaml
+  bots/implementor.md      who acts
+  skills/implement.md      what to do
+  checks/types.md          what decides "done"
+  workflows/issue.md       triggers to jobs
+  notes/decision/…         what the hub knows
+```
+
+`bothub check` compiles the hub with `compile` and fails closed: an unknown key, a missing bot or a check that
+does not exist is an error before anything runs.
+
+## Two ways in
+
+- **The CLI** (`bothub`) validates a hub, shows which jobs a webhook payload would start, runs
+  them on your machine and reads back runs and their logs.
+- **BHM**, the bothub manager, is a small web app. Its graph page draws each workflow as its
+  steps and shows which step is running, waiting or failed. Its runs page lists runs, with a run's
+  transcript, checks, outcome and diff beside the list, and runs waiting on a human stand out.
+
+## Where to go next
+
+- [Vocabulary](vocabulary.md) for the ten words the rest of the docs use.
+- [The loop](loop.md) for how a job keeps going until its checks pass.
+- [Running it locally](local.md) to try it on your own machine.
+- [Patterns](patterns.md) for the conventions the code follows, and
+  [Reference](reference/index.md) for the types and functions that define each area.

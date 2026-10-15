@@ -79,9 +79,8 @@ a harness that cannot continue sessions. Each run records everything it loaded, 
 
 ## Docs
 
-The docs are in `studio/content/docs` and show up in the studio's Docs tab. Start with
-`index.mdx`, then `loop.mdx` for how a job runs, `runs.mdx` for what is kept on disk, `sandbox.mdx`
-and `local.mdx`. `npm run verify` runs every check the project has.
+The docs are plain Markdown in `docs/`. Start with `index.md`, then `loop.md` for how a job runs,
+`runs.md` for what is kept on disk, `sandbox.md` and `local.md`. `npm run verify` runs every check the project has.
 
 ## Examples
 

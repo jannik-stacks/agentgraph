@@ -1,0 +1,194 @@
+# Sandbox and models
+
+How a run is isolated and which models it can reach.
+
+## The sandbox
+
+Every harness run, script job and script check is one hardened `docker run --rm`, built by
+
+`dockerRun`. There is no setting that turns it off or runs anything on the host instead:
+
+- read-only root filesystem, `/tmp` as a tmpfs that allows running programs, the operator's own non-root user, all capabilities
+  dropped, `no-new-privileges`, memory, CPU and pid limits, no image pulls, and a watchdog that
+  kills it at the timeout,
+- the run's `home/` mounted read-write, so transcripts survive the container,
+- the worktree at `/work`, with the bare mirror mounted read-only so refs and objects cannot be
+  touched; for checks and the scripts their `over` runs, the worktree and its git admin
+  directory are read-only too,
+- the internal `bothub-sandbox` network with no route out. The run can reach the model proxy, an
+  egress proxy that only allows GitHub and the npm registry, and a relay to the host's Ollama. A
+  hub can open the network instead (see [The hub's environment](#the-hubs-environment)).
+
+Besides the worktree, its git admin directory and the run home, the only mounts are read-only:
+the bare mirror, bothub's own code for the MCP server, the hub, the run store and the hub's
+installed dependencies. The docker socket is never mounted.
+
+`/tmp` allows running programs because forbidding it would protect nothing: the worktree is
+writable and runnable anyway, and test runners and build tools run what they write to `/tmp`.
+
+A check judges the change and never edits it. In its read-only worktree the dependency directories
+stay writable, so tools keep their caches there (`node_modules/.vite`, for one). Anything else a
+check writes goes to `$TMPDIR`: a build check points its output there, for example
+`npm run build -- --outDir "$TMPDIR/dist"`, and so does a coverage report.
+
+No GitHub token goes inside. The run gets the proxy URL, its bot's own key and the decision API
+address. Pushes happen on the host, after checks.
+
+## Dependencies
+
+A run never installs packages itself. `deps` in `hub.yaml` names an install command, the
+lockfiles it reads and the directories it fills:
+
+```yaml
+deps:
+  install: npm ci --no-audit --no-fund
+  lockfiles: [package-lock.json]
+  dirs: [node_modules]
+  timeout-minutes: 15
+```
+
+Before the first harness run or script in a worktree, `prepareDeps` hashes the
+command, the directories and the lockfiles' contents. When `<data>/deps/<hash>` does not exist
+yet, it runs `install` in the worktree, in the same sandbox as any script, so the egress proxy
+lets it reach the npm registry, and moves the directories into the cache. Later runs with the
+same lockfiles skip the install. Worktrees that need the same install at the same time share one,
+and `bothub serve --prewarm` runs it at startup, so the first event does not wait for it.
+
+Each worktree then gets its directories back as plain folders of links into the cache, which is
+mounted read-only at the same path. The packages cannot be changed, while tools can still write
+their own caches next to the links. A dot directory other than `.bin` left in the cache, such as
+`.vite-temp`, is a tool's cache and gets no link, so a worktree never finds it read-only. The directories are added to the repository's
+`info/exclude`, so they never show up in a change. A change to a lockfile gets a fresh install
+before its checks run, and a failed install fails the run with the end of its output.
+
+The hash does not cover the sandbox image. After rebuilding the image with a different Node
+version, delete `<data>/deps`.
+
+## When the sandbox is unavailable
+
+Before each container starts, bothub checks that docker answers, that the `bothub-sandbox`
+network exists and is internal, and that the image is present. If any of that fails, or docker
+cannot start the container, the run ends with status `failed` and an error starting with
+`sandbox-failed:`, and nothing runs on the host. A check that cannot start, or runs out of time, is
+blocked: the job asks a human instead of passing the gate or sending the bot after a problem it
+did not cause.
+
+The environment can set the image (`BOTHUB_SANDBOX_IMAGE`), the resource limits
+(`BOTHUB_SANDBOX_MEMORY`, `BOTHUB_SANDBOX_CPUS`, `BOTHUB_SANDBOX_PIDS`) and the model proxy URL
+(`BOTHUB_SANDBOX_LLM_URL`). Limits must be positive. The network, the user and the isolation flags
+are fixed. `sandbox` in `hub.yaml` can change the image, the network and the environment, nothing
+else.
+
+`bothub sim` is the one exception. Its harness is a script that replays a scenario, so it runs
+without docker and never starts an agent.
+
+The image is built from `infra/local/sandbox`; the code is on [Runs](reference/runs.md).
+After a rebuild, `infra/local/sandbox/smoke.sh` starts it the way a run does and fails on a missing tool or a write to the read-only root.
+opencode's plugin package is installed in the image at `/opt/opencode`, and each run home links its
+`.config/opencode` there, so a run starts its plugins in about a second instead of installing the
+package first.
+
+## The hub's environment
+
+The base image has Node, git and the harnesses, enough for a TypeScript repository. A repository
+that needs more, such as a Rust toolchain, a pinned pnpm or system libraries, gets it from
+`sandbox` in `hub.yaml`:
+
+```yaml
+sandbox:
+  setup: sandbox/setup.sh
+  network: open
+  env:
+    RUSTUP_HOME: /usr/local/rustup
+```
+
+`setup` is an executable script in the hub, with a `#!` line. `hubImage` runs it as
+root in one image layer on top of the base image, with full network, and tags the result
+`bothub-sandbox-hub:<hash>` of the base image's id and the script's content. The image is built
+before the first container that needs it and reused until the script or the base image changes.
+The script reads what the repository already pins (`rust-toolchain`, `.nvmrc`, `packageManager` in
+`package.json`, the CI workflows) and installs that. A toolchain must be installed by the script:
+the root filesystem is read-only when a run starts, so a tool that installs itself on first use
+fails there. `examples/clarinet` sets up Rust and pnpm for clarinet. The base image itself is
+unchanged, and hubs without `setup` run on it.
+
+Every container of a hub gets a cache directory at `/cache`, read-write and kept between runs and
+attempts: `<data>/cache/<hash of the hub path>` on the host, named by `BOTHUB_CACHE`.
+`cacheEnv` points the common tools at it: the cargo registry, git checkouts and target
+directory, the npm cache, the pnpm store, Go's module and build caches and pip's cache. `env` wins
+over these, so a hub can move one or set its own for another tool. The key is the hub, not a
+lockfile: every one of these stores checks its own contents (by checksum or compiler version), so a
+new lockfile or toolchain adds entries next to the old ones instead of invalidating them. The cargo
+target directory is the exception. Cargo decides what to rebuild by source modification time, and
+every run's code sits at `/work`, so each issue gets its own, `target/<hash of the repo and issue>`,
+kept for its later attempts and commands; runs without an issue share `target/shared`. Runs of one
+issue share theirs, so cargo makes concurrent builds wait for each other. Clear one store by deleting its subdirectory, such as `<data>/cache/<hash>/target`, or
+the whole directory to start clean; nothing else depends on it. `env` cannot replace what bothub
+sets itself, such as `HOME`, `TMPDIR` or the proxy settings.
+
+For Rust, the base image links with mold and keeps only line tables in dev and test builds
+(`CARGO_TARGET_<triple>_LINKER` and `CARGO_PROFILE_DEV_DEBUG`). Relinking the test binaries is most
+of an edit-to-test cycle, and both cut it: on clarinet, one edit then one `cargo nextest run -p
+clarity-repl` went from about 37 to 11 seconds.
+
+`network` is `allowlist` unless set. `open` also joins the `bothub-open` network, which bothub
+creates when it is missing, and drops the egress proxy settings, so the run reaches any host:
+crates.io, rustup, any package registry. What stays the same:
+
+- model keys stay out of the container. Bots still reach models only through LiteLLM with their own
+  virtual key; the master key and the provider credentials live in LiteLLM's container,
+- the data directory, the docker socket, the GitHub token and the rest of the host filesystem are
+  still not mounted.
+
+What changes: whatever the run can read, its worktree, its bot's key and what it fetched, it can
+send anywhere, not only to GitHub. It can also reach services on the operator's machine through
+docker's host gateway (`host.docker.internal` under Docker Desktop), including ports bound to
+`127.0.0.1` such as the bothub API, and the local network. Choose `open` for repositories whose
+toolchain needs it, and keep anything that must not be reachable from a run off the host.
+
+`memory` (such as `10g`) and `cpus` (such as `8`) replace the limits from the environment for the
+hub's containers. A bot's `concurrency` still decides how many of them run at once.
+
+`bothub check` validates the fields and fails when `setup` is not a file in the hub.
+
+## Harnesses
+
+A bot's `harness` picks the agent program. opencode and pi talk only to the model proxy.
+
+| Harness    | Notes                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `opencode` | The primary choice. Real tool allowlists, including patterned bash, one process per run |
+| `pi`       | Light and fast. Tools are all or nothing, so it suits read-only bots                    |
+| `claude`   | Claude Code on the operator's subscription. Not runnable in the sandbox yet             |
+
+The sandbox image has no Claude Code and no login, and the egress proxy does not allow Anthropic,
+so a `claude` run fails there with nothing run on the host.
+
+Each is a small adapter; see [Harnesses](reference/harnesses.md).
+
+## Models
+
+Bots name a model alias, never a vendor model. LiteLLM sits in front of every model, maps aliases
+to upstreams, and gives each bot its own virtual key with rate limits, so its logs show which bot
+spent what.
+
+| Alias             | Route                                                       |
+| ----------------- | ----------------------------------------------------------- |
+| `smart`, `writer` | A ChatGPT subscription through LiteLLM's `chatgpt` provider |
+| `luna`            | The same subscription, a small chat model for decide calls  |
+| `fast`            | Ollama running `qwen3.5:4b` locally                         |
+
+Ollama also serves `tev1:0.8b` through its decision API, for small yes, no and scoring questions
+that `decide` checks and the decider ask directly (`decideCheck`). A question and what it is
+about are cut to 4,000 characters, the start and the end, so they fit tev1's context. That is the default
+`BOTHUB_DECIDE_MODEL`. Set it to a LiteLLM alias without a `:tag`, such as `luna`, and the same yes-or-no questions go
+to that chat model through LiteLLM instead, with the run's own key, and
+the chat model reasons in about two sentences before it answers. An offline config points every alias at Ollama.
+
+Moving an alias from an API key to a subscription is a proxy config change; no bot file changes.
+
+A bot's `budget` is enforced by the [pipeline](reference/pipeline.md): `runs-per-day` skips a
+run once the bot has started that many in the last 24 hours, `minutes` is the run timeout, and `usd-per-run` stops the until
+loop once attempts and checks have spent it. A bot's `concurrency` caps how many of its sessions
+run at once. A job with an `environment` waits until a human adds
+the `approved` label to the approval issue bothub opens for it.

@@ -1,0 +1,151 @@
+# Runs and storage
+
+Where repositories, worktrees and run records live.
+
+Everything bothub keeps on disk sits in one data directory, `$BOTHUB_DATA` or `~/.bothub` by
+default.
+
+```
+$BOTHUB_DATA/
+  .env                        secrets, picked by name for each run
+  serve.log                   what `serve` logged, one timestamped line each
+  hubs/<hash>.json            each version of the hub's files that runs were planned with
+  repos/<owner>/<repo>.git    one bare mirror per repository, refreshed before each run
+  work/<run id>/              one detached worktree per run, removed afterwards, its work kept on a mirror ref
+  runs/<run id>/
+    run.json                  status, closure, bot, harness, attempt, parent, previous, engine, hub,
+                              base, head, cost, turns, error
+    prompt.md                 the system prompt and prompt the harness got, secrets masked
+    events.jsonl              one line per agent event
+    spans.jsonl               the run as trace spans, derived from the files above
+    outcome.json              proposals, verdicts, what was applied
+    summaries.jsonl           one line per step that mattered, and how the run ended
+    stderr.log                the harness's whole stderr, secrets masked
+    home/                     the harness's private home, kept
+    tmp/                      scratch space, scrubbed of secrets and kept unless empty
+```
+
+Run ids start with a timestamp (`runId`), so they sort in creation order. The store,
+
+`openStore`, is append-only: a run is created `queued`, moves to `running`, and ends with a
+`RunStatus`. A run left unfinished by a process that died is marked `interrupted` by
+`reconcile`.
+
+## Tracing a run
+
+Every run says what produced it. `engine` is the commit of the bothub source that ran it, `dirty`
+when the source differed from that commit, and a hash of the source either way. `hub` is a hash of
+the hub's files, issues left out, taken when the event is planned; the files themselves are kept
+under `hubs/<hash>.json` (`hubVersions`), and `serve` logs a line with the changed files
+and their added and removed lines whenever the hash moves between events, so a live tune shows up
+in the log next to the runs it affected.
+
+Runs link to each other two ways. `parent` is the run this one continues within one event: the
+attempt before, the run a check judged, the run a restart replaced. `previous` is the run before it
+on the same issue and job, whatever event started it, so a human's new command still leads back to
+the earlier work. `base` and `head` bound what an attempt changed: `head` is a commit of its
+worktree as the agent left it, kept in the repository's mirror, so `git diff base head` shows the
+attempt's work even when nothing was pushed. Each attempt's commit is also kept under
+`refs/bothub/attempts/<run id>/<n>` in the mirror, never pushed.
+
+Human waits are events too. A run that asked a human gets a `human` event with `on: ask` and the
+question's URL; the run a human's answer starts gets one with `on: answer`, who answered, when, and
+which run it answers. Approvals work the same way.
+
+`spans.jsonl` holds the run in OpenTelemetry's shape, metadata only (`runSpans`): a
+`run` span carrying the bot, job, attempt, issue, engine, hub and links, and under it one
+`model_request` per model call with the `gen_ai.*` usage attributes, one `tool_use` per tool call,
+one `check` per verdict, and the `ask`, `human_wait` and `stall` spans. Every span carries a
+`bothub.time.kind`: `model`, `edit`, `read`, `build`, `test`, `wait`, `stall` or `other`
+(`timeKind`). Shell commands are sorted by patterns; a hub adds its own in `hub.yaml`,
+tried before the defaults:
+
+```yaml
+time-kinds:
+  test: ['cargo (test|nextest)']
+  build: ['cargo (build|check|clippy)', 'wasm-pack']
+```
+
+opencode reports when each tool started and how long it ran, and those times are used as given.
+Claude Code and pi stream each tool call as it starts and ends, so their times are the times bothub
+saw. A model request runs from the end of the one before to its first tool call.
+
+`node bench/timeline.mjs DATA ISSUE` prints the story of one issue from these files: each run with
+its engine and hub, where its wall time went, its checks with their times and verdicts, human waits,
+cost and the diff each attempt left, then the issue's totals per kind, per job and per check, the
+idle time between runs split into human waits, script checks and queueing, and the wall time minus
+build and test time.
+
+`serve` logs which model keys it loaded, by name and with the bots that use each, when it starts,
+and why and with which exit code it stops.
+
+## How a run stops early
+
+A run that ends before its work is done records why in `stopped`, next to its status:
+
+| `stopped`   | When                                                                        |
+| ----------- | --------------------------------------------------------------------------- |
+| `timeout`   | it ran past its minutes                                                     |
+| `stalled`   | the harness printed no event for 10 minutes, or only usage while a tool ran |
+| `stuck`     | the same tool call and result, or the same error, came back again and again |
+| `withdrawn` | its issue was closed, or the label that started it removed, while it ran    |
+| `sandbox`   | the sandbox never started, so nothing ran                                   |
+| `provider`  | a rate limit, overload, server error, dropped or idle stream, or bad call   |
+| `budget`    | the bot had used its runs for the day                                       |
+| `infra`     | a fault outside its work outlasted the restarts, or the key was refused     |
+| `turns`     | the bot used all its turns, twice in a row                                  |
+| `human`     | someone stopped it from the studio                                          |
+
+A shell command run a fourth time with no edit since its first run is `stuck` too. Rerunning a test
+after each edit is not.
+
+The process is stopped with it. A withdrawn run closes as `no-op` and applies nothing, a sandbox,
+provider, stall, budget, infra, turns or human stop as `deferred`, and the rest as `blocked`. The
+issue is checked every 30 seconds while an agent runs.
+
+The Stop button on a running run sends `POST /api/runs/:id/stop`. Only the process that runs it can
+stop it; any other answers 409, and the studio shows why. A stopped run parks its work and says so
+on the issue, and the job's next run continues it, told that a human stopped it.
+
+## Restarts
+
+A stall, a provider fault, or a harness that crashed, was killed or died before its bot did anything
+does not end the job. The session runs again on a new run, in a fresh session whose prompt says why
+the last one stopped; the worktree keeps its work. A provider limit waits for the reset or retry-after
+its error names, a stall restarts at once, anything else waits 10 seconds, then 30. A job restarts at
+most twice per attempt, and a usage limit with no reset, or a reset more than 5 minutes away, is not
+waited for. A refused key (HTTP 401 or 403) never restarts.
+
+When the restarts run out, the last run stops as `infra` with its own error and its `restarts`
+count, the job closes `deferred`, and the hub logs one line:
+
+```
+ALERT provider 2026-10-15T00-41-02-118Z-3f9a1c HTTP 500 Internal Server Error restarts=2
+```
+
+The class is `stalled`, `provider`, `infra` or `auth`. A blip that a restart got past logs nothing.
+
+The stall watch tells a busy tool from a hung model call. When the harness has been silent for 10
+minutes, it looks inside the run's container at the processes the harness started: if they are still
+starting or using CPU (a cold build), the run keeps waiting, checking every minute, up to 30 minutes of
+silence. The harness's own CPU does not count, so a harness waiting on a hung model call with no tool
+running stalls at 10. Runs outside the sandbox have no such probe.
+
+Each layer gives up sooner than the one above it. LiteLLM fails a silent stream after 2 minutes and
+retries once, the harnesses wait 2 minutes for a response to start and 3 minutes between chunks
+(`modelTimeouts`), and the runner's stall watch fires after 10.
+
+## The harness home
+
+Each run gets its own `HOME` and XDG directories under `home/` (`homeEnv`), so harness sessions
+never mix with yours or with other runs. The raw transcripts each harness writes stay there after
+the run, and the studio can show the JSON and JSON Lines files in it. Credential files are
+never listed.
+
+## Files
+
+Run records will move behind a small `Files` interface: read, write, append, list, remove and
+scope, with paths always relative to a root. The local backend comes first, an R2 backend later,
+so the same code can keep runs in a bucket. Worktrees, mirrors and caches stay on a real
+filesystem because git needs one. The interface is designed but not wired in yet; the store
+writes to disk directly today.
