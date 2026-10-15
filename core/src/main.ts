@@ -7,7 +7,7 @@ import { layers, settings, type Services, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
 /** `KEY=value` lines of an env file, with the key file it names read in as `BOTHUB_APP_KEY`. */
-const appEnv = async (file: string | undefined): Promise<Record<string, string>> => {
+export const appEnv = async (file: string | undefined): Promise<Record<string, string>> => {
   if (!file) return {};
   const vars = Object.fromEntries(
     (await readFile(file, 'utf8')).split('\n').flatMap(line => {
