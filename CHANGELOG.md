@@ -29,7 +29,12 @@ The first versioned release.
 - A change with more items than a check takes is refused before any bot check runs, and the bot
   hears which check refused it and by how much.
 - A check that already fails on the base commit in files the change did not touch is marked red on
-  base. It does not hold the change, and the failure is filed once per base commit.
+  base. It does not hold the change, and the failure is filed once per base commit. The base
+  result is kept per base commit and hub version.
+- A human answer settles only what the bot asked. Review still fails a change that reaches past
+  the issue, even when an answer asked for it.
+- A docs paragraph that names code the change touched is read against the new code, even when the
+  change edits no docs.
 - Example hubs: `bothub`, `acme-app`, `clarinet`, `hub`. `bothub sim` replays scripted
   scenarios against a hub.
 
@@ -87,6 +92,5 @@ The first versioned release.
 - A hub change reaches only events after it. A run in flight keeps the old hub, and nothing warns
   about the runs it affects.
 - Review questions that apply to every hub live in the bothub hub only.
-- An answered design is not challenged for how far it reaches.
 - Run records are written to local disk. The `Files` interface for other backends is not wired
   in.
