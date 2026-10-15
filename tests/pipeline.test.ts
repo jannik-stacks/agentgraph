@@ -1418,6 +1418,12 @@ describe('checks fail closed', () => {
     ...fields,
   });
 
+  it('fails a check that ended on its step cap', () => {
+    const capped = verdictOf(ok({}), bothub([{ kind: 'reply', body: 'PASS\nmaximum steps reached, review incomplete' }]));
+    expect(capped.pass).toBe(false);
+    expect(capped.findings).toMatch(/step cap/);
+  });
+
   it('fails a check that cannot decide', () => {
     expect(verdictOf(ok({ status: 'failed', error: 'model error' }), '').findings).toBe('run r failed: model error');
     expect(verdictOf(ok({}), 'All good.')).toEqual({ pass: false, findings: 'run r gave no verdict' });

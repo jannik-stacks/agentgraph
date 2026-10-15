@@ -26,6 +26,7 @@ export const verdictOf = (run: Run, final: string): Pick<Verdict, 'pass' | 'find
     const findings = `run ${run.id} ${run.status}${why ? `: ${why}` : ''}`;
     return { pass: false, findings, ...(run.stopped !== 'stuck' && { blocked: true }) };
   }
+  if (/maximum steps reached/i.test(final)) return { pass: false, findings: `run ${run.id} ended on its step cap before it judged` };
   const { proposals } = extractProposals(final);
   const reply = proposals.find(proposal => proposal.kind === 'reply');
   const [first = '', ...rest] = (reply?.body ?? (proposals.length ? '' : final)).trim().split('\n');
