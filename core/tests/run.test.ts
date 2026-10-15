@@ -75,7 +75,7 @@ const reply = (...proposals: Proposal[]): AgentEvent => ({
 });
 const push: Proposal = { kind: 'push', branch: 'bothub/7', message: 'Add hello' };
 const pull: Proposal = { kind: 'pull', branch: 'bothub/7', into: 'main', title: 'Add hello', body: 'Closes #7' };
-const judged: AgentEvent[] = [start('j'), { type: 'text', text: 'PASS, no claims' }];
+const judged: AgentEvent[] = [start('j'), { type: 'usage', input: 4, output: 2, usd: 0.25 }, { type: 'text', text: 'PASS, no claims' }];
 
 /** The file doubles, with every session spec recorded. */
 const services = (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {
@@ -117,7 +117,7 @@ describe('drive', () => {
     ]);
 
     const asked = await run(drive(w, fresh(), hub));
-    expect(asked).toMatchObject({ step: 'review', status: 'asking', reason: 'still not right', usd: 0.5 });
+    expect(asked).toMatchObject({ step: 'review', status: 'asking', reason: 'still not right', usd: 0.5 + 3 * 0.25 });
     expect(asked.rounds).toEqual({ review: 2 });
     expect(asked.sessions.implement).toEqual({ id: 'i1', home: '/homes/i1' });
 

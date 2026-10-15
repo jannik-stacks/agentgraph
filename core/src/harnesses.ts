@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Effect, Layer, Redacted, Stream } from 'effect';
 import type { Harness } from './hub.ts';
@@ -12,7 +12,8 @@ type Tool = Extract<AgentEvent, { type: 'tool' }>;
 /** What one harness output line says, before the session loop adds the home, the reply and the exit code. */
 type Piece =
   | { type: 'session'; id: string; model?: string }
-  | Extract<AgentEvent, { type: 'text' | 'tool' | 'usage' }>
+  | Extract<AgentEvent, { type: 'text' | 'tool' }>
+  | (Extract<AgentEvent, { type: 'usage' }> & { cached?: number })
   | { type: 'done'; ended: Ended; error?: string };
 
 type Adapter = {
@@ -137,6 +138,7 @@ const opencode: Adapter = {
               type: 'usage',
               input: (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0),
               output: t.output ?? 0,
+              cached: t.cache?.read ?? 0,
               ...(part.cost && { usd: part.cost }),
             },
           ]
@@ -238,6 +240,7 @@ const claude: Adapter = {
           type: 'usage',
           input: u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens,
           output: u.outputTokens,
+          cached: u.cacheReadInputTokens,
         })
       );
       const ended: Ended = line.subtype === 'success' && !line.is_error ? 'stop' : line.subtype === 'error_max_turns' ? 'cap' : 'error';
@@ -310,6 +313,7 @@ const pi: Adapter = {
                   type: 'usage' as const,
                   input: (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0),
                   output: u.output ?? 0,
+                  cached: u.cacheRead ?? 0,
                   ...(u.cost?.total && { usd: u.cost.total }),
                 },
               ]
@@ -348,19 +352,44 @@ const keysOf = (keys: Redacted.Redacted) =>
       })
   );
 
+/** List prices in USD per million tokens, keyed by upstream model, and the proxy's aliases for them. */
+type Prices = { aliases?: Record<string, string>; models?: Record<string, { input: number; output: number; cached?: number }> };
+
+/** The usage's list price when the harness reports none, as a subscription through the proxy does. */
+const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
+  const { cached = 0, ...usage } = u;
+  if (usage.usd) return usage;
+  const bare = (model: string) => model.split('/').at(-1) ?? model;
+  const price = models
+    .flatMap(model => [model, prices.aliases?.[model] ?? model])
+    .map(model => prices.models?.[model] ?? prices.models?.[bare(model)])
+    .find(Boolean);
+  if (!price) return usage;
+  const usd = ((u.input - cached) * price.input + cached * (price.cached ?? price.input) + u.output * price.output) / 1e6;
+  return { ...usage, usd };
+};
+
 const stopOf = (e: SandboxError) =>
   new SessionStop({ reason: e.reason === 'infra' ? 'sandbox' : e.reason, detail: e.detail });
 
 /**
  * The claude, opencode and pi adapters, picked by `spec.harness`. Each session gets its own home under
- * `data/homes`, reused on resume, and only its bot's key from `proxy.keys`.
+ * `data/homes`, reused on resume, and only its bot's key from `proxy.keys`. Usage the harness does not price is
+ * priced from the `prices` file.
  */
-export const harnesses = (s: { data: string; proxy: { url: string; keys: Redacted.Redacted } }): Layer.Layer<Session, never, Sandbox> =>
+export const harnesses = (s: {
+  data: string;
+  proxy: { url: string; keys: Redacted.Redacted };
+  prices?: string;
+}): Layer.Layer<Session, never, Sandbox> =>
   Layer.effect(
     Session,
     Effect.gen(function* () {
       const sandbox = yield* Sandbox;
       const keys = keysOf(s.proxy.keys);
+      const prices: Prices = s.prices
+        ? yield* Effect.tryPromise(() => readFile(s.prices!, 'utf8').then(JSON.parse)).pipe(Effect.orDie)
+        : {};
 
       const open = (spec: SessionSpec) =>
         Stream.unwrapScoped(
@@ -383,6 +412,7 @@ export const harnesses = (s: { data: string; proxy: { url: string; keys: Redacte
             const secret = Redacted.value(key);
             const parse = adapter.parser();
             let session: string | undefined;
+            let model = alias(spec);
             let reply = '';
             let done: Extract<Piece, { type: 'done' }> | undefined;
             let tail = '';
@@ -406,7 +436,8 @@ export const harnesses = (s: { data: string; proxy: { url: string; keys: Redacte
                 if (piece.type === 'session') {
                   if (session) return [];
                   session = piece.id;
-                  return [{ type: 'start', session: piece.id, model: piece.model ?? alias(spec), home }];
+                  model = piece.model ?? model;
+                  return [{ type: 'start', session: piece.id, model, home }];
                 }
                 if (piece.type === 'done') {
                   done = piece;
@@ -414,6 +445,7 @@ export const harnesses = (s: { data: string; proxy: { url: string; keys: Redacte
                 }
                 if (piece.type === 'text') reply += piece.text;
                 if (piece.type === 'tool') reply = '';
+                if (piece.type === 'usage') return [priced(prices, [model, alias(spec)], piece)];
                 return [piece];
               });
             };

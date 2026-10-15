@@ -224,6 +224,7 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
     const layer = harnesses({
       data: tmp('data'),
       proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(process.env.BOTHUB_PROXY_KEYS ?? '') },
+      prices: join(import.meta.dirname, '../../infra/local/prices.json'),
     }).pipe(Layer.provide(docker({ data: tmp('data'), origin: '/nowhere' })));
     const open = (prompt: string, resume?: { id: string; home: string }) =>
       Effect.runPromise(
@@ -255,6 +256,7 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
     const start = first.find(e => e.type === 'start');
     const end = first.at(-1);
     expect(start).toMatchObject({ type: 'start' });
+    expect(first.some(e => e.type === 'usage' && (e.usd ?? 0) > 0)).toBe(true);
     expect(first).toContainEqual(expect.objectContaining({ type: 'tool', name: 'bash', denied: true }));
     expect(end).toMatchObject({ type: 'end', ended: 'stop', exit: 0 });
     expect(end?.type === 'end' && end.final.toLowerCase()).toContain('kumquat');

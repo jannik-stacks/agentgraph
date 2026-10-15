@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { Config, Layer, type Redacted } from 'effect';
 import type { Forge } from './forge.ts';
 import { docker } from './docker.ts';
@@ -17,8 +18,11 @@ export type Settings = {
   port: number;
   every: number;
   proxy: { url: string; keys: Redacted.Redacted };
+  prices: string;
   app: { id: string; key: Redacted.Redacted };
 };
+
+const prices = fileURLToPath(new URL('../../infra/local/prices.json', import.meta.url));
 
 export const settings: Config.Config<Settings> = Config.all({
   repo: Config.string('BOTHUB_REPO'),
@@ -30,6 +34,7 @@ export const settings: Config.Config<Settings> = Config.all({
     url: Config.string('BOTHUB_PROXY_URL').pipe(Config.withDefault('http://litellm:4000/v1')),
     keys: Config.redacted('BOTHUB_PROXY_KEYS'),
   }),
+  prices: Config.string('BOTHUB_PRICES').pipe(Config.withDefault(prices)),
   app: Config.all({ id: Config.string('BOTHUB_APP_ID'), key: Config.redacted('BOTHUB_APP_KEY') }),
 });
 

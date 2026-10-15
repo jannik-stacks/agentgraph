@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
@@ -24,7 +24,7 @@ const spec: SessionSpec = {
 const key = 'sk-bh-implementor-0123456789abcdef';
 
 /** Runs one session over a sandbox that replays `lines` and then the exit line, recording the command it got. */
-const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError) => {
+const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError, prices?: string) => {
   const data = mkdtempSync(join(tmpdir(), 'core-harness-'));
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
@@ -39,6 +39,7 @@ const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError)
   const layer = harnesses({
     data,
     proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(`implementor=${key}, reviewer=sk-other`) },
+    ...(prices && { prices }),
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),
@@ -58,6 +59,23 @@ const events = async (s: SessionSpec, lines: string[], exit = 0) => {
 const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 
 describe('the session loop', () => {
+  it('prices usage the harness reports at $0 from the price table, cached input at its own rate', async () => {
+    const prices = join(mkdtempSync(join(tmpdir(), 'core-prices-')), 'prices.json');
+    writeFileSync(
+      prices,
+      JSON.stringify({
+        aliases: { smart: 'chatgpt/gpt-6.1-sol' },
+        models: { 'gpt-6.1-sol': { input: 1.25, cached: 0.125, output: 10 } },
+      })
+    );
+    const { exit } = await session(spec, sample('opencode-denied.jsonl'), 0, undefined, prices);
+    const usage = Exit.isSuccess(exit) ? exit.value.filter(e => e.type === 'usage') : [];
+    expect(usage[0]).toEqual({ type: 'usage', input: 3201, output: 19, usd: (3201 * 1.25 + 19 * 10) / 1e6 });
+    expect(usage[1]).toEqual({ type: 'usage', input: 3263, output: 19, usd: (191 * 1.25 + 3072 * 0.125 + 19 * 10) / 1e6 });
+    const { events: unpriced } = await events(spec, sample('opencode-denied.jsonl'));
+    expect(unpriced.filter(e => e.type === 'usage').every(e => e.type === 'usage' && e.usd === undefined)).toBe(true);
+  });
+
   it('runs the harness in a shell that reports its exit code, with only the bot key, by name', async () => {
     const { command, data } = await events(spec, sample('opencode-run.jsonl'));
     expect(command.cmd).toBe('sh');
