@@ -7,5 +7,6 @@
 set -u
 cd "$(dirname "$0")/.."
 export BOTHUB_HUB="$PWD/examples/bothub" BOTHUB_BASE="${BOTHUB_BASE:-HEAD}"
+node core/bin/run.ts check --hub examples/sandbox >/dev/null || exit 1
 [ $# -gt 0 ] || set -- $(node --input-type=module -e "import { fast } from './examples/bothub/scripts/fast.mjs'; console.log(fast.filter(c => c !== 'safety').join(' '))")
 exec node examples/bothub/scripts/fast.mjs "$@"

@@ -1,6 +1,7 @@
 /**
  * Looks at one issue once: reenters its parked run, or begins one, and drives it until it parks or ends.
  * Usage: node core/bin/run.ts --hub <dir> --issue <n> --data <dir>
+ *        node core/bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
  *        node core/bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV; read-only)
  */
 import { resolve } from 'node:path';
@@ -16,6 +17,22 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
 });
 const issue = Number(values.issue);
+
+if (positionals[0] === 'check') {
+  if (!values.hub) {
+    console.error('usage: node core/bin/run.ts check --hub <dir>');
+    process.exit(2);
+  }
+  const problems = await Effect.runPromise(
+    loadHub(resolve(values.hub)).pipe(
+      Effect.map(() => []),
+      Effect.catchTag('HubError', e => Effect.succeed(e.problems))
+    )
+  );
+  for (const p of problems) console.error(`${p.path}: ${p.message}`);
+  console.log(problems.length ? `${problems.length} problem(s)` : 'ok');
+  process.exit(problems.length ? 1 : 0);
+}
 
 if (positionals[0] === 'status') {
   if (!values.hub || !values.data) {
