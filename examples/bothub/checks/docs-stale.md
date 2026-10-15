@@ -4,7 +4,7 @@ description: A docs paragraph that names an export the change touches still desc
 bot: reviewer
 minutes: 15
 over:
-  each: node "$BOTHUB_HUB/scripts/docs-mentions.mjs" src/ studio/content/docs/
+  each: node "$BOTHUB_HUB/scripts/docs-mentions.mjs" src/ docs/
 items: 10
 paths: [src/**]
 mode: warn

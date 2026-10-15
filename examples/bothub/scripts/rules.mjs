@@ -4,7 +4,7 @@
 import { files, scan } from './line-rules.mjs';
 import { report } from './changes.mjs';
 
-const docsPath = /^studio\/content\/docs\/.*\.mdx?$/;
+const docsPath = /^docs\/.*\.mdx?$/;
 const codePath = /\.(ts|tsx|mts|cts|js|mjs)$/;
 const testPath = /^tests\//;
 
@@ -20,7 +20,7 @@ const shipped = path =>
   !/^src\/sim[^/]*\.ts$/.test(path) &&
   !path.startsWith('studio/src/lab/');
 const named = path =>
-  /^(src|studio\/src|studio\/content|bin|examples)\//.test(path) && !/^examples\/[^/]+\/(scripts|notes|fixtures)\//.test(path);
+  /^(src|studio\/src|docs|bin|examples)\//.test(path) && !/^examples\/[^/]+\/(scripts|notes|fixtures)\//.test(path);
 
 const inTests = path => testPath.test(path);
 const launchers = new Set(['src/runner.ts', 'src/sim.ts']);

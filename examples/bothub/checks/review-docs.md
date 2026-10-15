@@ -4,9 +4,9 @@ description: Each docs hunk describes the code as it now behaves.
 bot: reviewer
 minutes: 15
 over:
-  each: node "$BOTHUB_HUB/scripts/hunks.mjs" studio/content/docs/
+  each: node "$BOTHUB_HUB/scripts/hunks.mjs" docs/
 items: 10
-paths: [studio/content/docs/**]
+paths: [docs/**]
 mode: warn
 human: split of the broad review, narrow-bots W1 and safety-checks item 8; qwen3.5 passed every calibration hunk, smart separates all 8
 ---

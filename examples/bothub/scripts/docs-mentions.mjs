@@ -2,7 +2,7 @@
 // alone is still read against the new code. A touched export is one whose declaration, with the comment above it,
 // holds a changed line.
 //
-//   node docs-mentions.mjs <code-root> <docs-root>      e.g. node docs-mentions.mjs src/ studio/content/docs/
+//   node docs-mentions.mjs <code-root> <docs-root>      e.g. node docs-mentions.mjs src/ docs/
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { base, changedFiles, diffOf } from './changes.mjs';

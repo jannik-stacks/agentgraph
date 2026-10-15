@@ -13,7 +13,7 @@ describe('propagation', () => {
     const repo = change(
       {
         'src/status.ts': status('merged'),
-        'studio/content/docs/runs.mdx': docs,
+        'docs/runs.md': docs,
         'examples/hub/skills/land.md': "Wait for 'merged'.\n",
       },
       { 'src/status.ts': status('landed') }
@@ -21,7 +21,7 @@ describe('propagation', () => {
     expect(run(repo)).toEqual({
       ok: false,
       out: [
-        'merged: the change takes it out of src/status.ts, but examples/hub/skills/land.md:1, studio/content/docs/runs.mdx:1 still say it',
+        'merged: the change takes it out of src/status.ts, but docs/runs.md:1, examples/hub/skills/land.md:1 still say it',
         'propagation: 1 finding',
       ].join('\n'),
     });
@@ -51,14 +51,14 @@ describe('propagation', () => {
         'src/status.ts': status('merged'),
         'src/use.ts': "import { helperFn } from './help.ts';\nhelperFn(1);\nhelperFn(2);\n",
         'src/help.ts': 'export const helperFn = (n: number) => n;\n',
-        'studio/content/docs/runs.mdx': docs,
-        'studio/content/docs/loop.mdx': 'The bot opens a merge request.\n',
+        'docs/runs.md': docs,
+        'docs/loop.md': 'The bot opens a merge request.\n',
       },
       {
         'src/status.ts': status('landed'),
         'src/use.ts': "import { helperFn } from './help.ts';\nhelperFn(1);\n",
-        'studio/content/docs/runs.mdx': docs.replace('merged', 'landed'),
-        'studio/content/docs/loop.mdx': 'The bot opens a pull request.\n',
+        'docs/runs.md': docs.replace('merged', 'landed'),
+        'docs/loop.md': 'The bot opens a pull request.\n',
       }
     );
     expect(run(repo)).toEqual({ ok: true, out: 'propagation: ok' });

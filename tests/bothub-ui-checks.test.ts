@@ -344,7 +344,7 @@ describe('rules check, retired names', () => {
       {
         'src/executors/pi.ts': 'export const executor = 1;\n',
         'examples/hub/bots/triager.md': '---\nsoul: careful\ncan: [reply]\n---\n',
-        'studio/content/docs/loop.mdx': 'Each check runs for-each changed file.\n',
+        'docs/loop.md': 'Each check runs for-each changed file.\n',
       }
     );
     const { ok, out } = check('rules.mjs', repo);
@@ -352,7 +352,7 @@ describe('rules check, retired names', () => {
     expect(out).toContain('src/executors/pi.ts:1: executor; say harness');
     expect(out).toContain('examples/hub/bots/triager.md:2: soul; say role');
     expect(out).toContain('examples/hub/bots/triager.md:3: `can:`; say `returns:`');
-    expect(out).toContain('studio/content/docs/loop.mdx:1: for-each; say `over:`');
+    expect(out).toContain('docs/loop.md:1: for-each; say `over:`');
   });
 
   it('passes a hint that rejects the old name', () => {
@@ -400,7 +400,7 @@ describe('rules check, docs prose', () => {
     const repo = studioChange(
       {},
       {
-        'studio/content/docs/runs.mdx': `Since 2026-09-21 a run keeps its log.
+        'docs/runs.md': `Since 2026-09-21 a run keeps its log.
 See decision 0054 for the scenarios.
 Runs leverage a robust store.
 <Source file="src/runner.ts" />
@@ -413,18 +413,18 @@ ${fence}
     );
     const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
-    expect(out).toContain('runs.mdx:1: a date');
-    expect(out).toContain('runs.mdx:2: an internal reference');
-    expect(out).toContain('runs.mdx:3: a marketing or filler word');
-    expect(out).toContain('runs.mdx:4: <Source> shows a whole file');
-    expect(out).toContain('runs.mdx:6: a 35-line code block');
+    expect(out).toContain('runs.md:1: a date');
+    expect(out).toContain('runs.md:2: an internal reference');
+    expect(out).toContain('runs.md:3: a marketing or filler word');
+    expect(out).toContain('runs.md:4: <Source> shows a whole file');
+    expect(out).toContain('runs.md:6: a 35-line code block');
   });
 
   it('passes plain prose and a source excerpt', () => {
     const repo = studioChange(
       {},
       {
-        'studio/content/docs/runs.mdx': `A run keeps its log in the store.\n<Source file="src/runner.ts" symbol="output" />\n<Source file="package.json" />\n`,
+        'docs/runs.md': `A run keeps its log in the store.\n<Source file="src/runner.ts" symbol="output" />\n<Source file="package.json" />\n`,
       }
     );
     expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
@@ -435,7 +435,7 @@ describe('docs-sync check', () => {
   it('fails a new schema no docs page names, and passes once one does', () => {
     const schema = 'export const Budget = z.strictObject({ usd: z.number() });\n';
     const missing = studioChange(
-      { 'studio/content/docs/reference/config.mdx': '<Fields name="Bot" />\n' },
+      { 'docs/reference/config.md': 'See `Bot` in src/schema.ts.\n' },
       { 'src/schema.ts': schema }
     );
     const { ok, out } = check('docs-sync.mjs', missing);
@@ -443,8 +443,8 @@ describe('docs-sync check', () => {
     expect(out).toContain('src/schema.ts:1: Budget is in no docs page');
 
     const named = studioChange(
-      { 'studio/content/docs/reference/config.mdx': '<Fields name="Bot" />\n' },
-      { 'src/schema.ts': schema, 'studio/content/docs/reference/config.mdx': '<Fields name="Budget" />\n' }
+      { 'docs/reference/config.md': 'See `Bot` in src/schema.ts.\n' },
+      { 'src/schema.ts': schema, 'docs/reference/config.md': 'See `Budget` in src/schema.ts.\n' }
     );
     expect(check('docs-sync.mjs', named)).toEqual({ ok: true, out: 'docs-sync: ok' });
   });
@@ -452,13 +452,13 @@ describe('docs-sync check', () => {
 
 describe('docs-mentions script', () => {
   it('prints the docs paragraphs that name an export the change touches, and no others', () => {
-    const docs = 'studio/content/docs/sandbox.mdx';
+    const docs = 'docs/sandbox.md';
     const code = '/** Env. */\nexport const cacheEnv = { A: 1 };\n\nexport const other = 2;\n';
     const repo = change(
       { 'src/box.ts': code, [docs]: 'Intro.\n\n<Sym name="cacheEnv" /> shares the target.\n\nAbout `other`.\n' },
       { 'src/box.ts': code.replace('A: 1', 'A: 2') }
     );
-    const { ok, out } = check('docs-mentions.mjs', repo, 'src/', 'studio/content/docs/');
+    const { ok, out } = check('docs-mentions.mjs', repo, 'src/', 'docs/');
     expect(ok).toBe(true);
     expect(out.split('\n').map(line => JSON.parse(line))).toEqual([
       {

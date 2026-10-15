@@ -194,18 +194,18 @@ describe('bothub hub checks', () => {
 
   it('flags dated or historical comments and symbol-laden docs lines a change adds', () => {
     const repo = change(
-      { 'src/a.ts': 'export const a = 1;\n', 'studio/content/docs/a.mdx': '# A\n' },
+      { 'src/a.ts': 'export const a = 1;\n', 'docs/a.md': '# A\n' },
       {
         'src/a.ts': 'export const a = 1;\n// renamed from b on 2026-10-12\nexport const b = 2;\n',
-        'studio/content/docs/a.mdx': '# A\n\n## Sending — the golden path\n\nFast · simple.\n',
+        'docs/a.md': '# A\n\n## Sending — the golden path\n\nFast · simple.\n',
       }
     );
     const { ok, out } = check(at('rules.mjs'), repo);
     expect(ok).toBe(false);
     expect(out).toContain('src/a.ts:2: a date');
     expect(out).toContain('src/a.ts:2: history in a comment');
-    expect(out).toContain('studio/content/docs/a.mdx:3: a heading with an em-dash suffix');
-    expect(out).toContain('studio/content/docs/a.mdx:5: a middle dot separator');
+    expect(out).toContain('docs/a.md:3: a heading with an em-dash suffix');
+    expect(out).toContain('docs/a.md:5: a middle dot separator');
 
     const clean = change({ 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': '// Plain.\nexport const a = 2;\n' });
     expect(check(at('rules.mjs'), clean)).toEqual({ ok: true, out: 'rules: ok' });

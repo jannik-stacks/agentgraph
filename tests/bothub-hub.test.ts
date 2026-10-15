@@ -847,7 +847,7 @@ describe('triage-brief', () => {
     expect(check(text)).toEqual({ ok: true, out: 'triage-brief: ok' });
     const outside = brief.replace('- `tests/labels.test.ts`', '- `bin/bothub.mjs`\n- `tests/labels.test.ts`');
     expect(findings(check(outside).out)).toEqual([
-      'bin/bothub.mjs is outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, studio/content/docs/, examples/, infra/local/sandbox/, infra/local/README.md); leave it out of scope or ask',
+      'bin/bothub.mjs is outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, docs/, examples/, infra/local/sandbox/, infra/local/README.md); leave it out of scope or ask',
     ]);
   });
 
@@ -890,7 +890,7 @@ describe('triage-brief', () => {
       return run('triage-brief.mjs', { dir, base: '' }, [join(dir, 'reply.md')], env);
     };
     expect(findings(at(brief).out)).toEqual([
-      'the issue\'s Done when names infra/compose.yaml, outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, studio/content/docs/, examples/, infra/local/sandbox/, infra/local/README.md); ask to allow it, or list it under "## Out of scope"',
+      'the issue\'s Done when names infra/compose.yaml, outside what the change may touch (src/, tests/, studio/src/, studio/seed.ts, docs/, examples/, infra/local/sandbox/, infra/local/README.md); ask to allow it, or list it under "## Out of scope"',
     ]);
     expect(at(`${brief.trimEnd()}\n- Follow-up: \`infra/compose.yaml\` once it is allowed.\n`)).toEqual({
       ok: true,
@@ -1213,12 +1213,12 @@ describe('slicers for the narrow judges', () => {
     const commented = [...code];
     commented.splice(30, 0, '// only a comment');
     const repo = change(
-      { 'src/a.ts': code.join('\n'), 'src/b.ts': code.join('\n'), 'studio/content/docs/a.mdx': '# A\n' },
+      { 'src/a.ts': code.join('\n'), 'src/b.ts': code.join('\n'), 'docs/a.md': '# A\n' },
       {
         'src/a.ts': edited.join('\n'),
         'src/b.ts': commented.join('\n'),
         'src/new.ts': 'export const n = 1;\n',
-        'studio/content/docs/a.mdx': '# A\n\n* a bullet\n',
+        'docs/a.md': '# A\n\n* a bullet\n',
       }
     );
     const found = items(run('hunks.mjs', repo, ['src/']).out);
@@ -1227,8 +1227,8 @@ describe('slicers for the narrow judges', () => {
       ['src/new.ts', 1],
     ]);
     expect(found[0]!.hunk).toContain('+export const v3 = 33;');
-    const docs = items(run('hunks.mjs', repo, ['studio/content/docs/']).out);
-    expect(docs.map(i => i.file)).toEqual(['studio/content/docs/a.mdx']);
+    const docs = items(run('hunks.mjs', repo, ['docs/']).out);
+    expect(docs.map(i => i.file)).toEqual(['docs/a.md']);
   });
 
   it("hunks: each hunk carries the brief's out-of-scope list", () => {

@@ -6,7 +6,7 @@ import { basename, extname } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { base, changedFiles, diffOf, report } from './changes.mjs';
 
-const roots = ['src', 'studio', 'examples', 'infra', 'bin'];
+const roots = ['src', 'studio', 'docs', 'examples', 'infra', 'bin'];
 const shown = 3;
 const word = /[A-Za-z_$][\w$]*(?:-[\w$]+)*|\d+|\S/g;
 /** A token that reads as a name rather than a word: camelCase, snake_case, kebab-case, or quoted in `row`. */

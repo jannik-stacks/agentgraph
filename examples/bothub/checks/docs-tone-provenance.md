@@ -4,9 +4,9 @@ description: A docs hunk says what bothub does, not where an idea came from.
 bot: reviewer
 minutes: 15
 over:
-  each: node "$BOTHUB_HUB/scripts/hunks.mjs" studio/content/docs/
+  each: node "$BOTHUB_HUB/scripts/hunks.mjs" docs/
 items: 10
-paths: [studio/content/docs/**]
+paths: [docs/**]
 mode: warn
 human: one question per check, safety-checks item 10 split of docs-tone; smart separates all 8 calibration hunks
 ---

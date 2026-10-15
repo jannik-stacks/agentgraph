@@ -2,7 +2,7 @@
 type: decide
 description: Each hub note that covers a hunk of the change is followed by it, one note and one hunk per question.
 over:
-  each: node "$BOTHUB_HUB/scripts/note-pairs.mjs" src/ studio/src/ tests/ studio/content/docs/
+  each: node "$BOTHUB_HUB/scripts/note-pairs.mjs" src/ studio/src/ tests/ docs/
 items: 40
 threshold: 0.5
 mode: log
