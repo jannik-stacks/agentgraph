@@ -1,4 +1,4 @@
-import { Chunk, Effect, Either, ParseResult, Schema, Stream } from 'effect';
+import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
 import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
 import type { Hub } from './hub.ts';
@@ -35,6 +35,22 @@ const ProposalSchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String })
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
+const shapes: Record<Proposal['kind'], string> = {
+  reply: '{"kind":"reply","body":"..."}',
+  label: '{"kind":"label","add":["..."],"remove":["..."]}',
+  push: '{"kind":"push","branch":"...","message":"..."}',
+  pull: '{"kind":"pull","branch":"...","into":"...","title":"...","body":"..."}',
+  merge: '{"kind":"merge","number":1,"head":"<sha>"}',
+  issue: '{"kind":"issue","title":"...","body":"...","parent":1}',
+  ask: '{"kind":"ask","question":"..."}',
+  back: '{"kind":"back","why":"..."}',
+};
+const shapeOf = (item: unknown) => {
+  const kind = (item as { kind?: unknown } | null)?.kind;
+  return typeof kind === 'string' && kind in shapes
+    ? `write it as ${shapes[kind as Proposal['kind']]}`
+    : `kind must be one of ${Object.keys(shapes).join(', ')}`;
+};
 const block = /^(`{3,}|~{3,})[ \t]*bothub[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
 
 /** The proposals in the last fenced `bothub` block of a reply: a JSON array. */
@@ -53,7 +69,7 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Proposal[];
   const problems: string[] = [];
   items.forEach((item, i) =>
     Either.match(decodeProposal(item), {
-      onLeft: e => problems.push(`proposal ${i + 1}: ${ParseResult.TreeFormatter.formatErrorSync(e)}`),
+      onLeft: () => problems.push(`proposal ${i + 1}: ${shapeOf(item)}`),
       onRight: p => proposals.push(p),
     })
   );
@@ -228,7 +244,11 @@ export const attempt = (
         w.branch && `Work on the branch ${expand(w.branch, thread)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         run.carry,
-        `End your reply with a fenced bothub block holding a JSON array of proposals. Kinds: ${kinds.join(', ')}.`,
+        [
+          'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
+          'opens pull requests and posts comments from them, so do not run git or gh yourself. One line per kind:',
+          ...kinds.map(k => shapes[k as Proposal['kind']]),
+        ].join('\n'),
       ]
         .filter(Boolean)
         .join('\n\n');
