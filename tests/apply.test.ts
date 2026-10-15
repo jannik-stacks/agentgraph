@@ -1,3 +1,4 @@
+import { generateKeyPairSync, verify } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { apply, noteFile } from '../src/apply.ts';
 import { appJwt, gh, githubApp, type Fetch } from '../src/github-app.ts';
@@ -56,10 +57,20 @@ describe('appJwt', () => {
     expect(valid).toBe(true);
   });
 
-  it('explains how to convert a PKCS#1 key', async () => {
-    const pkcs1 = '-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----';
-    await expect(appJwt({ appId: 1, privateKey: pkcs1 })).rejects.toThrow(/openssl pkcs8 -topk8 -nocrypt/);
-    await expect(appJwt({ appId: 1, privateKey: 'nope' })).rejects.toThrow(/BEGIN PRIVATE KEY/);
+  it('takes the PKCS#1 key GitHub hands out and rejects anything else', async () => {
+    const { privateKey: pkcs1, publicKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+    expect(pkcs1).toContain('BEGIN RSA PRIVATE KEY');
+    const [header, claims, signature] = (await appJwt({ appId: 1, privateKey: pkcs1 })).split('.') as string[];
+    expect(verify('sha256', Buffer.from(`${header}.${claims}`), publicKey, Buffer.from(signature!, 'base64url'))).toBe(
+      true
+    );
+    await expect(appJwt({ appId: 1, privateKey: 'nope' })).rejects.toThrow('must be a PEM private key');
+    const ec = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+    await expect(appJwt({ appId: 1, privateKey: ec as string })).rejects.toThrow('must be an RSA key');
   });
 });
 

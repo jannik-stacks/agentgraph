@@ -1,3 +1,5 @@
+import { createPrivateKey, sign, type KeyObject } from 'node:crypto';
+
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** A GitHub REST call: resolves to the parsed JSON body, throws a `GitHubError` on a non-2xx response. */
@@ -8,7 +10,6 @@ export type GitHubError = Error & { status: number };
 export type AppCredentials = { appId: string | number; privateKey: string };
 
 const api = 'https://api.github.com';
-const encoder = new TextEncoder();
 
 /** A REST client authenticated with `token` (an installation token or an app JWT). */
 export const gh =
@@ -33,32 +34,26 @@ export const gh =
     return (text ? JSON.parse(text) : undefined) as T;
   };
 
-const base64url = (bytes: Uint8Array | string) =>
-  btoa(typeof bytes === 'string' ? bytes : String.fromCharCode(...bytes))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+const base64url = (data: string | Buffer) => Buffer.from(data).toString('base64url');
 
-const importKey = (pem: string) => {
-  if (pem.includes('BEGIN RSA PRIVATE KEY'))
-    throw new Error(
-      'GitHub App private key is PKCS#1; convert it to PKCS#8 with `openssl pkcs8 -topk8 -nocrypt -in key.pem -out key.pkcs8.pem`'
-    );
-  const body = /-----BEGIN PRIVATE KEY-----([\s\S]+?)-----END PRIVATE KEY-----/.exec(pem)?.[1];
-  if (!body) throw new Error('GitHub App private key must be a PEM "BEGIN PRIVATE KEY" block');
-  const der = Uint8Array.from(atob(body.replace(/\s+/g, '')), c => c.charCodeAt(0));
-  return crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+const rsaKey = (pem: string): KeyObject => {
+  let key: KeyObject;
+  try {
+    key = createPrivateKey(pem);
+  } catch {
+    throw new Error('GitHub App private key must be a PEM private key');
+  }
+  if (key.asymmetricKeyType !== 'rsa') throw new Error('GitHub App private key must be an RSA key');
+  return key;
 };
 
-/** Signs a short-lived RS256 JWT that authenticates as the GitHub App. */
+/** Signs a short-lived RS256 JWT that authenticates as the GitHub App. Takes the PKCS#1 key GitHub hands out, or PKCS#8. */
 export const appJwt = async ({ appId, privateKey }: AppCredentials, now = Date.now()): Promise<string> => {
   const iat = Math.floor(now / 1000) - 60;
   const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claims = base64url(JSON.stringify({ iat, exp: iat + 600, iss: String(appId) }));
   const input = `${header}.${claims}`;
-  const key = await importKey(privateKey);
-  const signature = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, encoder.encode(input)));
-  return `${input}.${base64url(signature)}`;
+  return `${input}.${base64url(sign('sha256', Buffer.from(input), rsaKey(privateKey)))}`;
 };
 
 /** Issues installation tokens for a GitHub App, reusing each until a minute before it expires. */
@@ -66,17 +61,21 @@ export const githubApp = (
   credentials: AppCredentials,
   { fetch: fetcher = globalThis.fetch, now = Date.now }: { fetch?: Fetch; now?: () => number } = {}
 ) => {
-  const cache = new Map<number, { token: string; expires: number }>();
-  const installationToken = async (installationId: number): Promise<string> => {
-    const cached = cache.get(installationId);
-    if (cached && cached.expires - 60_000 > now()) return cached.token;
+  const cache = new Map<number, Promise<{ token: string; expires: number }>>();
+  const mint = async (installationId: number) => {
     const jwt = await appJwt(credentials, now());
     const { token, expires_at } = await gh(jwt, fetcher)<{ token: string; expires_at: string }>(
       'POST',
       `/app/installations/${installationId}/access_tokens`
     );
-    cache.set(installationId, { token, expires: Date.parse(expires_at) });
-    return token;
+    return { token, expires: Date.parse(expires_at) };
+  };
+  const installationToken = async (installationId: number): Promise<string> => {
+    const cached = await cache.get(installationId)?.catch(() => undefined);
+    if (cached && cached.expires - 60_000 > now()) return cached.token;
+    const minted = mint(installationId);
+    cache.set(installationId, minted);
+    return (await minted).token;
   };
   const installations = new Map<string, Promise<number>>();
   const installation = (repo: string): Promise<number> => {
