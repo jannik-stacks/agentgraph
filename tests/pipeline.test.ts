@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect, Fiber, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -2347,6 +2348,20 @@ describe('over', () => {
       'Checks could not run, so the change is held: tests could not run (sandbox-failed: the sandbox is down). Nothing went back to the bot. Comment `/bothub` to run them again.';
     expect(result.outcome?.accepted).toEqual([{ kind: 'ask', question }]);
     expect(result.run).toMatchObject({ status: 'succeeded', closure: 'blocked' });
+  });
+
+  it('runs a check once more when it stalls, before asking a human', async () => {
+    const { calls, launch } = recording();
+    const marker = join(mkdtempSync(join(tmpdir(), 'bothub-stall-')), 'ran');
+    const script = `[ -f ${marker} ] && exit 0; touch ${marker}; exec sleep 5`;
+    const { result } = await run(
+      hubWith([{ name: 'tests', data: { type: 'script', run: script, mode: 'block' } }]),
+      { work, message: bothub([{ kind: 'reply', body: 'Done.' }]) },
+      {},
+      { launch, stallMinutes: 0.01 }
+    );
+    expect(calls.filter(call => call.startsWith('script'))).toHaveLength(2);
+    expect(result.outcome?.checks?.[0]).toMatchObject({ pass: true });
   });
 
   it('asks a human when a check run fails, instead of handing off', async () => {

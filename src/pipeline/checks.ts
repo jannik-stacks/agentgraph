@@ -9,7 +9,7 @@ import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.t
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
 import { answersAfterBrief, issueContext } from '../preload.ts';
 import { repoFor } from '../repo-guidance.ts';
-import { providerLimit, resetOf, runScript, type ScriptResult } from '../runner.ts';
+import { providerLimit, resetOf, runScript, type ScriptAccess, type ScriptResult } from '../runner.ts';
 import type { Check, Job, MergeSection, Over } from '../schema.ts';
 import type { Run, Verdict } from '../store.ts';
 import { type Pipeline, agent, issuesOf, launcher } from './context.ts';
@@ -131,9 +131,23 @@ export const itemSection = (over: Over, item: Item) => {
   return `## ${title}\n\n${fenced(item.text)}`;
 };
 
+/** `runScript` for a check: stalls stop it, and one that timed out or stalled runs once more. */
+const checkScript = async (
+  script: string,
+  cwd: string,
+  timeout: number,
+  env: Record<string, string>,
+  p: Pipeline,
+  access: ScriptAccess & { input?: string }
+) => {
+  const once = () => runScript(script, cwd, timeout, env, launcher(p), { ...access, stallMinutes: p.stallMinutes ?? 10 });
+  const result = await once();
+  return result.stopped === 'timeout' || result.stopped === 'stalled' ? once() : result;
+};
+
 /** The item as a script sees it: in `BOTHUB_ITEM` and on stdin, with the worktree read-only when `readonly`. */
 export const runOnItem = (script: string, item: Item, scope: Scope, p: Pipeline, readonly = false) =>
-  runScript(script, scope.cwd, scope.timeout, { ...scope.env, BOTHUB_ITEM: item.text }, launcher(p), {
+  checkScript(script, scope.cwd, scope.timeout, { ...scope.env, BOTHUB_ITEM: item.text }, p, {
     hub: p.hub,
     input: item.text,
     readonly,
@@ -329,7 +343,7 @@ const judgeCheck = (check: Defined<Check>, a: Attempt, p: Pipeline, prepared?: P
     if (check.type === 'script' && !fanOut(check.over)) {
       const access = { hub: p.hub, readonly: true };
       const result = yield* Effect.promise(() =>
-        runScript(check.run, a.cwd, scope.timeout, scope.env, launcher(p), access)
+        checkScript(check.run, a.cwd, scope.timeout, scope.env, p, access)
       );
       return done(scriptVerdict(result));
     }
@@ -563,7 +577,7 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
       const access = { hub: p.hub, readonly: true };
       const fresh = async () => {
         tree ??= p.workspaces.create({ repo: p.event.repo, ref: a.base }, id).then(({ path }) => path);
-        const v = scriptVerdict(await runScript(run, await tree, timeout, scriptEnv(a, p), launcher(p), access));
+        const v = scriptVerdict(await checkScript(run, await tree, timeout, scriptEnv(a, p), p, access));
         if (file && !v.blocked) {
           await mkdir(dirname(file), { recursive: true });
           await writeFile(file, JSON.stringify(v)).catch(() => {});
