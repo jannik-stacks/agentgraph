@@ -35,10 +35,10 @@ describe('setupApp', () => {
     const sent = JSON.parse(/value="([^"]+)"/.exec(page)![1]!.replace(/&quot;/g, '"'));
     expect(sent).toMatchObject({
       public: false,
-      hook_attributes: { active: false },
       redirect_url: `${base}/created`,
       default_permissions: { contents: 'write', pull_requests: 'write', issues: 'write', metadata: 'read' },
     });
+    expect(sent).not.toHaveProperty('hook_attributes');
     expect(page).toContain('action="https://github.com/settings/apps/new?state=');
 
     expect((await globalThis.fetch(`${base}/created?code=c1&state=wrong`)).status).toBe(400);

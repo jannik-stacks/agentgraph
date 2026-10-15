@@ -10,7 +10,6 @@ import type { Fetch } from './github-app.ts';
 export const manifest = (name: string, base: string) => ({
   name,
   url: 'https://github.com',
-  hook_attributes: { url: `${base}/`, active: false },
   redirect_url: `${base}/created`,
   setup_url: `${base}/installed`,
   setup_on_update: false,
