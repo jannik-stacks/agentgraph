@@ -38,6 +38,7 @@ jobs:
         - coverage
         - code-shape
         - unused-exports
+        - shape
         - propagation
         - enum-copy
         - docs-sync
