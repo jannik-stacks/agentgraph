@@ -25,17 +25,27 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
   detail: string;
 }> {}
 
-/** Where a run's worktree lives and where its scripts and harnesses run. Docker, or the host in tests. */
+/**
+ * Where a run's worktree lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
+ * checkout picks up the files last kept under that ref, on the base they were made on, and keeps its own files there
+ * as one local commit when its scope closes.
+ */
 export class Sandbox extends Context.Tag('bothub/Sandbox')<
   Sandbox,
   {
-    checkout: (ref: string, branch?: string) => Effect.Effect<{ dir: string; base: string }, SandboxError, Scope.Scope>;
+    checkout: (
+      ref: string,
+      branch?: string,
+      keep?: string
+    ) => Effect.Effect<{ dir: string; base: string }, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string, SandboxError, Scope.Scope>;
   }
 >() {}
 
 const git = promisify(execFile);
+
+const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
 const spawned = (command: Command) =>
   spawn(command.cmd, command.args, {
@@ -55,26 +65,39 @@ const late = (command: Command) =>
 /** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules; for tests. */
 export const host = (repo: string): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
-    checkout: (ref, branch) =>
-      Effect.acquireRelease(
+    checkout: (ref, branch, keep) => {
+      const work = async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'bothub-work-'));
+        const run = (...args: string[]) => git('git', args, { cwd: dir }).then(r => r.stdout.trim());
+        await git('git', ['clone', '-q', repo, dir]);
+        const base = await run('rev-parse', '--verify', `origin/${ref}`).catch(() => run('rev-parse', '--verify', ref));
+        const kept = keep
+          ? await run('fetch', '-q', 'origin', `+${keep}:${keep}`).then(
+              () => run('rev-parse', keep),
+              () => ''
+            )
+          : '';
+        const remote = branch ? await run('rev-parse', '--verify', `origin/${branch}`).catch(() => '') : '';
+        const from = kept ? await run('rev-parse', '--verify', `${kept}^`) : remote || base;
+        await run('checkout', '-q', ...(branch ? ['-B', branch] : ['--detach']), from);
+        if (kept) await run('read-tree', '-u', '--reset', kept);
+        return { dir, base, run, from, kept };
+      };
+      return Effect.acquireRelease(
         Effect.tryPromise({
-          try: async () => {
-            const dir = await mkdtemp(join(tmpdir(), 'bothub-work-'));
-            const run = (...args: string[]) => git('git', args, { cwd: dir }).then(r => r.stdout.trim());
-            await git('git', ['clone', '-q', repo, dir]);
-            const base = await run('rev-parse', '--verify', `origin/${ref}`).catch(() =>
-              run('rev-parse', '--verify', ref)
-            );
-            if (branch) {
-              const remote = await run('rev-parse', '--verify', `origin/${branch}`).catch(() => undefined);
-              await run('checkout', '-q', '-B', branch, remote ?? base);
-            } else await run('checkout', '-q', '--detach', base);
-            return { dir, base };
-          },
+          try: work,
           catch: e => new SandboxError({ reason: 'infra', detail: `checkout ${ref}: ${(e as Error).message}` }),
         }),
-        ({ dir }) => Effect.promise(() => rm(dir, { recursive: true, force: true }))
-      ),
+        ({ dir, run, from, kept }) =>
+          Effect.tryPromise(async () => {
+            if (!keep) return;
+            await run('add', '-A');
+            const parents = ['-p', from, ...(kept ? ['-p', kept] : [])];
+            const commit = await run(...ident, 'commit-tree', await run('write-tree'), ...parents, '-m', keep);
+            await run('push', '-q', 'origin', `+${commit}:${keep}`);
+          }).pipe(Effect.ignoreLogged, Effect.zipRight(Effect.promise(() => rm(dir, { recursive: true, force: true }))))
+      ).pipe(Effect.map(({ dir, base }) => ({ dir, base })));
+    },
     exec: command =>
       Effect.async<Exit, SandboxError>(resume => {
         const child = spawned(command);

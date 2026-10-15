@@ -195,6 +195,25 @@ describe('docker checkout', () => {
     expect(existsSync(join(data, 'mirror.git', 'HEAD'))).toBe(true);
   }, 30_000);
 
+  it('keeps the files under the keep ref through a fetch and puts them back on the next checkout', async () => {
+    const data = tmp('data');
+    const layer = docker({ data, origin: origin() });
+    const keep = 'refs/bothub/runs/r1';
+    const first = await use(layer, s =>
+      Effect.map(s.checkout('main', 'feature', keep), c => writeFileSync(join(c.dir, 'b.txt'), 'kept\n'))
+    );
+    expect(Exit.isSuccess(first)).toBe(true);
+    const second = await use(layer, s =>
+      Effect.map(s.checkout('main', undefined, keep), c => [
+        readFileSync(join(c.dir, 'a.txt'), 'utf8').trim(),
+        readFileSync(join(c.dir, 'b.txt'), 'utf8').trim(),
+        c.base === git(c.dir, 'rev-parse', 'refs/heads/feature'),
+      ])
+    );
+    expect(second).toEqual(Exit.succeed(['feature', 'kept', true]));
+    expect(git(join(data, 'mirror.git'), 'rev-list', '--count', keep)).toBe('4');
+  }, 30_000);
+
   it('fails for a ref that does not exist', async () => {
     const exit = await use(docker({ data: tmp('data'), origin: origin() }), s => s.checkout('nope'));
     expect(JSON.stringify(exit)).toContain('no commit for nope');

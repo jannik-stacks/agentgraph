@@ -12,6 +12,9 @@ const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
 const inside = { work: '/work', home: '/home/agent', tmp: '/tmp' };
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
+/** Refs bothub writes into the mirror itself; the fetch leaves them alone. */
+const ours = '^refs/bothub/*';
+const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
 
@@ -219,13 +222,13 @@ export const docker = (o: {
           return { code, output } satisfies Exit;
         });
 
-      const checkout = (ref: string, branch?: string) =>
+      const checkout = (ref: string, branch?: string, keep?: string) =>
         Effect.gen(function* () {
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
               const exists = yield* Effect.promise(() => readFile(join(mirror, 'HEAD')).then(() => true, () => false));
               const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
-              if (exists) yield* run('git', ['-C', mirror, 'fetch', '--prune', 'origin'], env);
+              if (exists) yield* run('git', ['-C', mirror, 'fetch', '--prune', 'origin', '+refs/*:refs/*', ours], env);
               else {
                 yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
                 yield* run('git', ['clone', '--mirror', o.origin, mirror], env);
@@ -236,13 +239,31 @@ export const docker = (o: {
             run('git', ['-C', mirror, 'rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(
               Effect.orElseSucceed(() => '')
             );
+          const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
-          const rev = own || (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
+          const rev = saved
+            ? yield* verify(`${saved}^`)
+            : own || (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           if (!rev) return yield* infra(`no commit for ${ref}`);
           const dir = join(o.data, 'work', randomBytes(6).toString('hex'));
+          const save = (name: string) =>
+            Effect.gen(function* () {
+              yield* run('git', ['-C', dir, 'add', '-A']);
+              const tree = yield* run('git', ['-C', dir, 'write-tree']);
+              const parents = ['-p', rev, ...(saved ? ['-p', saved] : [])];
+              const commit = yield* run('git', ['-C', dir, ...ident, 'commit-tree', tree, ...parents, '-m', name]);
+              yield* run('git', ['-C', dir, 'update-ref', name, commit]);
+            }).pipe(Effect.ignoreLogged);
           yield* Effect.acquireRelease(
-            lock.withPermits(1)(run('git', ['-C', mirror, 'worktree', 'add', '--detach', dir, rev])),
-            () => lock.withPermits(1)(run('git', ['-C', mirror, 'worktree', 'remove', '--force', dir]).pipe(Effect.ignore))
+            Effect.zipRight(
+              lock.withPermits(1)(run('git', ['-C', mirror, 'worktree', 'add', '--detach', dir, rev])),
+              saved ? run('git', ['-C', dir, 'read-tree', '-u', '--reset', saved]) : Effect.void
+            ),
+            () =>
+              Effect.zipRight(
+                keep ? save(keep) : Effect.void,
+                lock.withPermits(1)(run('git', ['-C', mirror, 'worktree', 'remove', '--force', dir]).pipe(Effect.ignore))
+              )
           );
           return { dir, base: rev };
         });

@@ -256,6 +256,31 @@ describe('tick', () => {
     expect(specs).toHaveLength(2);
     expect(specs[1]!.prompt).toContain('@morgan: /bothub once more');
   }, 30_000);
+
+  it('keeps the worktree files of a parked run and puts them back when it reenters', async () => {
+    const where = world();
+    const flow = small.workflows.issue!;
+    const { run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Hello or hi?' })],
+      [start('a'), write('bye.txt', 'bye\n'), reply(push)],
+    ]);
+    const kept = 'refs/bothub/runs/run-7';
+    const [asked, done, saved] = await run(
+      Effect.gen(function* () {
+        const asked = yield* drive(flow, begin(flow, { id: 'run-7', thread: 7, started: fresh().started }), small);
+        const saved = git(where.origin, 'show', `${kept}:hello.txt`);
+        return [asked, yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small), saved];
+      })
+    );
+    expect(asked).toMatchObject({ step: 'implement', status: 'asking', reason: 'Hello or hi?' });
+    expect(done).toMatchObject({ status: 'done' });
+    expect(saved).toBe('hello');
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(git(where.origin, 'show', 'bothub/7:bye.txt')).toBe('bye');
+    expect(git(where.origin, 'log', '--format=%s', 'main..bothub/7')).toBe('Add hello');
+    expect(git(where.origin, 'rev-parse', `${kept}^`)).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(git(where.origin, 'show', `${kept}^2:hello.txt`)).toBe('hello');
+  }, 30_000);
 });
 
 describe('start with one issue', () => {

@@ -349,7 +349,10 @@ export const land = (run: Run, proposals: Proposal[], dir?: string): Effect.Effe
     )
   );
 
-/** attempt, transition and persist until the run is no longer running. An infra failure stops the run with its reason. */
+/**
+ * attempt, transition and persist until the run is no longer running. An infra failure stops the run with its reason.
+ * The worktree's files are kept under `refs/bothub/runs/<run id>`, so a parked run picks up where it left off.
+ */
 export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -380,7 +383,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       yield* store.put(current);
       const thread = yield* forge.thread(run.thread);
       const ref = thread.pull?.branch ?? expand(w.into ?? 'main', thread);
-      const work = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, w.branch && expand(w.branch, thread)));
+      const work = yield* Effect.flatMap(Sandbox, s =>
+        s.checkout(ref, w.branch && expand(w.branch, thread), `refs/bothub/runs/${run.id}`)
+      );
       while (current.status === 'running') {
         const tried = yield* attempt(w, current, hub, work);
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
