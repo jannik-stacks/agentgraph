@@ -178,7 +178,6 @@ const attempts = (
       { bot: bot.path, skills: [...(bot.skills ?? []), job.skill], tools: built.spec.tools, mcp: !!built.spec.mcp },
       repo
     );
-    yield* Effect.promise(() => p.store.update(first.id, { loaded: items }));
     const target: Target = { ...(branch && { branch }), ...(into && { into }) };
     const kinds = returnKinds(returns);
     const defaultBranch = yield* Effect.promise(() => defaultBranchFor(kinds, p));
@@ -219,6 +218,7 @@ const attempts = (
               attempt,
             })
           );
+      yield* Effect.promise(() => p.store.update(current.id, { loaded: items }));
       const spec = { ...built.spec, prompt, ...(session && { session }) };
       const recheck = reuse && !item ? worktree.recheck : undefined;
       reuse = false;
