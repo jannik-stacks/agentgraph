@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { access, copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { botEnv, git } from './git.ts';
+import { gh, type GitHub } from './github-app.ts';
+import { pushCommits } from './github-commits.ts';
 import { checkPaths, type Proposal } from './outputs.ts';
 import type { BotEvent } from './types.ts';
 
@@ -31,19 +33,28 @@ export const parkedBranch = (branch: string, runId: string) => `${branch}-parked
 /** Where the worktree for a run lives. */
 export const worktreePath = (dataDir: string, runId: string) => join(dataDir, 'work', runId);
 
+const onGitHub = (url: string) => url.startsWith('https://github.com/');
+
 /**
  * Git workspaces under `dataDir`: one bare mirror per repository in `repos/<owner>/<repo>.git`, refreshed
  * before each run, and one detached worktree per run in `work/<runId>`. A token, when given, is sent as an
- * auth header through the environment, so it is neither in argv nor in the mirror's config.
+ * auth header through the environment, so it is neither in argv nor in the mirror's config. Branches go to GitHub
+ * through the API client from `github` (by default one with the token) so GitHub signs the commits; other remotes
+ * get a `git push`.
  */
 export const workspaces = ({
   dataDir,
   cloneUrl = repo => `https://github.com/${repo}.git`,
   token,
+  github = async repo => {
+    const value = onGitHub(cloneUrl(repo)) ? await token?.(repo) : undefined;
+    return value ? gh(value) : undefined;
+  },
 }: {
   dataDir: string;
   cloneUrl?: (repo: string) => string;
   token?: (repo: string) => Promise<string | undefined>;
+  github?: (repo: string) => Promise<GitHub | undefined>;
 }) => {
   const queues = new Map<string, Promise<unknown>>();
   const serial = <T>(repo: string, task: () => Promise<T>) => {
@@ -66,6 +77,30 @@ export const workspaces = ({
       GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
       GIT_CONFIG_VALUE_0: `Authorization: basic ${basic}`,
     };
+  };
+
+  /**
+   * Sends a worktree's `HEAD` to `branch` without forcing, or replacing it only while it is at `replace`. Through the
+   * API, the worktree and the mirror branch then point at the commit GitHub made, which has the same tree.
+   */
+  const send = async (
+    repo: string,
+    path: string,
+    branch: string,
+    { replace, committed }: { replace?: string; committed?: (sha: string) => Promise<unknown> } = {}
+  ) => {
+    const run = (args: string[], env?: Record<string, string>) => git(path, args, env);
+    const ref = `refs/heads/${branch}`;
+    const client = await github(repo);
+    if (!client) {
+      await committed?.(await run(['rev-parse', 'HEAD']));
+      const lease = replace ? [`--force-with-lease=${ref}:${replace}`] : [];
+      await run(['push', '-q', ...lease, cloneUrl(repo), `HEAD:${ref}`], await auth(repo));
+      return;
+    }
+    const head = await pushCommits(client, { repo, cwd: path, branch, ...(replace && { replace }), ...(committed && { committed }) });
+    await run(['fetch', '-q', '--update-head-ok', cloneUrl(repo), `+${ref}:${ref}`], await auth(repo));
+    await run(['reset', '-q', '--soft', head]);
   };
 
   const sync = (repo: string) =>
@@ -127,7 +162,7 @@ export const workspaces = ({
    * is committed whole with both parents once no conflicting file keeps a marker; then every file the branch changes
    * against the merged-in tip must be allowed by `paths`; with `named`, the text of the issue, a guidance file it
    * does not name may not change. The latest work parked for the branch (see `parkedBranch`)
-   * that the run builds on counts as already listed. Reports the commit to `committed` before pushing it; when the
+   * that the run builds on counts as already listed. Reports the commit to `committed` before the branch moves; when the
    * remote branch is already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it
    * refused.
    */
@@ -159,7 +194,7 @@ export const workspaces = ({
     const run = (args: string[], env?: Record<string, string>) => git(path, args, env);
     const ref = `refs/heads/${branch}`;
     const origin = cloneUrl(repo);
-    const url = origin.startsWith('https://github.com/')
+    const url = onGitHub(origin)
       ? `https://github.com/${repo}/tree/${branch}`
       : `${origin}#${branch}`;
     if (expected) {
@@ -219,9 +254,7 @@ export const workspaces = ({
       }
     }
 
-    await committed?.(await run(['rev-parse', 'HEAD']));
-    const lease = replace ? [`--force-with-lease=${ref}:${replace}`] : [];
-    await run(['push', '-q', ...lease, origin, `HEAD:${ref}`], await auth(repo));
+    await send(repo, path, branch, { ...(replace && { replace }), ...(committed && { committed }) });
     return url;
   };
 
@@ -230,10 +263,11 @@ export const workspaces = ({
    * With `push` false the branch stays in the mirror only.
    */
   const park = async (repo: string, runId: string, branch: string, message: string, push = true) => {
-    const run = (args: string[], env?: Record<string, string>) => git(worktreePath(dataDir, runId), args, env);
+    const path = worktreePath(dataDir, runId);
+    const run = (args: string[], env?: Record<string, string>) => git(path, args, env);
     await run(['add', '-A']);
     await run(['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', message], botEnv);
-    if (push) await run(['push', '-q', cloneUrl(repo), `HEAD:refs/heads/${branch}`], await auth(repo));
+    if (push) await send(repo, path, branch);
     await run(['update-ref', `refs/heads/${branch}`, 'HEAD']);
   };
 

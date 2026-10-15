@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { gh } from '../src/github-app.ts';
 import { workspaces } from '../src/workspace.ts';
+import { fakeGitHub } from './github-fake.ts';
 import { commit, git, sourceRepo, temp } from './kit.ts';
 
 const setup = () => {
@@ -295,5 +297,48 @@ describe('workspaces.publish', () => {
     commit(path, { '.github/workflows/ci.yml': 'on: push\n' });
     await expect(publish(['.github/workflows/ci.yml'])).rejects.toThrow('is a GitHub workflow');
     await expect(publish(['.github/workflows/ci.yml'], ['.github/workflows/*.yml'])).resolves.toContain('bothub/7');
+  });
+});
+
+describe('workspaces through the GitHub API', () => {
+  const started = async () => {
+    const origin = sourceRepo();
+    const github = fakeGitHub(origin.dir);
+    const dataDir = temp('data');
+    const ws = workspaces({ dataDir, cloneUrl: () => origin.dir, github: async () => gh('t', github.fetch) });
+    const { path, base } = await ws.create({ repo: 'acme/app' }, 'run-1');
+    return { origin, github, ws, path, base, mirror: join(dataDir, 'repos', 'acme', 'app.git') };
+  };
+
+  it('pushes through the API as the App and points the worktree and mirror at the commit GitHub made', async () => {
+    const { origin, github, ws, path, base, mirror } = await started();
+    git(path, 'checkout', '-qb', 'bothub/7');
+    commit(path, { 'a.ts': 'a\n' });
+    writeFileSync(join(path, 'b.ts'), 'b\n');
+    const seen: string[] = [];
+    const options = { branch: 'bothub/7', files: ['a.ts', 'b.ts'], message: 'bothub: fix', base };
+    await ws.publish('acme/app', 'run-1', { ...options, committed: async sha => seen.push(sha) });
+    const pushed = git(origin.dir, 'rev-parse', 'bothub/7');
+    expect(seen).toEqual([pushed]);
+    expect(git(origin.dir, 'log', '-1', '--format=%an %s', 'bothub/7')).toBe('app[bot] bothub: fix');
+    expect(git(origin.dir, 'ls-tree', '--name-only', 'bothub/7').split('\n')).toEqual(['README.md', 'a.ts', 'b.ts']);
+    expect(git(path, 'rev-parse', 'HEAD')).toBe(pushed);
+    expect(git(mirror, 'rev-parse', 'refs/heads/bothub/7')).toBe(pushed);
+    expect(git(path, 'status', '--porcelain')).toBe('');
+    expect(github.calls.some(c => c.method === 'POST' && c.path === '/git/refs')).toBe(true);
+
+    commit(path, { 'a.ts': 'changed\n' });
+    const before = github.calls.length;
+    await ws.publish('acme/app', 'run-1', { ...options, files: ['a.ts'], expected: pushed });
+    expect(github.calls).toHaveLength(before);
+    expect(git(origin.dir, 'rev-parse', 'bothub/7')).toBe(pushed);
+  });
+
+  it('parks work through the API', async () => {
+    const { origin, ws, path } = await started();
+    writeFileSync(join(path, 'wip.txt'), 'wip\n');
+    await ws.park('acme/app', 'run-1', 'bothub/7-parked-run-1', 'bothub: x (parked)');
+    expect(git(origin.dir, 'log', '-1', '--format=%an %s', 'bothub/7-parked-run-1')).toBe('app[bot] bothub: x (parked)');
+    expect(git(path, 'rev-parse', 'HEAD')).toBe(git(origin.dir, 'rev-parse', 'bothub/7-parked-run-1'));
   });
 });
