@@ -114,13 +114,20 @@ const checkBranch = (branch: string) =>
     ? undefined
     : `branch "${branch}" must be a plain name under "bothub/"`;
 
-/** Why one of `files` escapes the repository, is a GitHub workflow `globs` do not name, or falls outside `globs`. */
-export const checkPaths = (files: string[], globs: string[] | undefined) => {
+const guidanceFiles = ['AGENTS.md', 'CLAUDE.md', '.agents/**', '.claude/**'];
+
+/**
+ * Why one of `files` escapes the repository, is a GitHub workflow `globs` do not name, falls outside `globs`, or is a
+ * guidance file that `named`, the text of the issue, does not name. Without `named`, guidance files are not checked.
+ */
+export const checkPaths = (files: string[], globs: string[] | undefined, named?: string) => {
   const workflows = globs?.some(glob => glob.startsWith('.github/workflows')) ?? false;
   for (const file of files) {
     if (file.startsWith('/') || file.split('/').includes('..')) return `path "${file}" escapes the repository`;
     if (file.startsWith('.github/workflows/') && !workflows)
       return `path "${file}" is a GitHub workflow, which a job changes only when its paths name .github/workflows`;
+    if (named !== undefined && !named.includes(file) && guidanceFiles.some(glob => matchGlob(glob, file)))
+      return `path "${file}" is agent guidance, which a job changes only when the issue names the file`;
     if (globs && !globs.some(glob => matchGlob(glob, file))) return `path "${file}" is outside the allowed paths`;
   }
 };

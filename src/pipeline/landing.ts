@@ -20,6 +20,14 @@ const kindsOf = (outcome: Outcome) =>
     ? outcome.results.filter(result => result.status === 'applied').map(result => result.kind)
     : outcome.accepted.map(proposal => proposal.kind);
 
+/** What humans wrote on the event's issue, and the event's own text: what a change may name to touch guidance files. */
+const issueText = async (p: Pipeline) => {
+  const { number, body } = p.event;
+  const issue = number === undefined ? undefined : await issuesOf(p)?.get(number).catch(() => undefined);
+  const comments = (issue?.comments ?? []).filter(c => !c.author.endsWith('[bot]')).map(c => c.body);
+  return [body, issue?.title, issue?.body, ...comments].filter(Boolean).join('\n');
+};
+
 export const closed = (closure: Closure, reason?: string): Pick<Run, 'closure' | 'reason'> => ({
   closure,
   ...(reason && { reason }),
@@ -125,10 +133,11 @@ export const settle = async (
     );
   if (run.status === 'succeeded' && writes.some(proposal => proposal.kind === 'merge'))
     await p.store.update(run.id, { status: 'running' });
-  const push: Parameters<typeof apply>[1]['push'] = ({ kind: _, ...proposal }, journal) =>
+  const push: Parameters<typeof apply>[1]['push'] = async ({ kind: _, ...proposal }, journal) =>
     workspaces.publish(event.repo, a.worktree, {
       ...proposal,
       ...(paths && { paths }),
+      named: await issueText(p),
       message: `bothub: ${run.job}`,
       base: a.base,
       ...(a.replace && { replace: a.replace }),

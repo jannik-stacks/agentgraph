@@ -1709,7 +1709,7 @@ describe('memory', () => {
           'tools: [read, notes_search, history]',
           'returns: [reply, note, hub(notes/**)]',
           'preload: [{ recall: { cutoff: 0.4, budget: 900 } }]',
-          'resume: summary',
+          'context: summary',
           'history: hub',
           'summarizer: extractive',
         ].join('\n'),

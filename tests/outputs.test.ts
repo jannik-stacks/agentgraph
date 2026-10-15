@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractProposals, matchGlob, Proposal, validate } from '../src/outputs.ts';
+import { checkPaths, extractProposals, matchGlob, Proposal, validate } from '../src/outputs.ts';
 import { ProposalKind, type Return } from '../src/schema.ts';
 
 const fence = (body: string, info = 'bothub') => `\`\`\`${info}\n${body}\n\`\`\``;
@@ -107,6 +107,16 @@ describe('validate', () => {
     expect(anywhere(['.github/workflows/ci.yml'])).toMatch(/is a GitHub workflow/);
     expect(anywhere(['.github/workflows/ci.yml'], ['**'])).toMatch(/is a GitHub workflow/);
     expect(anywhere(['.github/workflows/ci.yml'], ['.github/workflows/**'])).toBeUndefined();
+  });
+
+  it('keeps guidance files out of a change unless the issue names them', () => {
+    const files = ['src/a.ts', 'AGENTS.md', '.claude/skills/x/SKILL.md'];
+    expect(checkPaths(files, undefined)).toBeUndefined();
+    expect(checkPaths(files, undefined, 'Fix a')).toBe(
+      'path "AGENTS.md" is agent guidance, which a job changes only when the issue names the file'
+    );
+    expect(checkPaths(files, undefined, 'Update AGENTS.md')).toMatch(/"\.claude\/skills\/x\/SKILL.md" is agent guidance/);
+    expect(checkPaths(files, undefined, 'Edit AGENTS.md and .claude/skills/x/SKILL.md')).toBeUndefined();
   });
 
   it('always allows a close and keeps the approved label for humans', () => {

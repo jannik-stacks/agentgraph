@@ -125,7 +125,8 @@ export const workspaces = ({
    * branch moves it forward. With `replace`, the branch is replaced instead, only while it is still at that commit.
    * A merge in progress
    * is committed whole with both parents once no conflicting file keeps a marker; then every file the branch changes
-   * against the merged-in tip must be allowed by `paths`. The latest work parked for the branch (see `parkedBranch`)
+   * against the merged-in tip must be allowed by `paths`; with `named`, the text of the issue, a guidance file it
+   * does not name may not change. The latest work parked for the branch (see `parkedBranch`)
    * that the run builds on counts as already listed. Reports the commit to `committed` before pushing it; when the
    * remote branch is already at `expected`, nothing is pushed. Resolves to the branch URL; throws with the reason it
    * refused.
@@ -137,6 +138,7 @@ export const workspaces = ({
       branch,
       files = [],
       paths,
+      named,
       message,
       base,
       expected,
@@ -144,6 +146,7 @@ export const workspaces = ({
       replace,
     }: Omit<Extract<Proposal, { kind: 'push' }>, 'kind'> & {
       paths?: string[];
+      named?: string;
       message: string;
       base: string;
       expected?: string;
@@ -204,7 +207,7 @@ export const workspaces = ({
     const own = since && since !== base && !merging && !replace ? await diffed(since) : changed;
     const unlisted = merging ? undefined : own.find(file => !files.includes(file));
     if (unlisted) throw new Error(`"${unlisted}" changed but is not listed in the proposal`);
-    const outside = checkPaths(changed, paths);
+    const outside = checkPaths(changed, paths, named);
     if (outside) throw new Error(outside);
 
     if (parked && !merging && !replace) {
