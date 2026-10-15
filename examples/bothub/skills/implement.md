@@ -22,7 +22,14 @@ Run from the repository root, one command at a time:
 - before you finish:
   `BOTHUB_HUB=/hub BOTHUB_ISSUE=<issue> BOTHUB_BASE=$(git merge-base HEAD main-worktree/HEAD) node /hub/scripts/fast.mjs`
 
-Before pushing, reread the diff and delete anything the criteria do not need.
+Before pushing, reread the diff and delete anything the criteria do not need. In your reply, name
+each principle from the principles skill that changed a choice, with the file and line it changed;
+a principle with no line is not named.
+
+From attempt 2 on (the prompt says so), before editing, write one line: the premise your earlier
+attempt and this finding share. When the same check failed on the same file twice, do not extend the
+fix: grep for the helper or producer the premise assumes is missing, and change its input or call it.
+Say in the reply what the premise was and what replaced it.
 
 Never `npm install`, `npm ci` or `npx`.
 

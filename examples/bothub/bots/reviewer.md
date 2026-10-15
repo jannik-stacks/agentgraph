@@ -3,6 +3,7 @@ harness: opencode
 model: smart
 tools: [read, grep, glob]
 returns: [reply]
+skills: [principles]
 max-turns: 10
 concurrency: 2
 budget: { runs-per-day: 600, minutes: 15 }

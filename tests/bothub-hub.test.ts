@@ -1,4 +1,4 @@
-import { chmodSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, temp, write } from './kit.ts';
@@ -1294,5 +1294,34 @@ describe('removed', () => {
       { 'src/a.ts': '', 'tests/a.test.ts': 'send(a);\n' }
     );
     expect(run('removed.mjs', repo, [], { BOTHUB_HUB: temp('empty') }).out).toBe('');
+  });
+});
+
+describe('principles', () => {
+  const examples = resolve(scripts, '../..');
+  const skill = (hub: string) => readFileSync(join(examples, hub, 'skills/principles.md'), 'utf8');
+
+  it('the three hubs carry the same principles skill', () => {
+    expect(skill('acme-app')).toBe(skill('bothub'));
+    expect(skill('clarinet')).toBe(skill('bothub'));
+  });
+
+  it('each principle note body appears in the skill', () => {
+    const dir = join(examples, 'bothub/notes/style');
+    const notes = readdirSync(dir)
+      .filter(name => readFileSync(join(dir, name), 'utf8').includes('check: principle-named'))
+      .map(name => readFileSync(join(dir, name), 'utf8').split(/^---$/m)[2]!.trim());
+    expect(notes).toHaveLength(8);
+    expect(notes.filter(body => !skill('bothub').includes(body))).toEqual([]);
+  });
+
+  it('principles.mjs pairs each named principle with the hunk at its line', () => {
+    const repo = change({ 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': 'export const a = clamp(1);\n' });
+    const reply = 'Smallest change (src/a.ts:1)\nBound every input (src/b.ts:4)\nno principle src/a.ts:1';
+    const found = items(run('principles.mjs', repo, [], { BOTHUB_REPLY: reply }).out);
+    expect(found.map(i => i.path)).toEqual(['src/a.ts:1 Smallest change', 'src/b.ts:4 Bound every input']);
+    expect(found[0]!.hunk).toContain('+export const a = clamp(1);');
+    expect(found[0]!.principle).toContain('Tempted to edit a shared function');
+    expect(found[1]!.hunk).toBe('(no changed hunk at that line)');
   });
 });
