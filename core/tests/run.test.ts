@@ -1,0 +1,214 @@
+import { execFileSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Chunk, Effect, Layer, Stream } from 'effect';
+import { afterEach, describe, expect, it } from 'vitest';
+import { drive } from '../src/engine.ts';
+import { fileForge, Forge, type Message, type Proposal } from '../src/forge.ts';
+import { host } from '../src/sandbox.ts';
+import { scripted, Session, type AgentEvent, type SessionSpec } from '../src/session.ts';
+import { fileStore, Store, type Trace } from '../src/store.ts';
+import { begin, reenter, transition, type Run } from '../src/workflow.ts';
+import { hubOf } from './fixtures.ts';
+
+const hub = hubOf('acme-app', {
+  types: { run: '! grep -q TODO hello.txt' },
+  safety: { run: '! test -e secret.txt' },
+  claims: { judge: 'claim-checker' },
+});
+const w = hub.workflows.issue!;
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+const git = (cwd: string, ...args: string[]) =>
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+  }).trim();
+
+/** A bare origin with one commit on main, a forge with issue #7 and its `/bothub` comment, and a data dir. */
+const world = () => {
+  const root = mkdtempSync(join(tmpdir(), 'bothub-core-run-'));
+  dirs.push(root);
+  const seed = join(root, 'seed');
+  mkdirSync(seed);
+  git(seed, 'init', '-q', '-b', 'main');
+  writeFileSync(join(seed, 'README.md'), 'demo\n');
+  git(seed, 'add', '-A');
+  git(seed, 'commit', '-q', '-m', 'init');
+  git(root, 'clone', '-q', '--bare', seed, 'origin.git');
+  const forge = join(root, 'forge');
+  mkdirSync(forge);
+  writeFileSync(
+    join(forge, '7.md'),
+    '---\ntitle: Add a greeting\nstate: open\nauthor: morgan\nlabels: []\n---\n\nAdd hello.txt.\n'
+  );
+  const human = (body: string, at: string) =>
+    appendFileSync(
+      join(forge, '7.jsonl'),
+      `${JSON.stringify({ thread: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Message)}\n`
+    );
+  human('/bothub', '2026-10-16T00:00:00.000Z');
+  return { root, origin: join(root, 'origin.git'), forge, data: join(root, 'data'), human };
+};
+
+const start = (session: string): AgentEvent => ({ type: 'start', session, model: 'test' });
+const write = (path: string, content: string): AgentEvent => ({
+  type: 'tool',
+  id: path,
+  name: 'write',
+  input: { path, content },
+  ok: true,
+});
+const reply = (...proposals: Proposal[]): AgentEvent => ({
+  type: 'end',
+  final: `Done.\n\n\`\`\`bothub\n${JSON.stringify(proposals)}\n\`\`\``,
+});
+const push: Proposal = { kind: 'push', branch: 'bothub/7', message: 'Add hello' };
+const pull: Proposal = { kind: 'pull', branch: 'bothub/7', into: 'main', title: 'Add hello', body: 'Closes #7' };
+const judged: AgentEvent[] = [start('j'), { type: 'end', final: 'PASS, no claims' }];
+
+/** The file doubles, with every session spec recorded. */
+const services = (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {
+  const specs: SessionSpec[] = [];
+  const recording = Layer.effect(
+    Session,
+    Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), s.open(spec)) }))
+  ).pipe(Layer.provide(scripted(turns)));
+  const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), recording);
+  const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Session | import('../src/sandbox.ts').Sandbox>) =>
+    Effect.runPromise(effect.pipe(Effect.provide(layer)));
+  return { specs, run };
+};
+
+const traceOf = (data: string, id: string) =>
+  readFileSync(join(data, id, 'trace.jsonl'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line) as Trace);
+
+const fresh = (): Run => begin(w, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' });
+
+describe('drive', () => {
+  it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('t1'), reply({ kind: 'reply', body: 'Brief: add hello.txt' })],
+      [start('i1'), write('hello.txt', 'TODO\n'), { type: 'usage', input: 10, output: 5, usd: 0.5 }, reply(push, pull)],
+      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      judged,
+      [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
+      [start('i1'), write('hello.txt', 'hello world\n'), reply(push)],
+      judged,
+      [start('r2'), reply({ kind: 'back', why: 'add a newline' })],
+      [start('i1'), write('hello.txt', 'hello world\n\n'), reply(push)],
+      judged,
+      [start('r3'), reply({ kind: 'back', why: 'still not right' })],
+      [start('r4'), reply({ kind: 'reply', body: 'Ready to merge.' })],
+    ]);
+
+    const asked = await run(drive(w, fresh(), hub));
+    expect(asked).toMatchObject({ step: 'review', status: 'asking', reason: 'still not right', usd: 0.5 });
+    expect(asked.rounds).toEqual({ review: 2 });
+    expect(asked.sessions.implement?.id).toBe('i1');
+
+    // the refused try pushed nothing; the passing one did, and opened pull request #8
+    const forge = await run(Effect.flatMap(Forge, f => f.thread(7)));
+    expect(forge.comments.map(c => c.body)).toEqual(['/bothub', 'Brief: add hello.txt', 'still not right']);
+    const pr = await run(Effect.flatMap(Forge, f => f.thread(8)));
+    expect(pr.pull).toMatchObject({ branch: 'bothub/7', into: 'main' });
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello world');
+    expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'bothub/7'));
+    expect(existsSync(join(where.forge, '8', 'diff.patch'))).toBe(true);
+
+    // retry and ways back resume the implementor's session; review is fresh every time
+    expect(specs.map(s => s.resume?.id)).toEqual([
+      undefined,
+      undefined,
+      'i1',
+      undefined,
+      undefined,
+      'i1',
+      undefined,
+      undefined,
+      'i1',
+      undefined,
+      undefined,
+    ]);
+    expect(specs[2]!.prompt).toMatch(/^types: /);
+    expect(specs[5]!.prompt).toBe('the review step sent this back: say hello world');
+    expect(specs[1]!.prompt).toContain('Add hello.txt.');
+    expect(specs[4]!.prompt).toContain('no hunk needs a change before it can merge');
+    expect(specs[4]!.prompt).toContain('+hello');
+
+    const trace = traceOf(where.data, 'run-7');
+    const sessions = trace.flatMap(t => ('session' in t ? [t.session] : []));
+    expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'exit', usd: 0.5 });
+    expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'exit' });
+    const types = trace.flatMap(t => ('verdict' in t && t.verdict.check === 'types' ? [t] : []));
+    expect(types[0]).toMatchObject({ verdict: { pass: false }, exit: 1 });
+    expect(types[1]).toMatchObject({ verdict: { pass: true }, exit: 0 });
+    const outcomes = trace.flatMap(t => ('outcome' in t ? [[t.step, t.outcome.kind, t.run.tries, t.run.rounds]] : []));
+    expect(outcomes).toEqual([
+      ['triage', 'pass', 0, {}],
+      ['implement', 'refused', 1, {}],
+      ['implement', 'pass', 0, {}],
+      ['review', 'back', 0, { review: 1 }],
+      ['implement', 'pass', 0, { review: 1 }],
+      ['review', 'back', 0, { review: 2 }],
+      ['implement', 'pass', 0, { review: 2 }],
+      ['review', 'back', 0, { review: 2 }],
+    ]);
+
+    // a human answers on the thread: the review runs again and the run waits for the merge
+    where.human('/bothub it is fine, ship it', '2026-10-17T00:00:00.000Z');
+    const said = await run(
+      Effect.flatMap(Forge, f => Stream.runCollect(f.since('2026-10-16T23:00:00.000Z'))).pipe(Effect.map(Chunk.toArray))
+    );
+    const answer = said.flatMap(m => reenter(w, asked, m) ?? [])[0]!;
+    expect(answer).toEqual({ kind: 'answer', text: 'it is fine, ship it' });
+    const waiting = await run(drive(w, transition(w, asked, answer), hub));
+    expect(waiting).toMatchObject({ step: 'merge', status: 'waiting', rounds: { review: 1 } });
+    expect(specs.at(-1)!.prompt).toContain('it is fine, ship it');
+
+    const merged = {
+      thread: 7,
+      kind: 'merged',
+      actor: 'morgan',
+      trusted: true,
+      at: '2026-10-18T00:00:00.000Z',
+    } as const;
+    expect(transition(w, waiting, reenter(w, waiting, merged)!)).toMatchObject({ status: 'done' });
+  }, 30_000);
+
+  it('ends the run at once when a stop check fails: no try spent, nothing lands, the findings posted', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('t1'), reply({ kind: 'reply', body: 'Brief' })],
+      [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
+    ]);
+    const stopped = await run(drive(w, fresh(), hub));
+    expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', tries: 0 });
+    expect(stopped.reason).toMatch(/^safety: /);
+    expect(specs).toHaveLength(2);
+    expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'bothub/7')).toThrow();
+    const thread = await run(Effect.flatMap(Forge, f => f.thread(7)));
+    expect(thread.comments.at(-1)?.body).toBe(stopped.reason);
+    const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
+    expect(runs.map(r => r.id)).toEqual(['run-7']);
+  }, 30_000);
+
+  it('stops the run with the reason when a session cannot run', async () => {
+    const where = world();
+    const { run } = services(where, []);
+    const stopped = await run(drive(w, fresh(), hub));
+    expect(stopped).toMatchObject({ step: 'triage', status: 'stopped' });
+    expect(stopped.reason).toBe('SessionStop: no scripted session left');
+    const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+    expect(sessions).toEqual([{ resumed: false, ended: 'provider', usd: 0 }]);
+  }, 30_000);
+});
