@@ -55,7 +55,8 @@ const written = (dir: string, event: AgentEvent) =>
 
 /**
  * Plays back one list of events per session opened, for tests. A `tool` event named `write` with `{ path, content }`
- * writes that file into the session's dir before it is emitted.
+ * writes that file into the session's dir before it is emitted. A list without an `end` gets one that stops cleanly
+ * with the last text as the reply.
  */
 export const scripted = (turns: AgentEvent[][]): Layer.Layer<Session> =>
   Layer.sync(Session, () => {
@@ -64,7 +65,11 @@ export const scripted = (turns: AgentEvent[][]): Layer.Layer<Session> =>
       open: spec => {
         const events = turns[next++];
         if (!events) return Stream.fail(new SessionStop({ reason: 'provider', detail: 'no scripted session left' }));
-        return Stream.fromIterable(events).pipe(Stream.tap(event => written(spec.dir, event)));
+        const last = events.findLast(e => e.type === 'text');
+        const end: AgentEvent[] = events.some(e => e.type === 'end')
+          ? []
+          : [{ type: 'end', final: last?.type === 'text' ? last.text : '', ended: 'stop', exit: 0 }];
+        return Stream.fromIterable([...events, ...end]).pipe(Stream.tap(event => written(spec.dir, event)));
       },
     };
   });

@@ -5,7 +5,7 @@ import type { Hub } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, type SessionSpec, type SessionStop } from './session.ts';
-import { Store, type StoreError } from './store.ts';
+import { Store, type StoreError, type Trace } from './store.ts';
 import { todo } from './todo.ts';
 import { transition, type Doc, type Outcome, type Run, type Step, type Workflow } from './workflow.ts';
 
@@ -94,31 +94,37 @@ const itemsOf = (each: string | { run: string }, work: Work, minutes: number) =>
   return Effect.map(sh(script, work.dir, { BOTHUB_BASE: work.base }, minutes), out => lines(out.output));
 };
 
+type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit'>;
+
 /** One harness session: every event and how the session ended become trace lines. */
 const converse = (run: string, step: string, spec: SessionSpec) =>
   Effect.gen(function* () {
     const session = yield* Session;
     const store = yield* Store;
-    const seen = { id: spec.resume?.id, final: '', text: '', usd: 0 };
-    const ended = (how: 'exit' | SessionStop['reason']) =>
+    const seen = { id: spec.resume?.id, home: spec.resume?.home, final: '', text: '', usd: 0 };
+    let end: Ended = { ended: 'stop' };
+    const ended = (how: Ended) =>
       store.trace(run, {
         at: now(),
         step,
-        session: { ...(seen.id !== undefined && { id: seen.id }), resumed: !!spec.resume, ended: how, usd: seen.usd },
+        session: { ...(seen.id !== undefined && { id: seen.id }), resumed: !!spec.resume, ...how, usd: seen.usd },
       });
     yield* session.open(spec).pipe(
       Stream.runForEach(event => {
-        if (event.type === 'start') seen.id = event.session;
+        if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
         if (event.type === 'text') seen.text = event.text;
-        if (event.type === 'end') seen.final = event.final;
         if (event.type === 'usage') seen.usd += event.usd ?? 0;
+        if (event.type === 'end') {
+          seen.final = event.final;
+          end = { ended: event.ended, exit: event.exit };
+        }
         return store.trace(run, { at: now(), step, event });
       }),
       Effect.scoped,
-      Effect.tapError(e => (e._tag === 'SessionStop' ? ended(e.reason) : Effect.void))
+      Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void))
     );
-    yield* ended('exit');
-    return { id: seen.id, final: seen.final || seen.text, usd: seen.usd };
+    yield* ended(end);
+    return { id: seen.id, home: seen.home ?? spec.dir, final: seen.final || seen.text, usd: seen.usd };
   });
 
 type Result = { item: string | undefined; pass: boolean; findings: string; exit?: number };
@@ -140,6 +146,8 @@ const verdictOf = (run: string, step: Step, check: Doc<Check>, work: Work, hub: 
         const input = out?.output ?? item ?? (yield* diffOf(work, minutes));
         const { final } = yield* converse(run, step.name, {
           harness: bot.harness,
+          bot: check.judge,
+          minutes: hub.limits.minutes,
           ...(bot.model !== undefined && { model: bot.model }),
           system: bot.body,
           prompt: `${check.body}\n\n${input}\n\nReply PASS or FAIL first, then why.`,
@@ -229,6 +237,8 @@ export const attempt = (
       for (const item of items) {
         const r = yield* converse(run.id, step.name, {
           harness: bot.harness,
+          bot: step.does.bot,
+          minutes,
           ...(bot.model !== undefined && { model: bot.model }),
           system: bot.body,
           prompt: kept ? (run.carry ?? 'Continue.') : item === undefined ? brief : `${brief}\n\n## Item\n\n${item}`,
@@ -241,7 +251,7 @@ export const attempt = (
           ...tried,
           usd: tried.usd + r.usd,
           ...(step.each === undefined &&
-            r.id !== undefined && { sessions: { ...tried.sessions, [step.name]: { id: r.id, home: work.dir } } }),
+            r.id !== undefined && { sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home } } }),
         };
       }
     }

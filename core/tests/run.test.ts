@@ -56,7 +56,7 @@ const world = () => {
   return { root, origin: join(root, 'origin.git'), forge, data: join(root, 'data'), human };
 };
 
-const start = (session: string): AgentEvent => ({ type: 'start', session, model: 'test' });
+const start = (session: string): AgentEvent => ({ type: 'start', session, model: 'test', home: `/homes/${session}` });
 const write = (path: string, content: string): AgentEvent => ({
   type: 'tool',
   id: path,
@@ -67,10 +67,12 @@ const write = (path: string, content: string): AgentEvent => ({
 const reply = (...proposals: Proposal[]): AgentEvent => ({
   type: 'end',
   final: `Done.\n\n\`\`\`bothub\n${JSON.stringify(proposals)}\n\`\`\``,
+  ended: 'stop',
+  exit: 0,
 });
 const push: Proposal = { kind: 'push', branch: 'bothub/7', message: 'Add hello' };
 const pull: Proposal = { kind: 'pull', branch: 'bothub/7', into: 'main', title: 'Add hello', body: 'Closes #7' };
-const judged: AgentEvent[] = [start('j'), { type: 'end', final: 'PASS, no claims' }];
+const judged: AgentEvent[] = [start('j'), { type: 'text', text: 'PASS, no claims' }];
 
 /** The file doubles, with every session spec recorded. */
 const services = (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {
@@ -114,7 +116,7 @@ describe('drive', () => {
     const asked = await run(drive(w, fresh(), hub));
     expect(asked).toMatchObject({ step: 'review', status: 'asking', reason: 'still not right', usd: 0.5 });
     expect(asked.rounds).toEqual({ review: 2 });
-    expect(asked.sessions.implement?.id).toBe('i1');
+    expect(asked.sessions.implement).toEqual({ id: 'i1', home: '/homes/i1' });
 
     // the refused try pushed nothing; the passing one did, and opened pull request #8
     const forge = await run(Effect.flatMap(Forge, f => f.thread(7)));
@@ -147,8 +149,9 @@ describe('drive', () => {
 
     const trace = traceOf(where.data, 'run-7');
     const sessions = trace.flatMap(t => ('session' in t ? [t.session] : []));
-    expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'exit', usd: 0.5 });
-    expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'exit' });
+    expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'stop', exit: 0, usd: 0.5 });
+    expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
+    expect(sessions[3]).toMatchObject({ id: 'j', resumed: false, ended: 'stop', exit: 0 });
     const types = trace.flatMap(t => ('verdict' in t && t.verdict.check === 'types' ? [t] : []));
     expect(types[0]).toMatchObject({ verdict: { pass: false }, exit: 1 });
     expect(types[1]).toMatchObject({ verdict: { pass: true }, exit: 0 });

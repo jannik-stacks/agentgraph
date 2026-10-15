@@ -9,7 +9,15 @@ import type { Outcome, Run } from './workflow.ts';
 /** One line of a run's trace. */
 export type Trace = { at: string; step: string } & (
   | { event: AgentEvent }
-  | { session: { id?: string; resumed: boolean; ended: 'exit' | SessionStop['reason']; usd: number } }
+  | {
+      session: {
+        id?: string;
+        resumed: boolean;
+        ended: Extract<AgentEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
+        exit?: number;
+        usd: number;
+      };
+    }
   | { verdict: Verdict; item?: string; exit?: number }
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
