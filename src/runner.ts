@@ -496,6 +496,7 @@ export const stuckWatch = () => {
 
 /** How long a silent run that still shows work is waited for. */
 const busyLimit = 30 * 60_000;
+const sleepGap = 5_000;
 
 class Stalled extends Error {}
 class Withdrawn extends Error {}
@@ -701,15 +702,16 @@ export type ScriptResult = {
   ok: boolean;
   output: string;
   stdout: string;
-  stopped?: Extract<Stopped, 'sandbox' | 'timeout'>;
+  stopped?: Extract<Stopped, 'sandbox' | 'timeout' | 'stalled'>;
 };
 
 /**
  * Runs `script` with `sh -c` in a run container with `cwd` as its worktree, read-only with `readonly`, and the
  * minimal agent env plus `env`. A `hub` directory is mounted read-only and named by `BOTHUB_HUB`, so a script can
  * run the hub's own scripts. `input` is written to its stdin. Resolves to whether it exited 0 within the timeout,
- * with the tail of its combined output with terminal colors stripped, and its stdout up to 4 MB; a sandbox that is
- * unavailable resolves to `sandbox-failed: …` without running anything. Never rejects.
+ * with the tail of its combined output with terminal colors stripped, and its stdout up to 4 MB. Time the host spent
+ * asleep does not count toward the timeout, and with `stallMinutes` a script with no output and no work in its
+ * container for that long stops as `stalled`. A sandbox that is unavailable resolves to `sandbox-failed: …` without running anything. Never rejects.
  */
 export const runScript = async (
   script: string,
@@ -717,7 +719,7 @@ export const runScript = async (
   timeoutMinutes: number,
   env: Record<string, string> = {},
   launch: Launcher = sandboxed,
-  { input = '', ...access }: ScriptAccess & { input?: string } = {}
+  { input = '', stallMinutes, ...access }: ScriptAccess & { input?: string; stallMinutes?: number } = {}
 ): Promise<ScriptResult> => {
   const failed = (message: string): ScriptResult => ({
     ok: false,
@@ -730,8 +732,10 @@ export const runScript = async (
   let raw = '';
   let cut = false;
   let stdout = '';
-  let timedOut = false;
+  let stoppedFor: 'timeout' | 'stalled' | undefined;
+  let heard = Date.now();
   const add = (chunk: Buffer) => {
+    heard = Date.now();
     raw += chunk.toString();
     if (raw.length <= scriptRawLimit) return;
     raw = raw.slice(-scriptRawLimit);
@@ -749,11 +753,33 @@ export const runScript = async (
     },
     input
   );
-  const timer = setTimeout(() => {
-    timedOut = true;
-    stop();
-  }, timeoutMinutes * 60_000);
+  const stallMs = (stallMinutes ?? 0) * 60_000;
+  let deadline = Date.now() + timeoutMinutes * 60_000;
+  let clock = { wall: Date.now(), mono: performance.now() };
+  let timer: NodeJS.Timeout | undefined;
+  let finished = false;
+  const wait = (now: number) =>
+    Math.max(Math.min(10_000, deadline - now, stallMs ? heard + stallMs - now : Infinity), 1);
+  const watch = async () => {
+    const now = Date.now();
+    const slept = now - clock.wall - (performance.now() - clock.mono);
+    clock = { wall: now, mono: performance.now() };
+    if (slept > sleepGap) {
+      deadline += slept;
+      heard += slept;
+    }
+    if (now >= deadline) stoppedFor = 'timeout';
+    else if (stallMs && now - heard >= stallMs) {
+      if (command.busy && (await command.busy())) heard = Date.now();
+      else stoppedFor = 'stalled';
+    }
+    if (finished) return;
+    if (stoppedFor) return stop();
+    timer = setTimeout(watch, wait(now));
+  };
+  timer = setTimeout(watch, wait(Date.now()));
   const exit = await closed;
+  finished = true;
   clearTimeout(timer);
   if ('error' in exit)
     return launch.startFailed(exit.error)
@@ -761,12 +787,17 @@ export const runScript = async (
       : { ok: false, output: exit.error.message, stdout: '' };
   if (exit.code === 125 && launch.startFailed({ name: 'exit', message: '', exitCode: 125 }))
     return failed(shown().trim() || 'the container did not start');
-  const tail = timedOut ? `\ntimed out after ${timeoutMinutes} minutes` : '';
+  const tail =
+    stoppedFor === 'timeout'
+      ? `\ntimed out after ${timeoutMinutes} minutes`
+      : stoppedFor === 'stalled'
+        ? `\nstalled: no output for ${stallMinutes} minutes`
+        : '';
   return {
-    ok: exit.code === 0 && !timedOut,
+    ok: exit.code === 0 && !stoppedFor,
     output: (shown() + tail).trim(),
     stdout,
-    ...(timedOut ? { stopped: 'timeout' as const } : {}),
+    ...(stoppedFor ? { stopped: stoppedFor } : {}),
   };
 };
 

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { Chunk, Effect, Fiber, Stream } from 'effect';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { opencode } from '../src/harnesses/opencode.ts';
 import { pi } from '../src/harnesses/pi.ts';
 import {
@@ -712,6 +712,35 @@ describe('runScript', () => {
   it('kills the script after the timeout', async () => {
     const result = await runScript('sleep 5', mkdtempSync(join(tmpdir(), 'bothub-script-')), 0.002, {}, unsandboxed);
     expect(result).toMatchObject({ ok: false, output: 'timed out after 0.002 minutes' });
+  });
+});
+
+describe('runScript guards', () => {
+  const dir = () => mkdtempSync(join(tmpdir(), 'bothub-script-'));
+
+  it('does not count time the host slept toward the timeout', async () => {
+    const now = Date.now();
+    const started = performance.now();
+    const spy = vi
+      .spyOn(Date, 'now')
+      .mockImplementation(() => now + (performance.now() - started) + (performance.now() - started > 300 ? 3_600_000 : 0));
+    try {
+      const script = 'for i in 1 2 3 4 5 6 7; do echo $i; sleep 0.2; done';
+      const result = await runScript(script, dir(), 0.1, {}, unsandboxed, { stallMinutes: 0.01 });
+      expect(result).toMatchObject({ ok: true });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('stops a script with no output as stalled', async () => {
+    const result = await runScript('exec sleep 5', dir(), 1, {}, unsandboxed, { stallMinutes: 0.01 });
+    expect(result).toMatchObject({ ok: false, stopped: 'stalled', output: 'stalled: no output for 0.01 minutes' });
+  });
+
+  it('keeps a script that keeps printing', async () => {
+    const script = 'for i in 1 2 3 4 5; do echo $i; sleep 0.3; done';
+    expect(await runScript(script, dir(), 1, {}, unsandboxed, { stallMinutes: 0.01 })).toMatchObject({ ok: true });
   });
 });
 
