@@ -2256,7 +2256,10 @@ describe('over', () => {
     const data = temp('base-data');
     const noisy = 'echo "at /tmp/$$/x.mjs:1 in node_modules/dep/a.js:2"; exit 1';
     const { result } = await run(hubWith([blocking('old', noisy)]), judged, {}, { data });
-    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: false, findings: expect.stringMatching(/^red on base/) });
+    expect(result.outcome?.checks?.[0]).toMatchObject({
+      gating: false,
+      findings: expect.stringMatching(/^red on base/),
+    });
     const [kept = ''] = readdirSync(join(data, 'base-checks'));
     expect(JSON.parse(readFileSync(join(data, 'base-checks', kept), 'utf8'))).toMatchObject({ pass: false });
   });

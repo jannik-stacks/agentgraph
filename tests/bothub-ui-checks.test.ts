@@ -461,7 +461,12 @@ describe('docs-mentions script', () => {
     const { ok, out } = check('docs-mentions.mjs', repo, 'src/', 'studio/content/docs/');
     expect(ok).toBe(true);
     expect(out.split('\n').map(line => JSON.parse(line))).toEqual([
-      { file: docs, line: 3, hunk: '<Sym name="cacheEnv" /> shares the target.', 'changed code': ['cacheEnv in src/box.ts'] },
+      {
+        file: docs,
+        line: 3,
+        hunk: '<Sym name="cacheEnv" /> shares the target.',
+        'changed code': ['cacheEnv in src/box.ts'],
+      },
     ]);
   });
 });
