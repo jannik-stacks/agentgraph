@@ -18,7 +18,7 @@ const { layout } = await studioModule<{ layout: (flows: Flow[]) => { placed: Pla
 const examples = join(import.meta.dirname, '..', 'examples');
 const hubs = await Promise.all(
   readdirSync(examples)
-    .filter(name => ['bots', 'workflows'].some(entry => existsSync(join(examples, name, entry))))
+    .filter(name => name !== 'sandbox' && ['bots', 'workflows'].some(entry => existsSync(join(examples, name, entry))))
     .map(async name => {
       const compiled = compile(await readHub(join(examples, name)));
       if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));

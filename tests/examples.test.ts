@@ -12,6 +12,7 @@ import { itemCap } from '../src/schema.ts';
 const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');
 const hubDirs = readdirSync(examples)
+  .filter(name => name !== 'sandbox')
   .map(name => join(examples, name))
   .filter(dir => ['bots', 'workflows', 'hub.yaml'].some(entry => existsSync(join(dir, entry))));
 
