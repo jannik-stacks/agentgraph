@@ -216,6 +216,7 @@ const attempts = (
               event: p.event,
               parent: parent.id,
               attempt,
+              ...(first.issue && { issue: first.issue }),
             })
           );
       yield* Effect.promise(() => p.store.update(current.id, { loaded: items }));
@@ -481,6 +482,7 @@ export const fanned = (
                 event: p.event,
                 parent: first.id,
                 ...(job.until && { attempt: 1 }),
+                ...(first.issue && { issue: first.issue }),
               })
             );
       const section = itemSection(job.over, item);

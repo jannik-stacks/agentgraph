@@ -53,7 +53,7 @@ const sessions = '.local/share/opencode';
  * A served-like hub on a local origin whose implementor writes `src/a.ts` and opens a request, then when it continues
  * pushes `src/b.ts` alone. Each run names a session and appends it to a session file in its home.
  */
-const setup = async (bot = '') => {
+const setup = async (bot = '', retryTriage = false) => {
   const dir = temp('continue-hub');
   write(dir, { ...hubFiles, 'bots/bot.md': hubFiles['bots/bot.md'].replace('---\nYou work', `${bot}---\nYou work`) });
   const data = temp('continue-data');
@@ -61,6 +61,7 @@ const setup = async (bot = '') => {
   const issues = localIssues(join(dir, 'issues'), { repo: 'acme/app' });
   const pulls = localPulls({ origin, file: join(data, 'pulls.jsonl'), repo: 'acme/app' });
   const { seen, adapters } = fakeHarness((spec, call) => {
+    if (!implementing(spec) && retryTriage && call === 1) return { events: [{ type: 'end', ok: true, result: 'Done.' }] };
     if (!implementing(spec))
       return { events: [{ type: 'end', ok: true, result: block([{ kind: 'reply', body: 'Brief.' }]) }] };
     const file = spec.prompt.includes('## Continuing') ? 'src/b.ts' : 'src/a.ts';
@@ -144,6 +145,15 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(git(origin, 'show', 'bothub/7:src/a.ts')).toBe('x');
     expect(git(origin, 'show', 'bothub/7:src/b.ts')).toBe('x');
     expect(await pulls.list({ state: 'all' })).toHaveLength(1);
+  });
+
+  it('reuses a triage that needed a second attempt', async () => {
+    const { hub, pulls, seen, first, commentEvent } = await setup('', true);
+    expect(seen).toHaveLength(3);
+    await pulls.comment(1, { author: 'morgan', body: '/bothub go on' });
+    const results = await handleEvent(await commentEvent(1), hub);
+    expect(results[0]!.run.id).toBe(first[0]!.run.id);
+    expect(seen).toHaveLength(4);
   });
 
   it('measures a continued change from where the branch forked, starting at the merge request tip', async () => {
