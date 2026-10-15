@@ -362,14 +362,14 @@ export const githubForge = (
           };
           const heard = (thread: number, c: RestComment, kind: Message['kind'] = 'comment'): Message => {
             const trusted = members.has(c.author_association) && !isBot(c.user);
-            const author = login(c.user);
+            const comment = toComment(c, self);
             return {
               thread,
               kind,
-              actor: author,
+              actor: comment.author,
               trusted,
               at: c.created_at,
-              comment: { ...toComment(c, self), body: trusted ? text(c.body) : withheld(author) },
+              comment: trusted ? { ...comment, body: text(c.body) } : comment,
             };
           };
 
