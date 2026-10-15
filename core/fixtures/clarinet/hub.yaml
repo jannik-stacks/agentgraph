@@ -1,0 +1,19 @@
+bots: [implementor, reviewer, triager]
+skills: [implement, pr-body, principles, review-hunk, triage]
+checks:
+  clippy: block
+  conventions-warn: warn
+  conventions: block
+  criterion-met: block
+  entry-points: warn
+  fmt: block
+  limits-warn: warn
+  limits: block
+  reach: block
+  review-src: block
+  sdk: warn
+  simpler: block
+  tests: block
+  triage-brief: block
+  wasm: block
+  wiring: block

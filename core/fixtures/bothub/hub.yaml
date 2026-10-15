@@ -1,0 +1,39 @@
+bots: [checker, implementor, librarian, retro, reviewer, triager]
+skills: [implement, librarian, pr-body, principles, retro, review-hunk, triage]
+checks:
+  code-shape: block
+  coverage: block
+  criterion-met: block
+  docs-stale: warn
+  docs-sync: warn
+  docs-tone-marketing: log
+  docs-tone-provenance: warn
+  docs-tone-repeats: warn
+  docs-tone-tagline: log
+  enum-copy: warn
+  lesson-size: block
+  lint: block
+  near-duplicate: warn
+  notes-followed: log
+  old-tests: warn
+  principle-named: log
+  propagation: warn
+  reduce: block
+  removed: block
+  review-docs: warn
+  review-src: block
+  review-tests: log
+  risky: log
+  rules: block
+  safety: block
+  scope: log
+  size: block
+  state-transitions: log
+  studio-build: block
+  test-guards: block
+  tests: block
+  tooltip-text: log
+  triage-brief: block
+  triage-width: warn
+  types: block
+  unused-exports: block

@@ -1,0 +1,6 @@
+bots: [implementor, planner, reviewer, writer]
+skills: []
+checks:
+  docs-tone: block
+  tests: block
+  types: block

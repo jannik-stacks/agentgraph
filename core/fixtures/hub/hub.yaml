@@ -1,0 +1,5 @@
+bots: [implementor, reviewer]
+skills: [implement, review-file, review]
+checks:
+  review: warn
+  types: block
