@@ -218,7 +218,9 @@ const unknownBotKeys = (keys: string[], input: unknown) => {
     ...(typeof share === 'string' ? [`history: ${share}`] : []),
   ];
   const instead = fields.length ? `write ${fields.join(' and ')}` : 'remove it';
-  const notes = old.map(key => (key === 'session' ? `session is replaced by context and history; ${instead}` : 'resume is replaced by context'));
+  const notes = old.map(key =>
+    key === 'session' ? `session is replaced by context and history; ${instead}` : 'resume is replaced by context'
+  );
   return [...notes, unknown].filter(Boolean).join('; ');
 };
 
@@ -229,7 +231,10 @@ const unknownBotKeys = (keys: string[], input: unknown) => {
 export const Load = z.enum(['instructions', 'skills', 'tools', 'mcp']);
 export type Load = z.infer<typeof Load>;
 
-export const LoadEntry = z.union([Load, z.templateLiteral([z.enum(['skills', 'tools', 'mcp']), '/', z.string().min(1)])]);
+export const LoadEntry = z.union([
+  Load,
+  z.templateLiteral([z.enum(['skills', 'tools', 'mcp']), '/', z.string().min(1)]),
+]);
 export type LoadEntry = z.infer<typeof LoadEntry>;
 /**
  * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any hub tools (see
@@ -240,33 +245,32 @@ export type LoadEntry = z.infer<typeof LoadEntry>;
  * within the hub's own limit; unset, only that limit applies. `decider` lists the questions the decision model answers
  * during the bot's opencode runs (see `DeciderQuestion`); a job's own `decider` replaces it.
  */
-export const Bot = z
-  .strictObject(
-    {
-      harness: Harness,
-      model: z.string().optional(),
-      tools: z.array(z.string()),
-      returns: Returns,
-      skills: z.array(name).optional(),
-      preload: z.array(Preload).optional(),
-      loads: z.array(LoadEntry).optional(),
-      context: Resume.optional(),
-      history: History.optional(),
-      summarizer: Summarizer.optional(),
-      decider: z.array(DeciderQuestion).optional(),
-      'max-turns': z.int().positive().optional(),
-      concurrency: z.int().positive().optional(),
-      budget: z
-        .strictObject({
-          'runs-per-day': z.int().positive().optional(),
-          minutes: z.number().positive().optional(),
-          'usd-per-run': z.number().positive().optional(),
-        })
-        .optional(),
-      human,
-    },
-    { error: issue => (issue.code === 'unrecognized_keys' ? unknownBotKeys(issue.keys, issue.input) : undefined) }
-  );
+export const Bot = z.strictObject(
+  {
+    harness: Harness,
+    model: z.string().optional(),
+    tools: z.array(z.string()),
+    returns: Returns,
+    skills: z.array(name).optional(),
+    preload: z.array(Preload).optional(),
+    loads: z.array(LoadEntry).optional(),
+    context: Resume.optional(),
+    history: History.optional(),
+    summarizer: Summarizer.optional(),
+    decider: z.array(DeciderQuestion).optional(),
+    'max-turns': z.int().positive().optional(),
+    concurrency: z.int().positive().optional(),
+    budget: z
+      .strictObject({
+        'runs-per-day': z.int().positive().optional(),
+        minutes: z.number().positive().optional(),
+        'usd-per-run': z.number().positive().optional(),
+      })
+      .optional(),
+    human,
+  },
+  { error: issue => (issue.code === 'unrecognized_keys' ? unknownBotKeys(issue.keys, issue.input) : undefined) }
+);
 export type Bot = z.infer<typeof Bot>;
 
 /** `skills/<name>.md`: what to do. The body is the prompt. */

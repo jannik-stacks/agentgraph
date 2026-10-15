@@ -115,7 +115,9 @@ describe('validate', () => {
     expect(checkPaths(files, undefined, 'Fix a')).toBe(
       'path "AGENTS.md" is agent guidance, which a job changes only when the issue names the file'
     );
-    expect(checkPaths(files, undefined, 'Update AGENTS.md')).toMatch(/"\.claude\/skills\/x\/SKILL.md" is agent guidance/);
+    expect(checkPaths(files, undefined, 'Update AGENTS.md')).toMatch(
+      /"\.claude\/skills\/x\/SKILL.md" is agent guidance/
+    );
     expect(checkPaths(files, undefined, 'Edit AGENTS.md and .claude/skills/x/SKILL.md')).toBeUndefined();
   });
 

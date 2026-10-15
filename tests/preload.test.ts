@@ -2,15 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import {
-  accepted,
-  answersAfterBrief,
-  issueContext,
-  loadedItems,
-  repoFiles,
-  recallQuery,
-  runContext,
-} from '../src/preload.ts';
+import { accepted, answersAfterBrief, issueContext, recallQuery, runContext } from '../src/preload.ts';
+import { loadedItems, repoFiles } from '../src/repo-guidance.ts';
 import { type Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
 import { temp } from './kit.ts';
@@ -210,7 +203,7 @@ describe('repoFiles', () => {
   });
 
   it('fails a named skill the repo lacks', async () => {
-    await expect(repoFiles(repo(), ['skills/gone'], [])).rejects.toThrow('inherit "skills/gone": no such skill');
+    await expect(repoFiles(repo(), ['skills/gone'], [])).rejects.toThrow('loads "skills/gone": no such skill');
   });
 });
 

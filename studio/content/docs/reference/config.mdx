@@ -23,6 +23,13 @@ A glob that leaves the hub or reaches `hub.yaml`, `bots/` or `workflows/` is an 
 
 <Source file="src/schema.ts" symbol="Preload" />
 
+## Loads
+
+What a bot's harness loads from the target repo itself: a kind, or `skills/<name>`, `tools/<name>` or
+`mcp/<name>` for one item. Each harness supports some kinds; `bothub check` fails on the others.
+
+<Source file="src/schema.ts" symbol="LoadEntry" />
+
 ## Check
 
 A check has a `type`, and each type takes its own fields: `script` takes `run`, `bot` takes `bot`

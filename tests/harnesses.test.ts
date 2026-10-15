@@ -75,7 +75,9 @@ describe('opencode', () => {
     expect(config.instructions).toEqual(['/work/AGENTS.md']);
     expect(config.skills).toEqual({ paths: ['/work/.agents/skills/lint'] });
     expect(env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe('1');
-    const bare = JSON.parse(command({ ...spec, repo: { instructions: [], skills: [], shadowed: [] } }).env.OPENCODE_CONFIG_CONTENT ?? '');
+    const bare = JSON.parse(
+      command({ ...spec, repo: { instructions: [], skills: [], shadowed: [] } }).env.OPENCODE_CONFIG_CONTENT ?? ''
+    );
     expect(bare).not.toHaveProperty('instructions');
     expect(bare).not.toHaveProperty('skills');
   });

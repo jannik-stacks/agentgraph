@@ -6,7 +6,8 @@ import { readJsonl } from '../jsonl.ts';
 import { fanOut, type Item } from '../over.ts';
 import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
-import { issueContext, loadedItems, repoFor } from '../preload.ts';
+import { issueContext } from '../preload.ts';
+import { loadedItems, repoFor } from '../repo-guidance.ts';
 import type { Job, ProposalKind, Workflow } from '../schema.ts';
 import type { Pulls } from '../pulls.ts';
 import type { Run, Store } from '../store.ts';
@@ -302,7 +303,9 @@ const attempts = (
           reformatting = true;
           continue;
         }
-        const earlier = yield* Effect.promise(() => seeded(effectiveRun(p.config.hub, bot).context, run, worktree.id, base, p));
+        const earlier = yield* Effect.promise(() =>
+          seeded(effectiveRun(p.config.hub, bot).context, run, worktree.id, base, p)
+        );
         session = undefined;
         prompt = followUp(task, [], [], tries + 1, max + 1, problems, earlier);
         continue;
@@ -402,7 +405,9 @@ const attempts = (
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
       const ran = recheck === undefined ? run : undefined;
-      const earlier = yield* Effect.promise(() => seeded(effectiveRun(p.config.hub, bot).context, ran, worktree.id, base, p));
+      const earlier = yield* Effect.promise(() =>
+        seeded(effectiveRun(p.config.hub, bot).context, ran, worktree.id, base, p)
+      );
       session = undefined;
       prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], earlier, left);
       parent = run;

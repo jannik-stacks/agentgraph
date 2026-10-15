@@ -377,7 +377,13 @@ const picked = async (
   const from = startOf(target, handoff, p);
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
-  const seed = await seeded(bot && effectiveRun(p.config.hub, bot).context, last?.run ?? continued?.last, worktree.id, base, p);
+  const seed = await seeded(
+    bot && effectiveRun(p.config.hub, bot).context,
+    last?.run ?? continued?.last,
+    worktree.id,
+    base,
+    p
+  );
   const recheck = last && (await heldReply(last, p));
   const sections = [section, seed && `What your last run did:\n\n${seed}`].filter(Boolean).join('\n\n');
   return { ...worktree, base, resume: sections, ...(recheck && { recheck }) };

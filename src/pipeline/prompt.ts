@@ -14,7 +14,8 @@ import type { PlannedJob } from '../dispatch.ts';
 import type { SurfacerOptions } from '../harnesses/opencode-surfacer.ts';
 import { mcpToolNames } from '../mcp-config.ts';
 import type { McpTool } from '../mcp.ts';
-import { recallQuery, type RepoFiles } from '../preload.ts';
+import { recallQuery } from '../preload.ts';
+import type { RepoFiles } from '../repo-guidance.ts';
 import {
   NoteKind,
   type History,

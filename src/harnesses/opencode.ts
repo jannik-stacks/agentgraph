@@ -70,16 +70,16 @@ const pluginIds = (spec: RunSpec) => [
   'bothub-model',
 ];
 
-/**
- * Harness memory is off: no sharing, no snapshots, no compaction or pruning; bothub's surfacer is the memory. Tool
- * output past 300 lines or 16 KiB comes back cut short, since every later call re-sends it.
- */
 /** Project config stays off, so the repo's instruction files and skill directories are named by absolute path. */
 const repoConfig = ({ cwd, repo }: RunSpec) => ({
   ...(repo?.instructions.length && { instructions: repo.instructions.map(file => `${cwd}/${file}`) }),
   ...(repo?.skills.length && { skills: { paths: repo.skills.map(dir => `${cwd}/${dir}`) } }),
 });
 
+/**
+ * Harness memory is off: no sharing, no snapshots, no compaction or pruning; bothub's surfacer is the memory. Tool
+ * output past 300 lines or 16 KiB comes back cut short, since every later call re-sends it.
+ */
 const config = (spec: RunSpec) => ({
   $schema: 'https://opencode.ai/config.json',
   autoupdate: false,
@@ -241,7 +241,6 @@ export const opencode: HarnessAdapter = {
     return [{ type: 'start', ...(typeof session === 'string' && { session }) }];
   },
   plugins: pluginIds,
-  supports: ['instructions', 'skills', 'resume'],
   sessions: '.local/share/opencode',
   links: {
     '.config/opencode/node_modules': '/opt/opencode/node_modules',

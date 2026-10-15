@@ -13,7 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join, sep } from 'node:path';
-import type { Loaded } from './preload.ts';
+import type { Loaded } from './repo-guidance.ts';
 import type { ApplyResult } from './apply.ts';
 import { missing, readJsonl } from './jsonl.ts';
 import type { PlannedJob } from './dispatch.ts';

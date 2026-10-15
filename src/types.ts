@@ -1,8 +1,8 @@
 import type { DeciderOptions } from './harnesses/opencode-decider.ts';
 import type { SurfacerOptions } from './harnesses/opencode-surfacer.ts';
 import type { McpServer } from './mcp-config.ts';
-import type { RepoFiles } from './preload.ts';
-import type { Association, DeciderQuestion, Harness, Load, Trigger } from './schema.ts';
+import type { RepoFiles } from './repo-guidance.ts';
+import type { Association, DeciderQuestion, Harness, Trigger } from './schema.ts';
 import type { Source } from './usage.ts';
 
 /**
@@ -140,8 +140,6 @@ export type HarnessAdapter = {
    * the harness's first own `line` names; sent with the first line it returns any for.
    */
   start?: (spec: RunSpec, line: string) => AgentEvent[];
-  /** What the harness can honor beyond the basics: `Load` kinds from the target repo, and `resume` context. */
-  supports?: (Load | 'resume')[];
   /** Where under the run home the harness keeps its sessions, when it can continue one. */
   sessions?: string;
   /** The ids of bothub's own plugins the run loads; each marks itself loaded in the run home. */

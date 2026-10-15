@@ -1,6 +1,6 @@
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { harnesses } from './harnesses/index.ts';
+import { supports as harnessSupports } from './harnesses/supports.ts';
 import { parseMarkdown } from './markdown.ts';
 import { matchGlob } from './outputs.ts';
 import {
@@ -136,7 +136,7 @@ const references = (config: Config): ConfigError[] => {
     const fail = at(bot.path);
     for (const problem of returnProblems(bot.returns)) fail(problem);
     for (const skill of bot.skills ?? []) if (!(skill in skills)) fail(`offers unknown skill "${skill}"`);
-    const supports = harnesses[bot.harness].supports ?? [];
+    const supports = harnessSupports[bot.harness];
     if (effectiveRun(config.hub, bot).context === 'resume' && !supports.includes('resume'))
       fail(`sets context "resume", which ${bot.harness} cannot honor`);
     for (const entry of bot.loads ?? config.hub.loads ?? [])

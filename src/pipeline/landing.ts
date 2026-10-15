@@ -23,7 +23,12 @@ const kindsOf = (outcome: Outcome) =>
 /** What humans wrote on the event's issue, and the event's own text: what a change may name to touch guidance files. */
 const issueText = async (p: Pipeline) => {
   const { number, body } = p.event;
-  const issue = number === undefined ? undefined : await issuesOf(p)?.get(number).catch(() => undefined);
+  const issue =
+    number === undefined
+      ? undefined
+      : await issuesOf(p)
+          ?.get(number)
+          .catch(() => undefined);
   const comments = (issue?.comments ?? []).filter(c => !c.author.endsWith('[bot]')).map(c => c.body);
   return [body, issue?.title, issue?.body, ...comments].filter(Boolean).join('\n');
 };
