@@ -521,6 +521,9 @@ export const withSections = (body: string, ctx: SectionContext, sections: MergeS
 
 const baseRuns = new WeakMap<Pipeline['store'], { runs: Map<string, Promise<Judged>>; filed: Set<string> }>();
 
+/** A finding that talks about the change itself says nothing when the check runs on base, where there is none. */
+const aboutChange = /\bthe change\b/i;
+
 const pathsIn = (text = '') => text.match(/[\w.@-]+(?:\/[\w.@-]+)+/g) ?? [];
 
 /** Files an issue that `check` fails on the base commit `base`, unless one about that check is still open. */
@@ -587,7 +590,8 @@ const redOnBase = async (verdicts: Verdict[], a: Attempt, p: Pipeline): Promise<
         if (!check) return v;
         const base = await onBase(check);
         const touched = (path: string) => files.some(file => path.endsWith(file));
-        if (base.pass || base.blocked || pathsIn(v.findings).some(touched)) return v;
+        if (base.pass || base.blocked || aboutChange.test(base.findings ?? '') || pathsIn(v.findings).some(touched))
+          return v;
         const key = `${a.base} ${check.name}`;
         if (!filed.has(key)) {
           filed.add(key);

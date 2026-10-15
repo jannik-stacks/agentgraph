@@ -2278,6 +2278,14 @@ describe('over', () => {
     expect(JSON.parse(readFileSync(join(data, 'base-checks', kept), 'utf8'))).toMatchObject({ pass: false });
   });
 
+  it('does not file a base failure for a finding about the change itself', async () => {
+    const issues = trackedIssues();
+    const script = 'echo "criterion 1: the change does not add fn test_a to crates/x/a.rs"; exit 1';
+    const { result } = await run(hubWith([blocking('tests', script)]), judged, {}, { issues });
+    expect(result.outcome?.checks?.[0]).toMatchObject({ gating: true, pass: false });
+    expect(await baseIssues(issues)).toEqual([]);
+  });
+
   it('files one issue for a check red on base even before the tracker lists it', async () => {
     const issues = trackedIssues();
     const config = hubWith([blocking('old', 'echo FAIL tests/old.test.ts; exit 1')]);
