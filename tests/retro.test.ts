@@ -129,7 +129,7 @@ describe('retro.mjs', () => {
       { id: id(1), run: { status: 'succeeded', closure: 'done', bot: 'implementor', harness: 'opencode', event } },
     ]);
     const hub = temp('retro-hub');
-    write(hub, { 'bots/implementor.md': '---\nresume: session\n---\nx' });
+    write(hub, { 'bots/implementor.md': '---\ncontext: resume\n---\nx' });
     expect(keys(dir, ['--hub', hub])).toContain('no-session: implementor');
   });
 

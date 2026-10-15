@@ -13,6 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join, sep } from 'node:path';
+import type { Loaded } from './preload.ts';
 import type { ApplyResult } from './apply.ts';
 import { missing, readJsonl } from './jsonl.ts';
 import type { PlannedJob } from './dispatch.ts';
@@ -86,7 +87,8 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     /** How many times the run's session was restarted after a fault outside the bot's work. */
     restarts?: number;
     /** The repo guidance files the run was given as of `base`, and the named ones it skipped. */
-    guidance?: { loaded: string[]; skipped: string[] };
+    /** What the session loads, each item with its source, as of `base`. */
+    loaded?: Loaded[];
     /** A digest of the event's issue title and body when the run started. */
     issue?: string;
     /** On a check run that passed, the key of the check and the item it judged (see `judgeWith`). */

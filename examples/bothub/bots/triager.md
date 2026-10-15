@@ -5,7 +5,7 @@ tools: [read, grep, glob, issues_list, issues_get]
 returns: [reply, label, ask]
 skills: [triage]
 preload: [issue, links, { recall: { judge: luna } }]
-resume: session
+context: resume
 max-turns: 10
 budget: { runs-per-day: 30, minutes: 10 }
 human: seed hub, untraced; session resume after an answer from dogfood x, a fresh triage re-read 103k tokens

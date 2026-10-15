@@ -180,8 +180,8 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(await pulls.list()).toMatchObject([{ number: 1, branch: 'bothub/7' }]);
   });
 
-  it('starts a later run of a `resume: session` bot fresh, seeded with what the last run did and its change', async () => {
-    const { hub, pulls, seen, commentEvent } = await setup('resume: session\n');
+  it('starts a later run of a `context: resume` bot fresh, seeded with what the last run did and its change', async () => {
+    const { hub, pulls, seen, commentEvent } = await setup('context: resume\n');
     await pulls.comment(1, { author: 'morgan', body: '/bothub go on' });
     const [, again] = await handleEvent(await commentEvent(1), hub);
     expect(seen[1]!.session).toBeUndefined();

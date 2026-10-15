@@ -1,5 +1,6 @@
 import { parse } from 'yaml';
 import { z } from 'zod';
+import { harnesses } from './harnesses/index.ts';
 import { parseMarkdown } from './markdown.ts';
 import { matchGlob } from './outputs.ts';
 import {
@@ -14,6 +15,8 @@ import {
   Skill,
   Workflow,
   type Harness,
+  type Load,
+  type LoadEntry,
   type Job,
   type Preload,
   type ProposalKind,
@@ -133,6 +136,11 @@ const references = (config: Config): ConfigError[] => {
     const fail = at(bot.path);
     for (const problem of returnProblems(bot.returns)) fail(problem);
     for (const skill of bot.skills ?? []) if (!(skill in skills)) fail(`offers unknown skill "${skill}"`);
+    const supports = harnesses[bot.harness].supports ?? [];
+    if (effectiveRun(config.hub, bot).context === 'resume' && !supports.includes('resume'))
+      fail(`sets context "resume", which ${bot.harness} cannot honor`);
+    for (const entry of bot.loads ?? config.hub.loads ?? [])
+      if (!supports.includes(entry.split('/')[0] as Load)) fail(`loads "${entry}", which ${bot.harness} cannot honor`);
     for (const tool of bot.tools) {
       const problem = toolProblem(bot.harness, tool);
       if (problem) fail(problem);
@@ -334,6 +342,16 @@ export const effectivePreload = (
   bot: Pick<Bot, 'preload'>,
   job: Pick<Extract<Job, { type: 'bot' }>, 'preload'>
 ): Preload[] => job.preload ?? bot.preload ?? [];
+
+/** What a bot's runs load from the repo, start with and recall: the bot's own setting over the hub's. */
+export const effectiveRun = (
+  hub: Pick<Hub, 'loads' | 'context' | 'history'>,
+  bot: Pick<Bot, 'loads' | 'context' | 'history'>
+): { loads: LoadEntry[] } & Pick<Bot, 'context' | 'history'> => ({
+  ...hub,
+  ...bot,
+  loads: bot.loads ?? hub.loads ?? ['instructions', 'skills'],
+});
 
 /** The recall settings among `preload`, when it has recall. */
 export const recallOf = (preload: Preload) =>

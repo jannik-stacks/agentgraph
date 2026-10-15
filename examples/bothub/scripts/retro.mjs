@@ -279,7 +279,7 @@ const invariants = {
     means: 'an opencode bot set to resume its session never recorded a session id, so it cannot resume',
     find: ({ jobs, resume }) =>
       jobs
-        .filter(r => r.run.harness === 'opencode' && resume(r.run.bot) === 'session')
+        .filter(r => r.run.harness === 'opencode' && resume(r.run.bot) === 'resume')
         .filter(r => r.events.some(e => e.type === 'start') && !r.events.some(e => e.session))
         .map(r => hit(r, r.run.bot, 'no start event carries a session id')),
   },
@@ -764,7 +764,7 @@ const invariants = {
 /** The anomaly items, most telling invariant first: one per invariant and key, with its hits and up to five runs. */
 export const retro = (runs, { hub, pulls = [] } = {}) => {
   const jobs = runs.filter(r => !r.run.check && !['queued', 'running'].includes(r.run.status));
-  const resumes = front(hub, 'bots', 'resume');
+  const resumes = front(hub, 'bots', 'context');
   const ctx = {
     runs,
     jobs,
@@ -776,7 +776,7 @@ export const retro = (runs, { hub, pulls = [] } = {}) => {
     types: front(hub, 'checks', 'type'),
     checks: Object.keys(front(hub, 'checks', 'type')),
     scripts: Object.values(front(hub, 'checks', 'run')).length ? checkScripts(hub) : [],
-    resume: bot => (hub ? (resumes[bot] ?? 'none') : 'session'),
+    resume: bot => (hub ? (resumes[bot] ?? 'none') : 'resume'),
   };
   return Object.entries(invariants).flatMap(([invariant, { means, find }]) =>
     Object.entries(Object.groupBy(find(ctx), h => h.key)).map(([key, hits]) => ({

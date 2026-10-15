@@ -68,6 +68,18 @@ describe('opencode', () => {
     expect(JSON.parse(command(spec).env.OPENCODE_CONFIG_CONTENT ?? '{}').mcp).toBeUndefined();
   });
 
+  it('names the repo instructions and skills by absolute path while project config stays off', () => {
+    const repo = { instructions: ['AGENTS.md'], skills: ['.agents/skills/lint'], shadowed: [] };
+    const { env } = command({ ...spec, cwd: '/work', repo });
+    const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? '');
+    expect(config.instructions).toEqual(['/work/AGENTS.md']);
+    expect(config.skills).toEqual({ paths: ['/work/.agents/skills/lint'] });
+    expect(env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe('1');
+    const bare = JSON.parse(command({ ...spec, repo: { instructions: [], skills: [], shadowed: [] } }).env.OPENCODE_CONFIG_CONTENT ?? '');
+    expect(bare).not.toHaveProperty('instructions');
+    expect(bare).not.toHaveProperty('skills');
+  });
+
   it('passes the proxy, agent and allowlist inline and ignores project config', () => {
     const { env } = command(spec);
     expect(JSON.parse(env.OPENCODE_PERMISSION ?? '')).toEqual({

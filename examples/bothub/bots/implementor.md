@@ -5,7 +5,7 @@ tools: [read, edit, write, bash, grep, glob, issues_get, notes_search, notes_get
 returns: [reply, push, merge-request, note, ask]
 skills: [implement, pr-body, principles]
 preload: [issue, { recall: { judge: luna } }]
-resume: session
+context: resume
 max-turns: 60
 decider:
   - on: tool_call

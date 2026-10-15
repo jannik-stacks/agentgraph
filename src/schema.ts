@@ -42,7 +42,9 @@ export const Summarizer = z.preprocess(
 export type Summarizer = z.output<typeof Settings>;
 
 /** What a new run or attempt starts with besides its task: nothing, a summary of the last run, or its harness session. */
-export const Resume = z.enum(['none', 'summary', 'session']);
+export const Resume = z.enum(['none', 'summary', 'resume'], {
+  error: issue => (issue.input === 'session' ? 'session is now named resume' : undefined),
+});
 export type Resume = z.infer<typeof Resume>;
 
 /**
@@ -131,12 +133,9 @@ export type NoteKind = z.infer<typeof NoteKind>;
  * Context rendered into a run before it starts: the triggering issue, its linked issues, and `recall`, which surfaces
  * the accepted notes and past-run summaries most relevant to the job's brief or issue before the first turn. A recall
  * `judge` model drops the search hits it scores under `cutoff`; `budget` caps the tokens the surfaced text adds.
- * `guidance` renders the repo's AGENTS.md, or CLAUDE.md without one, as of the run's base commit; `{ guidance }` names
- * the files to render instead.
  */
 export const Preload = z.union([
-  z.enum(['issue', 'links', 'recall', 'guidance']),
-  z.strictObject({ guidance: z.array(z.string().min(1)).min(1) }),
+  z.enum(['issue', 'links', 'recall']),
   z.strictObject({
     recall: z.strictObject({
       judge: z.string().min(1).optional(),
@@ -207,25 +206,37 @@ export const TriggerFilter = z
 
 export const On = z.partialRecord(Trigger, TriggerFilter);
 
-/** The error for unknown bot keys, with an old `session:` rewritten as the fields that replace it. */
+/** The error for unknown bot keys, with an old `session` or `resume` named by the fields that replace it. */
 const unknownBotKeys = (keys: string[], input: unknown) => {
-  if (!keys.includes('session')) return;
-  const others = keys.filter(key => key !== 'session');
+  const old: string[] = keys.filter(key => key === 'session' || key === 'resume');
+  if (!old.length) return;
+  const others = keys.filter(key => !old.includes(key));
   const unknown = others.length ? `Unrecognized keys: ${others.map(key => `"${key}"`).join(', ')}` : '';
   const { resume, share } = ((input as Record<string, unknown>).session ?? {}) as Record<string, unknown>;
   const fields = [
-    ...(resume === 'attempts' ? ['resume: summary'] : []),
+    ...(resume === 'attempts' ? ['context: summary'] : []),
     ...(typeof share === 'string' ? [`history: ${share}`] : []),
   ];
   const instead = fields.length ? `write ${fields.join(' and ')}` : 'remove it';
-  return [`session is replaced by resume and history; ${instead}`, unknown].filter(Boolean).join('; ');
+  const notes = old.map(key => (key === 'session' ? `session is replaced by context and history; ${instead}` : 'resume is replaced by context'));
+  return [...notes, unknown].filter(Boolean).join('; ');
 };
 
 /**
+ * What a harness can load from the target repo's own setup: its instructions (AGENTS.md or CLAUDE.md), skills, custom
+ * tools and MCP servers. An entry is a kind, or `skills/<name>`, `tools/<name>` or `mcp/<name>` for one item of it.
+ */
+export const Load = z.enum(['instructions', 'skills', 'tools', 'mcp']);
+export type Load = z.infer<typeof Load>;
+
+export const LoadEntry = z.union([Load, z.templateLiteral([z.enum(['skills', 'tools', 'mcp']), '/', z.string().min(1)])]);
+export type LoadEntry = z.infer<typeof LoadEntry>;
+/**
  * `bots/<name>.md`: who acts. The body is the bot's role. `tools` lists harness tools plus any hub tools (see
  * `HubTool`) the bot may call during a run; `returns` is the most it may return, which a job can only narrow.
- * `resume` is what a new run or attempt starts with besides its task; `history` how far back `history` and recall
- * reach, `issue` by default. `concurrency` caps how many of the bot's sessions, jobs and checks together, run at once,
+ * `loads` is what its harness takes from the repo, instructions and skills by default; `context` is what a new run or
+ * attempt starts with besides its task; `history` how far back `history` and recall reach, `issue` by default. The hub
+ * sets all three for bots that do not. `concurrency` caps how many of the bot's sessions, jobs and checks together, run at once,
  * within the hub's own limit; unset, only that limit applies. `decider` lists the questions the decision model answers
  * during the bot's opencode runs (see `DeciderQuestion`); a job's own `decider` replaces it.
  */
@@ -238,7 +249,8 @@ export const Bot = z
       returns: Returns,
       skills: z.array(name).optional(),
       preload: z.array(Preload).optional(),
-      resume: Resume.optional(),
+      loads: z.array(LoadEntry).optional(),
+      context: Resume.optional(),
       history: History.optional(),
       summarizer: Summarizer.optional(),
       decider: z.array(DeciderQuestion).optional(),
@@ -254,11 +266,7 @@ export const Bot = z
       human,
     },
     { error: issue => (issue.code === 'unrecognized_keys' ? unknownBotKeys(issue.keys, issue.input) : undefined) }
-  )
-  .refine(bot => bot.harness === 'opencode' || bot.resume !== 'session', {
-    path: ['resume'],
-    message: 'only opencode can resume its session yet; use resume: summary',
-  });
+  );
 export type Bot = z.infer<typeof Bot>;
 
 /** `skills/<name>.md`: what to do. The body is the prompt. */
@@ -496,6 +504,9 @@ export const Hub = z.strictObject({
       cpus: z.number().positive().exactOptional(),
     })
     .optional(),
+  loads: z.array(LoadEntry).optional(),
+  context: Resume.optional(),
+  history: History.optional(),
   'time-kinds': z
     .partialRecord(z.enum(timeKinds), z.array(z.string().refine(regex, 'must be a regular expression')))
     .default({}),

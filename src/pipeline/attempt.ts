@@ -1,12 +1,12 @@
 import { Effect } from 'effect';
-import { effectivePreload, returnKinds, type Defined } from '../config.ts';
+import { effectiveRun, effectivePreload, returnKinds, type Defined } from '../config.ts';
 import type { PlannedJob } from '../dispatch.ts';
 import { harnesses } from '../harnesses/index.ts';
 import { readJsonl } from '../jsonl.ts';
 import { fanOut, type Item } from '../over.ts';
 import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
-import { guidanceContext, issueContext, readAtBase } from '../preload.ts';
+import { issueContext, loadedItems, repoFor } from '../preload.ts';
 import type { Job, ProposalKind, Workflow } from '../schema.ts';
 import type { Pulls } from '../pulls.ts';
 import type { Run, Store } from '../store.ts';
@@ -32,24 +32,12 @@ import { carried, onRequest, openerOf, seeded, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
 
-/**
- * What a planned job preloads: the issue context, read from `issues` (or GitHub's issues when only `gh` is given), and
- * the repo guidance as of the worktree's base, recorded on the run.
- */
-const preloadFor = async (
-  planned: PlannedJob,
-  workflow: Defined<Workflow>,
-  worktree: Worktree,
-  first: Run,
-  p: Pipeline
-) => {
+/** The issue context a planned job preloads, read from `issues`, or the forge's issues when only `gh` is given. */
+const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: Pipeline) => {
   const job = workflow.jobs[planned.job];
   const bot = job?.type === 'bot' ? p.config.bots[job.bot] : undefined;
-  if (job?.type !== 'bot' || !bot) return {};
-  const preload = effectivePreload(bot, job);
-  const guidance = await guidanceContext(preload, readAtBase(worktree.cwd, worktree.base));
-  if (guidance) await p.store.update(first.id, { guidance: { loaded: guidance.loaded, skipped: guidance.skipped } });
-  return { preloaded: await issueContext(issuesOf(p), p.event, preload), guidance: guidance?.text };
+  if (job?.type !== 'bot' || !bot) return;
+  return issueContext(issuesOf(p), p.event, effectivePreload(bot, job));
 };
 
 /**
@@ -169,7 +157,8 @@ const attempts = (
 ) =>
   Effect.gen(function* () {
     const { cwd, base, merging } = worktree;
-    const { preloaded, guidance } = yield* Effect.promise(() => preloadFor(planned, workflow, worktree, first, p));
+    const preloaded = yield* Effect.promise(() => preloadFor(planned, workflow, p));
+    const repo = yield* Effect.promise(() => repoFor(p.config, p.config.bots[planned.bot ?? ''], cwd));
     const built = buildSpec({
       ...planned,
       config: p.config,
@@ -177,13 +166,18 @@ const attempts = (
       event: p.event,
       cwd,
       preloaded,
-      guidance,
+      repo,
       handoff,
       ...(p.mcp && { mcp: p.mcp }),
       ...(p.hub && { hub: p.hub }),
       ...(p.data && { data: p.data }),
     });
     const { bot, job, returns, branch, into, timeoutMinutes } = built;
+    const items = loadedItems(
+      { bot: bot.path, skills: [...(bot.skills ?? []), job.skill], tools: built.spec.tools, mcp: !!built.spec.mcp },
+      repo
+    );
+    yield* Effect.promise(() => p.store.update(first.id, { loaded: items }));
     const target: Target = { ...(branch && { branch }), ...(into && { into }) };
     const kinds = returnKinds(returns);
     const defaultBranch = yield* Effect.promise(() => defaultBranchFor(kinds, p));
@@ -269,7 +263,7 @@ const attempts = (
         );
         const outcome = yield* Effect.promise(() => settle(capped, extracted, validated, undefined, a, p));
         if (resumed) return yield* finish(planned, capped, outcome, kinds, p, merging);
-        const next = yield* Effect.promise(() => carried(bot.resume, run, p));
+        const next = yield* Effect.promise(() => carried(effectiveRun(p.config.hub, bot).context, run, p));
         session = next.session;
         prompt = `${followUp(task, [], [], attempt, max + 1, [], next.summary)}\n\n## Out of turns\n\nYour last attempt used all ${turns} turns before it finished. Its changes are still in this worktree. Finish the work, then end with your proposals.`;
         parent = capped;
@@ -308,7 +302,7 @@ const attempts = (
           reformatting = true;
           continue;
         }
-        const earlier = yield* Effect.promise(() => seeded(bot.resume, run, worktree.id, base, p));
+        const earlier = yield* Effect.promise(() => seeded(effectiveRun(p.config.hub, bot).context, run, worktree.id, base, p));
         session = undefined;
         prompt = followUp(task, [], [], tries + 1, max + 1, problems, earlier);
         continue;
@@ -408,7 +402,7 @@ const attempts = (
 
       yield* Effect.promise(() => settle(run, extracted, validated, undefined, a, p, verdicts));
       const ran = recheck === undefined ? run : undefined;
-      const earlier = yield* Effect.promise(() => seeded(bot.resume, ran, worktree.id, base, p));
+      const earlier = yield* Effect.promise(() => seeded(effectiveRun(p.config.hub, bot).context, ran, worktree.id, base, p));
       session = undefined;
       prompt = followUp(task, fixable, validated.rejected, attempt - reformats + 1, max + 1, [], earlier, left);
       parent = run;

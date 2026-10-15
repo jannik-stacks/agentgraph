@@ -1,19 +1,19 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
 import {
   accepted,
   answersAfterBrief,
-  guidanceContext,
   issueContext,
-  readAtBase,
+  loadedItems,
+  repoFiles,
   recallQuery,
   runContext,
 } from '../src/preload.ts';
-import { Preload, type Bot } from '../src/schema.ts';
+import { type Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
-import { git, temp } from './kit.ts';
+import { temp } from './kit.ts';
 
 const event: BotEvent = {
   id: 'e',
@@ -178,40 +178,53 @@ describe('recallQuery', () => {
   });
 });
 
-describe('guidanceContext', () => {
-  const files = (found: Record<string, string>) => async (path: string) => found[path];
+describe('repoFiles', () => {
+  const repo = (agents = 'a') => {
+    const dir = temp('repo');
+    mkdirSync(join(dir, '.claude/skills/ship'), { recursive: true });
+    mkdirSync(join(dir, '.agents/skills/lint'), { recursive: true });
+    mkdirSync(join(dir, '.agents/skills/empty'), { recursive: true });
+    writeFileSync(join(dir, '.claude/skills/ship/SKILL.md'), '---\ndescription: x\n---\n');
+    writeFileSync(join(dir, '.agents/skills/lint/SKILL.md'), '---\ndescription: y\n---\n');
+    writeFileSync(join(dir, 'CLAUDE.md'), 'c');
+    writeFileSync(join(dir, 'AGENTS.md'), agents);
+    return dir;
+  };
 
-  it('renders AGENTS.md for the string form, else CLAUDE.md', async () => {
-    const both = await guidanceContext(['guidance'], files({ 'AGENTS.md': 'agents', 'CLAUDE.md': 'claude' }));
-    expect(both).toEqual({ text: '## Repo guidance: AGENTS.md\n\nagents', loaded: ['AGENTS.md'], skipped: [] });
-    const only = await guidanceContext(['guidance'], files({ 'CLAUDE.md': 'claude' }));
-    expect(only?.loaded).toEqual(['CLAUDE.md']);
+  it('loads each distinct instruction file once and every skill directory that holds a SKILL.md', async () => {
+    expect(await repoFiles(repo(), ['instructions', 'skills'], [])).toEqual({
+      instructions: ['AGENTS.md', 'CLAUDE.md'],
+      skills: ['.agents/skills/lint', '.claude/skills/ship'],
+      shadowed: [],
+    });
+    expect((await repoFiles(repo('c\n'), ['instructions'], [])).instructions).toEqual(['AGENTS.md']);
   });
 
-  it('skips a file whose text is already rendered, and records a missing named file', async () => {
-    const found = files({ 'AGENTS.md': 'same\n', 'CLAUDE.md': 'same', 'docs/rust.md': 'rules' });
-    const got = await guidanceContext(['guidance', { guidance: ['CLAUDE.md', 'docs/rust.md', 'gone.md'] }], found);
-    expect(got?.loaded).toEqual(['AGENTS.md', 'docs/rust.md']);
-    expect(got?.skipped).toEqual(['CLAUDE.md', 'gone.md']);
-    expect(got?.text).toBe('## Repo guidance: AGENTS.md\n\nsame\n\n## Repo guidance: docs/rust.md\n\nrules');
+  it('loads only the named skills, and marks one a hub skill shadows', async () => {
+    expect(await repoFiles(repo(), ['skills/ship', 'skills/lint'], ['lint'])).toEqual({
+      instructions: [],
+      skills: ['.claude/skills/ship'],
+      shadowed: ['.agents/skills/lint'],
+    });
+    expect(await repoFiles(repo(), [], [])).toEqual({ instructions: [], skills: [], shadowed: [] });
   });
 
-  it('has nothing without a guidance source', async () => {
-    expect(await guidanceContext(['issue'], files({ 'AGENTS.md': 'x' }))).toBeUndefined();
-    expect(Preload.safeParse({ guidance: [] }).success).toBe(false);
-    expect(Preload.safeParse({ guidance: ['AGENTS.md'] }).success).toBe(true);
+  it('fails a named skill the repo lacks', async () => {
+    await expect(repoFiles(repo(), ['skills/gone'], [])).rejects.toThrow('inherit "skills/gone": no such skill');
   });
+});
 
-  it('reads from the base commit, not the working tree', async () => {
-    const dir = temp('guidance');
-    git(dir, 'init', '-q');
-    writeFileSync(join(dir, 'AGENTS.md'), 'at base');
-    git(dir, 'add', '.');
-    git(dir, 'commit', '-qm', 'base');
-    const base = git(dir, 'rev-parse', 'HEAD');
-    writeFileSync(join(dir, 'AGENTS.md'), 'edited by the bot');
-    const read = readAtBase(dir, base);
-    expect(await read('AGENTS.md')).toBe('at base');
-    expect(await read('missing.md')).toBeUndefined();
+describe('loadedItems', () => {
+  it('lists hub and repo items with their source, a shadowed repo skill marked', () => {
+    const repo = { instructions: ['AGENTS.md'], skills: ['.agents/skills/a'], shadowed: ['.agents/skills/b'] };
+    expect(loadedItems({ bot: 'bots/x.md', skills: ['b'], tools: ['read'], mcp: true }, repo)).toEqual([
+      { kind: 'instruction', name: 'bots/x.md', source: 'hub' },
+      { kind: 'skill', name: 'b', source: 'hub' },
+      { kind: 'tool', name: 'read', source: 'hub' },
+      { kind: 'mcp', name: 'bothub', source: 'hub' },
+      { kind: 'instruction', name: 'AGENTS.md', source: 'repo' },
+      { kind: 'skill', name: '.agents/skills/a', source: 'repo' },
+      { kind: 'skill', name: '.agents/skills/b', source: 'repo', shadowed: true },
+    ]);
   });
 });

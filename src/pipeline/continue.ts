@@ -68,12 +68,12 @@ export const sessionOf = async (run: Run, p: Pipeline): Promise<RunSpec['session
 };
 
 /**
- * What a run or attempt after `run` starts with: with `resume: session` the harness session `run` left, and with
- * `resume: summary`, or a session that cannot be continued, what `run` did.
+ * What a run or attempt after `run` starts with: with `context: resume` the harness session `run` left, and with
+ * `context: summary`, or a session that cannot be continued, what `run` did.
  */
 export const carried = async (resume: Resume | undefined, run: Run, p: Pipeline) => {
   if (!resume || resume === 'none') return {};
-  const session = resume === 'session' ? await sessionOf(run, p) : undefined;
+  const session = resume === 'resume' ? await sessionOf(run, p) : undefined;
   return session ? { session } : { summary: await attemptSummary(run, p) };
 };
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   compile,
   effectiveReturns,
+  effectiveRun,
   effectivePreload,
   effectiveTools,
   harnessTools,
@@ -75,21 +76,21 @@ describe('compile', () => {
     expect(errorsOf([file('notes/pattern/a.md', 'title: A')]).join()).toMatch(/unknown note kind "pattern"/);
   });
 
-  it('rewrites an old session in its error, and keeps resume: session to harnesses that can', () => {
+  it('rewrites an old session in its error, and keeps context: resume to harnesses that can', () => {
     const of = (harness: string, lines: string) =>
       file('bots/b.md', `harness: ${harness}\ntools: []\nreturns: []\n${lines}`, 'role');
     expect(errorsOf([of('opencode', 'session: { resume: attempts, share: hub }')]).join()).toMatch(
-      /session is replaced by resume and history; write resume: summary and history: hub/
+      /session is replaced by context and history; write context: summary and history: hub/
     );
     expect(errorsOf([of('opencode', 'session: {}\ncan: [reply]')]).join()).toMatch(
-      /session is replaced by resume and history; remove it; Unrecognized keys: "can"/
+      /session is replaced by context and history; remove it; Unrecognized keys: "can"/
     );
-    expect(errorsOf([of('pi', 'resume: session')]).join()).toMatch(
-      /only opencode can resume its session yet; use resume: summary/
-    );
-    const result = compile([of('opencode', 'resume: session\nhistory: issue')]);
+    expect(errorsOf([of('pi', 'context: resume')]).join()).toMatch(/sets context "resume", which pi cannot honor/);
+    expect(errorsOf([of('opencode', 'resume: summary')]).join()).toMatch(/resume is replaced by context/);
+    expect(errorsOf([of('opencode', 'context: session')]).join()).toMatch(/session is now named resume/);
+    const result = compile([of('opencode', 'context: resume\nhistory: issue')]);
     if (!result.ok) throw new Error(JSON.stringify(result.errors));
-    expect(result.config.bots.b).toMatchObject({ resume: 'session', history: 'issue' });
+    expect(result.config.bots.b).toMatchObject({ context: 'resume', history: 'issue' });
   });
 
   it('reads hub(<globs>) returns from a YAML flow list and keeps them inside the hub', () => {
@@ -379,6 +380,31 @@ describe('effective context', () => {
     expect(effectivePreload(bot, { preload: ['links'] })).toEqual(['links']);
     expect(effectivePreload(bot, {})).toEqual(['issue']);
     expect(effectivePreload({}, {})).toEqual([]);
+  });
+
+  it('loads instructions and skills from the repo, and takes context and history, bot over hub', () => {
+    const hub = { loads: ['skills' as const], history: 'hub' as const };
+    expect(effectiveRun({}, {})).toEqual({ loads: ['instructions', 'skills'] });
+    expect(effectiveRun(hub, {})).toEqual({ loads: ['skills'], history: 'hub' });
+    expect(effectiveRun(hub, { loads: [], context: 'summary' })).toEqual({
+      loads: [],
+      history: 'hub',
+      context: 'summary',
+    });
+  });
+
+  it('fails a load the bot harness cannot honor, naming both', () => {
+    const bot = (harness: string, lines: string, hubSource = 'issues: local') =>
+      compile([
+        { path: 'hub.yaml', source: hubSource },
+        file('bots/p.md', `harness: ${harness}\ntools: [read]\nreturns: [reply]\n${lines}`),
+      ]);
+    expect(bot('opencode', 'loads: [instructions, skills/lint]\ncontext: resume').ok).toBe(true);
+    const tools = bot('opencode', 'loads: [tools/fmt]');
+    expect(!tools.ok && tools.errors[0]?.message).toBe('loads "tools/fmt", which opencode cannot honor');
+    const pi = bot('pi', 'loads: [skills]');
+    expect(!pi.ok && pi.errors[0]?.message).toBe('loads "skills", which pi cannot honor');
+    expect(bot('pi', '', 'loads: [mcp]').ok).toBe(false);
   });
 });
 

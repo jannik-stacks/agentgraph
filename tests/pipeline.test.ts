@@ -213,6 +213,14 @@ describe('buildSpec', () => {
   const config = configFor();
   const workflow = config.workflows.triage!;
 
+  it('tells the bot that repo guidance is advice only when the harness loads some', () => {
+    const build = (repo?: { instructions: string[]; skills: string[]; shadowed: string[] }) =>
+      buildSpec({ config, workflow, job: 'triage', event, cwd: '/w', ...(repo && { repo }) }).spec;
+    expect(build({ instructions: ['AGENTS.md'], skills: [], shadowed: [] }).system).toContain('the task and role win');
+    expect(build({ instructions: [], skills: [], shadowed: [] }).system).not.toContain('the task and role win');
+    expect(build().repo).toBeUndefined();
+  });
+
   it('pins role, the forced skill, offered skills and what the run returns in order, and prompts with the event', () => {
     const { spec, timeoutMinutes, returns } = buildSpec({
       config,
@@ -657,9 +665,9 @@ describe('until', () => {
     expect(git(origin.dir, 'for-each-ref', 'refs/bothub')).toBe('');
   });
 
-  it('starts a follow-up of a resume: session bot fresh, with what the attempt did and its change', async () => {
+  it('starts a follow-up of a context: resume bot fresh, with what the attempt did and its change', async () => {
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, resume: 'session' };
+    config.bots.bot = { ...config.bots.bot!, context: 'resume' };
     const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
     const { seen, adapters } = fake((_spec, call) => ({
       message: replyAndAsk,
@@ -926,9 +934,9 @@ describe('parking', { timeout: 20_000 }, () => {
     ]);
   });
 
-  it('continues the session of a resume: session bot that ran out of turns', async () => {
+  it('continues the session of a context: resume bot that ran out of turns', async () => {
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, resume: 'session' };
+    config.bots.bot = { ...config.bots.bot!, context: 'resume' };
     const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
     const { seen, adapters } = fakeHarness((_spec, call) => ({
       events: outOfTurns(call === 1 ? 7 : 6),
@@ -1086,9 +1094,9 @@ describe('parking', { timeout: 20_000 }, () => {
     expect(seen[2]!.prompt).toContain('Its checks last found:\n\n### exists\n\n```text\nexited non-zero\n```');
   });
 
-  it('resumes a blocked run of a resume: session bot in a fresh session, seeded with its change', async () => {
+  it('resumes a blocked run of a context: resume bot in a fresh session, seeded with its change', async () => {
     const config = configFor();
-    config.bots.bot = { ...config.bots.bot!, resume: 'session' };
+    config.bots.bot = { ...config.bots.bot!, context: 'resume' };
     const keep = "fs.mkdirSync(process.env.HOME + '/.sessions', { recursive: true })";
     const { seen, adapters } = fake(spec =>
       spec.prompt.includes('## Resuming')
