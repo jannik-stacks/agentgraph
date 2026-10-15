@@ -1,0 +1,5 @@
+repo: acme/sandbox
+limits:
+  minutes: 20
+  usd-per-run: 2
+  working: 1
