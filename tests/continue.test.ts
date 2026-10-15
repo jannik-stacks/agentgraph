@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -60,7 +60,9 @@ const setup = async (bot = '', retryTriage = false) => {
   const origin = bareOrigin();
   const issues = localIssues(join(dir, 'issues'), { repo: 'acme/app' });
   const pulls = localPulls({ origin, file: join(data, 'pulls.jsonl'), repo: 'acme/app' });
+  const triaged: boolean[] = [];
   const { seen, adapters } = fakeHarness((spec, call) => {
+    if (!implementing(spec)) triaged.push(existsSync(join(spec.cwd, 'src/a.ts')));
     if (!implementing(spec) && retryTriage && call === 1) return { events: [{ type: 'end', ok: true, result: 'Done.' }] };
     if (!implementing(spec))
       return { events: [{ type: 'end', ok: true, result: block([{ kind: 'reply', body: 'Brief.' }]) }] };
@@ -108,7 +110,7 @@ const setup = async (bot = '', retryTriage = false) => {
   };
   const first = await handleEvent(comment, hub);
   const commentEvent = async (n: number) => (await pulls.events()).find(e => e.id === `local-pull-1-comment-${n}`)!;
-  return { hub, origin, pulls, seen, logs, first, commentEvent };
+  return { hub, origin, pulls, seen, logs, first, commentEvent, triaged };
 };
 
 describe('continuing from a merge request', { timeout: 30_000 }, () => {
@@ -171,6 +173,14 @@ describe('continuing from a merge request', { timeout: 30_000 }, () => {
     expect(seen).toHaveLength(5);
     expect(results[1]!.run.base).toBe(git(origin, 'rev-parse', 'main'));
     expect(seen[4]!.prompt).toContain('```text\ncheck it all\n```');
+  });
+
+  it('starts a triage that runs again from the merge request head', async () => {
+    const { hub, pulls, first, commentEvent, triaged } = await setup();
+    await pulls.comment(1, { author: 'morgan', body: '/bothub all check it all' });
+    const results = await handleEvent(await commentEvent(1), hub);
+    expect(results[0]!.run.id).not.toBe(first[0]!.run.id);
+    expect(triaged).toEqual([false, true]);
   });
 
   it('starts the branch over with `fresh`, keeping the merge request', async () => {

@@ -129,10 +129,16 @@ const scriptJob = (
 
 /**
  * Where a job's worktree starts when its own branch does not exist yet: the handed-off branch, the `into` of a job
- * whose branch goes into one, so every job into it forks from the same place, or the event's ref.
+ * whose branch goes into one, so every job into it forks from the same place, the event's ref, or for an event on a
+ * merge request without one, the request's branch.
  */
-const startOf = (target: Target, handoff: Handoff, p: Pipeline) =>
-  handoff.branch ?? (target.branch && target.into && pullsOf(p) ? target.into : p.event.ref);
+const startOf = async (target: Target, handoff: Handoff, p: Pipeline) => {
+  if (handoff.branch) return handoff.branch;
+  if (target.branch && target.into && pullsOf(p)) return target.into;
+  const { ref, pull } = p.event;
+  if (ref || pull === undefined || target.branch) return ref;
+  return (await pullsOf(p)?.get(pull).catch(() => undefined))?.branch;
+};
 
 /**
  * Whether a merging job has nothing to do: no open request from a `bothub/` branch into its `into`, and no request
@@ -190,7 +196,6 @@ const withWorktree = (
     job: created.job,
     ...(created.bot && { bot: created.bot }),
   };
-  const ref = startOf(target, handoff, p);
   const fail = (error: string) =>
     Effect.promise(async (): Promise<JobResult> => {
       const run = await p.store.update(created.id, {
@@ -201,14 +206,6 @@ const withWorktree = (
       });
       return { ...planned, run };
     });
-  const start = {
-    repo: p.event.repo,
-    ...(ref && { ref }),
-    ...(target.branch && { branch: target.branch }),
-    ...(merge && { merge }),
-    ...(fresh && { fresh }),
-    ...(from && { from }),
-  };
   return Effect.acquireUseRelease(
     Effect.promise(() =>
       lock ? waitForLock(`${p.event.repo}:${lock}`, created.id, wait, p) : Promise.resolve({ release: async () => {} })
@@ -222,7 +219,16 @@ const withWorktree = (
           })
         : Effect.acquireUseRelease(
             Effect.tryPromise(async (): Promise<Worktree> => {
+              const ref = await startOf(target, handoff, p);
               if (ref && ref === target.into) await pullsOf(p)?.ensureBranch(ref);
+              const start = {
+                repo: p.event.repo,
+                ...(ref && { ref }),
+                ...(target.branch && { branch: target.branch }),
+                ...(merge && { merge }),
+                ...(fresh && { fresh }),
+                ...(from && { from }),
+              };
               const worktree = await p.workspaces.create(start, created.id);
               await p.store.update(created.id, { base: worktree.base });
               const { path: cwd, base, conflicts, branch, replace } = worktree;
@@ -374,7 +380,7 @@ const picked = async (
   const continued = resume || !worktree.branch ? undefined : await continuing(planned, created, worktree.branch, p);
   const section = resume ?? continued?.section;
   if (!section) return worktree;
-  const from = startOf(target, handoff, p);
+  const from = await startOf(target, handoff, p);
   const base = await p.workspaces.forkPoint(p.event.repo, worktree.id, from).catch(() => worktree.base);
   await p.store.update(created.id, { base });
   const seed = await seeded(
