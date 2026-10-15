@@ -1,4 +1,5 @@
 import { effectivePreload, effectiveReturns, effectiveTools, harnessTools, type Config } from './config.ts';
+import { git } from './git.ts';
 import { roles, type Issue, type Issues } from './issues.ts';
 import type { Bot, Job, Preload } from './schema.ts';
 import type { BotEvent } from './types.ts';
@@ -122,4 +123,34 @@ export const issueContext = async (issues: Issues | undefined, event: BotEvent, 
       );
   }
   return sections.join('\n\n') || undefined;
+};
+
+/** Reads a file as of `base` in the repository at `cwd`; undefined when it does not exist. */
+export const readAtBase = (cwd: string, base: string) => (path: string) =>
+  git(cwd, ['cat-file', 'blob', `${base}:${path}`]).catch(() => undefined);
+
+/**
+ * The repo guidance a run preloads, read with `read`: the standard file (`guidance`: AGENTS.md, else CLAUDE.md) then
+ * the named `{ guidance }` files. A file that is missing, empty or the same text as one already rendered is
+ * `skipped`; `loaded` lists the rest.
+ */
+export const guidanceContext = async (preload: Preload[], read: (path: string) => Promise<string | undefined>) => {
+  const named = preload.flatMap(item => (typeof item === 'object' && 'guidance' in item ? item.guidance : []));
+  const standard = preload.includes('guidance') ? [(await read('AGENTS.md')) ? 'AGENTS.md' : 'CLAUDE.md'] : [];
+  const paths = [...new Set([...standard, ...named])];
+  if (!paths.length) return;
+  const texts = await Promise.all(paths.map(async path => [path, (await read(path))?.trim()] as const));
+  const seen = new Set<string>();
+  const loaded: string[] = [];
+  const skipped: string[] = [];
+  const sections: string[] = [];
+  for (const [path, text] of texts) {
+    if (!text || seen.has(text)) skipped.push(path);
+    else {
+      seen.add(text);
+      loaded.push(path);
+      sections.push(`## Repo guidance: ${path}\n\n${text}`);
+    }
+  }
+  return { text: sections.join('\n\n'), loaded, skipped };
 };

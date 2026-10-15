@@ -337,4 +337,4 @@ export const effectivePreload = (
 
 /** The recall settings among `preload`, when it has recall. */
 export const recallOf = (preload: Preload) =>
-  preload === 'recall' ? {} : typeof preload === 'object' ? preload.recall : undefined;
+  preload === 'recall' ? {} : typeof preload === 'object' && 'recall' in preload ? preload.recall : undefined;

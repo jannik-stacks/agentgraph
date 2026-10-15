@@ -7,7 +7,7 @@ import { decideCheck } from '../decide.ts';
 import { digest } from '../fingerprint.ts';
 import { fanOut, hunkOptions, itemsOf, positionless, type Item } from '../over.ts';
 import { extractProposals, matchGlob, type Rejection } from '../outputs.ts';
-import { answersAfterBrief, issueContext } from '../preload.ts';
+import { answersAfterBrief, guidanceContext, issueContext, readAtBase } from '../preload.ts';
 import { providerLimit, resetOf, runScript, type ScriptResult } from '../runner.ts';
 import type { Check, Job, MergeSection, Over } from '../schema.ts';
 import type { Run, Verdict } from '../store.ts';
@@ -184,6 +184,7 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
   const skill = check.skill ? p.config.skills[check.skill] : undefined;
   const preload = bot ? effectivePreload(bot, {}) : [];
   let preloaded: Promise<string | undefined> | undefined;
+  let guidance: Promise<Awaited<ReturnType<typeof guidanceContext>>> | undefined;
   let answered: Promise<string | undefined> | undefined;
   let earlier: Promise<Run[]> | undefined;
   let raised: Promise<string> | undefined;
@@ -218,11 +219,13 @@ const judgeWith = (check: Defined<Check>, a: Attempt, scope: Scope, p: Pipeline)
       const same = (yield* Effect.promise(judged)).find(run => run.passed === key);
       if (same) return { pass: true, findings: `unchanged since run ${same.id}, which passed it` };
       const context = yield* Effect.promise(() => (preloaded ??= issueContext(issuesOf(p), p.event, preload)));
+      const repo = yield* Effect.promise(() => (guidance ??= guidanceContext(preload, readAtBase(a.cwd, a.base))));
       const before = attempt > 1 ? yield* Effect.promise(() => (raised ??= raisedBefore())) : '';
       const prompt = [
         skill?.body,
         check.body,
         context,
+        repo?.text,
         answers,
         eventContext(p.event, a.planned.args, undefined),
         attempt > 1 ? `## Attempt\n\nThis is attempt ${attempt}.${before}` : undefined,

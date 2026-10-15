@@ -2,10 +2,18 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { localIssues } from '../src/issues-local.ts';
-import { accepted, answersAfterBrief, issueContext, recallQuery, runContext } from '../src/preload.ts';
-import type { Bot } from '../src/schema.ts';
+import {
+  accepted,
+  answersAfterBrief,
+  guidanceContext,
+  issueContext,
+  readAtBase,
+  recallQuery,
+  runContext,
+} from '../src/preload.ts';
+import { Preload, type Bot } from '../src/schema.ts';
 import type { BotEvent } from '../src/types.ts';
-import { temp } from './kit.ts';
+import { git, temp } from './kit.ts';
 
 const event: BotEvent = {
   id: 'e',
@@ -167,5 +175,43 @@ describe('recallQuery', () => {
   it('has nothing to search with without the issue', () => {
     expect(recallQuery(undefined, 'issue', ['triage'])).toBeUndefined();
     expect(recallQuery('## Linked issues\n\nmore', 'issue', ['triage'])).toBeUndefined();
+  });
+});
+
+describe('guidanceContext', () => {
+  const files = (found: Record<string, string>) => async (path: string) => found[path];
+
+  it('renders AGENTS.md for the string form, else CLAUDE.md', async () => {
+    const both = await guidanceContext(['guidance'], files({ 'AGENTS.md': 'agents', 'CLAUDE.md': 'claude' }));
+    expect(both).toEqual({ text: '## Repo guidance: AGENTS.md\n\nagents', loaded: ['AGENTS.md'], skipped: [] });
+    const only = await guidanceContext(['guidance'], files({ 'CLAUDE.md': 'claude' }));
+    expect(only?.loaded).toEqual(['CLAUDE.md']);
+  });
+
+  it('skips a file whose text is already rendered, and records a missing named file', async () => {
+    const found = files({ 'AGENTS.md': 'same\n', 'CLAUDE.md': 'same', 'docs/rust.md': 'rules' });
+    const got = await guidanceContext(['guidance', { guidance: ['CLAUDE.md', 'docs/rust.md', 'gone.md'] }], found);
+    expect(got?.loaded).toEqual(['AGENTS.md', 'docs/rust.md']);
+    expect(got?.skipped).toEqual(['CLAUDE.md', 'gone.md']);
+    expect(got?.text).toBe('## Repo guidance: AGENTS.md\n\nsame\n\n## Repo guidance: docs/rust.md\n\nrules');
+  });
+
+  it('has nothing without a guidance source', async () => {
+    expect(await guidanceContext(['issue'], files({ 'AGENTS.md': 'x' }))).toBeUndefined();
+    expect(Preload.safeParse({ guidance: [] }).success).toBe(false);
+    expect(Preload.safeParse({ guidance: ['AGENTS.md'] }).success).toBe(true);
+  });
+
+  it('reads from the base commit, not the working tree', async () => {
+    const dir = temp('guidance');
+    git(dir, 'init', '-q');
+    writeFileSync(join(dir, 'AGENTS.md'), 'at base');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-qm', 'base');
+    const base = git(dir, 'rev-parse', 'HEAD');
+    writeFileSync(join(dir, 'AGENTS.md'), 'edited by the bot');
+    const read = readAtBase(dir, base);
+    expect(await read('AGENTS.md')).toBe('at base');
+    expect(await read('missing.md')).toBeUndefined();
   });
 });

@@ -283,6 +283,7 @@ export const buildSpec = ({
   event,
   cwd,
   preloaded,
+  guidance,
   handoff,
   ...access
 }: Pick<PlannedJob, 'job' | 'args'> &
@@ -292,6 +293,7 @@ export const buildSpec = ({
     event: BotEvent;
     cwd: string;
     preloaded?: string | undefined;
+    guidance?: string | undefined;
     handoff?: Handoff;
   }) => {
   const job = workflow.jobs[id];
@@ -317,7 +319,7 @@ export const buildSpec = ({
     preload,
     tools,
     access,
-    pinned: [`## Skill: ${skill.name}\n\n${skill.body}`, preloaded],
+    pinned: [`## Skill: ${skill.name}\n\n${skill.body}`, preloaded, guidance],
     query: recallQuery(preloaded, workflow.name, job.needs) ?? (args || event.body),
   });
   return {

@@ -85,6 +85,8 @@ export type Run = Pick<PlannedJob, 'workflow' | 'job' | 'bot'> &
     parked?: string;
     /** How many times the run's session was restarted after a fault outside the bot's work. */
     restarts?: number;
+    /** The repo guidance files the run was given as of `base`, and the named ones it skipped. */
+    guidance?: { loaded: string[]; skipped: string[] };
     /** A digest of the event's issue title and body when the run started. */
     issue?: string;
     /** On a check run that passed, the key of the check and the item it judged (see `judgeWith`). */

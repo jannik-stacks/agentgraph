@@ -131,9 +131,12 @@ export type NoteKind = z.infer<typeof NoteKind>;
  * Context rendered into a run before it starts: the triggering issue, its linked issues, and `recall`, which surfaces
  * the accepted notes and past-run summaries most relevant to the job's brief or issue before the first turn. A recall
  * `judge` model drops the search hits it scores under `cutoff`; `budget` caps the tokens the surfaced text adds.
+ * `guidance` renders the repo's AGENTS.md, or CLAUDE.md without one, as of the run's base commit; `{ guidance }` names
+ * the files to render instead.
  */
 export const Preload = z.union([
-  z.enum(['issue', 'links', 'recall']),
+  z.enum(['issue', 'links', 'recall', 'guidance']),
+  z.strictObject({ guidance: z.array(z.string().min(1)).min(1) }),
   z.strictObject({
     recall: z.strictObject({
       judge: z.string().min(1).optional(),

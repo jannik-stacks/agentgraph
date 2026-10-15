@@ -6,7 +6,7 @@ import { readJsonl } from '../jsonl.ts';
 import { fanOut, type Item } from '../over.ts';
 import { proposalsFile } from '../mcp.ts';
 import { extractProposals, matchGlob, Proposal, validate, type Validated } from '../outputs.ts';
-import { issueContext } from '../preload.ts';
+import { guidanceContext, issueContext, readAtBase } from '../preload.ts';
 import type { Job, ProposalKind, Workflow } from '../schema.ts';
 import type { Pulls } from '../pulls.ts';
 import type { Run, Store } from '../store.ts';
@@ -32,12 +32,24 @@ import { carried, onRequest, openerOf, seeded, sessionOf } from './continue.ts';
 import { closed, finish, postSummary, settle } from './landing.ts';
 import { proceeds } from './jobs.ts';
 
-/** The issue context a planned job preloads, read from `issues`, or GitHub's issues when only `gh` is given. */
-const preloadFor = async (planned: PlannedJob, workflow: Defined<Workflow>, p: Pipeline) => {
+/**
+ * What a planned job preloads: the issue context, read from `issues` (or GitHub's issues when only `gh` is given), and
+ * the repo guidance as of the worktree's base, recorded on the run.
+ */
+const preloadFor = async (
+  planned: PlannedJob,
+  workflow: Defined<Workflow>,
+  worktree: Worktree,
+  first: Run,
+  p: Pipeline
+) => {
   const job = workflow.jobs[planned.job];
   const bot = job?.type === 'bot' ? p.config.bots[job.bot] : undefined;
-  if (job?.type !== 'bot' || !bot) return;
-  return issueContext(issuesOf(p), p.event, effectivePreload(bot, job));
+  if (job?.type !== 'bot' || !bot) return {};
+  const preload = effectivePreload(bot, job);
+  const guidance = await guidanceContext(preload, readAtBase(worktree.cwd, worktree.base));
+  if (guidance) await p.store.update(first.id, { guidance: { loaded: guidance.loaded, skipped: guidance.skipped } });
+  return { preloaded: await issueContext(issuesOf(p), p.event, preload), guidance: guidance?.text };
 };
 
 /**
@@ -157,7 +169,7 @@ const attempts = (
 ) =>
   Effect.gen(function* () {
     const { cwd, base, merging } = worktree;
-    const preloaded = yield* Effect.promise(() => preloadFor(planned, workflow, p));
+    const { preloaded, guidance } = yield* Effect.promise(() => preloadFor(planned, workflow, worktree, first, p));
     const built = buildSpec({
       ...planned,
       config: p.config,
@@ -165,6 +177,7 @@ const attempts = (
       event: p.event,
       cwd,
       preloaded,
+      guidance,
       handoff,
       ...(p.mcp && { mcp: p.mcp }),
       ...(p.hub && { hub: p.hub }),
