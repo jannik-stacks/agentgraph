@@ -15,11 +15,25 @@ const { privateKey } = generateKeyPairSync('rsa', {
 const app = { repo: 'o/r', id: '42', key: Redacted.make(privateKey) };
 
 const run = (id: string, thread: number, status: string) =>
-  JSON.stringify({ id, workflow: 'fix', thread, step: 's', status, tries: 0, rounds: {}, sessions: {}, started: 'x', usd: 0 });
+  JSON.stringify({
+    id,
+    workflow: 'fix',
+    thread,
+    step: 's',
+    status,
+    tries: 0,
+    rounds: {},
+    sessions: {},
+    started: 'x',
+    usd: 0,
+  });
 
 const answers: Record<string, unknown> = {
   'GET /repos/o/r/installation': { id: 9 },
-  'POST /app/installations/9/access_tokens': { token: 'tok', expires_at: '2999-01-01T00:00:00Z' },
+  'POST /app/installations/9/access_tokens': {
+    token: 'tok',
+    expires_at: '2999-01-01T00:00:00Z',
+  },
 };
 
 const check = async (repositories: string[]) => {
@@ -34,7 +48,11 @@ const check = async (repositories: string[]) => {
     return new Response(JSON.stringify(body), { status: body ? 200 : 404 });
   };
   const data = mkdtempSync(join(tmpdir(), 'core-status-'));
-  for (const [id, thread, status] of [['a', 3, 'asking'], ['b', 4, 'waiting'], ['c', 5, 'done']] as const) {
+  for (const [id, thread, status] of [
+    ['a', 3, 'asking'],
+    ['b', 4, 'waiting'],
+    ['c', 5, 'done'],
+  ] as const) {
     mkdirSync(join(data, id));
     writeFileSync(join(data, id, 'run.json'), run(id, thread, status));
   }
@@ -48,7 +66,8 @@ it('warns about extra repos and lists parked runs', async () => {
   const { lines, calls } = await check(['o/r', 'o/other']);
   expect(lines[0]).toContain('o/other');
   expect(lines.filter(l => l.includes('--issue'))).toHaveLength(2);
-  expect(lines.join('\n')).toContain('https://github.com/o/r/issues/3');
+  expect(lines.join('\n')).toContain('Answer at https://github.com/o/r/issues/3');
+  expect(lines.join('\n')).toContain('Review the PR linked from https://github.com/o/r/issues/4');
   expect(lines.join('\n')).not.toContain('#5');
   expect(calls.filter(c => c.startsWith('POST'))).toEqual(['POST /app/installations/9/access_tokens']);
 });

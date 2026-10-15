@@ -12,7 +12,11 @@ export const needsYou = (
     const token = yield* appToken(app, fetch);
     const res = yield* Effect.tryPromise(() =>
       fetch('https://api.github.com/installation/repositories?per_page=100', {
-        headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'bothub' },
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'bothub',
+        },
       }).then(r => (r.ok ? r.json() : Promise.reject(new Error(`GET /installation/repositories ${r.status}`))))
     );
     const repos = (res as { repositories: { full_name: string }[] }).repositories.map(r => r.full_name);
@@ -26,7 +30,10 @@ export const needsYou = (
     const parked = [...(yield* store.list({ status: 'asking' })), ...(yield* store.list({ status: 'waiting' }))];
     for (const run of parked) {
       lines.push(`${run.id} ${run.workflow} #${run.thread} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
-      lines.push(`  Answer at https://github.com/${app.repo}/issues/${run.thread}, then:`);
+      const thread = `https://github.com/${app.repo}/issues/${run.thread}`;
+      lines.push(
+        run.status === 'asking' ? `  Answer at ${thread}, then:` : `  Review the PR linked from ${thread}, then:`
+      );
       lines.push(`  node core/bin/run.ts --hub ${where.hub} --issue ${run.thread} --data ${where.data}`);
     }
     return lines;
