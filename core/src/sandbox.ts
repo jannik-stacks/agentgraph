@@ -27,7 +27,8 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 
 /**
  * Where a run's worktree lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
- * checkout picks up the files last kept under that ref, on the base they were made on, and keeps its own files there
+ * checkout picks up the files last kept under that ref, on the run branch when it exists, else on the base they were made
+ * on, and keeps its own files there
  * as one local commit when its scope closes.
  */
 export class Sandbox extends Context.Tag('bothub/Sandbox')<

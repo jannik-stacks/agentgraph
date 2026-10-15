@@ -152,12 +152,16 @@ describe('docker checkout', () => {
       process.env.PATH = path;
     }
     const lines = readFileSync(log, 'utf8').split('\n');
-    const authed = lines.flatMap((line, i) => (line.startsWith('argv') && /clone|fetch/.test(line) ? [lines[i + 1]] : []));
+    const authed = lines.flatMap((line, i) =>
+      line.startsWith('argv') && /clone|fetch/.test(line) ? [lines[i + 1]] : []
+    );
     expect(authed).toEqual([
       `env 1 http.https://github.com/.extraheader ${header}`,
       `env 1 http.https://github.com/.extraheader ${header}`,
     ]);
-    const rest = lines.flatMap((line, i) => (line.startsWith('argv') && !/clone|fetch/.test(line) ? [lines[i + 1]] : []));
+    const rest = lines.flatMap((line, i) =>
+      line.startsWith('argv') && !/clone|fetch/.test(line) ? [lines[i + 1]] : []
+    );
     expect(rest.every(line => !line?.includes('extraheader'))).toBe(true);
     const argv = lines.filter(line => line.startsWith('argv')).join('\n');
     expect(argv).not.toContain(token);
@@ -212,6 +216,28 @@ describe('docker checkout', () => {
     );
     expect(second).toEqual(Exit.succeed(['feature', 'kept', true]));
     expect(git(join(data, 'mirror.git'), 'rev-list', '--count', keep)).toBe('4');
+  }, 30_000);
+
+  it('puts kept files on the run branch after the branch moved on', async () => {
+    const data = tmp('data');
+    const repo = origin();
+    const layer = docker({ data, origin: repo });
+    const keep = 'refs/bothub/runs/r2';
+    await use(layer, s =>
+      Effect.map(s.checkout('main', 'work', keep), c => writeFileSync(join(c.dir, 'b.txt'), 'second try\n'))
+    );
+    git(repo, 'checkout', '-q', '-b', 'work', 'main');
+    writeFileSync(join(repo, 'b.txt'), 'first try\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-q', '-m', 'pushed');
+    const tip = git(repo, 'rev-parse', 'work');
+    const again = await use(layer, s =>
+      Effect.map(s.checkout('main', 'work', keep), c => [
+        readFileSync(join(c.dir, 'b.txt'), 'utf8').trim(),
+        c.base === tip,
+      ])
+    );
+    expect(again).toEqual(Exit.succeed(['second try', true]));
   }, 30_000);
 
   it('fails for a ref that does not exist', async () => {

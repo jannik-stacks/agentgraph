@@ -106,7 +106,11 @@ const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) =>
 
 const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   Effect.async<string, SandboxError>(done => {
-    const options = { env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env }, timeout: 600_000, maxBuffer: 64 << 20 };
+    const options = {
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env },
+      timeout: 600_000,
+      maxBuffer: 64 << 20,
+    };
     execFile(cmd, args, options, (error, stdout, stderr) =>
       done(
         error
@@ -184,7 +188,10 @@ export const docker = (o: {
           if (c.network === 'proxy') yield* ready;
           const mounts = yield* Effect.promise(() => gitMounts(c.dir));
           const name = `bothub-${randomBytes(6).toString('hex')}`;
-          const args = yield* Effect.try({ try: () => dockerArgs(c, image, name, mounts), catch: e => e as SandboxError });
+          const args = yield* Effect.try({
+            try: () => dockerArgs(c, image, name, mounts),
+            catch: e => e as SandboxError,
+          });
           return { name, args };
         });
 
@@ -195,15 +202,14 @@ export const docker = (o: {
               Effect.acquireRelease(
                 Effect.sync(() => {
                   const proc = start(args, c.secrets, name, chunk => void emit.single(chunk));
-                  void proc.closed.then(code => (code === 125 ? emit.fail(infra('docker could not start the container')) : emit.end()));
+                  void proc.closed.then(code =>
+                    code === 125 ? emit.fail(infra('docker could not start the container')) : emit.end()
+                  );
                   return proc;
                 }),
                 proc => proc.stop()
               )
-            ).pipe(
-              Stream.splitLines,
-              Stream.timeoutFail(timeout(c), Duration.minutes(c.minutes))
-            )
+            ).pipe(Stream.splitLines, Stream.timeoutFail(timeout(c), Duration.minutes(c.minutes)))
           )
         );
 
@@ -212,7 +218,9 @@ export const docker = (o: {
           const { name, args } = yield* prepare(c);
           let output = '';
           const proc = yield* Effect.acquireRelease(
-            Effect.sync(() => start(args, c.secrets, name, chunk => void (output = (output + chunk).slice(-outputLimit)))),
+            Effect.sync(() =>
+              start(args, c.secrets, name, chunk => void (output = (output + chunk).slice(-outputLimit)))
+            ),
             proc => proc.stop()
           );
           const code = yield* Effect.promise(() => proc.closed).pipe(
@@ -226,7 +234,12 @@ export const docker = (o: {
         Effect.gen(function* () {
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
-              const exists = yield* Effect.promise(() => readFile(join(mirror, 'HEAD')).then(() => true, () => false));
+              const exists = yield* Effect.promise(() =>
+                readFile(join(mirror, 'HEAD')).then(
+                  () => true,
+                  () => false
+                )
+              );
               const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
               if (exists) yield* run('git', ['-C', mirror, 'fetch', '--prune', 'origin', '+refs/*:refs/*', ours], env);
               else {
@@ -241,9 +254,8 @@ export const docker = (o: {
             );
           const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
-          const rev = saved
-            ? yield* verify(`${saved}^`)
-            : own || (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
+          const rev =
+            own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));
           if (!rev) return yield* infra(`no commit for ${ref}`);
           const dir = join(o.data, 'work', randomBytes(6).toString('hex'));
           const save = (name: string) =>
@@ -262,7 +274,9 @@ export const docker = (o: {
             () =>
               Effect.zipRight(
                 keep ? save(keep) : Effect.void,
-                lock.withPermits(1)(run('git', ['-C', mirror, 'worktree', 'remove', '--force', dir]).pipe(Effect.ignore))
+                lock.withPermits(1)(
+                  run('git', ['-C', mirror, 'worktree', 'remove', '--force', dir]).pipe(Effect.ignore)
+                )
               )
           );
           return { dir, base: rev };
