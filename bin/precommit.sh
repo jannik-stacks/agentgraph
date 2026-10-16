@@ -11,6 +11,7 @@ if [ $# -eq 0 ]; then
   for hub in examples/*/hub.yaml; do node bin/run.ts check --hub "${hub%/hub.yaml}" >/dev/null || exit 1; done
   node bin/fields.mjs || exit 1
   node bin/refs.mjs >/dev/null || { node bin/refs.mjs; exit 1; }
+  node bin/diagrams.mjs || echo 'diagrams: misaligned (warning only for now)'
   npx --no-install knip >/dev/null || { npx --no-install knip; exit 1; }
   npx --no-install oxfmt --check src tests bin >/dev/null || { echo 'not formatted: npx oxfmt src tests bin'; exit 1; }
   set -- $(node --input-type=module -e "import { fast } from './examples/bothub/scripts/fast.mjs'; console.log(fast.filter(c => c !== 'safety').join(' '))")
