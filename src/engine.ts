@@ -420,6 +420,7 @@ const attempt = (
       const t = yield* issuesOf(w, run);
       const issue = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
+      const reads = agent.tools.includes('read');
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       const prompt = [
         step.does.skill && hub.skills[step.does.skill]?.body,
@@ -428,7 +429,8 @@ const attempt = (
         w.branch &&
           `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
-        `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
+        reads &&
+          `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
         run.feedback,
         [
           'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
@@ -459,6 +461,7 @@ const attempt = (
                 : `${prompt}\n\n## Item\n\n${item}`,
             dir: work.dir,
             tools: agent.tools,
+            ...(reads && { read: [dirname(work.news)] }),
             ...(kept && { resume: kept }),
           },
           item

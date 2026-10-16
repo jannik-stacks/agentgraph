@@ -11,6 +11,8 @@ export type SessionSpec = {
   prompt: string;
   dir: string;
   tools: string[];
+  /** Directories outside `dir` the session may read. */
+  read?: string[];
   agent: string;
   minutes: number;
   resume?: Run['sessions'][string];

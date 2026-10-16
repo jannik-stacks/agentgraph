@@ -94,9 +94,11 @@ const modelTimeouts = { headersMs: 120_000, idleMs: 180_000 };
 const alias = (spec: SessionSpec) => spec.model ?? 'default';
 const pattern = (tool: string) => /^([^(]+)\((.*)\)$/.exec(tool) ?? [tool, tool, undefined];
 
-/** A permission per tool entry: `read` allows the tool, `bash(git diff*)` allows one pattern. */
-const permission = (tools: string[]) => {
+/** A permission per tool entry: `read` allows the tool, `bash(git diff*)` allows one pattern. `read` dirs are reachable. */
+const permission = (tools: string[], read: string[] = []) => {
   const rules: Record<string, string | Record<string, string>> = { '*': 'deny' };
+  if (read.length)
+    rules.external_directory = Object.fromEntries([['*', 'deny'], ...read.map(d => [`${d}/*`, 'allow'])]);
   for (const tool of tools) {
     const [, name = tool, glob] = pattern(tool);
     const current = rules[name];
@@ -166,7 +168,7 @@ const opencode: Adapter = {
         },
         agent: { bothub: { mode: 'primary', prompt: spec.system } },
       }),
-      OPENCODE_PERMISSION: JSON.stringify(permission(spec.tools)),
+      OPENCODE_PERMISSION: JSON.stringify(permission(spec.tools, spec.read)),
       OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       OPENCODE_DISABLE_CLAUDE_CODE: '1',
       OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
@@ -276,6 +278,7 @@ const claude: Adapter = {
         '--tools',
         [...new Set(list.map(tool => tool.replace(/\(.*$/, '')))].join(','),
         ...(list.length ? ['--allowedTools', list.join(',')] : []),
+        ...(spec.read ?? []).flatMap(dir => ['--add-dir', dir]),
         ...(spec.model ? ['--model', spec.model] : []),
         ...(spec.resume ? ['--resume', spec.resume.id] : []),
         '--append-system-prompt',

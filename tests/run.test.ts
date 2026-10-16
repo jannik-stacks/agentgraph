@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Chunk, Effect, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drive, gate, sweep, tick } from '../src/engine.ts';
@@ -869,6 +869,8 @@ describe('coworker', () => {
     expect(specs[0]!.prompt).toContain('#7 @morgan: /bothub');
     expect(specs[0]!.prompt).toContain('#8 @ana: mind the edge case');
     expect(specs[0]!.prompt).toContain('#8 check test: failure');
+    expect(specs[0]!.prompt).not.toContain('holds what is new');
+    expect(specs[0]!.read).toBeUndefined();
   }, 30_000);
 
   /** Run 7 parked on a question in its kept implement session, with pull request #8 on base b1. */
@@ -938,6 +940,7 @@ describe('coworker', () => {
           Effect.gen(function* () {
             file = /(\S+) holds what is new/.exec(spec.prompt)![1]!;
             expect(file.startsWith(spec.dir)).toBe(false);
+            expect(spec.read).toEqual([dirname(file)]);
             mkdirSync(join(spec.dir, '.bothub'));
             symlinkSync(target, join(spec.dir, '.bothub', 'news.md'));
             symlinkSync(where.forge, join(spec.dir, 'news'));
@@ -955,8 +958,9 @@ describe('coworker', () => {
         ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push)]))),
     });
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), session);
+    const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));
     const done = await Effect.runPromise(
-      drive(flow, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext))
+      drive(flow, begun(), { ...small, agents }).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext))
     );
     expect(done.status).toBe('done');
     expect(seen).toEqual([

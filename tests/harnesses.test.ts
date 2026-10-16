@@ -158,6 +158,17 @@ describe('opencode', () => {
     expect(command.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe('1');
   });
 
+  it('lets every harness read the directories the spec names outside the checkout', async () => {
+    const read = ['/data/news/ab'];
+    const { command: open } = await events({ ...spec, read }, []);
+    expect(JSON.parse(open.env.OPENCODE_PERMISSION!).external_directory).toEqual({
+      '*': 'deny',
+      '/data/news/ab/*': 'allow',
+    });
+    const { command: claude } = await events({ ...spec, harness: 'claude', read }, []);
+    expect(harnessArgs(claude).join(' ')).toContain('--add-dir /data/news/ab --model');
+  });
+
   it('reads a recorded run', async () => {
     const { events: got, command } = await events(spec, sample('opencode-run.jsonl'));
     expect(got).toEqual<SessionEvent[]>([
