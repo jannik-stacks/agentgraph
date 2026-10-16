@@ -17,7 +17,7 @@ on the code of an earlier part, set `stacks_on` to that part's position in your 
 wait for an existing issue instead, end the body with a line `Depends on #<number>`.
 
 Do not write the size or priority into the body; the runner labels the parts. When the issue and the repo do not say what the problem is or what done looks like, ask only what
-you cannot find out by reading the issue, the code and the docs. Put the questions in one comment,
+you cannot find out by reading the issue, the code and the docs. Put the questions in one `ask`,
 numbered, at most these, and stop:
 
 1. What is the problem, in a sentence? What goes wrong or is missing today?

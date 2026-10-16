@@ -11,7 +11,7 @@ Find the code the issue is about and say what it does today. Every acceptance cr
 test or command that proves it; a criterion nobody can run is a wish.
 
 When the issue and the repo do not say what the problem is or what done looks like, ask only what
-you cannot find out by reading the issue, the code and the docs. Put the questions in one comment,
+you cannot find out by reading the issue, the code and the docs. Put the questions in one `ask`,
 numbered, at most these, and stop:
 
 1. What is the problem, in a sentence? What goes wrong or is missing today?

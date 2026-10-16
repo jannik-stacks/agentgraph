@@ -16,4 +16,4 @@ of each item in bold. Leave out what a reviewer expects anyway, like passing tes
 run, unless it is surprising.
 
 If the issue and the repo do not say what the problem is or what done looks like, ask the one to
-three short questions you cannot answer by reading, numbered in one comment, and stop.
+three short questions you cannot answer by reading, numbered in one `ask`, and stop.
