@@ -1,7 +1,7 @@
 # Architecture
 
-Where everything lives, how a run moves, and what is code versus judgement. In this page, "the engine"
-is the runner's own code in `src`.
+This page shows where everything lives, how a run moves, and what is code versus judgement.
+The engine means the runner's own code in `src`.
 
 ## Where everything lives
 
@@ -32,14 +32,16 @@ is the runner's own code in `src`.
          model providers
 ```
 
-The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and
-nothing else, and its network reaches only the proxy and an allowlisting egress proxy. Each session
-works in its own worktree of the bare mirror, which is mounted read-only. See [Sandbox](sandbox.md)
-and [Runs](runs.md).
+The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and nothing else. Its network reaches only the model proxy and an egress proxy that allows only certain hosts.
 
-The engine talks to its surroundings through four services, each with a test double. The code is
-`code: src/forge.ts#Forge`, `code: src/store.ts#Store`, `code: src/sandbox.ts#Sandbox`
-and `code: src/session.ts#Session`.
+Each session works in its own git worktree of the bare mirror. The mirror is mounted read-only. See [Sandbox](sandbox.md) and [Runs](runs.md).
+
+The engine talks to the outside through four services. Each has a test double:
+
+- `code: src/forge.ts#Forge`
+- `code: src/store.ts#Store`
+- `code: src/sandbox.ts#Sandbox`
+- `code: src/session.ts#Session`
 
 ## One run through the state machine
 
@@ -76,25 +78,20 @@ Which part is which:
 | Push safety: a push uses a lease and only the host holds the token     |                                                |
 | Triggers and trust: only a collaborator's command or label starts a run, `code: src/forge.ts#matches` |                |
 
-The judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail,
-and the engine reads those answers and decides where the run goes. A reply that does not parse fails
-the try. `transition` is pure, so every path above is a plain test. The loop around it is
-`code: src/engine.ts#drive`.
+Judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail, and the engine reads the answers and decides where the run goes. A reply that does not parse fails the try. `transition` is pure, so every path is a plain test. The loop around it is `code: src/engine.ts#drive`.
 
 ## Bundling for hosting
 
-Today `infra/local/docker-compose.yml` runs the proxy, its database and the egress proxy, while the
-runner and the studio run as node processes on the host. The planned bundle is one compose file
-with three parts:
+Today `infra/local/docker-compose.yml` runs the model proxy, its database and the egress proxy. The runner and the studio run as node processes on the host.
 
-- the runner, with access to the docker socket on its host, because it starts the sandboxes,
-- the proxy, LiteLLM with its database, which holds the keys and the spend logs,
-- the studio, which only reads the data dir and needs no other access.
+The planned bundle uses one compose file with three parts:
 
-The sandbox network and the egress proxy sit beside them, as in `infra/local/docker-compose.yml`.
-The data dir is a volume shared by the runner and the studio.
+- The runner has access to the docker socket on its host because it starts the sandboxes.
+- The proxy is LiteLLM with its database. It holds keys and spend logs.
+- The studio only reads the data dir and needs nothing else.
 
-What is separable. The studio is optional and can run anywhere that mounts the data dir read-only.
-The proxy can be one that is already running, since the engine needs only `BOTHUB_PROXY_URL` and the
-per-agent keys. The runner cannot be split from docker, because a run is a container the runner starts.
-The GitHub side needs only the App credentials, which stay with the runner.
+The sandbox network and egress proxy sit beside them, as in `infra/local/docker-compose.yml`. The data dir is a volume shared by runner and studio.
+
+The studio is optional. It can run anywhere that mounts the data dir read-only. The proxy can be one that already runs, since the engine needs only `BOTHUB_PROXY_URL` and the per-agent keys.
+
+The runner cannot be split from docker, because a run is a container the runner starts. The GitHub side needs only the App credentials, which stay with the runner.
