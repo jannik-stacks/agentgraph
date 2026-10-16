@@ -4,6 +4,7 @@
  *        node core/bin/run.ts --hub <dir> --all --data <dir>   (one pass over every open issue)
  *        node core/bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
  *        node core/bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV; read-only)
+ *        node core/bin/run.ts loop --hub <dir> --data <dir>   (looks at every open issue each BOTHUB_EVERY minutes)
  */
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -57,6 +58,20 @@ if (positionals[0] === 'status') {
   );
   console.log(lines.length ? `Needs you\n${lines.join('\n')}` : 'Nothing needs you');
   process.exit(0);
+}
+
+if (positionals[0] === 'loop') {
+  if (!values.hub || !values.data) {
+    console.error('usage: node core/bin/run.ts loop --hub <dir> --data <dir>');
+    process.exit(2);
+  }
+  const hub = await Effect.runPromise(loadHub(resolve(values.hub)));
+  Object.assign(process.env, {
+    BOTHUB_HUB: resolve(values.hub),
+    BOTHUB_DATA: resolve(values.data),
+    BOTHUB_REPO: hub.repo,
+  });
+  await start();
 }
 
 if (!values.hub || !values.data || (issue !== 'all' && (!Number.isInteger(issue) || issue < 1))) {
