@@ -246,11 +246,11 @@ export const runRow = (r: CoreRun, open = false): Row => {
         <Link href={`/graph?run=${encodeURIComponent(`${r.fixture}:${run.id}`)}`} className="text-zinc-500 underline">
           graph
         </Link>
-        {trace.flatMap(line =>
+        {trace.flatMap((line, i) =>
           'applied' in line &&
           line.applied.url &&
           ['pull_request', 'issue', 'merge'].includes(line.applied.proposal.kind)
-            ? [<Url key={line.at} url={line.applied.url} />]
+            ? [<Url key={i} url={line.applied.url} />]
             : []
         )}
       </span>
