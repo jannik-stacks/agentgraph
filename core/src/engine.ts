@@ -285,7 +285,7 @@ const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hu
     return { result, usd };
   });
 
-/** One try of the current step: a session, a script or a wait, then the gate, then land on a pass. */
+/** One try of the current step: a session, a script or a wait, then its checks, then apply proposals on a pass. */
 export const attempt = (
   w: Workflow,
   run: Run,
@@ -498,9 +498,8 @@ export const land = (
   );
 
 /**
- * Runs the hub's setup in the checkout, then attempt, transition and persist while the run is running. An infra
- * failure, a failed setup included, stops the run with its reason.
- * The worktree's files are kept under `refs/bothub/runs/<run id>`, so a parked run picks up where it left off.
+ * Runs the hub's setup, then tries until the run stops running. An infra failure stops the run with its reason.
+ * Files are kept under `refs/bothub/runs/<run id>`.
  */
 export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {
@@ -559,10 +558,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 
 /**
- * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`. What is said on the pull
- * request a run opened counts as said on the run's issue. With `only`, it looks at
- * that issue alone and begins a run there when none was live, command or not; with `fresh` too, only when the issue
- * never had a run.
+ * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`.
+ * With `only`, it looks at that issue alone and begins a run there when none was live; with `fresh` too, only when the
+ * issue never had a run.
  */
 export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
@@ -570,7 +568,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     const forge = yield* Forge;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const runs = (yield* store.list()).filter(mine);
-    const parked = yield* Effect.forEach(runs.filter(live), r =>
+    const waiting = yield* Effect.forEach(runs.filter(live), r =>
       Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => !('saved' in t))), last => ({
         run: r,
         at: last._tag === 'Some' ? last.value.at : r.started,
@@ -580,7 +578,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       .map(r => r.started)
       .sort()
       .at(-1);
-    const cursor = started === undefined ? '' : [started, ...parked.map(p => p.at)].sort()[0]!;
+    const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
     const issues = yield* forge.issues({ state: 'open' });
     const origin = new Map<Event, number>();
     const onRun = (m: Event): Event => {
@@ -620,7 +618,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     const used = new Set<Event>();
     const touched: Run[] = [];
 
-    for (const { run, at } of parked) {
+    for (const { run, at } of waiting) {
       const w = hub.workflows[run.workflow];
       const m = w && events.find(m => m.issue === run.issue && m.at > at && reenter(w, run, m));
       if (!w || !m) continue;

@@ -25,7 +25,7 @@ See `transition` in [core/src/workflow.ts](../core/src/workflow.ts).
 
 ## Fail closed
 
-Nothing passes by default. An unknown key, a missing agent or a check that does not exist is an error
+An unknown key, a missing agent or a check that does not exist is an error
 before anything runs. A reply without the proposals it owes fails the try. A check that cannot run
 fails.
 
@@ -39,9 +39,9 @@ runs are tested without a network.
 
 See `fileForge` in [core/src/forge.ts](../core/src/forge.ts).
 
-## Old config keys say what replaced them
+## Unknown keys name their replacement
 
-A key from an earlier hub format is reported with what to write instead, not as an unknown key.
+A removed key is reported with what to write instead.
 
 See `gone` in [core/src/hub.ts](../core/src/hub.ts).
 
@@ -53,8 +53,7 @@ See `spawned` in [core/src/sandbox.ts](../core/src/sandbox.ts).
 
 ## Few dependencies
 
-bothub composes existing programs (the harness, LiteLLM, docker, git) and a few libraries instead
-of growing its own layers. A layer has to earn its place.
+bothub composes existing programs (the harness, LiteLLM, docker, git) and a few libraries.
 
 See [package.json](../package.json).
 

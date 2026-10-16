@@ -45,10 +45,8 @@ const user = () => {
 };
 
 /**
- * `docker run` for one command in a hardened, throwaway container: read-only root, executable tmpfs `/tmp`, the host
- * user, no capabilities, no new privileges, resource limits and no image pulls. `dir` is `/work`, `home` is
- * `/home/agent`. With `proxy` the only routes out are the model proxy and the egress allowlist; with `none` there is
- * no network. Secrets travel by name, so their values never appear in argv.
+ * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
+ * the only routes out are the model proxy and the egress allowlist; with `none` there is no network.
  */
 const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) => [
   'run',
@@ -157,9 +155,8 @@ const timeout = (c: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
 
 /**
- * One container per command, on a network whose only way out is the model proxy. Worktrees are linked worktrees of a
- * bare mirror of `origin` under `data`; the mirror is mounted read-only so git works in `/work` while its refs stay
- * untouchable. With `token`, the mirror's clone and fetch authenticate to github.com; containers never see it.
+ * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
+ * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it.
  */
 export const docker = (o: {
   data: string;

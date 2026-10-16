@@ -87,7 +87,7 @@ const each = (text: string) =>
 const triesTip = (tries: number) =>
   `${tries === 1 ? 'One try' : `Up to ${tries} tries`}. A failing check sends its findings back into the same session. Out of tries it asks you; an answer gives it one more try, and stop ends the run.`;
 
-/** A round badge floating on a corner of the step, like an app's notification counter. */
+/** A round badge on a corner of the step. */
 const Bubble = ({ tip, className, children }: { tip: string; className: string; children: ReactNode }) => (
   <Tooltip tip={tip} action="Click for the step" focusable className={cx('absolute', className)}>
     <span className="flex h-5 min-w-5 cursor-pointer items-center justify-center gap-0.5 rounded-full px-1.5 text-[10px] font-semibold text-white ring-2 ring-white dark:ring-zinc-950">
@@ -241,7 +241,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
 
 export type PillFlowNode = Node<{ label: string; done?: boolean; reached?: boolean }, 'pill'>;
 
-/** What starts a workflow, or where it ends. Static. */
+/** What starts a workflow, or where it ends. */
 export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>) => (
   <div
     className={cx(
@@ -354,7 +354,7 @@ const LegendItem = ({ mark, children }: { mark: ReactNode; children: ReactNode }
   </li>
 );
 
-/** What the badges mean. Static. */
+/** What the badges mean. */
 export const Legend = () => (
   <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-zinc-200 px-4 py-1.5 text-[11px] text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
     <LegendItem

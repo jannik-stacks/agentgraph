@@ -36,10 +36,9 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 }> {}
 
 /**
- * Where a run's worktree lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
- * checkout picks up the files last kept under that ref, on the run branch when it exists, else on the base they were made
- * on, and keeps its own files there
- * as one local commit when its scope closes.
+ * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
+ * checkout starts from the files last kept under that ref, on the run branch when it exists, else on their base.
+ * It keeps its own files there as one local commit when its scope closes.
  */
 export class Sandbox extends Context.Tag('bothub/Sandbox')<
   Sandbox,
@@ -64,8 +63,8 @@ const hardened = [
 ];
 
 /**
- * Git on the host for the repo `env` names, with no user or system config, hooks, fsmonitor or attributes file, and no
- * `GIT_*` variables from the host's environment. Without `GIT_DIR` it runs in the temp dir, for a clone.
+ * Host git for the repo `env` names, with no user config, hooks or inherited `GIT_*` variables. Without `GIT_DIR` it
+ * runs in the temp dir, for a clone.
  */
 export const hostGit = (env: Record<string, string>, args: string[]) =>
   Effect.async<Buffer, SandboxError>(resume => {

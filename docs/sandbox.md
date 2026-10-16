@@ -4,7 +4,7 @@ How a run is isolated and which models it can reach.
 
 ## The sandbox
 
-Every session, script step and check script is one hardened `docker run --rm`. Nothing runs on the
+Every session, script step and check script is one `docker run --rm` with the limits below. Nothing runs on the
 host, and when docker or the `bothub-sandbox` network is not usable the run stops with the reason.
 
 - read-only root filesystem, `/tmp` as a tmpfs, the operator's own non-root user, all capabilities
@@ -32,7 +32,7 @@ An agent's `harness` picks the program that runs its session.
 | Harness    | Notes                                                                       |
 | ---------- | --------------------------------------------------------------------------- |
 | `opencode` | Real tool allowlists, including patterned bash like `bash(git diff*)`       |
-| `pi`       | Light and fast. Tools are all or nothing, so it suits read-only agents      |
+| `pi`       | Tools are all or nothing, so use it for read-only agents      |
 | `claude`   | Claude Code on the model proxy's Anthropic endpoint                         |
 
 Each is a small adapter in `core/src/harnesses.ts` that builds the command and turns the harness's

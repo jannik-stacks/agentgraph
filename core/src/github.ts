@@ -218,10 +218,8 @@ const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
   });
 
 /**
- * The repo of one GitHub App installation. Reads poll fixed URLs with ETags, so an unchanged answer is a free 304.
- * Comments and reviews from anyone but owners, members and collaborators are withheld, and every text is stripped
- * to what a reader sees. Pushes go through the Git data API, so GitHub signs the commits and the branch only moves
- * forward.
+ * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators is withheld, and pushes
+ * go through the Git data API so GitHub signs the commits.
  */
 export const githubForge = (
   app: { repo: string; id: string; key: Redacted.Redacted },

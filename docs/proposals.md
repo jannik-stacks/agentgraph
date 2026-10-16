@@ -2,8 +2,8 @@
 
 What an agent asks the engine to do, and the only write path from an agent to GitHub.
 
-An agent never holds a GitHub token, and it is told not to run `git` or `gh`. It ends its reply with a fenced `bothub` block, and the engine reads the last such block: a
-JSON array, or one JSON object per line.
+An agent has no GitHub token and does not run `git` or `gh`. It ends its reply with a fenced `bothub`
+block, and the engine reads the last such block: a JSON array, or one JSON object per line.
 
 ````md
 ```bothub
@@ -27,8 +27,6 @@ JSON array, or one JSON object per line.
 | `ask`          | `question`                        | Posts the question and makes the run wait                  |
 | `back`         | `why`                             | Sends the run back, see [The loop](loop.md#back)           |
 
-`ask` and `back` steer the run. They never reach GitHub as writes.
-
 ## Returns
 
 `returns` in an agent file lists the kinds it may propose, `comment` alone by default. Every agent may
@@ -48,6 +46,5 @@ expected shape. A proposal of a kind the agent may not make fails with a reason,
 ## Applying
 
 Proposals are applied only after the step's checks pass. Pushes go first, then the rest in order.
-Each one is traced with its result: the URL it made, or why it failed, for example a merge of a
-pull request that moved, or a pull request whose branch was never pushed. A failed proposal fails
+Each is traced with its URL, or the reason it failed. A failed proposal fails
 the try with that reason as feedback. A push never forces.

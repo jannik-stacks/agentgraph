@@ -46,7 +46,7 @@ another machine.
 - `applied`: a proposal and whether it was applied, with its URL or the reason it was not.
 - `outcome`: how a try ended (pass, failed, back, ask, answer or stop) and where the run went next.
 
-The studio and `status` read these files and nothing else.
+The studio and `status` read only these files.
 
 ## Checkout
 

@@ -1,10 +1,7 @@
 # What bothub is
 
-A personal agent hub driven by GitHub, configured as code.
-
 bothub runs coding agents on your repositories. A comment like `/bothub` on an issue starts a
-workflow. Agents do the work on their own branch, scripts and other agents check it, and every
-change reaches GitHub as a proposal that bothub validates first. A human merges.
+workflow. Agents work on their own branch. Scripts and other agents check the result, and a human merges.
 
 ## Config as code
 
@@ -31,8 +28,10 @@ a step that names a missing agent or a check that does not exist.
 
 ## Where to go next
 
-- [Vocabulary](vocabulary.md) for the words the rest of the docs use.
-- [The loop](loop.md) for how a step keeps going until its checks pass.
-- [Proposals](proposals.md) for what an agent may change.
-- [Runs](runs.md) and [Sandbox](sandbox.md) for what a run leaves behind and where it runs.
-- [Running it locally](local.md) to try it, and [Patterns](patterns.md) for the code's conventions.
+- [Vocabulary](vocabulary.md)
+- [The loop](loop.md)
+- [Proposals](proposals.md)
+- [Runs](runs.md)
+- [Sandbox](sandbox.md)
+- [Running it locally](local.md)
+- [Patterns](patterns.md)

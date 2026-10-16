@@ -1,7 +1,6 @@
 # Vocabulary
 
-The words the rest of the docs use. Fifteen are bothub's own, five come from the agent landscape,
-and the GitHub words are used as GitHub uses them.
+The words the rest of the docs use. Landscape and GitHub words keep their usual meaning.
 
 ## Ours
 
@@ -39,28 +38,3 @@ need a line.
 
 event, issue, comment, pull request, label, review, commit, branch and base. A hub reads them the
 way GitHub does: an event is a webhook event, a base is the branch a pull request goes into.
-
-## Old words
-
-For readers of older docs and research.
-
-| Old word                                                                                      | Now                                  |
-| --------------------------------------------------------------------------------------------- | ------------------------------------ |
-| bot                                                                                           | agent                                |
-| job                                                                                           | step                                 |
-| trigger, message                                                                              | event                                |
-| attempt                                                                                       | try                                  |
-| verdict                                                                                       | a check's result                     |
-| findings, carry, reason                                                                       | feedback                             |
-| gate                                                                                          | a step's checks                      |
-| loop, turn                                                                                    | back, round                          |
-| thread                                                                                        | issue                                |
-| asking, waiting, parked                                                                       | waiting                              |
-| refused, rejected                                                                             | failed                               |
-| reply (proposal)                                                                              | comment                              |
-| merge request                                                                                 | pull request                         |
-| worktree, work                                                                                | checkout                             |
-| brief                                                                                         | prompt                               |
-| BHM                                                                                           | studio                               |
-| tick, sweep, drive                                                                            | engine internals, not words to learn |
-| note, decide, preload, surfacing, recall, history, summary, closure, queue, deliveries, spans | gone with the previous engine        |

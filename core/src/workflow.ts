@@ -41,7 +41,7 @@ export type Outcome =
 /** How far a session has read its issues: the time of the last event it saw and the base its pull request was on. */
 export type Seen = { at: string; base?: string };
 
-/** Where one workflow run on one issue stands. Enough to stop and pick it up on another machine. */
+/** Where one workflow run on one issue stands. */
 export type Run = {
   id: string;
   workflow: string;
@@ -221,7 +221,7 @@ export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>): 
   };
 }
 
-/** The whole state machine. Entering a step forward drops its session; every other move keeps it. */
+/** Moves a run to its next state. Entering a step forward drops its session; every other move keeps it. */
 export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const i = w.steps.findIndex(s => s.name === run.step);
   const step = w.steps[i];

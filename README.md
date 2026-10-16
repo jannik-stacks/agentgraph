@@ -1,9 +1,8 @@
 # bothub
 
-bothub is an agent hub. A script slices the work and decides what a rule can decide. Many narrow
-bots each judge one small piece, so a small model cannot get much wrong. A hub is the config: bots,
-skills, checks, workflows and notes, all Markdown files with YAML frontmatter. Every change reaches
-the repository as a proposal that bothub validates first, and a human merges.
+bothub is an agent hub. Scripts slice the work, and many narrow
+agents each judge one piece. A hub is the config: agents, skills, checks, workflows and notes, all Markdown
+files with YAML frontmatter. See `docs/index.md` for how a change reaches the repository.
 
 Needs Node 22.18 or later, and Docker for the sandbox.
 
@@ -18,7 +17,7 @@ Run them as `node bin/bothub.mjs <command>`, or `bothub <command>` once installe
 - `logs` lists runs, or prints one run's events. `--follow` tails it, `--spend` compares recorded
   model calls with the proxy's spend logs.
 - `sim` plays a scenario end to end on a temporary copy of a hub, with scripted bots.
-- `mcp` serves a hub's tools over MCP on stdio. It is not listed in `--help`.
+- `mcp` serves a hub's tools over MCP on stdio.
 
 Each command takes `--help`.
 
@@ -64,7 +63,7 @@ a harness that cannot continue sessions. Each run records everything it loaded, 
    ```
 
 4. Serve a hub. `infra/local/e2e.sh` prepares a data directory with a copy of `examples/acme-app`
-   and a local origin; `comment.sh` plays the human.
+   and a local origin; `comment.sh` posts a comment as the human.
 
    ```sh
    ./e2e.sh /tmp/bothub-e2e
@@ -79,8 +78,7 @@ a harness that cannot continue sessions. Each run records everything it loaded, 
 
 ## Docs
 
-The docs are plain Markdown in `docs/`. Start with `index.md`, then `loop.md` for how a job runs,
-`runs.md` for what is kept on disk, `sandbox.md` and `local.md`. `npm run verify` runs every check the project has.
+The docs are plain Markdown in `docs/`, starting at `docs/index.md`. `npm run verify` runs every check the project has.
 
 ## Examples
 
@@ -89,6 +87,7 @@ The docs are plain Markdown in `docs/`. Start with `index.md`, then `loop.md` fo
   plans step by step.
 - `examples/clarinet` is a hub for a Rust repository, with its own sandbox setup.
 - `examples/hub` is a small hub for trying `check` and `run --dry-run`.
+- `examples/sandbox` is a small hub over a JavaScript package, and `examples/sk` is a hub for Acme App; both load with `node core/bin/run.ts check --hub <dir>`.
 - `examples/payloads` holds sample webhook payloads.
 
 `bench/` has the tools for comparing hub settings over mined cases; see `bench/README.md`.

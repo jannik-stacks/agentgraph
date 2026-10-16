@@ -36,9 +36,7 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
 const segments = atom(get => get(locationAtom).path.split('/').filter(Boolean));
 
 /**
- * The page: the graph at `/graph`, the run list at `/runs` with one
- * run at `/runs/<id>`, and the merge requests at `/pulls` with one at `/pulls/<n>`. Merge requests sit under the runs
- * route. Core's runs are at `/core`, one at `/core/<id>`.
+ * The route: `/graph`, `/runs[/<id>]`, `/pulls[/<n>]`, `/core[/<id>]`.
  */
 export const pageAtom = atom(get => {
   const [page, id] = get(segments);
@@ -75,7 +73,7 @@ export const queryParam = (key: string) =>
     }
   );
 
-/** The step selected on the graph, as `workflow/job`. */
+/** The step selected on the graph, as `workflow/step`. */
 export const selectedStepAtom = queryParam('step');
 
 /** The run list's status filter. */

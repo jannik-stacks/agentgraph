@@ -1,6 +1,6 @@
 # The loop
 
-A step is done when its checks pass, not when the agent says so.
+A step is done when its checks pass.
 
 ```
 event → run begins → step: session → checks → feedback to the same session → proposals applied → next step
@@ -36,7 +36,7 @@ its pull requests go into, `main` by default.
 
 After an agent's session ends, each check in `checks` runs against the checkout. Script checks run
 first, all at once. Agent checks run after them, and only when no `block` script check failed, so a
-broken build never pays for a review.
+broken build skips the review.
 
 | Mode    | Effect                                                                  |
 | ------- | ----------------------------------------------------------------------- |

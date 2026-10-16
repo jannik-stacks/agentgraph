@@ -71,7 +71,7 @@ const SkillFile = Schema.Struct({ description: exact(Schema.String) });
 
 const rest = 'a step starts a fresh session and a retry resumes it';
 
-/** Keys of the previous hub format, each with what replaces it. */
+/** Removed keys, each with its replacement. */
 const gone = {
   hub: {
     issues: 'the forge lists them',
@@ -138,7 +138,7 @@ const returns: Record<string, string> = {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** The data without the old keys in `table`, each one reported. */
+/** Reports and strips the removed keys in `table`. */
 const strip = (data: unknown, table: Record<string, string>, say: (message: string) => void, prefix = '') => {
   if (!isRecord(data)) return data;
   const kept: Record<string, unknown> = {};
