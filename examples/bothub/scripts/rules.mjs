@@ -102,14 +102,13 @@ const longBlocks = ({ path, text, lines }) => {
   return found;
 };
 
-/** A check the change adds in block mode whose `human:` or body names no replay that calibrated it. */
+/** A check the change adds in block or stop mode whose body names no replay that calibrated it. */
 const uncalibrated = ({ path, text, lines }) => {
   const [, front = '', ...body] = text.split(/^---\s*$/m);
   const fresh = lines.length === text.replace(/\n$/, '').split('\n').length;
-  const named = /^human:[^]*\b(calibrat|replay)/im.test(front) || /\b(calibrat|replay)/i.test(body.join('---'));
-  const unproven = /^mode:\s*block\b/m.test(front) && !named;
+  const unproven = /^mode:\s*(block|stop)\b/m.test(front) && !/\b(calibrat|replay)/i.test(body.join('---'));
   if (!/^examples\/[^/]+\/checks\/[^/]+\.md$/.test(path) || !fresh || !unproven) return [];
-  return [`${path}:1: a new check in block mode with no calibration; start it in warn or log mode, or say in human: or the body which replay calibrated it`];
+  return [`${path}:1: a new check in block or stop mode with no calibration; start it in warn mode, or say in its body which replay calibrated it`];
 };
 
 const scanned = files(path => codePath.test(path) || /\.(mdx?|ya?ml)$/.test(path));
