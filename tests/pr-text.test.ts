@@ -25,6 +25,25 @@ const pull = (body: string): Proposal => ({
   body,
 });
 
+describe.each(['bothub', 'sk', 'sandbox'])('pr-text bounds in %s', hub => {
+  it('fails a body over 120 words', () => {
+    const { lines } = check(hub, [pull(Array(121).fill('word').join(' '))]);
+    expect(lines).toEqual(['pull request body is 121 words, over 120']);
+  });
+
+  it('fails the filler the twin bodies ended with', () => {
+    const { lines } = check(hub, [pull('Adds `bye`. This PR is small. Awaiting review.')]);
+    expect(lines).toEqual([
+      'pull request body is boilerplate: "Awaiting review"',
+      'pull request body refers to itself: "This PR"',
+    ]);
+  });
+
+  it('still passes a body of 120 words', () => {
+    expect(check(hub, [pull(Array(120).fill('word').join(' '))])).toEqual({ code: 0, lines: [] });
+  });
+});
+
 describe.each(['bothub', 'sk', 'sandbox'])('pr-text in %s', hub => {
   it('fails one line per hit on the real long body and a loose commit', () => {
     const body =
