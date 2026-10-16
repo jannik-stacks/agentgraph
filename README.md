@@ -1,8 +1,8 @@
 # bothub
 
 bothub is an agent hub. Scripts slice the work, and many narrow
-agents each judge one piece. A hub is the config: agents, skills, checks, workflows and notes, all Markdown
-files with YAML frontmatter. See `docs/index.md` for how a change reaches the repository.
+agents each judge one piece. A hub is the config: `hub.yaml` and agents, skills, checks and workflows, all
+Markdown files with YAML frontmatter, plus the scripts its checks run. See `docs/index.md` for how a change reaches the repository.
 
 Needs Node 22.18 or later, and Docker for the sandbox.
 
