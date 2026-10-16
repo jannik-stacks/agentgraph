@@ -411,22 +411,29 @@ export const githubForge = (
           { concurrency: 'unbounded' }
         );
         const merged = events.some(e => e.event === 'merged');
+        // A fork's commits name their author by email alone, which anyone can claim.
+        const own = pull?.head.repo?.full_name === app.repo;
         const may = writer();
         const timeline: Event[] = [
           ...[...said, ...lined].map(c => heard(number, c, self)),
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
           ...(yield* Effect.forEach(commits, c =>
-            Effect.map(login(c.author) === `${self}[bot]` ? Effect.succeed(true) : may(c.author), (shown): Event => ({
-              issue: number,
-              kind: 'commit',
-              actor: login(c.author),
-              trusted: false,
-              at: c.commit.author?.date ?? '',
-              commit: {
-                sha: c.sha,
-                title: shown ? visible(c.commit.message.split('\n')[0]) : withheld(login(c.author), 'commit title'),
-              },
-            }))
+            Effect.map(
+              !own ? Effect.succeed(false) : login(c.author) === `${self}[bot]` ? Effect.succeed(true) : may(c.author),
+              (shown): Event => ({
+                issue: number,
+                kind: 'commit',
+                actor: login(c.author),
+                trusted: false,
+                at: c.commit.author?.date ?? '',
+                commit: {
+                  sha: c.sha,
+                  title: shown
+                    ? visible(c.commit.message.split('\n')[0])
+                    : withheld(login(c.author), 'commit title', own ? undefined : 'from a fork'),
+                },
+              })
+            )
           )),
           ...(yield* Effect.forEach(events, e => evented(number, e, merged))).flatMap(m => m ?? []),
           ...(pull ? yield* checked(number, pull.head.sha) : []),

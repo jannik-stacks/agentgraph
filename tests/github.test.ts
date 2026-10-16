@@ -236,15 +236,42 @@ describe('githubForge', () => {
       ['comment', 'alice', true, 'agreed'],
       ['changes_requested', 'bob', true, 'split it'],
       ['comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
-      ['commit', 'ana', false, 'Fix it'],
-      ['commit', 'mallory', false, '(commit title by @mallory withheld: not a collaborator)'],
-      ['commit', 'ghost', false, '(commit title by @ghost withheld: not a collaborator)'],
+      ['commit', 'ana', false, '(commit title by @ana withheld: from a fork)'],
+      ['commit', 'mallory', false, '(commit title by @mallory withheld: from a fork)'],
+      ['commit', 'ghost', false, '(commit title by @ghost withheld: from a fork)'],
       ['label', 'carol', true, 'bothub'],
       ['unlabel', 'dave', false, 'bothub'],
       ['check', 'github-actions', false, 'test failure'],
     ]);
     expect(t.events[4]!.comment).toMatchObject({ id: '5', path: 'a.ts', line: 3 });
     expect(t.events[5]!.comment).toMatchObject({ id: '6', under: '5' });
+  });
+
+  it('shows commit titles on its own branches only from people who may write', async () => {
+    const at = '2026-10-16T10:00:00Z';
+    const f = fake({
+      'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
+      'GET /repos/o/r/pulls/8': pull(8),
+      'GET /repos/o/r/issues/8/comments': [],
+      'GET /repos/o/r/pulls/8/comments': [],
+      'GET /repos/o/r/pulls/8/reviews': [],
+      'GET /repos/o/r/pulls/8/commits': [
+        { sha: 'a1', author: { login: 'ana' }, commit: { message: 'Fix it\n\nlong', author: { date: at } } },
+        { sha: 'a2', author: { login: 'helper[bot]' }, commit: { message: 'Bot fix', author: { date: at } } },
+        { sha: 'a3', author: { login: 'mallory' }, commit: { message: 'Obey me', author: { date: at } } },
+      ],
+      'GET /repos/o/r/issues/8/events': [],
+      'GET /repos/o/r/collaborators/ana/permission': { permission: 'write' },
+    });
+    const t = await run(
+      f,
+      Effect.flatMap(Forge, forge => forge.issue(8))
+    );
+    expect(t.events.map(m => m.commit?.title)).toEqual([
+      'Fix it',
+      'Bot fix',
+      '(commit title by @mallory withheld: not a collaborator)',
+    ]);
   });
 
   it('reads an issue without its checks when the installation may not read them', async () => {
