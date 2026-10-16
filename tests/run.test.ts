@@ -278,6 +278,23 @@ describe('drive', () => {
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);
 
+  it('lets a check read the issue as the agent saw it, its number and the reply', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
+      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+    ]);
+    const reads = hubOf('acme-app', {
+      safety: { run: 'cat "$BOTHUB_CONTEXT"; echo "issue $BOTHUB_ISSUE"; cat "$BOTHUB_REPLY"; exit 1' },
+    });
+    const stopped = await run(drive(w, fresh(), reads));
+    expect(stopped.reason).toContain('## #7 Add a greeting\n\nAdd hello.txt.');
+    expect(stopped.reason).toContain(': Brief: add hello.txt');
+    expect(stopped.reason).toContain('issue 7\nDone.');
+    const seen = stopped.reason!.slice('safety: '.length, stopped.reason!.indexOf('issue 7'));
+    expect(specs[1]!.prompt).toContain(seen.trim());
+  });
+
   it('stops the run once its summed session cost passes usd-per-run', async () => {
     const where = world();
     const { specs, run } = services(where, [
@@ -1100,6 +1117,9 @@ describe('gate', () => {
     const { run } = services(where, []);
     const left = {
       run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
       dir,
       base: 'HEAD',
       git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
@@ -1124,6 +1144,9 @@ describe('gate', () => {
     const { run } = services(where, []);
     const left = {
       run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
       dir,
       base: 'HEAD',
       git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
@@ -1183,6 +1206,9 @@ describe('gate', () => {
     const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
     const left = {
       run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
       dir,
       base: 'HEAD',
       git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },

@@ -83,7 +83,7 @@ A check file can be a script, an agent, or both:
 
 `each` fans a check out over items, in the same three forms as a step: `files`, `hunks`, or a command that prints one item per line. The check fails when any item fails. `max` caps how many items it may take; more fails the check.
 
-A check's script gets `BOTHUB_BASE` (the commit the checkout started from), `BOTHUB_PROPOSALS` (a JSON file of the proposals the try made), `BOTHUB_ITEM` (the item, in a fan-out) and `BOTHUB_HUB` (the hub folder, read-only). A step's `run` script gets `BOTHUB_BASE` and `BOTHUB_HUB`. Scripts run with the checkout as their working directory (`code: src/engine.ts#resultOf`).
+A check's script and its `each` command get `BOTHUB_BASE` (the commit the checkout started from), `BOTHUB_PROPOSALS` (a JSON file of the proposals the try made), `BOTHUB_ISSUE` (the issue number), `BOTHUB_CONTEXT` (a file with the issue and pull request as the agent saw them), `BOTHUB_REPLY` (a file with the try's reply), `BOTHUB_ITEM` (the item, in a fan-out) and `BOTHUB_HUB` (the hub folder, read-only). A step's `run` script gets `BOTHUB_BASE` and `BOTHUB_HUB`. Scripts run with the checkout as their working directory (`code: src/engine.ts#resultOf`).
 
 ## Back
 

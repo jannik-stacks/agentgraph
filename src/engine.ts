@@ -240,7 +240,13 @@ const changes = (work: Checkout, ...args: string[]) =>
 const diffOf = (work: Checkout) => changes(work, '--text');
 
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
-const itemsOf = (each: string | { run: string }, hub: string, work: Checkout, minutes: number) => {
+const itemsOf = (
+  each: string | { run: string },
+  hub: string,
+  work: Checkout,
+  minutes: number,
+  env: Record<string, string> = { BOTHUB_BASE: work.base }
+) => {
   const lines = (text: string) => text.split('\n').filter(line => line.trim());
   if (each === 'hunks')
     return Effect.map(diffOf(work), diff =>
@@ -254,7 +260,7 @@ const itemsOf = (each: string | { run: string }, hub: string, work: Checkout, mi
     );
   if (each === 'files') return Effect.map(changes(work, '--name-only'), lines);
   const script = typeof each === 'string' ? each : each.run;
-  return Effect.map(sh(script, hub, work.dir, { BOTHUB_BASE: work.base }, minutes), out => lines(out.output));
+  return Effect.map(sh(script, hub, work.dir, env, minutes), out => lines(out.output));
 };
 
 /** Writes the news since `seen` to the checkout's news file; a failed refresh logs and keeps the old file. */
@@ -298,26 +304,33 @@ const converse = (run: string, step: string, spec: SessionSpec, item?: string) =
     return { id: seen.id, home: seen.home ?? spec.dir, final: seen.final || seen.text, usd: seen.usd };
   });
 
-/** The JSON file of a step's pending proposals, beside the news file where checks can read it but not write it. */
-const proposalsFile = (work: Checkout) => join(dirname(work.news), 'proposals.json');
+/** What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it and the reply. */
+const checkFiles = (work: Checkout) => ({
+  BOTHUB_PROPOSALS: join(dirname(work.news), 'proposals.json'),
+  BOTHUB_CONTEXT: join(dirname(work.news), 'context.md'),
+  BOTHUB_REPLY: join(dirname(work.news), 'reply.md'),
+});
+
+/** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply and the proposals. */
+type Left = Checkout & { run: string; issue: number; context: string; reply: string; proposals: Proposal[] };
 
 type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
 
 /** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
-const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hub: Hub) =>
+const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
   Effect.gen(function* () {
     const store = yield* Store;
+    const run = work.run;
     const started = Date.now();
     const minutes = hub.limits.minutes;
-    const items: (string | undefined)[] = check.each ? yield* itemsOf(check.each, hub.dir, work, minutes) : [undefined];
+    const base = { BOTHUB_BASE: work.base, BOTHUB_ISSUE: String(work.issue), ...checkFiles(work) };
+    const items: (string | undefined)[] = check.each
+      ? yield* itemsOf(check.each, hub.dir, work, minutes, base)
+      : [undefined];
     let usd = 0;
     const one = (item: string | undefined) =>
       Effect.gen(function* () {
-        const env = {
-          BOTHUB_BASE: work.base,
-          BOTHUB_PROPOSALS: proposalsFile(work),
-          ...(item !== undefined && { BOTHUB_ITEM: item }),
-        };
+        const env = { ...base, ...(item !== undefined && { BOTHUB_ITEM: item }) };
         const out = check.run ? yield* sh(check.run, hub.dir, work.dir, env, minutes) : undefined;
         const exit = out && { exit: out.code };
         if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
@@ -409,6 +422,7 @@ const attempt = (
 
     const replies: string[] = [];
     let tried = run;
+    const t = yield* issuesOf(w, run);
     if ('run' in step.does) {
       const started = Date.now();
       const out = yield* sh(step.does.run, hub.dir, work.dir, { BOTHUB_BASE: work.base }, minutes);
@@ -423,7 +437,6 @@ const attempt = (
       replies.push(out.output);
     } else {
       const agent = hub.agents[step.does.agent]!;
-      const t = yield* issuesOf(w, run);
       const issue = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const reads = agent.tools.includes('read');
@@ -506,7 +519,18 @@ const attempt = (
     const answered = answering && !back && world.length > 0 && world.every(p => p.kind === 'comment');
     const { outcome: gated, usd } = answered
       ? { outcome: { kind: 'pass' } as const, usd: 0 }
-      : yield* gate(step, { run: run.id, ...work, proposals: world }, hub);
+      : yield* gate(
+          step,
+          {
+            run: run.id,
+            ...work,
+            issue: run.issue,
+            context: context(t),
+            reply: replies.join('\n\n'),
+            proposals: world,
+          },
+          hub
+        );
     tried = { ...tried, usd: tried.usd + usd };
     if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
@@ -544,7 +568,7 @@ const attempt = (
 /** The step's checks over what a try left behind: scripts in one batch, agent checks only when no script failed. `usd` is what the agent checks cost. */
 export const gate = (
   step: Step,
-  left: Checkout & { run: string; proposals: Proposal[] },
+  left: Left,
   hub: Hub
 ): Effect.Effect<
   { outcome: Outcome; usd: number },
@@ -553,10 +577,17 @@ export const gate = (
 > =>
   Effect.gen(function* () {
     const checks = step.checks.map(name => ({ ...hub.checks[name]!, name }));
-    yield* Effect.promise(() => writeFile(proposalsFile(left), JSON.stringify(left.proposals)));
+    const files = checkFiles(left);
+    yield* Effect.promise(() =>
+      Promise.all([
+        writeFile(files.BOTHUB_PROPOSALS, JSON.stringify(left.proposals)),
+        writeFile(files.BOTHUB_CONTEXT, left.context),
+        writeFile(files.BOTHUB_REPLY, left.reply),
+      ])
+    );
     const holds = (c: Check) => c.mode === 'block' || c.mode === 'stop';
     const results = (list: Doc<Check>[]) =>
-      Effect.forEach(list, c => resultOf(left.run, step, c, left, hub), { concurrency: 'unbounded' });
+      Effect.forEach(list, c => resultOf(step, c, left, hub), { concurrency: 'unbounded' });
     const scripts = checks.filter(c => !c.agent);
     const judged = checks.filter(c => c.agent);
     const first = (yield* results(scripts)).map(r => r.result);
