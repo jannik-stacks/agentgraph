@@ -13,7 +13,7 @@ For an XL issue, also propose its parts as `issue` proposals, in the order they 
 part has a short title, a body that says what to change and ends with a `## Done when` section of
 one to three observable checks, a size and a priority (`high`, `medium` or `low`). When a part builds
 on the code of an earlier part, set `stacks_on` to that part's position in your list, counting from
-1, at most one. When it only has to wait for earlier parts, set `depends_on` to their positions. To
+1, at most one. When it needs earlier parts merged first, set `depends_on` to their positions. To
 wait for an existing issue instead, end the body with a line `Depends on #<number>`.
 
 Do not write the size or priority into the body; the runner labels the parts. If you cannot size the

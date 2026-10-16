@@ -180,4 +180,23 @@ describe('ordering', () => {
     const after = await run(where, [], tick(hub, 2, true));
     expect(after.value.map(r => [r.id, r.status])).toEqual([['issue-2', 'stopped']]);
   });
+
+  it('waits on a "Depends on" issue until it is closed, even once it has a pull request', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    appendFileSync(join(where.forge, '2.md'), '\nDepends on #1\n');
+    writeFileSync(join(where.forge, '3.md'), '---\ntitle: Fix 1\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #1\n');
+    mkdirSync(join(where.forge, '3'), { recursive: true });
+    writeFileSync(
+      join(where.forge, '3', 'pull.json'),
+      JSON.stringify({ branch: 'bothub/1', base: 'main', head: 'abc' })
+    );
+    const implement = hub.workflows.issue!;
+    const waiting = begin(implement, { id: 'issue-2', issue: 2, started: at(5) });
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
+    const { value } = await run(where, [], tick(hub, 2, true));
+    expect(value).toEqual([]);
+  });
 });

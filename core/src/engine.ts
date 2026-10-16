@@ -125,13 +125,17 @@ const stackOf = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
   return pull?.pull && { pull: pull.number, branch: pull.pull.branch, sha: pull.pull.head };
 };
 
-/** The issues a run's "Stacks on" and "Depends on" lines name that are still open without a pull request. */
+/** What a run still waits for: a "Stacks on" issue without a pull request, or a "Depends on" issue not yet closed. */
 const pending = (w: Workflow, issue: number, open: Issue[]) =>
   w.branch === undefined
     ? []
-    : [...(open.find(t => t.number === issue)?.body ?? '').matchAll(/^\s*(?:stacks|depends) on #(\d+)\s*$/gim)]
-        .map(m => Number(m[1]))
-        .filter(n => open.some(t => t.number === n && !t.pull) && pullOf(w, n, open) === undefined);
+    : [...(open.find(t => t.number === issue)?.body ?? '').matchAll(/^\s*(stacks|depends) on #(\d+)\s*$/gim)]
+        .filter(
+          ([, how, n]) =>
+            open.some(t => t.number === Number(n) && (how!.toLowerCase() === 'depends' || !t.pull)) &&
+            (how!.toLowerCase() === 'depends' || pullOf(w, Number(n), open) === undefined)
+        )
+        .map(([, , n]) => Number(n));
 
 /** How deep a run's issue may sit and still file children. */
 const deepest = 3;
