@@ -1,10 +1,10 @@
 import { useAtomValue } from 'jotai';
 import type { Trace } from '../../../src/store.ts';
-import type { Run, Step, Workflow } from '../../../src/workflow.ts';
-import { Markdown } from '../Markdown.tsx';
+import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
+import { Code, Markdown } from '../Markdown.tsx';
 import { lineRow, Rows, runRow } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
-import { Field, Fields } from '../ui.tsx';
+import { accent, cx, Disclosure, Field, Fields } from '../ui.tsx';
 import type { Fixture, Trail } from './scenarios.ts';
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
@@ -27,6 +27,58 @@ const traceOf = (trail: Trail, run: Run): Trace[] =>
     const { step, status, tries, rounds } = trail[i + 1]?.at ?? run;
     return { at: '', step: at.step, outcome, run: { step, status, tries, rounds } };
   });
+
+/** The latest result of a check among a run's lines at one step. */
+const latest = (name: string, lines: Trace[]): CheckResult | undefined => {
+  for (const line of lines.toReversed()) {
+    if ('check' in line && line.check.check === name) return line.check;
+    if ('outcome' in line && line.outcome.kind === 'failed') {
+      const found = line.outcome.checks.find(c => c.check === name);
+      if (found) return found;
+    }
+  }
+};
+
+/** A check: its mode, what runs it, and with a run its latest result. */
+const CheckItem = ({
+  name,
+  check,
+  lines,
+}: {
+  name: string;
+  check: Fixture['checks'][string] | undefined;
+  lines: Trace[] | undefined;
+}) => {
+  const result = lines && latest(name, lines);
+  return (
+    <li className="space-y-0.5">
+      <div className="flex gap-2">
+        <span className="min-w-0 flex-1 truncate font-mono">{name}</span>
+        <span className="text-zinc-500">{check?.agent === undefined ? 'script' : `${check.agent} agent`}</span>
+        <span className="text-zinc-500">{check?.mode ?? 'block'}</span>
+      </div>
+      {check?.run && <div className="truncate font-mono text-[11px] text-zinc-500">$ {check.run}</div>}
+      {lines &&
+        (result ? (
+          <Disclosure
+            summary={
+              <span className={cx(!result.pass && accent.text)}>
+                {result.pass ? 'passed' : 'failed'} last, {result.ms} ms
+              </span>
+            }
+          >
+            {result.findings ? (
+              <Code code={result.findings} compact wrap lines={12} />
+            ) : (
+              <p className="text-zinc-500">No findings.</p>
+            )}
+          </Disclosure>
+        ) : (
+          <p className="text-zinc-500">Not run yet in this run.</p>
+        ))}
+    </li>
+  );
+};
 
 /** A workflow's trigger and description. */
 export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
@@ -86,19 +138,10 @@ export const StepDetails = ({
       </Fields>
       {step.checks.length > 0 && (
         <Section title="Checks after each try">
-          <ul className="space-y-0.5">
-            {step.checks.map(name => {
-              const check = checks[name];
-              return (
-                <li key={name} className="flex gap-2">
-                  <span className="min-w-0 flex-1 truncate font-mono">{name}</span>
-                  <span className="text-zinc-500">{check?.agent === undefined ? 'script' : 'agent'}</span>
-                  <span className={check?.mode === 'stop' ? 'text-rose-600' : 'text-zinc-500'}>
-                    {check?.mode ?? 'block'}
-                  </span>
-                </li>
-              );
-            })}
+          <ul className="space-y-2">
+            {step.checks.map(name => (
+              <CheckItem key={name} name={name} check={checks[name]} lines={lines} />
+            ))}
           </ul>
         </Section>
       )}

@@ -86,8 +86,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
         id: `${workflow}:frame`,
         type: 'frame',
         position: row.frame,
-        width: row.frame.width,
-        height: row.frame.height,
+        measured: { width: row.frame.width, height: row.frame.height },
         data: {
           workflow,
           trigger: graph.trigger,
@@ -108,8 +107,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
             id: placed.id,
             type: 'pill',
             position: placed.box,
-            width: placed.box.width,
-            height: placed.box.height,
+            measured: { width: placed.box.width, height: placed.box.height },
             style: { width: placed.box.width, height: placed.box.height },
             data: {
               label: done ? 'done' : graph.trigger,
@@ -125,12 +123,11 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           id: placed.id,
           type: 'step',
           position: placed.box,
-          width: placed.box.width,
-          height: placed.box.height,
+          measured: { width: placed.box.width, height: placed.box.height },
           data: {
             node,
             selected: selected === placed.id,
-            live: hereLine(here.get(`${fixture}/${node.step}`)),
+            live: run ? undefined : hereLine(here.get(`${fixture}/${node.step}`)),
             ...(run && {
               overlay: {
                 visits: visits!.filter(v => v.node.step === node.step).length,

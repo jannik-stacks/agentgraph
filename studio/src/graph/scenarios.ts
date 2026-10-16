@@ -11,7 +11,7 @@ type Simulated = { label: string; trail: Trail; run: Run };
 export type Fixture = {
   id: string;
   workflow: Workflow;
-  checks: Record<string, Pick<Check, 'mode' | 'agent'>>;
+  checks: Record<string, Pick<Check, 'mode' | 'agent' | 'run'>>;
   runs: Simulated[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;
