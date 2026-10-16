@@ -55,6 +55,15 @@ When the install was only requested, bothub works once an owner approves it.
 
 Then point `BOTHUB_APP_ENV` at the `app.env` the command printed.
 
+## Mention autocomplete
+
+People talk to the bot by mentioning it, `@<slug>`, but GitHub only autocompletes logins that can be
+mentioned in the repository, and an App has no such login. To get autocomplete, create an ordinary
+GitHub user whose login is the App's slug (for example `stx-bothub`) and add it to the repository as
+a collaborator with read access. It never needs a token or a password the engine knows; the App
+keeps doing all the writes. In an organization the user takes a seat. Without it everything still
+works: the engine reads a typed `@<slug>` or `/bothub` the same way.
+
 ## Webhooks later
 
 Runs are started by hand for now, with no webhook and no tunnel. When webhooks are wanted, expose only the webhook path through a Cloudflare tunnel.

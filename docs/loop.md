@@ -13,7 +13,7 @@ event → run begins → step: session → checks → feedback to the same sessi
 - `issue_comment` with `command`: a comment starting with that text, such as `/bothub`.
 - `issues` with `label`: a label being added to an issue, such as `triage`.
 
-On GitHub, a comment also counts when it says `/bothub` or `@` and the App's name as a word anywhere outside quoted lines and fenced code. The engine reads it as `/bothub` followed by the rest of the comment (`code: src/forge.ts#commanded`).
+On GitHub, mentioning the bot is the main way to talk to it: a comment counts when it says `@` and the App's name (`@stx-bothub`) as a word anywhere outside quoted lines and fenced code, because mentions autocomplete and slash commands do not. `/bothub` works the same as a fallback. The engine reads either as `/bothub` followed by the rest of the comment (`code: src/forge.ts#commanded`). A bare mention with no words starts the workflow too. On an issue with no live run a mention that only says `stop` starts nothing.
 
 `pull_request` and `branches` are accepted in `on:` but start nothing yet.
 
@@ -93,7 +93,7 @@ An agent step with `back` also needs `until`, a sentence saying when the step is
 
 Going forward into a step starts a fresh session. Going back keeps the session that step had (`code: src/workflow.ts#transition`).
 
-A `wait: human` step with `back` goes back when a human asks for changes with a `/bothub` comment or a review requesting changes. A review approval, an `approved` label or a merge passes it.
+A `wait: human` step with `back` goes back when a human asks for changes by mentioning the bot or a review requesting changes. A review approval, an `approved` label or a merge passes it.
 
 ## Several models
 
@@ -116,7 +116,7 @@ The studio marks a step with more than one reviewing agent with a chip that name
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question on the issue.
 
-A human answers with `/bothub <answer>`, which becomes feedback for the same step. `/bothub stop` ends a waiting run. Closing the issue ends it too.
+A human answers by mentioning the bot, `@stx-bothub <answer>`, which becomes feedback for the same step. `@stx-bothub stop` ends a waiting run. The question is in the status comment only, with that instruction; `/bothub` works in place of the mention. Closing the issue ends it too.
 
 `node bin/run.ts status` lists what waits, with the command that continues each run (`code: src/status.ts#needsYou`).
 

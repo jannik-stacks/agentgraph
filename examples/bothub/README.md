@@ -3,7 +3,7 @@
 The hub bothub runs on its own code. Scripts slice the change and decide everything a rule can
 decide; an agent only gets the judgement that is left, one question per item.
 
-`/bothub` on an issue starts `workflows/issue.md`. The triager replies with a brief. The
+A mention of the bot (or `/bothub`) on an issue starts `workflows/issue.md`. The triager replies with a brief. The
 implementor works on `bothub/<issue>` until every check passes, at most four tries: the script
 checks first, then the judged ones. A failing `block` check sends the try back with its findings;
 `warn` findings go through with the change. A human reviews and merges.

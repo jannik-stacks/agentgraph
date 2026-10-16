@@ -2,7 +2,7 @@
 
 Triage is a workflow in the sandbox hub (`examples/sandbox/workflows/triage.md`, agent `triager`). A maintainer adds the `triage` label to an issue. The agent reads the issue and the code and sizes it from XS to XL.
 
-When the issue and the repo do not say what the problem is or what done looks like, the triager asks instead of guessing. It asks only what it cannot find by reading, in one numbered comment of at most six questions (the problem, who hits it, what done looks like, scope, constraints, an example), and waits for `/bothub <answer>`. If only one thing is missing, it asks that one question.
+When the issue and the repo do not say what the problem is or what done looks like, the triager asks instead of guessing. It asks only what it cannot find by reading, in one numbered comment of at most six questions (the problem, who hits it, what done looks like, scope, constraints, an example), and waits for a mention with the answer (`@stx-bothub <answer>`). If only one thing is missing, it asks that one question.
 
 Triage implements, merges and closes nothing. The triager has read-only tools (`read`, `grep`, `glob`) and may return `comment`, `label`, `issue` and `ask`.
 
@@ -86,8 +86,8 @@ At most `limits.parallel` runs go at once. Nothing merges or closes without a hu
 
 - `running`, driving: the triager is sizing or splitting.
 - `running`, held: it waits on a `Stacks on` or `Depends on` line and is not driven.
-- `waiting`: the agent asked a question, tries ran out, or a refusal repeated until tries ran out. A human answers with `/bothub <answer>`.
+- `waiting`: the agent asked a question, tries ran out, or a refusal repeated until tries ran out. A human answers by mentioning the bot (`@stx-bothub <answer>`).
 - `done`: sized, or split and listed.
-- `stopped`: a human said `/bothub stop`, the issue closed, the `triage` label was removed, or a limit (minutes, usd-per-run) or a sandbox failure ended it.
+- `stopped`: a human mentioned the bot with `stop`, the issue closed, the `triage` label was removed, or a limit (minutes, usd-per-run) or a sandbox failure ended it.
 
 A child's pull request can also be rebased by the engine when its parent moves, or get a comment when the rebase conflicts.

@@ -1,6 +1,6 @@
 # What bothub is
 
-bothub runs coding agents on a team's repositories. A comment like `/bothub` on a GitHub issue starts a workflow.
+bothub runs coding agents on a team's repositories. Mentioning the bot (`@stx-bothub`) on a GitHub issue starts a workflow; `/bothub` works as a fallback.
 
 Agents work on their own branch. Scripts and other agents check the result. A human merges.
 
@@ -8,7 +8,7 @@ Agents work on their own branch. Scripts and other agents check the result. A hu
 
 ```
  ┌──────────────────────────────────────────┐
- │ GitHub issue: a /bothub comment or label │
+ │ GitHub issue: a bot mention or a label   │
  └────────────────────┬─────────────────────┘
                       ▼
  ┌──────────────────────────────────────────┐      ┌──────────────────────┐
