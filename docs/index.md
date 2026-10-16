@@ -35,3 +35,4 @@ a step that names a missing agent or a check that does not exist.
 - [Sandbox](sandbox.md)
 - [Running it locally](local.md)
 - [Patterns](patterns.md)
+- [Architecture](architecture.md)
