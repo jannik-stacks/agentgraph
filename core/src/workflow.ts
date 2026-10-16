@@ -55,6 +55,8 @@ export type Run = {
   reason?: string;
   comment?: string;
   said?: { issue: number; under?: string };
+  /** The open pull request the run stacks on, and the head of it the run's branch builds on. */
+  base?: { pull: number; branch: string; sha: string };
   started: string;
   ended?: string;
   usd: number;

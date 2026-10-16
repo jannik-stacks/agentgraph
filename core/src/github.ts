@@ -127,7 +127,7 @@ const refPath = (branch: string) =>
 /** A GitHub REST call with `auth` as the bearer; GETs are polled with ETags, so an unchanged answer is a free 304. */
 const requester = (fetch: Fetch) => {
   const etags = new Map<string, { etag: string; data: unknown; next?: string }>();
-  return <T>(method: string, path: string, auth: string, body?: unknown) =>
+  return <T>(method: string, path: string, auth: string, body?: unknown, version = '2022-11-28') =>
     Effect.gen(function* () {
       const url = path.startsWith('https://') ? path : api + path;
       const cached = method === 'GET' ? etags.get(url) : undefined;
@@ -138,7 +138,7 @@ const requester = (fetch: Fetch) => {
             headers: {
               Accept: 'application/vnd.github+json',
               Authorization: `Bearer ${auth}`,
-              'X-GitHub-Api-Version': '2022-11-28',
+              'X-GitHub-Api-Version': version,
               'User-Agent': 'bothub',
               ...(cached && { 'If-None-Match': cached.etag }),
               ...(body !== undefined && { 'Content-Type': 'application/json' }),
@@ -241,8 +241,8 @@ export const githubForge = (
           )
     );
 
-    const gh = <T>(method: string, path: string, body?: unknown, scope: Scope = 'read') =>
-      Effect.flatMap(token(scope), t => request<T>(method, path, t, body)).pipe(Effect.map(r => r.data));
+    const gh = <T>(method: string, path: string, body?: unknown, scope: Scope = 'read', version?: string) =>
+      Effect.flatMap(token(scope), t => request<T>(method, path, t, body, version)).pipe(Effect.map(r => r.data));
 
     const missing = <A, R>(effect: Effect.Effect<A, ForgeError, R>) =>
       Effect.catchIf(
@@ -507,20 +507,69 @@ export const githubForge = (
         const tree = yield* gitText(work, ['write-tree']);
         let head = parent;
         if (tree !== from) {
-          const changed = yield* entries(work, from, tree);
-          const made = (yield* gh<{ sha: string }>(
-            'POST',
-            `${repo}/git/trees`,
-            { base_tree: from, tree: changed },
-            'push'
-          )).sha;
-          if (made !== tree) return yield* new ForgeError({ message: `GitHub built tree ${made}, expected ${tree}` });
+          yield* upload(work, from, tree);
           const commit = { message, tree, parents: [parent] };
           head = (yield* gh<{ sha: string }>('POST', `${repo}/git/commits`, commit, 'push')).sha;
         }
         if (head === tip) return head;
         if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: false }, 'push');
         else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
+        pushed.set(work.dir, { sha: head, tree });
+        return head;
+      });
+
+    /** Builds tree `to` on GitHub from tree `from`, from the checkout's objects. */
+    const upload = (work: Checkout, from: string, to: string) =>
+      Effect.gen(function* () {
+        const tree = yield* entries(work, from, to);
+        const made = (yield* gh<{ sha: string }>('POST', `${repo}/git/trees`, { base_tree: from, tree }, 'push')).sha;
+        if (made !== to) return yield* new ForgeError({ message: `GitHub built tree ${made}, expected ${to}` });
+      });
+
+    /**
+     * Replays the commits on `branch` after `from` onto `onto` as new commits through the Git data API, then moves the
+     * branch there unless it moved meanwhile. Commits that become empty are dropped. The checkout ends on the result.
+     */
+    const rebase = (work: Checkout, branch: string, from: string, onto: string) =>
+      Effect.gen(function* () {
+        if (!branch.startsWith(pushable.prefix)) return yield* refuse(`a rebase goes to a ${pushable.prefix} branch`);
+        const ref = yield* refPath(branch);
+        const tipOf = Effect.map(
+          missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)),
+          r => r?.object.sha
+        );
+        const tip = yield* tipOf;
+        if (!tip) return yield* refuse(`${branch} does not exist`);
+        const commits = (yield* gitText(work, ['rev-list', '--reverse', '--no-merges', `${from}..${tip}`]))
+          .split('\n')
+          .filter(Boolean);
+        let head = onto;
+        let tree = yield* gitText(work, ['rev-parse', `${onto}^{tree}`]);
+        for (const commit of commits) {
+          const next = yield* gitText(work, [
+            'merge-tree',
+            '--write-tree',
+            '--no-messages',
+            `--merge-base=${commit}~1^{tree}`,
+            tree,
+            `${commit}^{tree}`,
+          ]).pipe(
+            Effect.mapError(() => refuse(`${commit.slice(0, 7)} on ${branch} conflicts with ${onto.slice(0, 7)}`))
+          );
+          if (next === tree) continue;
+          yield* upload(work, tree, next);
+          const message = yield* gitText(work, ['log', '-1', '--format=%B', commit]);
+          head = (yield* gh<{ sha: string }>(
+            'POST',
+            `${repo}/git/commits`,
+            { message, tree: next, parents: [head] },
+            'push'
+          )).sha;
+          tree = next;
+        }
+        if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`);
+        yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: true }, 'push');
+        yield* git(work, ['read-tree', '-u', '--reset', tree]);
         pushed.set(work.dir, { sha: head, tree });
         return head;
       });
@@ -561,6 +610,41 @@ export const githubForge = (
             return yield* new ForgeError({ message: `GitHub stored ${path} as ${stored.sha}, expected ${sha}` });
         }
         return changes.map(({ path, mode, sha }) => ({ path, mode, type: 'blob' as const, sha }));
+      });
+
+    /**
+     * Registers the open pull requests whose bases chain down from `number` as a GitHub stack, or adds `number` on top
+     * of its parent's stack. A repo without stacks keeps the plain chain.
+     */
+    const stack = (number: number, base: string) =>
+      Effect.gen(function* () {
+        const open = (yield* all<RestPull>(`${repo}/pulls?state=open&per_page=100`)).filter(
+          o => o.head.repo?.full_name === app.repo
+        );
+        const chain = [number];
+        for (let below = open.find(o => o.head.ref === base); below && !chain.includes(below.number);) {
+          chain.unshift(below.number);
+          const on = below.base.ref;
+          below = open.find(o => o.head.ref === on);
+        }
+        if (chain.length < 2) return;
+        const stacks = <T>(method: string, path: string, body?: unknown) =>
+          gh<T>(method, `${repo}/stacks${path}`, body, method === 'GET' ? 'read' : 'pull_request', '2026-03-10');
+        yield* stacks('POST', '', { pull_requests: chain }).pipe(
+          Effect.catchIf(
+            e => e.status === 422,
+            () =>
+              Effect.gen(function* () {
+                const found = yield* stacks<{ number: number }[]>('GET', `?pull_request=${chain.at(-2)}`);
+                const parent = Array.isArray(found) ? found[0] : undefined;
+                if (parent) yield* stacks('POST', `/${parent.number}/add`, { pull_requests: [number] });
+              })
+          ),
+          Effect.catchIf(
+            e => e.status === 404 || e.status === 422,
+            () => Effect.void
+          )
+        );
       });
 
     const comment = (number: number, body: string, edit?: string) =>
@@ -612,21 +696,20 @@ export const githubForge = (
           return Effect.map(push(work, p.branch, p.message), head => ({
             url: `https://github.com/${app.repo}/commit/${head}`,
           }));
+        case 'rebase':
+          if (work === undefined) return Effect.fail(refuse('rebase needs a checkout'));
+          return Effect.map(rebase(work, p.branch, p.from, p.onto), head => ({
+            url: `https://github.com/${app.repo}/commit/${head}`,
+          }));
         case 'pull_request':
-          return Effect.map(
-            gh<{ html_url: string }>(
-              'POST',
-              `${repo}/pulls`,
-              {
-                title: p.title,
-                head: p.branch,
-                base: p.base,
-                body: p.body,
-              },
-              'pull_request'
-            ),
-            r => ({ url: r.html_url })
-          );
+          return Effect.gen(function* () {
+            const body = { title: p.title, head: p.branch, base: p.base, body: p.body };
+            const made = yield* gh<{ number: number; html_url: string }>('POST', `${repo}/pulls`, body, 'pull_request');
+            yield* stack(made.number, p.base).pipe(
+              Effect.catchAll(e => Effect.logWarning(`stack for #${made.number}`, e))
+            );
+            return { url: made.html_url };
+          });
         case 'merge':
           return Effect.as(gh('PUT', `${repo}/pulls/${p.number}/merge`, { sha: p.head }, 'merge'), {});
         case 'issue':

@@ -45,6 +45,8 @@ export type Hub = {
   limits: Limits;
   /** A shell script each checkout runs once, with network, before the first step. */
   setup?: string;
+  /** Whether an issue that says "Stacks on #n" opens its pull request on the branch of #n. */
+  stacks?: boolean;
 };
 
 export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {}
@@ -54,6 +56,7 @@ const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(sc
 const HubFile = Schema.Struct({
   repo: exact(Schema.String),
   setup: exact(Schema.String),
+  stacks: exact(Schema.Boolean),
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
@@ -282,6 +285,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       sha: sha.digest('hex'),
       limits: hub.limits,
       ...(hub.setup !== undefined && { setup: hub.setup }),
+      ...(hub.stacks !== undefined && { stacks: hub.stacks }),
       ...parts,
     };
   });

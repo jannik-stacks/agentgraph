@@ -536,6 +536,131 @@ describe('tick', () => {
   }, 30_000);
 });
 
+describe('stacks', () => {
+  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const issue = small.workflows.issue!;
+  const merging = {
+    ...small,
+    stacks: true,
+    workflows: {
+      issue: {
+        ...issue,
+        steps: [
+          ...issue.steps,
+          { name: 'merge', does: { wait: 'human' as const }, checks: [], tries: 1, back: { to: 'implement' } },
+        ],
+      },
+    },
+  };
+  const flow = merging.workflows.issue;
+  const run9 = () => begin(flow, { id: 'run-9', issue: 9, started: '2026-10-16T00:00:01.000Z' });
+  const child = (content = 'bye\n', file = 'bye.txt') => [
+    start('a'),
+    write(file, content),
+    reply(
+      { kind: 'push', branch: 'bothub/9', message: 'Add bye' },
+      { kind: 'pull_request', branch: 'bothub/9', base: 'main', title: 'Add bye', body: 'Closes #9' }
+    ),
+  ];
+
+  /** Pull request #8 on bothub/7 with hello.txt, issue #9 that stacks on #7, and `move` to push to bothub/7 again. */
+  const parent = (where: ReturnType<typeof world>) => {
+    const clone = join(where.root, 'clone');
+    git(where.root, 'clone', '-q', where.origin, clone);
+    git(clone, 'checkout', '-q', '-b', 'bothub/7');
+    const move = (file: string, content: string) => {
+      writeFileSync(join(clone, file), content);
+      git(clone, 'add', '-A');
+      git(clone, 'commit', '-q', '-m', `Write ${file}`);
+      git(clone, 'push', '-q', 'origin', 'bothub/7');
+      const head = git(clone, 'rev-parse', 'HEAD');
+      writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch: 'bothub/7', base: 'main', head }));
+      return head;
+    };
+    writeFileSync(
+      join(where.forge, '8.md'),
+      '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+    );
+    mkdirSync(join(where.forge, '8'), { recursive: true });
+    const head = move('hello.txt', 'hello\n');
+    writeFileSync(
+      join(where.forge, '9.md'),
+      '---\ntitle: Say bye\nstate: open\nauthor: morgan\n---\n\nAdd bye.txt.\n\nStacks on #7\n'
+    );
+    return { head, move };
+  };
+  const pr10 = (where: ReturnType<typeof world>) => ({
+    pull: JSON.parse(readFileSync(join(where.forge, '10', 'pull.json'), 'utf8')),
+    body: readFileSync(join(where.forge, '10.md'), 'utf8'),
+    diff: readFileSync(join(where.forge, '10', 'diff.patch'), 'utf8'),
+  });
+  const saved = (where: ReturnType<typeof world>) =>
+    JSON.parse(readFileSync(join(where.data, 'run-9', 'run.json'), 'utf8')) as Run;
+
+  it('opens the pull request of an issue that stacks on #7 on its branch, with only its own change', async () => {
+    const where = world();
+    const { head } = parent(where);
+    const { specs, run } = services(where, [child()]);
+    const parked = await run(drive(flow, run9(), merging));
+    expect(parked).toMatchObject({
+      step: 'merge',
+      status: 'waiting',
+      base: { pull: 8, branch: 'bothub/7', sha: head },
+    });
+    expect(specs[0]!.prompt).toContain('pull requests go into bothub/7.');
+    const pr = pr10(where);
+    expect(pr.pull).toMatchObject({ branch: 'bothub/9', base: 'bothub/7' });
+    expect(pr.body).toContain('Closes #9\n\nStacks on #8');
+    expect(pr.diff).toContain('bye.txt');
+    expect(pr.diff).not.toContain('hello.txt');
+    expect(git(where.origin, 'rev-parse', 'bothub/9~1')).toBe(head);
+  }, 30_000);
+
+  it('with stacks off, opens the same issue as an independent pull request off main', async () => {
+    const where = world();
+    parent(where);
+    const { specs, run } = services(where, [child()]);
+    const parked = await run(drive(flow, run9(), { ...merging, stacks: false }));
+    expect(parked.base).toBeUndefined();
+    expect(specs[0]!.prompt).toContain('pull requests go into main.');
+    const pr = pr10(where);
+    expect(pr.pull).toMatchObject({ branch: 'bothub/9', base: 'main' });
+    expect(pr.body).not.toContain('Stacks on');
+    expect(git(where.origin, 'rev-parse', 'bothub/9~1')).toBe(git(where.origin, 'rev-parse', 'main'));
+  }, 30_000);
+
+  it('rebases the branch onto the new head when #8 moves, keeping its own commit on top', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [child()]);
+    await run(drive(flow, run9(), merging));
+    const moved = move('more.txt', 'more\n');
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'bothub/9~1')).toBe(moved);
+    expect(git(where.origin, 'log', '--format=%s', 'bothub/7..bothub/9')).toBe('Add bye');
+    expect(saved(where)).toMatchObject({ status: 'waiting', base: { sha: moved } });
+    const pr = pr10(where);
+    expect(pr.pull.head).toBe(git(where.origin, 'rev-parse', 'bothub/9'));
+    expect(pr.diff).not.toContain('more.txt');
+    const before = git(where.origin, 'rev-parse', 'bothub/9');
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'bothub/9')).toBe(before);
+  }, 30_000);
+
+  it('says on the issue when the branch does not rebase cleanly and leaves it where it was', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const { run } = services(where, [child('hello and bye\n', 'hello.txt')]);
+    await run(drive(flow, run9(), merging));
+    const before = git(where.origin, 'rev-parse', 'bothub/9');
+    const moved = move('hello.txt', 'hi\n');
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'bothub/9')).toBe(before);
+    expect(readFileSync(join(where.forge, '9.jsonl'), 'utf8')).toContain('#8 moved and bothub/9 could not follow');
+    expect(saved(where).base?.sha).toBe(moved);
+  }, 30_000);
+});
+
 describe('start with one issue', () => {
   it('reads the App env file, loads the hub, drives the issue to the merge wait, then reenters on the merge', async () => {
     const where = world();

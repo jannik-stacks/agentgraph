@@ -43,12 +43,16 @@ export type Event = {
   check?: { name: string; conclusion: string };
 };
 
-/** What a run may change on the repo, and the two proposals that steer the run. `react` is the runner's own. */
+/**
+ * What a run may change on the repo, and the two proposals that steer the run. `react` and `rebase` are the runner's
+ * own; a rebase moves the commits on `branch` after `from` onto `onto`.
+ */
 export type Proposal =
   | { kind: 'comment'; body: string; edit?: string; under?: string }
   | { kind: 'react'; comment?: string; review?: boolean }
   | { kind: 'label'; add?: string[]; remove?: string[] }
   | { kind: 'push'; branch: string; message: string }
+  | { kind: 'rebase'; branch: string; from: string; onto: string }
   | { kind: 'pull_request'; branch: string; base: string; title: string; body: string }
   | { kind: 'merge'; number: number; head: string }
   | { kind: 'issue'; title: string; body: string; parent?: number }
@@ -170,6 +174,18 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         return t;
       };
 
+      /** Records the checkout's head on the open pull requests of `branch`, with their diffs. */
+      const moved = async (work: string, branch: string) => {
+        const head = await git(work, 'rev-parse', 'HEAD');
+        for (const k of await numbers()) {
+          const pr = await read(k);
+          if (pr?.pull?.branch !== branch || pr.state !== 'open') continue;
+          await write({ ...pr, pull: { ...pr.pull, head } });
+          await writeFile(join(dir, String(k), 'diff.patch'), await git(work, 'diff', `origin/${pr.pull.base}...HEAD`));
+        }
+        return head;
+      };
+
       const apply = async (n: number, p: Proposal, work?: string): Promise<Applied> => {
         const no = (reason: string): Applied => ({ proposal: p, ok: false, reason });
         const t = await must(n);
@@ -202,17 +218,20 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
             await git(work, 'add', '-A');
             if (await git(work, 'status', '--porcelain')) await git(work, 'commit', '-q', '-m', p.message);
             await git(work, 'push', '-q', 'origin', `HEAD:refs/heads/${p.branch}`);
-            const head = await git(work, 'rev-parse', 'HEAD');
-            for (const k of await numbers()) {
-              const pr = await read(k);
-              if (pr?.pull?.branch !== p.branch || pr.state !== 'open') continue;
-              await write({ ...pr, pull: { ...pr.pull, head } });
-              await writeFile(
-                join(dir, String(k), 'diff.patch'),
-                await git(work, 'diff', `origin/${pr.pull.base}...HEAD`)
-              );
-            }
-            return { proposal: p, ok: true, url: `${p.branch}@${head}` };
+            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch)}` };
+          }
+          case 'rebase': {
+            if (!work) return no('a rebase needs a worktree');
+            const tip = await git(work, 'rev-parse', `origin/${p.branch}`);
+            await git(work, 'reset', '-q', '--hard', tip);
+            const clean = await git(work, 'rebase', '-q', '--onto', p.onto, p.from).then(
+              () => true,
+              () => git(work, 'rebase', '--abort').then(() => false)
+            );
+            if (!clean) return no(`${p.branch} conflicts with ${p.onto}`);
+            const lease = `--force-with-lease=refs/heads/${p.branch}:${tip}`;
+            await git(work, 'push', '-q', lease, 'origin', `HEAD:refs/heads/${p.branch}`);
+            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch)}` };
           }
           case 'pull_request': {
             for (const k of await numbers()) {

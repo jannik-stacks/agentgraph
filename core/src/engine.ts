@@ -46,7 +46,7 @@ const ProposalSchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String })
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
-const shapes: Record<Exclude<Proposal['kind'], 'react'>, string> = {
+const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   comment: '{"kind":"comment","body":"..."}',
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',
@@ -108,6 +108,14 @@ const pullOf = (w: Workflow, issue: number, open: Issue[]) =>
     ? undefined
     : open.find(t => t.pull?.branch === expand(w.branch!, open.find(t => t.number === issue) ?? { number: issue }))
         ?.number;
+
+/** The open pull request a run on `issue` stacks on, from a "Stacks on #n" line naming it or its issue. */
+const stackOf = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
+  const n = Number(/^\s*stacks on #(\d+)\s*$/im.exec(issue.body)?.[1]);
+  const on = open.find(t => t.number === n);
+  const pull = on?.pull ? on : open.find(t => t.number === pullOf(w, n, open));
+  return pull?.pull && { pull: pull.number, branch: pull.pull.branch, sha: pull.pull.head };
+};
 
 /** The run's issue and the pull request on its branch, fetched before every session. */
 export const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forge> =>
@@ -333,7 +341,7 @@ export const attempt = (
         w.body,
         context(t),
         w.branch &&
-          `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
+          `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         `People may comment while you work: ${newsFile} holds what is new, refreshed every minute. Read it before you finish.`,
         run.feedback,
@@ -389,7 +397,13 @@ export const attempt = (
     const ask = proposals.find(p => p.kind === 'ask');
     if (ask) return done({ kind: 'ask', question: ask.question }, tried);
     const back = proposals.find(p => p.kind === 'back');
-    const world = proposals.filter(p => p.kind !== 'ask' && p.kind !== 'back');
+    const world = proposals
+      .filter(p => p.kind !== 'ask' && p.kind !== 'back')
+      .map(p =>
+        p.kind === 'pull_request' && run.base
+          ? { ...p, base: run.base.branch, body: `${p.body}\n\nStacks on #${run.base.pull}` }
+          : p
+      );
 
     const { outcome: gated, usd } = yield* gate(step, { run: run.id, ...work, proposals: world }, hub);
     tried = { ...tried, usd: tried.usd + usd };
@@ -528,7 +542,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       current = yield* show(w, current);
       yield* store.put(current);
       const issue = yield* forge.issue(run.issue);
-      const ref = issue.pull?.branch ?? expand(w.base ?? 'main', issue);
+      const stacked = hub.stacks && !current.base && stackOf(w, issue, yield* forge.issues({ state: 'open' }));
+      if (stacked) yield* store.put((current = { ...current, base: stacked }));
+      const ref = issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue);
       const work = yield* Effect.flatMap(Sandbox, s =>
         s.checkout(ref, w.branch && expand(w.branch, issue), `refs/bothub/runs/${run.id}`)
       );
@@ -560,6 +576,21 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
   });
 
 const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
+
+/** Rebases a stacked run's branch onto `head`, the new head of the pull request it stacks on; a conflict is said on the issue. */
+const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: string) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const forge = yield* Forge;
+    yield* store.lock(run.id);
+    const branch = expand(w.branch!, yield* forge.issue(run.issue));
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch, `refs/bothub/runs/${run.id}`));
+    const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from: base.sha, onto: head }, work);
+    const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
+    const said = applied.ok ? [] : yield* land(run, [{ kind: 'comment', body }]);
+    yield* store.trace(run.id, ...[applied, ...said].map(a => ({ at: now(), step: run.step, applied: a })));
+    yield* store.put({ ...run, base: { ...base, sha: head } });
+  }).pipe(Effect.scoped);
 
 /**
  * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`.
@@ -685,6 +716,13 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     if (only !== undefined && (fresh ? runs.length === 0 : !runs.some(live)) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
       if (w) yield* start(w, only, now());
+    }
+
+    for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(live)) {
+      const w = hub.workflows[r.workflow];
+      const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
+      if (!w || !r.base || !head || head === r.base.sha || pullOf(w, r.issue, issues) === undefined) continue;
+      yield* follow(w, r, r.base, head).pipe(Effect.catchAll(e => Effect.logError(`follow run ${r.id}`, e)));
     }
 
     const running = (yield* store.list({ status: 'running' }))

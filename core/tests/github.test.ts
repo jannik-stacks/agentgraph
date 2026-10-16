@@ -399,6 +399,52 @@ describe('githubForge', () => {
     ]);
   });
 
+  describe('stacks', () => {
+    const chained = {
+      'POST /repos/o/r/pulls': { number: 12, html_url: 'https://github.com/o/r/pull/12' },
+      'GET /repos/o/r/pulls?state=open&per_page=100': [
+        pull(10),
+        pull(11, { base: { ref: 'bothub/10' } }),
+        pull(12, { base: { ref: 'bothub/11' } }),
+        pull(13),
+      ],
+    };
+    const open = (f: ReturnType<typeof fake>) =>
+      run(
+        f,
+        Effect.flatMap(Forge, forge =>
+          forge.apply(9, { kind: 'pull_request', branch: 'bothub/12', base: 'bothub/11', title: 'T', body: 'B' })
+        )
+      );
+    const stackCalls = (f: ReturnType<typeof fake>) =>
+      f.calls.filter(c => c.path.includes('/stacks')).map(c => [c.method, c.path, c.body]);
+
+    it('registers the chain of pull requests below a new one as a GitHub stack, bottom first', async () => {
+      const f = fake({ ...chained, 'POST /repos/o/r/stacks': { status: 201, body: { number: 14 } } });
+      expect(await open(f)).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/12' });
+      expect(stackCalls(f)).toEqual([['POST', '/repos/o/r/stacks', { pull_requests: [10, 11, 12] }]]);
+      const call = f.calls.find(c => c.path === '/repos/o/r/stacks')!;
+      expect(call.headers.get('x-github-api-version')).toBe('2026-03-10');
+    });
+
+    it('adds a new pull request on top of the stack its parent is already in', async () => {
+      const f = fake({
+        ...chained,
+        'POST /repos/o/r/stacks': () => ({ status: 422, body: { message: 'already stacked' } }),
+        'GET /repos/o/r/stacks?pull_request=11': [{ number: 14 }],
+        'POST /repos/o/r/stacks/14/add': {},
+      });
+      expect(await open(f)).toMatchObject({ ok: true });
+      expect(stackCalls(f).at(-1)).toEqual(['POST', '/repos/o/r/stacks/14/add', { pull_requests: [12] }]);
+    });
+
+    it('keeps the plain chain when the repo has no stacks', async () => {
+      const f = fake(chained);
+      expect(await open(f)).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/12' });
+      expect(stackCalls(f)).toEqual([['POST', '/repos/o/r/stacks', { pull_requests: [10, 11, 12] }]]);
+    });
+  });
+
   it('mints each token for the one repository and the permissions of its call', async () => {
     const f = fake({
       'POST /app/installations/9/access_tokens': (body: any) => ({
@@ -583,6 +629,35 @@ describe('githubForge', () => {
       const applied = await pushTo(f, work);
       expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/bothub\/7 is at elsewhere/) });
       expect(writes(f)).toEqual([]);
+    });
+
+    it('rebases a branch commit by commit onto a new base and moves it there, leaving the checkout on the result', async () => {
+      const { dir, git, base, work } = repo();
+      writeFileSync(join(dir, 'b.txt'), 'child\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Child');
+      const tip = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', base);
+      writeFileSync(join(dir, 'c.txt'), 'parent\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Parent');
+      const onto = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', base);
+      const f = dataApi(work, {
+        'GET /repos/o/r/git/ref/heads/bothub/9': { object: { sha: tip } },
+        'PATCH /repos/o/r/git/refs/heads/bothub/9': {},
+      });
+      const applied = await run(
+        f,
+        Effect.flatMap(Forge, forge => forge.apply(9, { kind: 'rebase', branch: 'bothub/9', from: base, onto }, work))
+      );
+      expect(applied.ok).toBe(true);
+      const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body;
+      expect(commit).toMatchObject({ message: 'Child', parents: [onto] });
+      expect(git('ls-tree', '--name-only', commit.tree)).toBe('a.txt\nb.txt\nc.txt');
+      const head = applied.url!.split('/').at(-1);
+      expect(f.calls.find(c => c.method === 'PATCH')!.body).toEqual({ sha: head, force: true });
+      expect([existsSync(join(dir, 'b.txt')), existsSync(join(dir, 'c.txt'))]).toEqual([true, true]);
     });
 
     it('refuses a branch outside bothub/ or one that leaves the refs path', async () => {
