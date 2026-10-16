@@ -7,7 +7,7 @@ import { type Graph, graphOf } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/store.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
-import { accent, Muted, Select } from '../ui.tsx';
+import { accent, Combobox, Muted, Select } from '../ui.tsx';
 import { layout } from './layout.ts';
 import {
   BackEdge,
@@ -220,7 +220,7 @@ export const GraphPage = () => {
           .filter(r => r.fixture === fixture.id)
           .map(r => ({
             key: `${fixture.id}:${r.run.id}`,
-            label: `${fixture.workflow.name}: ${r.run.id}`,
+            label: `#${r.run.issue} ${fixture.workflow.name}, ${r.run.status} at ${r.run.step}, ${r.run.id}`,
             fixture,
             run: r.run,
             trail: trailOf(r.run, r.trace),
@@ -228,7 +228,7 @@ export const GraphPage = () => {
           })),
         ...fixture.runs.map(s => ({
           key: `${fixture.id}:${s.label}`,
-          label: `${fixture.workflow.name}: ${s.label} (simulated)`,
+          label: `simulated ${fixture.workflow.name}, ${s.label}`,
           fixture,
           run: s.run,
           trail: s.trail,
@@ -270,14 +270,12 @@ export const GraphPage = () => {
           />
         )}
         {runs.length > 0 && (
-          <Select
+          <Combobox
             label="Run"
-            value={picked?.key ?? ''}
-            options={[
-              { value: '', label: 'none, the workflow as written' },
-              ...runs.map(r => ({ value: r.key, label: r.label })),
-            ]}
-            onChange={key => setRun(key || null)}
+            placeholder="none, the workflows as written"
+            value={picked?.key ?? null}
+            options={runs.map(r => ({ value: r.key, label: r.label }))}
+            onChange={setRun}
           />
         )}
         <p className="min-w-0 flex-1 text-xs text-zinc-500">

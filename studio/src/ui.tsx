@@ -250,3 +250,111 @@ export const Select = ({
     </span>
   </label>
 );
+
+/**
+ * A labelled text field that lists `options` as you type and filters them by their label. Picking one reports its
+ * value; the clear button reports null.
+ */
+export const Combobox = ({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string | null;
+  options: { value: string; label: string }[];
+  onChange: (value: string | null) => void;
+}) => {
+  const id = useId();
+  const input = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const current = options.find(o => o.value === value);
+  const query = text?.trim().toLowerCase();
+  const shown = query === undefined ? [] : options.filter(o => o.label.toLowerCase().includes(query)).slice(0, 100);
+  const pick = (option: { value: string } | undefined) => {
+    onChange(option?.value ?? null);
+    setText(null);
+    input.current?.blur();
+  };
+  return (
+    <label className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
+      {label}
+      <span className="relative flex min-w-0 items-center">
+        <input
+          ref={input}
+          role="combobox"
+          aria-expanded={text !== null}
+          aria-controls={id}
+          aria-autocomplete="list"
+          value={text ?? current?.label ?? ''}
+          placeholder={current?.label ?? placeholder}
+          onFocus={() => {
+            setText('');
+            setActive(0);
+          }}
+          onBlur={() => setText(null)}
+          onChange={e => {
+            setText(e.target.value);
+            setActive(0);
+          }}
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              const by = e.key === 'ArrowDown' ? 1 : -1;
+              setActive(a => Math.max(0, Math.min(a + by, shown.length - 1)));
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              if (shown[active]) pick(shown[active]);
+            } else if (e.key === 'Escape') input.current?.blur();
+          }}
+          className="w-64 min-w-0 rounded-md border border-zinc-300 bg-white py-0.5 pr-6 pl-2 text-zinc-900 placeholder:text-zinc-400 hover:border-zinc-500 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        />
+        {value !== null && (
+          <button
+            type="button"
+            aria-label={`Clear ${label.toLowerCase()}`}
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => pick(undefined)}
+            className="absolute right-1.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="size-3">
+              <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+        {text !== null && (
+          <ul
+            id={id}
+            role="listbox"
+            className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-56 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {shown.map((o, i) => (
+              <li
+                key={o.value}
+                role="option"
+                aria-selected={i === active}
+                onMouseDown={e => {
+                  e.preventDefault();
+                  pick(o);
+                }}
+                onMouseEnter={() => setActive(i)}
+                className={cx(
+                  'cursor-pointer truncate px-2 py-0.5 text-zinc-900 dark:text-zinc-100',
+                  i === active && 'bg-zinc-100 dark:bg-zinc-800',
+                  o.value === value && 'font-medium'
+                )}
+              >
+                {o.label}
+              </li>
+            ))}
+            {!shown.length && <li className="px-2 py-0.5">No match.</li>}
+          </ul>
+        )}
+      </span>
+    </label>
+  );
+};
