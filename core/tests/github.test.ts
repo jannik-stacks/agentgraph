@@ -290,6 +290,43 @@ describe('githubForge', () => {
     ]);
   });
 
+  it('mints each token for the one repository and the permissions of its call', async () => {
+    const f = fake({
+      'POST /app/installations/9/access_tokens': (body: any) => ({
+        body: { token: `tok-${JSON.stringify(body.permissions)}`, expires_at: '2999-01-01T00:00:00Z' },
+      }),
+      'GET /repos/o/r/issues/7': issue(7),
+      'GET /repos/o/r/issues/7/comments': [],
+      'POST /repos/o/r/issues/7/comments': { html_url: 'u' },
+      'POST /repos/o/r/pulls': { html_url: 'u' },
+      'PUT /repos/o/r/pulls/8/merge': {},
+    });
+    await run(
+      f,
+      Effect.gen(function* () {
+        const forge = yield* Forge;
+        yield* forge.thread(7);
+        yield* forge.apply(7, { kind: 'reply', body: 'a' });
+        yield* forge.apply(7, { kind: 'reply', body: 'b' });
+        yield* forge.apply(7, { kind: 'pull', branch: 'x', into: 'main', title: 't', body: 'b' });
+        yield* forge.apply(8, { kind: 'merge', number: 8, head: 'h' });
+      })
+    );
+    const permissions = [
+      { contents: 'read', issues: 'read', pull_requests: 'read' },
+      { issues: 'write' },
+      { contents: 'read', pull_requests: 'write' },
+      { contents: 'write', pull_requests: 'write' },
+    ];
+    expect(f.calls.filter(c => c.path.endsWith('/access_tokens')).map(c => c.body)).toEqual(
+      permissions.map(p => ({ repositories: ['r'], permissions: p }))
+    );
+    const writes = f.calls.filter(c => c.method !== 'GET' && !c.path.startsWith('/app'));
+    expect(writes.map(c => c.headers.get('authorization'))).toEqual(
+      [1, 1, 2, 3].map(i => `Bearer tok-${JSON.stringify(permissions[i])}`)
+    );
+  });
+
   it('turns a refused merge into a rejected proposal and a server error into a ForgeError', async () => {
     const f = fake({
       'PUT /repos/o/r/pulls/8/merge': () => ({ status: 409, body: { message: 'Head branch was modified' } }),

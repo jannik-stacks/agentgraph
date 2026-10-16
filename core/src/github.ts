@@ -160,30 +160,48 @@ const requester = (fetch: Fetch) => {
     });
 };
 
-/** Mints installation tokens for the App on `app.repo`, one at a time, reusing a token until a minute before it expires. */
+/** The permissions each kind of call needs; every token is also limited to the one repository (`repos` has none). */
+const scopes = {
+  read: { contents: 'read', issues: 'read', pull_requests: 'read' },
+  comment: { issues: 'write' },
+  push: { contents: 'write' },
+  pull: { contents: 'read', pull_requests: 'write' },
+  merge: { contents: 'write', pull_requests: 'write' },
+  repos: { metadata: 'read' },
+} as const;
+export type Scope = keyof typeof scopes;
+
+/** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
 export const appToken = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch
-): Effect.Effect<string, ForgeError> => {
+): ((scope: Scope) => Effect.Effect<string, ForgeError>) => {
   const request = requester(fetch);
-  let token: { value: string; expires: number } | undefined;
+  const tokens = new Map<Scope, { value: string; expires: number }>();
   const minting = Effect.unsafeMakeSemaphore(1);
-  return minting.withPermits(1)(
-    Effect.suspend(() => {
-      if (token && token.expires - 60_000 > Date.now()) return Effect.succeed(token.value);
-      return Effect.gen(function* () {
-        const signed = yield* appSigned(app);
-        const { data: installation } = yield* request<{ id: number }>('GET', `/repos/${app.repo}/installation`, signed);
-        const { data } = yield* request<{ token: string; expires_at: string }>(
-          'POST',
-          `/app/installations/${installation.id}/access_tokens`,
-          signed
-        );
-        token = { value: data.token, expires: Date.parse(data.expires_at) };
-        return data.token;
-      });
-    })
-  );
+  return scope =>
+    minting.withPermits(1)(
+      Effect.suspend(() => {
+        const token = tokens.get(scope);
+        if (token && token.expires - 60_000 > Date.now()) return Effect.succeed(token.value);
+        return Effect.gen(function* () {
+          const signed = yield* appSigned(app);
+          const { data: installation } = yield* request<{ id: number }>(
+            'GET',
+            `/repos/${app.repo}/installation`,
+            signed
+          );
+          const { data } = yield* request<{ token: string; expires_at: string }>(
+            'POST',
+            `/app/installations/${installation.id}/access_tokens`,
+            signed,
+            { permissions: scopes[scope], ...(scope !== 'repos' && { repositories: [app.repo.split('/')[1]] }) }
+          );
+          tokens.set(scope, { value: data.token, expires: Date.parse(data.expires_at) });
+          return data.token;
+        });
+      })
+    );
 };
 
 const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
@@ -201,7 +219,7 @@ const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
 export const githubForge = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch,
-  token: Effect.Effect<string, ForgeError> = appToken(app, fetch)
+  token: (scope: Scope) => Effect.Effect<string, ForgeError> = appToken(app, fetch)
 ): Layer.Layer<Forge> =>
   Layer.sync(Forge, () => {
     const repo = `/repos/${app.repo}`;
@@ -218,8 +236,8 @@ export const githubForge = (
           )
     );
 
-    const gh = <T>(method: string, path: string, body?: unknown) =>
-      Effect.flatMap(token, t => request<T>(method, path, t, body)).pipe(Effect.map(r => r.data));
+    const gh = <T>(method: string, path: string, body?: unknown, scope: Scope = 'read') =>
+      Effect.flatMap(token(scope), t => request<T>(method, path, t, body)).pipe(Effect.map(r => r.data));
 
     const missing = <A, R>(effect: Effect.Effect<A, ForgeError, R>) =>
       Effect.catchIf(
@@ -234,7 +252,9 @@ export const githubForge = (
         const items: T[] = [];
         let url: string | undefined = path;
         while (url) {
-          const page: { data: T[]; next?: string } = yield* Effect.flatMap(token, t => request<T[]>('GET', url!, t));
+          const page: { data: T[]; next?: string } = yield* Effect.flatMap(token('read'), t =>
+            request<T[]>('GET', url!, t)
+          );
           items.push(...page.data);
           url = more(page.data) ? page.next : undefined;
         }
@@ -444,21 +464,27 @@ export const githubForge = (
             const changed = yield* entries(dir, first, commit);
             const base = yield* gitText(dir, ['rev-parse', `${first}^{tree}`]);
             const made = changed.length
-              ? (yield* gh<{ sha: string }>('POST', `${repo}/git/trees`, { base_tree: base, tree: changed })).sha
+              ? (yield* gh<{ sha: string }>('POST', `${repo}/git/trees`, { base_tree: base, tree: changed }, 'push'))
+                  .sha
               : base;
             if (made !== tree) return yield* new ForgeError({ message: `GitHub built tree ${made}, expected ${tree}` });
             const text = (yield* git(dir, ['log', '-1', '--format=%B', commit])).toString('utf8').replace(/\n+$/, '\n');
-            const { sha } = yield* gh<{ sha: string }>('POST', `${repo}/git/commits`, {
-              message: text,
-              tree,
-              parents: onGitHub,
-            });
+            const { sha } = yield* gh<{ sha: string }>(
+              'POST',
+              `${repo}/git/commits`,
+              {
+                message: text,
+                tree,
+                parents: onGitHub,
+              },
+              'push'
+            );
             return remote.set(commit, sha).get(commit)!;
           });
         const head = yield* replay(yield* gitText(dir, ['rev-parse', 'HEAD']));
         if (head === tip) return head;
-        if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: false });
-        else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head });
+        if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: false }, 'push');
+        else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
         yield* settle(dir, branch, head);
         return head;
       });
@@ -466,7 +492,7 @@ export const githubForge = (
     /** Fetches the pushed head and moves `HEAD` onto it; the trees are equal, so the files stay as they are. */
     const settle = (dir: string, branch: string, head: string) =>
       Effect.gen(function* () {
-        const t = yield* token;
+        const t = yield* token('read');
         const auth = {
           GIT_CONFIG_COUNT: '1',
           GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
@@ -492,7 +518,12 @@ export const githubForge = (
             changed.push({ path, mode: newMode, type: type(newMode), sha: newSha });
           else {
             const content = (yield* git(dir, ['cat-file', 'blob', newSha])).toString('base64');
-            const { sha } = yield* gh<{ sha: string }>('POST', `${repo}/git/blobs`, { content, encoding: 'base64' });
+            const { sha } = yield* gh<{ sha: string }>(
+              'POST',
+              `${repo}/git/blobs`,
+              { content, encoding: 'base64' },
+              'push'
+            );
             if (sha !== newSha)
               return yield* new ForgeError({ message: `GitHub stored ${path} as ${sha}, expected ${newSha}` });
             changed.push({ path, mode: newMode, type: 'blob', sha });
@@ -502,7 +533,7 @@ export const githubForge = (
       });
 
     const comment = (number: number, body: string) =>
-      Effect.map(gh<{ html_url: string }>('POST', `${repo}/issues/${number}/comments`, { body }), c => ({
+      Effect.map(gh<{ html_url: string }>('POST', `${repo}/issues/${number}/comments`, { body }, 'comment'), c => ({
         url: c.html_url,
       }));
 
@@ -516,9 +547,11 @@ export const githubForge = (
           return Effect.succeed({});
         case 'label':
           return Effect.gen(function* () {
-            if (p.add?.length) yield* gh('POST', `${repo}/issues/${number}/labels`, { labels: p.add });
+            if (p.add?.length) yield* gh('POST', `${repo}/issues/${number}/labels`, { labels: p.add }, 'comment');
             for (const name of p.remove ?? [])
-              yield* missing(gh('DELETE', `${repo}/issues/${number}/labels/${encodeURIComponent(name)}`));
+              yield* missing(
+                gh('DELETE', `${repo}/issues/${number}/labels/${encodeURIComponent(name)}`, undefined, 'comment')
+              );
             return {};
           });
         case 'push':
@@ -528,24 +561,34 @@ export const githubForge = (
           }));
         case 'pull':
           return Effect.map(
-            gh<{ html_url: string }>('POST', `${repo}/pulls`, {
-              title: p.title,
-              head: p.branch,
-              base: p.into,
-              body: p.body,
-            }),
+            gh<{ html_url: string }>(
+              'POST',
+              `${repo}/pulls`,
+              {
+                title: p.title,
+                head: p.branch,
+                base: p.into,
+                body: p.body,
+              },
+              'pull'
+            ),
             r => ({ url: r.html_url })
           );
         case 'merge':
-          return Effect.as(gh('PUT', `${repo}/pulls/${p.number}/merge`, { sha: p.head }), {});
+          return Effect.as(gh('PUT', `${repo}/pulls/${p.number}/merge`, { sha: p.head }, 'merge'), {});
         case 'issue':
           return Effect.gen(function* () {
-            const made = yield* gh<{ id: number; html_url: string }>('POST', `${repo}/issues`, {
-              title: p.title,
-              body: p.body,
-            });
+            const made = yield* gh<{ id: number; html_url: string }>(
+              'POST',
+              `${repo}/issues`,
+              {
+                title: p.title,
+                body: p.body,
+              },
+              'comment'
+            );
             if (p.parent !== undefined)
-              yield* gh('POST', `${repo}/issues/${p.parent}/sub_issues`, { sub_issue_id: made.id });
+              yield* gh('POST', `${repo}/issues/${p.parent}/sub_issues`, { sub_issue_id: made.id }, 'comment');
             return { url: made.html_url };
           });
       }

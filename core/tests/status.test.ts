@@ -38,9 +38,11 @@ const answers: Record<string, unknown> = {
 
 const check = async (repositories: string[]) => {
   const calls: string[] = [];
+  const bodies: unknown[] = [];
   const fetch = async (url: string, init: RequestInit = {}) => {
     const u = new URL(url);
     calls.push(`${init.method ?? 'GET'} ${u.pathname}`);
+    if (init.body) bodies.push(JSON.parse(String(init.body)));
     const body =
       u.pathname === '/installation/repositories'
         ? { repositories: repositories.map(full_name => ({ full_name })) }
@@ -59,11 +61,12 @@ const check = async (repositories: string[]) => {
   const lines = await Effect.runPromise(
     needsYou(app, { hub: 'hub', data }, fetch).pipe(Effect.provide(fileStore(data)))
   );
-  return { lines, calls };
+  return { lines, calls, bodies };
 };
 
 it('warns about extra repos and lists parked runs', async () => {
-  const { lines, calls } = await check(['o/r', 'o/other']);
+  const { lines, calls, bodies } = await check(['o/r', 'o/other']);
+  expect(bodies).toEqual([{ permissions: { metadata: 'read' } }]);
   expect(lines[0]).toContain('o/other');
   expect(lines.filter(l => l.includes('--issue'))).toHaveLength(2);
   expect(lines.join('\n')).toContain('Answer at https://github.com/o/r/issues/3');

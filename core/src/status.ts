@@ -9,7 +9,7 @@ export const needsYou = (
   fetch: (url: string, init?: RequestInit) => Promise<Response> = globalThis.fetch
 ) =>
   Effect.gen(function* () {
-    const token = yield* appToken(app, fetch);
+    const token = yield* appToken(app, fetch)('repos');
     const res = yield* Effect.tryPromise(() =>
       fetch('https://api.github.com/installation/repositories?per_page=100', {
         headers: {
