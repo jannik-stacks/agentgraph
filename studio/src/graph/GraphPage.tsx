@@ -305,7 +305,7 @@ export const GraphPage = () => {
             onChange={setRun}
           />
         )}
-        <p className="min-w-0 flex-1 text-xs text-zinc-500">
+        <p className="w-full min-w-0 text-xs text-zinc-500 sm:w-auto sm:flex-1">
           {picked ? (
             <>
               <span className={accent.text}>
