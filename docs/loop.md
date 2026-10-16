@@ -95,6 +95,23 @@ Going forward into a step starts a fresh session. Going back keeps the session t
 
 A `wait: human` step with `back` goes back when a human asks for changes with a `/bothub` comment or a review requesting changes. A review approval, an `approved` label or a merge passes it.
 
+## Several models
+
+Each agent file names its own harness and model, and the proxy gives each agent its own key. So every step and every check can run on a different harness, model and provider (`code: src/hub.ts#Agent`).
+
+Two checks with agents on one step review the same try side by side, each in its own session. The findings of those that fail go back together. Here a Claude Code reviewer and an opencode reviewer judge one implementor's work:
+
+```yaml
+steps:
+  implement:
+    agent: implementor
+    checks: [tests, claude-review, gpt-review]
+```
+
+Agents talk in rounds through feedback. A check's verdict goes into the implementor's session on its next try, and a step with `back` sends its reason to an earlier step. The implementor keeps its session across rounds. A reviewer starts fresh every time, so it judges the work rather than its own earlier verdict (`code: src/engine.ts#gate`).
+
+The studio marks a step with more than one reviewing agent with a chip that names them (`code: src/graph.ts#graphOf`).
+
 ## Waiting
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question on the issue.
