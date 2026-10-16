@@ -2,8 +2,7 @@
 
 What an agent asks the engine to do, and the only write path from an agent to GitHub.
 
-An agent has no GitHub token and does not run `git` or `gh`. It ends its reply with a fenced `bothub`
-block, and the engine reads the last such block: a JSON array, or one JSON object per line.
+An agent has no GitHub token and does not run `git` or `gh`. It ends its reply with a fenced `bothub` block. The engine reads the last such block: a JSON array, or one JSON object per line.
 
 ````md
 ```bothub
@@ -29,9 +28,11 @@ block, and the engine reads the last such block: a JSON array, or one JSON objec
 
 ## Returns
 
-`returns` in an agent file lists the kinds it may propose, `comment` alone by default. Every agent may
-also `ask`, and a step with `back` lets its agent `back`. The prompt shows the agent the shape of
-each kind it may use.
+`returns` in an agent file lists the kinds it may propose. The default is `comment` alone.
+
+Every agent may also `ask`, and a step with `back` lets its agent `back`.
+
+The prompt shows the agent the shape of each kind it may use.
 
 ```yaml
 returns: [comment, push, pull_request, ask]
@@ -39,12 +40,19 @@ returns: [comment, push, pull_request, ask]
 
 ## Validation
 
-A reply that needs proposals and has no `bothub` block fails the try, and so does a block that is
-not valid JSON or has a kind with the wrong fields. The failure goes back as feedback with the
-expected shape. A proposal of a kind the agent may not make fails with a reason, and so does the try.
+These fail the try:
+
+- A reply that needs proposals but has no `bothub` block.
+- A block that is not valid JSON.
+- A kind with the wrong fields.
+- A proposal of a kind the agent may not make, with a reason.
+
+The failure goes back as feedback, with the expected shape.
 
 ## Applying
 
 Proposals are applied only after the step's checks pass. Pushes go first, then the rest in order.
-Each is traced with its URL, or the reason it failed. A failed proposal fails
-the try with that reason as feedback. A push never forces.
+
+Each proposal is traced with its URL, or the reason it failed. A failed proposal fails the try, with that reason as feedback.
+
+A push never forces.
