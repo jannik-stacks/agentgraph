@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { Forge, type Proposal } from '../src/forge.ts';
 import { githubForge } from '../src/github.ts';
+import type { Work } from '../src/sandbox.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -348,151 +349,202 @@ describe('githubForge', () => {
   });
 
   describe('push', () => {
+    const tmp = (name: string) => mkdtempSync(join(tmpdir(), `core-github-${name}-`));
+    const sh = (args: string[], env: Record<string, string> = {}, input?: string) =>
+      execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+        encoding: 'utf8',
+        input,
+        env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', ...env },
+      }).trim();
+    /** A work tree with no `.git` of its own, its repo in a private dir, as the docker sandbox lays a checkout out. */
     const repo = () => {
-      const dir = mkdtempSync(join(tmpdir(), 'core-github-'));
-      const git = (...args: string[]) =>
-        execFileSync('git', ['-C', dir, ...args], {
-          encoding: 'utf8',
-          env: {
-            ...process.env,
-            GIT_AUTHOR_NAME: 't',
-            GIT_AUTHOR_EMAIL: 't@t',
-            GIT_COMMITTER_NAME: 't',
-            GIT_COMMITTER_EMAIL: 't@t',
-          },
-        }).trim();
-      git('init', '-q');
-      git('config', 'commit.gpgsign', 'false');
+      const dir = tmp('work');
+      const repoDir = tmp('git');
+      sh(['init', '-q', '--bare', repoDir]);
+      const env = { GIT_DIR: repoDir, GIT_WORK_TREE: dir };
+      const git = (...args: string[]) => sh(args, { ...env, GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
       writeFileSync(join(dir, 'a.txt'), 'one\n');
       git('add', '-A');
       git('commit', '-qm', 'base');
-      return { dir, git, base: git('rev-parse', 'HEAD') };
+      const base = git('rev-parse', 'HEAD');
+      const work: Work = { dir, base, git: env };
+      return { dir, git, base, work };
     };
     const blobSha = (base64: string) => {
       const content = Buffer.from(base64, 'base64');
       return createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
     };
     /**
-     * The Git data API over a bare repo standing in for GitHub, set as the checkout's origin. Its commits get another
-     * committer, as GitHub's signed ones do, so they differ from the local ones.
+     * The Git data API over a bare repo standing in for GitHub, sharing the checkout's objects as uploaded blobs would
+     * be. Its commits get another committer, as GitHub's signed ones do.
      */
-    const dataApi = (dir: string, base: string, more: Record<string, Route> = {}) => {
-      const bare = mkdtempSync(join(tmpdir(), 'core-github-bare-'));
-      const env = { ...process.env, GIT_AUTHOR_NAME: 'helper[bot]', GIT_AUTHOR_EMAIL: 'b@b' };
-      const remote = (...args: string[]) =>
-        execFileSync('git', ['-C', bare, ...args], {
-          encoding: 'utf8',
-          env: { ...env, GIT_COMMITTER_NAME: 'GitHub', GIT_COMMITTER_EMAIL: 'noreply@github.com' },
-        }).trim();
-      execFileSync('git', ['clone', '-q', '--bare', dir, bare]);
-      execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', bare]);
-      const signed = new Set([base]);
-      const tip = (ref: string) => remote('for-each-ref', '--format=%(objectname)', `refs/${ref}`);
+    const dataApi = (work: Work, more: Record<string, Route> = {}) => {
+      const bare = tmp('bare');
+      sh(['init', '-q', '--bare', bare]);
+      writeFileSync(join(bare, 'objects', 'info', 'alternates'), `${join(work.git.GIT_DIR, 'objects')}\n`);
+      const committer = { GIT_COMMITTER_NAME: 'GitHub', GIT_COMMITTER_EMAIL: 'noreply@github.com' };
+      const remote = (args: string[], env: Record<string, string> = {}, input?: string) =>
+        sh(['--git-dir', bare, ...args], { ...committer, ...env }, input);
+      const tip = (ref: string) => remote(['for-each-ref', '--format=%(objectname)', `refs/${ref}`]);
       return fake({
         'GET *': (_: unknown, __: Headers, path: string) => {
-          const ref = /\/git\/ref\/(.+)$/.exec(path)?.[1];
-          const sha = ref ? tip(ref) : /\/git\/commits\/(\w+)$/.exec(path)?.[1];
-          return sha && (ref || signed.has(sha)) ? { body: ref ? { object: { sha } } : { sha } } : { status: 404 };
+          const sha = tip(/\/git\/ref\/(.+)$/.exec(path)?.[1] ?? 'none');
+          return sha ? { body: { object: { sha } } } : { status: 404 };
         },
         'POST /repos/o/r/git/blobs': (body: { content: string }) => ({ body: { sha: blobSha(body.content) } }),
-        'POST /repos/o/r/git/trees': () => ({
-          body: { sha: execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim() },
-        }),
-        'POST /repos/o/r/git/commits': (body: { message: string; tree: string; parents: string[] }) => {
-          remote('fetch', '-q', dir, 'HEAD');
-          const sha = remote('commit-tree', body.tree, ...body.parents.flatMap(p => ['-p', p]), '-m', body.message);
-          signed.add(sha);
-          return { body: { sha } };
+        'POST /repos/o/r/git/trees': (body: {
+          base_tree: string;
+          tree: { path: string; mode: string; sha: string | null }[];
+        }) => {
+          const env = { GIT_INDEX_FILE: join(tmp('index'), 'index') };
+          remote(['read-tree', body.base_tree], env);
+          for (const e of body.tree)
+            remote(
+              e.sha
+                ? ['update-index', '--add', '--cacheinfo', `${e.mode},${e.sha},${e.path}`]
+                : ['update-index', '--force-remove', e.path],
+              env
+            );
+          return { body: { sha: remote(['write-tree'], env) } };
         },
+        'POST /repos/o/r/git/commits': (body: { message: string; tree: string; parents: string[] }) => ({
+          body: { sha: remote(['commit-tree', body.tree, ...body.parents.flatMap(p => ['-p', p])], {}, body.message) },
+        }),
         'POST /repos/o/r/git/refs': (body: { ref: string; sha: string }) => {
-          remote('update-ref', body.ref, body.sha);
+          remote(['update-ref', body.ref, body.sha]);
           return { status: 201, body: {} };
         },
         'PATCH *': (body: { sha: string }, _: Headers, path: string) => {
           const ref = `refs/${/\/git\/refs\/(.+)$/.exec(path)![1]}`;
-          const forward = remote('merge-base', tip(ref.slice(5)), body.sha) === tip(ref.slice(5));
+          const forward = remote(['merge-base', tip(ref.slice(5)), body.sha]) === tip(ref.slice(5));
           if (!forward) return { status: 422, body: { message: 'Update is not a fast forward' } };
-          remote('update-ref', ref, body.sha);
+          remote(['update-ref', ref, body.sha]);
           return { body: {} };
         },
         ...more,
       });
     };
+    const pushTo = (f: ReturnType<typeof fake>, work: Work, branch = 'bothub/7', message = 'Fix the typo') =>
+      run(
+        f,
+        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch, message }, work))
+      );
+    const writes = (f: ReturnType<typeof fake>) => f.calls.filter(c => c.method !== 'GET' && c.path.includes('/git/'));
 
-    it('commits the checkout and replays it through the Git data API onto a new branch', async () => {
-      const { dir, git, base } = repo();
+    it('commits the checkout on its base through the Git data API onto a new branch', async () => {
+      const { dir, git, base, work } = repo();
       writeFileSync(join(dir, 'a.txt'), 'two\n');
       writeFileSync(join(dir, 'b.txt'), 'new\n');
-      const f = dataApi(dir, base);
-      const applied = await run(
-        f,
-        Effect.flatMap(Forge, forge =>
-          forge.apply(7, { kind: 'push', branch: 'bothub/7', message: 'Fix the typo' }, dir)
-        )
-      );
-      const head = git('rev-parse', 'HEAD');
-      expect(applied).toMatchObject({ ok: true, url: `https://github.com/o/r/commit/${head}` });
-      expect(git('log', '-1', '--format=%s %cn')).toBe('Fix the typo GitHub');
-      expect(git('status', '--porcelain')).toBe('');
+      const f = dataApi(work);
+      const applied = await pushTo(f, work);
       const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body;
-      expect(commit).toEqual({ message: 'Fix the typo\n', tree: git('rev-parse', 'HEAD^{tree}'), parents: [base] });
+      git('add', '-A');
+      expect(commit).toEqual({ message: 'Fix the typo', tree: git('write-tree'), parents: [base] });
+      const head = f.calls.find(c => c.path === '/repos/o/r/git/refs')!.body;
+      expect(head.ref).toBe('refs/heads/bothub/7');
+      expect(applied).toMatchObject({ ok: true, url: `https://github.com/o/r/commit/${head.sha}` });
       expect(f.calls.filter(c => c.path === '/repos/o/r/git/blobs')).toHaveLength(2);
-      expect(f.calls.find(c => c.path === '/repos/o/r/git/refs')!.body).toEqual({
-        ref: 'refs/heads/bothub/7',
-        sha: head,
-      });
     });
 
-    it('builds the next push on the signed head, so it is a fast-forward', async () => {
-      const { dir, git, base } = repo();
-      const f = dataApi(dir, base);
+    it('builds the next push on the last pushed commit, so it is a fast-forward', async () => {
+      const { dir, base, work } = repo();
+      const f = dataApi(work);
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
       const push = (message: string) =>
-        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch: 'bothub/7', message }, dir));
+        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch: 'bothub/7', message }, work));
       const [first, second] = await run(
         f,
         Effect.gen(function* () {
-          writeFileSync(join(dir, 'a.txt'), 'two\n');
           const first = yield* push('First');
-          const signed = git('rev-parse', 'HEAD');
           writeFileSync(join(dir, 'a.txt'), 'three\n');
-          return [{ ...first, signed }, yield* push('Second')];
+          return [first, yield* push('Second')] as const;
         })
       );
-      expect(first!.ok).toBe(true);
-      expect(second).toMatchObject({ ok: true });
-      expect(git('rev-parse', 'HEAD^')).toBe((first as { signed: string }).signed);
-      expect(git('log', '--format=%s %cn')).toBe('Second GitHub\nFirst GitHub\nbase t');
-      expect(f.calls.find(c => c.method === 'PATCH')!.body).toEqual({ sha: git('rev-parse', 'HEAD'), force: false });
+      expect([first.ok, second.ok]).toEqual([true, true]);
+      const [one, two] = f.calls.filter(c => c.path === '/repos/o/r/git/commits').map(c => c.body);
+      expect(one.parents).toEqual([base]);
+      expect(two.parents).toEqual([first.url!.split('/').at(-1)]);
+      const patch = f.calls.find(c => c.method === 'PATCH')!.body;
+      expect(patch).toEqual({ sha: second.url!.split('/').at(-1), force: false });
     });
 
-    it('only moves an existing branch forward', async () => {
-      const { dir, base } = repo();
+    it('only moves a branch that is still where the checkout builds on', async () => {
+      const { dir, work } = repo();
       writeFileSync(join(dir, 'a.txt'), 'two\n');
-      const f = dataApi(dir, base, {
-        'GET /repos/o/r/git/ref/heads/bothub/7': { object: { sha: 'elsewhere' } },
-        'PATCH /repos/o/r/git/refs/heads/bothub/7': () => ({
-          status: 422,
-          body: { message: 'Update is not a fast forward' },
-        }),
-      });
-      const applied = await run(
-        f,
-        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch: 'bothub/7', message: 'More' }, dir))
-      );
-      expect(applied.ok).toBe(false);
-      expect(applied.reason).toMatch(/fast forward/);
-      expect(f.calls.at(-1)!.body).toEqual({ sha: expect.stringMatching(/^[0-9a-f]{40}$/), force: false });
+      const f = dataApi(work, { 'GET /repos/o/r/git/ref/heads/bothub/7': { object: { sha: 'elsewhere' } } });
+      const applied = await pushTo(f, work);
+      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/bothub\/7 is at elsewhere/) });
+      expect(writes(f)).toEqual([]);
     });
 
-    it('refuses a branch that leaves the refs path', async () => {
-      const { dir, base } = repo();
-      const f = dataApi(dir, base);
-      const applied = await run(
-        f,
-        Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch: 'bothub/../main', message: 'x' }, dir))
-      );
-      expect(applied).toMatchObject({ ok: false, reason: 'invalid branch "bothub/../main"' });
+    it('refuses a branch outside bothub/ or one that leaves the refs path', async () => {
+      const { dir, work } = repo();
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
+      const f = dataApi(work);
+      const escaped = await pushTo(f, work, 'bothub/../main');
+      expect(escaped).toMatchObject({ ok: false, reason: 'invalid branch "bothub/../main"' });
+      const main = await pushTo(f, work, 'main');
+      expect(main).toMatchObject({ ok: false, reason: 'a push goes to a bothub/ branch' });
       expect(f.calls.some(c => c.path.includes('/git/'))).toBe(false);
+    });
+
+    it('runs host git on its own repo only, whatever the work tree plants', async () => {
+      const { dir, work } = repo();
+      const evil = tmp('evil');
+      const marker = join(evil, 'marker');
+      const script = join(evil, 'run.sh');
+      writeFileSync(script, `#!/bin/sh\ntouch ${marker}\ncat\n`, { mode: 0o755 });
+      sh(['init', '-q', '--bare', evil]);
+      for (const [key, value] of [
+        ['core.fsmonitor', script],
+        ['core.hooksPath', join(evil, 'hooks')],
+        ['filter.evil.clean', script],
+        ['filter.evil.required', 'true'],
+      ] as const)
+        sh(['--git-dir', evil, 'config', key, value]);
+      mkdirSync(join(evil, 'hooks'), { recursive: true });
+      for (const hook of ['pre-commit', 'post-commit', 'reference-transaction', 'post-index-change'])
+        writeFileSync(join(evil, 'hooks', hook), `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+      writeFileSync(join(dir, '.git'), `gitdir: ${evil}\n`);
+      writeFileSync(join(dir, '.gitattributes'), '* filter=evil\n');
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
+      const applied = await pushTo(dataApi(work), work);
+      expect(applied.ok).toBe(true);
+      expect(existsSync(marker)).toBe(false);
+    });
+
+    const submodule = (dir: string) => {
+      const sub = join(dir, 'sub');
+      mkdirSync(sub);
+      sh(['-C', sub, 'init', '-q']);
+      writeFileSync(join(sub, 'x'), 'x\n');
+      sh(['-C', sub, 'add', '-A']);
+      sh(['-C', sub, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x']);
+    };
+    const workflow = (dir: string) => {
+      mkdirSync(join(dir, '.github', 'workflows'), { recursive: true });
+      writeFileSync(join(dir, '.github', 'workflows', 'x.yml'), 'on: push\n');
+    };
+    const many = (dir: string) => {
+      for (let i = 0; i < 201; i++) writeFileSync(join(dir, `f${i}`), `${i}\n`);
+    };
+    it.each([
+      ['a symlink', (dir: string) => symlinkSync('/etc/passwd', join(dir, 'link')), /link has mode 000000 to 120000/],
+      ['a submodule', submodule, /sub has mode 000000 to 160000/],
+      ['a workflow', workflow, /\.github\/workflows\/x\.yml is under \.github\//],
+      [
+        'a file over 1 MB',
+        (dir: string) => writeFileSync(join(dir, 'big'), Buffer.alloc((1 << 20) + 1)),
+        /big is over/,
+      ],
+      ['more than 200 files', many, /201 files changed/],
+    ])('refuses %s before any write to GitHub', async (_, change, reason) => {
+      const { dir, work } = repo();
+      change(dir);
+      const f = dataApi(work);
+      const applied = await pushTo(f, work);
+      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(reason) });
+      expect(writes(f)).toEqual([]);
     });
   });
 });

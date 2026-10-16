@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { Context, Data, Effect, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
+import type { Work } from './sandbox.ts';
 
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
 export type Thread = {
@@ -53,7 +54,7 @@ export class Forge extends Context.Tag('bothub/Forge')<
     threads: (filter?: Partial<Pick<Thread, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Thread[], ForgeError>;
     thread: (number: number) => Effect.Effect<Thread & { comments: Comment[] }, ForgeError>;
     since: (cursor: string) => Stream.Stream<Message, ForgeError>;
-    apply: (number: number, proposal: Proposal, dir?: string) => Effect.Effect<Applied, ForgeError>;
+    apply: (number: number, proposal: Proposal, work?: Work) => Effect.Effect<Applied, ForgeError>;
   }
 >() {}
 
@@ -224,7 +225,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
                 .sort((a, b) => a.at.localeCompare(b.at))
             )
           ),
-        apply: (n, p, work) => lock.withPermits(1)(io(() => apply(n, p, work))),
+        apply: (n, p, work) => lock.withPermits(1)(io(() => apply(n, p, work?.dir))),
       };
     })
   );

@@ -2,13 +2,11 @@ import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
 import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
 import type { Hub } from './hub.ts';
-import { Sandbox, type SandboxError } from './sandbox.ts';
+import { Sandbox, type SandboxError, type Work } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, type SessionSpec, type SessionStop } from './session.ts';
 import { Store, type StoreError, type Trace } from './store.ts';
 import { begin, reenter, transition, type Doc, type Outcome, type Run, type Step, type Workflow } from './workflow.ts';
-
-type Work = { dir: string; base: string };
 
 const now = () => new Date().toISOString();
 
@@ -305,7 +303,7 @@ export const attempt = (
     if (gated.kind !== 'pass') return done(gated, tried);
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
-    const applied = yield* land(tried, world, work.dir);
+    const applied = yield* land(tried, world, work);
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
     const failed = applied.filter(a => !a.ok);
     return done(
@@ -358,11 +356,11 @@ export const gate = (
   });
 
 /** Applies the accepted proposals after a pass, pushes first. */
-export const land = (run: Run, proposals: Proposal[], dir?: string): Effect.Effect<Applied[], ForgeError, Forge> =>
+export const land = (run: Run, proposals: Proposal[], work?: Work): Effect.Effect<Applied[], ForgeError, Forge> =>
   Effect.flatMap(Forge, forge =>
     Effect.forEach(
       [...proposals].sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push')),
-      p => forge.apply(run.thread, p, dir)
+      p => forge.apply(run.thread, p, work)
     )
   );
 

@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process';
 import { createPrivateKey, sign } from 'node:crypto';
 import { Effect, Layer, Redacted, Stream } from 'effect';
 import { Forge, ForgeError, type Applied, type Comment, type Message, type Proposal, type Thread } from './forge.ts';
+import { hostGit, type Work } from './sandbox.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type User = { login: string; type?: string } | null | undefined;
@@ -95,23 +95,20 @@ const appJwt = (id: string, pem: string, now: number) => {
   return `${input}.${sign('sha256', Buffer.from(input), key).toString('base64url')}`;
 };
 
-const git = (dir: string, args: string[], env: Record<string, string> = {}) =>
-  Effect.async<Buffer, ForgeError>(resume => {
-    execFile(
-      'git',
-      ['-C', dir, ...args],
-      { encoding: 'buffer', maxBuffer: 256 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env } },
-      (error, stdout, stderr) =>
-        resume(
-          error
-            ? Effect.fail(
-                new ForgeError({ message: `git ${args[0]} failed: ${stderr.toString().trim() || error.message}` })
-              )
-            : Effect.succeed(stdout)
-        )
-    );
-  });
-const gitText = (dir: string, args: string[]) => Effect.map(git(dir, args), out => out.toString('utf8').trim());
+const git = (work: Work, args: string[]) =>
+  Effect.mapError(hostGit(work.git, args), e => new ForgeError({ message: e.detail }));
+const gitText = (work: Work, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
+
+/** The branches a push may move, the files it may change at most, and the largest file it may write. */
+const pushable = { prefix: 'bothub/', files: 200, bytes: 1 << 20 };
+
+/** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
+const unpushable = (path: string, modes: string[]) =>
+  modes.some(mode => !['100644', '100755', '000000'].includes(mode))
+    ? `${path} has mode ${modes.join(' to ')}; only regular files can be pushed`
+    : /^\.github\//i.test(path) || /(^|\/)\.git(\/|$)/i.test(path)
+      ? `${path} is under .github/ or .git/`
+      : undefined;
 
 const refPath = (branch: string) =>
   branch.split('/').some(part => !part || part === '.' || part === '..')
@@ -427,109 +424,81 @@ export const githubForge = (
         })
       );
 
-    /** Replays local commits from `HEAD` back to what GitHub has, then moves `branch` forward to the result. */
-    const push = (dir: string, branch: string, message: string) =>
+    /** The last commit pushed from each checkout and its tree; the next push from it builds on that commit. */
+    const pushed = new Map<string, { sha: string; tree: string }>();
+    const refuse = (message: string) => new ForgeError({ status: 422, message });
+
+    /**
+     * Commits the checkout's files on top of its base, or of its last push, through the Git data API, then moves
+     * `branch` forward to that commit. Only regular files outside `.github/` and `.git/` are pushed, within the limits.
+     */
+    const push = (work: Work, branch: string, message: string) =>
       Effect.gen(function* () {
+        if (!branch.startsWith(pushable.prefix)) return yield* refuse(`a push goes to a ${pushable.prefix} branch`);
         const ref = yield* refPath(branch);
-        if (yield* gitText(dir, ['status', '--porcelain'])) {
-          yield* git(dir, ['add', '-A']);
-          yield* git(dir, [
-            '-c',
-            'user.name=bothub',
-            '-c',
-            'user.email=bothub@localhost',
-            '-c',
-            'commit.gpgsign=false',
-            'commit',
-            '-qm',
-            message,
-          ]);
-        }
+        const last = pushed.get(work.dir);
+        const parent = last?.sha ?? work.base;
         const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
-        const remote = new Map<string, string>();
-        const replay = (commit: string): Effect.Effect<string, ForgeError> =>
-          Effect.gen(function* () {
-            const known = remote.get(commit);
-            if (known) return known;
-            if (yield* missing(gh('GET', `${repo}/git/commits/${commit}`)))
-              return remote.set(commit, commit).get(commit)!;
-            const [tree, ...parents] = (yield* gitText(dir, ['log', '-1', '--format=%T %P', commit])).split(' ') as [
-              string,
-              ...string[],
-            ];
-            const [first] = parents;
-            if (!first) return yield* new ForgeError({ message: `commit ${commit} has no parent on GitHub` });
-            const onGitHub: string[] = [];
-            for (const parent of parents) onGitHub.push(yield* replay(parent));
-            const changed = yield* entries(dir, first, commit);
-            const base = yield* gitText(dir, ['rev-parse', `${first}^{tree}`]);
-            const made = changed.length
-              ? (yield* gh<{ sha: string }>('POST', `${repo}/git/trees`, { base_tree: base, tree: changed }, 'push'))
-                  .sha
-              : base;
-            if (made !== tree) return yield* new ForgeError({ message: `GitHub built tree ${made}, expected ${tree}` });
-            const text = (yield* git(dir, ['log', '-1', '--format=%B', commit])).toString('utf8').replace(/\n+$/, '\n');
-            const { sha } = yield* gh<{ sha: string }>(
-              'POST',
-              `${repo}/git/commits`,
-              {
-                message: text,
-                tree,
-                parents: onGitHub,
-              },
-              'push'
-            );
-            return remote.set(commit, sha).get(commit)!;
-          });
-        const head = yield* replay(yield* gitText(dir, ['rev-parse', 'HEAD']));
+        if (tip && tip !== parent) return yield* refuse(`${branch} is at ${tip}, the checkout builds on ${parent}`);
+        const from = last?.tree ?? (yield* gitText(work, ['rev-parse', `${parent}^{tree}`]));
+        yield* git(work, ['add', '-A']);
+        const tree = yield* gitText(work, ['write-tree']);
+        let head = parent;
+        if (tree !== from) {
+          const changed = yield* entries(work, from, tree);
+          const made = (yield* gh<{ sha: string }>(
+            'POST',
+            `${repo}/git/trees`,
+            { base_tree: from, tree: changed },
+            'push'
+          )).sha;
+          if (made !== tree) return yield* new ForgeError({ message: `GitHub built tree ${made}, expected ${tree}` });
+          const commit = { message, tree, parents: [parent] };
+          head = (yield* gh<{ sha: string }>('POST', `${repo}/git/commits`, commit, 'push')).sha;
+        }
         if (head === tip) return head;
         if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: false }, 'push');
         else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
-        yield* settle(dir, branch, head);
+        pushed.set(work.dir, { sha: head, tree });
         return head;
       });
 
-    /** Fetches the pushed head and moves `HEAD` onto it; the trees are equal, so the files stay as they are. */
-    const settle = (dir: string, branch: string, head: string) =>
+    /** The tree entries that turn tree `from` into `to`, uploading each changed blob once every change passed. */
+    const entries = (work: Work, from: string, to: string) =>
       Effect.gen(function* () {
-        const t = yield* token('read');
-        const auth = {
-          GIT_CONFIG_COUNT: '1',
-          GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
-          GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${t}`).toString('base64')}`,
-        };
-        yield* git(dir, ['fetch', '-q', 'origin', `refs/heads/${branch}`], auth);
-        yield* git(dir, ['reset', '-q', '--soft', head]);
-      });
-
-    /** The tree entries that turn `parent`'s tree into `commit`'s, uploading each changed blob. */
-    const entries = (dir: string, parent: string, commit: string) =>
-      Effect.gen(function* () {
-        const fields = (yield* git(dir, ['diff-tree', '-r', '-z', '--no-renames', '--no-abbrev', parent, commit]))
+        const fields = (yield* git(work, ['diff-tree', '-r', '-z', '--no-renames', '--no-abbrev', from, to]))
           .toString('utf8')
           .split('\0');
-        const changed: { path: string; mode: string; type: 'blob' | 'commit'; sha: string | null }[] = [];
+        const changes: { path: string; mode: string; sha: string | null; content?: Buffer }[] = [];
+        const problems: string[] = [];
         for (let i = 0; i + 1 < fields.length; i += 2) {
           const [oldMode, newMode, oldSha, newSha] = fields[i]!.slice(1).split(' ') as [string, string, string, string];
           const path = fields[i + 1]!;
-          const type = (mode: string) => (mode === '160000' ? 'commit' : 'blob');
-          if (newMode === '000000') changed.push({ path, mode: oldMode, type: type(oldMode), sha: null });
-          else if (newMode === '160000' || oldSha === newSha)
-            changed.push({ path, mode: newMode, type: type(newMode), sha: newSha });
+          const problem = unpushable(path, [oldMode, newMode]);
+          if (problem) problems.push(problem);
+          else if (newMode === '000000') changes.push({ path, mode: oldMode, sha: null });
+          else if (oldSha === newSha) changes.push({ path, mode: newMode, sha: newSha });
           else {
-            const content = (yield* git(dir, ['cat-file', 'blob', newSha])).toString('base64');
-            const { sha } = yield* gh<{ sha: string }>(
-              'POST',
-              `${repo}/git/blobs`,
-              { content, encoding: 'base64' },
-              'push'
-            );
-            if (sha !== newSha)
-              return yield* new ForgeError({ message: `GitHub stored ${path} as ${sha}, expected ${newSha}` });
-            changed.push({ path, mode: newMode, type: 'blob', sha });
+            const content = yield* git(work, ['cat-file', 'blob', newSha]);
+            if (content.length > pushable.bytes) problems.push(`${path} is over ${pushable.bytes} bytes`);
+            else changes.push({ path, mode: newMode, sha: newSha, content });
           }
         }
-        return changed;
+        if (changes.length + problems.length > pushable.files)
+          problems.push(`${changes.length + problems.length} files changed, at most ${pushable.files} can be pushed`);
+        if (problems.length) return yield* refuse(`refused to push: ${problems.join('; ')}`);
+        for (const { path, sha, content } of changes) {
+          if (!content) continue;
+          const stored = yield* gh<{ sha: string }>(
+            'POST',
+            `${repo}/git/blobs`,
+            { content: content.toString('base64'), encoding: 'base64' },
+            'push'
+          );
+          if (stored.sha !== sha)
+            return yield* new ForgeError({ message: `GitHub stored ${path} as ${stored.sha}, expected ${sha}` });
+        }
+        return changes.map(({ path, mode, sha }) => ({ path, mode, type: 'blob' as const, sha }));
       });
 
     const comment = (number: number, body: string) =>
@@ -537,7 +506,7 @@ export const githubForge = (
         url: c.html_url,
       }));
 
-    const act = (number: number, p: Proposal, dir?: string): Effect.Effect<{ url?: string }, ForgeError> => {
+    const act = (number: number, p: Proposal, work?: Work): Effect.Effect<{ url?: string }, ForgeError> => {
       switch (p.kind) {
         case 'reply':
           return comment(number, p.body);
@@ -555,8 +524,8 @@ export const githubForge = (
             return {};
           });
         case 'push':
-          if (dir === undefined) return Effect.fail(new ForgeError({ status: 422, message: 'push needs a checkout' }));
-          return Effect.map(push(dir, p.branch, p.message), head => ({
+          if (work === undefined) return Effect.fail(refuse('push needs a checkout'));
+          return Effect.map(push(work, p.branch, p.message), head => ({
             url: `https://github.com/${app.repo}/commit/${head}`,
           }));
         case 'pull':
@@ -594,8 +563,8 @@ export const githubForge = (
       }
     };
 
-    const apply: Forge['Type']['apply'] = (number, proposal, dir) =>
-      act(number, proposal, dir).pipe(
+    const apply: Forge['Type']['apply'] = (number, proposal, work) =>
+      act(number, proposal, work).pipe(
         Effect.map((done): Applied => ({ proposal, ok: true, ...done })),
         Effect.catchIf(
           e => e.status !== undefined && refusals.has(e.status),
