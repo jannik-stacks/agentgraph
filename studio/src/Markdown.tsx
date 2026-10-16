@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { useHighlighted } from './source/highlight.tsx';
 import { Icon } from './icons.tsx';
-import { cx, IconButton, Link } from './ui.tsx';
+import { cx, IconButton, Link, Tooltip } from './ui.tsx';
 
 const { Markdown: Render } = createMarkdownRenderer({ remarkPlugins: [remarkGfm] });
 
@@ -125,9 +125,22 @@ const a = ({ href = '', ...props }: ComponentProps<'a'>) => {
   return <a href={href} {...props} target="_blank" rel="noreferrer" />;
 };
 
+const docs = import.meta.glob<string>('../../docs/*.md', { query: '?raw', import: 'default', eager: true });
+
+/** The docs pages that cite a `code:` ref. */
+const citers = (ref: string) =>
+  Object.entries(docs).flatMap(([path, text]) =>
+    text.includes(`code: ${ref}`) ? [/([\w-]+)\.md$/.exec(path)![1]] : []
+  );
+
 const code = ({ children, ...props }: ComponentProps<'code'>) => {
-  const ref = /^code: \S+\/([^/\s]+)$/.exec(String(children));
-  return ref ? <code className="bhm-ref">{ref[1]}</code> : <code {...props}>{children}</code>;
+  const ref = /^code: (\S+\/([^/\s]+))$/.exec(String(children));
+  if (!ref) return <code {...props}>{children}</code>;
+  return (
+    <Tooltip tip={`${ref[1]}, cited in ${citers(ref[1]!).join(', ')}`} focusable>
+      <code className="bhm-ref">{ref[2]}</code>
+    </Tooltip>
+  );
 };
 const components = { pre, a, code };
 
