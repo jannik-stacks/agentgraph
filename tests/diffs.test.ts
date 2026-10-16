@@ -6,7 +6,7 @@ import { openStore, type Outcome } from '../src/store.ts';
 import type { BotEvent } from '../src/types.ts';
 import { commit, git, sourceRepo, temp } from './kit.ts';
 
-const hubDir = join(import.meta.dirname, '..', 'examples', 'hub');
+const hubDir = join(import.meta.dirname, 'fixtures', 'v1-hub');
 
 const event = (id: string, number: number): BotEvent => ({
   id,

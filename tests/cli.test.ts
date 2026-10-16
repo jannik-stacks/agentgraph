@@ -9,7 +9,7 @@ import { openStore } from '../src/store.ts';
 import type { BotEvent } from '../src/types.ts';
 import { temp } from './kit.ts';
 
-const examples = join(import.meta.dirname, '../examples');
+const examples = join(import.meta.dirname, 'fixtures');
 
 const event: BotEvent = {
   id: 'e',
@@ -54,17 +54,17 @@ afterEach(() => {
 describe('cli', () => {
   it('check passes on the example hub and fails closed on an empty one', async () => {
     const io = capture();
-    expect(await main(['check', '--dir', join(examples, 'hub'), '--json'])).toBe(0);
+    expect(await main(['check', '--dir', join(examples, 'v1-hub'), '--json'])).toBe(0);
     expect(await main(['check', '--dir', join(examples, 'payloads')])).toBe(2);
     expect(io.out[0]).toBe('{"ok":true,"warnings":[]}\n');
     expect(JSON.parse(io.out[1] ?? '').errors[0].message).toBe('no bots, skills, checks, workflows or notes found');
-    expect(await main(['check', '--dir', join(examples, 'hub'), '--no-json'])).toBe(0);
+    expect(await main(['check', '--dir', join(examples, 'v1-hub'), '--no-json'])).toBe(0);
     expect(io.out[2]).toBe('ok: 2 bots, 3 skills, 2 checks, 2 workflows (3 steps), 5 notes\n');
   });
 
   it('check validates the hub sandbox and fails on a setup script it cannot find', async () => {
     const dir = temp('cli-hub');
-    cpSync(join(examples, 'hub'), dir, { recursive: true });
+    cpSync(join(examples, 'v1-hub'), dir, { recursive: true });
     const io = capture();
     writeFileSync(join(dir, 'hub.yaml'), 'sandbox:\n  network: wide\n');
     expect(await main(['check', '--dir', dir, '--no-json'])).toBe(2);
@@ -79,7 +79,7 @@ describe('cli', () => {
 
   it('check prints the warnings of a hub that compiles', async () => {
     const dir = temp('cli-hub');
-    cpSync(join(examples, 'hub'), dir, { recursive: true });
+    cpSync(join(examples, 'v1-hub'), dir, { recursive: true });
     writeFileSync(join(dir, 'checks/fine.md'), '---\ntype: decide\nmode: block\n---\nIs the change fine?\n');
     const io = capture();
     expect(await main(['check', '--dir', dir, '--no-json'])).toBe(0);
@@ -110,7 +110,7 @@ describe('cli', () => {
       'issue_comment',
       join(examples, 'payloads/issue-comment.json'),
       '--dir',
-      join(examples, 'hub'),
+      join(examples, 'v1-hub'),
       '--dry-run',
       '--json',
     ]);
@@ -130,7 +130,7 @@ describe('cli', () => {
     const io = capture();
     const data = join(temp('cli'), 'data');
     const payload = join(examples, 'payloads/issue-comment.json');
-    const args = ['run', '--event', 'issue_comment', payload, '--dir', join(examples, 'hub'), '--data', data];
+    const args = ['run', '--event', 'issue_comment', payload, '--dir', join(examples, 'v1-hub'), '--data', data];
     expect(await main([...args, '--dry-run', '--json'])).toBe(0);
     const [job] = JSON.parse(io.out.join('')).jobs;
     expect(job).toMatchObject({
@@ -145,7 +145,7 @@ describe('cli', () => {
     expect(job.spec.cwd.startsWith(join(data, 'work'))).toBe(true);
     expect(job.spec.system).toContain('"kind": "merge-request"');
     expect(job.spec.system).not.toContain('## Notes');
-    expect(job.spec.surfacer).toMatchObject({ bot: 'implementor', hub: join(examples, 'hub'), data });
+    expect(job.spec.surfacer).toMatchObject({ bot: 'implementor', hub: join(examples, 'v1-hub'), data });
     expect(job.spec.prompt).toContain('```text\nadd a /health endpoint with a test\n```');
     expect(job.command.slice(0, 2)).toEqual(['opencode', 'run']);
 

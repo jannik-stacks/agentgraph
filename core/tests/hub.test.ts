@@ -83,7 +83,17 @@ describe('loadHub', () => {
   });
 
   it('names what replaces each key of the previous format', async () => {
-    const found = await problems(join(core, '..', 'examples', 'acme-app'));
+    const found = await problems(
+      hubDir({
+        'hub.yaml': 'issues: local\ndeps: { install: npm ci }\n',
+        'bots/implementor.md':
+          '---\nharness: opencode\nreturns: [reply, merge-request, note]\nskills: [implement]\n---\n',
+        'checks/tests.md': '---\ntype: script\nrun: npm test\nmode: block\n---\n',
+        'checks/docs-tone.md': '---\ntype: bot\nbot: implementor\nmode: warn\n---\n',
+        'workflows/issue.md':
+          '---\non: { issue_comment: { command: /bothub, guard: { associations: [OWNER] } } }\nsteps:\n  a: { agent: implementor }\n---\n',
+      })
+    );
     expect(found).toEqual(
       expect.arrayContaining([
         'hub.yaml: issues is gone; the forge lists them',

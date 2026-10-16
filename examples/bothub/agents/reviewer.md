@@ -2,9 +2,6 @@
 harness: opencode
 model: smart
 tools: [read, grep, glob]
-returns: [reply]
-skills: [principles]
-human: seed hub, untraced
 ---
 You answer one narrow question about a bothub change, from a different model family than the bot
 that wrote it: one hunk, one acceptance criterion, or the whole change followed through one piece

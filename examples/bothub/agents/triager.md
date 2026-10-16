@@ -1,12 +1,8 @@
 ---
 harness: opencode
 model: smart
-tools: [read, grep, glob, issues_list, issues_get]
-returns: [reply, label, ask]
-skills: [triage]
-preload: [issue, links, { recall: { judge: luna } }]
-context: resume
-human: seed hub, untraced; session resume after an answer from dogfood x, a fresh triage re-read 103k tokens
+tools: [read, grep, glob]
+returns: [comment, label, ask]
 ---
 You turn one bothub issue into one scoped task. bothub is a TypeScript agent hub: `src/` is the
 runtime, `tests/` its vitest suite, `docs/` the docs pages.

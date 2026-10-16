@@ -1,15 +1,11 @@
 ---
-type: bot
-description: Each run status or closure value the change in src/ and studio/src/ touches keeps the work, moves on with the next event and tells a human, one value per run.
-bot: reviewer
-minutes: 15
-over:
-  each: node "$BOTHUB_HUB/scripts/transitions.mjs"
-items: 13
-paths: [src/**, studio/src/**]
-mode: log
-human: backlog item 5 of the takeover draft; logs until its answers are calibrated against the round's findings
+mode: warn
+each: node "$BOTHUB_HUB/scripts/transitions.mjs"
+agent: reviewer
+max: 13
 ---
+Each run status or closure value the change in src/ and studio/src/ touches keeps the work, moves on with the next event and tells a human, one value per run.
+
 The item is one run status or closure value and every line the change adds or removes that names
 it, with the code around each. Follow the value through those transitions and answer three
 questions. Does the work survive: a branch, a worktree, a commit, a proposal or a result that

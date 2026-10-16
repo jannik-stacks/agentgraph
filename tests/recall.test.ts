@@ -4,9 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnv } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { compile, type Config } from '../src/config.ts';
+import type { Config } from '../src/config.ts';
 import { parseIssue } from '../src/issues-local.ts';
-import { readHub } from '../src/load.ts';
 import { parseMarkdown } from '../src/markdown.ts';
 import { accepted } from '../src/preload.ts';
 import { NoteKind } from '../src/schema.ts';
@@ -30,7 +29,7 @@ import { tokensOf } from '../src/usage.ts';
 const hub = new URL('../examples/acme-app/', import.meta.url).pathname;
 const fixture = new URL('./fixtures/recorded-run.jsonl', import.meta.url).pathname;
 
-const hubNotes = async (): Promise<Config['notes']> => {
+const hubNotes = async (hub: string): Promise<Config['notes']> => {
   const notes: Config['notes'] = [];
   for (const kind of NoteKind.options)
     for (const file of await readdir(join(hub, 'notes', kind))) {
@@ -104,7 +103,7 @@ describe('index', () => {
   });
 
   it('indexes the real acme-app hub notes and issues', async () => {
-    const idx = index([...noteDocs(await hubNotes()), ...issueDocs(await hubIssues())]);
+    const idx = index([...noteDocs(await hubNotes(hub)), ...issueDocs(await hubIssues())]);
     expect(idx.search('bigint amounts above 2^53')[0]?.doc.id).toBe('note:decision/bigint-above-2-53');
     expect(idx.search('cvFromJson lenient')[0]?.doc.id).toBe('issue:7');
   });
@@ -311,10 +310,8 @@ const evalRows = (await readFile(new URL('./fixtures/recorded-eval.jsonl', impor
   );
 
 const bothubIndex = async () => {
-  const hubDir = new URL('../examples/bothub/', import.meta.url).pathname;
-  const compiled = compile(await readHub(hubDir));
-  if (!compiled.ok) throw new Error('the bothub hub does not compile');
-  return index(noteDocs(compiled.config.notes.filter(accepted)));
+  const notes = await hubNotes(new URL('../examples/bothub/', import.meta.url).pathname);
+  return index(noteDocs(notes.filter(accepted)));
 };
 
 /** Precision of what is shown and recall of what is relevant, over every labelled query. */

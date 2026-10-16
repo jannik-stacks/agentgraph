@@ -1,6 +1,5 @@
 ---
 description: Answer one question about one hunk of a bothub change, PASS or FAIL.
-human: seed hub, untraced; call the deciding module and out of scope from dogfood round 6 (T2); reachable inputs only from dogfood x (X2); owner and layer question after round 19 put triage policy in the engine prompt and closed the issue beside `apply` (item 85); a finding raised on an earlier attempt keeps failing after round 20 forgave an unfixed one on attempt 3 (item 91); answers do not widen the scope after rounds 21 and 22 (log and warn checks held the change); blast radius after round 20 removed a shared findings cap for every caller when one question needed it (item 89)
 ---
 A hunk is one block of changed lines with the code around it. Other checks judge the criteria, the
 tests, the scope and duplicated code, so ask only this: is there an input that reaches this hunk, or

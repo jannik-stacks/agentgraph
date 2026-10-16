@@ -1,5 +1,5 @@
 ---
-description: 'Write the merge request body: summary, why, decisions, not done, how to review.'
+description: "Write the merge request body: summary, why, decisions, not done, how to review."
 ---
 The engine adds the Closes line, the criteria table, the check results and the known gaps. You
 write the rest, in plain sentences, with no heading you do not need, in this order:

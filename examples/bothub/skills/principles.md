@@ -1,6 +1,5 @@
 ---
 description: Eight rules for keeping a change small and in the right place, each with a Bad and a Good line from a real round.
-human: eight of pstack's principles, picked from the miss classes in the pstack principles
 ---
 When a rule below changed a choice, name it with the file and line in your reply.
 

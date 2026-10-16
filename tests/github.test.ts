@@ -8,7 +8,7 @@ import { senderTrust, toEvent, verifySignature, visible } from '../src/github.ts
 import { readHub } from '../src/load.ts';
 import type { BotEvent } from '../src/types.ts';
 
-const hub = join(import.meta.dirname, '../examples/hub');
+const hub = join(import.meta.dirname, 'fixtures/v1-hub');
 const config = await (async (): Promise<Config> => {
   const result = compile(await readHub(hub));
   if (!result.ok) throw new Error(JSON.stringify(result.errors));

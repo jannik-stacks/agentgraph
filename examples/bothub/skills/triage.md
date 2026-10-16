@@ -1,6 +1,5 @@
 ---
 description: Turn a bothub issue into one scoped task with acceptance criteria a check can prove.
-human: seed hub, untraced; one ask for every open choice (X4), follow-ups for a split issue (X5), a first task that delivers a Done-when row (X9) and interacting criteria (X12) from dogfood x; paths pointed at, not copied, from dogfood round 9 (K3); ask fields matched to the ask schema, fewer asks and a files budget per Done when row from dogfood round 11 (K1, K2, K5)
 ---
 The issue is in your prompt. Find the code it is about in `src/` and the tests that cover it in
 `tests/`, and work out the current behavior. A few files are enough. Every tool result stays in the

@@ -10,7 +10,7 @@ import { openStore, type EventRecord } from '../src/store.ts';
 import type { AgentEvent, BotEvent } from '../src/types.ts';
 import { estimate, tally } from '../src/usage.ts';
 
-const hubDir = join(import.meta.dirname, '..', 'examples', 'hub');
+const hubDir = join(import.meta.dirname, 'fixtures', 'v1-hub');
 const event: BotEvent = {
   id: 'e1',
   ts: '2026-10-12T00:00:00.000Z',

@@ -15,7 +15,7 @@ import {
 import { readHub } from '../src/load.ts';
 import { parseMarkdown } from '../src/markdown.ts';
 
-const hub = join(import.meta.dirname, '../examples/hub');
+const hub = join(import.meta.dirname, 'fixtures/v1-hub');
 
 const file = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n${body}` });
 const bot = (name: string, returns = '[reply]') =>
@@ -378,9 +378,8 @@ describe('compile', () => {
       'checks/tuned.md: no step lists it in "checks" or "requires", so it never runs',
       'workflows/w.md: step "a" has only checks in log mode, so a failing check never sends it back',
     ]);
-    const examples = ['hub', 'bothub', 'acme-app', 'clarinet'];
-    const compiled = await Promise.all(examples.map(async name => compile(await readHub(join(hub, '..', name)))));
-    expect(compiled.flatMap(example => (example.ok ? example.warnings : example.errors))).toEqual([]);
+    const example = compile(await readHub(hub));
+    expect(example.ok ? example.warnings : example.errors).toEqual([]);
   });
 
   it('rejects a loop through next and steps nothing reaches', () => {

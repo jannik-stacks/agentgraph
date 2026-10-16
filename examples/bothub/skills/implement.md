@@ -1,6 +1,5 @@
 ---
 description: Implement one scoped bothub change and keep its checks green.
-human: seed hub, size rule and attempt first from dogfood round 5, K23; call the deciding module (T1) and the still prefix for negatives (K34) from dogfood round 6; Part of for a split issue (X10) and the script checks before finishing (X13) from dogfood x; every fast script check and the related tests from dogfood x (X21); cut to the minimum after the round 11 ablation, where the short prompt wrote 31 lines against 116
 ---
 The issue and its brief are in your prompt. Make the smallest change that meets the criteria,
 and nothing the brief does not ask for. Read narrowly: `grep` for the function, then `read` that
