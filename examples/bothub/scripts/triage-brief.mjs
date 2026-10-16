@@ -5,17 +5,17 @@
 // the brief lists it as out of scope. With --width it only flags a brief naming more files outside tests/ than
 // twice the issue's Done when rows, or more criteria than Done when rows.
 //
-//   node triage-brief.mjs [--width] [--within <root>,<root>...] [reply-file]      otherwise the reply is read from BOTHUB_REPLY
+//   node triage-brief.mjs [--width] [--within <root>,<root>...] [reply-file]      otherwise the reply is read from the file BOTHUB_REPLY names
 import { existsSync, readFileSync } from 'node:fs';
 import { capped, maxFiles, paths } from './bounds.mjs';
-import { findIssue, parseBrief } from './brief.mjs';
+import { findIssue, findReply, parseBrief } from './brief.mjs';
 import { rejects, report } from './changes.mjs';
 
 const args = process.argv.slice(2);
 const width = args.includes('--width') && args.splice(args.indexOf('--width'), 1);
 const at = args.indexOf('--within');
 const roots = at === -1 ? paths : args.splice(at, 2)[1].split(',').filter(Boolean);
-const reply = args[0] ? readFileSync(args[0], 'utf8') : process.env.BOTHUB_REPLY;
+const reply = args[0] ? readFileSync(args[0], 'utf8') : findReply();
 if (reply === undefined) console.log('triage-brief: no reply to check; it is read from BOTHUB_REPLY');
 else {
   const { criteria, files, outOfScope, problems } = parseBrief(reply);

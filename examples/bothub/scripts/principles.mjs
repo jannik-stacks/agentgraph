@@ -1,10 +1,11 @@
 // One JSON line per principle the reply names with a file:line: the principle's rule and the changed hunk at that line.
 //
-//   node principles.mjs      reads the reply from BOTHUB_REPLY and the rules from $BOTHUB_HUB/skills/principles.md
+//   node principles.mjs      reads the reply from the file BOTHUB_REPLY names and the rules from $BOTHUB_HUB/skills/principles.md
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findReply } from './brief.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const skill = readFileSync(join(process.env.BOTHUB_HUB ?? join(here, '..'), 'skills/principles.md'), 'utf8');
@@ -17,7 +18,7 @@ const hunks = execFileSync(process.execPath, [join(here, 'hunks.mjs'), ''], { en
   .filter(Boolean)
   .map(line => JSON.parse(line));
 
-for (const text of (process.env.BOTHUB_REPLY ?? '').split('\n'))
+for (const text of (findReply() ?? '').split('\n'))
   for (const { name, rule } of rules) {
     if (!text.toLowerCase().includes(name.toLowerCase())) continue;
     for (const [, file, line] of text.matchAll(/([\w./-]+\.\w+):(\d+)/g)) {

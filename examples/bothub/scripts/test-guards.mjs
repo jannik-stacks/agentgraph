@@ -10,7 +10,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { findBrief, parseBrief } from './brief.mjs';
+import { findBrief, findReply, parseBrief } from './brief.mjs';
 import { addedLines, base, baseText, changedFiles, inBase, isTestFile, report, titleOf } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
@@ -132,7 +132,7 @@ const criteria = () => {
     }
   };
   const { criteria, outOfScope } = parseBrief(brief);
-  const closes = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#\d+/i.exec(process.env.BOTHUB_REPLY ?? '');
+  const closes = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#\d+/i.exec(findReply() ?? '');
   if (closes && outOfScope.some(line => line.startsWith('Follow-up:')))
     findings.push(`the reply says "${closes[0]}", but the brief lists follow-ups, so the issue stays open; say "Part of #<issue>"`);
   for (const { n, title, file } of criteria) {

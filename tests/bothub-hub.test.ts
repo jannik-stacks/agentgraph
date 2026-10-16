@@ -2,7 +2,8 @@ import { chmodSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, temp, write } from './kit.ts';
-import type { Proposal } from '../src/forge.ts';
+import { context } from '../src/context.ts';
+import type { Event, Proposal } from '../src/forge.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');
@@ -942,6 +943,16 @@ describe('triage-brief', () => {
     ]);
   });
 
+  it("reads the reply and the issue's Done when from the files the engine writes", () => {
+    const hub = temp('brief-hub');
+    const { out } = run('triage-brief.mjs', { dir: temp('brief'), base: '' }, ['--width'], {
+      BOTHUB_HUB: hub,
+      BOTHUB_CONTEXT: contextWith('Working on it.'),
+      BOTHUB_REPLY: replyFile(brief),
+    });
+    expect(findings(out)).toEqual(['3 criteria for 1 Done when rows; map the criteria one to one onto the rows']);
+  });
+
   it('passes with a note when there is no reply to read', () => {
     expect(run('triage-brief.mjs', { dir: temp('brief'), base: '' })).toEqual({
       ok: true,
@@ -949,6 +960,46 @@ describe('triage-brief', () => {
     });
   });
 });
+
+/** The context file the engine writes for checks: issue #1 where the bot posted `brief` after the command, then a review. */
+const contextWith = (text: string) => {
+  const said = (actor: string, body: string, at: string): Event => ({
+    issue: 1,
+    kind: 'comment',
+    actor,
+    trusted: true,
+    at,
+    comment: { id: at, author: actor, body, at },
+  });
+  const file = join(temp('context'), 'context.md');
+  writeFileSync(
+    file,
+    context({
+      issue: {
+        number: 1,
+        title: 'Labels',
+        body: 'Labels are lost.\n\n## Done when\n\n- `src/labels.ts` replays them.',
+        state: 'open',
+        labels: [],
+        author: 'morgan',
+        url: '',
+        events: [
+          said('morgan', '/bothub', '2026-10-13T09:00:00.000Z'),
+          said('bothub[bot]', text, '2026-10-13T09:01:00.000Z'),
+          said('morgan', 'Looks right.', '2026-10-13T09:02:00.000Z'),
+        ],
+      },
+    })
+  );
+  return file;
+};
+
+/** A reply file, as the engine writes it for checks. */
+const replyFile = (text: string) => {
+  const file = join(temp('reply'), 'reply.md');
+  writeFileSync(file, text);
+  return file;
+};
 
 /** A hub with one ready local issue whose last bot comment is `brief`. */
 const hubWith = (text: string) => {
@@ -1022,10 +1073,30 @@ describe('test-guards: criterion tests', () => {
       }
     );
     const env = { BOTHUB_HUB: hubWith(split), BOTHUB_ISSUE: '1' };
-    expect(guards(repo, { ...env, BOTHUB_REPLY: 'Part of #1' })).toMatchObject({ ok: true, out: 'test-guards: ok' });
-    expect(guards(repo, { ...env, BOTHUB_REPLY: 'Closes #1' }).found).toEqual([
+    expect(guards(repo, { ...env, BOTHUB_REPLY: replyFile('Part of #1') })).toMatchObject({
+      ok: true,
+      out: 'test-guards: ok',
+    });
+    expect(guards(repo, { ...env, BOTHUB_REPLY: replyFile('Closes #1') }).found).toEqual([
       'the reply says "Closes #1", but the brief lists follow-ups, so the issue stays open; say "Part of #<issue>"',
     ]);
+  });
+
+  it('reads the brief from the context file the engine writes, the last bot comment holding one', () => {
+    const repo = change(
+      {},
+      {
+        'tests/labels.test.ts': tests(
+          'replays a label added while stopped',
+          'replays a label re-added by hand',
+          'still replays comments'
+        ),
+      }
+    );
+    const env = { BOTHUB_CONTEXT: contextWith(brief), BOTHUB_ISSUE: '1' };
+    expect(guards(repo, env)).toMatchObject({ ok: true, out: 'test-guards: ok' });
+    const missing = guards(change({}, { 'tests/labels.test.ts': tests('still replays comments') }), env);
+    expect(missing.found).toHaveLength(2);
   });
 
   it('says so when there is no brief to read', () => {
@@ -1320,7 +1391,7 @@ describe('principles', () => {
   it('principles.mjs pairs each named principle with the hunk at its line', () => {
     const repo = change({ 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': 'export const a = clamp(1);\n' });
     const reply = 'Smallest change (src/a.ts:1)\nBound every input (src/b.ts:4)\nno principle src/a.ts:1';
-    const found = items(run('principles.mjs', repo, [], { BOTHUB_REPLY: reply }).out);
+    const found = items(run('principles.mjs', repo, [], { BOTHUB_REPLY: replyFile(reply) }).out);
     expect(found.map(i => i.path)).toEqual(['src/a.ts:1 Smallest change', 'src/b.ts:4 Bound every input']);
     expect(found[0]!.hunk).toContain('+export const a = clamp(1);');
     expect(found[0]!.principle).toContain('Tempted to edit a shared function');

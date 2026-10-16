@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { context } from '../src/context.ts';
 import { change, runScript, temp } from './kit.ts';
 
 const hub = resolve(import.meta.dirname, '../examples/acme-app');
@@ -272,5 +273,32 @@ describe('safety check, repository hygiene', () => {
       'kit/src/wallet.ts:1: adds a seed phrase',
     ]);
     expect(out).not.toContain('legal winner');
+  });
+});
+
+describe('clarinet reach check', () => {
+  it('reads the brief from the issue context and the excuses from the reply, the files the engine writes', () => {
+    const dir = temp('engine-files');
+    const brief = '## Title\nfeat(cli): x\n\n## Reach\n- CLI: `components/a.rs`';
+    const at = '2026-10-13T09:01:00.000Z';
+    const comment = { id: at, author: 'bothub[bot]', body: brief, at };
+    const issue = {
+      number: 1,
+      title: 'X',
+      body: 'Do x.',
+      state: 'open' as const,
+      labels: [],
+      author: 'morgan',
+      url: '',
+    };
+    const events = [{ issue: 1, kind: 'comment' as const, actor: 'bothub[bot]', trusted: true, at, comment }];
+    writeFileSync(join(dir, 'context.md'), context({ issue: { ...issue, events } }));
+    writeFileSync(join(dir, 'reply.md'), 'Done.\n\nNot reached: `components/a.rs`: a follow-up does it');
+    const repo = change({ 'README.md': 'x\n' });
+    const out = runScript(resolve(import.meta.dirname, '../examples/clarinet/scripts/reach.mjs'), repo, [], {
+      BOTHUB_CONTEXT: join(dir, 'context.md'),
+      BOTHUB_REPLY: join(dir, 'reply.md'),
+    });
+    expect(out.out.split('\n')[0]).toBe('components/a.rs (CLI) not reached: a follow-up does it');
   });
 });

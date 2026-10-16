@@ -83,27 +83,43 @@ const issueFiles = () => {
   }
 };
 
-/** The local issue `BOTHUB_ISSUE` (or the `bothub/<n>` branch) names, as written. */
+/** The issue as the agent saw it, from the file `BOTHUB_CONTEXT` names, else the local issue `BOTHUB_ISSUE` (or the `bothub/<n>` branch) names. */
 export const findIssue = () => {
+  if (process.env.BOTHUB_CONTEXT) return readFileSync(process.env.BOTHUB_CONTEXT, 'utf8');
   const n = issueNumber();
   const file = n && issueFiles().find(file => basename(file).startsWith(`${n}-`));
   return file ? readFileSync(file, 'utf8') : undefined;
 };
 
+/** The reply of the try, from the file `BOTHUB_REPLY` names. */
+export const findReply = () => (process.env.BOTHUB_REPLY ? readFileSync(process.env.BOTHUB_REPLY, 'utf8') : undefined);
+
+/** The last timeline entry of a context file that holds a brief, without its `@author: ` lead. */
+const briefInContext = source =>
+  source
+    .slice(source.indexOf('\n## Timeline\n') + 1)
+    .split(/\n\n(?=(?:#\d+ )?(?:@\S+[ :]|check \S+: ))/)
+    .map(entry => entry.replace(/^(?:#\d+ )?@[^\s:]+: /, ''))
+    .reverse()
+    .find(body => /^## Criteria\s*$/m.test(body))
+    ?.trim();
+
 /** The last comment on a local issue file that holds a brief. */
 const briefIn = source => {
+  if (process.env.BOTHUB_CONTEXT) return briefInContext(source);
   const heads = [...source.matchAll(comment)];
   const bodies = heads.map((h, i) => source.slice(h.index + h[0].length, heads[i + 1]?.index ?? source.length));
   return bodies.reverse().find(body => /^## Criteria\s*$/m.test(body))?.trim();
 };
 
 /**
- * Finds the brief for this run: the file `BOTHUB_BRIEF` names, or the local issue `BOTHUB_ISSUE` (or the
- * `bothub/<n>` branch) names under `$BOTHUB_HUB/issues`, or else the one open local issue labeled `ready`.
+ * Finds the brief for this run: the file `BOTHUB_BRIEF` names, or the last comment holding one in the context file
+ * `BOTHUB_CONTEXT` names, or the local issue `BOTHUB_ISSUE` (or the `bothub/<n>` branch) names under
+ * `$BOTHUB_HUB/issues`, or else the one open local issue labeled `ready`.
  */
 export const findBrief = () => {
   if (process.env.BOTHUB_BRIEF) return readFileSync(process.env.BOTHUB_BRIEF, 'utf8');
-  if (issueNumber()) {
+  if (process.env.BOTHUB_CONTEXT || issueNumber()) {
     const source = findIssue();
     return source && briefIn(source);
   }
