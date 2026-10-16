@@ -8,8 +8,7 @@ event → run begins → step: session → checks → feedback to the same sessi
 
 ## Workflows and steps
 
-A workflow is a file in `workflows/`. Its `on:` names the events that start it, and its `steps`
-run in the order written. The body is the description, or the prompt when the workflow has no steps.
+A workflow is a file in `workflows/`. Its `on:` names the events that start it. Its `steps` run in the order written. The body is the description, or the prompt when the workflow has no steps.
 
 ```yaml
 on: { issue_comment: { command: /bothub } }
@@ -27,16 +26,19 @@ steps:
   merge: { wait: human, back: implement }
 ```
 
-A step is one of three kinds: `agent` names an agent, which gets the step's skill (the step's name
-unless `skill` says otherwise), `run` is a script, and `wait: human` waits for a person. `branch` is
-the branch a run works on, `{issue}` and `{parent}` filled in from the issue, and `base` the branch
-its pull requests go into, `main` by default.
+A step is one of three kinds:
+
+- `agent` names an agent. It gets the step's skill: the step's name unless `skill` says otherwise.
+- `run` is a script.
+- `wait: human` waits for a person.
+
+`branch` is the branch a run works on, with `{issue}` and `{parent}` filled in from the issue. `base` is the branch its pull requests go into. It defaults to `main`.
 
 ## Tries and checks
 
-After an agent's session ends, each check in `checks` runs against the checkout. Script checks run
-first, all at once. Agent checks run after them, and only when no `block` script check failed, so a
-broken build skips the review.
+After an agent's session ends, each check in the step's `checks` runs against the checkout.
+
+Script checks run first, all at once. Agent checks run after them, only when no `block` script check failed. A broken build skips the review.
 
 | Mode    | Effect                                                                  |
 | ------- | ----------------------------------------------------------------------- |
@@ -44,42 +46,52 @@ broken build skips the review.
 | `block` | Its failure fails the try; its output goes back as feedback             |
 | `stop`  | Its failure ends the run                                                |
 
-A failed try starts another in the same session, and the prompt carries the feedback: each failing
-check's output, and any proposal that failed. `tries` counts the first one. It defaults to 3
-for a step with checks and 1 for one without. When the tries run out, the run waits and a comment
-on the issue says why.
+A failed try starts another in the same session. The prompt carries each failing check's output and any proposal that failed as feedback.
 
-A check file is a script (`run`, exit 0 passes and the output is the feedback), an agent (`agent`,
-which must start its reply with `PASS` or `FAIL`), or both: the script runs and its output goes to
-the agent. `max` caps how many items a fan-out may take.
+`tries` counts the first one. It defaults to 3 for a step with checks and 1 for a step without. When tries run out, the run waits and a comment on the issue says why.
+
+A check file can be a script, an agent, or both:
+
+- A script uses `run`. Exit 0 passes, and the output is the feedback.
+- An agent uses `agent`. Its reply must start with `PASS` or `FAIL`.
+- With both, the script runs and its output goes to the agent.
+
+`max` caps how many items a fan-out may take.
 
 ## Back
 
-`back: implement` on a step sends the run to an earlier step. An agent step with `back` also needs
-`until`, a sentence that says when the step is satisfied. The agent is told to make a `back`
-proposal with a reason while that sentence does not hold, and the reason becomes the feedback of
-the step it goes back to. `rounds` caps how many times, 3 by default. When they run out, the run
-waits with the reason. Going forward into a step starts a fresh session; going back keeps the one
-that step had.
+`back: implement` on a step sends the run to an earlier step.
 
-A `wait: human` step with `back` goes back when a human asks for changes, with a `/bothub` comment or a
-review requesting them. A review approval, an `approved` label or a merge passes it.
+An agent step with `back` also needs `until`, a sentence saying when the step is satisfied. While that sentence does not hold, the agent is told to make a `back` proposal with a reason. The reason becomes feedback for the step the run goes back to.
+
+`rounds` caps how many times a step may go back. It defaults to 3 for an agent step; a `wait: human` step has no cap. When rounds run out, the run waits with the reason.
+
+Going forward into a step starts a fresh session. Going back keeps the session that step had.
+
+A `wait: human` step with `back` goes back when a human asks for changes with a `/bothub` comment or a review requesting changes. A review approval, an `approved` label or a merge passes it.
 
 ## Waiting
 
-A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step.
-The engine posts the question on the issue. A human answers with `/bothub <answer>`, which becomes
-feedback for the same step, or ends the run with `/bothub stop`. Closing the issue ends it too.
+A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question on the issue.
+
+A human answers with `/bothub <answer>`, which becomes feedback for the same step. `/bothub stop` ends the run. Closing the issue ends it too.
+
 `node bin/run.ts status` lists what waits, with the command that continues each run.
 
 ## The prompt
 
-A session starts with the agent's body as its system prompt. The prompt is the step's skill, the
-workflow body, the issue and its comments, the branch to work on and where pull requests go, the
-`until` sentence, any feedback, and the shape of every proposal the agent may make. The agent ends
-its reply with a fenced `bothub` block of proposals, see [Proposals](proposals.md).
+A session starts with the agent's body as its system prompt.
+
+The prompt includes the step's skill, the workflow body, the issue and its comments, the branch to work on and where pull requests go, the `until` sentence, any feedback, and the shape of every proposal the agent may make.
+
+The agent ends its reply with a fenced `bothub` block of proposals. See [Proposals](proposals.md).
 
 ## Limits
 
-`limits` in `hub.yaml` caps a run: `minutes` for one session or script, and `parallel`, how many runs
-go at once. A session that runs past its minutes stops the run with the reason.
+`limits` in `hub.yaml` caps a run:
+
+- `minutes` limits one session or script. It defaults to 30.
+- `usd-per-run` limits the run's spend. It defaults to 10.
+- `parallel` limits how many runs go at once. It defaults to 2.
+
+A session that runs past its minutes stops the run with the reason.
