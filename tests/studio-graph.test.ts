@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { backOf, compile, nextOf, type Config } from '../src/config.ts';
@@ -16,9 +16,14 @@ const { layout } = await studioModule<{ layout: (flows: Flow[]) => { placed: Pla
 );
 
 const examples = join(import.meta.dirname, '..', 'examples');
+const core = (dir: string) =>
+  /^repo:/m.test(existsSync(join(dir, 'hub.yaml')) ? readFileSync(join(dir, 'hub.yaml'), 'utf8') : '');
 const hubs = await Promise.all(
   readdirSync(examples)
-    .filter(name => name !== 'sandbox' && ['bots', 'workflows'].some(entry => existsSync(join(examples, name, entry))))
+    .filter(
+      name =>
+        !core(join(examples, name)) && ['bots', 'workflows'].some(entry => existsSync(join(examples, name, entry)))
+    )
     .map(async name => {
       const compiled = compile(await readHub(join(examples, name)));
       if (!compiled.ok) throw new Error(JSON.stringify(compiled.errors));
