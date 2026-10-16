@@ -116,13 +116,13 @@ The studio marks a step with more than one reviewing agent with a chip that name
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question on the issue.
 
-A human answers by mentioning the bot, `@stx-bothub <answer>`, which becomes feedback for the same step. `@stx-bothub stop` ends a waiting run. The question is in the status comment only, with that instruction; `/bothub` works in place of the mention. Closing the issue ends it too.
+A human answers by mentioning the bot, `@stx-bothub <answer>`, which becomes feedback for the same step. `@stx-bothub stop` ends a waiting run. The question is its own comment, kept as the record; the status comment points at it and carries that instruction; `/bothub` works in place of the mention. Closing the issue ends it too.
 
 `node bin/run.ts status` lists what waits, with the command that continues each run (`code: src/status.ts#needsYou`).
 
 ## Status on the issue
 
-The engine keeps one status comment on the issue up to date: the step and try it is on, the question it waits on, why it stopped, the cost so far, the pull request and any failing GitHub checks on it.
+The engine keeps one status comment on the issue up to date: the step and try it is on, a pointer to the question it waits on, why it stopped, the cost so far, the pull request and any failing GitHub checks on it.
 
 It also keeps one status label on the issue: `bothub:working`, `bothub:waiting`, `bothub:done` or `bothub:stopped` (`code: src/context.ts#shown`).
 

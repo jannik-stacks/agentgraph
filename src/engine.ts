@@ -626,8 +626,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           outcome,
           run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
         });
-        if (next.status === 'waiting' && next.reason && next.said && next.said.issue !== next.issue) {
-          const body = `${next.reason}\n\n${answerWith(yield* slugOf(forge))}`;
+        if (next.status === 'waiting' && next.reason) {
+          const elsewhere = next.said && next.said.issue !== next.issue;
+          const body = elsewhere ? `${next.reason}\n\n${answerWith(yield* slugOf(forge))}` : next.reason;
           const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
           if (Either.isRight(said))
             yield* store.trace(next.id, ...said.right.map(applied => ({ at: now(), step: next.step, applied })));

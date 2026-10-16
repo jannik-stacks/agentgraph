@@ -100,7 +100,7 @@ export function shown(run: Run, w: Workflow, t: Issues, slug?: string): Proposal
     {
       running: `Working on ${run.step}, try ${run.tries + 1} of ${tries}${round ? `, round ${round + 1}` : ''}.`,
       waiting: run.reason
-        ? `Waiting for an answer at ${run.step}:\n\n${run.reason}\n\n${answerWith(slug)}`
+        ? `Waiting for an answer to the question below, at ${run.step}.\n\n${answerWith(slug)}`
         : `Waiting for a human at ${run.step}.`,
       done: 'Done.',
       stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,

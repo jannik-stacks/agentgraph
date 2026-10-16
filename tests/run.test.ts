@@ -158,9 +158,10 @@ describe('drive', () => {
     const forge = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(bodies(forge)).toEqual([
       '/bothub',
-      'Waiting for an answer at review:\n\nstill not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $1.25.\n\nPull request: ' +
+      'Waiting for an answer to the question below, at review.\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $1.25.\n\nPull request: ' +
         join(where.forge, '8.md'),
       'Brief: add hello.txt',
+      'still not right',
     ]);
     expect(forge.labels).toEqual(['bothub:waiting']);
     const pr = await run(Effect.flatMap(Forge, f => f.issue(8)));
@@ -981,7 +982,7 @@ describe('coworker', () => {
     expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['waiting']);
   }, 30_000);
 
-  it('keeps one status comment through two tries and an ask, with the question only in it', async () => {
+  it('keeps one status comment through two tries and an ask, with the question in its own comment', async () => {
     const where = world();
     const { run } = services(where, [
       [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
@@ -993,7 +994,8 @@ describe('coworker', () => {
     expect(issue.labels).toEqual(['bothub:waiting']);
     expect(bodies(issue)).toEqual([
       '/bothub',
-      'Waiting for an answer at implement:\n\nHello or hi?\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $0.00.',
+      'Waiting for an answer to the question below, at implement.\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $0.00.',
+      'Hello or hi?',
     ]);
     const edits = traceOf(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
@@ -1011,9 +1013,8 @@ describe('coworker', () => {
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]], 'stx-bothub');
     await run(drive(flow, begun(), small));
     const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
-    expect(issue.filter(b => b.includes('Hello or hi?'))).toEqual([
-      'Waiting for an answer at implement:\n\nHello or hi?\n\nAnswer with `@stx-bothub <your answer>`, or `@stx-bothub stop` to end the run.\n\nCost so far: $0.00.',
-    ]);
+    expect(issue.filter(b => b.includes('Hello or hi?'))).toEqual(['Hello or hi?']);
+    expect(issue.filter(b => b.includes('`@stx-bothub <your answer>`, or `@stx-bothub stop`'))).toHaveLength(1);
   });
 
   it('replies where the human answered: on the pull request, and under a review comment in its issue', async () => {
