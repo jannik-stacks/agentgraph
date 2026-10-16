@@ -758,13 +758,18 @@ export const tick = (
     const used = new Set<Event>();
     const touched: Run[] = [];
 
+    const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
+    const command = triggered[0]?.on.issue_comment?.command;
+    waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
     for (const { run, at } of waiting) {
       const w = hub.workflows[run.workflow];
-      const answers = w ? events.filter(m => m.issue === run.issue && m.at > at && reenter(w, run, m)) : [];
+      const answers = w
+        ? events.filter(m => m.issue === run.issue && m.at > at && !used.has(m) && reenter(w, run, m, command))
+        : [];
       const m = answers.find(m => m.kind === 'merged') ?? answers[0];
       if (!w || !m) continue;
       used.add(m);
-      const outcome = reenter(w, run, m)!;
+      const outcome = reenter(w, run, m, command)!;
       const seen = m.kind === 'comment' ? yield* eyes(run, m) : run;
       const moved = { ...transition(w, seen, outcome), said: heard(m) };
       const next = moved.status === 'running' ? moved : yield* show(w, moved);
@@ -780,7 +785,6 @@ export const tick = (
 
     const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.issue}`));
     const open = new Set(issues.map(t => t.number));
-    const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
     const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label);
     /** The label workflow whose label an issue carries, when a maintainer put it there last. */
     const assigned = (issue: number) =>
@@ -819,7 +823,9 @@ export const tick = (
             : undefined;
       if (!w || used.has(m) || !m.trusted || !open.has(m.issue)) continue;
       if (m.kind === 'comment' && /^\S+\s+stop(\s|$)/i.test(m.comment?.body.trim() ?? '')) continue;
-      if (!busy.has(`${w.name}#${m.issue}`)) yield* start(w, m.issue, m.at, m);
+      const held =
+        m.kind === 'comment' ? [...busy].some(k => k.endsWith(`#${m.issue}`)) : busy.has(`${w.name}#${m.issue}`);
+      if (!held) yield* start(w, m.issue, m.at, m);
     }
     if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));

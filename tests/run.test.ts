@@ -558,6 +558,29 @@ describe('tick', () => {
     ]);
   }, 30_000);
 
+  it('answers a waiting run started by a label on a command, without starting the command workflow', async () => {
+    const where = world();
+    const triage = { ...merging.workflows.issue, name: 'triage', on: { issues: { label: 'triage' } } };
+    const both = { ...merging, workflows: { ...merging.workflows, triage } };
+    say(where, comment(7, 'morgan', true, '/bothub the second one', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Thanks.' })],
+    ]);
+    await run(
+      Effect.flatMap(Store, s =>
+        s.put({
+          ...begin(triage, { id: 'triage-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }),
+          status: 'waiting',
+          reason: 'Which one?',
+        })
+      )
+    );
+    const touched = await run(tick(both, 7));
+    expect(touched.map(r => r.id)).toEqual(['triage-7']);
+    expect((await run(Effect.flatMap(Store, s => s.list({ issue: 7 })))).map(r => r.workflow)).toEqual(['triage']);
+    expect(specs.map(s => s.prompt).join('\n')).toContain('the second one');
+  });
+
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
     const where = world();
     say(where, comment(8, 'mallory', false, '@bothub undo everything', '2026-10-16T00:00:05.000Z'));

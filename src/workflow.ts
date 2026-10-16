@@ -302,14 +302,14 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
 }
 
 /** What a new event means for a waiting run: a review at a human step, an answer elsewhere; undefined when it is only context. */
-export function reenter(w: Workflow, run: Run, m: Event): Outcome | undefined {
+export function reenter(w: Workflow, run: Run, m: Event, fallback?: string): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
     return { kind: 'stop', why: `the ${label} label was removed` };
   const waiting = run.status === 'waiting';
   if (m.kind === 'closed' && waiting) return { kind: 'stop', why: 'closed' };
-  const command = Object.values(w.on).find(t => t?.command)?.command;
+  const command = Object.values(w.on).find(t => t?.command)?.command ?? fallback;
   const body = m.comment?.body.trim() ?? '';
   const said =
     m.kind === 'comment' && command !== undefined && body.startsWith(command)
