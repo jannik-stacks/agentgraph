@@ -566,19 +566,23 @@ export const gate = (
     return { outcome, usd };
   });
 
-/** Lands the run's status labels and status comment; the run comes back holding its status comment's id. */
+/**
+ * Lands the run's status labels and status comment; the run comes back holding its status comment's id, and without
+ * its 👀 once that comment is posted.
+ */
 const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Store> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
     const t = yield* issuesOf(w, run);
-    const applied = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.issue, p));
+    const status = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.issue, p));
+    const reply = status.find(a => a.proposal.kind === 'comment');
+    const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
-      s.trace(run.id, ...applied.map(a => ({ at: now(), step: run.step, applied: a })))
+      s.trace(run.id, ...[...status, ...undone].map(a => ({ at: now(), step: run.step, applied: a })))
     );
-    const reply = applied.find(a => a.proposal.kind === 'comment');
     if (!reply) return run;
-    const { comment: _gone, ...rest } = run;
-    return reply.ok && reply.id ? { ...rest, comment: reply.id } : rest;
+    const { comment: _gone, eyes, ...rest } = run;
+    return { ...rest, ...(eyes && !undone.length && { eyes }), ...(reply.ok && reply.id && { comment: reply.id }) };
   }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
 
 /** Applies the accepted proposals after a pass, pushes first. Replies go where a human last spoke, else to `to`. */
@@ -726,20 +730,21 @@ export const tick = (
       const c = m.kind === 'comment' ? m.comment : undefined;
       return { issue: origin.get(m) ?? m.issue, ...(c?.path !== undefined && { under: c.under ?? c.id }) };
     };
-    /** 👀 on the comment that woke a run, or on its issue for a label. */
-    const eyes = (run: Run, m: Event) =>
-      m.kind !== 'comment' && m.kind !== 'label'
-        ? Effect.void
-        : forge
-            .apply(origin.get(m) ?? m.issue, {
-              kind: 'react',
-              ...(m.kind === 'comment' &&
-                m.comment && { comment: m.comment.id, ...(m.comment.path !== undefined && { review: true }) }),
-            })
-            .pipe(
-              Effect.flatMap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
-              Effect.catchTag('ForgeError', e => Effect.logWarning(`react for run ${run.id}`, e))
-            );
+    /** 👀 on the comment that woke a run, or on its issue for a label; the run comes back holding it. */
+    const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError> => {
+      if (m.kind !== 'comment' && m.kind !== 'label') return Effect.succeed(run);
+      const issue = origin.get(m) ?? m.issue;
+      const react: Extract<Proposal, { kind: 'react' }> = {
+        kind: 'react',
+        ...(m.kind === 'comment' &&
+          m.comment && { comment: m.comment.id, ...(m.comment.path !== undefined && { review: true }) }),
+      };
+      return forge.apply(issue, react).pipe(
+        Effect.tap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
+        Effect.map(a => (a.ok && a.id ? { ...run, eyes: { issue, undo: { ...react, remove: a.id } } } : run)),
+        Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`react for run ${run.id}`, e), run))
+      );
+    };
     const events = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)))
       .map(onRun)
       .filter(mine);
@@ -752,8 +757,8 @@ export const tick = (
       if (!w || !m) continue;
       used.add(m);
       const outcome = reenter(w, run, m)!;
-      if (m.kind === 'comment') yield* eyes(run, m);
-      const moved = { ...transition(w, run, outcome), said: heard(m) };
+      const seen = m.kind === 'comment' ? yield* eyes(run, m) : run;
+      const moved = { ...transition(w, seen, outcome), said: heard(m) };
       const next = moved.status === 'running' ? moved : yield* show(w, moved);
       yield* store.trace(run.id, {
         at: now(),
@@ -785,10 +790,11 @@ export const tick = (
           ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
           ...(m?.kind === 'comment' && { said: heard(m) }),
         };
-        const run = begun.status === 'running' ? begun : yield* show(w, begun);
+        const first = begun.status === 'running' ? begun : yield* show(w, begun);
         busy.add(`${w.name}#${issue}`);
-        yield* store.put(run);
-        if (m) yield* eyes(run, m);
+        yield* store.put(first);
+        const run = m ? yield* eyes(first, m) : first;
+        if (run !== first) yield* store.put(run);
         touched.push(run);
       });
     for (const m of events) {

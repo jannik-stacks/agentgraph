@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
-import type { Applied, Event } from './forge.ts';
+import type { Applied, Event, Proposal } from './forge.ts';
 
 export type CheckResult = { check: string; pass: boolean; findings?: string; ms: number };
 
@@ -55,6 +55,8 @@ export type Run = {
   reason?: string;
   comment?: string;
   said?: { issue: number; under?: string };
+  /** The 👀 the run gave where it was woken, as the proposal that takes it back once the run has replied. */
+  eyes?: { issue: number; undo: Extract<Proposal, { kind: 'react' }> };
   /** The open pull request the run stacks on, and the head of it the run's branch builds on. */
   base?: { pull: number; branch: string; sha: string };
   started: string;

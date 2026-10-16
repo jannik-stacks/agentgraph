@@ -17,7 +17,7 @@ Only a collaborator's comment or label starts a run. An outsider's comment or la
 
 The issue must be open. One workflow runs once at a time on an issue. Adding a label and removing it before the engine looks starts nothing.
 
-On a new run, the engine reacts to the comment with an eyes reaction so people can see it was heard. The run then keeps its own state. Later comments on a waiting run answer it. See [Waiting](loop.md#waiting).
+On a new run, the engine reacts to the comment with an eyes reaction so people can see it was heard. It removes the reaction once it has replied. The run then keeps its own state. Later comments on a waiting run answer it. See [Waiting](loop.md#waiting).
 
 ## Workflows and steps
 

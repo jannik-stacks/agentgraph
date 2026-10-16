@@ -45,11 +45,12 @@ export type Event = {
 
 /**
  * What a run may change on the repo, and the two proposals that steer the run. `react` and `rebase` are the runner's
- * own; a rebase moves the commits on `branch` after `from` onto `onto`.
+ * own; a rebase moves the commits on `branch` after `from` onto `onto`, and a react with `remove` takes back the
+ * reaction of that id.
  */
 export type Proposal =
   | { kind: 'comment'; body: string; edit?: string; under?: string }
-  | { kind: 'react'; comment?: string; review?: boolean }
+  | { kind: 'react'; comment?: string; review?: boolean; remove?: string }
   | { kind: 'label'; add?: string[]; remove?: string[] }
   | { kind: 'push'; branch: string; message: string }
   | { kind: 'rebase'; branch: string; from: string; onto: string }
@@ -59,7 +60,10 @@ export type Proposal =
   | { kind: 'ask'; question: string }
   | { kind: 'back'; why: string };
 
-/** How a proposal landed; `id` is the comment a reply posted or edited, or the number of an issue opened. */
+/**
+ * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
+ * given.
+ */
 export type Applied = { proposal: Proposal; ok: boolean; url?: string; id?: string; reason?: string };
 
 export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string }> {}
@@ -278,9 +282,20 @@ export const fileForge = (dir: string, as?: string): Layer.Layer<Forge> =>
             const k = await open({ title: p.title, body: p.body, parent: p.parent ?? n, labels: p.labels ?? [] });
             return { proposal: p, ok: true, url: md(k), id: String(k) };
           }
-          case 'react':
-            await appendFile(join(dir, `${n}.reactions`), `eyes ${p.comment ?? `#${n}`}\n`);
+          case 'react': {
+            const file = join(dir, `${n}.reactions`);
+            const id = p.comment ?? `#${n}`;
+            if (p.remove === undefined) {
+              await appendFile(file, `eyes ${id}\n`);
+              return { proposal: p, ok: true, id };
+            }
+            const lines = ((await optional(readFile(file, 'utf8'))) ?? '').split('\n').filter(Boolean);
+            const at = lines.indexOf(`eyes ${p.remove}`);
+            if (at < 0) return no(`no reaction ${p.remove} of ours on #${n}`);
+            lines.splice(at, 1);
+            await writeFile(file, lines.map(l => `${l}\n`).join(''));
             return { proposal: p, ok: true };
+          }
           case 'ask':
           case 'back':
             return no(`${p.kind} steers the run, not the repo`);

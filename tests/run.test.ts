@@ -116,6 +116,12 @@ const traceOf = (data: string, id: string) =>
     .filter(Boolean)
     .map(line => JSON.parse(line) as Trace);
 
+/** The 👀 a run gave and took back, in order, as the reaction id each took back or undefined when it gave one. */
+const reactions = (data: string, id: string) =>
+  traceOf(data, id).flatMap(t =>
+    'applied' in t && t.applied.proposal.kind === 'react' ? [[t.applied.ok, t.applied.proposal.remove]] : []
+  );
+
 const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m.comment.body] : []));
 
 const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
@@ -427,9 +433,15 @@ describe('tick', () => {
     expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs).toHaveLength(2);
     expect(specs[1]!.prompt).toContain('@morgan: /bothub once more');
-    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe(
-      'eyes 2026-10-16T00:00:00.000Z\neyes 2026-10-17T00:00:00.000Z\n'
-    );
+    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
+    expect(reactions(where.data, first[0]!.id)).toEqual([
+      [true, undefined],
+      [true, '2026-10-16T00:00:00.000Z'],
+    ]);
+    expect(reactions(where.data, second[0]!.id)).toEqual([
+      [true, undefined],
+      [true, '2026-10-17T00:00:00.000Z'],
+    ]);
   }, 30_000);
 
   it('keeps the worktree files of a parked run and puts them back when it reenters', async () => {
@@ -535,7 +547,11 @@ describe('tick', () => {
     );
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
-    expect(readFileSync(join(where.forge, '8.reactions'), 'utf8')).toBe('eyes 2026-10-16T00:00:05.000Z\n');
+    expect(readFileSync(join(where.forge, '8.reactions'), 'utf8')).toBe('');
+    expect(reactions(where.data, 'run-7')).toEqual([
+      [true, undefined],
+      [true, '2026-10-16T00:00:05.000Z'],
+    ]);
   }, 30_000);
 
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
@@ -904,7 +920,11 @@ describe('coworker', () => {
     say(where, labelled('morgan', true, 'unlabel', later(2)));
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the bothub label was removed' });
-    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('eyes #7\n');
+    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
+    expect(reactions(where.data, asked!.id)).toEqual([
+      [true, undefined],
+      [true, '#7'],
+    ]);
     expect((await run(Effect.flatMap(Forge, f => f.issue(7)))).labels).toEqual(['bothub:stopped']);
   }, 30_000);
 
