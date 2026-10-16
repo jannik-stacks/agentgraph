@@ -315,7 +315,7 @@ describe('githubForge', () => {
     );
     const permissions = [
       { contents: 'read', issues: 'read', pull_requests: 'read' },
-      { issues: 'write' },
+      { issues: 'write', pull_requests: 'write' },
       { contents: 'read', pull_requests: 'write' },
       { contents: 'write', pull_requests: 'write' },
     ];

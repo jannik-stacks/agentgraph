@@ -150,7 +150,7 @@ const requester = (fetch: Fetch) => {
 /** The permissions each kind of call needs; every token is also limited to the one repository (`repos` has none). */
 const scopes = {
   read: { contents: 'read', issues: 'read', pull_requests: 'read' },
-  comment: { issues: 'write' },
+  comment: { issues: 'write', pull_requests: 'write' },
   push: { contents: 'write' },
   pull: { contents: 'read', pull_requests: 'write' },
   merge: { contents: 'write', pull_requests: 'write' },
