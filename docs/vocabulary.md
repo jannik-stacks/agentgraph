@@ -1,93 +1,82 @@
 # Vocabulary
 
-The few words that describe every hub.
+The words the rest of the docs use. Fifteen are bothub's own, five come from the agent landscape,
+and the GitHub words are used as GitHub uses them.
 
-| Word              | What it is                                                                                              | Where it lives                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| **trigger**       | Something that happened: a GitHub event, a comment command, a schedule                                  | `on:` in a workflow or job                |
-| **bot**           | Who acts. Harness, model alias, tools, what it returns (`returns`). Only bots run a model               | `bots/<name>.md`, body is the role        |
-| **skill**         | What to do. A prompt the job forces or the bot is offered                                               | `skills/<name>.md`, body is the prompt    |
-| **workflow**      | A small graph from triggers to jobs                                                                     | `workflows/<name>.md`                     |
-| **job**           | One step in a workflow: it casts a bot and hands it a skill, or runs a plain script                     | inside a workflow                         |
-| **check**         | A script, a bot or a decide question that returns a verdict, pass or fail with findings                 | `checks/<name>.md`                        |
-| **branch**        | Where work happens. One worktree per run, never the default branch                                      | runtime                                   |
-| **merge request** | A request to merge a bot branch into another: a pull request on GitHub, a line in `pulls.jsonl` locally | runtime                                   |
-| **proposal**      | What a run returns: the only way a bot changes anything on GitHub or in the hub                         | runtime, see [Proposals](proposals.md) |
-| **run**           | One bot or script executing one job attempt, with events, cost and an outcome                           | the run store                             |
-| **note**          | What the hub knows, surfaced when relevant                                                              | `notes/<kind>/<slug>.md`                  |
+## Ours
 
-Each file kind has a schema; the fields are listed on [Schema and config](reference/config.md).
+| Word         | What it is                                                                                                              |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| **hub**      | The folder of config in a repo: `hub.yaml`, `bots/`, `skills/`, `checks/`, `workflows/`                                 |
+| **agent**    | A role: harness, model, tools and the proposals it may make. The file body is its system prompt                         |
+| **harness**  | The program that runs a session: Claude Code, opencode or pi                                                            |
+| **workflow** | Steps that run on an issue when an event matches its `on:`                                                              |
+| **step**     | One stage of a workflow: an agent with a skill, a script, or a human                                                    |
+| **check**    | A script, or an agent judging, that passes or fails a step after its session ends. Its output goes back as feedback     |
+| **try**      | One pass of a step. A failed check means another try, in the same session                                               |
+| **back**     | A step's way to an earlier step, `until` a sentence holds, at most `rounds` times. An agent's `back` proposal uses it   |
+| **proposal** | A change an agent asks the engine to make: a comment, a label, a push, a pull request, a merge, an issue, an ask, a back |
+| **run**      | One workflow on one issue, from its first step to done or stopped                                                       |
+| **feedback** | Text carried into the next try or step: a failed check's output, a back reason, a human's answer                        |
+| **checkout** | The files a run works in, on its own branch, started from the base                                                      |
+| **sandbox**  | The container a session or script runs in. Its only way out is the model proxy and an allowlist                         |
+| **trace**    | The lines a run writes: session events, check results, applied proposals, outcomes                                      |
+| **studio**   | The web UI that draws workflows and lists runs                                                                          |
 
-## Hierarchy
+"Agent" always means the file. "bothub" means the whole thing. "Bot" is only the GitHub account
+that posts comments and opens pull requests.
 
-Everything sits under one of two roots. The repository is the top: whatever has to last is in
-git, reviewed through pull requests. The data dir holds what runs produce. It is never in git; it
-sits on local disk today and on S3-type object storage later.
+## Landscape words
 
-```
-repository (git)
-  hub              hub.yaml, bots/, skills/, workflows/, checks/
-    workflow       triggers and jobs
-      job          a bot running a skill, or a script, gated by checks
-  notes/           decisions, style, caveats
-  issues           issues/*.md locally, GitHub issues in GitHub mode
-  code             the default branch, bot branches, merge requests
+**model**, **tool**, **prompt**, **skill** and **session** mean what they mean everywhere. Two
+need a line.
 
-data dir (not in git, object storage later)
-  runs/<id>/       run.json, events.jsonl, outcome.json, summaries.jsonl
-    home/          the harness's own sessions and transcripts
-  queue, deliveries, locks, pulls.jsonl (local merge requests)
-  repos/, work/    mirrors and worktrees, rebuilt when missing
-```
+- **skill** is a markdown instruction file, `skills/<name>/SKILL.md`, as in Agent Skills. A step
+  hands one to its agent.
+- **session** is one harness conversation with its history. A try after a failed check resumes it.
 
-Runs point up: each run records its repository, workflow, job and bot. Nothing in the data dir is
-the source of truth. When something a run learned should last, it goes back into the repository
-as a proposal: a note, an issue or a commit.
+## GitHub words
 
-## Notes
+event, issue, comment, pull request, label, review, commit, branch and base. A hub reads them the
+way GitHub does: an event is a webhook event, a base is the branch a pull request goes into.
 
-A note is what the hub knows, surfaced when relevant. There are three kinds.
+## Names the code still uses
 
-- **decision**: what was chosen and why. It changes only through a new decision that supersedes it.
-- **style**: how code and docs should look.
-- **caveat**: a known sharp edge in our own design.
+The docs say each key as the code reads it today. Each one becomes the word on the right soon.
 
-No bot or skill lists the notes it reads. A run that recalls gets the accepted notes that match its
-task surfaced into it (see [Context](context.md#surfacing)), and every run can search them
-with `notes_search`. A note's `status` is `proposed`, `accepted`, `superseded` or `retired`; only
-accepted notes are surfaced. A note can name the `check` that enforces it, which is how it earns
-teeth (see the correction ladder in [The loop](loop.md)).
+| Today                       | Next name                    |
+| --------------------------- | ---------------------------- |
+| `bots/<name>.md`, `bot:`    | `agents/<name>.md`, `agent:` |
+| check `judge:`              | `agent:`                     |
+| proposal `reply`            | `comment`                    |
+| proposal `pull`, `into`     | `pull_request`, `base`       |
+| `limits.working`            | `limits.parallel`            |
+| `--issue all`               | `--all`                      |
+| check mode `log`            | dropped, `warn` does the same |
+| run field `thread`, `carry` | `issue`, `feedback`          |
+| status `asking`             | `waiting`                    |
 
-A rule about the shape of code, config, docs or a message can carry a `Bad:` line with a short
-fenced block and a `Good:` line with the corrected one, after the prose.
+## Old words
 
-## Issues as the work queue
+For readers of older docs and research.
 
-Some things look like notes but are not.
-
-- An **open question** is an issue labelled `unsure`. A bot that is unsure asks instead of
-  guessing, and a human answers in the thread, which is itself a trigger.
-- A **plan** is an issue labelled `plan` with sub-issues for each step.
-- A **spec** is an issue labelled `spec`.
-
-## Memory
-
-Memory is not one thing in bothub, and most of it sits outside the hub on purpose. Only notes are
-reviewed, and only notes reach every bot.
-
-| What               | Kept where                  | Who reads it                                                   |
-| ------------------ | --------------------------- | -------------------------------------------------------------- |
-| **note**           | `notes/` in the repository  | every run, surfaced when relevant or by `notes_search`         |
-| **run summary**    | `runs/<id>/summaries.jsonl` | later runs within their bot's `history`, surfaced or by search |
-| **transcript**     | `runs/<id>/home/`           | humans only                                                    |
-| **harness memory** | the harness's own files     | the job's next run with `resume: session`, otherwise nobody    |
-
-A run summary is one line per step that matters, written after every run: messages, failed
-calls, what changed in each file, the last run of each command, and at the end how the run went,
-what it proposed, what landed and which checks failed and why. A retry gets the failing check findings, and with `resume: summary` or `session` a summary of the
-attempt before it and its change so far. Harnesses like opencode keep their own memory files; bothub starts every run
-from a clean home, apart from the session a `resume: session` bot continues, and a check can refuse
-a change that writes them into the repository.
-
-When something a run learned should outlast it, the bot returns a note and a human accepts it.
-That is the only path from memory to what the hub knows.
+| Old word                                              | Now                                                      |
+| ----------------------------------------------------- | -------------------------------------------------------- |
+| bot                                                   | agent                                                    |
+| job                                                   | step                                                     |
+| trigger, message                                      | event                                                    |
+| attempt                                               | try                                                      |
+| verdict                                               | a check's result                                         |
+| findings, carry, reason                               | feedback                                                 |
+| gate                                                  | a step's checks                                          |
+| loop, turn                                            | back, round                                              |
+| thread                                                | issue                                                    |
+| asking, waiting, parked                               | waiting                                                  |
+| refused, rejected                                     | failed                                                   |
+| reply (proposal)                                      | comment                                                  |
+| merge request                                         | pull request                                             |
+| worktree, work                                        | checkout                                                 |
+| brief                                                 | prompt                                                   |
+| BHM                                                   | studio                                                   |
+| tick, sweep, drive                                    | engine internals, not words to learn                     |
+| note, decide, preload, surfacing, recall, history, summary, closure, queue, deliveries, spans | gone with the previous engine |
