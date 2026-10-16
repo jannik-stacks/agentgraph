@@ -23,6 +23,37 @@ Besides the flags, the runner reads `BOTHUB_REPO` (the repo), `BOTHUB_APP_ENV` (
 file) and `BOTHUB_PROXY_KEYS` (the agents' model keys, see [Sandbox](sandbox.md)). Started without
 `--issue` or `--all`, the runner looks at the repo every `BOTHUB_EVERY` minutes, 5 by default (`code: src/main.ts#start`).
 
+## Without GitHub
+
+A forge folder stands in for the GitHub repo, and `bin/forge.ts` plays the maintainer on it. No
+GitHub App is needed. Issues are `<n>.md` files, their timelines `<n>.jsonl`, and a pull request is a
+folder `<n>/` with `pull.json` and `diff.patch` (`code: src/forge.ts#fileForge`). Branches live in
+the bare repo `origin.git` inside the folder.
+
+```sh
+node bin/forge.ts /tmp/forge init ../path/to/repo         # copies the repo into /tmp/forge/origin.git
+node bin/forge.ts /tmp/forge issue "Reject a negative count" --body issue.md
+node bin/forge.ts /tmp/forge comment 1 /bothub
+node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data /tmp/bothub-data
+node bin/forge.ts /tmp/forge show                         # every issue and pull request
+node bin/forge.ts /tmp/forge show 2                       # one, with its timeline and diff
+node bin/forge.ts /tmp/forge comment 2 "/bothub also cover zero"
+node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data /tmp/bothub-data
+node bin/forge.ts /tmp/forge merge 2
+node bin/run.ts --forge /tmp/forge --hub examples/sandbox --issue 1 --data /tmp/bothub-data
+```
+
+- Comments, labels and issues are by `git config user.name`, or by `--as <name>`, and count as a
+  maintainer's.
+- `issue` takes `--label <name>` too, and `label <n> <name>` adds one later, so a labelled workflow
+  like triage starts.
+- `merge <n>` fast-forwards the base branch in `origin.git` to the pull request's head, marks it
+  merged, moves pull requests stacked on it to its base, and closes the issue named at the end of
+  its branch (`bothub/1` closes #1). It fails when the base has moved past the pull request.
+- `close <n>` closes an issue.
+- The agents still run in the Docker sandbox with `BOTHUB_PROXY_KEYS`, as on GitHub. `--forge` also
+  works with `loop`; `status` still needs the App.
+
 ## The studio
 
 From `studio/`:
