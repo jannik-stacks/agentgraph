@@ -31,31 +31,36 @@ A run id is the workflow name, the issue number and a timestamp, so runs sort in
 | `reason`   | Why the run waits or stopped                               |
 | `usd`      | What its sessions cost                                     |
 
-`waiting` needs a person: a review at a human step, an answer to the question in `reason` anywhere
-else. See [The loop](loop.md#waiting). The file is rewritten whole each time, so a run can be picked up on
-another machine.
+`waiting` means a person is needed: a review at a human step, or an answer to the question in `reason` anywhere else. See [The loop](loop.md#waiting).
+
+The file is rewritten whole each time, so a run can be picked up on another machine.
 
 ## The trace
 
-`trace.jsonl` is append-only. Every line has a time and a step, and one of these:
+`trace.jsonl` is append-only. Every line has a time and a step, and one of these kinds:
 
 - `prompt`: what a session was opened with: harness, model, system prompt, prompt and tools.
-- `event`: something the session did, as the harness reported it: text, a tool call, usage, the end.
+- `event`: something the session did, as the harness reported it: text, a tool call, usage or the end.
 - `session`: how a session ended, whether it resumed one, and what it cost.
 - `check`: one check's result, with its output when it failed.
 - `applied`: a proposal and whether it was applied, with its URL or the reason it was not.
 - `outcome`: how a try ended (pass, failed, back, ask, answer or stop) and where the run went next.
+- `saved`: the fields of `run.json` that a write changed, and `cleared` for fields it removed.
 
 The studio and `status` read only these files. Writes go through `code: src/store.ts#fileStore`.
 
 ## Checkout
 
-Each run works in a checkout of the mirror, on the branch the workflow names. When a run's scope
-closes, its files are kept under `refs/bothub/runs/<run id>` in the mirror, so a run that waits for
-a human picks up where it left off. The mirror's refs are read-only inside the sandbox.
+Each run works in a checkout of the mirror, on the branch the workflow names.
+
+When a run's scope closes, its files are kept under `refs/bothub/runs/<run id>` in the mirror. A run that waits for a human picks up where it left off.
+
+The mirror's refs are read-only inside the sandbox.
 
 ## Stopping early
 
-A run stops with a reason when a session runs past its minutes, stalls, hits a provider fault or
-the sandbox fails. The engine posts the reason on the issue, and the trace holds the details.
+A run stops with a reason when a session runs past its minutes, stalls, hits a provider fault, the sandbox fails, or the run's spend goes over the hub's `usd-per-run` limit.
+
+The engine posts the reason on the issue. The trace holds the details.
+
 Closing the issue stops a waiting run.
