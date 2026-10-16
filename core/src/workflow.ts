@@ -294,17 +294,15 @@ export function reenter(w: Workflow, run: Run, m: Message): Outcome | undefined 
     m.kind === 'comment' && command !== undefined && body.startsWith(command)
       ? body.slice(command.length).trim()
       : undefined;
+  const [first = '', ...rest] = said?.split(/\s+/) ?? [];
+  if (first.toLowerCase() === 'stop' && (run.status === 'waiting' || run.status === 'asking'))
+    return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
   if (run.status === 'waiting') {
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
       return { kind: 'pass' };
     if (m.kind === 'changes') return { kind: 'back', why: body || 'changes requested' };
     if (said !== undefined) return { kind: 'back', why: said };
   }
-  if (run.status === 'asking' && said !== undefined) {
-    const [first = '', ...rest] = said.split(/\s+/);
-    return first.toLowerCase() === 'stop'
-      ? { kind: 'stop', why: rest.join(' ') || 'a human said stop' }
-      : { kind: 'answer', text: said };
-  }
+  if (run.status === 'asking' && said !== undefined) return { kind: 'answer', text: said };
   return undefined;
 }
