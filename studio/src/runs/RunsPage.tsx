@@ -1,8 +1,10 @@
 import { useAtom, useAtomValue } from 'jotai';
-import { useMemo } from 'react';
-import { served } from 'virtual:fixtures';
+import { useMemo, useState } from 'react';
+import { fixtures, served } from 'virtual:fixtures';
+import { storyOfRun, WorkflowGraph } from '../graph/GraphPage.tsx';
+import { trailOf } from '../graph/visits.ts';
 import { pageAtom, polled, queryParam, runsAtom } from '../state.ts';
-import { Combobox, Muted } from '../ui.tsx';
+import { Combobox, Disclosure, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import type { CoreRun } from './trace.ts';
 
@@ -34,6 +36,51 @@ const RunList = () => {
   );
 };
 
+const graphKey = 'bothub.runGraph';
+const readOpen = () => {
+  try {
+    return localStorage.getItem(graphKey) !== 'closed';
+  } catch {
+    return true;
+  }
+};
+const saveOpen = (open: boolean) => {
+  try {
+    localStorage.setItem(graphKey, open ? 'open' : 'closed');
+  } catch {
+    // Without storage the section opens by default next time.
+  }
+};
+
+/** The run drawn over its workflow, folded or open as the reader last left it, and resizable from its corner. */
+const RunGraph = ({ r }: { r: CoreRun }) => {
+  const [open, setOpen] = useState(readOpen);
+  const fixture = fixtures.find(f => f.id === r.fixture);
+  const picked = useMemo(
+    () => fixture && { fixture, run: r.run, trail: trailOf(r.run, r.trace), trace: r.trace },
+    [fixture, r]
+  );
+  if (!picked) return null;
+  return (
+    <Disclosure
+      open={open}
+      onToggle={next => {
+        setOpen(next);
+        saveOpen(next);
+      }}
+      summary={
+        <span className="min-w-0 truncate text-xs text-zinc-500">
+          <span className="font-medium text-zinc-900 dark:text-zinc-100">Graph</span> {storyOfRun(picked)}
+        </span>
+      }
+    >
+      <div className="mt-2 flex h-80 min-h-40 resize-y flex-col overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+        <WorkflowGraph shown={[picked.fixture]} picked={picked} />
+      </div>
+    </Disclosure>
+  );
+};
+
 const RunPage = ({ id }: { id: string }) => {
   const one = useMemo(
     () => polled<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`, r => r?.run.status === 'running'),
@@ -42,7 +89,12 @@ const RunPage = ({ id }: { id: string }) => {
   const { value: r, failure } = useAtomValue(one);
   if (r === undefined) return <Muted>{failure ?? 'Loading the run.'}</Muted>;
   if (r === null) return <Muted>No run {id} in this data dir.</Muted>;
-  return <Rows rows={[runRow(r, true)]} />;
+  return (
+    <>
+      <RunGraph r={r} />
+      <Rows rows={[runRow(r, true)]} />
+    </>
+  );
 };
 
 /** The served hub's runs as rows, at `/runs`; one run opened with every trace line at `/runs/<id>`. */

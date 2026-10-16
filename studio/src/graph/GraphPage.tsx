@@ -27,7 +27,41 @@ import { storyOf, trailOf, visitsOf } from './visits.ts';
 const hubParam = queryParam('hub');
 const runParam = queryParam('run');
 
+/** A run drawn over its workflow: a real one carries its trace, a simulated one only its trail. */
 type Picked = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | undefined };
+
+/** The picked run told in one sentence. */
+export const storyOfRun = (p: Picked) =>
+  storyOf(visitsOf(graphOf(p.fixture.workflow, p.fixture.checks, p.run), p.trail, p.run));
+
+/**
+ * The workflows of `shown` as one canvas, with the picked run drawn over its workflow, and a side panel for the
+ * selected step or workflow.
+ */
+export const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefined }) => {
+  const selected = useAtomValue(selectedStepAtom);
+  const [workflowName, stepName] = selected?.split('/') ?? [];
+  const fixture = shown.find(f => f.workflow.name === workflowName);
+  const step = fixture?.workflow.steps.find(s => s.name === stepName);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <div className="min-h-0 min-w-0 flex-1">
+        <ReactFlowProvider>
+          <Canvas shown={shown} picked={picked} />
+        </ReactFlowProvider>
+      </div>
+      {fixture && (
+        <aside className="max-h-[45%] shrink-0 overflow-y-auto border-t border-zinc-200 md:max-h-none md:w-80 md:border-t-0 md:border-l dark:border-zinc-800">
+          {step ? (
+            <StepDetails fixture={fixture} step={step} run={picked?.fixture === fixture ? picked : undefined} />
+          ) : (
+            <WorkflowDetails workflow={fixture.workflow} />
+          )}
+        </aside>
+      )}
+    </div>
+  );
+};
 
 const nodeTypes = { step: StepCard, pill: Pill, frame: Frame };
 const edgeTypes = { back: BackEdge };
@@ -209,7 +243,6 @@ const hubs = (() => {
 export const GraphPage = () => {
   const [hubKey, setHub] = useAtom(hubParam);
   const [runKey, setRun] = useAtom(runParam);
-  const selected = useAtomValue(selectedStepAtom);
   const { value: real = [] } = useAtomValue(runsAtom);
 
   const hub = hubs.find(h => h.key === hubKey) ?? hubs[0];
@@ -240,12 +273,6 @@ export const GraphPage = () => {
 
   if (!hub || !hub.fixtures.length) return <Muted>This hub has no workflows.</Muted>;
 
-  const [workflowName, stepName] = selected?.split('/') ?? [];
-  const fixture = hub.fixtures.find(f => f.workflow.name === workflowName);
-  const step = fixture?.workflow.steps.find(s => s.name === stepName);
-  const story =
-    picked &&
-    storyOf(visitsOf(graphOf(picked.fixture.workflow, picked.fixture.checks, picked.run), picked.trail, picked.run));
   return (
     <div className="flex h-full min-h-0 flex-col">
       {served && served.problems.length > 0 && (
@@ -285,7 +312,7 @@ export const GraphPage = () => {
                 {'trace' in picked ? `Live, run ${picked.run.id}` : 'Simulated run'}, {picked.run.status} at{' '}
                 {picked.run.step}.
               </span>{' '}
-              {story}
+              {storyOfRun(picked)}
             </>
           ) : hub.key === served?.name ? (
             'The workflows as written. A blue step holds runs that are live now.'
@@ -294,22 +321,7 @@ export const GraphPage = () => {
           )}
         </p>
       </div>
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1">
-          <ReactFlowProvider>
-            <Canvas shown={hub.fixtures} picked={picked} />
-          </ReactFlowProvider>
-        </div>
-        {fixture && (
-          <aside className="w-80 shrink-0 overflow-y-auto border-l border-zinc-200 dark:border-zinc-800">
-            {step ? (
-              <StepDetails fixture={fixture} step={step} run={picked?.fixture === fixture ? picked : undefined} />
-            ) : (
-              <WorkflowDetails workflow={fixture.workflow} />
-            )}
-          </aside>
-        )}
-      </div>
+      <WorkflowGraph shown={hub.fixtures} picked={picked} />
       <Legend />
     </div>
   );
