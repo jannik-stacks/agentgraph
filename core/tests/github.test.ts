@@ -349,7 +349,7 @@ describe('githubForge', () => {
       'POST /repos/o/r/issues/7/labels': [],
       'DELETE /repos/o/r/issues/7/labels/needs%20work': {},
       'POST /repos/o/r/pulls': { html_url: 'https://github.com/o/r/pull/9' },
-      'POST /repos/o/r/issues': { id: 555, html_url: 'https://github.com/o/r/issues/10' },
+      'POST /repos/o/r/issues': { id: 555, number: 10, html_url: 'https://github.com/o/r/issues/10' },
       'POST /repos/o/r/issues/7/sub_issues': {},
     });
     const applied = await run(
@@ -361,7 +361,7 @@ describe('githubForge', () => {
             { kind: 'comment', body: 'done' },
             { kind: 'label', add: ['ready'], remove: ['needs work', 'gone'] },
             { kind: 'pull_request', branch: 'bothub/7', base: 'main', title: 'Fix', body: 'Closes #7' },
-            { kind: 'issue', title: 'Follow up', body: 'later', parent: 7 },
+            { kind: 'issue', title: 'Follow up', body: 'later', parent: 7, labels: ['size/M'] },
             { kind: 'back', why: 'no' },
           ] satisfies Proposal[],
           p => forge.apply(7, p)
@@ -382,9 +382,12 @@ describe('githubForge', () => {
       ['DELETE', '/repos/o/r/issues/7/labels/needs%20work', undefined],
       ['DELETE', '/repos/o/r/issues/7/labels/gone', undefined],
       ['POST', '/repos/o/r/pulls', { title: 'Fix', head: 'bothub/7', base: 'main', body: 'Closes #7' }],
-      ['POST', '/repos/o/r/issues', { title: 'Follow up', body: 'later' }],
+      ['POST', '/repos/o/r/issues', { title: 'Follow up', body: 'later', labels: ['size/M'] }],
       ['POST', '/repos/o/r/issues/7/sub_issues', { sub_issue_id: 555 }],
     ]);
+    expect(applied[3]!.id).toBe('10');
+    const minted = f.calls.filter(c => c.path.endsWith('/access_tokens')).map(c => c.body);
+    expect(minted).toContainEqual({ permissions: { issues: 'write' }, repositories: ['r'] });
   });
 
   it('edits a comment, replies under a review comment and reacts with eyes', async () => {

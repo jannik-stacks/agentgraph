@@ -55,11 +55,11 @@ export type Proposal =
   | { kind: 'rebase'; branch: string; from: string; onto: string }
   | { kind: 'pull_request'; branch: string; base: string; title: string; body: string }
   | { kind: 'merge'; number: number; head: string }
-  | { kind: 'issue'; title: string; body: string; parent?: number }
+  | { kind: 'issue'; title: string; body: string; parent?: number; labels?: string[] }
   | { kind: 'ask'; question: string }
   | { kind: 'back'; why: string };
 
-/** How a proposal landed; `id` is the comment a reply posted or edited. */
+/** How a proposal landed; `id` is the comment a reply posted or edited, or the number of an issue opened. */
 export type Applied = { proposal: Proposal; ok: boolean; url?: string; id?: string; reason?: string };
 
 export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string }> {}
@@ -112,7 +112,7 @@ const me = 'bothub[bot]';
 /**
  * A forge in a folder, for tests. `<n>.md` is an issue (frontmatter title, state, author, labels, parent; then the
  * body), `<n>.jsonl` its timeline of events, `<n>.reactions` the 👀 given, and a folder `<n>/` makes it a pull request (`pull.json`, `diff.patch`).
- * Branches live in the git remote of the worktree a push comes from. Authors ending in `[bot]` are not trusted.
+ * Branches live in the git remote of the worktree a push comes from. Authors ending in `[bot]` are not trusted, and their issues' text is withheld.
  */
 export const fileForge = (dir: string): Layer.Layer<Forge> =>
   Layer.effect(
@@ -147,6 +147,11 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
           url: md(n),
         };
       };
+      /** The issue as an agent may read it: an outsider's title and text withheld. */
+      const shown = (t: Issue): Issue =>
+        !t.author?.endsWith('[bot]') || t.author === me
+          ? t
+          : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
       const write = async ({ number, body, url: _url, pull, ...front }: Issue) => {
         await mkdir(dir, { recursive: true });
         await writeFile(md(number), `---\n${stringify(front)}---\n\n${body}\n`);
@@ -256,12 +261,10 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
             await say({ issue: p.number, kind: 'merged' });
             return { proposal: p, ok: true, url: pr.url };
           }
-          case 'issue':
-            return {
-              proposal: p,
-              ok: true,
-              url: md(await open({ title: p.title, body: p.body, parent: p.parent ?? n })),
-            };
+          case 'issue': {
+            const k = await open({ title: p.title, body: p.body, parent: p.parent ?? n, labels: p.labels ?? [] });
+            return { proposal: p, ok: true, url: md(k), id: String(k) };
+          }
           case 'react':
             await appendFile(join(dir, `${n}.reactions`), `eyes ${p.comment ?? `#${n}`}\n`);
             return { proposal: p, ok: true };
@@ -281,11 +284,14 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         issues: filter =>
           io(async () => {
             const all = await Promise.all((await numbers()).map(read));
-            return all.filter((t): t is Issue => t !== undefined).filter(matches(filter));
+            return all
+              .filter((t): t is Issue => t !== undefined)
+              .filter(matches(filter))
+              .map(shown);
           }),
         issue: n =>
           io(async () => ({
-            ...(await must(n)),
+            ...shown(await must(n)),
             events: (await eventsOf(n)).map(m =>
               m.comment && !m.trusted && m.actor !== me
                 ? { ...m, comment: { ...m.comment, body: withheld(m.actor) } }

@@ -170,6 +170,7 @@ const scopes = {
   read: { contents: 'read', issues: 'read', pull_requests: 'read' },
   checks: { checks: 'read', statuses: 'read' },
   comment: { issues: 'write', pull_requests: 'write' },
+  issue: { issues: 'write' },
   push: { contents: 'write' },
   pull_request: { contents: 'read', pull_requests: 'write' },
   merge: { contents: 'write', pull_requests: 'write' },
@@ -733,18 +734,15 @@ export const githubForge = (
           return Effect.as(gh('PUT', `${repo}/pulls/${p.number}/merge`, { sha: p.head }, 'merge'), {});
         case 'issue':
           return Effect.gen(function* () {
-            const made = yield* gh<{ id: number; html_url: string }>(
+            const fields = { title: p.title, body: p.body, ...(p.labels?.length && { labels: p.labels }) };
+            const made = yield* gh<{ id: number; number: number; html_url: string }>(
               'POST',
               `${repo}/issues`,
-              {
-                title: p.title,
-                body: p.body,
-              },
-              'comment'
+              fields,
+              'issue'
             );
-            if (p.parent !== undefined)
-              yield* gh('POST', `${repo}/issues/${p.parent}/sub_issues`, { sub_issue_id: made.id }, 'comment');
-            return { url: made.html_url };
+            yield* gh('POST', `${repo}/issues/${p.parent ?? number}/sub_issues`, { sub_issue_id: made.id }, 'issue');
+            return { url: made.html_url, id: String(made.number) };
           });
       }
     };
