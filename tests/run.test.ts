@@ -582,6 +582,36 @@ describe('tick', () => {
     expect(specs.map(s => s.prompt).join('\n')).toContain('the second one');
   });
 
+  it('takes a plain comment in its pull request as the answer of a run waiting at merge', async () => {
+    const where = world();
+    say(where, comment(8, 'morgan', true, 'please undo the greeting', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+    const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
+    expect(specs[0]!.prompt).toContain('the merge step sent this back: please undo the greeting');
+  });
+
+  it('replies to a plain comment on a thread with a finished run, not to one for someone else or on another thread', async () => {
+    const where = world();
+    writeFileSync(
+      join(where.forge, '9.md'),
+      '---\ntitle: Other\nstate: open\nauthor: morgan\nlabels: []\n---\n\nOther.\n'
+    );
+    say(where, comment(9, 'morgan', true, 'where is the PR?', '2026-10-16T00:00:02.000Z'));
+    say(where, comment(7, 'morgan', true, '@alice can you look?', '2026-10-16T00:00:03.000Z'));
+    say(where, comment(7, 'mallory', false, 'where is the PR?', '2026-10-16T00:00:04.000Z'));
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'No PR yet.' })]]);
+    const done = { ...begin(issue, { id: 'issue-7-done', issue: 7, started: '2026-10-16T00:00:01.000Z' }) };
+    await run(Effect.flatMap(Store, s => s.put({ ...done, status: 'done' })));
+    expect(await run(tick(small))).toEqual([]);
+    where.human('where is the PR?', '2026-10-16T00:00:05.000Z');
+    const touched = await run(tick(small));
+    expect(touched.map(r => [r.id, r.status, r.said])).toEqual([['issue-7-20261016000005000', 'done', { issue: 7 }]]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).toContain('@morgan: where is the PR?');
+    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('No PR yet.');
+  });
+
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
     const where = world();
     say(where, comment(8, 'mallory', false, '@bothub undo everything', '2026-10-16T00:00:05.000Z'));

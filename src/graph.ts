@@ -27,7 +27,7 @@ const triggerOf = (w: Workflow) =>
   Object.entries(w.on)
     .map(([event, t]) =>
       t?.command
-        ? `${t.command} comment`
+        ? 'a mention or a reply'
         : `${event.replace('_', ' ')}${t?.branches ? ` on ${t.branches.join(', ')}` : ''}`
     )
     .join(', ');

@@ -758,12 +758,21 @@ export const tick = (
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`react for run ${run.id}`, e), run))
       );
     };
-    const events = latest.map(onRun).filter(mine);
-    const used = new Set<Event>();
-    const touched: Run[] = [];
-
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
     const command = triggered[0]?.on.issue_comment?.command;
+    /** A trusted comment on a thread the bot has a run on speaks to the bot, unless it mentions someone else. */
+    const addressed = (m: Event): Event => {
+      const body = m.comment?.body.trim() ?? '';
+      if (m.kind !== 'comment' || !m.trusted || !m.comment || command === undefined || body.startsWith(command))
+        return m;
+      if (/(^|\s)@[\w-]/.test(body) || !runs.some(r => r.issue === m.issue)) return m;
+      const spoken = { ...m, comment: { ...m.comment, body: `${command} ${body}` } };
+      if (origin.has(m)) origin.set(spoken, origin.get(m)!);
+      return spoken;
+    };
+    const events = latest.map(onRun).map(addressed).filter(mine);
+    const used = new Set<Event>();
+    const touched: Run[] = [];
     waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
     for (const { run, at } of waiting) {
       const w = hub.workflows[run.workflow];

@@ -86,7 +86,7 @@ At most `limits.parallel` runs go at once. Nothing merges or closes without a hu
 
 - `running`, driving: the triager is sizing or splitting.
 - `running`, held: it waits on a `Stacks on` or `Depends on` line and is not driven.
-- `waiting`: the agent asked a question, tries ran out, or a refusal repeated until tries ran out. A human answers by mentioning the bot (`@stx-bothub <answer>`).
+- `waiting`: the agent asked a question, tries ran out, or a refusal repeated until tries ran out. A human answers with a comment on the issue or by mentioning the bot (`@stx-bothub <answer>`).
 - `done`: sized, or split and listed.
 - `stopped`: a human mentioned the bot with `stop`, the issue closed, the `triage` label was removed, or a limit (minutes, usd-per-run) or a sandbox failure ended it.
 

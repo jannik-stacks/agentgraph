@@ -15,6 +15,8 @@ event → run begins → step: session → checks → feedback to the same sessi
 
 On GitHub, mentioning the bot is the main way to talk to it: a comment counts when it says `@` and the App's name (`@stx-bothub`) as a word anywhere outside quoted lines and fenced code, because mentions autocomplete and slash commands do not. `/bothub` works the same as a fallback. The engine reads either as `/bothub` followed by the rest of the comment (`code: src/forge.ts#commanded`). A bare mention with no words starts the workflow too. On an issue with no live run a mention that only says `stop` starts nothing.
 
+Once the bot has a run on an issue, it treats that thread like a coworker would. Any comment there from a collaborator with write access speaks to the bot without a mention, whether the run is still going, waiting or finished, unless the comment mentions someone else. A waiting run takes it as its answer. When the runs there are finished, it starts the comment workflow, so a question like "where is the PR?" gets a reply. Comments in the run's pull request count for its issue. The bot's own comments never count (`code: src/engine.ts#tick`).
+
 `pull_request` and `branches` are accepted in `on:` but start nothing yet.
 
 Only a collaborator with write access starts a run. An outsider's comment or label is ignored, and their text is withheld from agents.
@@ -93,7 +95,7 @@ An agent step with `back` also needs `until`, a sentence saying when the step is
 
 Going forward into a step starts a fresh session. Going back keeps the session that step had (`code: src/workflow.ts#transition`).
 
-A `wait: human` step with `back` goes back when a human asks for changes by mentioning the bot or a review requesting changes. A review approval, an `approved` label or a merge passes it.
+A `wait: human` step with `back` goes back when a human asks for changes in a comment on the thread or a review requesting changes. A review approval, an `approved` label or a merge passes it.
 
 ## Several models
 
@@ -116,7 +118,7 @@ The studio marks a step with more than one reviewing agent with a chip that name
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question on the issue.
 
-A human answers by mentioning the bot, `@stx-bothub <answer>`, which becomes feedback for the same step. `@stx-bothub stop` ends a waiting run. The question is its own comment, kept as the record; the status comment points at it and carries that instruction; `/bothub` works in place of the mention. Closing the issue ends it too.
+A human answers with a comment on the thread or by mentioning the bot, `@stx-bothub <answer>`, which becomes feedback for the same step. `@stx-bothub stop` ends a waiting run. The question is its own comment, kept as the record; the status comment points at it and carries that instruction; `/bothub` works in place of the mention. Closing the issue ends it too.
 
 `node bin/run.ts status` lists what waits, with the command that continues each run (`code: src/status.ts#needsYou`).
 
