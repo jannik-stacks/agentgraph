@@ -31,8 +31,10 @@ for (const [file, s] of Object.entries(text)) {
     for (const c of body) {
       if ('({['.includes(c)) depth++;
       if (')}]'.includes(c)) depth--;
-      if (c === ',' && depth === 0) (pieces.push(piece), (piece = ''));
-      else piece += c;
+      if (c === ',' && depth === 0) {
+        pieces.push(piece);
+        piece = '';
+      } else piece += c;
     }
     pieces.push(piece);
     for (const p of pieces) {

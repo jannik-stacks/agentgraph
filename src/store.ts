@@ -117,7 +117,7 @@ export const fileStore = (dir: string): Layer.Layer<Store> => {
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
         const holder = Number(await readFile(path, 'utf8').catch(() => '0'));
-        if (holder && alive(holder)) throw new Error(`held by ${holder}`);
+        if (holder && alive(holder)) throw new Error(`held by ${holder}`, { cause: e });
         await rm(path, { force: true });
       }
     }

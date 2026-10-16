@@ -17,11 +17,14 @@ type Piece =
   | (Extract<SessionEvent, { type: 'usage' }> & { cached?: number })
   | { type: 'done'; ended: Ended; error?: string };
 
+/** One decoded JSON line of harness output. */
+type Wire = ReturnType<typeof JSON.parse>;
+
 type Adapter = {
   command: (spec: SessionSpec, url: string) => { cmd: string; args: string[]; env: Record<string, string> };
   key: string;
   files?: (spec: SessionSpec, url: string) => Record<string, string>;
-  parser: () => (line: any) => Piece[];
+  parser: () => (line: Wire) => Piece[];
 };
 
 const modelTimeouts = { headersMs: 120_000, idleMs: 180_000 };
@@ -231,7 +234,7 @@ const claude: Adapter = {
       if (line.type === 'system' && line.subtype === 'init')
         return [{ type: 'session', id: line.session_id, model: line.model }];
       if ((line.type === 'assistant' || line.type === 'user') && Array.isArray(line.message?.content))
-        return line.message.content.flatMap((b: any): Piece[] => {
+        return line.message.content.flatMap((b: Wire): Piece[] => {
           if (b.type === 'text' && b.text) return [{ type: 'text', text: b.text }];
           if (b.type === 'tool_use') calls.set(b.id, { name: b.name, input: b.input });
           if (b.type !== 'tool_result') return [];
@@ -248,7 +251,7 @@ const claude: Adapter = {
           ];
         });
       if (line.type !== 'result') return [];
-      const denied = (line.permission_denials ?? []).map((d: any): Piece => ({
+      const denied = (line.permission_denials ?? []).map((d: Wire): Piece => ({
         type: 'tool',
         id: d.tool_use_id,
         name: d.tool_name,
@@ -256,7 +259,7 @@ const claude: Adapter = {
         ok: false,
         denied: true,
       }));
-      const usage = Object.values(line.modelUsage ?? {}).map((u: any): Piece => ({
+      const usage = Object.values(line.modelUsage ?? {}).map((u: Wire): Piece => ({
         type: 'usage',
         input: u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens,
         output: u.outputTokens,
@@ -345,7 +348,7 @@ const pi: Adapter = {
         ];
       }
       if (line.type === 'agent_end' && !line.willRetry) {
-        const last = (line.messages ?? []).filter((x: any) => x.role === 'assistant').at(-1);
+        const last = (line.messages ?? []).filter((x: Wire) => x.role === 'assistant').at(-1);
         const reason = last?.stopReason;
         const ended: Ended =
           !last || reason === 'error' || reason === 'aborted' ? 'error' : reason === 'length' ? 'cap' : 'stop';

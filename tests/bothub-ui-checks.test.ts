@@ -17,8 +17,8 @@ const studioChange = (before: Record<string, string>, after: Record<string, stri
 const check = (script: string, repo: { dir: string; base: string }, ...args: string[]) =>
   runScript(join(scripts, script), repo, args);
 
-const silenced = '@ts-' + 'ignore';
-const loose = 'as ' + 'any';
+const silenced = ['@ts-', 'ignore'].join('');
+const loose = ['as ', 'any'].join('');
 
 describe('code-shape check, studio UI rules', () => {
   it('fails the cost tilde, the arrow before its number and the native title the dashboard first shipped with', () => {
