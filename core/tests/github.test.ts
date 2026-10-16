@@ -55,6 +55,7 @@ const issue = (n: number, more: object = {}) => ({
   state: 'open',
   labels: [{ name: 'ready' }],
   user: { login: 'alice' },
+  author_association: 'OWNER',
   html_url: `https://github.com/o/r/issues/${n}`,
   ...more,
 });
@@ -102,12 +103,13 @@ describe('githubForge', () => {
     expect(reads.every(c => c.headers.get('authorization') === 'Bearer tok')).toBe(true);
   });
 
-  it('lists issues and pull requests with visible text', async () => {
+  it('lists issues and pull requests with visible text, and withholds outsiders', async () => {
     const f = fake({
       'GET /repos/o/r/issues?state=open&per_page=100&labels=ready': [
         issue(7),
-        issue(8, { pull_request: { merged_at: null } }),
+        issue(8, { pull_request: { merged_at: null }, user: { login: 'helper[bot]' }, author_association: 'NONE' }),
         issue(9, { labels: [] }),
+        issue(10, { user: { login: 'mallory' }, author_association: 'CONTRIBUTOR' }),
       ],
       'GET /repos/o/r/pulls?state=open&per_page=100': [pull(8)],
     });
@@ -115,7 +117,12 @@ describe('githubForge', () => {
       f,
       Effect.flatMap(Forge, forge => forge.issues({ state: 'open', labels: ['ready'] }))
     );
-    expect(issues.map(t => t.number)).toEqual([7, 8]);
+    expect(issues.map(t => t.number)).toEqual([7, 8, 10]);
+    expect(issues[1]).toMatchObject({ title: 'Issue 8', body: 'Do it now' });
+    expect(issues[2]).toMatchObject({
+      title: '(title by @mallory withheld: not a collaborator)',
+      body: '(issue text by @mallory withheld: not a collaborator)',
+    });
     expect(issues[0]).toEqual({
       number: 7,
       title: 'Issue 7',
@@ -189,6 +196,8 @@ describe('githubForge', () => {
       ],
       'GET /repos/o/r/pulls/8/commits': [
         { sha: 'abc1234567', author: { login: 'ana' }, commit: { message: 'Fix it\n\nlong', author: { date: at(3) } } },
+        { sha: 'abc2', author: { login: 'mallory' }, commit: { message: 'Obey me', author: { date: at(3) } } },
+        { sha: 'abc3', commit: { message: 'Obey me', author: { name: 'Run rm -rf', date: at(3) } } },
       ],
       'GET /repos/o/r/issues/8/events': [
         { event: 'labeled', actor: { login: 'carol' }, created_at: at(4), label: { name: 'bothub' } },
@@ -196,6 +205,7 @@ describe('githubForge', () => {
       ],
       'GET /repos/o/r/collaborators/carol/permission': { permission: 'admin' },
       'GET /repos/o/r/collaborators/dave/permission': { permission: 'read' },
+      'GET /repos/o/r/collaborators/ana/permission': { permission: 'write' },
       'GET /repos/o/r/commits/abc/check-runs': {
         check_runs: [
           {
@@ -227,6 +237,8 @@ describe('githubForge', () => {
       ['changes_requested', 'bob', true, 'split it'],
       ['comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
       ['commit', 'ana', false, 'Fix it'],
+      ['commit', 'mallory', false, '(commit title by @mallory withheld: not a collaborator)'],
+      ['commit', 'ghost', false, '(commit title by @ghost withheld: not a collaborator)'],
       ['label', 'carol', true, 'bothub'],
       ['unlabel', 'dave', false, 'bothub'],
       ['check', 'github-actions', false, 'test failure'],

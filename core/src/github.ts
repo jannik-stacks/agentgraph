@@ -24,6 +24,7 @@ type RestIssue = {
   state: 'open' | 'closed';
   labels: (string | { name?: string })[];
   user?: User;
+  author_association?: string;
   html_url: string;
   pull_request?: { merged_at?: string | null } | null;
 };
@@ -264,15 +265,17 @@ export const githubForge = (
         return items;
       });
 
-    const toIssue = (i: RestIssue, pull?: RestPull, parent?: number): Issue => {
+    const toIssue = (i: RestIssue, self: string, pull?: RestPull, parent?: number): Issue => {
       const own = pull?.head.repo?.full_name === app.repo;
+      const author = login(i.user);
+      const shown = members.has(i.author_association ?? '') || author === `${self}[bot]`;
       return {
         number: i.number,
-        title: visible(i.title),
-        body: visible(i.body),
+        title: shown ? visible(i.title) : withheld(author, 'title'),
+        body: shown ? visible(i.body) : withheld(author, 'issue text'),
         state: i.pull_request?.merged_at || pull?.merged_at ? 'merged' : i.state,
         labels: i.labels.map(l => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
-        author: login(i.user),
+        author,
         ...(parent !== undefined && { parent }),
         ...(pull && {
           pull: {
@@ -354,7 +357,8 @@ export const githubForge = (
           ? yield* all<RestPull>(`${repo}/pulls?state=${listState(state)}&per_page=100`)
           : [];
         const byNumber = new Map(pulls.map(p => [p.number, p]));
-        return issues.map(i => toIssue(i, byNumber.get(i.number), parent)).filter(matches(filter));
+        const self = yield* me;
+        return issues.map(i => toIssue(i, self, byNumber.get(i.number), parent)).filter(matches(filter));
       });
 
     /** The checks and statuses on a commit: name and conclusion only. Without the permission to read them, none. */
@@ -406,22 +410,31 @@ export const githubForge = (
           { concurrency: 'unbounded' }
         );
         const merged = events.some(e => e.event === 'merged');
+        const may = writer();
         const timeline: Event[] = [
           ...[...said, ...lined].map(c => heard(number, c, self)),
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
-          ...commits.map(c => ({
-            issue: number,
-            kind: 'commit' as const,
-            actor: c.author ? login(c.author) : (c.commit.author?.name ?? 'ghost'),
-            trusted: false,
-            at: c.commit.author?.date ?? '',
-            commit: { sha: c.sha, title: visible(c.commit.message.split('\n')[0]) },
-          })),
+          ...(yield* Effect.forEach(commits, c =>
+            Effect.map(
+              login(c.author) === `${self}[bot]` ? Effect.succeed(true) : may(c.author),
+              (shown): Event => ({
+                issue: number,
+                kind: 'commit',
+                actor: login(c.author),
+                trusted: false,
+                at: c.commit.author?.date ?? '',
+                commit: {
+                  sha: c.sha,
+                  title: shown ? visible(c.commit.message.split('\n')[0]) : withheld(login(c.author), 'commit title'),
+                },
+              })
+            )
+          )),
           ...(yield* Effect.forEach(events, e => evented(number, e, merged))).flatMap(m => m ?? []),
           ...(pull ? yield* checked(number, pull.head.sha) : []),
         ];
         return {
-          ...toIssue(issue, pull, parent?.number),
+          ...toIssue(issue, self, pull, parent?.number),
           events: timeline.sort((a, b) => a.at.localeCompare(b.at)),
         };
       });

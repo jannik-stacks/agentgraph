@@ -103,8 +103,8 @@ export const matches =
     (filter.parent === undefined || t.parent === filter.parent) &&
     (filter.labels ?? []).every(l => t.labels.includes(l));
 
-/** The text shown in place of a comment from someone who is not a collaborator. */
-export const withheld = (author: string) => `(comment by @${author} withheld: not a collaborator)`;
+/** The text shown in place of a comment, or another `what`, from someone who is not a collaborator. */
+export const withheld = (author: string, what = 'comment') => `(${what} by @${author} withheld: not a collaborator)`;
 
 const execGit = promisify(execFile);
 const me = 'bothub[bot]';
