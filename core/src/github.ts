@@ -1,6 +1,15 @@
 import { createPrivateKey, sign } from 'node:crypto';
 import { Effect, Layer, Redacted, Stream } from 'effect';
-import { Forge, ForgeError, type Applied, type Comment, type Message, type Proposal, type Thread } from './forge.ts';
+import {
+  commanded,
+  Forge,
+  ForgeError,
+  type Applied,
+  type Comment,
+  type Message,
+  type Proposal,
+  type Thread,
+} from './forge.ts';
 import { hostGit, type Work } from './sandbox.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -65,25 +74,6 @@ const visible = (text: string | null | undefined) => (text ?? '').replace(hidden
 const login = (user: User) => user?.login ?? 'ghost';
 const isBot = (user: User) => user?.type === 'Bot' || login(user).endsWith('[bot]');
 const numberIn = (url = '') => Number(/\/(\d+)$/.exec(url)?.[1]);
-
-/** The text after `/bothub` or `@<slug>` written as a word outside quoted lines and fenced code. */
-const commanded = (body: string, slug: string): string | undefined => {
-  const word = new RegExp(`(^|\\s)(?:/bothub|@${slug.replace(/[^\w-]/g, '')})(?=$|[\\s,:])`, 'i');
-  let fenced = false;
-  let offset = 0;
-  for (const line of body.split('\n')) {
-    const start = offset;
-    offset += line.length + 1;
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    if (fenced || /^\s*>/.test(line)) continue;
-    const found = word.exec(line);
-    if (found)
-      return body
-        .slice(start + found.index + found[0].length)
-        .replace(/^[,:]/, '')
-        .trim();
-  }
-};
 
 /** An RS256 JWT that authenticates as the App for ten minutes. */
 const appJwt = (id: string, pem: string, now: number) => {
@@ -372,11 +362,7 @@ export const githubForge = (
             { concurrency: 4 }
           );
 
-          const text = (body: string | null | undefined) => {
-            const shown = visible(body);
-            const request = commanded(shown, self);
-            return request === undefined ? shown : `/bothub ${request}`.trim();
-          };
+          const text = (body: string | null | undefined) => commanded(visible(body), self);
           const heard = (thread: number, c: RestComment, kind: Message['kind'] = 'comment'): Message => {
             const trusted = members.has(c.author_association) && !isBot(c.user);
             const comment = toComment(c, self);

@@ -328,6 +328,72 @@ describe('tick', () => {
     expect(git(where.origin, 'rev-parse', `${kept}^`)).toBe(git(where.origin, 'rev-parse', 'main'));
     expect(git(where.origin, 'show', `${kept}^2:hello.txt`)).toBe('hello');
   }, 30_000);
+
+  const issue = small.workflows.issue!;
+  const merging = {
+    ...small,
+    workflows: {
+      issue: {
+        ...issue,
+        steps: [
+          ...issue.steps,
+          { name: 'merge', does: { wait: 'human' as const }, checks: [], tries: 1, back: { to: 'implement' } },
+        ],
+      },
+    },
+  };
+  /** Run 7 waiting at merge with its implement session kept, and pull request #8 on its branch. */
+  const waiting = (where: ReturnType<typeof world>) => {
+    writeFileSync(
+      join(where.forge, '8.md'),
+      '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+    );
+    mkdirSync(join(where.forge, '8'));
+    writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch: 'bothub/7', into: 'main', head: 'x' }));
+    return Effect.flatMap(Store, s =>
+      s.put({
+        ...begin(merging.workflows.issue, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' }),
+        step: 'merge',
+        status: 'waiting',
+        sessions: { implement: { id: 'a', home: '/homes/a' } },
+      })
+    );
+  };
+  const comment = (thread: number, actor: string, trusted: boolean, body: string, at: string): Message => ({
+    thread,
+    kind: 'comment',
+    actor,
+    trusted,
+    at,
+    comment: { id: at, author: actor, body, at },
+  });
+
+  it('wakes a run waiting at merge on a mention in its pull request and resumes the work session there', async () => {
+    const where = world();
+    say(where, comment(8, 'morgan', true, '@bothub please undo the greeting', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply(push, { kind: 'reply', body: 'Undone.' })],
+    ]);
+    const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.resume?.id).toBe('a');
+    expect(specs[0]!.prompt).toBe('the merge step sent this back: please undo the greeting');
+    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
+    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
+  }, 30_000);
+
+  it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
+    const where = world();
+    say(where, comment(8, 'mallory', false, '@bothub undo everything', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'bothub[bot]', false, '/bothub undo everything', '2026-10-16T00:00:06.000Z'));
+    const { specs, run } = services(where, []);
+    expect(await run(Effect.zipRight(waiting(where), tick(merging, 7)))).toEqual([]);
+    where.human('/bothub stop not needed', '2026-10-16T00:00:07.000Z');
+    const stopped = await run(tick(merging, 7));
+    expect(stopped.map(r => [r.id, r.status, r.reason])).toEqual([['run-7', 'stopped', 'not needed']]);
+    expect(specs).toHaveLength(0);
+  }, 30_000);
 });
 
 describe('start with one issue', () => {

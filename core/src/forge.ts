@@ -58,6 +58,26 @@ export class Forge extends Context.Tag('bothub/Forge')<
   }
 >() {}
 
+/** A body that says `/bothub` or `@<slug>` as a word outside quoted lines and fenced code, as `/bothub <the rest>`. */
+export const commanded = (body: string, slug: string): string => {
+  const word = new RegExp(`(^|\\s)(?:/bothub|@${slug.replace(/[^\w-]/g, '')})(?=$|[\\s,:])`, 'i');
+  let fenced = false;
+  let offset = 0;
+  for (const line of body.split('\n')) {
+    const start = offset;
+    offset += line.length + 1;
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    if (fenced || /^\s*>/.test(line)) continue;
+    const found = word.exec(line);
+    if (found)
+      return `/bothub ${body
+        .slice(start + found.index + found[0].length)
+        .replace(/^[,:]/, '')
+        .trim()}`.trim();
+  }
+  return body;
+};
+
 const execGit = promisify(execFile);
 const me = 'bothub[bot]';
 
@@ -222,6 +242,11 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
               (await Promise.all((await numbers()).map(messages)))
                 .flat()
                 .filter(m => m.at > cursor)
+                .map(m =>
+                  m.trusted && m.comment
+                    ? { ...m, comment: { ...m.comment, body: commanded(m.comment.body, 'bothub') } }
+                    : m
+                )
                 .sort((a, b) => a.at.localeCompare(b.at))
             )
           ),

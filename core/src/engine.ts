@@ -86,8 +86,15 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Proposal[];
 const squeeze = (text: string, max = 1500) =>
   text.length <= max ? text.trim() : `${text.slice(0, max / 2).trim()}\n...\n${text.slice(-max / 2).trim()}`;
 
-const expand = (template: string, t: Thread) =>
+const expand = (template: string, t: Pick<Thread, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
+
+/** The open pull request on the branch a run of `w` on `thread` works on. */
+const pullOf = (w: Workflow, thread: number, open: Thread[]) =>
+  w.branch === undefined
+    ? undefined
+    : open.find(t => t.pull?.branch === expand(w.branch!, open.find(t => t.number === thread) ?? { number: thread }))
+        ?.number;
 
 const sh = (
   script: string,
@@ -308,7 +315,10 @@ export const attempt = (
     if (gated.kind !== 'pass') return done(gated, tried);
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
-    const applied = yield* land(tried, world, work);
+    const to = world.some(p => p.kind === 'reply')
+      ? pullOf(w, run.thread, yield* Effect.flatMap(Forge, f => f.threads({ state: 'open' })))
+      : undefined;
+    const applied = yield* land(tried, world, work, to);
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
     const failed = applied.filter(a => !a.ok);
     return done(
@@ -360,12 +370,17 @@ export const gate = (
     return { outcome, usd };
   });
 
-/** Applies the accepted proposals after a pass, pushes first. */
-export const land = (run: Run, proposals: Proposal[], work?: Work): Effect.Effect<Applied[], ForgeError, Forge> =>
+/** Applies the accepted proposals after a pass, pushes first. Replies go to thread `to` when given. */
+export const land = (
+  run: Run,
+  proposals: Proposal[],
+  work?: Work,
+  to?: number
+): Effect.Effect<Applied[], ForgeError, Forge> =>
   Effect.flatMap(Forge, forge =>
     Effect.forEach(
       [...proposals].sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push')),
-      p => forge.apply(run.thread, p, work)
+      p => forge.apply(p.kind === 'reply' && to !== undefined ? to : run.thread, p, work)
     )
   );
 
@@ -432,7 +447,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 
 /**
- * One look at the repo: reenter parked runs, begin new ones, drive up to `limits.working`. With `only`, it looks at
+ * One look at the repo: reenter parked runs, begin new ones, drive up to `limits.working`. What is said on the pull
+ * request a run opened counts as said on the run's thread. With `only`, it looks at
  * that thread alone and begins a run there when none was live, command or not; with `fresh` too, only when the thread
  * never had a run.
  */
@@ -455,7 +471,19 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       .sort()
       .at(-1);
     const cursor = started === undefined ? '' : [started, ...parked.map(p => p.at)].sort()[0]!;
-    const messages = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor))).filter(mine);
+    const threads = yield* forge.threads({ state: 'open' });
+    const onRun = (m: Message): Message => {
+      const r = runs.find(
+        r =>
+          r.thread !== m.thread &&
+          hub.workflows[r.workflow] &&
+          pullOf(hub.workflows[r.workflow]!, r.thread, threads) === m.thread
+      );
+      return r ? { ...m, thread: r.thread } : m;
+    };
+    const messages = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)))
+      .map(onRun)
+      .filter(mine);
     const used = new Set<Message>();
     const touched: Run[] = [];
 
@@ -477,7 +505,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     }
 
     const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.thread}`));
-    const open = new Set((yield* forge.threads({ state: 'open' })).map(t => t.number));
+    const open = new Set(threads.map(t => t.number));
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
     const start = (w: Workflow, thread: number, at: string) =>
       Effect.gen(function* () {
