@@ -128,8 +128,8 @@ const itemsOf = (each: string | { run: string }, work: Work, minutes: number) =>
 
 type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit'>;
 
-/** One harness session: every event and how the session ended become trace lines. */
-const converse = (run: string, step: string, spec: SessionSpec) =>
+/** One harness session: what it was opened with, every event and how it ended become trace lines. */
+const converse = (run: string, step: string, spec: SessionSpec, item?: string) =>
   Effect.gen(function* () {
     const session = yield* Session;
     const store = yield* Store;
@@ -141,6 +141,7 @@ const converse = (run: string, step: string, spec: SessionSpec) =>
         step,
         session: { ...(seen.id !== undefined && { id: seen.id }), resumed: !!spec.resume, ...how, usd: seen.usd },
       });
+    yield* store.trace(run, { at: now(), step, brief: spec, ...(item !== undefined && { item }) });
     yield* session.open(spec).pipe(
       Stream.runForEach(event => {
         if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
@@ -177,16 +178,21 @@ const verdictOf = (run: string, step: Step, check: Doc<Check>, work: Work, hub: 
         if (!check.judge) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
         const bot = hub.bots[check.judge]!;
         const input = out?.output ?? item ?? (yield* diffOf(work, minutes));
-        const judged = yield* converse(run, step.name, {
-          harness: bot.harness,
-          bot: check.judge,
-          minutes: hub.limits.minutes,
-          ...(bot.model !== undefined && { model: bot.model }),
-          system: bot.body,
-          prompt: `${check.body}\n\n${input}\n\nReply PASS or FAIL first, then why.`,
-          dir: work.dir,
-          tools: bot.tools,
-        });
+        const judged = yield* converse(
+          run,
+          step.name,
+          {
+            harness: bot.harness,
+            bot: check.judge,
+            minutes: hub.limits.minutes,
+            ...(bot.model !== undefined && { model: bot.model }),
+            system: bot.body,
+            prompt: `${check.body}\n\n${input}\n\nReply PASS or FAIL first, then why.`,
+            dir: work.dir,
+            tools: bot.tools,
+          },
+          item
+        );
         usd += judged.usd;
         return { item, pass: /^\W*PASS\b/.test(judged.final), findings: judged.final, ...exit };
       });
@@ -274,17 +280,22 @@ export const attempt = (
         .join('\n\n');
       const items: (string | undefined)[] = step.each ? yield* itemsOf(step.each, work, minutes) : [undefined];
       for (const item of items) {
-        const r = yield* converse(run.id, step.name, {
-          harness: bot.harness,
-          bot: step.does.bot,
-          minutes,
-          ...(bot.model !== undefined && { model: bot.model }),
-          system: bot.body,
-          prompt: kept ? (run.carry ?? 'Continue.') : item === undefined ? brief : `${brief}\n\n## Item\n\n${item}`,
-          dir: work.dir,
-          tools: bot.tools,
-          ...(kept && { resume: kept }),
-        });
+        const r = yield* converse(
+          run.id,
+          step.name,
+          {
+            harness: bot.harness,
+            bot: step.does.bot,
+            minutes,
+            ...(bot.model !== undefined && { model: bot.model }),
+            system: bot.body,
+            prompt: kept ? (run.carry ?? 'Continue.') : item === undefined ? brief : `${brief}\n\n## Item\n\n${item}`,
+            dir: work.dir,
+            tools: bot.tools,
+            ...(kept && { resume: kept }),
+          },
+          item
+        );
         replies.push(r.final);
         tried = {
           ...tried,

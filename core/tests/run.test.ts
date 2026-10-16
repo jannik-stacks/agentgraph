@@ -6,6 +6,7 @@ import { Chunk, Effect, Layer, Redacted, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drive, sweep, tick } from '../src/engine.ts';
 import { start as main } from '../src/main.ts';
+import { harnesses } from '../src/harnesses.ts';
 import { fileForge, Forge, type Message, type Proposal } from '../src/forge.ts';
 import { host, Sandbox, type Command } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
@@ -165,6 +166,19 @@ describe('drive', () => {
     expect(specs[4]!.prompt).toContain('+hello');
 
     const trace = traceOf(where.data, 'run-7');
+    const briefs = trace.flatMap(t => ('brief' in t ? [t.brief] : []));
+    expect(briefs).toEqual(specs);
+    const first = trace.findIndex(t => 'brief' in t && t.step === 'implement');
+    expect(trace[first + 1]).toMatchObject({ step: 'implement', event: { type: 'start', session: 'i1' } });
+    const replayed = trace.reduce<Partial<Run>>((run, t) => {
+      if (!('saved' in t)) return run;
+      const next: Partial<Run> = { ...run, ...t.saved };
+      for (const k of t.cleared ?? []) delete next[k];
+      return next;
+    }, {});
+    expect(replayed).toEqual(asked);
+    const resumed = trace.flatMap(t => ('saved' in t && t.saved.sessions ? [t.saved.sessions] : []));
+    expect(resumed).toContainEqual(expect.objectContaining({ implement: { id: 'i1', home: '/homes/i1' } }));
     const sessions = trace.flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'stop', exit: 0, usd: 0.5 });
     expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
@@ -232,6 +246,44 @@ describe('drive', () => {
     expect(stops).toContainEqual({ kind: 'stop', why: 'SessionStop: no scripted session left' });
     const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions).toEqual([{ resumed: false, ended: 'provider', usd: 0 }]);
+  }, 30_000);
+
+  it('never writes a proxy key into the trace, even when the harness prints it', async () => {
+    const where = world();
+    const key = 'sk-bh-fake-0123456789abcdef';
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        lines: () =>
+          Stream.fromIterable([
+            JSON.stringify({ type: 'text', sessionID: 's1', part: { type: 'text', text: `the key is ${key}` } }),
+            JSON.stringify({
+              type: 'tool_use',
+              sessionID: 's1',
+              part: {
+                type: 'tool',
+                tool: 'bash',
+                callID: 'c1',
+                state: { status: 'completed', input: { command: 'env' }, output: `BOTHUB_LLM_API_KEY=${key}` },
+              },
+            }),
+            'bothub-exit 0',
+          ]),
+      }))
+    ).pipe(Layer.provide(host(where.origin)));
+    const keys = Redacted.make(
+      Object.keys(hub.bots)
+        .map(bot => `${bot}=${key}`)
+        .join(',')
+    );
+    const session = harnesses({ data: where.data, proxy: { url: 'http://proxy', keys } }).pipe(Layer.provide(sandbox));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, session);
+    await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
+    const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
+    expect(text).toContain('"brief"');
+    expect(text).toContain('BOTHUB_LLM_API_KEY=***');
+    expect(text).not.toContain(key);
   }, 30_000);
 });
 
@@ -465,14 +517,11 @@ describe('sweep', () => {
       [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'Done.' })],
       [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'Done.' })],
     ]);
-    const touched = await run(
-      Effect.gen(function* () {
-        const store = yield* Store;
-        yield* store.put(parked(8, 'asking'));
-        yield* store.put(parked(9, 'waiting'));
-        return yield* sweep(small);
-      })
-    );
+    for (const r of [parked(8, 'asking'), parked(9, 'waiting')]) {
+      mkdirSync(join(where.data, r.id), { recursive: true });
+      writeFileSync(join(where.data, r.id, 'run.json'), JSON.stringify(r));
+    }
+    const touched = await run(sweep(small));
     expect(touched.map(r => r.thread).sort()).toEqual([7, 8]);
     expect(touched.find(r => r.thread === 9)).toBeUndefined();
     expect(specs).toHaveLength(2);

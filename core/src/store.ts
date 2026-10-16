@@ -3,11 +3,15 @@ import { join } from 'node:path';
 import { Context, Data, Effect, Layer, Stream, type Scope } from 'effect';
 import type { Verdict } from './check.ts';
 import type { Applied } from './forge.ts';
-import type { AgentEvent, SessionStop } from './session.ts';
+import type { AgentEvent, SessionSpec, SessionStop } from './session.ts';
 import type { Outcome, Run } from './workflow.ts';
 
-/** One line of a run's trace. */
+/**
+ * One line of a run's trace. A `brief` line holds everything a session is opened with and precedes its events. A
+ * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed.
+ */
 export type Trace = { at: string; step: string } & (
+  | { brief: SessionSpec; item?: string }
   | { event: AgentEvent }
   | {
       session: {
@@ -21,7 +25,22 @@ export type Trace = { at: string; step: string } & (
   | { verdict: Verdict; item?: string; exit?: number }
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
+  | { saved: Partial<Run>; cleared?: (keyof Run)[] }
 );
+
+/** The trace line for a put of `next` over `before`, or none when nothing changed. */
+const changes = (before: Run | undefined, next: Run): Trace | undefined => {
+  const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(next)])] as (keyof Run)[];
+  const changed = keys.filter(k => JSON.stringify(before?.[k]) !== JSON.stringify(next[k]));
+  if (changed.length === 0) return;
+  const cleared = changed.filter(k => next[k] === undefined);
+  return {
+    at: new Date().toISOString(),
+    step: next.step,
+    saved: Object.fromEntries(changed.filter(k => next[k] !== undefined).map(k => [k, next[k]])),
+    ...(cleared.length > 0 && { cleared }),
+  };
+};
 
 export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {}
 
@@ -49,7 +68,10 @@ const alive = (pid: number) => {
   }
 };
 
-/** A run is `<dir>/<id>/run.json` and its trace `<dir>/<id>/trace.jsonl`. Locks are files whose holder is a pid. */
+/**
+ * A run is `<dir>/<id>/run.json` and its trace `<dir>/<id>/trace.jsonl`; every put that changes the run also traces
+ * what changed. Locks are files whose holder is a pid.
+ */
 export const fileStore = (dir: string): Layer.Layer<Store> => {
   const io = <A>(path: string, f: () => Promise<A>) =>
     Effect.tryPromise({ try: f, catch: cause => new StoreError({ path, cause }) });
@@ -79,6 +101,12 @@ export const fileStore = (dir: string): Layer.Layer<Store> => {
     throw new Error('lock contended');
   };
 
+  const trace = (id: string, ...lines: Trace[]) =>
+    io(traceFile(id), async () => {
+      await mkdir(join(dir, id), { recursive: true });
+      await appendFile(traceFile(id), lines.map(line => `${JSON.stringify(line)}\n`).join(''));
+    });
+
   return Layer.succeed(Store, {
     get: readRun,
     list: filter =>
@@ -92,17 +120,17 @@ export const fileStore = (dir: string): Layer.Layer<Store> => {
         )
       ),
     put: run =>
-      io(runFile(run.id), async () => {
-        await mkdir(join(dir, run.id), { recursive: true });
-        const tmp = `${runFile(run.id)}.tmp`;
-        await writeFile(tmp, `${JSON.stringify(run, null, 2)}\n`);
-        await rename(tmp, runFile(run.id));
+      Effect.gen(function* () {
+        const line = changes(yield* readRun(run.id), run);
+        yield* io(runFile(run.id), async () => {
+          await mkdir(join(dir, run.id), { recursive: true });
+          const tmp = `${runFile(run.id)}.tmp`;
+          await writeFile(tmp, `${JSON.stringify(run, null, 2)}\n`);
+          await rename(tmp, runFile(run.id));
+        });
+        if (line) yield* trace(run.id, line);
       }),
-    trace: (id, ...lines) =>
-      io(traceFile(id), async () => {
-        await mkdir(join(dir, id), { recursive: true });
-        await appendFile(traceFile(id), lines.map(line => `${JSON.stringify(line)}\n`).join(''));
-      }),
+    trace,
     read: (id, from = 0) =>
       Stream.fromIterableEffect(
         io(traceFile(id), () =>

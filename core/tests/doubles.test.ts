@@ -22,7 +22,7 @@ afterEach(() => {
 const w = fixture('acme-app').workflows.issue!;
 
 describe('fileStore', () => {
-  it('puts, lists and reads back runs and their trace from a line on', async () => {
+  it('puts, lists and reads back runs and their trace, tracing what each put changed', async () => {
     const run = begin(w, { id: 'r1', thread: 3, started: '2026-10-16T00:00:00Z' });
     const lines = await Effect.runPromise(
       Effect.gen(function* () {
@@ -38,10 +38,18 @@ describe('fileStore', () => {
         expect(yield* store.get('r1')).toEqual(run);
         expect(yield* store.get('nope')).toBeUndefined();
         expect((yield* store.list({ thread: 4 })).map(r => r.id)).toEqual(['r2']);
-        return Chunk.toArray(yield* Stream.runCollect(store.read('r1', 1)));
+        yield* store.put(run);
+        yield* store.put({ ...run, status: 'asking', reason: 'why' });
+        yield* store.put({ ...run, status: 'asking' });
+        return Chunk.toArray(yield* Stream.runCollect(store.read('r1')));
       }).pipe(Effect.provide(fileStore(temp())))
     );
-    expect(lines.map(l => l.at)).toEqual(['b']);
+    expect(lines[0]).toMatchObject({ step: 'triage', saved: run });
+    expect(lines.slice(1, 3).map(l => l.at)).toEqual(['a', 'b']);
+    expect(lines.slice(3)).toMatchObject([
+      { saved: { status: 'asking', reason: 'why' } },
+      { saved: {}, cleared: ['reason'] },
+    ]);
   });
 
   it('holds a lock for its scope and refuses a second holder', async () => {
