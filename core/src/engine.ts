@@ -1,5 +1,6 @@
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
+import { context, type Threads } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
 import type { Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Work } from './sandbox.ts';
@@ -95,6 +96,16 @@ const pullOf = (w: Workflow, thread: number, open: Thread[]) =>
     ? undefined
     : open.find(t => t.pull?.branch === expand(w.branch!, open.find(t => t.number === thread) ?? { number: thread }))
         ?.number;
+
+/** The run's issue and the pull request on its branch, fetched before every session. */
+export const threadsOf = (w: Workflow, run: Run): Effect.Effect<Threads, ForgeError, Forge> =>
+  Effect.gen(function* () {
+    const forge = yield* Forge;
+    const issue = yield* forge.thread(run.thread);
+    const pull =
+      issue.pull || w.branch === undefined ? undefined : pullOf(w, run.thread, yield* forge.threads({ state: 'open' }));
+    return { issue, ...(pull !== undefined && { pull: yield* forge.thread(pull) }) };
+  });
 
 const sh = (
   script: string,
@@ -258,14 +269,14 @@ export const attempt = (
       replies.push(out.output);
     } else {
       const bot = hub.bots[step.does.bot]!;
-      const thread = yield* Effect.flatMap(Forge, f => f.thread(run.thread));
+      const t = yield* threadsOf(w, run);
+      const thread = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const kinds = [...bot.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       const brief = [
         step.does.skill && hub.skills[step.does.skill]?.body,
         w.body,
-        `## #${thread.number} ${thread.title}\n\n${thread.body}`,
-        ...thread.messages.flatMap(m => (m.comment ? [`@${m.comment.author}: ${m.comment.body}`] : [])),
+        context(t),
         w.branch &&
           `Work on the branch ${expand(w.branch, thread)}; pull requests go into ${thread.pull?.into ?? expand(w.into ?? 'main', thread)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,

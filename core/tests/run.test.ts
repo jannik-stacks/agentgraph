@@ -329,6 +329,36 @@ describe('setup', () => {
 const say = (where: ReturnType<typeof world>, m: Message) =>
   appendFileSync(join(where.forge, `${m.thread}.jsonl`), `${JSON.stringify(m)}\n`);
 
+const comment = (thread: number, actor: string, trusted: boolean, body: string, at: string): Message => ({
+  thread,
+  kind: 'comment',
+  actor,
+  trusted,
+  at,
+  comment: { id: at, author: actor, body, at },
+});
+const check = (thread: number, name: string, conclusion: string, at: string): Message => ({
+  thread,
+  kind: 'check',
+  actor: 'ci',
+  trusted: false,
+  at,
+  check: { name, conclusion },
+});
+
+/** Pull request #8 on run 7's branch. */
+const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {
+  writeFileSync(
+    join(where.forge, '8.md'),
+    '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+  );
+  mkdirSync(join(where.forge, '8'), { recursive: true });
+  writeFileSync(
+    join(where.forge, '8', 'pull.json'),
+    JSON.stringify({ branch: 'bothub/7', into: 'main', head: 'x', base })
+  );
+};
+
 describe('tick', () => {
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
 
@@ -398,12 +428,7 @@ describe('tick', () => {
   };
   /** Run 7 waiting at merge with its implement session kept, and pull request #8 on its branch. */
   const waiting = (where: ReturnType<typeof world>) => {
-    writeFileSync(
-      join(where.forge, '8.md'),
-      '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
-    );
-    mkdirSync(join(where.forge, '8'));
-    writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch: 'bothub/7', into: 'main', head: 'x' }));
+    pullRequest(where);
     return Effect.flatMap(Store, s =>
       s.put({
         ...begin(merging.workflows.issue, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' }),
@@ -413,14 +438,6 @@ describe('tick', () => {
       })
     );
   };
-  const comment = (thread: number, actor: string, trusted: boolean, body: string, at: string): Message => ({
-    thread,
-    kind: 'comment',
-    actor,
-    trusted,
-    at,
-    comment: { id: at, author: actor, body, at },
-  });
 
   it('wakes a run waiting at merge on a mention in its pull request and resumes the work session there', async () => {
     const where = world();
@@ -529,5 +546,24 @@ describe('sweep', () => {
     expect(specs).toHaveLength(2);
     expect(specs.map(s => s.prompt).join('\n')).toContain('hi');
     expect(await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)))).toHaveProperty('length', 0);
+  }, 30_000);
+});
+
+describe('coworker', () => {
+  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const flow = small.workflows.issue!;
+  const begun = () => begin(flow, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' });
+
+  it('briefs a fresh session with the issue, its pull request and its checks', async () => {
+    const where = world();
+    pullRequest(where);
+    say(where, comment(8, 'ana', true, 'mind the edge case', '2026-10-16T00:00:02.000Z'));
+    say(where, check(8, 'test', 'failure', '2026-10-16T00:00:03.000Z'));
+    const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+    await run(drive(flow, begun(), small));
+    expect(specs[0]!.prompt).toContain('## Pull request #8 Add hello');
+    expect(specs[0]!.prompt).toContain('#7 @morgan: /bothub');
+    expect(specs[0]!.prompt).toContain('#8 @ana: mind the edge case');
+    expect(specs[0]!.prompt).toContain('#8 check test: failure');
   }, 30_000);
 });
