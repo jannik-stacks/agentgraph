@@ -11,6 +11,7 @@ if [ $# -eq 0 ]; then
   for hub in examples/*/hub.yaml; do node bin/run.ts check --hub "${hub%/hub.yaml}" >/dev/null || exit 1; done
   node bin/fields.mjs || exit 1
   node bin/refs.mjs >/dev/null || { node bin/refs.mjs; exit 1; }
+  node bin/refs.mjs --coverage >/dev/null || { node bin/refs.mjs --coverage | grep -v '^uncited export'; exit 1; }
   node bin/diagrams.mjs || echo 'diagrams: misaligned (warning only for now)'
   node bin/commands.mjs >/dev/null || exit 1
   npx --no-install knip >/dev/null || { npx --no-install knip; exit 1; }
