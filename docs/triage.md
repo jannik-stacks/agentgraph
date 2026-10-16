@@ -1,6 +1,6 @@
 # Triage
 
-Triage is a workflow in the example hub (`workflows/triage.md`, agent `triager`). A maintainer adds the `triage` label to an issue. The agent reads the issue and the code and sizes it from XS to XL.
+Triage is a workflow in the sandbox hub (`examples/sandbox/workflows/triage.md`, agent `triager`). A maintainer adds the `triage` label to an issue. The agent reads the issue and the code and sizes it from XS to XL.
 
 Triage implements, merges and closes nothing. The triager has read-only tools (`read`, `grep`, `glob`) and may return `comment`, `label`, `issue` and `ask`.
 
@@ -26,7 +26,7 @@ Triage implements, merges and closes nothing. The triager has read-only tools (`
 The agent proposes exactly one `size/<size>` label on the issue.
 
 - XS is a line or two.
-- S is small.
+- S is a few lines in one or two places.
 - M is one function and its test.
 - L is one pull request a reviewer reads in one sitting.
 - XL is more than that.
