@@ -46,7 +46,7 @@ The file is rewritten whole each time, so a run can be picked up on another mach
 `trace.jsonl` is append-only. Every line has a time and a step, and one of these kinds:
 
 - `prompt`: what a session was opened with: harness, model, system prompt, prompt and tools.
-- `event`: something the session did, as the harness reported it: text, a tool call, usage or the end.
+- `event`: something the session did, as the harness reported it: text, a tool call, usage (with cache reads and writes where the harness reports them) or the end.
 - `session`: how a session ended, whether it resumed one, and what it cost.
 - `check`: one check's result, with its output when it failed. A fan-out also writes one line per item.
 - `applied`: a proposal and whether it was applied, with its URL or the reason it was not.

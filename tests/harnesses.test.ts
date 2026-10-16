@@ -74,6 +74,7 @@ describe('the session loop', () => {
       type: 'usage',
       input: 3263,
       output: 19,
+      cacheRead: 3072,
       usd: (191 * 1.25 + 3072 * 0.125 + 19 * 10) / 1e6,
     });
     const { events: unpriced } = await events(spec, sample('opencode-denied.jsonl'));
@@ -272,7 +273,7 @@ describe('claude', () => {
         input: { file_path: '/tmp/x/add.js' },
       }),
       { type: 'text', text: final },
-      { type: 'usage', input: 4 + 8401 + 2340, output: 177 },
+      { type: 'usage', input: 4 + 8401 + 2340, output: 177, cacheRead: 8401, cacheWrite: 2340 },
       { type: 'end', final, ended: 'stop', exit: 0 },
     ]);
   });
@@ -341,5 +342,12 @@ describe('pi', () => {
       { type: 'usage', input: 1300, output: 5 },
       { type: 'end', final: 'done', ended: 'stop', exit: 0 },
     ]);
+  });
+
+  it('records cache reads and writes', async () => {
+    const usage = { input: 10, output: 2, cacheRead: 300, cacheWrite: 40 };
+    const line = JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [], usage } });
+    const { events: got } = await events(pi, [line]);
+    expect(got[0]).toEqual({ type: 'usage', input: 350, output: 2, cacheRead: 300, cacheWrite: 40 });
   });
 });

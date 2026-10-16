@@ -32,7 +32,8 @@ export type SessionEvent =
       exit?: number;
       denied?: true;
     }
-  | { type: 'usage'; input: number; output: number; usd?: number }
+  /** `input` counts every input token, cache reads and writes among them. */
+  | { type: 'usage'; input: number; output: number; cacheRead?: number; cacheWrite?: number; usd?: number }
   | { type: 'end'; final: string; ended: 'stop' | 'cap' | 'error'; exit: number };
 
 export class SessionStop extends Data.TaggedError('SessionStop')<{

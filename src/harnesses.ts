@@ -14,7 +14,7 @@ type Tool = Extract<SessionEvent, { type: 'tool' }>;
 type Piece =
   | { type: 'session'; id: string; model?: string }
   | Extract<SessionEvent, { type: 'text' | 'tool' }>
-  | (Extract<SessionEvent, { type: 'usage' }> & { cached?: number })
+  | Extract<SessionEvent, { type: 'usage' }>
   | { type: 'done'; ended: Ended; error?: string };
 
 type Adapter = {
@@ -88,6 +88,12 @@ const PiLine = Struct({
   result: opt(Struct(some(Unknown, 'content'))),
   message: opt(PiMessage),
   messages: opt(Schema.Array(PiMessage)),
+});
+
+/** Cache token counts, only where the harness reported some. */
+const cache = (read = 0, write = 0) => ({
+  ...(read > 0 && { cacheRead: read }),
+  ...(write > 0 && { cacheWrite: write }),
 });
 
 const modelTimeouts = { headersMs: 120_000, idleMs: 180_000 };
@@ -216,7 +222,7 @@ const opencode: Adapter = {
                 type: 'usage',
                 input: (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0),
                 output: t.output ?? 0,
-                cached: t.cache?.read ?? 0,
+                ...cache(t.cache?.read, t.cache?.write),
                 ...(part.cost && { usd: part.cost }),
               },
             ]
@@ -336,7 +342,7 @@ const claude: Adapter = {
           type: 'usage',
           input: inputTokens + cacheReadInputTokens + cacheCreationInputTokens,
           output: outputTokens,
-          cached: cacheReadInputTokens,
+          ...cache(cacheReadInputTokens, cacheCreationInputTokens),
         })
       );
       const ended: Ended =
@@ -416,7 +422,7 @@ const pi: Adapter = {
                   type: 'usage' as const,
                   input: (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0),
                   output: u.output ?? 0,
-                  cached: u.cacheRead ?? 0,
+                  ...cache(u.cacheRead, u.cacheWrite),
                   ...(u.cost?.total && { usd: u.cost.total }),
                 },
               ]
@@ -466,17 +472,17 @@ type Prices = {
 
 /** The usage's list price when the harness reports none, as a subscription through the proxy does. */
 const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
-  const { cached = 0, ...usage } = u;
-  if (usage.usd) return usage;
+  const cached = u.cacheRead ?? 0;
+  if (u.usd) return u;
   const bare = (model: string) => model.split('/').at(-1) ?? model;
   const price = models
     .flatMap(model => [model, prices.aliases?.[model] ?? model])
     .map(model => prices.models?.[model] ?? prices.models?.[bare(model)])
     .find(Boolean);
-  if (!price) return usage;
+  if (!price) return u;
   const usd =
     ((u.input - cached) * price.input + cached * (price.cached ?? price.input) + u.output * price.output) / 1e6;
-  return { ...usage, usd };
+  return { ...u, usd };
 };
 
 /** Writes `text` to `path` under `home` without following a link the sandbox may have left in the home. */
