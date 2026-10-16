@@ -242,7 +242,8 @@ export const docker = (o: {
                 )
               );
               const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
-              if (exists) yield* inMirror(['fetch', '--prune', 'origin', '+refs/*:refs/*', ours], env);
+              if (exists)
+                yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', '+refs/*:refs/*', ours], env);
               else {
                 yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
                 yield* Effect.asVoid(hostGit(env, ['clone', '--mirror', o.origin, mirror]));

@@ -319,6 +319,23 @@ describe('docker checkout', () => {
     expect(git(mirror, 'worktree', 'list', '--porcelain')).not.toContain(dir);
   }, 30_000);
 
+  it('fetches while a live checkout claims a branch as its HEAD', async () => {
+    const data = tmp('data');
+    const repo = origin();
+    const layer = docker({ data, origin: repo });
+    const exit = await use(layer, s =>
+      Effect.gen(function* () {
+        const c = yield* s.checkout('main');
+        const admin = readFileSync(join(c.dir, '.git'), 'utf8').slice('gitdir: '.length).trim();
+        writeFileSync(join(admin, 'HEAD'), 'ref: refs/heads/main\n');
+        git(repo, 'commit', '-q', '--allow-empty', '-m', 'moved');
+        const next = yield* s.checkout('main');
+        return next.base === git(repo, 'rev-parse', 'main');
+      })
+    );
+    expect(exit).toEqual(Exit.succeed(true));
+  });
+
   it('fails for a ref that does not exist', async () => {
     const exit = await use(docker({ data: tmp('data'), origin: origin() }), s => s.checkout('nope'));
     expect(JSON.stringify(exit)).toContain('no commit for nope');
