@@ -737,4 +737,36 @@ describe('coworker', () => {
       expect.stringMatching(/^Waiting for an answer/),
     ]);
   }, 30_000);
+
+  it('replies where the human answered: on the pull request, and under a review comment in its thread', async () => {
+    const where = world();
+    pullRequest(where);
+    const { run } = services(where, [
+      [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
+      [start('a'), reply({ kind: 'ask', question: 'And bye?' })],
+      [start('a'), reply({ kind: 'reply', body: 'Said bye.' })],
+    ]);
+    const at = () => new Date(Date.now() + 1).toISOString();
+    const review = comment(8, 'morgan', true, '/bothub yes, bye too', '');
+    const [again, done] = await run(
+      Effect.gen(function* () {
+        yield* drive(flow, begun(), small);
+        say(where, comment(8, 'morgan', true, '/bothub hello', at()));
+        const [again] = yield* tick(small, 7);
+        review.at = review.comment!.at = review.comment!.id = at();
+        say(where, { ...review, comment: { ...review.comment!, path: 'hello.txt', line: 1 } });
+        const [done] = yield* tick(small, 7);
+        return [again, done];
+      })
+    );
+    expect(again).toMatchObject({ status: 'asking', said: { thread: 8 } });
+    expect(done).toMatchObject({ status: 'done', said: { thread: 8, under: review.at } });
+    const pr = (await run(Effect.flatMap(Forge, f => f.thread(8)))).messages.flatMap(m => m.comment ?? []);
+    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
+      ['And bye?', undefined, undefined],
+      ['Said bye.', review.at, 'hello.txt'],
+    ]);
+    const issue = bodies(await run(Effect.flatMap(Forge, f => f.thread(7))));
+    expect(issue.some(b => b.startsWith('And bye?') || b.startsWith('Said bye.'))).toBe(false);
+  }, 30_000);
 });

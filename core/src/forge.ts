@@ -45,7 +45,7 @@ export type Message = {
 
 /** What a run may change on the repo, and the two proposals that steer the run. `react` is the runner's own. */
 export type Proposal =
-  | { kind: 'reply'; body: string; edit?: string }
+  | { kind: 'reply'; body: string; edit?: string; under?: string }
   | { kind: 'react'; comment?: string; review?: boolean }
   | { kind: 'label'; add?: string[]; remove?: string[] }
   | { kind: 'push'; branch: string; message: string }
@@ -173,7 +173,11 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
               return { proposal: p, ok: true, id: p.edit, url: `${md(n)}#${p.edit}` };
             }
             const id = `${n}-${all.length + 1}`;
-            await say({ thread: n, kind: 'comment', comment: { id, author: me, body: p.body, at: now() } });
+            const parent = p.under === undefined ? undefined : all.find(m => m.comment?.id === p.under)?.comment;
+            if (p.under !== undefined && !parent) return no(`no review comment ${p.under} on #${n}`);
+            const { path, line } = parent ?? {};
+            const placed = { ...(path && { path }), ...(line && { line }), ...(p.under && { under: p.under }) };
+            await say({ thread: n, kind: 'comment', comment: { id, author: me, body: p.body, at: now(), ...placed } });
             return { proposal: p, ok: true, id, url: `${md(n)}#${id}` };
           }
           case 'label': {

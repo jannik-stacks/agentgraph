@@ -580,7 +580,17 @@ export const githubForge = (
     ): Effect.Effect<{ url?: string; id?: string }, ForgeError> => {
       switch (p.kind) {
         case 'reply':
-          return comment(number, p.body, p.edit);
+          return p.under === undefined
+            ? comment(number, p.body, p.edit)
+            : Effect.map(
+                gh<{ id: number; html_url: string }>(
+                  'POST',
+                  `${repo}/pulls/${number}/comments/${p.under}/replies`,
+                  { body: p.body },
+                  'comment'
+                ),
+                c => ({ url: c.html_url, id: String(c.id) })
+              );
         case 'ask':
           return comment(number, p.question);
         case 'react': {

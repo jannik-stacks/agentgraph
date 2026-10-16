@@ -366,6 +366,36 @@ describe('githubForge', () => {
     ]);
   });
 
+  it('edits a comment, replies under a review comment and reacts with eyes', async () => {
+    const f = fake({
+      'PATCH /repos/o/r/issues/comments/11': { id: 11, html_url: 'u11' },
+      'POST /repos/o/r/pulls/8/comments/5/replies': { id: 12, html_url: 'u12' },
+      'POST *': {},
+    });
+    const applied = await run(
+      f,
+      Effect.forEach(
+        [
+          [7, { kind: 'reply', body: 'now', edit: '11' }],
+          [8, { kind: 'reply', body: 'fixed', under: '5' }],
+          [7, { kind: 'react' }],
+          [7, { kind: 'react', comment: '3' }],
+          [8, { kind: 'react', comment: '5', review: true }],
+        ] satisfies [number, Proposal][],
+        ([n, p]) => Effect.flatMap(Forge, forge => forge.apply(n, p))
+      )
+    );
+    expect(applied.map(a => a.id)).toEqual(['11', '12', undefined, undefined, undefined]);
+    const writes = f.calls.filter(c => c.method !== 'GET' && !c.path.startsWith('/app'));
+    expect(writes.map(c => [c.method, c.path, c.body])).toEqual([
+      ['PATCH', '/repos/o/r/issues/comments/11', { body: 'now' }],
+      ['POST', '/repos/o/r/pulls/8/comments/5/replies', { body: 'fixed' }],
+      ['POST', '/repos/o/r/issues/7/reactions', { content: 'eyes' }],
+      ['POST', '/repos/o/r/issues/comments/3/reactions', { content: 'eyes' }],
+      ['POST', '/repos/o/r/pulls/comments/5/reactions', { content: 'eyes' }],
+    ]);
+  });
+
   it('mints each token for the one repository and the permissions of its call', async () => {
     const f = fake({
       'POST /app/installations/9/access_tokens': (body: any) => ({

@@ -53,6 +53,7 @@ export type Run = {
   carry?: string;
   reason?: string;
   comment?: string;
+  said?: { thread: number; under?: string };
   started: string;
   ended?: string;
   usd: number;

@@ -389,9 +389,10 @@ export const attempt = (
     if (gated.kind !== 'pass') return done(gated, tried);
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
-    const to = world.some(p => p.kind === 'reply')
-      ? pullOf(w, run.thread, yield* Effect.flatMap(Forge, f => f.threads({ state: 'open' })))
-      : undefined;
+    const to =
+      world.some(p => p.kind === 'reply') && !run.said
+        ? pullOf(w, run.thread, yield* Effect.flatMap(Forge, f => f.threads({ state: 'open' })))
+        : undefined;
     const applied = yield* land(tried, world, work, to);
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
     const failed = applied.filter(a => !a.ok);
@@ -459,7 +460,7 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
     return reply.ok && reply.id ? { ...rest, comment: reply.id } : rest;
   }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
 
-/** Applies the accepted proposals after a pass, pushes first. Replies go to thread `to` when given. */
+/** Applies the accepted proposals after a pass, pushes first. Replies go where a human last spoke, else to `to`. */
 export const land = (
   run: Run,
   proposals: Proposal[],
@@ -469,7 +470,13 @@ export const land = (
   Effect.flatMap(Forge, forge =>
     Effect.forEach(
       [...proposals].sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push')),
-      p => forge.apply(p.kind === 'reply' && to !== undefined ? to : run.thread, p, work)
+      p =>
+        p.kind === 'reply'
+          ? forge.apply(run.said?.thread ?? to ?? run.thread, {
+              ...p,
+              ...(run.said?.under && { under: run.said.under }),
+            })
+          : forge.apply(run.thread, p, work)
     )
   );
 
@@ -571,6 +578,11 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       origin.set(moved, m.thread);
       return moved;
     };
+    /** Where a human spoke: the thread, and the review comment thread when it was one. */
+    const heard = (m: Message): NonNullable<Run['said']> => {
+      const c = m.kind === 'comment' ? m.comment : undefined;
+      return { thread: origin.get(m) ?? m.thread, ...(c?.path !== undefined && { under: c.under ?? c.id }) };
+    };
     /** 👀 on the comment that woke a run, or on its thread for a label. */
     const eyes = (run: Run, m: Message) =>
       m.kind !== 'comment' && m.kind !== 'label'
@@ -598,7 +610,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       used.add(m);
       const outcome = reenter(w, run, m)!;
       if (m.kind === 'comment') yield* eyes(run, m);
-      const moved = transition(w, run, outcome);
+      const moved = { ...transition(w, run, outcome), said: heard(m) };
       const next = moved.status === 'running' ? moved : yield* show(w, moved);
       yield* store.trace(run.id, {
         at: now(),
@@ -626,7 +638,10 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       );
     const start = (w: Workflow, thread: number, at: string, m?: Message) =>
       Effect.gen(function* () {
-        const begun = begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at });
+        const begun = {
+          ...begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at }),
+          ...(m?.kind === 'comment' && { said: heard(m) }),
+        };
         const run = begun.status === 'running' ? begun : yield* show(w, begun);
         busy.add(`${w.name}#${thread}`);
         yield* store.put(run);
