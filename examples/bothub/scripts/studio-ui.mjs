@@ -5,7 +5,8 @@ import { attrOf, attrText, isNative, meaningful, tagOf, walk } from './ast.mjs';
 
 export const studioFile = path => /^studio\/src\/.*\.tsx$/.test(path) && !path.startsWith('studio/src/lab/');
 const primitives = path => path === 'studio/src/ui.tsx';
-const statusDrawing = path => path === 'studio/src/dashboard/bits.tsx' || path === 'studio/src/studio/icons.tsx';
+const statusDrawing = path =>
+  path === 'studio/src/icons.tsx' || path === 'studio/src/dashboard/bits.tsx' || path === 'studio/src/studio/icons.tsx';
 const markdownHome = path =>
   path === 'studio/src/Markdown.tsx' || /^studio\/src\/(docs|code|source)\//.test(path);
 

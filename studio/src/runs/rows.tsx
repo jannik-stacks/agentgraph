@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Trace } from '../../../src/store.ts';
+import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, cx, Disclosure, Link } from '../ui.tsx';
 import { ToolBody, toolName, toolSummary } from './tools.tsx';
@@ -184,6 +185,11 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean): Row => 
 
 const live = (r: CoreRun) => r.run.status === 'running';
 
+/** A fixed-width cell of a run row, so numbers line up down the list. */
+const Col = ({ className, children }: { className: string; children: ReactNode }) => (
+  <span className={cx('shrink-0 truncate tabular-nums', className)}>{children}</span>
+);
+
 /** A run's issue as a link to it on the forge. */
 const Issue = ({ r }: { r: CoreRun }) =>
   r.repo ? (
@@ -202,14 +208,28 @@ export const runRow = (r: CoreRun, open = false): Row => {
     raw: run,
     summary: (
       <span className="flex min-w-0 items-baseline gap-x-3 font-sans text-[13px]">
-        <Issue r={r} />
-        <Link href={`/runs/${encodeURIComponent(run.id)}`} className="font-medium underline">
-          {run.workflow}
-        </Link>
-        {flag(run.status, run.status !== 'done')}
-        {muted(`at ${run.step}, try ${run.tries}`)}
-        {muted(usd(run.usd))}
-        {muted(took(run.started, live(r) ? undefined : (run.ended ?? trace.at(-1)?.at)))}
+        <Col className="w-9">
+          <Issue r={r} />
+        </Col>
+        <Col className="w-14">
+          <Link href={`/runs/${encodeURIComponent(run.id)}`} className="font-medium underline">
+            {run.workflow}
+          </Link>
+        </Col>
+        <Col className="w-20">
+          {flag(run.status, run.status !== 'done')}
+          {live(r) && (
+            <span className={cx('ml-1.5 align-middle', accent.text)}>
+              <Pulse />
+            </span>
+          )}
+        </Col>
+        <Col className="w-28 text-zinc-500">at {run.step}</Col>
+        <Col className="w-12 text-zinc-500">try {run.tries}</Col>
+        <Col className="w-14 text-right text-zinc-500">{usd(run.usd)}</Col>
+        <Col className="w-24 text-right text-zinc-500">
+          {took(run.started, live(r) ? undefined : (run.ended ?? trace.at(-1)?.at))}
+        </Col>
         <Link href={`/graph?run=${encodeURIComponent(`${r.fixture}:${run.id}`)}`} className="text-zinc-500 underline">
           graph
         </Link>

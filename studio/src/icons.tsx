@@ -58,3 +58,6 @@ export const Icon = ({ name, className = 'size-3.5', title }: { name: Glyph; cla
     {glyphs[name]}
   </svg>
 );
+
+/** A small pulsing dot in the current text color, for a run that is working now. */
+export const Pulse = () => <span aria-hidden className="inline-block size-1.5 animate-pulse rounded-full bg-current" />;
