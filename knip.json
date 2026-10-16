@@ -1,0 +1,25 @@
+{
+  "entry": [
+    "src/main.ts",
+    "bin/*.{ts,mjs}",
+    "tests/**/*.test.ts",
+    "tests/setup/*.ts",
+    "examples/*/scripts/**/*.mjs",
+    "studio/dev.ts",
+    "studio/src/main.tsx",
+    "studio/vite.config.ts"
+  ],
+  "project": ["src/**/*.ts", "bin/**", "studio/**/*.{ts,tsx}", "examples/*/scripts/**"],
+  "vitest": false,
+  "ignoreBinaries": ["continue"],
+  "ignoreDependencies": [
+    "react",
+    "react-dom",
+    "jotai",
+    "@xyflow/react",
+    "@dagrejs/dagre",
+    "fumadocs-core",
+    "@tailwindcss/vite",
+    "@vitejs/plugin-react"
+  ]
+}

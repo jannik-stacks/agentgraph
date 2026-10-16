@@ -8,20 +8,20 @@
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
+    "knip": "knip",
     "format": "oxfmt src tests bin studio",
-    "verify": "oxfmt --check src tests bin studio && oxlint && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs",
+    "verify": "oxfmt --check src tests bin studio && oxlint && knip && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs",
     "precommit": "sh bin/precommit.sh",
     "verify:hubs": "for hub in examples/*/; do [ -e \"${hub}hub.yaml\" ] || continue; node bin/run.ts check --hub \"$hub\" || exit 1; done"
   },
   "dependencies": {
-    "citty": "0.2.2",
     "effect": "3.22.2",
-    "yaml": "2.9.1",
-    "zod": "4.6.6"
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
     "@vitest/coverage-v8": "5.0.4",
+    "knip": "6.41.0",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "typescript": "7.0.2",

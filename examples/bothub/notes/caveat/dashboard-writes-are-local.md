@@ -5,7 +5,7 @@ check: tests
 human: user rule on the backend as source of truth, commenting from the dashboard
 ---
 A dashboard control does not get its own logic. The logic lives once in `src/`: one function that
-validates its input with a zod schema and writes the local backend's files, and starts nothing.
+validates its input with an Effect Schema and writes the local backend's files, and starts nothing.
 `serve` picks the change up like a hand edit. The API route only checks that the request is a local
 JSON write with `localJson`, calls the function and maps its errors to 400 or 404. The studio
 imports the same schema to validate before it sends.

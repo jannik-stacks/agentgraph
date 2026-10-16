@@ -4,7 +4,7 @@ import type { CoreRun } from './runs/trace.ts';
 export const routes = ['graph', 'runs'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
-export const locationAtom = atom(readLocation());
+const locationAtom = atom(readLocation());
 locationAtom.onMount = set => {
   const sync = () => set(readLocation());
   addEventListener('popstate', sync);

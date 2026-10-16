@@ -4,15 +4,15 @@ status: accepted
 check: studio-build
 human: user feedback on the node:crypto browser error
 ---
-The studio imports `src/schema.ts`, `src/config.ts`, `src/graph.ts`, `src/preload.ts` and
-`src/over.ts`, and everything they import. Those modules must not import Node builtins, not even
+The studio imports `src/graph.ts`, `src/workflow.ts`, `src/store.ts`, `src/hub.ts` and everything they
+import. Those modules must not import Node builtins, not even
 for one helper. Keep schemas and pure functions in modules without them, and put the code that
 reads files, hashes or spawns in its own module that only the server imports.
 
 Bad:
 
 ```ts
-// src/schema.ts, which the studio imports
+// src/graph.ts, which the studio imports
 import { createHash } from 'node:crypto';
 export const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 ```
@@ -24,5 +24,5 @@ Good:
 import { createHash } from 'node:crypto';
 export const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 
-// src/schema.ts keeps zod schemas and pure functions
+// src/graph.ts keeps schemas and pure functions
 ```

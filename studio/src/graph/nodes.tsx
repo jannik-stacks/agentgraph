@@ -48,7 +48,7 @@ const paths = {
 };
 
 /** A small glyph in the current text color. */
-export const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; className?: string }) => (
+const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; className?: string }) => (
   <svg
     viewBox="0 0 24 24"
     fill="none"

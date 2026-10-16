@@ -27,12 +27,12 @@ export const Agent = Schema.Struct({
 export type Agent = typeof Agent.Type;
 
 /** The hub-wide limits block. */
-export const Limits = Schema.Struct({
+const Limits = Schema.Struct({
   minutes: Schema.optionalWith(Schema.Number, { default: () => 30 }),
   usdPerRun: Schema.optionalWith(Schema.Number, { default: () => 10 }).pipe(Schema.fromKey('usd-per-run')),
   parallel: Schema.optionalWith(Schema.Int, { default: () => 2 }),
 });
-export type Limits = typeof Limits.Type;
+type Limits = typeof Limits.Type;
 
 /** One repo's hub after `uses:` and the repo override are merged. */
 export type Hub = {

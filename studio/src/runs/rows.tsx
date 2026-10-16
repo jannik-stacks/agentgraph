@@ -15,7 +15,7 @@ export type Row = {
   open?: boolean;
 };
 
-export const usd = (n: number) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
+const usd = (n: number) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
 const tokens = (n: number) =>
   n < 1000 ? String(n) : n < 1e6 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1e6).toFixed(2)}M`;
 const short = (text: string, max = 140) => {
@@ -185,7 +185,7 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean): Row => 
 const live = (r: CoreRun) => r.run.status === 'running';
 
 /** A run's issue as a link to it on the forge. */
-export const Issue = ({ r }: { r: CoreRun }) =>
+const Issue = ({ r }: { r: CoreRun }) =>
   r.repo ? (
     <Url url={`https://github.com/${r.repo}/issues/${r.run.issue}`} text={`#${r.run.issue}`} />
   ) : (

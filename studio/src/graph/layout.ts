@@ -1,7 +1,7 @@
 import dagre from '@dagrejs/dagre';
 import type { Graph } from '../../../src/graph.ts';
 
-export type Box = { x: number; y: number; width: number; height: number };
+type Box = { x: number; y: number; width: number; height: number };
 
 export const stepSize = { width: 224, height: 80 };
 const pillSize = { width: 150, height: 28 };

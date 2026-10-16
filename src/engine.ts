@@ -203,7 +203,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
   });
 
 /** The run's issue and the pull request on its branch, fetched before every session. */
-export const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forge> =>
+const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forge> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
     const issue = yield* forge.issue(run.issue);
@@ -376,7 +376,7 @@ const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hu
   });
 
 /** One try of the current step: a session, a script or a wait, then its checks, then apply proposals on a pass. */
-export const attempt = (
+const attempt = (
   w: Workflow,
   run: Run,
   hub: Hub,
@@ -582,7 +582,7 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
   }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
 
 /** Applies the accepted proposals after a pass, pushes first. Replies go where a human last spoke, else to `to`. */
-export const land = (
+const land = (
   run: Run,
   proposals: Proposal[],
   work?: Checkout,
