@@ -3,14 +3,14 @@ import type { Run, Step, Workflow } from './workflow.ts';
 
 /**
  * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
- * can take before it asks. A check's kind says whether a bot judges it or only a script runs.
+ * can take before it asks. A check's kind says whether an agent judges it or only a script runs.
  */
 export type Graph = {
   trigger: string;
   nodes: {
     step: string;
     doer: string;
-    checks: { name: string; mode: Check['mode']; kind: 'script' | 'bot' }[];
+    checks: { name: string; mode: Check['mode']; kind: 'script' | 'agent' }[];
     tries: number;
     each?: string;
     run?: { tries: number; current: boolean; visited: boolean };
@@ -20,7 +20,7 @@ export type Graph = {
 };
 
 const doer = ({ does }: Step) =>
-  'bot' in does ? (does.skill ? `${does.bot} / ${does.skill}` : does.bot) : 'run' in does ? 'script' : 'human';
+  'agent' in does ? (does.skill ? `${does.agent} / ${does.skill}` : does.agent) : 'run' in does ? 'script' : 'human';
 
 /** What starts a workflow, in a few words. */
 const triggerOf = (w: Workflow) =>
@@ -33,13 +33,13 @@ const triggerOf = (w: Workflow) =>
     .join(', ');
 
 /** Expands a workflow into the graph the studio lays out, with a run drawn over it when given. */
-export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode' | 'judge'>>, run?: Run): Graph {
+export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode' | 'agent'>>, run?: Run): Graph {
   const index = (name: string) => w.steps.findIndex(s => s.name === name);
   const loops = w.steps.flatMap((s, from) =>
     s.back?.rounds !== undefined && !('wait' in s.does) ? [{ to: index(s.back.to), from, rounds: s.back.rounds }] : []
   );
   const visits = (k: number) => 1 + loops.reduce((n, l) => (l.to <= k && k <= l.from ? n + l.rounds : n), 0);
-  const worst = w.steps.reduce((n, s, k) => n + ('bot' in s.does ? s.tries * visits(k) : 0), 0);
+  const worst = w.steps.reduce((n, s, k) => n + ('agent' in s.does ? s.tries * visits(k) : 0), 0);
 
   const current = run ? index(run.step) : -1;
   const reached = run
@@ -54,7 +54,7 @@ export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode' |
     checks: s.checks.map(name => ({
       name,
       mode: checks[name]?.mode ?? 'block',
-      kind: checks[name]?.judge === undefined ? ('script' as const) : ('bot' as const),
+      kind: checks[name]?.agent === undefined ? ('script' as const) : ('agent' as const),
     })),
     tries: s.tries,
     ...(s.each !== undefined && { each: typeof s.each === 'string' ? s.each : s.each.run }),

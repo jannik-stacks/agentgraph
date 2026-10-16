@@ -16,18 +16,18 @@ on: { issue_comment: { command: /bothub } }
 branch: bothub/{issue}
 steps:
   implement:
-    bot: implementor
+    agent: implementor
     tries: 3
     checks: [tests]
   review:
-    bot: reviewer
+    agent: reviewer
     back: implement
     rounds: 2
     until: the change does what the issue asks and the tests cover it
   merge: { wait: human, back: implement }
 ```
 
-A step is one of three kinds: `bot` names an agent, which gets the step's skill (the step's name
+A step is one of three kinds: `agent` names an agent, which gets the step's skill (the step's name
 unless `skill` says otherwise), `run` is a script, and `wait: human` waits for a person. `branch` is
 the branch a run works on, `{issue}` and `{parent}` filled in from the issue, and `base` the branch
 its pull requests go into, `main` by default.
@@ -49,7 +49,7 @@ check's output, and any proposal that failed. `tries` counts the first one. It d
 for a step with checks and 1 for one without. When the tries run out, the run waits and a comment
 on the issue says why.
 
-A check file is a script (`run`, exit 0 passes and the output is the feedback), an agent (`judge`,
+A check file is a script (`run`, exit 0 passes and the output is the feedback), an agent (`agent`,
 which must start its reply with `PASS` or `FAIL`), or both: the script runs and its output goes to
 the agent. `max` caps how many items a fan-out may take.
 

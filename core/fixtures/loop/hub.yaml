@@ -1,4 +1,4 @@
-bots: [implementor, planner, reviewer, writer]
+agents: [implementor, planner, reviewer, writer]
 skills: []
 checks:
   docs-tone: block

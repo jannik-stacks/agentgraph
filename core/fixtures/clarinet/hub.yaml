@@ -1,18 +1,18 @@
-bots: [implementor, reviewer, triager]
+agents: [implementor, reviewer, triager]
 skills: [implement, pr-body, principles, review-hunk, triage]
 checks:
   clippy: block
   conventions-warn: warn
   conventions: block
-  criterion-met: { mode: block, judge: reviewer }
-  entry-points: { mode: warn, judge: reviewer }
+  criterion-met: { mode: block, agent: reviewer }
+  entry-points: { mode: warn, agent: reviewer }
   fmt: block
   limits-warn: warn
   limits: block
   reach: block
-  review-src: { mode: block, judge: reviewer }
+  review-src: { mode: block, agent: reviewer }
   sdk: warn
-  simpler: { mode: block, judge: reviewer }
+  simpler: { mode: block, agent: reviewer }
   tests: block
   triage-brief: block
   wasm: block

@@ -11,14 +11,14 @@ type Simulated = { label: string; trail: Trail; run: Run };
 export type Fixture = {
   id: string;
   workflow: Workflow;
-  checks: Record<string, Pick<Check, 'mode' | 'judge'>>;
+  checks: Record<string, Pick<Check, 'mode' | 'agent'>>;
   runs: Simulated[];
 };
 
 /** Picks the next outcome at a step, or undefined to leave the run where it is. */
 type Policy = (step: Step, run: Run, trail: Trail) => Outcome | undefined;
 
-const isBot = (s: Step) => 'bot' in s.does;
+const isAgent = (s: Step) => 'agent' in s.does;
 const waits = (s: Step) => 'wait' in s.does;
 const pass: Outcome = { kind: 'pass' };
 const sentBack = (s: Step): Outcome => ({ kind: 'back', why: s.back?.until ?? 'not there yet' });
@@ -50,7 +50,7 @@ const at =
   (s, run, trail) =>
     s.name === name ? then(s, run, trail) : pass;
 
-/** The step with the most checks fails twice, then passes; a bot with a way back sends it back once; a human waits. */
+/** The step with the most checks fails twice, then passes; an agent with a way back sends it back once; a human waits. */
 const typical =
   (w: Workflow): Policy =>
   (s, run, trail) => {
@@ -59,7 +59,7 @@ const typical =
     const busiest = w.steps.reduce((a, b) => (b.checks.length > a.checks.length ? b : a));
     if (s === busiest && s.checks.length > 0 && visitsTo(run, trail) === 0 && n < Math.min(2, s.tries - 1))
       return refuse(s, n === 0 ? 3 : 1);
-    if (s.back && isBot(s) && visitsTo(run, trail) === 0) return sentBack(s);
+    if (s.back && isAgent(s) && visitsTo(run, trail) === 0) return sentBack(s);
     return pass;
   };
 
@@ -69,7 +69,7 @@ type Scenario = { label: string; next: Policy };
 export const scenarios = (w: Workflow, checks: Fixture['checks']): Scenario[] => {
   const retried = w.steps.find(s => !waits(s) && s.tries > 1);
   const tried = retried ?? w.steps.find(s => !waits(s));
-  const loop = w.steps.find(s => isBot(s) && s.back?.rounds !== undefined);
+  const loop = w.steps.find(s => isAgent(s) && s.back?.rounds !== undefined);
   const human = w.steps.find(waits);
   const guarded = w.steps.find(s => s.checks.some(c => checks[c]?.mode === 'stop'));
   const one = (when: unknown, item: () => Scenario) => (when ? [item()] : []);

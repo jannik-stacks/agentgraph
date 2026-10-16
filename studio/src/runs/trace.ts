@@ -28,7 +28,7 @@ export const say = (line: Trace) => {
   if ('applied' in line)
     return `${line.applied.proposal.kind} ${line.applied.ok ? 'applied' : `failed: ${line.applied.reason}`}`;
   if ('outcome' in line) return [line.outcome.kind, detail(line.outcome)].filter(Boolean).join(': ');
-  if ('prompt' in line) return `prompt for ${line.prompt.bot}`;
+  if ('prompt' in line) return `prompt for ${line.prompt.agent}`;
   if ('saved' in line) return `saved ${[...Object.keys(line.saved), ...(line.cleared ?? [])].join(', ')}`;
   return line.event.type;
 };

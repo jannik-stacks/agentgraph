@@ -1,38 +1,38 @@
-bots: [checker, implementor, librarian, retro, reviewer, triager]
+agents: [checker, implementor, librarian, retro, reviewer, triager]
 skills: [implement, librarian, pr-body, principles, retro, review-hunk, triage]
 checks:
   code-shape: block
   coverage: block
-  criterion-met: { mode: block, judge: reviewer }
-  docs-stale: { mode: warn, judge: reviewer }
+  criterion-met: { mode: block, agent: reviewer }
+  docs-stale: { mode: warn, agent: reviewer }
   docs-sync: warn
-  docs-tone-marketing: { mode: warn, judge: checker }
-  docs-tone-provenance: { mode: warn, judge: reviewer }
-  docs-tone-repeats: { mode: warn, judge: reviewer }
-  docs-tone-tagline: { mode: warn, judge: reviewer }
+  docs-tone-marketing: { mode: warn, agent: checker }
+  docs-tone-provenance: { mode: warn, agent: reviewer }
+  docs-tone-repeats: { mode: warn, agent: reviewer }
+  docs-tone-tagline: { mode: warn, agent: reviewer }
   enum-copy: warn
   lesson-size: block
   lint: block
-  near-duplicate: { mode: warn, judge: reviewer }
+  near-duplicate: { mode: warn, agent: reviewer }
   notes-followed: warn
   old-tests: warn
   principle-named: warn
   propagation: warn
-  reduce: { mode: block, judge: reviewer }
-  removed: { mode: block, judge: reviewer }
-  review-docs: { mode: warn, judge: reviewer }
-  review-src: { mode: block, judge: reviewer }
-  review-tests: { mode: warn, judge: reviewer }
+  reduce: { mode: block, agent: reviewer }
+  removed: { mode: block, agent: reviewer }
+  review-docs: { mode: warn, agent: reviewer }
+  review-src: { mode: block, agent: reviewer }
+  review-tests: { mode: warn, agent: reviewer }
   risky: warn
   rules: block
   safety: block
-  scope: { mode: warn, judge: reviewer }
+  scope: { mode: warn, agent: reviewer }
   size: block
-  state-transitions: { mode: warn, judge: reviewer }
+  state-transitions: { mode: warn, agent: reviewer }
   studio-build: block
   test-guards: block
   tests: block
-  tooltip-text: { mode: warn, judge: checker }
+  tooltip-text: { mode: warn, agent: checker }
   triage-brief: block
   triage-width: warn
   types: block

@@ -214,7 +214,7 @@ const converse = (run: string, step: string, spec: SessionSpec, item?: string) =
 
 type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
 
-/** One check over what a try left: its items, the command per item, then the judge. Per-item results are traced; judge sessions' cost comes back as `usd`. */
+/** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
 const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hub: Hub) =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -227,21 +227,21 @@ const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hu
         const env = { BOTHUB_BASE: work.base, ...(item !== undefined && { BOTHUB_ITEM: item }) };
         const out = check.run ? yield* sh(check.run, work.dir, env, minutes) : undefined;
         const exit = out && { exit: out.code };
-        if (!check.judge) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
-        const bot = hub.bots[check.judge]!;
+        if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
+        const agent = hub.agents[check.agent]!;
         const input = out?.output ?? item ?? (yield* diffOf(work, minutes));
         const judged = yield* converse(
           run,
           step.name,
           {
-            harness: bot.harness,
-            bot: check.judge,
+            harness: agent.harness,
+            agent: check.agent,
             minutes: hub.limits.minutes,
-            ...(bot.model !== undefined && { model: bot.model }),
-            system: bot.body,
+            ...(agent.model !== undefined && { model: agent.model }),
+            system: agent.body,
             prompt: `${check.body}\n\n${input}\n\nReply PASS or FAIL first, then why.`,
             dir: work.dir,
-            tools: bot.tools,
+            tools: agent.tools,
           },
           item
         );
@@ -323,11 +323,11 @@ export const attempt = (
       if (!result.pass) return done({ kind: 'failed', checks: [result], proposals: [], problems: [] });
       replies.push(out.output);
     } else {
-      const bot = hub.bots[step.does.bot]!;
+      const agent = hub.agents[step.does.agent]!;
       const t = yield* issuesOf(w, run);
       const issue = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
-      const kinds = [...bot.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
+      const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       const prompt = [
         step.does.skill && hub.skills[step.does.skill]?.body,
         w.body,
@@ -354,18 +354,18 @@ export const attempt = (
           run.id,
           step.name,
           {
-            harness: bot.harness,
-            bot: step.does.bot,
+            harness: agent.harness,
+            agent: step.does.agent,
             minutes,
-            ...(bot.model !== undefined && { model: bot.model }),
-            system: bot.body,
+            ...(agent.model !== undefined && { model: agent.model }),
+            system: agent.body,
             prompt: kept
               ? [run.feedback ?? 'Continue.', caught.text].filter(Boolean).join('\n\n')
               : item === undefined
                 ? prompt
                 : `${prompt}\n\n## Item\n\n${item}`,
             dir: work.dir,
-            tools: bot.tools,
+            tools: agent.tools,
             ...(kept && { resume: kept }),
           },
           item
@@ -419,7 +419,7 @@ export const attempt = (
     );
   });
 
-/** The step's checks over what a try left behind: scripts in one batch, bot checks only when no script failed. `usd` is what the bot checks cost. */
+/** The step's checks over what a try left behind: scripts in one batch, agent checks only when no script failed. `usd` is what the agent checks cost. */
 export const gate = (
   step: Step,
   left: Checkout & { run: string; proposals: Proposal[] },
@@ -434,13 +434,13 @@ export const gate = (
     const holds = (c: Check) => c.mode === 'block' || c.mode === 'stop';
     const results = (list: Doc<Check>[]) =>
       Effect.forEach(list, c => resultOf(left.run, step, c, left, hub), { concurrency: 'unbounded' });
-    const scripts = checks.filter(c => !c.judge);
-    const judged = checks.filter(c => c.judge);
+    const scripts = checks.filter(c => !c.agent);
+    const judged = checks.filter(c => c.agent);
     const first = (yield* results(scripts)).map(r => r.result);
     const blocked = first.some((v, i) => !v.pass && holds(scripts[i]!));
-    const bots = blocked ? [] : yield* results(judged);
-    const usd = bots.reduce((sum, r) => sum + r.usd, 0);
-    const all = [...first, ...bots.map(r => r.result)];
+    const agents = blocked ? [] : yield* results(judged);
+    const usd = agents.reduce((sum, r) => sum + r.usd, 0);
+    const all = [...first, ...agents.map(r => r.result)];
     const failed = (mode: Check['mode']) =>
       all.filter(v => !v.pass && checks.find(c => c.name === v.check)?.mode === mode);
 
@@ -450,7 +450,7 @@ export const gate = (
         outcome: { kind: 'stop', why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n') },
         usd,
       };
-    const returns = 'bot' in step.does ? hub.bots[step.does.bot]?.returns : undefined;
+    const returns = 'agent' in step.does ? hub.agents[step.does.agent]?.returns : undefined;
     const proposals: Applied[] = left.proposals
       .filter(p => returns && !returns.some(k => k === p.kind))
       .map(p => ({ proposal: p, ok: false, reason: `${step.name} may not propose ${p.kind}` }));

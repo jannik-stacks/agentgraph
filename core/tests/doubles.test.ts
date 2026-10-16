@@ -80,7 +80,7 @@ describe('fileStore', () => {
     );
     expect(read).toEqual({ ...run, issue: 3, status: 'waiting', feedback: 'fix it', said: { issue: 4 } });
     expect(Chunk.toArray(trace)).toEqual([
-      { at: 'a', step: 'triage', prompt: { prompt: 'p', bot: 'triager' } },
+      { at: 'a', step: 'triage', prompt: { prompt: 'p', agent: 'triager' } },
       lines[1],
       { at: 'c', step: 'triage', saved: {}, cleared: ['feedback'] },
       { at: 'd', step: 'triage', applied: { proposal: { kind: 'pull_request', base: 'main' }, ok: true } },

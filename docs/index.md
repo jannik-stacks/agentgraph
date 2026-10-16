@@ -14,7 +14,7 @@ the body is prose for the model or for you.
 ```
 hub/
   hub.yaml
-  bots/implementor.md      who acts
+  agents/implementor.md    who acts
   skills/implement.md      what to do
   checks/tests.md          what decides "done"
   workflows/issue.md       events to steps

@@ -124,7 +124,7 @@ export const SessionBlock = ({ session, running }: { session: Session; running: 
         open={running && !end}
         summary={
           <span className="flex min-w-0 flex-wrap gap-x-2">
-            <span className="font-medium">{spec ? spec.bot : 'session'}</span>
+            <span className="font-medium">{spec ? spec.agent : 'session'}</span>
             {spec && (
               <span className="text-zinc-500">
                 {spec.harness}

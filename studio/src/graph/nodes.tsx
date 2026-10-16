@@ -20,7 +20,7 @@ type GraphNode = Graph['nodes'][number];
 type GraphEdge = Graph['edges'][number];
 
 const paths = {
-  bot: (
+  agent: (
     <>
       <rect x="4" y="8" width="16" height="12" rx="3" />
       <path d="M12 4v4M9 13v1M15 13v1" />
@@ -65,11 +65,11 @@ export const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths
 
 /** What a step does, as its left rule color. */
 const doerColor = {
-  bot: 'border-l-indigo-500',
+  agent: 'border-l-indigo-500',
   script: 'border-l-slate-500',
   human: 'border-l-amber-500',
 };
-const kindOf = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'bot');
+const kindOf = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
 
 const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
 
@@ -286,7 +286,7 @@ export const Frame = ({ data: { workflow, trigger, worst, selected, width, heigh
         <span className="text-[13px] font-semibold">{workflow}</span>
         <span className="text-[11px] text-zinc-500">
           on {trigger}
-          {worst > 0 && `, at most ${worst} bot sessions before it asks you`}
+          {worst > 0 && `, at most ${worst} agent sessions before it asks you`}
         </span>
       </button>
     </div>
@@ -379,7 +379,7 @@ export const Legend = () => (
       a failing stop check ends the run
     </LegendItem>
     <LegendItem mark={<Glyph name="each" className="size-3 text-teal-600" />}>runs once per item</LegendItem>
-    <LegendItem mark={<span className="h-3 w-1 rounded-sm bg-indigo-500" />}>a bot works</LegendItem>
+    <LegendItem mark={<span className="h-3 w-1 rounded-sm bg-indigo-500" />}>an agent works</LegendItem>
     <LegendItem mark={<span className="h-3 w-1 rounded-sm bg-slate-500" />}>a script runs</LegendItem>
     <LegendItem mark={<span className="h-3 w-1 rounded-sm bg-amber-500" />}>waits for you</LegendItem>
     <LegendItem mark={<span className="size-2.5 rounded-full bg-sky-600" />}>the picked run</LegendItem>

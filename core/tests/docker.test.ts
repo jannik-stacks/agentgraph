@@ -356,7 +356,7 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
             Stream.runCollect(
               s.open({
                 harness: 'opencode',
-                bot: 'implementor',
+                agent: 'implementor',
                 model: process.env.BOTHUB_LIVE_MODEL ?? 'fast',
                 system: 'You are a terse assistant. Use tools when asked.',
                 prompt,

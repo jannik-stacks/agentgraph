@@ -3,11 +3,11 @@ on: { issue_comment: { command: /bothub } }
 branch: bothub/{issue}
 steps:
   implement:
-    bot: implementor
+    agent: implementor
     tries: 3
     checks: [tests]
   review:
-    bot: reviewer
+    agent: reviewer
     back: implement
     rounds: 2
     until: the change does what the issue asks and the tests cover it

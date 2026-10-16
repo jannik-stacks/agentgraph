@@ -2,16 +2,16 @@
 on: { issue_comment: { command: /bothub } }
 branch: bothub/{issue}
 steps:
-  triage: { bot: triager, checks: [triage-brief, triage-width], tries: 2 }
+  triage: { agent: triager, checks: [triage-brief, triage-width], tries: 2 }
   implement:
-    bot: implementor
+    agent: implementor
     tries: 4
     checks: [safety, size, rules, lint, types, studio-build, tests, old-tests, test-guards, coverage, code-shape,
              unused-exports, propagation, enum-copy, docs-sync, criterion-met, removed, state-transitions, reduce,
              review-src, near-duplicate, review-docs, docs-stale, docs-tone-provenance, docs-tone-repeats, risky,
              scope, review-tests, docs-tone-tagline, docs-tone-marketing, tooltip-text, notes-followed,
              principle-named]
-  compound: { bot: librarian, each: { run: node "$BOTHUB_HUB/scripts/signals.mjs" }, checks: [lesson-size] }
+  compound: { agent: librarian, each: { run: node "$BOTHUB_HUB/scripts/signals.mjs" }, checks: [lesson-size] }
   review: { wait: human, back: implement }
 ---
 A maintainer comments `/bothub` on an issue about the engine, the studio or the dashboard. The

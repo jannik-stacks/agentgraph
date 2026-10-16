@@ -77,7 +77,7 @@ describe('studio graph', () => {
       Object.fromEntries(
         Object.entries(config.checks).map(([name, c]) => [
           name,
-          { mode: c.mode === 'log' ? 'warn' : c.mode, ...(c.type !== 'script' && { judge: c.type }) },
+          { mode: c.mode === 'log' ? 'warn' : c.mode, ...(c.type !== 'script' && { agent: c.type }) },
         ])
       )
     );

@@ -2,9 +2,9 @@
 on: { issue_comment: { command: /bothub } }
 branch: bothub/{issue}
 steps:
-  triage: { bot: triager, checks: [triage-brief] }
+  triage: { agent: triager, checks: [triage-brief] }
   implement:
-    bot: implementor
+    agent: implementor
     checks: [limits, conventions, wiring, reach, fmt, clippy, wasm, tests, review-src, criterion-met, entry-points,
              simpler, limits-warn, conventions-warn, sdk]
   review: { wait: human, back: implement }

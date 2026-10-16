@@ -27,7 +27,7 @@ import { hubOf } from './fixtures.ts';
 const hub = hubOf('acme-app', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },
-  claims: { judge: 'claim-checker' },
+  claims: { agent: 'claim-checker' },
 });
 const w = hub.workflows.issue!;
 
@@ -296,8 +296,8 @@ describe('drive', () => {
       }))
     ).pipe(Layer.provide(host(where.origin)));
     const keys = Redacted.make(
-      Object.keys(hub.bots)
-        .map(bot => `${bot}=${key}`)
+      Object.keys(hub.agents)
+        .map(agent => `${agent}=${key}`)
         .join(',')
     );
     const session = harnesses({ data: where.data, proxy: { url: 'http://proxy', keys } }).pipe(Layer.provide(sandbox));

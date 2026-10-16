@@ -1,5 +1,5 @@
-bots: [implementor, reviewer]
+agents: [implementor, reviewer]
 skills: [implement, review-file, review]
 checks:
-  review: { mode: warn, judge: reviewer }
+  review: { mode: warn, agent: reviewer }
   types: block

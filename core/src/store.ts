@@ -65,6 +65,7 @@ const renamed: Record<string, string> = {
   verdict: 'check',
   failing: 'checks',
   rejected: 'proposals',
+  bot: 'agent',
 };
 const values: Record<string, Record<string, string>> = {
   kind: { reply: 'comment', pull: 'pull_request', refused: 'failed' },

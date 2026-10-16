@@ -36,7 +36,7 @@ export type End =
   | { kind: 'waiting' }
   | { kind: 'running'; try: number };
 
-const isBot = (n: Node) => n.doer !== 'script' && n.doer !== 'human';
+const isAgent = (n: Node) => n.doer !== 'script' && n.doer !== 'human';
 
 /** Unrolls a run into the visits it made, in order. */
 export function visitsOf(graph: Graph, trail: Trail, run: Run): { visits: Visit[]; end: End } {
@@ -50,7 +50,7 @@ export function visitsOf(graph: Graph, trail: Trail, run: Run): { visits: Visit[
     visits.push({
       node: n,
       nth: visits.filter(v => v.node.step === step).length + 1,
-      ...(isBot(n) && { session: back ? 'resumed' : 'fresh' }),
+      ...(isAgent(n) && { session: back ? 'resumed' : 'fresh' }),
       ...(back?.outcome.kind === 'back' && {
         via: { from: back.at.step, round, ...(of !== undefined && { of }), why: back.outcome.why },
       }),
@@ -123,7 +123,10 @@ export function storyOf({ visits, end }: { visits: Visit[]; end: End }): string 
     if (v.left === 'pass') return [...failed, failed.length ? 'then passed' : `${step} passed`];
     if (v.left === 'back') {
       const to = visits[i + 1]?.node.step;
-      return [...failed, `${isBot(v.node) ? v.node.doer.split(' / ')[0] : step} sent it back${to ? ` to ${to}` : ''}`];
+      return [
+        ...failed,
+        `${isAgent(v.node) ? v.node.doer.split(' / ')[0] : step} sent it back${to ? ` to ${to}` : ''}`,
+      ];
     }
     if (v.left === 'stop' || !isLast) return failed;
     if (end.kind === 'running')

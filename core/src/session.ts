@@ -11,7 +11,7 @@ export type SessionSpec = {
   prompt: string;
   dir: string;
   tools: string[];
-  bot: string;
+  agent: string;
   minutes: number;
   resume?: Run['sessions'][string];
 };

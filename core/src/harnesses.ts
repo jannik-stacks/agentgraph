@@ -367,7 +367,7 @@ const wrapped = (cmd: string, args: string[]) => ({
   args: ['-c', '"$@" 2>&1; code=$?; printf "\\nbothub-exit %s\\n" "$code"; exit "$code"', 'sh', cmd, ...args],
 });
 
-/** `bot=key` pairs, separated by commas or white space. */
+/** `agent=key` pairs, separated by commas or white space. */
 const keysOf = (keys: Redacted.Redacted) =>
   Object.fromEntries(
     Redacted.value(keys)
@@ -404,7 +404,7 @@ const stopOf = (e: SandboxError) =>
 
 /**
  * The claude, opencode and pi adapters, picked by `spec.harness`. Each session gets its own home under
- * `data/homes`, reused on resume, and only its bot's key from `proxy.keys`. Usage the harness does not price is
+ * `data/homes`, reused on resume, and only its agent's key from `proxy.keys`. Usage the harness does not price is
  * priced from the `prices` file.
  */
 export const harnesses = (s: {
@@ -425,8 +425,9 @@ export const harnesses = (s: {
         Stream.unwrapScoped(
           Effect.gen(function* () {
             const adapter = adapters[spec.harness];
-            const key = keys[spec.bot];
-            if (!key) return yield* new SessionStop({ reason: 'provider', detail: `no proxy key for bot ${spec.bot}` });
+            const key = keys[spec.agent];
+            if (!key)
+              return yield* new SessionStop({ reason: 'provider', detail: `no proxy key for agent ${spec.agent}` });
             const home = spec.resume?.home ?? join(s.data, 'homes', randomUUID());
             yield* Effect.tryPromise({
               try: async () => {

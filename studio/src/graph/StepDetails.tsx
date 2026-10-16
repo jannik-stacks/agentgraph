@@ -20,8 +20,8 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 );
 
 const doing = (does: Step['does']) =>
-  'bot' in does
-    ? `the ${does.bot} bot${does.skill ? ` with the ${does.skill} skill` : ''}`
+  'agent' in does
+    ? `the ${does.agent} agent${does.skill ? ` with the ${does.skill} skill` : ''}`
     : 'run' in does
       ? 'a script'
       : 'you';
@@ -128,7 +128,7 @@ export const StepDetails = ({
               return (
                 <li key={name} className="flex gap-2">
                   <span className="min-w-0 flex-1 truncate font-mono">{name}</span>
-                  <span className="text-zinc-500">{check?.judge === undefined ? 'script' : 'bot'}</span>
+                  <span className="text-zinc-500">{check?.agent === undefined ? 'script' : 'agent'}</span>
                   <span className={check?.mode === 'stop' ? 'text-rose-600' : 'text-zinc-500'}>
                     {check?.mode ?? 'block'}
                   </span>

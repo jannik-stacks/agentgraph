@@ -21,7 +21,7 @@ export type Workflow = Doc<{
 
 export type Step = {
   name: string;
-  does: { bot: string; skill?: string } | { run: string } | { wait: 'human' };
+  does: { agent: string; skill?: string } | { run: string } | { wait: 'human' };
   checks: string[];
   tries: number;
   back?: { to: string; until?: string; rounds?: number };
@@ -68,7 +68,7 @@ const Trigger = Schema.NullOr(
 const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request');
 
 const StepFile = Schema.Struct({
-  bot: exact(Schema.String),
+  agent: exact(Schema.String),
   run: exact(Schema.String),
   wait: exact(Schema.Literal('human')),
   skill: exact(Schema.String),
@@ -87,7 +87,7 @@ const Front = Schema.Struct({
   ),
   branch: exact(Schema.String),
   base: exact(Schema.String),
-  bot: exact(Schema.String),
+  agent: exact(Schema.String),
   steps: exact(Schema.Record({ key: Schema.String, value: StepFile })),
 });
 
@@ -103,7 +103,7 @@ export const split = (text: string): { data: unknown; body: string } => {
 export function load(
   path: string,
   text: string,
-  names: Record<'bots' | 'skills' | 'checks', string[]>
+  names: Record<'agents' | 'skills' | 'checks', string[]>
 ): { workflow?: Workflow; problems: Problem[] } {
   const problems: Problem[] = [];
   const say = (key: string, message: string) => problems.push({ path, message: `${key}: ${message}` });
@@ -126,18 +126,19 @@ export function load(
   const front = decoded.right;
   const name = basename(path, '.md');
 
-  if (front.steps && front.bot) say('bot', 'only a workflow without steps names its bot');
-  if (!front.steps && !front.bot && names.bots.length !== 1) say('bot', 'a workflow without steps names its bot');
-  const files = front.steps ?? { [name]: { bot: front.bot ?? names.bots[0] ?? '' } };
+  if (front.steps && front.agent) say('agent', 'only a workflow without steps names its agent');
+  if (!front.steps && !front.agent && names.agents.length !== 1)
+    say('agent', 'a workflow without steps names its agent');
+  const files = front.steps ?? { [name]: { agent: front.agent ?? names.agents[0] ?? '' } };
   const order = Object.keys(files);
   if (order.length === 0) say('steps', 'name at least one step');
 
   const steps = order.map((stepName, i): Step => {
     const s = files[stepName]!;
     const key = `steps.${stepName}`;
-    const doers = [s.bot, s.run, s.wait].filter(d => d !== undefined);
-    if (doers.length !== 1) say(key, 'name exactly one of bot, run and wait');
-    if (s.bot !== undefined && !names.bots.includes(s.bot)) say(`${key}.bot`, `unknown bot ${s.bot}`);
+    const doers = [s.agent, s.run, s.wait].filter(d => d !== undefined);
+    if (doers.length !== 1) say(key, 'name exactly one of agent, run and wait');
+    if (s.agent !== undefined && !names.agents.includes(s.agent)) say(`${key}.agent`, `unknown agent ${s.agent}`);
     if (s.skill !== undefined && !names.skills.includes(s.skill)) say(`${key}.skill`, `unknown skill ${s.skill}`);
     for (const check of s.checks ?? []) {
       if (!names.checks.includes(check)) say(`${key}.checks`, `unknown check ${check}`);
@@ -147,8 +148,8 @@ export function load(
       if (to < 0) say(`${key}.back`, `unknown step ${s.back}`);
       else if (to > i) say(`${key}.back`, `${s.back} comes later; a way back goes to this step or an earlier one`);
     }
-    if (s.bot !== undefined && s.back !== undefined && s.until === undefined) {
-      say(`${key}.until`, 'a bot step with a way back says until when');
+    if (s.agent !== undefined && s.back !== undefined && s.until === undefined) {
+      say(`${key}.until`, 'an agent step with a way back says until when');
     }
     if (s.back === undefined && s.until !== undefined) say(`${key}.until`, 'until needs back');
     if (s.back === undefined && s.rounds !== undefined) say(`${key}.rounds`, 'rounds needs back');
@@ -160,7 +161,7 @@ export function load(
         ? { run: s.run }
         : s.wait !== undefined
           ? { wait: 'human' }
-          : { bot: s.bot ?? '', ...(skill !== undefined && { skill }) };
+          : { agent: s.agent ?? '', ...(skill !== undefined && { skill }) };
     const rounds = s.rounds ?? (s.wait ? undefined : 3);
     return {
       name: stepName,

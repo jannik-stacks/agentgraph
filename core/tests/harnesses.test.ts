@@ -12,7 +12,7 @@ const sample = (name: string) => readFileSync(join(import.meta.dirname, 'fixture
 
 const spec: SessionSpec = {
   harness: 'opencode',
-  bot: 'implementor',
+  agent: 'implementor',
   model: 'smart',
   system: 'You are "the implementor".',
   prompt: 'fix the "bug" in 2 files',
@@ -81,7 +81,7 @@ describe('the session loop', () => {
     expect(unpriced.filter(e => e.type === 'usage').every(e => e.type === 'usage' && e.usd === undefined)).toBe(true);
   });
 
-  it('runs the harness in a shell that reports its exit code, with only the bot key, by name', async () => {
+  it('runs the harness in a shell that reports its exit code, with only the agent key, by name', async () => {
     const { command, data } = await events(spec, sample('opencode-run.jsonl'));
     expect(command.cmd).toBe('sh');
     expect(command.args[1]).toContain('bothub-exit');
@@ -95,10 +95,10 @@ describe('the session loop', () => {
     expect(JSON.stringify([command.args, command.env])).not.toContain(key);
   });
 
-  it('stops before the harness starts when the bot has no key', async () => {
-    const { exit, command } = await session({ ...spec, bot: 'gardener' }, []);
+  it('stops before the harness starts when the agent has no key', async () => {
+    const { exit, command } = await session({ ...spec, agent: 'gardener' }, []);
     expect(command).toBeUndefined();
-    expect(String(exit)).toContain('no proxy key for bot gardener');
+    expect(String(exit)).toContain('no proxy key for agent gardener');
   });
 
   it('masks the key wherever the harness prints it', async () => {
@@ -219,7 +219,7 @@ describe('opencode', () => {
 describe('claude', () => {
   const claude = { ...spec, harness: 'claude' as const };
 
-  it('talks to the proxy with the bot key and keeps its config in the run home', async () => {
+  it('talks to the proxy with the agent key and keeps its config in the run home', async () => {
     const { command } = await events(
       { ...claude, resume: { id: 'e477', home: mkdtempSync(join(tmpdir(), 'h-')) } },
       []

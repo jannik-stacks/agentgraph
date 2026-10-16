@@ -20,14 +20,14 @@ const kinds = [
   'back',
 ] as const satisfies readonly Proposal['kind'][];
 
-/** A bot file's frontmatter. */
-export const Bot = Schema.Struct({
+/** An agent file's frontmatter. */
+export const Agent = Schema.Struct({
   harness: Schema.Literal('claude', 'opencode', 'pi'),
   model: Schema.optionalWith(Schema.String, { exact: true }),
   tools: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { default: () => [] }),
   returns: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Literal(...kinds))), { default: () => ['comment'] }),
 });
-export type Bot = typeof Bot.Type;
+export type Agent = typeof Agent.Type;
 
 /** The hub-wide limits block. */
 export const Limits = Schema.Struct({
@@ -41,7 +41,7 @@ export type Limits = typeof Limits.Type;
 export type Hub = {
   repo: string;
   sha: string;
-  bots: Record<string, Doc<Bot>>;
+  agents: Record<string, Doc<Agent>>;
   skills: Record<string, Doc<{ description?: string }>>;
   checks: Record<string, Doc<Check>>;
   workflows: Record<string, Workflow>;
@@ -64,7 +64,7 @@ const CheckFile = Schema.Struct({
   mode: Schema.Literal('warn', 'block', 'stop'),
   each: exact(Schema.String),
   run: exact(Schema.String),
-  judge: exact(Schema.String),
+  agent: exact(Schema.String),
   max: exact(Schema.Int.pipe(Schema.positive())),
 });
 
@@ -86,7 +86,7 @@ const gone = {
     'time-kinds': '',
     human: '',
   },
-  bot: {
+  agent: {
     session: rest,
     resume: rest,
     context: rest,
@@ -102,8 +102,9 @@ const gone = {
     human: '',
   },
   check: {
-    type: 'run makes a script check and judge a bot check',
-    bot: 'name the bot as judge',
+    type: 'name run for a script check and agent for a judged one',
+    bot: 'name it as agent',
+    judge: 'name it as agent',
     over: 'use each: files, hunks or a command that prints one item per line',
     paths: 'filter files in the each command',
     description: 'write it as the body',
@@ -115,12 +116,13 @@ const gone = {
     jobs: 'rewrite it as steps: each job becomes a step in needs order, until.checks becomes checks, over: each-hunk becomes each: hunks',
     name: 'the file name is the workflow name',
     into: 'name the branch as base',
+    bot: 'name it as agent',
     description: 'write it as the body',
     human: '',
   },
   trigger: {
     types: '',
-    guard: 'only owners, members and collaborators reach bots',
+    guard: 'only owners, members and collaborators reach agents',
     labels: '',
     tools: '',
     cron: '',
@@ -181,7 +183,7 @@ const markdown = async (dir: string, sub: string): Promise<File[]> => {
 const nameOf = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.slice(0, -9)) : basename(path, '.md'));
 
 /** Validates the files of one hub and builds it; every problem is collected before anything fails. */
-const compile = (hubText: string | undefined, groups: Record<'bots' | 'skills' | 'checks' | 'workflows', File[]>) => {
+const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills' | 'checks' | 'workflows', File[]>) => {
   const problems: Problem[] = [];
   const sayer = (path: string) => (message: string) => problems.push({ path, message });
   const front = (file: File) => {
@@ -213,13 +215,13 @@ const compile = (hubText: string | undefined, groups: Record<'bots' | 'skills' |
     return out;
   };
 
-  const bots = docs(groups.bots, (data, say) => {
-    const kept = strip(data, gone.bot, say);
+  const agents = docs(groups.agents, (data, say) => {
+    const kept = strip(data, gone.agent, say);
     if (isRecord(kept) && Array.isArray(kept.returns)) {
       for (const kind of kept.returns) if (typeof kind === 'string' && kind in returns) say(returns[kind]!);
       kept.returns = kept.returns.filter(kind => !(kind in returns));
     }
-    return decode(Bot, kept, say);
+    return decode(Agent, kept, say);
   });
   const skills = docs(groups.skills, (data, say) =>
     decode(
@@ -231,12 +233,12 @@ const compile = (hubText: string | undefined, groups: Record<'bots' | 'skills' |
   const checks = docs(groups.checks, (data, say): Check | undefined => {
     const check = decode(CheckFile, strip(data, gone.check, say), say);
     if (!check) return;
-    if (check.run === undefined && check.judge === undefined) say('name run, judge or both');
-    if (check.judge !== undefined && !(check.judge in bots)) say(`judge: unknown bot ${check.judge}`);
+    if (check.run === undefined && check.agent === undefined) say('name run, agent or both');
+    if (check.agent !== undefined && !(check.agent in agents)) say(`agent: unknown agent ${check.agent}`);
     return check;
   });
 
-  const names = { bots: Object.keys(bots), skills: Object.keys(skills), checks: Object.keys(checks) };
+  const names = { agents: Object.keys(agents), skills: Object.keys(skills), checks: Object.keys(checks) };
   const workflows: Record<string, Workflow> = {};
   for (const file of groups.workflows) {
     const parsed = front(file);
@@ -252,7 +254,7 @@ const compile = (hubText: string | undefined, groups: Record<'bots' | 'skills' |
     problems.push(...loaded.problems);
     if (loaded.workflow) workflows[loaded.workflow.name] = loaded.workflow;
   }
-  return { hub, bots, skills, checks, workflows, problems };
+  return { hub, agents, skills, checks, workflows, problems };
 };
 
 /** Reads a hub directory, validates every file and fails with all problems at once. */
@@ -261,14 +263,16 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
     const read = yield* Effect.tryPromise({
       try: async () => {
         const hubText = await readFile(join(dir, 'hub.yaml'), 'utf8').catch(() => undefined);
-        const [bots, skills, checks, workflows] = await Promise.all(
-          (['bots', 'skills', 'checks', 'workflows'] as const).map(sub => markdown(dir, sub))
+        const [agents, skills, checks, workflows, bots] = await Promise.all(
+          (['agents', 'skills', 'checks', 'workflows', 'bots'] as const).map(sub => markdown(dir, sub))
         );
-        return { hubText, groups: { bots: bots!, skills: skills!, checks: checks!, workflows: workflows! } };
+        const groups = { agents: [...agents!, ...bots!], skills: skills!, checks: checks!, workflows: workflows! };
+        return { hubText, groups, renamed: bots!.length > 0 };
       },
       catch: e => new HubError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
     });
     const { hub, problems, ...parts } = compile(read.hubText, read.groups);
+    if (read.renamed) problems.push({ path: 'bots', message: 'bots/ is now agents/; rename the folder' });
     if (problems.length > 0 || !hub) return yield* new HubError({ problems });
     const sha = createHash('sha256');
     for (const file of [{ path: 'hub.yaml', text: read.hubText ?? '' }, ...Object.values(read.groups).flat()]) {

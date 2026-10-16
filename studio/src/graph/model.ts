@@ -16,7 +16,7 @@ export const fixturesOf = (config: Config): Fixture[] =>
             ? { run: spec.run }
             : spec.wait
               ? { wait: 'human' }
-              : { bot: spec.bot ?? '', skill: skillOf(name, spec) },
+              : { agent: spec.bot ?? '', skill: skillOf(name, spec) },
         checks,
         tries: spec.checks ? triesOf(spec) : 1,
         ...(back !== undefined && { back: { to: back } }),
@@ -28,7 +28,7 @@ export const fixturesOf = (config: Config): Fixture[] =>
       checks: Object.fromEntries(
         Object.entries(config.checks).map(([name, check]) => [
           name,
-          { mode: check.mode === 'log' ? 'warn' : check.mode, ...(check.type !== 'script' && { judge: check.type }) },
+          { mode: check.mode === 'log' ? 'warn' : check.mode, ...(check.type !== 'script' && { agent: check.type }) },
         ])
       ),
       runs: [],
