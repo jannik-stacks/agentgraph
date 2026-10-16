@@ -16,7 +16,10 @@ Run them from this directory as `node bin/run.ts <command>`. `docs/local.md` has
 - `loop --hub <dir> --data <dir>` looks at every open issue each `BOTHUB_EVERY` minutes.
 - `status --hub <dir> --data <dir>` lists what waits on a human.
 
-`node bin/traces.mjs <data dir>` fails when a session that started cost nothing, so missing usage or prices show.
+`node bin/traces.mjs <data dir> [workflow=kind ...]` checks finished runs by hand, for example
+`node bin/traces.mjs "$BOTHUB_DATA" 'issue=pull_request|push' 'triage=label|issue|ask'`. It fails on a denied tool call, a session
+that started but cost nothing, and a done run of a named workflow that applied none of its kinds. It also prints how long
+each run waited before its first session. It reads run data only, so it is not part of `precommit`.
 
 ## Local quickstart
 

@@ -22,7 +22,41 @@ describe('traces', () => {
     expect(status).toBe(1);
     expect(stdout.trim().split('\n')).toEqual([
       'run-1 implement: session s1 ended stop with usd 0',
-      '1 of 2 sessions cost nothing',
+      '1 findings over 2 sessions',
+    ]);
+  });
+
+  it('fails on denied tool calls and on a done run without its required proposal, and shows waits', () => {
+    const data = temp('traces');
+    const tool = (ok: boolean, extra: object) =>
+      JSON.stringify({
+        at: '2026-10-16T00:05:00.000Z',
+        step: 'implement',
+        event: { type: 'tool', name: 'read', input: { p: 1 }, ok, ...extra },
+      });
+    const applied = (kind: string) =>
+      JSON.stringify({ at: '', step: 'implement', applied: { ok: true, proposal: { kind } } });
+    write(data, {
+      'a/run.json': JSON.stringify({ workflow: 'issue', status: 'done' }),
+      'a/trace.jsonl': [
+        JSON.stringify({ at: '2026-10-16T00:00:00.000Z', step: 'implement', saved: {} }),
+        JSON.stringify({ at: '2026-10-16T00:04:00.000Z', step: 'implement', prompt: {} }),
+        tool(false, { denied: true }),
+        tool(false, { output: 'The user has specified a rule which prevents you from using this specific tool call' }),
+        tool(true, {}),
+        applied('comment'),
+      ].join('\n'),
+      'b/run.json': JSON.stringify({ workflow: 'issue', status: 'done' }),
+      'b/trace.jsonl': applied('push'),
+    });
+    const { status, stdout } = spawnSync('node', [script, data, 'issue=pull_request|push'], { encoding: 'utf8' });
+    expect(status).toBe(1);
+    expect(stdout.trim().split('\n')).toEqual([
+      'a: waited 4 min before its first session',
+      'a implement: denied read {"p":1}',
+      'a implement: denied read {"p":1}',
+      'a: done without pull_request or push',
+      '3 findings over 0 sessions',
     ]);
   });
 });
