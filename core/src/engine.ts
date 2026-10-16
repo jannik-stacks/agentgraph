@@ -581,10 +581,10 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
 
 /**
  * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`.
- * With `only`, it looks at that issue alone and begins a run there when none was live; with `fresh` too, only when the
- * issue never had a run.
+ * With `only`, it looks at that issue alone and begins a run there when none was live; with `marked` too, only on a
+ * trusted command or label.
  */
-export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+export const tick = (hub: Hub, only?: number, marked = false): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
@@ -700,7 +700,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       if (!w || used.has(m) || !m.trusted || !open.has(m.issue)) continue;
       if (!busy.has(`${w.name}#${m.issue}`)) yield* start(w, m.issue, m.at, m);
     }
-    if (only !== undefined && (fresh ? runs.length === 0 : !runs.some(live)) && !touched.some(r => r.issue === only)) {
+    if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
       if (w) yield* start(w, only, now());
     }
@@ -726,7 +726,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     return [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
   });
 
-/** One pass over the open issues, one after another: each gets the same single look `tick` gives it. */
+/** One pass over the open issues, one after another: each gets one look, and a new run only on a trusted mark. */
 export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const issues = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(t => !t.pull);

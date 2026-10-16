@@ -719,10 +719,9 @@ describe('start with one issue', () => {
 describe('sweep', () => {
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
 
-  it('drives a new issue and a parked one with a new answer, and skips one waiting with nothing new', async () => {
+  it('drives a commanded issue and a parked one with a new answer, and skips an unmarked one and one waiting with nothing new', async () => {
     const where = world();
-    rmSync(join(where.forge, '7.jsonl'));
-    for (const n of [8, 9])
+    for (const n of [8, 9, 10])
       writeFileSync(
         join(where.forge, `${n}.md`),
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
@@ -752,6 +751,7 @@ describe('sweep', () => {
     const touched = await run(sweep(small));
     expect(touched.map(r => r.issue).sort()).toEqual([7, 8]);
     expect(touched.find(r => r.issue === 9)).toBeUndefined();
+    expect(await run(Effect.flatMap(Store, s => s.list({ issue: 10 })))).toEqual([]);
     expect(specs).toHaveLength(2);
     expect(specs.map(s => s.prompt).join('\n')).toContain('hi');
     expect(await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)))).toHaveProperty('length', 0);
