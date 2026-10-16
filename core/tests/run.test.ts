@@ -235,6 +235,20 @@ describe('drive', () => {
     expect(transition(w, waiting, reenter(w, waiting, merged)!)).toMatchObject({ status: 'done' });
   }, 30_000);
 
+  it('shows a judging agent the diff host git sees, whatever attributes the checkout sets', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
+      [start('i1'), write('.gitattributes', '* -diff\n'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      judged,
+      [start('r1'), reply({ kind: 'ask', question: 'Done?' })],
+    ]);
+    await run(drive(w, fresh(), hub));
+    expect(specs[2]!.agent).toBe('claim-checker');
+    expect(specs[2]!.prompt).toContain('+hello');
+    expect(specs[2]!.prompt).not.toContain('Binary files');
+  }, 30_000);
+
   it('ends the run at once when a stop check fails: no try spent, nothing lands, the findings posted', async () => {
     const where = world();
     const { specs, run } = services(where, [

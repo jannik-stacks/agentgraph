@@ -3,7 +3,7 @@ import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import { context, news, shown, type Issues } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
-import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
+import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, type SessionSpec, type SessionStop } from './session.ts';
 import { Store, type StoreError, type Trace } from './store.ts';
@@ -135,14 +135,23 @@ const sh = (
 ) =>
   Effect.flatMap(Sandbox, s => Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, env, network, minutes })));
 
-const diffOf = (work: Checkout, minutes: number) =>
-  Effect.map(sh(`git add -N . && git diff ${work.base}`, work.dir, {}, minutes), out => out.output);
+const index = Effect.unsafeMakeSemaphore(1);
+
+/** What the checkout changed since its base, read by host git from the same index a push commits. */
+const changes = (work: Checkout, ...args: string[]) =>
+  Effect.gen(function* () {
+    const text = (args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
+    const tree = yield* index.withPermits(1)(Effect.zipRight(text(['add', '-A']), text(['write-tree'])));
+    return yield* text(['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, tree]);
+  });
+
+const diffOf = (work: Checkout) => changes(work, '--text');
 
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
 const itemsOf = (each: string | { run: string }, work: Checkout, minutes: number) => {
   const lines = (text: string) => text.split('\n').filter(line => line.trim());
   if (each === 'hunks')
-    return Effect.map(diffOf(work, minutes), diff =>
+    return Effect.map(diffOf(work), diff =>
       diff
         .split(/^(?=diff --git )/m)
         .filter(Boolean)
@@ -151,8 +160,8 @@ const itemsOf = (each: string | { run: string }, work: Checkout, minutes: number
           return hunks.map(hunk => `${head}${hunk}`.trimEnd());
         })
     );
-  const script =
-    each === 'files' ? `git add -N . && git diff --name-only ${work.base}` : typeof each === 'string' ? each : each.run;
+  if (each === 'files') return Effect.map(changes(work, '--name-only'), lines);
+  const script = typeof each === 'string' ? each : each.run;
   return Effect.map(sh(script, work.dir, { BOTHUB_BASE: work.base }, minutes), out => lines(out.output));
 };
 
@@ -216,7 +225,7 @@ const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hu
         const exit = out && { exit: out.code };
         if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
         const agent = hub.agents[check.agent]!;
-        const input = out?.output ?? item ?? (yield* diffOf(work, minutes));
+        const input = out?.output ?? item ?? (yield* diffOf(work));
         const judged = yield* converse(
           run,
           step.name,
