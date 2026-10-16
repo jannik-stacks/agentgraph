@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import type { Proposal } from './forge.ts';
@@ -36,6 +36,7 @@ export type Limits = typeof Limits.Type;
 
 /** One repo's hub after `uses:` and the repo override are merged. */
 export type Hub = {
+  dir: string;
   repo: string;
   sha: string;
   agents: Record<string, Doc<Agent>>;
@@ -281,6 +282,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       sha.update(`${file.path}\0${file.text}\0`);
     }
     return {
+      dir: resolve(dir),
       repo: hub.repo ?? '',
       sha: sha.digest('hex'),
       limits: hub.limits,

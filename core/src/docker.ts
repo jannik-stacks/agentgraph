@@ -9,7 +9,7 @@ import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout 
 const network = 'bothub-sandbox';
 const egress = 'http://egress:8888';
 const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
-const inside = { work: '/work', home: '/home/agent', tmp: '/tmp' };
+const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub' };
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
 /** Refs bothub writes into the mirror itself; the fetch leaves them alone. */
@@ -76,6 +76,7 @@ const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) =>
   limits.pids,
   ...bind({ src: c.dir, dst: inside.work }),
   ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
+  ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
   ...mounts.flatMap(bind),
   '--workdir',
   inside.work,
@@ -94,6 +95,7 @@ const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) =>
       no_proxy: direct,
     }),
     ...c.env,
+    ...(c.hub && { BOTHUB_HUB: inside.hub }),
   }).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
   ...Object.keys(c.secrets ?? {}).flatMap(key => ['-e', key]),
   image,

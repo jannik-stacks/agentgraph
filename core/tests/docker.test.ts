@@ -125,6 +125,14 @@ describe('docker with a stand-in docker client', () => {
     expect(args.slice(-6, -2)).toEqual(['bothub-sandbox:local', 'sh', '-c', 'echo hi']);
   });
 
+  it('mounts the hub read-only at /hub and names it in BOTHUB_HUB', async () => {
+    const hub = tmp('hub');
+    await use(layer, s => s.exec(command(tmp('work'), { hub })));
+    const args = logged();
+    expect(args).toContain(`type=bind,src=${hub},dst=/hub,readonly`);
+    expect(args).toContain('BOTHUB_HUB=/hub');
+  });
+
   it('has no network without the proxy and returns any exit code', async () => {
     const exit = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'fail'] })));
     expect(Exit.isSuccess(exit) && exit.value.code).toBe(3);
@@ -326,6 +334,17 @@ describe.runIf(process.env.BOTHUB_DOCKER === '1')('docker for real', () => {
       s.exec(command(dir, { args: ['-c', 'cat x.txt; id -u; touch /etc/x 2>/dev/null || echo read-only'] }))
     );
     expect(Exit.isSuccess(exit) && exit.value.output).toMatch(/^inside\n\d+\nread-only\n$/);
+  }, 60_000);
+
+  it('reads the hub at BOTHUB_HUB and cannot write it', async () => {
+    const hub = tmp('hub');
+    writeFileSync(join(hub, 'x.sh'), 'hub script\n');
+    const script = 'cat "$BOTHUB_HUB/x.sh"; touch "$BOTHUB_HUB/y" 2>/dev/null || echo read-only';
+    const exit = await use(docker({ data: tmp('data'), origin: '/nowhere' }), s =>
+      s.exec(command(tmp('work'), { args: ['-c', script], hub }))
+    );
+    expect(Exit.isSuccess(exit) && exit.value.output).toBe('hub script\nread-only\n');
+    expect(existsSync(join(hub, 'y'))).toBe(false);
   }, 60_000);
 });
 

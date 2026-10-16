@@ -999,4 +999,28 @@ describe('gate', () => {
     const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
     expect(JSON.parse(findings!)).toEqual([push, pull]);
   });
+
+  it('lets a check read the hub directory through BOTHUB_HUB', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    const hubDir = join(where.root, 'hubdir');
+    mkdirSync(join(hubDir, 'scripts'), { recursive: true });
+    writeFileSync(join(hubDir, 'scripts', 'x.sh'), 'echo from hub\n');
+    const small = { ...hubOf('hub', { types: { run: 'sh "$BOTHUB_HUB/scripts/x.sh"; exit 1' } }), dir: hubDir };
+    const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
+    const { run } = services(where, []);
+    const left = {
+      run: 'run-7',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const { outcome } = await run(gate(step, left, small));
+    const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
+    expect(findings?.trim()).toBe('from hub');
+  });
 });

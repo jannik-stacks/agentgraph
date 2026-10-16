@@ -210,12 +210,13 @@ export const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeErro
 
 const sh = (
   script: string,
+  hub: string,
   dir: string,
   env: Record<string, string>,
   minutes: number,
   network: 'none' | 'proxy' = 'none'
 ) =>
-  Effect.flatMap(Sandbox, s => Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, env, network, minutes })));
+  Effect.flatMap(Sandbox, s => Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, hub, env, network, minutes })));
 
 const index = Effect.unsafeMakeSemaphore(1);
 
@@ -230,7 +231,7 @@ const changes = (work: Checkout, ...args: string[]) =>
 const diffOf = (work: Checkout) => changes(work, '--text');
 
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
-const itemsOf = (each: string | { run: string }, work: Checkout, minutes: number) => {
+const itemsOf = (each: string | { run: string }, hub: string, work: Checkout, minutes: number) => {
   const lines = (text: string) => text.split('\n').filter(line => line.trim());
   if (each === 'hunks')
     return Effect.map(diffOf(work), diff =>
@@ -244,7 +245,7 @@ const itemsOf = (each: string | { run: string }, work: Checkout, minutes: number
     );
   if (each === 'files') return Effect.map(changes(work, '--name-only'), lines);
   const script = typeof each === 'string' ? each : each.run;
-  return Effect.map(sh(script, work.dir, { BOTHUB_BASE: work.base }, minutes), out => lines(out.output));
+  return Effect.map(sh(script, hub, work.dir, { BOTHUB_BASE: work.base }, minutes), out => lines(out.output));
 };
 
 /** Writes the news since `seen` to the checkout's news file; a failed refresh logs and keeps the old file. */
@@ -299,7 +300,7 @@ const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hu
     const store = yield* Store;
     const started = Date.now();
     const minutes = hub.limits.minutes;
-    const items: (string | undefined)[] = check.each ? yield* itemsOf(check.each, work, minutes) : [undefined];
+    const items: (string | undefined)[] = check.each ? yield* itemsOf(check.each, hub.dir, work, minutes) : [undefined];
     let usd = 0;
     const one = (item: string | undefined) =>
       Effect.gen(function* () {
@@ -308,7 +309,7 @@ const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hu
           BOTHUB_PROPOSALS: proposalsFile(work),
           ...(item !== undefined && { BOTHUB_ITEM: item }),
         };
-        const out = check.run ? yield* sh(check.run, work.dir, env, minutes) : undefined;
+        const out = check.run ? yield* sh(check.run, hub.dir, work.dir, env, minutes) : undefined;
         const exit = out && { exit: out.code };
         if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
         const agent = hub.agents[check.agent]!;
@@ -395,7 +396,7 @@ export const attempt = (
     let tried = run;
     if ('run' in step.does) {
       const started = Date.now();
-      const out = yield* sh(step.does.run, work.dir, { BOTHUB_BASE: work.base }, minutes);
+      const out = yield* sh(step.does.run, hub.dir, work.dir, { BOTHUB_BASE: work.base }, minutes);
       const result: CheckResult = {
         check: step.name,
         pass: out.code === 0,
@@ -428,7 +429,7 @@ export const attempt = (
       ]
         .filter(Boolean)
         .join('\n\n');
-      const items: (string | undefined)[] = step.each ? yield* itemsOf(step.each, work, minutes) : [undefined];
+      const items: (string | undefined)[] = step.each ? yield* itemsOf(step.each, hub.dir, work, minutes) : [undefined];
       const caught = news(t, kept ? (kept.seen ?? { at: run.started }) : { at: '' });
       for (const item of items) {
         yield* refresh(w, run, work, caught.seen, t);
@@ -630,7 +631,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         s.checkout(ref, w.branch && expand(w.branch, issue), `refs/bothub/runs/${run.id}`)
       );
       if (hub.setup) {
-        const out = yield* sh(hub.setup, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
+        const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
         if (out.code !== 0)
           return yield* new SandboxError({
             reason: 'infra',

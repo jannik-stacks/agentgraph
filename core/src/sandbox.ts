@@ -11,6 +11,8 @@ export type Command = {
   cmd: string;
   args: string[];
   dir: string;
+  /** The hub directory, readable by the command as `$BOTHUB_HUB`, never writable. */
+  hub?: string;
   home?: string;
   env: Record<string, string>;
   secrets?: Record<string, Redacted.Redacted>;
@@ -110,6 +112,7 @@ const spawned = (command: Command) =>
     env: {
       ...process.env,
       ...command.env,
+      ...(command.hub !== undefined && { BOTHUB_HUB: command.hub }),
       ...(command.home !== undefined && { HOME: command.home }),
       ...Object.fromEntries(Object.entries(command.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)])),
     },

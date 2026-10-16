@@ -50,6 +50,7 @@ const doc = <T>(name: string, fields: T) => ({ ...fields, name, path: `${name}.m
 export const hubOf = (hub: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Hub => {
   const f = fixture(hub);
   return {
+    dir: '/hub',
     repo: `local/${hub}`,
     sha: 'fixture',
     agents: Object.fromEntries(
