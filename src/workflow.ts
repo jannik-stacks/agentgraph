@@ -31,7 +31,7 @@ export type Step = {
 
 /** How one try of a step ended, or what a human said to a waiting run. */
 export type Outcome =
-  | { kind: 'pass' }
+  | { kind: 'pass'; answered?: true }
   | { kind: 'failed'; checks: CheckResult[]; proposals: Applied[]; problems: string[] }
   | { kind: 'back'; why: string }
   | { kind: 'ask'; question: string }
@@ -261,7 +261,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   if (run.status === 'running') {
     switch (o.kind) {
       case 'pass':
-        return forward();
+        return o.answered ? { ...fresh(run), status: 'done' } : forward();
       case 'failed': {
         const tries = run.tries + 1;
         const text = failure(o);

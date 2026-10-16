@@ -390,6 +390,12 @@ const attempt = (
     const step = w.steps.find(s => s.name === run.step)!;
     const minutes = hub.limits.minutes;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next });
+    /** The first session of a run a comment started may only answer that comment. */
+    const answering =
+      'agent' in step.does &&
+      !!hub.agents[step.does.agent]?.returns.includes('comment') &&
+      run.said !== undefined &&
+      Object.keys(run.sessions).length === 0;
     if ('wait' in step.does) {
       const { issue, pull } = yield* issuesOf(w, run);
       const open = w.branch === undefined || issue.pull !== undefined || pull !== undefined;
@@ -429,6 +435,8 @@ const attempt = (
         w.branch &&
           `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
+        answering &&
+          'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
         reads &&
           `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
         run.feedback,
@@ -495,7 +503,10 @@ const attempt = (
           : { ...p, body };
       });
 
-    const { outcome: gated, usd } = yield* gate(step, { run: run.id, ...work, proposals: world }, hub);
+    const answered = answering && !back && world.length > 0 && world.every(p => p.kind === 'comment');
+    const { outcome: gated, usd } = answered
+      ? { outcome: { kind: 'pass' } as const, usd: 0 }
+      : yield* gate(step, { run: run.id, ...work, proposals: world }, hub);
     tried = { ...tried, usd: tried.usd + usd };
     if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
@@ -523,7 +534,9 @@ const attempt = (
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
     const failed = applied.filter(a => !a.ok);
     return done(
-      failed.length ? { kind: 'failed', checks: [], proposals: failed, problems: [] } : { kind: 'pass' },
+      failed.length
+        ? { kind: 'failed', checks: [], proposals: failed, problems: [] }
+        : { kind: 'pass', ...(answered && { answered: true as const }) },
       tried
     );
   });

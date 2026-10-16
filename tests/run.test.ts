@@ -603,12 +603,17 @@ describe('tick', () => {
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'No PR yet.' })]]);
     const done = { ...begin(issue, { id: 'issue-7-done', issue: 7, started: '2026-10-16T00:00:01.000Z' }) };
     await run(Effect.flatMap(Store, s => s.put({ ...done, status: 'done' })));
-    expect(await run(tick(small))).toEqual([]);
+    const twice = {
+      ...small,
+      workflows: { issue: { ...issue, steps: [...issue.steps, { ...issue.steps[0]!, name: 'again' }] } },
+    };
+    expect(await run(tick(twice))).toEqual([]);
     where.human('where is the PR?', '2026-10-16T00:00:05.000Z');
-    const touched = await run(tick(small));
+    const touched = await run(tick(twice));
     expect(touched.map(r => [r.id, r.status, r.said])).toEqual([['issue-7-20261016000005000', 'done', { issue: 7 }]]);
     expect(specs).toHaveLength(1);
     expect(specs[0]!.prompt).toContain('@morgan: where is the PR?');
+    expect(specs[0]!.prompt).toContain('When it does not ask for work, answer it with comment proposals only');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('No PR yet.');
   });
 
