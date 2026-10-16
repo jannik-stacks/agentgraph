@@ -34,4 +34,5 @@ numbered, at most these, and stop:
 5. Is there a constraint, like a version, a deadline or something that must not break?
 6. Is there an example, an input with the output you expect, or a link?
 
-If only one thing is missing, ask just that one plain question.
+If only one thing is missing, ask just that one plain question. When the answer would also decide other
+open issues, name them in the ask (`This also decides #28 and #41`) so one answer covers all.
