@@ -139,7 +139,7 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
             )
           : '';
         const remote = branch ? await run('rev-parse', '--verify', `origin/${branch}`).catch(() => '') : '';
-        const from = kept ? await run('rev-parse', '--verify', `${kept}^`) : remote || base;
+        const from = remote || (kept ? await run('rev-parse', '--verify', `${kept}^`) : base);
         await run('checkout', '-q', ...(branch ? ['-B', branch] : ['--detach']), from);
         if (kept) await run('read-tree', '-u', '--reset', kept);
         return { dir, base, run, from, kept, news };
