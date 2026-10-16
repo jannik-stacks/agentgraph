@@ -13,6 +13,8 @@ import { git, tmp } from './fixtures.ts';
 
 const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));
 
+const unbounded = { ...hub, checks: { ...hub.checks, sized: { ...hub.checks.sized!, run: 'true' } } };
+
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -139,7 +141,7 @@ describe('triage', () => {
         part('the docs', 'XL', { stacks_on: 2, depends_on: [1] })
       ),
     ];
-    await run(where, turns, tick(hub));
+    await run(where, turns, tick(unbounded));
     const all = await issues(where);
     const children = all.filter(t => t.parent === 1);
     expect(children.map(t => [t.number, t.title, t.labels])).toEqual([
@@ -167,13 +169,13 @@ describe('triage', () => {
       [4, 'morgan', 3],
     ]);
     where.label(4);
-    const { value } = await run(where, Array(3).fill(reply(part('a part', 'S'))), tick(hub, 4));
+    const { value } = await run(where, Array(3).fill(reply(part('a part', 'S'))), tick(unbounded, 4));
     expect(value[0]).toMatchObject({ issue: 4, status: 'waiting' });
     expect(value[0]!.reason).toContain('#4 sits 3 issues deep');
     expect((await issues(where)).map(t => t.number)).toEqual([1, 2, 3, 4]);
 
     where.label(3);
-    await run(where, [reply(part('a big part', 'XL'))], tick(hub, 3));
+    await run(where, [reply(part('a big part', 'XL'))], tick(unbounded, 3));
     expect((await issues(where)).filter(t => t.parent === 3).map(t => [t.number, t.labels])).toEqual([
       [4, ['bothub:waiting']],
       [5, ['size/XL', 'priority/medium']],

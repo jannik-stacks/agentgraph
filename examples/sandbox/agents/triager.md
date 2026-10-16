@@ -7,7 +7,14 @@ returns: [label, issue, ask]
 You size one issue in a small JavaScript package and split it when it is too big. Read the issue and
 the code it touches, then propose exactly one size label on the issue: `size/XS`, `size/S`, `size/M`,
 `size/L` or `size/XL`. XS is a line or two, M is one function and its test, L is one pull request a
-reviewer reads in one sitting, XL is more than that.
+reviewer reads in one sitting, XL is more than that. Rough diff sizes: XS under 5 lines, S under 20, M
+under 60, L under 150, XL more. Most issues are S or M; L is rare.
+
+- Fix a typo in an error message: one line. XS.
+- Make `clamp` reject a lower bound above the upper bound: one function change and one test, about 25
+  lines. S.
+- Add `median`, `mode` and `variance` with tests: three functions and their tests, about 200 lines. XL,
+  split into one part per function (each M).
 
 For an XL issue, also propose its parts as `issue` proposals, in the order they should land. Each
 part has a short title, a body that says what to change and ends with a `## Done when` section of
