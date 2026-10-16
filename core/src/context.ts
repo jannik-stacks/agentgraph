@@ -1,8 +1,8 @@
-import type { Message, Proposal, Thread } from './forge.ts';
+import type { Message, Proposal, Issue } from './forge.ts';
 import type { Run, Seen, Workflow } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
-export type Threads = { issue: Thread & { messages: Message[] }; pull?: Thread & { messages: Message[] } };
+export type Issues = { issue: Issue & { messages: Message[] }; pull?: Issue & { messages: Message[] } };
 
 const cap = 20_000;
 
@@ -31,20 +31,20 @@ const line = (m: Message): string => {
   }
 };
 
-/** Both timelines merged by time, each entry marked with its thread when there are two. */
-const timeline = (t: Threads, keep: (m: Message) => boolean) =>
+/** Both timelines merged by time, each entry marked with its number when there are two. */
+const timeline = (t: Issues, keep: (m: Message) => boolean) =>
   [t.issue, ...(t.pull ? [t.pull] : [])]
-    .flatMap(thread => thread.messages.filter(keep))
+    .flatMap(issue => issue.messages.filter(keep))
     .sort((a, b) => a.at.localeCompare(b.at))
-    .map(m => (t.pull ? `#${m.thread} ${line(m)}` : line(m)));
+    .map(m => (t.pull ? `#${m.issue} ${line(m)}` : line(m)));
 
-/** Both threads as markdown: bodies, then one merged timeline. Older entries shrink to one line past a size cap. */
-export function context(t: Threads): string {
+/** The issue and its pull request as markdown: bodies, then one merged timeline. Older entries shrink to one line past a size cap. */
+export function context(t: Issues): string {
   const pull = t.pull;
   const heads = [
     `## #${t.issue.number} ${t.issue.title}\n\n${t.issue.body}`,
     pull &&
-      `## Pull request #${pull.number} ${pull.title}\n\n${pull.pull?.branch} into ${pull.pull?.into}\n\n${pull.body}`,
+      `## Pull request #${pull.number} ${pull.title}\n\n${pull.pull?.branch} into ${pull.pull?.base}\n\n${pull.body}`,
   ].filter(Boolean);
   const lines = timeline(t, () => true);
   let size = [...heads, ...lines].join('\n\n').length;
@@ -58,17 +58,17 @@ export function context(t: Threads): string {
 }
 
 /** Only what came after `seen`: what people said and pushed, checks, and the base moving. Empty when nothing did. */
-export function news(t: Threads, seen: Seen): { text: string; seen: Seen } {
+export function news(t: Issues, seen: Seen): { text: string; seen: Seen } {
   const pull = (t.pull ?? t.issue).pull;
-  const moved = pull?.base !== undefined && seen.base !== undefined && pull.base !== seen.base;
+  const moved = pull?.baseSha !== undefined && seen.base !== undefined && pull.baseSha !== seen.base;
   const lines = [
-    moved && `The base ${pull.into} moved to ${pull.base!.slice(0, 7)}.`,
+    moved && `The base ${pull.base} moved to ${pull.baseSha!.slice(0, 7)}.`,
     ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || !m.actor.endsWith('[bot]'))),
   ].filter(Boolean);
   const at = [t.issue, t.pull].flatMap(x => x?.messages ?? []).reduce((at, m) => (m.at > at ? m.at : at), seen.at);
   return {
     text: lines.length > 0 ? `## New since you last looked\n\n${lines.join('\n\n')}` : '',
-    seen: { at, ...(pull?.base !== undefined && { base: pull.base }) },
+    seen: { at, ...(pull?.baseSha !== undefined && { base: pull.baseSha }) },
   };
 }
 
@@ -81,8 +81,8 @@ const statuses: Record<Run['status'], string> = {
 };
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 
-/** The labels and status comment for a run, as proposals; only what differs from the thread now. */
-export function shown(run: Run, w: Workflow, t: Threads): Proposal[] {
+/** The labels and status comment for a run, as proposals; only what differs from the issue now. */
+export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
@@ -116,6 +116,6 @@ export function shown(run: Run, w: Workflow, t: Threads): Proposal[] {
             ...(stale.length > 0 && { remove: stale }),
           },
         ]),
-    ...(now === body ? [] : [{ kind: 'reply' as const, body, ...(run.comment && { edit: run.comment }) }]),
+    ...(now === body ? [] : [{ kind: 'comment' as const, body, ...(run.comment && { edit: run.comment }) }]),
   ];
 }

@@ -8,7 +8,7 @@ import {
   type Comment,
   type Message,
   type Proposal,
-  type Thread,
+  type Issue,
 } from './forge.ts';
 import { hostGit, type Work } from './sandbox.ts';
 
@@ -170,7 +170,7 @@ const scopes = {
   checks: { checks: 'read', statuses: 'read' },
   comment: { issues: 'write', pull_requests: 'write' },
   push: { contents: 'write' },
-  pull: { contents: 'read', pull_requests: 'write' },
+  pull_request: { contents: 'read', pull_requests: 'write' },
   merge: { contents: 'write', pull_requests: 'write' },
   repos: { metadata: 'read' },
 } as const;
@@ -266,7 +266,7 @@ export const githubForge = (
         return items;
       });
 
-    const toThread = (i: RestIssue, pull?: RestPull, parent?: number): Thread => {
+    const toIssue = (i: RestIssue, pull?: RestPull, parent?: number): Issue => {
       const own = pull?.head.repo?.full_name === app.repo;
       return {
         number: i.number,
@@ -279,9 +279,9 @@ export const githubForge = (
         ...(pull && {
           pull: {
             branch: own ? pull.head.ref : `${pull.head.repo?.full_name ?? 'unknown'}:${pull.head.ref}`,
-            into: pull.base.ref,
+            base: pull.base.ref,
             head: pull.head.sha,
-            ...(pull.base.sha && { base: pull.base.sha }),
+            ...(pull.base.sha && { baseSha: pull.base.sha }),
           },
         }),
         url: i.html_url,
@@ -304,17 +304,17 @@ export const githubForge = (
       };
     };
 
-    const heard = (thread: number, c: RestComment, self: string, kind: Message['kind'] = 'comment'): Message => {
+    const heard = (issue: number, c: RestComment, self: string, kind: Message['kind'] = 'comment'): Message => {
       const comment = toComment(c, self);
       const trusted = members.has(c.author_association) && !isBot(c.user);
-      return { thread, kind, actor: comment.author, trusted, at: c.created_at, comment };
+      return { issue, kind, actor: comment.author, trusted, at: c.created_at, comment };
     };
 
     /** A review as a message: its verdict, or a comment when it only has a body; undefined for an empty comment. */
-    const reviewed = (thread: number, r: RestReview, self: string): Message | undefined => {
+    const reviewed = (issue: number, r: RestReview, self: string): Message | undefined => {
       const kind = r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes' : 'comment';
       if (!r.submitted_at || (kind === 'comment' && !visible(r.body).trim())) return undefined;
-      return heard(thread, { ...r, created_at: r.submitted_at, html_url: '' }, self, kind);
+      return heard(issue, { ...r, created_at: r.submitted_at, html_url: '' }, self, kind);
     };
 
     const kinds: Record<string, Message['kind']> = {
@@ -324,13 +324,13 @@ export const githubForge = (
       unlabeled: 'unlabel',
     };
     /** An issue event as a message, trusted when its actor may write; undefined for events that say nothing here. */
-    const evented = (thread: number, e: RestEvent, merged: boolean) =>
+    const evented = (issue: number, e: RestEvent, merged: boolean) =>
       Effect.gen(function* () {
         const kind = kinds[e.event];
         if (!kind || (kind === 'closed' && merged) || ((kind === 'label' || kind === 'unlabel') && !e.label))
           return undefined;
         return {
-          thread,
+          issue,
           kind,
           actor: login(e.actor),
           trusted: yield* permitted(e.actor),
@@ -339,9 +339,9 @@ export const githubForge = (
         } satisfies Message;
       });
 
-    const listState = (state?: Thread['state']) => (state === undefined ? 'all' : state === 'open' ? 'open' : 'closed');
+    const listState = (state?: Issue['state']) => (state === undefined ? 'all' : state === 'open' ? 'open' : 'closed');
 
-    const threads: Forge['Type']['threads'] = (filter = {}) =>
+    const issues: Forge['Type']['issues'] = (filter = {}) =>
       Effect.gen(function* () {
         const { state, labels = [], parent } = filter;
         const query = new URLSearchParams({
@@ -358,19 +358,19 @@ export const githubForge = (
           : [];
         const byNumber = new Map(pulls.map(p => [p.number, p]));
         return issues
-          .map(i => toThread(i, byNumber.get(i.number), parent))
+          .map(i => toIssue(i, byNumber.get(i.number), parent))
           .filter(t => (state === undefined || t.state === state) && labels.every(l => t.labels.includes(l)));
       });
 
     /** The checks and statuses on a commit: name and conclusion only. Without the permission to read them, none. */
-    const checked = (thread: number, sha: string) =>
+    const checked = (issue: number, sha: string) =>
       Effect.all([
         gh<{ check_runs: RestCheck[] }>('GET', `${repo}/commits/${sha}/check-runs?per_page=100`, undefined, 'checks'),
         gh<{ statuses: RestStatus[] }>('GET', `${repo}/commits/${sha}/status`, undefined, 'checks'),
       ]).pipe(
         Effect.map(([runs, status]): Message[] => [
           ...runs.check_runs.map(c => ({
-            thread,
+            issue,
             kind: 'check' as const,
             actor: c.app?.slug ?? 'checks',
             trusted: false,
@@ -378,7 +378,7 @@ export const githubForge = (
             check: { name: visible(c.name), conclusion: c.conclusion ?? c.status },
           })),
           ...status.statuses.map(s => ({
-            thread,
+            issue,
             kind: 'check' as const,
             actor: login(s.creator),
             trusted: false,
@@ -392,7 +392,7 @@ export const githubForge = (
         )
       );
 
-    const thread: Forge['Type']['thread'] = number =>
+    const issue: Forge['Type']['issue'] = number =>
       Effect.gen(function* () {
         const self = yield* me;
         const issue = yield* gh<RestIssue>('GET', `${repo}/issues/${number}`);
@@ -415,7 +415,7 @@ export const githubForge = (
           ...[...said, ...lined].map(c => heard(number, c, self)),
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
           ...commits.map(c => ({
-            thread: number,
+            issue: number,
             kind: 'commit' as const,
             actor: c.author ? login(c.author) : (c.commit.author?.name ?? 'ghost'),
             trusted: false,
@@ -426,7 +426,7 @@ export const githubForge = (
           ...(pull ? yield* checked(number, pull.head.sha) : []),
         ];
         return {
-          ...toThread(issue, pull, parent?.number),
+          ...toIssue(issue, pull, parent?.number),
           messages: messages.sort((a, b) => a.at.localeCompare(b.at)),
         };
       });
@@ -463,7 +463,7 @@ export const githubForge = (
             open,
             p =>
               Effect.map(all<RestReview>(`${repo}/pulls/${p.number}/reviews?per_page=100`), rs =>
-                rs.map(r => ({ ...r, thread: p.number }))
+                rs.map(r => ({ ...r, issue: p.number }))
               ),
             { concurrency: 4 }
           );
@@ -472,7 +472,7 @@ export const githubForge = (
           for (const c of said) if (after(c.created_at)) messages.push(heard(numberIn(c.issue_url), c, self));
           for (const c of lined) if (after(c.created_at)) messages.push(heard(numberIn(c.pull_request_url), c, self));
           for (const r of reviews.flat()) {
-            const m = after(r.submitted_at) ? reviewed(r.thread, r, self) : undefined;
+            const m = after(r.submitted_at) ? reviewed(r.issue, r, self) : undefined;
             if (m) messages.push(m);
           }
           const merged = new Set(events.filter(e => e.event === 'merged').map(e => e.issue?.number));
@@ -580,7 +580,7 @@ export const githubForge = (
       work?: Work
     ): Effect.Effect<{ url?: string; id?: string }, ForgeError> => {
       switch (p.kind) {
-        case 'reply':
+        case 'comment':
           return p.under === undefined
             ? comment(number, p.body, p.edit)
             : Effect.map(
@@ -615,7 +615,7 @@ export const githubForge = (
           return Effect.map(push(work, p.branch, p.message), head => ({
             url: `https://github.com/${app.repo}/commit/${head}`,
           }));
-        case 'pull':
+        case 'pull_request':
           return Effect.map(
             gh<{ html_url: string }>(
               'POST',
@@ -623,10 +623,10 @@ export const githubForge = (
               {
                 title: p.title,
                 head: p.branch,
-                base: p.into,
+                base: p.base,
                 body: p.body,
               },
-              'pull'
+              'pull_request'
             ),
             r => ({ url: r.html_url })
           );
@@ -659,5 +659,5 @@ export const githubForge = (
         )
       );
 
-    return { threads, thread, since, apply };
+    return { issues, issue, since, apply };
   });

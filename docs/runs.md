@@ -21,7 +21,7 @@ A run id is the workflow name, the issue number and a timestamp, so runs sort in
 | Field      | Meaning                                                    |
 | ---------- | ---------------------------------------------------------- |
 | `workflow` | The workflow it runs                                       |
-| `thread`   | The issue number                                           |
+| `issue`    | The issue number                                           |
 | `step`     | The step it is on                                          |
 | `status`   | `running`, `asking`, `waiting`, `done` or `stopped`        |
 | `tries`    | Tries used on this step                                    |

@@ -29,7 +29,8 @@ steps:
 
 A step is one of three kinds: `bot` names an agent, which gets the step's skill (the step's name
 unless `skill` says otherwise), `run` is a script, and `wait: human` waits for a person. `branch` is
-the branch a run works on, `{issue}` and `{parent}` filled in from the issue.
+the branch a run works on, `{issue}` and `{parent}` filled in from the issue, and `base` the branch
+its pull requests go into, `main` by default.
 
 ## Tries and checks
 

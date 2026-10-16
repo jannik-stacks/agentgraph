@@ -9,34 +9,34 @@ JSON array, or one JSON object per line.
 ```bothub
 [
   {"kind": "push", "branch": "bothub/42", "message": "Fix fee rounding"},
-  {"kind": "pull", "branch": "bothub/42", "into": "main", "title": "Fix fee rounding", "body": "Closes #42"}
+  {"kind": "pull_request", "branch": "bothub/42", "base": "main", "title": "Fix fee rounding", "body": "Closes #42"}
 ]
 ```
 ````
 
 ## Kinds
 
-| Kind    | Fields                          | Effect                                                         |
-| ------- | ------------------------------- | -------------------------------------------------------------- |
-| `reply` | `body`                          | Comments on the issue                                          |
-| `label` | `add`, `remove`                 | Changes labels                                                 |
-| `push`  | `branch`, `message`             | Commits the checkout and pushes the branch                     |
-| `pull`  | `branch`, `into`, `title`, `body` | Opens a pull request, or finds the one already open          |
-| `merge` | `number`, `head`                | Merges a pull request, only while its head is still `head`     |
-| `issue` | `title`, `body`, `parent`       | Opens an issue, as a sub-issue of `parent` when given          |
-| `ask`   | `question`                      | Posts the question and makes the run wait                      |
-| `back`  | `why`                           | Sends the run back, see [The loop](loop.md#back)               |
+| Kind           | Fields                            | Effect                                                     |
+| -------------- | --------------------------------- | ---------------------------------------------------------- |
+| `comment`      | `body`                            | Comments on the issue, or where a human last spoke         |
+| `label`        | `add`, `remove`                   | Changes labels                                             |
+| `push`         | `branch`, `message`               | Commits the checkout and pushes the branch                 |
+| `pull_request` | `branch`, `base`, `title`, `body` | Opens a pull request, or finds the one already open        |
+| `merge`        | `number`, `head`                  | Merges a pull request, only while its head is still `head` |
+| `issue`        | `title`, `body`, `parent`         | Opens an issue, as a sub-issue of `parent` when given      |
+| `ask`          | `question`                        | Posts the question and makes the run wait                  |
+| `back`         | `why`                             | Sends the run back, see [The loop](loop.md#back)           |
 
 `ask` and `back` steer the run. They never reach GitHub as writes.
 
 ## Returns
 
-`returns` in an agent file lists the kinds it may propose, `reply` alone by default. Every agent may
+`returns` in an agent file lists the kinds it may propose, `comment` alone by default. Every agent may
 also `ask`, and a step with `back` lets its agent `back`. The prompt shows the agent the shape of
 each kind it may use.
 
 ```yaml
-returns: [reply, push, pull, ask]
+returns: [comment, push, pull_request, ask]
 ```
 
 ## Validation

@@ -63,7 +63,7 @@ const world = () => {
   const human = (body: string, at: string) =>
     appendFileSync(
       join(forge, '7.jsonl'),
-      `${JSON.stringify({ thread: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Message)}\n`
+      `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Message)}\n`
     );
   human('/bothub', '2026-10-16T00:00:00.000Z');
   return { root, origin: join(root, 'origin.git'), forge, data: join(root, 'data'), human };
@@ -84,7 +84,13 @@ const reply = (...proposals: Proposal[]): AgentEvent => ({
   exit: 0,
 });
 const push: Proposal = { kind: 'push', branch: 'bothub/7', message: 'Add hello' };
-const pull: Proposal = { kind: 'pull', branch: 'bothub/7', into: 'main', title: 'Add hello', body: 'Closes #7' };
+const pull: Proposal = {
+  kind: 'pull_request',
+  branch: 'bothub/7',
+  base: 'main',
+  title: 'Add hello',
+  body: 'Closes #7',
+};
 const judged: AgentEvent[] = [
   start('j'),
   { type: 'usage', input: 4, output: 2, usd: 0.25 },
@@ -118,13 +124,13 @@ const traceOf = (data: string, id: string) =>
 
 const bodies = (t: { messages: Message[] }) => t.messages.flatMap(m => (m.comment ? [m.comment.body] : []));
 
-const fresh = (): Run => begin(w, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' });
+const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
 describe('drive', () => {
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
     const where = world();
     const { specs, run } = services(where, [
-      [start('t1'), reply({ kind: 'reply', body: 'Brief: add hello.txt' })],
+      [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
       [start('i1'), write('hello.txt', 'TODO\n'), { type: 'usage', input: 10, output: 5, usd: 0.5 }, reply(push, pull)],
       [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
@@ -135,7 +141,7 @@ describe('drive', () => {
       [start('i1'), write('hello.txt', 'hello world\n\n'), reply(push)],
       judged,
       [start('r3'), reply({ kind: 'back', why: 'still not right' })],
-      [start('r4'), reply({ kind: 'reply', body: 'Ready to merge.' })],
+      [start('r4'), reply({ kind: 'comment', body: 'Ready to merge.' })],
     ]);
 
     const asked = await run(drive(w, fresh(), hub));
@@ -144,7 +150,7 @@ describe('drive', () => {
     expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
 
     // the refused try pushed nothing; the passing one did, and opened pull request #8
-    const forge = await run(Effect.flatMap(Forge, f => f.thread(7)));
+    const forge = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(bodies(forge)).toEqual([
       '/bothub',
       'Waiting for an answer at review:\n\nstill not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $1.25.\n\nPull request: ' +
@@ -153,8 +159,8 @@ describe('drive', () => {
       'still not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
     ]);
     expect(forge.labels).toEqual(['bothub:waiting']);
-    const pr = await run(Effect.flatMap(Forge, f => f.thread(8)));
-    expect(pr.pull).toMatchObject({ branch: 'bothub/7', into: 'main' });
+    const pr = await run(Effect.flatMap(Forge, f => f.issue(8)));
+    expect(pr.pull).toMatchObject({ branch: 'bothub/7', base: 'main' });
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello world');
     expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'bothub/7'));
     expect(existsSync(join(where.forge, '8', 'diff.patch'))).toBe(true);
@@ -214,7 +220,7 @@ describe('drive', () => {
       ['review', 'back', 0, { review: 2 }],
     ]);
 
-    // a human answers on the thread: the review runs again and the run waits for the merge
+    // a human answers on the issue: the review runs again and the run waits for the merge
     where.human('/bothub it is fine, ship it', '2026-10-17T00:00:00.000Z');
     const said = await run(
       Effect.flatMap(Forge, f => Stream.runCollect(f.since('2026-10-16T23:00:00.000Z'))).pipe(Effect.map(Chunk.toArray))
@@ -226,7 +232,7 @@ describe('drive', () => {
     expect(specs.at(-1)!.prompt).toContain('it is fine, ship it');
 
     const merged = {
-      thread: 7,
+      issue: 7,
       kind: 'merged',
       actor: 'morgan',
       trusted: true,
@@ -238,7 +244,7 @@ describe('drive', () => {
   it('ends the run at once when a stop check fails: no try spent, nothing lands, the findings posted', async () => {
     const where = world();
     const { specs, run } = services(where, [
-      [start('t1'), reply({ kind: 'reply', body: 'Brief' })],
+      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
       [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
     ]);
     const stopped = await run(drive(w, fresh(), hub));
@@ -246,9 +252,9 @@ describe('drive', () => {
     expect(stopped.reason).toMatch(/^safety: /);
     expect(specs).toHaveLength(2);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'bothub/7')).toThrow();
-    const thread = await run(Effect.flatMap(Forge, f => f.thread(7)));
-    expect(bodies(thread)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\nCost so far: $0.00.`);
-    expect(thread.labels).toEqual(['bothub:stopped']);
+    const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
+    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\nCost so far: $0.00.`);
+    expect(issue.labels).toEqual(['bothub:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);
@@ -306,7 +312,7 @@ describe('drive', () => {
 
 describe('setup', () => {
   const stopping = (): AgentEvent[][] => [
-    [start('t1'), reply({ kind: 'reply', body: 'Brief' })],
+    [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
     [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
   ];
 
@@ -342,18 +348,18 @@ describe('setup', () => {
 });
 
 const say = (where: ReturnType<typeof world>, m: Message) =>
-  appendFileSync(join(where.forge, `${m.thread}.jsonl`), `${JSON.stringify(m)}\n`);
+  appendFileSync(join(where.forge, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
 
-const comment = (thread: number, actor: string, trusted: boolean, body: string, at: string): Message => ({
-  thread,
+const comment = (issue: number, actor: string, trusted: boolean, body: string, at: string): Message => ({
+  issue,
   kind: 'comment',
   actor,
   trusted,
   at,
   comment: { id: at, author: actor, body, at },
 });
-const check = (thread: number, name: string, conclusion: string, at: string): Message => ({
-  thread,
+const check = (issue: number, name: string, conclusion: string, at: string): Message => ({
+  issue,
   kind: 'check',
   actor: 'ci',
   trusted: false,
@@ -370,7 +376,7 @@ const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {
   mkdirSync(join(where.forge, '8'), { recursive: true });
   writeFileSync(
     join(where.forge, '8', 'pull.json'),
-    JSON.stringify({ branch: 'bothub/7', into: 'main', head: 'x', base })
+    JSON.stringify({ branch: 'bothub/7', base: 'main', head: 'x', baseSha: base })
   );
 };
 
@@ -381,7 +387,7 @@ describe('tick', () => {
     const where = world();
     const at = '2026-10-16T00:00:01.000Z';
     say(where, {
-      thread: 7,
+      issue: 7,
       kind: 'comment',
       actor: 'mallory[bot]',
       trusted: false,
@@ -390,7 +396,7 @@ describe('tick', () => {
     });
     const { specs, run } = services(where, [
       [start('a'), write('hello.txt', 'hello\n'), reply(push)],
-      [start('b'), reply({ kind: 'reply', body: 'Nothing left to do.' })],
+      [start('b'), reply({ kind: 'comment', body: 'Nothing left to do.' })],
     ]);
     const first = await run(tick(small));
     expect(first.map(r => [r.id, r.status])).toEqual([['issue-7-20261016000000000', 'done']]);
@@ -416,7 +422,7 @@ describe('tick', () => {
     const kept = 'refs/bothub/runs/run-7';
     const [asked, done, saved] = await run(
       Effect.gen(function* () {
-        const asked = yield* drive(flow, begin(flow, { id: 'run-7', thread: 7, started: fresh().started }), small);
+        const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
         const saved = git(where.origin, 'show', `${kept}:hello.txt`);
         return [asked, yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small), saved];
       })
@@ -449,7 +455,7 @@ describe('tick', () => {
     pullRequest(where);
     return Effect.flatMap(Store, s =>
       s.put({
-        ...begin(merging.workflows.issue, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' }),
+        ...begin(merging.workflows.issue, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }),
         step: 'merge',
         status: 'waiting',
         sessions: { implement: { id: 'a', home: '/homes/a' } },
@@ -461,7 +467,7 @@ describe('tick', () => {
     const where = world();
     const flow = merging.workflows.issue;
     const { specs, run } = services(where, []);
-    const start = { ...begin(flow, { id: 'run-7', thread: 7, started: fresh().started }), step: 'merge' };
+    const start = { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), step: 'merge' };
     const parked = await run(drive(flow, start, merging));
     expect(parked).toMatchObject({ step: 'merge', status: 'asking' });
     expect(parked.reason).toMatch(/^No pull request is open for branch /);
@@ -475,7 +481,7 @@ describe('tick', () => {
       Effect.map(Forge, f => ({
         ...f,
         apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
-          p.kind === 'reply' && p.body === 'boom'
+          p.kind === 'comment' && p.body === 'boom'
             ? Effect.fail(new ForgeError({ status: 403, message: 'forbidden' }))
             : f.apply(n, p, work),
       }))
@@ -485,10 +491,10 @@ describe('tick', () => {
       failing,
       fileStore(where.data),
       host(where.origin),
-      scripted([[start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'boom' }, push)]])
+      scripted([[start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push)]])
     );
     const asked = await Effect.runPromise(
-      drive(flow, begin(flow, { id: 'run-7', thread: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
     expect(asked).toMatchObject({ step: 'implement', status: 'asking', reason: 'GitHub failed: forbidden' });
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
@@ -498,7 +504,7 @@ describe('tick', () => {
     const where = world();
     say(where, comment(8, 'morgan', true, '@bothub please undo the greeting', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply(push, { kind: 'reply', body: 'Undone.' })],
+      [start('a'), write('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
     ]);
     const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
@@ -540,7 +546,7 @@ describe('start with one issue', () => {
     const turns = [
       [start('i'), write('hello.txt', 'TODO\n'), reply(push)],
       [start('i'), write('hello.txt', 'hello\n'), reply(push)],
-      [start('r'), reply({ kind: 'reply', body: 'Looks right.' })],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ];
     const doubles = (s: Settings) => {
       seen.push(s);
@@ -556,7 +562,7 @@ describe('start with one issue', () => {
       expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
 
       const later = new Date(Date.now() + 1000).toISOString();
-      say(where, { thread: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
+      say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
       const done = await main(one, doubles);
       expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
     } finally {
@@ -577,13 +583,13 @@ describe('sweep', () => {
         `---\ntitle: Issue ${n}\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody ${n}.\n`
       );
     const at = '2026-10-16T00:00:00.000Z';
-    const parked = (thread: number, status: Run['status']): Run => ({
-      ...begin(small.workflows.issue!, { id: `run-${thread}`, thread, started: at }),
+    const parked = (issue: number, status: Run['status']): Run => ({
+      ...begin(small.workflows.issue!, { id: `run-${issue}`, issue, started: at }),
       status,
     });
     const answer = '2026-10-16T00:00:05.000Z';
     say(where, {
-      thread: 8,
+      issue: 8,
       kind: 'comment',
       actor: 'morgan',
       trusted: true,
@@ -591,16 +597,16 @@ describe('sweep', () => {
       comment: { id: 'a', author: 'morgan', body: '/bothub hi', at: answer },
     });
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'Done.' })],
-      [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'Done.' })],
+      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Done.' })],
+      [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Done.' })],
     ]);
     for (const r of [parked(8, 'asking'), parked(9, 'waiting')]) {
       mkdirSync(join(where.data, r.id), { recursive: true });
       writeFileSync(join(where.data, r.id, 'run.json'), JSON.stringify(r));
     }
     const touched = await run(sweep(small));
-    expect(touched.map(r => r.thread).sort()).toEqual([7, 8]);
-    expect(touched.find(r => r.thread === 9)).toBeUndefined();
+    expect(touched.map(r => r.issue).sort()).toEqual([7, 8]);
+    expect(touched.find(r => r.issue === 9)).toBeUndefined();
     expect(specs).toHaveLength(2);
     expect(specs.map(s => s.prompt).join('\n')).toContain('hi');
     expect(await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)))).toHaveProperty('length', 0);
@@ -610,7 +616,7 @@ describe('sweep', () => {
 describe('coworker', () => {
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
   const flow = small.workflows.issue!;
-  const begun = () => begin(flow, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' });
+  const begun = () => begin(flow, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
   it('prompts a fresh session with the issue, its pull request and its checks', async () => {
     const where = world();
@@ -637,10 +643,10 @@ describe('coworker', () => {
 
   it('catches a resumed session up on what people said and pushed while it was parked, and nothing older', async () => {
     const where = world();
-    const { specs, run, asked } = await parked(where, [[start('a'), reply({ kind: 'reply', body: 'ok' })]]);
+    const { specs, run, asked } = await parked(where, [[start('a'), reply({ kind: 'comment', body: 'ok' })]]);
     say(where, comment(7, 'morgan', true, '/bothub hello', later(1)));
     say(where, {
-      thread: 8,
+      issue: 8,
       kind: 'commit',
       actor: 'ana',
       trusted: false,
@@ -659,7 +665,7 @@ describe('coworker', () => {
     say(where, check(8, 'test', 'failure', '2026-10-16T00:00:00.500Z'));
     const { specs, run, asked } = await parked(where, [
       [start('a'), reply({ kind: 'ask', question: 'And now?' })],
-      [start('a'), reply({ kind: 'reply', body: 'ok' })],
+      [start('a'), reply({ kind: 'comment', body: 'ok' })],
     ]);
     const again = await run(drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
     expect(specs[1]!.prompt).toBe('hello');
@@ -714,7 +720,7 @@ describe('coworker', () => {
 
   const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'bothub' } } } } };
   const labelled = (actor: string, trusted: boolean, kind: 'label' | 'unlabel', at: string): Message => ({
-    thread: 7,
+    issue: 7,
     kind,
     actor,
     trusted,
@@ -729,7 +735,7 @@ describe('coworker', () => {
     expect(await run(tick(assigned))).toEqual([]);
     say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:02.000Z'));
     const [asked] = await run(tick(assigned));
-    expect(asked).toMatchObject({ thread: 7, status: 'asking' });
+    expect(asked).toMatchObject({ issue: 7, status: 'asking' });
     expect(specs).toHaveLength(1);
     say(where, labelled('mallory', false, 'unlabel', later(1)));
     expect(await run(tick(assigned))).toEqual([]);
@@ -737,7 +743,7 @@ describe('coworker', () => {
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the bothub label was removed' });
     expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('eyes #7\n');
-    expect((await run(Effect.flatMap(Forge, f => f.thread(7)))).labels).toEqual(['bothub:stopped']);
+    expect((await run(Effect.flatMap(Forge, f => f.issue(7)))).labels).toEqual(['bothub:stopped']);
   }, 30_000);
 
   it('begins on one issue only where the latest bothub label came from a maintainer', async () => {
@@ -759,15 +765,17 @@ describe('coworker', () => {
     ]);
     const asked = await run(drive(flow, begun(), small));
     expect(asked).toMatchObject({ status: 'asking', tries: 1, comment: '7-3' });
-    const thread = await run(Effect.flatMap(Forge, f => f.thread(7)));
-    expect(thread.labels).toEqual(['bothub:waiting']);
-    expect(bodies(thread)).toEqual([
+    const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
+    expect(issue.labels).toEqual(['bothub:waiting']);
+    expect(bodies(issue)).toEqual([
       '/bothub',
       'Waiting for an answer at implement:\n\nHello or hi?\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $0.00.',
       'Hello or hi?\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
     ]);
     const edits = traceOf(where.data, 'run-7').flatMap(t =>
-      'applied' in t && t.applied.proposal.kind === 'reply' && t.applied.proposal.edit ? [t.applied.proposal.body] : []
+      'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
+        ? [t.applied.proposal.body]
+        : []
     );
     expect(edits).toEqual([
       'Working on implement, try 2 of 2.\n\nCost so far: $0.00.',
@@ -775,13 +783,13 @@ describe('coworker', () => {
     ]);
   }, 30_000);
 
-  it('replies where the human answered: on the pull request, and under a review comment in its thread', async () => {
+  it('replies where the human answered: on the pull request, and under a review comment in its issue', async () => {
     const where = world();
     pullRequest(where);
     const { run } = services(where, [
       [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
       [start('a'), reply({ kind: 'ask', question: 'And bye?' })],
-      [start('a'), reply({ kind: 'reply', body: 'Said bye.' })],
+      [start('a'), reply({ kind: 'comment', body: 'Said bye.' })],
     ]);
     const at = () => new Date(Date.now() + 1).toISOString();
     const review = comment(8, 'morgan', true, '/bothub yes, bye too', '');
@@ -796,14 +804,14 @@ describe('coworker', () => {
         return [again, done];
       })
     );
-    expect(again).toMatchObject({ status: 'asking', said: { thread: 8 } });
-    expect(done).toMatchObject({ status: 'done', said: { thread: 8, under: review.at } });
-    const pr = (await run(Effect.flatMap(Forge, f => f.thread(8)))).messages.flatMap(m => m.comment ?? []);
+    expect(again).toMatchObject({ status: 'asking', said: { issue: 8 } });
+    expect(done).toMatchObject({ status: 'done', said: { issue: 8, under: review.at } });
+    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).messages.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
       ['And bye?', undefined, undefined],
       ['Said bye.', review.at, 'hello.txt'],
     ]);
-    const issue = bodies(await run(Effect.flatMap(Forge, f => f.thread(7))));
+    const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
     expect(issue.some(b => b.startsWith('And bye?') || b.startsWith('Said bye.'))).toBe(false);
   }, 30_000);
 });

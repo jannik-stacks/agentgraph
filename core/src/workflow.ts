@@ -15,7 +15,7 @@ export type Workflow = Doc<{
     Record<'issues' | 'issue_comment' | 'pull_request', { command?: string; label?: string; branches?: string[] }>
   >;
   branch?: string;
-  into?: string;
+  base?: string;
   steps: Step[];
 }>;
 
@@ -37,14 +37,14 @@ export type Outcome =
   | { kind: 'answer'; text: string }
   | { kind: 'stop'; why: string };
 
-/** How far a session has read its threads: the time of the last message it saw and the base its pull request was on. */
+/** How far a session has read its issues: the time of the last message it saw and the base its pull request was on. */
 export type Seen = { at: string; base?: string };
 
-/** Where one workflow run on one thread stands. Enough to stop and pick it up on another machine. */
+/** Where one workflow run on one issue stands. Enough to stop and pick it up on another machine. */
 export type Run = {
   id: string;
   workflow: string;
-  thread: number;
+  issue: number;
   step: string;
   status: 'running' | 'asking' | 'waiting' | 'done' | 'stopped';
   tries: number;
@@ -53,7 +53,7 @@ export type Run = {
   feedback?: string;
   reason?: string;
   comment?: string;
-  said?: { thread: number; under?: string };
+  said?: { issue: number; under?: string };
   started: string;
   ended?: string;
   usd: number;
@@ -86,7 +86,7 @@ const Front = Schema.Struct({
     Schema.Struct({ issues: exact(Trigger), issue_comment: exact(Trigger), pull_request: exact(Trigger) })
   ),
   branch: exact(Schema.String),
-  into: exact(Schema.String),
+  base: exact(Schema.String),
   bot: exact(Schema.String),
   steps: exact(Schema.Record({ key: Schema.String, value: StepFile })),
 });
@@ -186,7 +186,7 @@ export function load(
     body: file.body,
     on: Object.fromEntries(Object.entries(on).map(([event, trigger]) => [event, trigger ?? {}])),
     ...(front.branch !== undefined && { branch: front.branch }),
-    ...(front.into !== undefined && { into: front.into }),
+    ...(front.base !== undefined && { base: front.base }),
     steps,
   };
   return { workflow, problems };
@@ -205,7 +205,7 @@ const refusalText = (o: Extract<Outcome, { kind: 'refused' }>) =>
   ].join('\n');
 
 /** The run at the first step of a workflow. */
-export function begin(w: Workflow, run: Pick<Run, 'id' | 'thread' | 'started'>): Run {
+export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>): Run {
   const first = w.steps[0]!;
   return {
     ...run,
@@ -294,7 +294,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
 
 /** What a new message means for a parked run; undefined when it is only context. */
 export function reenter(w: Workflow, run: Run, m: Message): Outcome | undefined {
-  if (!m.trusted || m.thread !== run.thread) return undefined;
+  if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
     return { kind: 'stop', why: `the ${label} label was removed` };

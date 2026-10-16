@@ -49,7 +49,7 @@ export class Store extends Context.Tag('bothub/Store')<
   Store,
   {
     get: (id: string) => Effect.Effect<Run | undefined, StoreError>;
-    list: (filter?: Partial<Pick<Run, 'workflow' | 'thread' | 'status'>>) => Effect.Effect<Run[], StoreError>;
+    list: (filter?: Partial<Pick<Run, 'workflow' | 'issue' | 'status'>>) => Effect.Effect<Run[], StoreError>;
     put: (run: Run) => Effect.Effect<void, StoreError>;
     trace: (id: string, ...lines: Trace[]) => Effect.Effect<void, StoreError>;
     read: (id: string, from?: number) => Stream.Stream<Trace, StoreError>;
@@ -57,8 +57,8 @@ export class Store extends Context.Tag('bothub/Store')<
   }
 >() {}
 
-const renamed: Record<string, string> = { brief: 'prompt', carry: 'feedback' };
-const values: Record<string, Record<string, string>> = {};
+const renamed: Record<string, string> = { brief: 'prompt', carry: 'feedback', thread: 'issue', into: 'base' };
+const values: Record<string, Record<string, string>> = { kind: { reply: 'comment', pull: 'pull_request' } };
 
 /** A run or trace line as older versions wrote it, read with today's field names and values. */
 const current = (value: unknown, key = ''): unknown => {

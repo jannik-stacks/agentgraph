@@ -9,7 +9,7 @@ import { type CoreRun, linksOf, visitsOf } from './trace.ts';
 import { LineRow, SessionBlock, usd } from './TraceLines.tsx';
 
 const live = (r: CoreRun['run']) => r.status === 'running';
-const issueUrl = (r: CoreRun) => r.repo && `https://github.com/${r.repo}/issues/${r.run.thread}`;
+const issueUrl = (r: CoreRun) => r.repo && `https://github.com/${r.repo}/issues/${r.run.issue}`;
 const ended = (r: CoreRun) => (live(r.run) ? undefined : (r.run.ended ?? r.trace.at(-1)?.at));
 
 /** Answers `path` as JSON, again every few seconds while `poll` holds. */
@@ -34,7 +34,7 @@ const useJson = <T,>(path: string, poll: (value: T) => boolean) => {
 const Links = ({ r }: { r: CoreRun }) => (
   <span className="flex flex-wrap gap-2">
     {linksOf(r.trace)
-      .filter(l => l.kind === 'pull' || l.kind === 'issue' || l.kind === 'merge')
+      .filter(l => l.kind === 'pull_request' || l.kind === 'issue' || l.kind === 'merge')
       .map(l => (
         <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="text-sky-600 underline">
           {l.url.replace(/^https:\/\/github\.com\/[^/]+\/[^/]+\//, '')}
@@ -46,10 +46,10 @@ const Links = ({ r }: { r: CoreRun }) => (
 const Issue = ({ r }: { r: CoreRun }) =>
   issueUrl(r) ? (
     <a href={issueUrl(r)} target="_blank" rel="noreferrer" className="text-sky-600 underline">
-      #{r.run.thread}
+      #{r.run.issue}
     </a>
   ) : (
-    <span>#{r.run.thread}</span>
+    <span>#{r.run.issue}</span>
   );
 
 const status = (r: CoreRun['run']) => (

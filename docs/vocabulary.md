@@ -48,9 +48,6 @@ The docs say each key as the code reads it today. Each one becomes the word on t
 | --------------------------- | ---------------------------- |
 | `bots/<name>.md`, `bot:`    | `agents/<name>.md`, `agent:` |
 | check `judge:`              | `agent:`                     |
-| proposal `reply`            | `comment`                    |
-| proposal `pull`, `into`     | `pull_request`, `base`       |
-| run field `thread`          | `issue`                      |
 | status `asking`             | `waiting`                    |
 
 ## Old words

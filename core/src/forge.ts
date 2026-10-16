@@ -7,7 +7,7 @@ import { parse, stringify } from 'yaml';
 import type { Work } from './sandbox.ts';
 
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
-export type Thread = {
+export type Issue = {
   number: number;
   title: string;
   body: string;
@@ -15,7 +15,7 @@ export type Thread = {
   labels: string[];
   author: string;
   parent?: number;
-  pull?: { branch: string; into: string; head: string; base?: string };
+  pull?: { branch: string; base: string; head: string; baseSha?: string };
   url: string;
 };
 
@@ -30,9 +30,9 @@ export type Comment = {
   under?: string;
 };
 
-/** Something a person or a bot said or did on a thread. */
+/** Something a person or a bot said or did on an issue. */
 export type Message = {
-  thread: number;
+  issue: number;
   kind: 'comment' | 'approved' | 'changes' | 'merged' | 'closed' | 'label' | 'unlabel' | 'commit' | 'check';
   actor: string;
   trusted: boolean;
@@ -45,11 +45,11 @@ export type Message = {
 
 /** What a run may change on the repo, and the two proposals that steer the run. `react` is the runner's own. */
 export type Proposal =
-  | { kind: 'reply'; body: string; edit?: string; under?: string }
+  | { kind: 'comment'; body: string; edit?: string; under?: string }
   | { kind: 'react'; comment?: string; review?: boolean }
   | { kind: 'label'; add?: string[]; remove?: string[] }
   | { kind: 'push'; branch: string; message: string }
-  | { kind: 'pull'; branch: string; into: string; title: string; body: string }
+  | { kind: 'pull_request'; branch: string; base: string; title: string; body: string }
   | { kind: 'merge'; number: number; head: string }
   | { kind: 'issue'; title: string; body: string; parent?: number }
   | { kind: 'ask'; question: string }
@@ -64,8 +64,8 @@ export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number
 export class Forge extends Context.Tag('bothub/Forge')<
   Forge,
   {
-    threads: (filter?: Partial<Pick<Thread, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Thread[], ForgeError>;
-    thread: (number: number) => Effect.Effect<Thread & { messages: Message[] }, ForgeError>;
+    issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
+    issue: (number: number) => Effect.Effect<Issue & { messages: Message[] }, ForgeError>;
     since: (cursor: string) => Stream.Stream<Message, ForgeError>;
     apply: (number: number, proposal: Proposal, work?: Work) => Effect.Effect<Applied, ForgeError>;
   }
@@ -95,7 +95,7 @@ const execGit = promisify(execFile);
 const me = 'bothub[bot]';
 
 /**
- * A forge in a folder, for tests. `<n>.md` is a thread (frontmatter title, state, author, labels, parent; then the
+ * A forge in a folder, for tests. `<n>.md` is an issue (frontmatter title, state, author, labels, parent; then the
  * body), `<n>.jsonl` its timeline of messages, `<n>.reactions` the 👀 given, and a folder `<n>/` makes it a pull request (`pull.json`, `diff.patch`).
  * Branches live in the git remote of the worktree a push comes from. Authors ending in `[bot]` are not trusted.
  */
@@ -117,22 +117,22 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
 
       const numbers = async () =>
         ((await optional(readdir(dir))) ?? []).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
-      const read = async (n: number): Promise<Thread | undefined> => {
+      const read = async (n: number): Promise<Issue | undefined> => {
         const text = await optional(readFile(md(n), 'utf8'));
         if (text === undefined) return undefined;
         const [, head = '', body = ''] = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text) ?? [];
-        const front = parse(head) as Omit<Thread, 'number' | 'body' | 'url' | 'pull'>;
+        const front = parse(head) as Omit<Issue, 'number' | 'body' | 'url' | 'pull'>;
         const pull = await optional(readFile(pullFile(n), 'utf8'));
         return {
           number: n,
           ...front,
           labels: front.labels ?? [],
           body: body.trim(),
-          ...(pull !== undefined && { pull: JSON.parse(pull) as NonNullable<Thread['pull']> }),
+          ...(pull !== undefined && { pull: JSON.parse(pull) as NonNullable<Issue['pull']> }),
           url: md(n),
         };
       };
-      const write = async ({ number, body, url: _url, pull, ...front }: Thread) => {
+      const write = async ({ number, body, url: _url, pull, ...front }: Issue) => {
         await mkdir(dir, { recursive: true });
         await writeFile(md(number), `---\n${stringify(front)}---\n\n${body}\n`);
         if (pull) {
@@ -147,15 +147,15 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
           .map(line => JSON.parse(line) as Message);
       const now = () => new Date().toISOString();
       const say = (m: Omit<Message, 'actor' | 'trusted' | 'at'>) =>
-        appendFile(timeline(m.thread), `${JSON.stringify({ ...m, actor: me, trusted: false, at: now() })}\n`);
-      const open = async (fields: Pick<Thread, 'title' | 'body'> & Partial<Thread>) => {
+        appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: me, trusted: false, at: now() })}\n`);
+      const open = async (fields: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
         const number = Math.max(0, ...(await numbers())) + 1;
         await write({ number, state: 'open', labels: [], author: me, url: '', ...fields });
         return number;
       };
       const must = async (n: number) => {
         const t = await read(n);
-        if (!t) throw new ForgeError({ status: 404, message: `no thread #${n}` });
+        if (!t) throw new ForgeError({ status: 404, message: `no issue #${n}` });
         return t;
       };
 
@@ -163,7 +163,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         const no = (reason: string): Applied => ({ proposal: p, ok: false, reason });
         const t = await must(n);
         switch (p.kind) {
-          case 'reply': {
+          case 'comment': {
             const all = await messages(n);
             if (p.edit !== undefined) {
               const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === me);
@@ -177,13 +177,13 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
             if (p.under !== undefined && !parent) return no(`no review comment ${p.under} on #${n}`);
             const { path, line } = parent ?? {};
             const placed = { ...(path && { path }), ...(line && { line }), ...(p.under && { under: p.under }) };
-            await say({ thread: n, kind: 'comment', comment: { id, author: me, body: p.body, at: now(), ...placed } });
+            await say({ issue: n, kind: 'comment', comment: { id, author: me, body: p.body, at: now(), ...placed } });
             return { proposal: p, ok: true, id, url: `${md(n)}#${id}` };
           }
           case 'label': {
             const added = (p.add ?? []).filter(l => !t.labels.includes(l));
             await write({ ...t, labels: [...t.labels, ...added].filter(l => !p.remove?.includes(l)) });
-            for (const label of added) await say({ thread: n, kind: 'label', label });
+            for (const label of added) await say({ issue: n, kind: 'label', label });
             return { proposal: p, ok: true };
           }
           case 'push': {
@@ -198,23 +198,23 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
               await write({ ...pr, pull: { ...pr.pull, head } });
               await writeFile(
                 join(dir, String(k), 'diff.patch'),
-                await git(work, 'diff', `origin/${pr.pull.into}...HEAD`)
+                await git(work, 'diff', `origin/${pr.pull.base}...HEAD`)
               );
             }
             return { proposal: p, ok: true, url: `${p.branch}@${head}` };
           }
-          case 'pull': {
+          case 'pull_request': {
             for (const k of await numbers()) {
               const pr = await read(k);
               if (pr?.pull?.branch === p.branch && pr.state === 'open') return { proposal: p, ok: true, url: pr.url };
             }
             const head = work ? await git(work, 'rev-parse', `origin/${p.branch}`).catch(() => '') : '';
             if (!head) return no(`branch ${p.branch} is not pushed`);
-            const k = await open({ title: p.title, body: p.body, pull: { branch: p.branch, into: p.into, head } });
+            const k = await open({ title: p.title, body: p.body, pull: { branch: p.branch, base: p.base, head } });
             if (work)
               await writeFile(
                 join(dir, String(k), 'diff.patch'),
-                await git(work, 'diff', `origin/${p.into}...${head}`)
+                await git(work, 'diff', `origin/${p.base}...${head}`)
               );
             return { proposal: p, ok: true, url: md(k) };
           }
@@ -223,7 +223,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
             if (!pr.pull || pr.state !== 'open') return no(`#${p.number} is not an open pull request`);
             if (pr.pull.head !== p.head) return no(`#${p.number} moved to ${pr.pull.head}`);
             await write({ ...pr, state: 'merged' });
-            await say({ thread: p.number, kind: 'merged' });
+            await say({ issue: p.number, kind: 'merged' });
             return { proposal: p, ok: true, url: pr.url };
           }
           case 'issue':
@@ -248,18 +248,18 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         });
 
       return {
-        threads: filter =>
+        issues: filter =>
           io(async () => {
             const all = await Promise.all((await numbers()).map(read));
             return all.filter(
-              (t): t is Thread =>
+              (t): t is Issue =>
                 t !== undefined &&
                 (filter?.state === undefined || t.state === filter.state) &&
                 (filter?.parent === undefined || t.parent === filter.parent) &&
                 (filter?.labels ?? []).every(l => t.labels.includes(l))
             );
           }),
-        thread: n =>
+        issue: n =>
           io(async () => ({
             ...(await must(n)),
             messages: (await messages(n)).map(m =>

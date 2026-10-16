@@ -7,7 +7,7 @@ import { fixture } from './fixtures.ts';
 const w = fixture('acme-app').workflows.issue!;
 const merge = fixture('acme-app').workflows.merge!;
 const session = (id: string) => ({ id, home: `/runs/${id}` });
-const start = begin(w, { id: 'r1', thread: 7, started: '2026-10-16T00:00:00Z' });
+const start = begin(w, { id: 'r1', issue: 7, started: '2026-10-16T00:00:00Z' });
 const at = (step: string, more: Partial<Run> = {}): Run => ({
   ...start,
   step,
@@ -25,7 +25,7 @@ describe('begin', () => {
   it('starts at the first step, running, with no counters', () => {
     expect(start).toEqual({
       id: 'r1',
-      thread: 7,
+      issue: 7,
       started: '2026-10-16T00:00:00Z',
       workflow: 'issue',
       step: 'triage',
@@ -199,7 +199,7 @@ describe('transition, settled runs', () => {
 
 describe('reenter', () => {
   const said = (kind: Message['kind'], more: Partial<Message> = {}): Message => ({
-    thread: 7,
+    issue: 7,
     kind,
     actor: 'morgan',
     trusted: true,
@@ -232,10 +232,10 @@ describe('reenter', () => {
     expect(reenter(w, asking, comment('/bothub stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
   });
 
-  it('ignores comments without the command, untrusted authors, other threads and running runs', () => {
+  it('ignores comments without the command, untrusted authors, other issues and running runs', () => {
     expect(reenter(w, asking, comment('looks good'))).toBeUndefined();
     expect(reenter(w, asking, { ...comment('/bothub v2'), trusted: false })).toBeUndefined();
-    expect(reenter(w, asking, { ...comment('/bothub v2'), thread: 8 })).toBeUndefined();
+    expect(reenter(w, asking, { ...comment('/bothub v2'), issue: 8 })).toBeUndefined();
     expect(reenter(w, at('implement'), comment('/bothub v2'))).toBeUndefined();
   });
 });

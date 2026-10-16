@@ -62,7 +62,7 @@ describe('graphOf', () => {
     const { workflows, checks } = fixture('acme-app');
     const w = workflows.issue!;
     const run: Run = {
-      ...begin(w, { id: 'r1', thread: 7, started: 'now' }),
+      ...begin(w, { id: 'r1', issue: 7, started: 'now' }),
       step: 'implement',
       tries: 2,
       rounds: { review: 1 },
@@ -81,7 +81,7 @@ describe('graphOf', () => {
   it('marks every step visited once the run is done', () => {
     const { workflows, checks } = fixture('clarinet');
     const w = workflows.issue!;
-    const run: Run = { ...begin(w, { id: 'r1', thread: 7, started: 'now' }), step: 'review', status: 'done' };
+    const run: Run = { ...begin(w, { id: 'r1', issue: 7, started: 'now' }), step: 'review', status: 'done' };
     expect(graphOf(w, checks, run).nodes.every(n => n.run?.visited)).toBe(true);
   });
 });

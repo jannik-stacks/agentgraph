@@ -107,7 +107,7 @@ export const simulate = (
   next: Policy,
   engine: Pick<typeof import('../../../core/src/workflow.ts'), 'begin' | 'transition'>
 ): { trail: Trail; run: Run } => {
-  let run = engine.begin(w, { id: 'sim', thread: 1, started: '2026-10-16T00:00:00Z' });
+  let run = engine.begin(w, { id: 'sim', issue: 1, started: '2026-10-16T00:00:00Z' });
   const trail: Trail = [];
   for (let i = 0; i < 60 && (run.status === 'running' || run.status === 'waiting'); i++) {
     const outcome = next(

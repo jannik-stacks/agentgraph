@@ -86,8 +86,8 @@ describe('githubForge', () => {
       f,
       Effect.gen(function* () {
         const forge = yield* Forge;
-        yield* forge.thread(7);
-        yield* forge.thread(7);
+        yield* forge.issue(7);
+        yield* forge.issue(7);
       })
     );
     const minted = f.calls.filter(c => c.path.endsWith('/access_tokens'));
@@ -102,7 +102,7 @@ describe('githubForge', () => {
     expect(reads.every(c => c.headers.get('authorization') === 'Bearer tok')).toBe(true);
   });
 
-  it('lists issues and pull requests as threads with visible text', async () => {
+  it('lists issues and pull requests with visible text', async () => {
     const f = fake({
       'GET /repos/o/r/issues?state=open&per_page=100&labels=ready': [
         issue(7),
@@ -111,12 +111,12 @@ describe('githubForge', () => {
       ],
       'GET /repos/o/r/pulls?state=open&per_page=100': [pull(8)],
     });
-    const threads = await run(
+    const issues = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.threads({ state: 'open', labels: ['ready'] }))
+      Effect.flatMap(Forge, forge => forge.issues({ state: 'open', labels: ['ready'] }))
     );
-    expect(threads.map(t => t.number)).toEqual([7, 8]);
-    expect(threads[0]).toEqual({
+    expect(issues.map(t => t.number)).toEqual([7, 8]);
+    expect(issues[0]).toEqual({
       number: 7,
       title: 'Issue 7',
       body: 'Do it now',
@@ -125,7 +125,7 @@ describe('githubForge', () => {
       author: 'alice',
       url: 'https://github.com/o/r/issues/7',
     });
-    expect(threads[1]!.pull).toEqual({ branch: 'bothub/8', into: 'main', head: 'head8' });
+    expect(issues[1]!.pull).toEqual({ branch: 'bothub/8', base: 'main', head: 'head8' });
   });
 
   it('answers an unchanged list from its ETag', async () => {
@@ -145,7 +145,7 @@ describe('githubForge', () => {
       f,
       Effect.gen(function* () {
         const forge = yield* Forge;
-        return [yield* forge.threads(), yield* forge.threads()];
+        return [yield* forge.issues(), yield* forge.issues()];
       })
     );
     expect(served).toBe(1);
@@ -153,7 +153,7 @@ describe('githubForge', () => {
     expect(first![0]!.state).toBe('merged');
   });
 
-  it('reads one thread with its parent and its timeline, and withholds outsiders', async () => {
+  it('reads one issue with its parent and its timeline, and withholds outsiders', async () => {
     const at = (s: number) => `2026-10-16T11:00:0${s}Z`;
     const f = fake({
       'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
@@ -211,10 +211,10 @@ describe('githubForge', () => {
     });
     const t = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.thread(8))
+      Effect.flatMap(Forge, forge => forge.issue(8))
     );
     expect(t.parent).toBe(3);
-    expect(t.pull).toEqual({ branch: 'fork/r:fix', into: 'main', head: 'abc' });
+    expect(t.pull).toEqual({ branch: 'fork/r:fix', base: 'main', head: 'abc' });
     const shown = (m: (typeof t.messages)[number]) =>
       m.comment?.body ?? m.label ?? m.commit?.title ?? (m.check && `${m.check.name} ${m.check.conclusion}`);
     expect(t.messages.map(m => [m.kind, m.actor, m.trusted, shown(m)])).toEqual([
@@ -235,7 +235,7 @@ describe('githubForge', () => {
     expect(t.messages[5]!.comment).toMatchObject({ id: '6', under: '5' });
   });
 
-  it('reads a thread without its checks when the installation may not read them', async () => {
+  it('reads an issue without its checks when the installation may not read them', async () => {
     const f = fake({
       'POST /app/installations/9/access_tokens': (body: any) =>
         body.permissions.checks
@@ -251,7 +251,7 @@ describe('githubForge', () => {
     });
     const t = await run(
       f,
-      Effect.flatMap(Forge, forge => forge.thread(8))
+      Effect.flatMap(Forge, forge => forge.issue(8))
     );
     expect(t.messages).toEqual([]);
   });
@@ -312,7 +312,7 @@ describe('githubForge', () => {
       f,
       Effect.flatMap(Forge, forge => Stream.runCollect(forge.since(cursor)))
     ).then(chunk => [...chunk]);
-    expect(messages.map(m => [m.thread, m.kind, m.actor, m.trusted, m.comment?.body ?? m.label])).toEqual([
+    expect(messages.map(m => [m.issue, m.kind, m.actor, m.trusted, m.comment?.body ?? m.label])).toEqual([
       [7, 'comment', 'alice', true, '/bothub fix the typo'],
       [7, 'comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
       [7, 'comment', 'bob', true, '> /bothub quoted\nplain words'],
@@ -340,9 +340,9 @@ describe('githubForge', () => {
         const forge = yield* Forge;
         return yield* Effect.forEach(
           [
-            { kind: 'reply', body: 'done' },
+            { kind: 'comment', body: 'done' },
             { kind: 'label', add: ['ready'], remove: ['needs work', 'gone'] },
-            { kind: 'pull', branch: 'bothub/7', into: 'main', title: 'Fix', body: 'Closes #7' },
+            { kind: 'pull_request', branch: 'bothub/7', base: 'main', title: 'Fix', body: 'Closes #7' },
             { kind: 'issue', title: 'Follow up', body: 'later', parent: 7 },
             { kind: 'back', why: 'no' },
           ] satisfies Proposal[],
@@ -379,8 +379,8 @@ describe('githubForge', () => {
       f,
       Effect.forEach(
         [
-          [7, { kind: 'reply', body: 'now', edit: '11' }],
-          [8, { kind: 'reply', body: 'fixed', under: '5' }],
+          [7, { kind: 'comment', body: 'now', edit: '11' }],
+          [8, { kind: 'comment', body: 'fixed', under: '5' }],
           [7, { kind: 'react' }],
           [7, { kind: 'react', comment: '3' }],
           [8, { kind: 'react', comment: '5', review: true }],
@@ -415,10 +415,10 @@ describe('githubForge', () => {
       f,
       Effect.gen(function* () {
         const forge = yield* Forge;
-        yield* forge.thread(7);
-        yield* forge.apply(7, { kind: 'reply', body: 'a' });
-        yield* forge.apply(7, { kind: 'reply', body: 'b' });
-        yield* forge.apply(7, { kind: 'pull', branch: 'x', into: 'main', title: 't', body: 'b' });
+        yield* forge.issue(7);
+        yield* forge.apply(7, { kind: 'comment', body: 'a' });
+        yield* forge.apply(7, { kind: 'comment', body: 'b' });
+        yield* forge.apply(7, { kind: 'pull_request', branch: 'x', base: 'main', title: 't', body: 'b' });
         yield* forge.apply(8, { kind: 'merge', number: 8, head: 'h' });
       })
     );
@@ -451,7 +451,7 @@ describe('githubForge', () => {
     expect(f.calls.at(-1)!.body).toEqual({ sha: 'stale' });
     const failed = await run(
       f,
-      Effect.flatMap(Forge, forge => Effect.flip(forge.apply(7, { kind: 'reply', body: 'x' })))
+      Effect.flatMap(Forge, forge => Effect.flip(forge.apply(7, { kind: 'comment', body: 'x' })))
     );
     expect(failed._tag).toBe('ForgeError');
     expect(failed.status).toBe(502);

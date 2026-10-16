@@ -2,8 +2,8 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
-import { context, news, shown, type Threads } from './context.ts';
-import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
+import { context, news, shown, type Issues } from './context.ts';
+import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Issue } from './forge.ts';
 import type { Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Work } from './sandbox.ts';
 import type { Services } from './services.ts';
@@ -25,13 +25,13 @@ const now = () => new Date().toISOString();
 
 const Names = Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { exact: true });
 const ProposalSchema = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal('reply'), body: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal('comment'), body: Schema.String }),
   Schema.Struct({ kind: Schema.Literal('label'), add: Names, remove: Names }),
   Schema.Struct({ kind: Schema.Literal('push'), branch: Schema.String, message: Schema.String }),
   Schema.Struct({
-    kind: Schema.Literal('pull'),
+    kind: Schema.Literal('pull_request'),
     branch: Schema.String,
-    into: Schema.String,
+    base: Schema.String,
     title: Schema.String,
     body: Schema.String,
   }),
@@ -47,10 +47,10 @@ const ProposalSchema = Schema.Union(
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
 const shapes: Record<Exclude<Proposal['kind'], 'react'>, string> = {
-  reply: '{"kind":"reply","body":"..."}',
+  comment: '{"kind":"comment","body":"..."}',
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',
-  pull: '{"kind":"pull","branch":"...","into":"...","title":"...","body":"..."}',
+  pull_request: '{"kind":"pull_request","branch":"...","base":"...","title":"...","body":"..."}',
   merge: '{"kind":"merge","number":1,"head":"<sha>"}',
   issue: '{"kind":"issue","title":"...","body":"...","parent":1}',
   ask: '{"kind":"ask","question":"..."}',
@@ -99,24 +99,24 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Proposal[];
 const squeeze = (text: string, max = 1500) =>
   text.length <= max ? text.trim() : `${text.slice(0, max / 2).trim()}\n...\n${text.slice(-max / 2).trim()}`;
 
-const expand = (template: string, t: Pick<Thread, 'number' | 'parent'>) =>
+const expand = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
 
-/** The open pull request on the branch a run of `w` on `thread` works on. */
-const pullOf = (w: Workflow, thread: number, open: Thread[]) =>
+/** The open pull request on the branch a run of `w` on `issue` works on. */
+const pullOf = (w: Workflow, issue: number, open: Issue[]) =>
   w.branch === undefined
     ? undefined
-    : open.find(t => t.pull?.branch === expand(w.branch!, open.find(t => t.number === thread) ?? { number: thread }))
+    : open.find(t => t.pull?.branch === expand(w.branch!, open.find(t => t.number === issue) ?? { number: issue }))
         ?.number;
 
 /** The run's issue and the pull request on its branch, fetched before every session. */
-export const threadsOf = (w: Workflow, run: Run): Effect.Effect<Threads, ForgeError, Forge> =>
+export const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forge> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
-    const issue = yield* forge.thread(run.thread);
+    const issue = yield* forge.issue(run.issue);
     const pull =
-      issue.pull || w.branch === undefined ? undefined : pullOf(w, run.thread, yield* forge.threads({ state: 'open' }));
-    return { issue, ...(pull !== undefined && { pull: yield* forge.thread(pull) }) };
+      issue.pull || w.branch === undefined ? undefined : pullOf(w, run.issue, yield* forge.issues({ state: 'open' }));
+    return { issue, ...(pull !== undefined && { pull: yield* forge.issue(pull) }) };
   });
 
 const sh = (
@@ -149,7 +149,7 @@ const itemsOf = (each: string | { run: string }, work: Work, minutes: number) =>
   return Effect.map(sh(script, work.dir, { BOTHUB_BASE: work.base }, minutes), out => lines(out.output));
 };
 
-/** Where a session finds what is new on its threads, refreshed every minute while it runs. */
+/** Where a session finds what is new on its issues, refreshed every minute while it runs. */
 const newsFile = '.bothub/news.md';
 
 /** Keeps the news file out of every commit the checkout makes. */
@@ -166,8 +166,8 @@ const excluded = (work: Work) =>
   });
 
 /** Writes the news since `seen` into the checkout; a failed refresh logs and keeps the old file. */
-const refresh = (w: Workflow, run: Run, work: Work, seen: Seen, t?: Threads) =>
-  (t ? Effect.succeed(t) : threadsOf(w, run)).pipe(
+const refresh = (w: Workflow, run: Run, work: Work, seen: Seen, t?: Issues) =>
+  (t ? Effect.succeed(t) : issuesOf(w, run)).pipe(
     Effect.flatMap(t =>
       Effect.tryPromise(async () => {
         const file = join(work.dir, newsFile);
@@ -293,7 +293,7 @@ export const attempt = (
     const minutes = hub.limits.minutes;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next });
     if ('wait' in step.does) {
-      const { issue, pull } = yield* threadsOf(w, run);
+      const { issue, pull } = yield* issuesOf(w, run);
       const open = w.branch === undefined || issue.pull !== undefined || pull !== undefined;
       return done({
         kind: 'ask',
@@ -319,8 +319,8 @@ export const attempt = (
       replies.push(out.output);
     } else {
       const bot = hub.bots[step.does.bot]!;
-      const t = yield* threadsOf(w, run);
-      const thread = t.issue;
+      const t = yield* issuesOf(w, run);
+      const issue = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const kinds = [...bot.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       const prompt = [
@@ -328,7 +328,7 @@ export const attempt = (
         w.body,
         context(t),
         w.branch &&
-          `Work on the branch ${expand(w.branch, thread)}; pull requests go into ${thread.pull?.into ?? expand(w.into ?? 'main', thread)}.`,
+          `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         `People may comment while you work: ${newsFile} holds what is new, refreshed every minute. Read it before you finish.`,
         run.feedback,
@@ -399,8 +399,8 @@ export const attempt = (
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
     const to =
-      world.some(p => p.kind === 'reply') && !run.said
-        ? pullOf(w, run.thread, yield* Effect.flatMap(Forge, f => f.threads({ state: 'open' })))
+      world.some(p => p.kind === 'comment') && !run.said
+        ? pullOf(w, run.issue, yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' })))
         : undefined;
     const landed = yield* Effect.either(land(tried, world, work, to));
     if (Either.isLeft(landed))
@@ -461,12 +461,12 @@ export const gate = (
 const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Store> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
-    const t = yield* threadsOf(w, run);
-    const applied = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.thread, p));
+    const t = yield* issuesOf(w, run);
+    const applied = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.issue, p));
     yield* Effect.flatMap(Store, s =>
       s.trace(run.id, ...applied.map(a => ({ at: now(), step: run.step, applied: a })))
     );
-    const reply = applied.find(a => a.proposal.kind === 'reply');
+    const reply = applied.find(a => a.proposal.kind === 'comment');
     if (!reply) return run;
     const { comment: _gone, ...rest } = run;
     return reply.ok && reply.id ? { ...rest, comment: reply.id } : rest;
@@ -483,12 +483,12 @@ export const land = (
     Effect.forEach(
       [...proposals].sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push')),
       p =>
-        p.kind === 'reply'
-          ? forge.apply(run.said?.thread ?? to ?? run.thread, {
+        p.kind === 'comment'
+          ? forge.apply(run.said?.issue ?? to ?? run.issue, {
               ...p,
               ...(run.said?.under && { under: run.said.under }),
             })
-          : forge.apply(run.thread, p, work)
+          : forge.apply(run.issue, p, work)
     )
   );
 
@@ -512,7 +512,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         });
         if (next.status === 'asking' && next.reason) {
           const body = `${next.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`;
-          const said = yield* Effect.either(land(next, [{ kind: 'reply', body }]));
+          const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
           if (Either.isRight(said))
             yield* store.trace(next.id, ...said.right.map(applied => ({ at: now(), step: next.step, applied })));
         }
@@ -523,10 +523,10 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       yield* store.lock(run.id);
       current = yield* show(w, current);
       yield* store.put(current);
-      const thread = yield* forge.thread(run.thread);
-      const ref = thread.pull?.branch ?? expand(w.into ?? 'main', thread);
+      const issue = yield* forge.issue(run.issue);
+      const ref = issue.pull?.branch ?? expand(w.base ?? 'main', issue);
       const work = yield* Effect.flatMap(Sandbox, s =>
-        s.checkout(ref, w.branch && expand(w.branch, thread), `refs/bothub/runs/${run.id}`)
+        s.checkout(ref, w.branch && expand(w.branch, issue), `refs/bothub/runs/${run.id}`)
       );
       yield* excluded(work);
       if (hub.setup) {
@@ -555,15 +555,15 @@ const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 
 /**
  * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`. What is said on the pull
- * request a run opened counts as said on the run's thread. With `only`, it looks at
- * that thread alone and begins a run there when none was live, command or not; with `fresh` too, only when the thread
+ * request a run opened counts as said on the run's issue. With `only`, it looks at
+ * that issue alone and begins a run there when none was live, command or not; with `fresh` too, only when the issue
  * never had a run.
  */
 export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
-    const mine = (r: { thread: number }) => only === undefined || r.thread === only;
+    const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const runs = (yield* store.list()).filter(mine);
     const parked = yield* Effect.forEach(runs.filter(live), r =>
       Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => !('saved' in t))), last => ({
@@ -576,31 +576,31 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       .sort()
       .at(-1);
     const cursor = started === undefined ? '' : [started, ...parked.map(p => p.at)].sort()[0]!;
-    const threads = yield* forge.threads({ state: 'open' });
+    const issues = yield* forge.issues({ state: 'open' });
     const origin = new Map<Message, number>();
     const onRun = (m: Message): Message => {
       const r = runs.find(
         r =>
-          r.thread !== m.thread &&
+          r.issue !== m.issue &&
           hub.workflows[r.workflow] &&
-          pullOf(hub.workflows[r.workflow]!, r.thread, threads) === m.thread
+          pullOf(hub.workflows[r.workflow]!, r.issue, issues) === m.issue
       );
       if (!r) return m;
-      const moved = { ...m, thread: r.thread };
-      origin.set(moved, m.thread);
+      const moved = { ...m, issue: r.issue };
+      origin.set(moved, m.issue);
       return moved;
     };
-    /** Where a human spoke: the thread, and the review comment thread when it was one. */
+    /** Where a human spoke: the issue, and the review comment thread when it was one. */
     const heard = (m: Message): NonNullable<Run['said']> => {
       const c = m.kind === 'comment' ? m.comment : undefined;
-      return { thread: origin.get(m) ?? m.thread, ...(c?.path !== undefined && { under: c.under ?? c.id }) };
+      return { issue: origin.get(m) ?? m.issue, ...(c?.path !== undefined && { under: c.under ?? c.id }) };
     };
-    /** 👀 on the comment that woke a run, or on its thread for a label. */
+    /** 👀 on the comment that woke a run, or on its issue for a label. */
     const eyes = (run: Run, m: Message) =>
       m.kind !== 'comment' && m.kind !== 'label'
         ? Effect.void
         : forge
-            .apply(origin.get(m) ?? m.thread, {
+            .apply(origin.get(m) ?? m.issue, {
               kind: 'react',
               ...(m.kind === 'comment' &&
                 m.comment && { comment: m.comment.id, ...(m.comment.path !== undefined && { review: true }) }),
@@ -617,7 +617,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
 
     for (const { run, at } of parked) {
       const w = hub.workflows[run.workflow];
-      const m = w && messages.find(m => m.thread === run.thread && m.at > at && reenter(w, run, m));
+      const m = w && messages.find(m => m.issue === run.issue && m.at > at && reenter(w, run, m));
       if (!w || !m) continue;
       used.add(m);
       const outcome = reenter(w, run, m)!;
@@ -634,13 +634,13 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       touched.push(next);
     }
 
-    const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.thread}`));
-    const open = new Set(threads.map(t => t.number));
+    const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.issue}`));
+    const open = new Set(issues.map(t => t.number));
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
     const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label);
-    /** The label workflow whose label a thread carries, when a maintainer put it there last. */
-    const assigned = (thread: number) =>
-      Effect.map(forge.thread(thread), t =>
+    /** The label workflow whose label an issue carries, when a maintainer put it there last. */
+    const assigned = (issue: number) =>
+      Effect.map(forge.issue(issue), t =>
         labelled.find(w => {
           const last = t.messages
             .filter(m => (m.kind === 'label' || m.kind === 'unlabel') && m.label === w.on.issues!.label)
@@ -648,21 +648,21 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
           return last?.kind === 'label' && last.trusted;
         })
       );
-    const start = (w: Workflow, thread: number, at: string, m?: Message) =>
+    const start = (w: Workflow, issue: number, at: string, m?: Message) =>
       Effect.gen(function* () {
         const begun = {
-          ...begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at }),
+          ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
           ...(m?.kind === 'comment' && { said: heard(m) }),
         };
         const run = begun.status === 'running' ? begun : yield* show(w, begun);
-        busy.add(`${w.name}#${thread}`);
+        busy.add(`${w.name}#${issue}`);
         yield* store.put(run);
         if (m) yield* eyes(run, m);
         touched.push(run);
       });
     for (const m of messages) {
       const relabelled = messages.some(
-        n => n.thread === m.thread && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
+        n => n.issue === m.issue && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
       );
       const w =
         m.kind === 'label'
@@ -672,10 +672,10 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
           : m.kind === 'comment'
             ? triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!))
             : undefined;
-      if (!w || used.has(m) || !m.trusted || !open.has(m.thread)) continue;
-      if (!busy.has(`${w.name}#${m.thread}`)) yield* start(w, m.thread, m.at, m);
+      if (!w || used.has(m) || !m.trusted || !open.has(m.issue)) continue;
+      if (!busy.has(`${w.name}#${m.issue}`)) yield* start(w, m.issue, m.at, m);
     }
-    if (only !== undefined && (fresh ? runs.length === 0 : !runs.some(live)) && !touched.some(r => r.thread === only)) {
+    if (only !== undefined && (fresh ? runs.length === 0 : !runs.some(live)) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
       if (w) yield* start(w, only, now());
     }
@@ -697,7 +697,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
 /** One pass over the open issues, one after another: each gets the same single look `tick` gives it. */
 export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
-    const issues = (yield* Effect.flatMap(Forge, f => f.threads({ state: 'open' }))).filter(t => !t.pull);
+    const issues = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(t => !t.pull);
     const runs = yield* Effect.forEach(issues, t => tick(hub, t.number, true));
     return runs.flat();
   });

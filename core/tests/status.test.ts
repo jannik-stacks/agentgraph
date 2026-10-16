@@ -14,11 +14,11 @@ const { privateKey } = generateKeyPairSync('rsa', {
 });
 const app = { repo: 'o/r', id: '42', key: Redacted.make(privateKey) };
 
-const run = (id: string, thread: number, status: string) =>
+const run = (id: string, issue: number, status: string) =>
   JSON.stringify({
     id,
     workflow: 'fix',
-    thread,
+    issue,
     step: 's',
     status,
     tries: 0,
@@ -50,13 +50,13 @@ const check = async (repositories: string[]) => {
     return new Response(JSON.stringify(body), { status: body ? 200 : 404 });
   };
   const data = mkdtempSync(join(tmpdir(), 'core-status-'));
-  for (const [id, thread, status] of [
+  for (const [id, issue, status] of [
     ['a', 3, 'asking'],
     ['b', 4, 'waiting'],
     ['c', 5, 'done'],
   ] as const) {
     mkdirSync(join(data, id));
-    writeFileSync(join(data, id, 'run.json'), run(id, thread, status));
+    writeFileSync(join(data, id, 'run.json'), run(id, issue, status));
   }
   const lines = await Effect.runPromise(
     needsYou(app, { hub: 'hub', data }, fetch).pipe(Effect.provide(fileStore(data)))

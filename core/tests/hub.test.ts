@@ -70,7 +70,7 @@ describe('loadHub', () => {
     expect(hub.bots.implementor).toEqual({
       harness: 'opencode',
       tools: [],
-      returns: ['reply'],
+      returns: ['comment'],
       name: 'implementor',
       path: 'bots/implementor.md',
       body: 'You are implementor.',
@@ -86,10 +86,10 @@ describe('loadHub', () => {
     const found = await problems(join(core, '..', 'examples', 'acme-app'));
     expect(found).toEqual(
       expect.arrayContaining([
-        'hub.yaml: issues is gone; threads come from the forge',
+        'hub.yaml: issues is gone; the forge lists them',
         'hub.yaml: deps is gone; name the install command as setup',
         'bots/implementor.md: skills is gone; a step names its skill',
-        'bots/implementor.md: returns: merge-request is now pull',
+        'bots/implementor.md: returns: merge-request is now pull_request',
         'bots/implementor.md: returns: note is gone; memory is docs in the repo, written by a push',
         'checks/tests.md: type is gone; run makes a script check and judge a bot check',
         'checks/docs-tone.md: bot is gone; name the bot as judge',

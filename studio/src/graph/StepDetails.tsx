@@ -33,7 +33,7 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
     <Fields>
       <Field name="steps">{workflow.steps.map(s => s.name).join(', ')}</Field>
       {workflow.branch && <Field name="branch">{workflow.branch}</Field>}
-      {workflow.into && <Field name="into">{workflow.into}</Field>}
+      {workflow.base && <Field name="base">{workflow.base}</Field>}
     </Fields>
     {workflow.body && <Markdown text={workflow.body} />}
   </div>

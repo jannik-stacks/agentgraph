@@ -32,7 +32,7 @@ export const fixture = (hub: string) => {
   return { names, checks, workflows, problems };
 };
 
-const kinds = ['reply', 'label', 'push', 'pull', 'merge', 'issue', 'ask', 'back'] as const;
+const kinds = ['comment', 'label', 'push', 'pull_request', 'merge', 'issue', 'ask', 'back'] as const;
 const doc = <T>(name: string, fields: T) => ({ ...fields, name, path: `${name}.md`, body: `You are ${name}.` });
 
 /** A fixture as a whole hub: every bot on opencode may propose anything, and `checks` fills in commands and judges. */

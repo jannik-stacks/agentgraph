@@ -29,12 +29,12 @@ export const needsYou = (
     const store = yield* Store;
     const parked = [...(yield* store.list({ status: 'asking' })), ...(yield* store.list({ status: 'waiting' }))];
     for (const run of parked) {
-      lines.push(`${run.id} ${run.workflow} #${run.thread} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
-      const thread = `https://github.com/${app.repo}/issues/${run.thread}`;
+      lines.push(`${run.id} ${run.workflow} #${run.issue} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
+      const issue = `https://github.com/${app.repo}/issues/${run.issue}`;
       lines.push(
-        run.status === 'asking' ? `  Answer at ${thread}, then:` : `  Review the PR linked from ${thread}, then:`
+        run.status === 'asking' ? `  Answer at ${issue}, then:` : `  Review the PR linked from ${issue}, then:`
       );
-      lines.push(`  node core/bin/run.ts --hub ${where.hub} --issue ${run.thread} --data ${where.data}`);
+      lines.push(`  node core/bin/run.ts --hub ${where.hub} --issue ${run.issue} --data ${where.data}`);
     }
     return lines;
   });

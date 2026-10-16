@@ -10,10 +10,10 @@ import { load, split, type Doc, type Problem, type Workflow } from './workflow.t
 export type Harness = 'claude' | 'opencode' | 'pi';
 
 const kinds = [
-  'reply',
+  'comment',
   'label',
   'push',
-  'pull',
+  'pull_request',
   'merge',
   'issue',
   'ask',
@@ -25,7 +25,7 @@ export const Bot = Schema.Struct({
   harness: Schema.Literal('claude', 'opencode', 'pi'),
   model: Schema.optionalWith(Schema.String, { exact: true }),
   tools: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { default: () => [] }),
-  returns: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Literal(...kinds))), { default: () => ['reply'] }),
+  returns: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Literal(...kinds))), { default: () => ['comment'] }),
 });
 export type Bot = typeof Bot.Type;
 
@@ -75,9 +75,9 @@ const rest = 'a step starts a fresh session and a retry resumes it';
 /** Keys of the previous hub format, each with what replaces it. */
 const gone = {
   hub: {
-    issues: 'threads come from the forge',
+    issues: 'the forge lists them',
     merge: 'a workflow step merges or waits for a human',
-    'merge-request': 'the pull proposal carries the body',
+    'merge-request': 'the pull_request proposal carries the body',
     deps: 'name the install command as setup',
     sandbox: '',
     loads: '',
@@ -114,6 +114,7 @@ const gone = {
   workflow: {
     jobs: 'rewrite it as steps: each job becomes a step in needs order, until.checks becomes checks, over: each-hunk becomes each: hunks',
     name: 'the file name is the workflow name',
+    into: 'name the branch as base',
     description: 'write it as the body',
     human: '',
   },
@@ -127,7 +128,9 @@ const gone = {
 } satisfies Record<string, Record<string, string>>;
 
 const returns: Record<string, string> = {
-  'merge-request': 'returns: merge-request is now pull',
+  'merge-request': 'returns: merge-request is now pull_request',
+  reply: 'returns: reply is now comment',
+  pull: 'returns: pull is now pull_request',
   note: 'returns: note is gone; memory is docs in the repo, written by a push',
   hub: 'returns: hub is gone; remove it',
 };

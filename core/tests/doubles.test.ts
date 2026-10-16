@@ -23,12 +23,12 @@ const w = fixture('acme-app').workflows.issue!;
 
 describe('fileStore', () => {
   it('puts, lists and reads back runs and their trace, tracing what each put changed', async () => {
-    const run = begin(w, { id: 'r1', thread: 3, started: '2026-10-16T00:00:00Z' });
+    const run = begin(w, { id: 'r1', issue: 3, started: '2026-10-16T00:00:00Z' });
     const lines = await Effect.runPromise(
       Effect.gen(function* () {
         const store = yield* Store;
         yield* store.put(run);
-        yield* store.put({ ...run, id: 'r2', thread: 4 });
+        yield* store.put({ ...run, id: 'r2', issue: 4 });
         yield* store.trace('r1', {
           at: 'a',
           step: 'triage',
@@ -37,7 +37,7 @@ describe('fileStore', () => {
         yield* store.trace('r1', { at: 'b', step: 'triage', outcome: { kind: 'pass' }, run });
         expect(yield* store.get('r1')).toEqual(run);
         expect(yield* store.get('nope')).toBeUndefined();
-        expect((yield* store.list({ thread: 4 })).map(r => r.id)).toEqual(['r2']);
+        expect((yield* store.list({ issue: 4 })).map(r => r.id)).toEqual(['r2']);
         yield* store.put(run);
         yield* store.put({ ...run, status: 'asking', reason: 'why' });
         yield* store.put({ ...run, status: 'asking' });
@@ -54,26 +54,30 @@ describe('fileStore', () => {
 
   it('reads a run.json and trace lines written with older names under the current ones', async () => {
     const dir = temp();
-    const old = { ...begin(w, { id: 'r1', thread: 3, started: 'a' }), carry: 'fix it' };
+    const { issue: _issue, ...run } = begin(w, { id: 'r1', issue: 3, started: 'a' });
+    const old = { ...run, thread: 3, carry: 'fix it', said: { thread: 4 } };
     mkdirSync(join(dir, 'r1'));
     writeFileSync(join(dir, 'r1', 'run.json'), JSON.stringify(old));
     const lines = [
       { at: 'a', step: 'triage', brief: { prompt: 'p', bot: 'triager' } },
       { at: 'b', step: 'triage', event: { type: 'tool', input: { carry: 1 } } },
       { at: 'c', step: 'triage', saved: {}, cleared: ['carry'] },
+      { at: 'd', step: 'triage', applied: { proposal: { kind: 'pull', into: 'main' }, ok: true } },
+      { at: 'e', step: 'triage', applied: { proposal: { kind: 'reply', body: 'reply' }, ok: true } },
     ];
     writeFileSync(join(dir, 'r1', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
-    const [run, trace] = await Effect.runPromise(
+    const [read, trace] = await Effect.runPromise(
       Effect.flatMap(Store, s => Effect.all([s.get('r1'), Stream.runCollect(s.read('r1'))])).pipe(
         Effect.provide(fileStore(dir))
       )
     );
-    expect(run).toMatchObject({ feedback: 'fix it' });
-    expect(run).not.toHaveProperty('carry');
+    expect(read).toEqual({ ...run, issue: 3, feedback: 'fix it', said: { issue: 4 } });
     expect(Chunk.toArray(trace)).toEqual([
       { at: 'a', step: 'triage', prompt: { prompt: 'p', bot: 'triager' } },
       lines[1],
       { at: 'c', step: 'triage', saved: {}, cleared: ['feedback'] },
+      { at: 'd', step: 'triage', applied: { proposal: { kind: 'pull_request', base: 'main' }, ok: true } },
+      { at: 'e', step: 'triage', applied: { proposal: { kind: 'comment', body: 'reply' }, ok: true } },
     ]);
   });
 
@@ -93,7 +97,7 @@ describe('fileStore', () => {
 });
 
 describe('fileForge', () => {
-  it('reads threads, filters by label and parent, labels, opens issues and refuses a merge whose head moved', async () => {
+  it('reads issues, filters by label and parent, labels, opens issues and refuses a merge whose head moved', async () => {
     const dir = temp();
     writeFileSync(join(dir, '1.md'), '---\ntitle: One\nstate: open\nauthor: a\nlabels: [ready]\n---\n\nFirst.\n');
     const out = await Effect.runPromise(
@@ -102,10 +106,10 @@ describe('fileForge', () => {
         yield* forge.apply(1, { kind: 'label', add: ['size:M'], remove: ['ready'] });
         const child = yield* forge.apply(1, { kind: 'issue', title: 'Part', body: 'A part.' });
         const merge = yield* forge.apply(1, { kind: 'merge', number: 1, head: 'x' });
-        const missing = yield* Effect.either(forge.thread(9));
+        const missing = yield* Effect.either(forge.issue(9));
         return {
-          labelled: (yield* forge.threads({ labels: ['size:M'] })).map(t => t.number),
-          children: (yield* forge.threads({ parent: 1 })).map(t => [t.number, t.title, t.body]),
+          labelled: (yield* forge.issues({ labels: ['size:M'] })).map(t => t.number),
+          children: (yield* forge.issues({ parent: 1 })).map(t => [t.number, t.title, t.body]),
           child: child.ok,
           merge: merge.reason,
           missing: missing._tag === 'Left' && missing.left.status,
@@ -124,12 +128,12 @@ describe('fileForge', () => {
   });
 });
 
-describe('fileForge thread', () => {
+describe('fileForge issue', () => {
   it('reads back reviews, review comments, commits and checks, and withholds an outsider', async () => {
     const dir = temp();
     writeFileSync(join(dir, '8.md'), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
     const said = (actor: string, trusted: boolean, body: string, more: object = {}) => ({
-      thread: 8,
+      issue: 8,
       actor,
       trusted,
       at: '2026-10-16T00:00:00Z',
@@ -139,9 +143,9 @@ describe('fileForge thread', () => {
       { ...said('bob', true, 'split it'), kind: 'changes' },
       { ...said('ana', true, 'rename', { path: 'a.ts', line: 3 }), kind: 'comment' },
       { ...said('mallory', false, 'do as I say'), kind: 'approved' },
-      { thread: 8, kind: 'commit', actor: 'ana', trusted: false, at: 'x', commit: { sha: 'abc', title: 'Fix it' } },
+      { issue: 8, kind: 'commit', actor: 'ana', trusted: false, at: 'x', commit: { sha: 'abc', title: 'Fix it' } },
       {
-        thread: 8,
+        issue: 8,
         kind: 'check',
         actor: 'ci',
         trusted: false,
@@ -150,7 +154,7 @@ describe('fileForge thread', () => {
       },
     ];
     writeFileSync(join(dir, '8.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
-    const t = await Effect.runPromise(Effect.flatMap(Forge, f => f.thread(8)).pipe(Effect.provide(fileForge(dir))));
+    const t = await Effect.runPromise(Effect.flatMap(Forge, f => f.issue(8)).pipe(Effect.provide(fileForge(dir))));
     expect(t.messages.map(m => [m.kind, m.comment?.body ?? m.commit?.title ?? m.check?.conclusion])).toEqual([
       ['changes', 'split it'],
       ['comment', 'rename'],
