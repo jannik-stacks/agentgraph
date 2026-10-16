@@ -11,7 +11,9 @@ export type Problem = { path: string; message: string };
 
 /** An ordered list of steps; the body is the description, or the prompt when there are no steps. */
 export type Workflow = Doc<{
-  on: Partial<Record<'issues' | 'issue_comment' | 'pull_request', { command?: string; branches?: string[] }>>;
+  on: Partial<
+    Record<'issues' | 'issue_comment' | 'pull_request', { command?: string; label?: string; branches?: string[] }>
+  >;
   branch?: string;
   into?: string;
   steps: Step[];
@@ -58,7 +60,9 @@ export type Run = {
 const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 const Count = Schema.Int.pipe(Schema.positive());
 const Names = Schema.mutable(Schema.Array(Schema.String));
-const Trigger = Schema.NullOr(Schema.Struct({ command: exact(Schema.String), branches: exact(Names) }));
+const Trigger = Schema.NullOr(
+  Schema.Struct({ command: exact(Schema.String), label: exact(Schema.String), branches: exact(Names) })
+);
 const Event = Schema.Literal('issues', 'issue_comment', 'pull_request');
 
 const StepFile = Schema.Struct({
@@ -289,6 +293,9 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
 /** What a new message means for a parked run; undefined when it is only context. */
 export function reenter(w: Workflow, run: Run, m: Message): Outcome | undefined {
   if (!m.trusted || m.thread !== run.thread) return undefined;
+  const label = w.on.issues?.label;
+  if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
+    return { kind: 'stop', why: `the ${label} label was removed` };
   if (m.kind === 'closed' && (run.status === 'waiting' || run.status === 'asking'))
     return { kind: 'stop', why: 'closed' };
   const command = Object.values(w.on).find(t => t?.command)?.command;

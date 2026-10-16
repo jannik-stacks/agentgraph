@@ -666,4 +666,41 @@ describe('coworker', () => {
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
     expect(git(where.origin, 'ls-tree', '-r', '--name-only', 'bothub/7')).not.toContain('.bothub');
   }, 30_000);
+
+  const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'bothub' } } } } };
+  const labelled = (actor: string, trusted: boolean, kind: 'label' | 'unlabel', at: string): Message => ({
+    thread: 7,
+    kind,
+    actor,
+    trusted,
+    at,
+    label: 'bothub',
+  });
+
+  it("begins a run on a maintainer's bothub label, not on an outsider's, and stops it when the label is removed", async () => {
+    const where = world();
+    say(where, labelled('mallory', false, 'label', '2026-10-16T00:00:01.000Z'));
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
+    expect(await run(tick(assigned))).toEqual([]);
+    say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:02.000Z'));
+    const [asked] = await run(tick(assigned));
+    expect(asked).toMatchObject({ thread: 7, status: 'asking' });
+    expect(specs).toHaveLength(1);
+    say(where, labelled('mallory', false, 'unlabel', later(1)));
+    expect(await run(tick(assigned))).toEqual([]);
+    say(where, labelled('morgan', true, 'unlabel', later(2)));
+    const [stopped] = await run(tick(assigned));
+    expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the bothub label was removed' });
+  }, 30_000);
+
+  it('begins on one issue only where the latest bothub label came from a maintainer', async () => {
+    const where = world();
+    say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:01.000Z'));
+    say(where, labelled('mallory', false, 'unlabel', '2026-10-16T00:00:02.000Z'));
+    say(where, labelled('mallory', false, 'label', '2026-10-16T00:00:03.000Z'));
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
+    expect(await run(tick(assigned, 7, true))).toEqual([]);
+    say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:04.000Z'));
+    expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['asking']);
+  }, 30_000);
 });

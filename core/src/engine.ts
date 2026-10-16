@@ -522,7 +522,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 
 /**
- * One look at the repo: reenter parked runs, begin new ones, drive up to `limits.working`. What is said on the pull
+ * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.working`. What is said on the pull
  * request a run opened counts as said on the run's thread. With `only`, it looks at
  * that thread alone and begins a run there when none was live, command or not; with `fresh` too, only when the thread
  * never had a run.
@@ -533,13 +533,11 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     const forge = yield* Forge;
     const mine = (r: { thread: number }) => only === undefined || r.thread === only;
     const runs = (yield* store.list()).filter(mine);
-    const parked = yield* Effect.forEach(
-      runs.filter(r => r.status === 'asking' || r.status === 'waiting'),
-      r =>
-        Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => !('saved' in t))), last => ({
-          run: r,
-          at: last._tag === 'Some' ? last.value.at : r.started,
-        }))
+    const parked = yield* Effect.forEach(runs.filter(live), r =>
+      Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => !('saved' in t))), last => ({
+        run: r,
+        at: last._tag === 'Some' ? last.value.at : r.started,
+      }))
     );
     const started = runs
       .map(r => r.started)
@@ -582,6 +580,17 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.thread}`));
     const open = new Set(threads.map(t => t.number));
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
+    const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label);
+    /** The label workflow whose label a thread carries, when a maintainer put it there last. */
+    const assigned = (thread: number) =>
+      Effect.map(forge.thread(thread), t =>
+        labelled.find(w => {
+          const last = t.messages
+            .filter(m => (m.kind === 'label' || m.kind === 'unlabel') && m.label === w.on.issues!.label)
+            .at(-1);
+          return last?.kind === 'label' && last.trusted;
+        })
+      );
     const start = (w: Workflow, thread: number, at: string) =>
       Effect.gen(function* () {
         const run = begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at });
@@ -590,17 +599,24 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
         touched.push(run);
       });
     for (const m of messages) {
-      const w = triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!));
-      if (!w || used.has(m) || m.kind !== 'comment' || !m.trusted || !open.has(m.thread)) continue;
+      const relabelled = messages.some(
+        n => n.thread === m.thread && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
+      );
+      const w =
+        m.kind === 'label'
+          ? relabelled
+            ? undefined
+            : labelled.find(w => w.on.issues!.label === m.label)
+          : m.kind === 'comment'
+            ? triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!))
+            : undefined;
+      if (!w || used.has(m) || !m.trusted || !open.has(m.thread)) continue;
       if (!busy.has(`${w.name}#${m.thread}`)) yield* start(w, m.thread, m.at);
     }
-    if (
-      only !== undefined &&
-      triggered[0] &&
-      (fresh ? runs.length === 0 : !runs.some(live)) &&
-      !touched.some(r => r.thread === only)
-    )
-      yield* start(triggered[0], only, now());
+    if (only !== undefined && (fresh ? runs.length === 0 : !runs.some(live)) && !touched.some(r => r.thread === only)) {
+      const w = triggered[0] ?? (yield* assigned(only));
+      if (w) yield* start(w, only, now());
+    }
 
     const running = (yield* store.list({ status: 'running' }))
       .filter(mine)
