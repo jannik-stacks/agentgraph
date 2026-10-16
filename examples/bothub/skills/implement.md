@@ -1,5 +1,6 @@
 ---
 description: Implement one scoped bothub change and keep its checks green.
+uses: [principles, pr-body]
 ---
 The issue and its brief are in your prompt. Make the smallest change that meets the criteria,
 and nothing the brief does not ask for. Read narrowly: `grep` for the function, then `read` that
@@ -32,8 +33,8 @@ Say in the reply what the premise was and what replaced it.
 
 Never `npm install`, `npm ci` or `npx`.
 
-If a check asks for something the brief rules out, ask one question and `close` as `blocked`. A
+If a check asks for something the brief rules out, propose one `ask` with your question. A
 `## Resuming` section means your earlier work is in the worktree: continue from it.
 
-End with a `push` listing every file you changed, a `merge-request` whose body follows the pr-body
+End with a `push` listing every file you changed, a `pull_request` whose body follows the pr-body
 skill, and a reply.
