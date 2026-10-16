@@ -1,8 +1,8 @@
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { tick } from '../src/engine.ts';
+import { sweep, tick } from '../src/engine.ts';
 import { fileForge, Forge, type Event } from '../src/forge.ts';
 import { loadHub } from '../src/hub.ts';
 import { host, type Sandbox } from '../src/sandbox.ts';
@@ -96,6 +96,24 @@ describe('triage', () => {
     const { value } = await run(where, Array(3).fill(reply({ kind: 'comment', body: 'small' })), tick(hub));
     expect(value[0]).toMatchObject({ issue: 1, status: 'waiting' });
     expect(value[0]!.reason).toContain('No size label proposed');
+  });
+
+  it('starts runs only on issues in the hub milestone', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    const file = join(where.forge, '1.md');
+    writeFileSync(file, readFileSync(file, 'utf8').replace('labels: []', 'labels: []\nmilestone: v1'));
+    where.label(1);
+    where.label(2);
+    const scoped = { ...hub, milestone: 'v1' };
+    const first = await run(where, [reply({ kind: 'label', add: ['size/S'] })], tick(scoped));
+    expect(first.value.map(r => r.issue)).toEqual([1]);
+    const swept = await run(where, [], sweep(scoped));
+    expect(swept.value.map(r => r.issue)).toEqual([]);
+    const rest = await run(where, [reply({ kind: 'label', add: ['size/S'] })], tick(hub));
+    expect(rest.value.map(r => r.issue)).toEqual([2]);
   });
 
   it('splits an XL issue into stacked children with labels, lines and a task list, and triages the XL child again', async () => {

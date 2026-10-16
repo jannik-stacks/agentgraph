@@ -13,6 +13,7 @@ export type Issue = {
   body: string;
   state: 'open' | 'closed' | 'merged';
   labels: string[];
+  milestone?: string;
   author: string;
   parent?: number;
   pull?: { branch: string; base: string; head: string; baseSha?: string };

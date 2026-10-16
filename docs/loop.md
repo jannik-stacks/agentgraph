@@ -145,3 +145,7 @@ The agent ends its reply with a fenced `bothub` block of proposals. See [Proposa
 - `parallel` limits how many runs go at once. It defaults to 2.
 
 A session that runs past its minutes stops the run with the reason. So does a run whose spend goes over `usd-per-run` (`code: src/engine.ts#drive`).
+
+## Scope
+
+`milestone` in `hub.yaml` names a milestone by its title. While it is set, only open issues in that milestone start runs, whether by a label, a command or a sweep. Runs already live keep going. Follow-up issues an agent files are not put in the milestone, so they wait until a person moves them in. Without it, every open issue can start a run (`code: src/engine.ts#inScope`).

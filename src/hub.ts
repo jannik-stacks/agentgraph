@@ -52,6 +52,8 @@ export type Hub = {
   network?: 'egress' | 'models';
   /** Whether an issue that says "Stacks on #n" opens its pull request on the branch of #n. */
   stacks?: boolean;
+  /** The milestone whose issues new runs start on; every open issue when unset. */
+  milestone?: string;
 };
 
 export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {
@@ -68,6 +70,7 @@ const HubFile = Schema.Struct({
   image: exact(Schema.String.pipe(Schema.pattern(/^[a-z0-9][\w./:@-]*$/))),
   network: exact(Schema.Literal('egress', 'models')),
   stacks: exact(Schema.Boolean),
+  milestone: exact(Schema.String),
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
@@ -300,6 +303,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       ...(hub.image !== undefined && { image: hub.image }),
       ...(hub.network !== undefined && { network: hub.network }),
       ...(hub.stacks !== undefined && { stacks: hub.stacks }),
+      ...(hub.milestone !== undefined && { milestone: hub.milestone }),
       ...parts,
     };
   });

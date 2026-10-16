@@ -147,6 +147,13 @@ describe('loadHub', () => {
     expect(found).toContain('workflows/w.md: steps.x.checks: unknown check nope');
   });
 
+  it('reads the milestone, unset by default', async () => {
+    const set = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'milestone: v1\n' })));
+    expect(set.milestone).toBe('v1');
+    const unset = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'repo: o/r\n' })));
+    expect(unset.milestone).toBeUndefined();
+  });
+
   it('reads the image and network every command of a run gets, and refuses an image that reads as a flag', async () => {
     const hub = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'image: acme-rust:1\nnetwork: models\n' })));
     expect([hub.image, hub.network]).toEqual(['acme-rust:1', 'models']);

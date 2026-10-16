@@ -103,6 +103,18 @@ describe('githubForge', () => {
     expect(reads.every(c => c.headers.get('authorization') === 'Bearer tok')).toBe(true);
   });
 
+  it('reads the milestone title of an issue', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues?state=open&per_page=100': [issue(7, { milestone: { title: 'v1' } }), issue(9)],
+      'GET /repos/o/r/pulls?state=open&per_page=100': [],
+    });
+    const issues = await run(
+      f,
+      Effect.flatMap(Forge, forge => forge.issues({ state: 'open' }))
+    );
+    expect(issues.map(t => t.milestone)).toEqual(['v1', undefined]);
+  });
+
   it('lists issues and pull requests with visible text, and withholds outsiders', async () => {
     const f = fake({
       'GET /repos/o/r/issues?state=open&per_page=100&labels=ready': [

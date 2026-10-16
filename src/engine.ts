@@ -110,6 +110,9 @@ const squeeze = (text: string, max = 1500) =>
 const expand = (template: string, t: Pick<Issue, 'number' | 'parent'>) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
 
+/** Whether a new run may start on an issue: always without a hub milestone, else only in it. */
+const inScope = (hub: Hub, issue?: Issue) => hub.milestone === undefined || issue?.milestone === hub.milestone;
+
 /** The open pull request on the branch a run of `w` on `issue` works on. */
 const pullOf = (w: Workflow, issue: number, open: Issue[]) =>
   w.branch === undefined
@@ -785,7 +788,7 @@ export const tick = (
     }
 
     const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.issue}`));
-    const open = new Set(issues.map(t => t.number));
+    const open = new Set(issues.filter(t => inScope(hub, t)).map(t => t.number));
     const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label);
     /** The label workflow whose label an issue carries, when a maintainer put it there last. */
     const assigned = (issue: number) =>
@@ -830,7 +833,14 @@ export const tick = (
     }
     if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
-      if (w) yield* start(w, only, now());
+      if (
+        w &&
+        inScope(
+          hub,
+          issues.find(t => t.number === only)
+        )
+      )
+        yield* start(w, only, now());
     }
 
     for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(live)) {
@@ -865,7 +875,9 @@ export const tick = (
  */
 export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
-    const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(t => !t.pull);
+    const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(
+      t => !t.pull && inScope(hub, t)
+    );
     const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(live);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
     return (yield* Effect.forEach(issues, n => tick(hub, n, true))).flat();

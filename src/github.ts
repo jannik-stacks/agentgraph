@@ -23,6 +23,7 @@ type RestIssue = {
   body?: string | null;
   state: 'open' | 'closed';
   labels: (string | { name?: string })[];
+  milestone?: { title: string } | null;
   user?: User;
   author_association?: string;
   html_url: string;
@@ -277,6 +278,7 @@ export const githubForge = (
         state: i.pull_request?.merged_at || pull?.merged_at ? 'merged' : i.state,
         labels: i.labels.map(l => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
         author,
+        ...(i.milestone && { milestone: i.milestone.title }),
         ...(parent !== undefined && { parent }),
         ...(pull && {
           pull: {
