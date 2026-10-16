@@ -768,5 +768,5 @@ export const githubForge = (
         )
       );
 
-    return { issues, issue, since, apply };
+    return { issues, issue, since, apply, slug: me };
   });

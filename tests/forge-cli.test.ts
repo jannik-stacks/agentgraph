@@ -139,4 +139,20 @@ describe('bin/forge.ts with run --forge', () => {
     expect(git(w.origin, 'show', 'main:bye.txt')).toBe('bye.txt');
     expect(existsSync(join(w.dir, '2.md'))).toBe(true);
   }, 30_000);
+
+  it('starts the default workflow on a bare mention, stops a waiting run on a mention with stop, and ignores stop with no run', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'Add a greeting');
+    w.forge('comment', '1', '@bothub stop');
+    expect(await w.run([])).toEqual([]);
+
+    w.forge('comment', '1', '@bothub');
+    const asked = await w.run([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
+    expect(asked.map(r => [r.step, r.status])).toEqual([['implement', 'waiting']]);
+
+    w.forge('comment', '1', '@bothub stop wrong issue');
+    const stopped = await w.run([]);
+    expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['implement', 'stopped', 'wrong issue']]);
+  });
 });

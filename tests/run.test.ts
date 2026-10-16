@@ -93,7 +93,7 @@ const judged: SessionEvent[] = [
 ];
 
 /** The file doubles, with every session spec and every sandbox command recorded, both also in `order`. */
-const services = (where: ReturnType<typeof world>, turns: SessionEvent[][]) => {
+const services = (where: ReturnType<typeof world>, turns: SessionEvent[][], slug?: string) => {
   const specs: SessionSpec[] = [];
   const commands: Command[] = [];
   const order: (SessionSpec | Command)[] = [];
@@ -105,7 +105,11 @@ const services = (where: ReturnType<typeof world>, turns: SessionEvent[][]) => {
     Sandbox,
     Effect.map(Sandbox, s => ({ ...s, exec: (c: Command) => (commands.push(c), order.push(c), s.exec(c)) }))
   ).pipe(Layer.provide(host(where.origin)));
-  const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, recording);
+  const named = Layer.effect(
+    Forge,
+    Effect.map(Forge, f => (slug ? { ...f, slug: Effect.succeed(slug) } : f))
+  ).pipe(Layer.provide(fileForge(where.forge)));
+  const layer = Layer.mergeAll(named, fileStore(where.data), sandbox, recording);
   const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Session | Sandbox>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)));
   return { specs, commands, order, run };
@@ -157,7 +161,6 @@ describe('drive', () => {
       'Waiting for an answer at review:\n\nstill not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $1.25.\n\nPull request: ' +
         join(where.forge, '8.md'),
       'Brief: add hello.txt',
-      'still not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
     ]);
     expect(forge.labels).toEqual(['bothub:waiting']);
     const pr = await run(Effect.flatMap(Forge, f => f.issue(8)));
@@ -955,7 +958,7 @@ describe('coworker', () => {
     expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['waiting']);
   }, 30_000);
 
-  it('keeps one status comment through two tries and an ask, with the question as its own comment', async () => {
+  it('keeps one status comment through two tries and an ask, with the question only in it', async () => {
     const where = world();
     const { run } = services(where, [
       [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
@@ -968,7 +971,6 @@ describe('coworker', () => {
     expect(bodies(issue)).toEqual([
       '/bothub',
       'Waiting for an answer at implement:\n\nHello or hi?\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $0.00.',
-      'Hello or hi?\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
     ]);
     const edits = traceOf(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'comment' && t.applied.proposal.edit
@@ -980,6 +982,16 @@ describe('coworker', () => {
       expect.stringMatching(/^Waiting for an answer/),
     ]);
   }, 30_000);
+
+  it('tells a waiting run to be answered by mentioning the bot, once, when the forge knows its slug', async () => {
+    const where = world();
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]], 'stx-bothub');
+    await run(drive(flow, begun(), small));
+    const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
+    expect(issue.filter(b => b.includes('Hello or hi?'))).toEqual([
+      'Waiting for an answer at implement:\n\nHello or hi?\n\nAnswer with `@stx-bothub <your answer>`, or `@stx-bothub stop` to end the run.\n\nCost so far: $0.00.',
+    ]);
+  });
 
   it('replies where the human answered: on the pull request, and under a review comment in its issue', async () => {
     const where = world();

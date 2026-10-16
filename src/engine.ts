@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
-import { context, news, shown, type Issues } from './context.ts';
+import { answerWith, context, news, shown, type Issues } from './context.ts';
 import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
@@ -570,11 +570,15 @@ export const gate = (
  * Lands the run's status labels and status comment; the run comes back holding its status comment's id, and without
  * its 👀 once that comment is posted.
  */
+const slugOf = (forge: Forge['Type']) =>
+  forge.slug ? Effect.orElseSucceed(forge.slug, () => undefined) : Effect.succeed(undefined);
+
 const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Store> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
     const t = yield* issuesOf(w, run);
-    const status = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.issue, p));
+    const slug = yield* slugOf(forge);
+    const status = yield* Effect.forEach(shown(run, w, t, slug), p => forge.apply(run.issue, p));
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
@@ -622,8 +626,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           outcome,
           run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
         });
-        if (next.status === 'waiting' && next.reason) {
-          const body = `${next.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`;
+        if (next.status === 'waiting' && next.reason && next.said && next.said.issue !== next.issue) {
+          const body = `${next.reason}\n\n${answerWith(yield* slugOf(forge))}`;
           const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
           if (Either.isRight(said))
             yield* store.trace(next.id, ...said.right.map(applied => ({ at: now(), step: next.step, applied })));
@@ -814,6 +818,7 @@ export const tick = (
             ? triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!))
             : undefined;
       if (!w || used.has(m) || !m.trusted || !open.has(m.issue)) continue;
+      if (m.kind === 'comment' && /^\S+\s+stop(\s|$)/i.test(m.comment?.body.trim() ?? '')) continue;
       if (!busy.has(`${w.name}#${m.issue}`)) yield* start(w, m.issue, m.at, m);
     }
     if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {

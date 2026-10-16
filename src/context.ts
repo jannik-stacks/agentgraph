@@ -80,8 +80,14 @@ const statuses: Record<Run['status'], string> = {
 };
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 
+/** How to answer a waiting run: mention the bot when its slug is known, else the `/bothub` command. */
+export const answerWith = (slug?: string): string => {
+  const say = slug ? `@${slug}` : '/bothub';
+  return `Answer with \`${say} <your answer>\`, or \`${say} stop\` to end the run.`;
+};
+
 /** The labels and status comment for a run, as proposals; only what differs from the issue now. */
-export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
+export function shown(run: Run, w: Workflow, t: Issues, slug?: string): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
@@ -94,7 +100,7 @@ export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
     {
       running: `Working on ${run.step}, try ${run.tries + 1} of ${tries}${round ? `, round ${round + 1}` : ''}.`,
       waiting: run.reason
-        ? `Waiting for an answer at ${run.step}:\n\n${run.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`
+        ? `Waiting for an answer at ${run.step}:\n\n${run.reason}\n\n${answerWith(slug)}`
         : `Waiting for a human at ${run.step}.`,
       done: 'Done.',
       stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,

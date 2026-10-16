@@ -76,6 +76,8 @@ export class Forge extends Context.Tag('bothub/Forge')<
     issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, ForgeError>;
     since: (cursor: string) => Stream.Stream<Event, ForgeError>;
     apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;
+    /** The login people mention to talk to the bot, when the forge has one. */
+    slug?: Effect.Effect<string, ForgeError>;
   }
 >() {}
 
