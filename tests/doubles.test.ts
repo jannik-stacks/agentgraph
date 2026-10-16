@@ -7,7 +7,7 @@ import { fileForge, Forge } from '../src/forge.ts';
 import { host, Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
-import { fixture } from './fixtures.ts';
+import { fixture, git } from './fixtures.ts';
 
 const dirs: string[] = [];
 const temp = () => {
@@ -139,6 +139,31 @@ describe('fileForge', () => {
       missing: 404,
       events: [['label', 'size:M', false]],
     });
+  });
+});
+
+describe('fileForge push', () => {
+  it('pushes from a worktree of a mirror clone, as the docker sandbox makes them', async () => {
+    const dir = temp();
+    const origin = join(dir, 'origin.git');
+    const mirror = join(dir, 'mirror.git');
+    const work = join(dir, 'work');
+    git(dir, 'init', '-q', '--bare', '-b', 'main', origin);
+    git(dir, 'clone', '-q', origin, join(dir, 'seed'));
+    git(join(dir, 'seed'), 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(join(dir, 'seed'), 'push', '-q', 'origin', 'HEAD:main');
+    git(dir, 'clone', '-q', '--mirror', origin, mirror);
+    git(dir, '--git-dir', mirror, 'worktree', 'add', '-q', '--detach', work, 'main');
+    writeFileSync(join(dir, '1.md'), '---\ntitle: One\nstate: open\nauthor: a\n---\n\nFirst.\n');
+    writeFileSync(join(work, 'hello.txt'), 'hello\n');
+    const checkout = { dir: work, base: '', git: { GIT_DIR: mirror, GIT_WORK_TREE: work }, news: '' };
+    const applied = await Effect.runPromise(
+      Effect.flatMap(Forge, f => f.apply(1, { kind: 'push', branch: 'bothub/1', message: 'add hello' }, checkout)).pipe(
+        Effect.provide(fileForge(dir))
+      )
+    );
+    expect(applied.ok).toBe(true);
+    expect(git(dir, '--git-dir', origin, 'show', 'bothub/1:hello.txt')).toBe('hello');
   });
 });
 

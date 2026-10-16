@@ -129,7 +129,11 @@ export const fileForge = (dir: string, as?: string): Layer.Layer<Forge> =>
       const git = (cwd: string, ...args: string[]) =>
         execGit(
           'git',
-          ['-c', `user.name=${who}`, '-c', 'user.email=bothub@localhost', '-c', 'commit.gpgsign=false', ...args],
+          [
+            ...['-c', `user.name=${who}`, '-c', 'user.email=bothub@localhost', '-c', 'commit.gpgsign=false'],
+            ...['-c', 'remote.origin.mirror=false'],
+            ...args,
+          ],
           { cwd }
         ).then(r => r.stdout.trim());
 
