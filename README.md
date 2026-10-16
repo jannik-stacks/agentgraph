@@ -16,6 +16,8 @@ Run them from this directory as `node bin/run.ts <command>`. `docs/local.md` has
 - `loop --hub <dir> --data <dir>` looks at every open issue each `BOTHUB_EVERY` minutes.
 - `status --hub <dir> --data <dir>` lists what waits on a human.
 
+`node bin/traces.mjs <data dir>` fails when a session that started cost nothing, so missing usage or prices show.
+
 ## Local quickstart
 
 1. Validate a hub, which needs no model or container.
