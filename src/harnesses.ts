@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open as openFile, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Effect, Layer, Redacted, Stream } from 'effect';
+import { Effect, Layer, Option, Redacted, Schema, Stream } from 'effect';
 import type { Agent } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
 import { type SessionEvent, Session, type SessionSpec, SessionStop } from './session.ts';
@@ -17,15 +17,78 @@ type Piece =
   | (Extract<SessionEvent, { type: 'usage' }> & { cached?: number })
   | { type: 'done'; ended: Ended; error?: string };
 
-/** One decoded JSON line of harness output. */
-type Wire = ReturnType<typeof JSON.parse>;
-
 type Adapter = {
   command: (spec: SessionSpec, url: string) => { cmd: string; args: string[]; env: Record<string, string> };
   key: string;
   files?: (spec: SessionSpec, url: string) => Record<string, string>;
-  parser: () => (line: Wire) => Piece[];
+  parser: () => (line: unknown) => Piece[];
 };
+
+/** Parses the JSON lines that decode as `schema`; any other line says nothing. */
+const decoding = <A, I>(schema: Schema.Schema<A, I>, parse: (line: A) => Piece[]) => {
+  const decode = Schema.decodeUnknownOption(schema);
+  return (line: unknown) => Option.match(decode(line), { onNone: () => [], onSome: parse });
+};
+
+/** Optional fields of one schema, by name. */
+const some = <S extends Schema.Schema.Any, K extends string>(schema: S, ...keys: K[]) =>
+  Object.fromEntries(keys.map(key => [key, Schema.optional(schema)])) as { [P in K]: Schema.optional<S> };
+const { String: Str, Number: Num, Boolean: Bool, Unknown, Struct, optional: opt } = Schema;
+
+const OpencodeLine = Struct({
+  ...some(Str, 'type', 'sessionID'),
+  error: opt(Struct({ name: opt(Str), data: opt(Struct({ message: opt(Str) })) })),
+  part: opt(
+    Struct({
+      ...some(Str, 'type', 'text', 'id', 'callID', 'tool', 'reason'),
+      cost: opt(Num),
+      state: opt(
+        Struct({
+          ...some(Str, 'status', 'output', 'error'),
+          ...some(Unknown, 'input'),
+          metadata: opt(Struct(some(Unknown, 'exit'))),
+        })
+      ),
+      tokens: opt(Struct({ ...some(Num, 'input', 'output'), cache: opt(Struct(some(Num, 'read', 'write'))) })),
+    })
+  ),
+});
+
+const ClaudeBlock = Struct({
+  ...some(Str, 'type', 'text', 'id', 'name', 'tool_use_id'),
+  ...some(Unknown, 'input', 'content'),
+  is_error: opt(Bool),
+});
+const ClaudeLine = Struct({
+  ...some(Str, 'type', 'subtype', 'session_id', 'model', 'result'),
+  is_error: opt(Bool),
+  message: opt(Struct({ content: opt(Schema.Union(Str, Schema.Array(ClaudeBlock))) })),
+  permission_denials: opt(
+    Schema.Array(Struct({ ...some(Str, 'tool_use_id', 'tool_name'), ...some(Unknown, 'tool_input') }))
+  ),
+  modelUsage: opt(
+    Schema.Record({
+      key: Str,
+      value: Struct(some(Num, 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens')),
+    })
+  ),
+});
+
+const PiMessage = Struct({
+  ...some(Str, 'role', 'stopReason', 'errorMessage'),
+  ...some(Unknown, 'content'),
+  usage: opt(
+    Struct({ ...some(Num, 'input', 'output', 'cacheRead', 'cacheWrite'), cost: opt(Struct(some(Num, 'total'))) })
+  ),
+});
+const PiLine = Struct({
+  ...some(Str, 'type', 'id', 'toolCallId', 'toolName'),
+  ...some(Bool, 'isError', 'willRetry'),
+  ...some(Unknown, 'args'),
+  result: opt(Struct(some(Unknown, 'content'))),
+  message: opt(PiMessage),
+  messages: opt(Schema.Array(PiMessage)),
+});
 
 const modelTimeouts = { headersMs: 120_000, idleMs: 180_000 };
 const alias = (spec: SessionSpec) => spec.model ?? 'default';
@@ -114,54 +177,55 @@ const opencode: Adapter = {
       OPENCODE_DISABLE_MODELS_FETCH: '1',
     },
   }),
-  parser: () => line => {
-    const session: Piece[] = typeof line.sessionID === 'string' ? [{ type: 'session', id: line.sessionID }] : [];
-    const part = line.part ?? {};
-    if (line.type === 'error')
-      return [
-        ...session,
-        { type: 'done', ended: 'error', error: line.error?.data?.message ?? line.error?.name ?? 'opencode error' },
-      ];
-    if (part.type === 'text' && part.text) return [...session, { type: 'text', text: part.text }];
-    if (part.type === 'tool' && (part.state?.status === 'completed' || part.state?.status === 'error')) {
-      const { state } = part;
-      const output: string | undefined = state.output ?? state.error;
-      const tool: Tool = {
-        type: 'tool',
-        id: part.callID ?? part.id,
-        name: part.tool,
-        input: state.input,
-        ok: state.status === 'completed',
-        ...(output !== undefined && { output }),
-        ...(typeof state.metadata?.exit === 'number' && { exit: state.metadata.exit }),
-        ...(state.status === 'error' && output?.includes(deniedByOpencode) && { denied: true as const }),
-      };
-      return [...session, tool];
-    }
-    if (part.type === 'step-finish') {
-      const t = part.tokens;
-      const usage: Piece[] = t
-        ? [
-            {
-              type: 'usage',
-              input: (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0),
-              output: t.output ?? 0,
-              cached: t.cache?.read ?? 0,
-              ...(part.cost && { usd: part.cost }),
-            },
-          ]
-        : [];
-      const reason: string = part.reason;
-      if (reason === 'tool-calls') return [...session, ...usage];
-      const ended: Ended = reason === 'stop' ? 'stop' : reason === 'length' ? 'cap' : 'error';
-      return [
-        ...session,
-        ...usage,
-        { type: 'done', ended, ...(ended === 'error' && { error: `finished with ${reason}` }) },
-      ];
-    }
-    return session;
-  },
+  parser: () =>
+    decoding(OpencodeLine, line => {
+      const session: Piece[] = line.sessionID ? [{ type: 'session', id: line.sessionID }] : [];
+      const part = line.part ?? {};
+      if (line.type === 'error')
+        return [
+          ...session,
+          { type: 'done', ended: 'error', error: line.error?.data?.message ?? line.error?.name ?? 'opencode error' },
+        ];
+      if (part.type === 'text' && part.text) return [...session, { type: 'text', text: part.text }];
+      if (part.type === 'tool' && (part.state?.status === 'completed' || part.state?.status === 'error')) {
+        const { state } = part;
+        const output = state.output ?? state.error;
+        const tool: Tool = {
+          type: 'tool',
+          id: part.callID ?? part.id ?? '',
+          name: part.tool ?? '',
+          input: state.input,
+          ok: state.status === 'completed',
+          ...(output !== undefined && { output }),
+          ...(typeof state.metadata?.exit === 'number' && { exit: state.metadata.exit }),
+          ...(state.status === 'error' && output?.includes(deniedByOpencode) && { denied: true as const }),
+        };
+        return [...session, tool];
+      }
+      if (part.type === 'step-finish') {
+        const t = part.tokens;
+        const usage: Piece[] = t
+          ? [
+              {
+                type: 'usage',
+                input: (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0),
+                output: t.output ?? 0,
+                cached: t.cache?.read ?? 0,
+                ...(part.cost && { usd: part.cost }),
+              },
+            ]
+          : [];
+        const reason = part.reason;
+        if (reason === 'tool-calls') return [...session, ...usage];
+        const ended: Ended = reason === 'stop' ? 'stop' : reason === 'length' ? 'cap' : 'error';
+        return [
+          ...session,
+          ...usage,
+          { type: 'done', ended, ...(ended === 'error' && { error: `finished with ${reason}` }) },
+        ];
+      }
+      return session;
+    }),
 };
 
 const claudeNames: Record<string, string> = {
@@ -230,14 +294,15 @@ const claude: Adapter = {
   },
   parser: () => {
     const calls = new Map<string, { name: string; input: unknown }>();
-    return line => {
-      if (line.type === 'system' && line.subtype === 'init')
-        return [{ type: 'session', id: line.session_id, model: line.model }];
-      if ((line.type === 'assistant' || line.type === 'user') && Array.isArray(line.message?.content))
-        return line.message.content.flatMap((b: Wire): Piece[] => {
+    return decoding(ClaudeLine, line => {
+      if (line.type === 'system' && line.subtype === 'init' && line.session_id)
+        return [{ type: 'session', id: line.session_id, ...(line.model && { model: line.model }) }];
+      const content = line.message?.content;
+      if ((line.type === 'assistant' || line.type === 'user') && Array.isArray(content))
+        return content.flatMap((b): Piece[] => {
           if (b.type === 'text' && b.text) return [{ type: 'text', text: b.text }];
-          if (b.type === 'tool_use') calls.set(b.id, { name: b.name, input: b.input });
-          if (b.type !== 'tool_result') return [];
+          if (b.type === 'tool_use' && b.id) calls.set(b.id, { name: b.name ?? '', input: b.input });
+          if (b.type !== 'tool_result' || !b.tool_use_id) return [];
           const call = calls.get(b.tool_use_id);
           return [
             {
@@ -251,20 +316,22 @@ const claude: Adapter = {
           ];
         });
       if (line.type !== 'result') return [];
-      const denied = (line.permission_denials ?? []).map((d: Wire): Piece => ({
+      const denied = (line.permission_denials ?? []).map((d): Piece => ({
         type: 'tool',
-        id: d.tool_use_id,
-        name: d.tool_name,
+        id: d.tool_use_id ?? '',
+        name: d.tool_name ?? '',
         input: d.tool_input,
         ok: false,
         denied: true,
       }));
-      const usage = Object.values(line.modelUsage ?? {}).map((u: Wire): Piece => ({
-        type: 'usage',
-        input: u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens,
-        output: u.outputTokens,
-        cached: u.cacheReadInputTokens,
-      }));
+      const usage = Object.values(line.modelUsage ?? {}).map(
+        ({ inputTokens = 0, outputTokens = 0, cacheReadInputTokens = 0, cacheCreationInputTokens = 0 }): Piece => ({
+          type: 'usage',
+          input: inputTokens + cacheReadInputTokens + cacheCreationInputTokens,
+          output: outputTokens,
+          cached: cacheReadInputTokens,
+        })
+      );
       const ended: Ended =
         line.subtype === 'success' && !line.is_error ? 'stop' : line.subtype === 'error_max_turns' ? 'cap' : 'error';
       return [
@@ -272,7 +339,7 @@ const claude: Adapter = {
         ...usage,
         { type: 'done', ended, ...(ended === 'error' && { error: line.result || line.subtype || 'claude failed' }) },
       ];
-    };
+    });
   },
 };
 
@@ -321,12 +388,14 @@ const pi: Adapter = {
   }),
   parser: () => {
     const calls = new Map<string, { name: string; input: unknown }>();
-    return line => {
-      if (line.type === 'session') return [{ type: 'session', id: line.id }];
-      if (line.type === 'tool_execution_start') calls.set(line.toolCallId, { name: line.toolName, input: line.args });
+    return decoding(PiLine, line => {
+      if (line.type === 'session' && line.id) return [{ type: 'session', id: line.id }];
+      const id = line.toolCallId ?? '';
+      if (line.type === 'tool_execution_start') calls.set(id, { name: line.toolName ?? '', input: line.args });
       if (line.type === 'tool_execution_end') {
         const output = blockText(line.result?.content);
-        return [{ type: 'tool', id: line.toolCallId, ...calls.get(line.toolCallId)!, ok: !line.isError, output }];
+        const call = calls.get(id) ?? { name: '', input: undefined };
+        return [{ type: 'tool', id, ...call, ok: !line.isError, output }];
       }
       const m = line.message;
       if (line.type === 'message_end' && m?.role === 'assistant') {
@@ -348,7 +417,7 @@ const pi: Adapter = {
         ];
       }
       if (line.type === 'agent_end' && !line.willRetry) {
-        const last = (line.messages ?? []).filter((x: Wire) => x.role === 'assistant').at(-1);
+        const last = (line.messages ?? []).filter(x => x.role === 'assistant').at(-1);
         const reason = last?.stopReason;
         const ended: Ended =
           !last || reason === 'error' || reason === 'aborted' ? 'error' : reason === 'length' ? 'cap' : 'stop';
@@ -357,7 +426,7 @@ const pi: Adapter = {
         ];
       }
       return [];
-    };
+    });
   },
 };
 
