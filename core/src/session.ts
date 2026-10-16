@@ -1,11 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Context, Data, Effect, Layer, Stream, type Scope } from 'effect';
-import type { Harness } from './hub.ts';
+import type { Agent } from './hub.ts';
 import type { Run } from './workflow.ts';
 
 export type SessionSpec = {
-  harness: Harness;
+  harness: Agent['harness'];
   model?: string;
   system: string;
   prompt: string;

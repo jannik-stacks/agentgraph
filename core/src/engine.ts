@@ -1,10 +1,9 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
-import type { Check, CheckResult } from './check.ts';
 import { context, news, shown, type Issues } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
-import type { Hub } from './hub.ts';
+import type { Check, Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, type SessionSpec, type SessionStop } from './session.ts';
@@ -13,6 +12,7 @@ import {
   begin,
   reenter,
   transition,
+  type CheckResult,
   type Doc,
   type Outcome,
   type Run,

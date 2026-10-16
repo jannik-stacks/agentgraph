@@ -1,4 +1,4 @@
-import type { Check } from '../../../core/src/check.ts';
+import type { Check } from '../../../core/src/hub.ts';
 import type { Outcome, Run, Step, Workflow } from '../../../core/src/workflow.ts';
 
 /** One outcome a run met, with the run as it stood before it. */

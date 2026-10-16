@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Effect, Layer, Redacted, Stream } from 'effect';
-import type { Harness } from './hub.ts';
+import type { Agent } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
 import { type SessionEvent, Session, type SessionSpec, SessionStop } from './session.ts';
 
@@ -357,7 +357,7 @@ const pi: Adapter = {
   },
 };
 
-const adapters: Record<Harness, Adapter> = { opencode, claude, pi };
+const adapters: Record<Agent['harness'], Adapter> = { opencode, claude, pi };
 
 const exitLine = /^bothub-exit (\d+)$/;
 

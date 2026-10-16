@@ -1,10 +1,9 @@
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Context, Data, Effect, Layer, Stream, type Scope } from 'effect';
-import type { CheckResult } from './check.ts';
 import type { Applied } from './forge.ts';
 import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
-import type { Outcome, Run } from './workflow.ts';
+import type { CheckResult, Outcome, Run } from './workflow.ts';
 
 /**
  * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A

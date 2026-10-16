@@ -1,4 +1,4 @@
-import type { Check } from './check.ts';
+import type { Check } from './hub.ts';
 import type { Run, Step, Workflow } from './workflow.ts';
 
 /**

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
-import type { Check } from '../src/check.ts';
+import type { Check } from '../src/hub.ts';
 import type { Hub } from '../src/hub.ts';
 import { load, type Problem, type Workflow } from '../src/workflow.ts';
 

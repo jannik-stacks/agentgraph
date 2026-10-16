@@ -15,7 +15,6 @@ export type Settings = {
   repo: string;
   hub: string;
   data: string;
-  port: number;
   every: number;
   proxy: { url: string; keys: Redacted.Redacted };
   prices: string;
@@ -28,7 +27,6 @@ export const settings: Config.Config<Settings> = Config.all({
   repo: Config.string('BOTHUB_REPO'),
   hub: Config.string('BOTHUB_HUB').pipe(Config.withDefault('.bothub')),
   data: Config.string('BOTHUB_DATA').pipe(Config.withDefault('.bothub-data')),
-  port: Config.port('BOTHUB_PORT').pipe(Config.withDefault(5191)),
   every: Config.number('BOTHUB_EVERY').pipe(Config.withDefault(5)),
   proxy: Config.all({
     url: Config.string('BOTHUB_PROXY_URL').pipe(Config.withDefault('http://litellm:4000/v1')),

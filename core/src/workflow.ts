@@ -1,8 +1,9 @@
 import { basename } from 'node:path';
 import { Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
-import type { CheckResult } from './check.ts';
 import type { Applied, Event } from './forge.ts';
+
+export type CheckResult = { check: string; pass: boolean; findings?: string; ms: number };
 
 /** A hub file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };

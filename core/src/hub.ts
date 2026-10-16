@@ -3,11 +3,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
-import type { Check } from './check.ts';
 import type { Proposal } from './forge.ts';
 import { load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
-
-export type Harness = 'claude' | 'opencode' | 'pi';
 
 const kinds = [
   'comment',
@@ -60,13 +57,15 @@ const HubFile = Schema.Struct({
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
-const CheckFile = Schema.Struct({
+/** A check is items, a command and an agent that judges. `stop` ends the run when it fails. */
+export const Check = Schema.Struct({
   mode: Schema.Literal('warn', 'block', 'stop'),
   each: exact(Schema.String),
   run: exact(Schema.String),
   agent: exact(Schema.String),
   max: exact(Schema.Int.pipe(Schema.positive())),
 });
+export type Check = typeof Check.Type;
 
 const SkillFile = Schema.Struct({ description: exact(Schema.String) });
 
@@ -231,7 +230,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
     )
   );
   const checks = docs(groups.checks, (data, say): Check | undefined => {
-    const check = decode(CheckFile, strip(data, gone.check, say), say);
+    const check = decode(Check, strip(data, gone.check, say), say);
     if (!check) return;
     if (check.run === undefined && check.agent === undefined) say('name run, agent or both');
     if (check.agent !== undefined && !(check.agent in agents)) say(`agent: unknown agent ${check.agent}`);
