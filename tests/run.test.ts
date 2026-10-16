@@ -707,8 +707,8 @@ describe('start with one issue', () => {
     try {
       const parked = await main(one, doubles);
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
-      expect(seen[0]).toMatchObject({ repo: 'acme/sandbox', data: where.data, app: { id: '42' } });
-      expect(Redacted.value(seen[0]!.app.key)).toBe('PEM');
+      expect(seen[0]).toMatchObject({ repo: 'acme/sandbox', data: where.data, forge: { id: '42' } });
+      expect(Redacted.value((seen[0]!.forge as { key: Redacted.Redacted }).key)).toBe('PEM');
       expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
       expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
 

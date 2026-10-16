@@ -1,6 +1,7 @@
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Config, Layer, type Redacted } from 'effect';
-import type { Forge } from './forge.ts';
+import { fileForge, type Forge } from './forge.ts';
 import { docker } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import { harnesses } from './harnesses.ts';
@@ -18,7 +19,8 @@ export type Settings = {
   every: number;
   proxy: { url: string; keys: Redacted.Redacted };
   prices: string;
-  app: { id: string; key: Redacted.Redacted };
+  /** A forge folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
+  forge: string | { id: string; key: Redacted.Redacted };
 };
 
 const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.url));
@@ -33,18 +35,28 @@ export const settings: Config.Config<Settings> = Config.all({
     keys: Config.redacted('BOTHUB_PROXY_KEYS'),
   }),
   prices: Config.string('BOTHUB_PRICES').pipe(Config.withDefault(prices)),
-  app: Config.all({ id: Config.string('BOTHUB_APP_ID'), key: Config.redacted('BOTHUB_APP_KEY') }),
+  forge: Config.string('BOTHUB_FORGE').pipe(
+    Config.orElse(() => Config.all({ id: Config.string('BOTHUB_APP_ID'), key: Config.redacted('BOTHUB_APP_KEY') }))
+  ),
 });
 
-/** The production services. Tests build their own from the file and host layers. */
-export const layers = (s: Settings): Layer.Layer<Services> => {
-  const app = { repo: s.repo, ...s.app };
+const github = (app: { repo: string; id: string; key: Redacted.Redacted }) => {
   const token = appToken(app);
+  return {
+    forge: githubForge(app, globalThis.fetch, token),
+    origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
+  };
+};
+
+/** The production services, on GitHub or on a forge folder. Tests build their own from the file and host layers. */
+export const layers = (s: Settings): Layer.Layer<Services> => {
+  const { forge, origin } =
+    typeof s.forge === 'string'
+      ? { forge: fileForge(s.forge), origin: { origin: join(s.forge, 'origin.git') } }
+      : github({ repo: s.repo, ...s.forge });
   return Layer.mergeAll(
-    githubForge(app, globalThis.fetch, token),
+    forge,
     fileStore(s.data),
-    harnesses(s).pipe(
-      Layer.provideMerge(docker({ data: s.data, origin: `https://github.com/${s.repo}.git`, token: token('read') }))
-    )
+    harnesses(s).pipe(Layer.provideMerge(docker({ data: s.data, ...origin })))
   );
 };

@@ -110,11 +110,13 @@ const execGit = promisify(execFile);
 const me = 'bothub[bot]';
 
 /**
- * A forge in a folder, for tests. `<n>.md` is an issue (frontmatter title, state, author, labels, parent; then the
- * body), `<n>.jsonl` its timeline of events, `<n>.reactions` the 👀 given, and a folder `<n>/` makes it a pull request (`pull.json`, `diff.patch`).
- * Branches live in the git remote of the worktree a push comes from. Authors ending in `[bot]` are not trusted, and their issues' text is withheld.
+ * A forge in a folder, for tests and local runs. `<n>.md` is an issue (frontmatter title, state, author, labels,
+ * parent; then the body), `<n>.jsonl` its timeline of events, `<n>.reactions` the 👀 given, and a folder `<n>/` makes
+ * it a pull request (`pull.json`, `diff.patch`). Branches live in the git remote of the worktree a push comes from.
+ * Authors ending in `[bot]` are not trusted, and their issues' text is withheld. It acts as the bot, or as the
+ * trusted person `as`.
  */
-export const fileForge = (dir: string): Layer.Layer<Forge> =>
+export const fileForge = (dir: string, as?: string): Layer.Layer<Forge> =>
   Layer.effect(
     Forge,
     Effect.map(Effect.makeSemaphore(1), lock => {
@@ -123,10 +125,11 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
       const pullFile = (n: number) => join(dir, String(n), 'pull.json');
       const optional = <A>(p: Promise<A>) =>
         p.catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? undefined : Promise.reject(e)));
+      const who = as ?? me;
       const git = (cwd: string, ...args: string[]) =>
         execGit(
           'git',
-          ['-c', `user.name=${me}`, '-c', 'user.email=bothub@localhost', '-c', 'commit.gpgsign=false', ...args],
+          ['-c', `user.name=${who}`, '-c', 'user.email=bothub@localhost', '-c', 'commit.gpgsign=false', ...args],
           { cwd }
         ).then(r => r.stdout.trim());
 
@@ -167,10 +170,13 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
           .map(line => JSON.parse(line) as Event);
       const now = () => new Date().toISOString();
       const say = (m: Omit<Event, 'actor' | 'trusted' | 'at'>) =>
-        appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: me, trusted: false, at: now() })}\n`);
+        appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: who, trusted: who !== me, at: now() })}\n`);
+      /** The tip of `branch` on the checkout's remote, fetched. */
+      const tip = (work: string, branch: string) =>
+        git(work, 'fetch', '-q', 'origin', `refs/heads/${branch}`).then(() => git(work, 'rev-parse', 'FETCH_HEAD'));
       const open = async (fields: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
         const number = Math.max(0, ...(await numbers())) + 1;
-        await write({ number, state: 'open', labels: [], author: me, url: '', ...fields });
+        await write({ number, state: 'open', labels: [], author: who, url: '', ...fields });
         return number;
       };
       const must = async (n: number) => {
@@ -186,7 +192,10 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
           const pr = await read(k);
           if (pr?.pull?.branch !== branch || pr.state !== 'open') continue;
           await write({ ...pr, pull: { ...pr.pull, head } });
-          await writeFile(join(dir, String(k), 'diff.patch'), await git(work, 'diff', `origin/${pr.pull.base}...HEAD`));
+          await writeFile(
+            join(dir, String(k), 'diff.patch'),
+            await git(work, 'diff', `${await tip(work, pr.pull.base)}...HEAD`)
+          );
         }
         return head;
       };
@@ -198,7 +207,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
           case 'comment': {
             const all = await eventsOf(n);
             if (p.edit !== undefined) {
-              const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === me);
+              const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === who);
               if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);
               all[at] = { ...all[at]!, comment: { ...all[at]!.comment!, body: p.body } };
               await writeFile(timeline(n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
@@ -209,7 +218,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
             if (p.under !== undefined && !parent) return no(`no review comment ${p.under} on #${n}`);
             const { path, line } = parent ?? {};
             const placed = { ...(path && { path }), ...(line && { line }), ...(p.under && { under: p.under }) };
-            await say({ issue: n, kind: 'comment', comment: { id, author: me, body: p.body, at: now(), ...placed } });
+            await say({ issue: n, kind: 'comment', comment: { id, author: who, body: p.body, at: now(), ...placed } });
             return { proposal: p, ok: true, id, url: `${md(n)}#${id}` };
           }
           case 'label': {
@@ -227,14 +236,14 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
           }
           case 'rebase': {
             if (!work) return no('a rebase needs a worktree');
-            const tip = await git(work, 'rev-parse', `origin/${p.branch}`);
-            await git(work, 'reset', '-q', '--hard', tip);
+            const was = await tip(work, p.branch);
+            await git(work, 'reset', '-q', '--hard', was);
             const clean = await git(work, 'rebase', '-q', '--onto', p.onto, p.from).then(
               () => true,
               () => git(work, 'rebase', '--abort').then(() => false)
             );
             if (!clean) return no(`${p.branch} conflicts with ${p.onto}`);
-            const lease = `--force-with-lease=refs/heads/${p.branch}:${tip}`;
+            const lease = `--force-with-lease=refs/heads/${p.branch}:${was}`;
             await git(work, 'push', '-q', lease, 'origin', `HEAD:refs/heads/${p.branch}`);
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch)}` };
           }
@@ -243,13 +252,13 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
               const pr = await read(k);
               if (pr?.pull?.branch === p.branch && pr.state === 'open') return { proposal: p, ok: true, url: pr.url };
             }
-            const head = work ? await git(work, 'rev-parse', `origin/${p.branch}`).catch(() => '') : '';
+            const head = work ? await tip(work, p.branch).catch(() => '') : '';
             if (!head) return no(`branch ${p.branch} is not pushed`);
             const k = await open({ title: p.title, body: p.body, pull: { branch: p.branch, base: p.base, head } });
             if (work)
               await writeFile(
                 join(dir, String(k), 'diff.patch'),
-                await git(work, 'diff', `origin/${p.base}...${head}`)
+                await git(work, 'diff', `${await tip(work, p.base)}...${head}`)
               );
             return { proposal: p, ok: true, url: md(k) };
           }

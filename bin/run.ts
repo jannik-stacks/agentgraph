@@ -5,6 +5,7 @@
  *        node bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
  *        node bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV; read-only)
  *        node bin/run.ts loop --hub <dir> --data <dir>   (looks at every open issue each BOTHUB_EVERY minutes)
+ * With --forge <dir>, the runs act on a forge folder (see bin/forge.ts) instead of GitHub, and need no App.
  */
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -15,9 +16,16 @@ import { needsYou } from '../src/status.ts';
 import { fileStore } from '../src/store.ts';
 
 const { values, positionals } = parseArgs({
-  options: { hub: { type: 'string' }, issue: { type: 'string' }, all: { type: 'boolean' }, data: { type: 'string' } },
+  options: {
+    hub: { type: 'string' },
+    issue: { type: 'string' },
+    all: { type: 'boolean' },
+    data: { type: 'string' },
+    forge: { type: 'string' },
+  },
   allowPositionals: true,
 });
+if (values.forge) process.env.BOTHUB_FORGE = resolve(values.forge);
 const issue = values.all ? 'all' : Number(values.issue);
 
 if (positionals[0] === 'check') {
