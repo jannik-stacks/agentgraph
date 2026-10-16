@@ -43,9 +43,10 @@ export type Message = {
   check?: { name: string; conclusion: string };
 };
 
-/** What a run may change on the repo, and the two proposals that steer the run. */
+/** What a run may change on the repo, and the two proposals that steer the run. `react` is the runner's own. */
 export type Proposal =
   | { kind: 'reply'; body: string }
+  | { kind: 'react'; comment?: string; review?: boolean }
   | { kind: 'label'; add?: string[]; remove?: string[] }
   | { kind: 'push'; branch: string; message: string }
   | { kind: 'pull'; branch: string; into: string; title: string; body: string }
@@ -94,7 +95,7 @@ const me = 'bothub[bot]';
 
 /**
  * A forge in a folder, for tests. `<n>.md` is a thread (frontmatter title, state, author, labels, parent; then the
- * body), `<n>.jsonl` its timeline of messages, and a folder `<n>/` makes it a pull request (`pull.json`, `diff.patch`).
+ * body), `<n>.jsonl` its timeline of messages, `<n>.reactions` the 👀 given, and a folder `<n>/` makes it a pull request (`pull.json`, `diff.patch`).
  * Branches live in the git remote of the worktree a push comes from. Authors ending in `[bot]` are not trusted.
  */
 export const fileForge = (dir: string): Layer.Layer<Forge> =>
@@ -218,6 +219,9 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
               ok: true,
               url: md(await open({ title: p.title, body: p.body, parent: p.parent ?? n })),
             };
+          case 'react':
+            await appendFile(join(dir, `${n}.reactions`), `eyes ${p.comment ?? `#${n}`}\n`);
+            return { proposal: p, ok: true };
           case 'ask':
           case 'back':
             return no(`${p.kind} steers the run, not the repo`);

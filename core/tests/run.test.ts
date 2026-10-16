@@ -397,6 +397,9 @@ describe('tick', () => {
     expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs).toHaveLength(2);
     expect(specs[1]!.prompt).toContain('@morgan: /bothub once more');
+    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe(
+      'eyes 2026-10-16T00:00:00.000Z\neyes 2026-10-17T00:00:00.000Z\n'
+    );
   }, 30_000);
 
   it('keeps the worktree files of a parked run and puts them back when it reenters', async () => {
@@ -465,6 +468,7 @@ describe('tick', () => {
     );
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
+    expect(readFileSync(join(where.forge, '8.reactions'), 'utf8')).toBe('eyes 2026-10-16T00:00:05.000Z\n');
   }, 30_000);
 
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
@@ -691,6 +695,7 @@ describe('coworker', () => {
     say(where, labelled('morgan', true, 'unlabel', later(2)));
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the bothub label was removed' });
+    expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('eyes #7\n');
   }, 30_000);
 
   it('begins on one issue only where the latest bothub label came from a maintainer', async () => {

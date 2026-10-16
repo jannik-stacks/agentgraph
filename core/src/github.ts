@@ -576,6 +576,11 @@ export const githubForge = (
           return comment(number, p.body);
         case 'ask':
           return comment(number, p.question);
+        case 'react': {
+          const on =
+            p.comment === undefined ? `issues/${number}` : `${p.review ? 'pulls' : 'issues'}/comments/${p.comment}`;
+          return Effect.as(gh('POST', `${repo}/${on}/reactions`, { content: 'eyes' }, 'comment'), {});
+        }
         case 'back':
           return Effect.succeed({});
         case 'label':

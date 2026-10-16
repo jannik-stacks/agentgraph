@@ -46,7 +46,7 @@ const ProposalSchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String })
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
-const shapes: Record<Proposal['kind'], string> = {
+const shapes: Record<Exclude<Proposal['kind'], 'react'>, string> = {
   reply: '{"kind":"reply","body":"..."}',
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',
@@ -59,7 +59,7 @@ const shapes: Record<Proposal['kind'], string> = {
 const shapeOf = (item: unknown) => {
   const kind = (item as { kind?: unknown } | null)?.kind;
   return typeof kind === 'string' && kind in shapes
-    ? `write it as ${shapes[kind as Proposal['kind']]}`
+    ? `write it as ${shapes[kind as keyof typeof shapes]}`
     : `kind must be one of ${Object.keys(shapes).join(', ')}`;
 };
 const block = /^(`{3,}|~{3,})[ \t]*bothub[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
@@ -326,7 +326,7 @@ export const attempt = (
         [
           'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
           'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
-          ...kinds.map(k => shapes[k as Proposal['kind']]),
+          ...kinds.map(k => shapes[k as keyof typeof shapes]),
         ].join('\n'),
       ]
         .filter(Boolean)
@@ -434,7 +434,7 @@ export const gate = (
       };
     const returns = 'bot' in step.does ? hub.bots[step.does.bot]?.returns : undefined;
     const rejected: Applied[] = left.proposals
-      .filter(p => returns && !returns.includes(p.kind))
+      .filter(p => returns && !returns.some(k => k === p.kind))
       .map(p => ({ proposal: p, ok: false, reason: `${step.name} may not propose ${p.kind}` }));
     const failing = failed('block');
     const outcome: Outcome =
@@ -545,6 +545,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       .at(-1);
     const cursor = started === undefined ? '' : [started, ...parked.map(p => p.at)].sort()[0]!;
     const threads = yield* forge.threads({ state: 'open' });
+    const origin = new Map<Message, number>();
     const onRun = (m: Message): Message => {
       const r = runs.find(
         r =>
@@ -552,8 +553,25 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
           hub.workflows[r.workflow] &&
           pullOf(hub.workflows[r.workflow]!, r.thread, threads) === m.thread
       );
-      return r ? { ...m, thread: r.thread } : m;
+      if (!r) return m;
+      const moved = { ...m, thread: r.thread };
+      origin.set(moved, m.thread);
+      return moved;
     };
+    /** 👀 on the comment that woke a run, or on its thread for a label. */
+    const eyes = (run: Run, m: Message) =>
+      m.kind !== 'comment' && m.kind !== 'label'
+        ? Effect.void
+        : forge
+            .apply(origin.get(m) ?? m.thread, {
+              kind: 'react',
+              ...(m.kind === 'comment' &&
+                m.comment && { comment: m.comment.id, ...(m.comment.path !== undefined && { review: true }) }),
+            })
+            .pipe(
+              Effect.flatMap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
+              Effect.catchTag('ForgeError', e => Effect.logWarning(`react for run ${run.id}`, e))
+            );
     const messages = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)))
       .map(onRun)
       .filter(mine);
@@ -566,6 +584,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       if (!w || !m) continue;
       used.add(m);
       const outcome = reenter(w, run, m)!;
+      if (m.kind === 'comment') yield* eyes(run, m);
       const next = transition(w, run, outcome);
       yield* store.trace(run.id, {
         at: now(),
@@ -591,11 +610,12 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
           return last?.kind === 'label' && last.trusted;
         })
       );
-    const start = (w: Workflow, thread: number, at: string) =>
+    const start = (w: Workflow, thread: number, at: string, m?: Message) =>
       Effect.gen(function* () {
         const run = begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at });
         busy.add(`${w.name}#${thread}`);
         yield* store.put(run);
+        if (m) yield* eyes(run, m);
         touched.push(run);
       });
     for (const m of messages) {
@@ -611,7 +631,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
             ? triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!))
             : undefined;
       if (!w || used.has(m) || !m.trusted || !open.has(m.thread)) continue;
-      if (!busy.has(`${w.name}#${m.thread}`)) yield* start(w, m.thread, m.at);
+      if (!busy.has(`${w.name}#${m.thread}`)) yield* start(w, m.thread, m.at, m);
     }
     if (only !== undefined && (fresh ? runs.length === 0 : !runs.some(live)) && !touched.some(r => r.thread === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
