@@ -50,7 +50,11 @@ export type Hub = {
   stacks?: boolean;
 };
 
-export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {}
+export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {
+  override get message() {
+    return this.problems.map(p => `${p.path}: ${p.message}`).join('\n');
+  }
+}
 
 const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 

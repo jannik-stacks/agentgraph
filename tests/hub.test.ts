@@ -47,7 +47,7 @@ const fromFixture = (name: string) => {
 const problems = async (dir: string) => {
   const result = await Effect.runPromise(Effect.either(loadHub(dir)));
   if (Either.isRight(result)) throw new Error('expected problems');
-  return result.left.problems.map(p => `${p.path}: ${p.message}`);
+  return result.left.message.split('\n');
 };
 
 describe('loadHub', () => {
