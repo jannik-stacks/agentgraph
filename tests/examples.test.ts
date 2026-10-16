@@ -83,3 +83,17 @@ describe('models and keys', () => {
     expect(missing).toEqual([]);
   });
 });
+
+/** Scripts more than one hub carries; a hub mounts only its own folder, so each keeps a copy. */
+const shared = ['changes.mjs', 'lint.mjs', 'pr-text.mjs', 'safety.mjs', 'shape.mjs'];
+
+describe('shared hub scripts', () => {
+  it.each(shared)('every copy of %s is the same', name => {
+    const copies = hubDirs.flatMap(dir => {
+      const path = join(dir, 'scripts', name);
+      return existsSync(path) ? [readFileSync(path, 'utf8')] : [];
+    });
+    expect(copies.length).toBeGreaterThan(1);
+    expect(new Set(copies).size).toBe(1);
+  });
+});
