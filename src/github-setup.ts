@@ -14,7 +14,14 @@ export const manifest = (name: string, base: string) => ({
   setup_url: `${base}/installed`,
   setup_on_update: false,
   public: false,
-  default_permissions: { contents: 'write', pull_requests: 'write', issues: 'write', metadata: 'read' },
+  default_permissions: {
+    contents: 'write',
+    pull_requests: 'write',
+    issues: 'write',
+    metadata: 'read',
+    checks: 'read',
+    statuses: 'read',
+  },
   default_events: [],
 });
 
@@ -86,7 +93,8 @@ export const setupApp = async ({
     }
     if (url.pathname === '/created') {
       const code = url.searchParams.get('code');
-      if (!code || url.searchParams.get('state') !== state) return html('<p>State mismatch. Start the setup again.</p>', 400);
+      if (!code || url.searchParams.get('state') !== state)
+        return html('<p>State mismatch. Start the setup again.</p>', 400);
       if (created) return Response.redirect(`${created.html_url}/installations/new`, 302);
       const res = await fetcher(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
         method: 'POST',

@@ -36,7 +36,14 @@ describe('setupApp', () => {
     expect(sent).toMatchObject({
       public: false,
       redirect_url: `${base}/created`,
-      default_permissions: { contents: 'write', pull_requests: 'write', issues: 'write', metadata: 'read' },
+      default_permissions: {
+        contents: 'write',
+        pull_requests: 'write',
+        issues: 'write',
+        metadata: 'read',
+        checks: 'read',
+        statuses: 'read',
+      },
     });
     expect(sent).not.toHaveProperty('hook_attributes');
     expect(page).toContain('action="https://github.com/settings/apps/new?state=');
