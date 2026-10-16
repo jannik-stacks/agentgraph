@@ -359,9 +359,11 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
       ? [{ item: undefined, pass: false, findings: `${items.length} items, more than ${check.max}` }]
       : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
     const failing = results.filter(r => !r.pass);
+    const empty = check.each !== undefined && items.length === 0;
     const result: CheckResult = {
       check: check.name,
       pass: failing.length === 0,
+      ...(empty && { empty, findings: 'Judged nothing: each found no items.' }),
       ...(failing.length > 0 && {
         findings: squeeze(
           failing.map(r => (r.item ? `${r.item.split('\n')[0]}\n${r.findings}` : r.findings)).join('\n')

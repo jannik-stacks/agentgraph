@@ -1131,6 +1131,41 @@ describe('gate', () => {
     expect(JSON.parse(findings!)).toEqual([push, pull]);
   });
 
+  it('passes a check whose each command finds no items as empty, saying it judged nothing', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    const small = hubOf('hub', { types: { each: 'true', run: 'exit 1' } });
+    const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
+    const { run } = services(where, []);
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const { outcome } = await run(gate(step, left, small));
+    expect(outcome).toEqual({ kind: 'pass' });
+    const checks = traceOf(where.data, 'run-7').flatMap(t =>
+      'check' in t && t.check.check === 'types' ? [t.check] : []
+    );
+    expect(checks).toEqual([
+      {
+        check: 'types',
+        pass: true,
+        empty: true,
+        findings: 'Judged nothing: each found no items.',
+        ms: expect.any(Number),
+      },
+    ]);
+  });
+
   it('lets a check read the hub directory through BOTHUB_HUB', async () => {
     const where = world();
     const dir = join(where.root, 'work');
