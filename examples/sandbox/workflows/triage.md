@@ -1,6 +1,7 @@
 ---
 on: { issues: { label: triage } }
-agent: triager
+steps:
+  triage: { agent: triager, checks: [sized] }
 ---
 A maintainer adds the `triage` label to an issue. The triager reads the issue and the code and sizes
 the issue from XS to XL. An issue of size L or smaller only gets its size label. An XL issue is split

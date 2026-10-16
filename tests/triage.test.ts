@@ -90,6 +90,14 @@ describe('triage', () => {
     expect((await issues(where)).map(t => [t.number, t.labels])).toEqual([[1, ['size/S', 'bothub:done']]]);
   });
 
+  it('does not end done on a comment alone', async () => {
+    const where = world();
+    where.label(1);
+    const { value } = await run(where, Array(3).fill(reply({ kind: 'comment', body: 'small' })), tick(hub));
+    expect(value[0]).toMatchObject({ issue: 1, status: 'waiting' });
+    expect(value[0]!.reason).toContain('No size label proposed');
+  });
+
   it('splits an XL issue into stacked children with labels, lines and a task list, and triages the XL child again', async () => {
     const where = world();
     where.label(1);
@@ -129,7 +137,7 @@ describe('triage', () => {
       [4, 'morgan', 3],
     ]);
     where.label(4);
-    const { value } = await run(where, [reply(part('a part', 'S'))], tick(hub, 4));
+    const { value } = await run(where, Array(3).fill(reply(part('a part', 'S'))), tick(hub, 4));
     expect(value[0]).toMatchObject({ issue: 4, status: 'waiting' });
     expect(value[0]!.reason).toContain('#4 sits 3 issues deep');
     expect((await issues(where)).map(t => t.number)).toEqual([1, 2, 3, 4]);
@@ -149,12 +157,12 @@ describe('triage', () => {
       [2, 'morgan'],
     ]);
     where.label(1);
-    const { value } = await run(where, [reply(part('spam', 'S'))], tick(hub, 1));
+    const { value } = await run(where, Array(3).fill(reply(part('spam', 'S'))), tick(hub, 1));
     expect(value[0]!.reason).toContain('#1 is withheld text from an outsider');
     expect((await issue(where, 1)).body).toBe('(issue text by @mallory[bot] withheld: not a collaborator)');
 
     where.label(2);
-    const late = await run(where, [reply(part('one', 'S', { stacks_on: 1 }))], tick(hub, 2));
+    const late = await run(where, Array(3).fill(reply(part('one', 'S', { stacks_on: 1 }))), tick(hub, 2));
     expect(late.value[0]!.reason).toContain('one: stacks_on and depends_on name an earlier issue here by position');
     expect((await issues(where)).map(t => t.number)).toEqual([1, 2]);
   });
