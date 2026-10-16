@@ -477,11 +477,13 @@ export const attempt = (
     const back = proposals.find(p => p.kind === 'back');
     const world = proposals
       .filter(p => p.kind !== 'ask' && p.kind !== 'back')
-      .map(p =>
-        p.kind === 'pull_request' && run.base
-          ? { ...p, base: run.base.branch, body: `${p.body}\n\nStacks on #${run.base.pull}` }
-          : p
-      );
+      .map(p => {
+        if (p.kind !== 'pull_request') return p;
+        const body = p.body.replace(/^Stacks on #\d+\.?[ \t]*/gim, '').trim();
+        return run.base
+          ? { ...p, base: run.base.branch, body: `${body}\n\nStacks on #${run.base.pull}` }
+          : { ...p, body };
+      });
 
     const { outcome: gated, usd } = yield* gate(step, { run: run.id, ...work, proposals: world }, hub);
     tried = { ...tried, usd: tried.usd + usd };

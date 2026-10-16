@@ -574,7 +574,7 @@ describe('stacks', () => {
     write(file, content),
     reply(
       { kind: 'push', branch: 'bothub/9', message: 'Add bye' },
-      { kind: 'pull_request', branch: 'bothub/9', base: 'main', title: 'Add bye', body: 'Closes #9' }
+      { kind: 'pull_request', branch: 'bothub/9', base: 'main', title: 'Add bye', body: 'Stacks on #7. Closes #9' }
     ),
   ];
 
@@ -625,7 +625,7 @@ describe('stacks', () => {
     expect(specs[0]!.prompt).toContain('pull requests go into bothub/7.');
     const pr = pr10(where);
     expect(pr.pull).toMatchObject({ branch: 'bothub/9', base: 'bothub/7' });
-    expect(pr.body).toContain('Closes #9\n\nStacks on #8');
+    expect(pr.body).toMatch(/\n\nCloses #9\n\nStacks on #8\n?$/);
     expect(pr.diff).toContain('bye.txt');
     expect(pr.diff).not.toContain('hello.txt');
     expect(git(where.origin, 'rev-parse', 'bothub/9~1')).toBe(head);
