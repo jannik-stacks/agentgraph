@@ -99,7 +99,7 @@ export const Disclosure = ({
         setState({ open, shown: next });
         onToggle?.(next);
       }}
-      className={cx('group/disclosure', className)}
+      className={className}
     >
       <summary
         className={cx(
@@ -110,7 +110,7 @@ export const Disclosure = ({
         <svg
           viewBox="0 0 24 24"
           aria-hidden="true"
-          className="size-3 shrink-0 text-zinc-400 group-open/disclosure:rotate-90"
+          className="size-3 shrink-0 text-zinc-400 [details[open]>summary>&]:rotate-90"
         >
           <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
