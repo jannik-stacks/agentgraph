@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
 import { storyOfRun, WorkflowGraph } from '../graph/GraphPage.tsx';
 import { trailOf } from '../graph/visits.ts';
-import { pageAtom, polled, queryParam, runsAtom } from '../state.ts';
+import { pageAtom, live, queryParam, runsAtom } from '../state.ts';
 import { Combobox, Disclosure, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import type { CoreRun } from './trace.ts';
@@ -93,10 +93,7 @@ const RunGraph = ({ r }: { r: CoreRun }) => {
 };
 
 const RunPage = ({ id }: { id: string }) => {
-  const one = useMemo(
-    () => polled<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`, r => r?.run.status === 'running'),
-    [id]
-  );
+  const one = useMemo(() => live<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`), [id]);
   const { value: r, failure } = useAtomValue(one);
   if (r === undefined) return <Muted>{failure ?? 'Loading the run.'}</Muted>;
   if (r === null) return <Muted>No run {id} in this data dir.</Muted>;

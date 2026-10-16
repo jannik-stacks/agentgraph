@@ -43,36 +43,24 @@ export const queryParam = (key: string) =>
 /** The step selected on the graph, as `workflow/step`. */
 export const selectedStepAtom = queryParam('step');
 
-/**
- * Answers `path` as JSON while something reads it: again every few seconds while the tab is visible and `again` holds
- * for the last answer.
- */
-export const polled = <T>(path: string, again: (value: T) => boolean = () => true) => {
+/** Answers `path` as JSON while something reads it, and again whenever the server reports the data dir changed. */
+export const live = <T>(path: string) => {
   const value = atom<{ value?: T; failure?: string }>({});
   value.onMount = set => {
-    let last: { value: T } | undefined;
-    const load = () => {
-      if (document.hidden || (last && !again(last.value))) return;
+    const load = () =>
       fetch(path)
         .then(r => (r.ok ? r.json() : Promise.reject(new Error(`${path} answered ${r.status}`))))
         .then(
-          v => {
-            last = { value: v as T };
-            set(last);
-          },
+          v => set({ value: v as T }),
           (e: Error) => set(previous => ({ ...previous, failure: e.message }))
         );
-    };
-    load();
-    const timer = setInterval(load, 3000);
-    document.addEventListener('visibilitychange', load);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', load);
-    };
+    const events = new EventSource('/core/events');
+    events.onmessage = load;
+    events.onopen = load;
+    return () => events.close();
   };
   return value;
 };
 
 /** Every run of the served hub, with its trace short of prompts and session events. */
-export const runsAtom = polled<CoreRun[]>('/core/runs');
+export const runsAtom = live<CoreRun[]>('/core/runs');

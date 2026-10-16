@@ -1,3 +1,4 @@
+import { existsSync, watch } from 'node:fs';
 import { basename } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
@@ -31,11 +32,31 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
  * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
  * their traces, leaving out prompts and session events; `GET /core/runs/<id>` answers one run with every trace line.
+ * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const fixtures = (): Plugin => ({
   name: 'bothub:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
+    server.middlewares.use('/core/events', (req, res) => {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      res.write(': open\n\n');
+      const data = process.env.VITE_BHM_DATA;
+      if (!data || !existsSync(data)) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const watcher = watch(data, { recursive: true }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => res.write('data: changed\n\n'), 150);
+      });
+      req.on('close', () => {
+        clearTimeout(timer);
+        watcher.close();
+      });
+    });
     server.middlewares.use('/core/runs', async (req, res) => {
       const served = await servedHub();
       const data = process.env.VITE_BHM_DATA;
