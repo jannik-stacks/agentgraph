@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { drive, sweep, tick } from '../src/engine.ts';
+import { drive, gate, sweep, tick } from '../src/engine.ts';
 import { start as main } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { fileForge, Forge, ForgeError, type Event, type Proposal } from '../src/forge.ts';
@@ -685,19 +685,25 @@ describe('start with one issue', () => {
       join(where.root, 'app.env'),
       `BOTHUB_APP_ID=42\nBOTHUB_APP_SLUG=stx-bothub\nBOTHUB_APP_KEY_FILE="${key}"\nBOTHUB_INSTALLATION_ID=7\n`
     );
-    const env = { BOTHUB_APP_ENV: join(where.root, 'app.env'), BOTHUB_PROXY_KEYS: 'implementor=k1,reviewer=k2' };
+    const sandbox = join(import.meta.dirname, '..', '..', 'examples', 'sandbox');
+    const env = {
+      BOTHUB_APP_ENV: join(where.root, 'app.env'),
+      BOTHUB_PROXY_KEYS: 'implementor=k1,reviewer=k2',
+      BOTHUB_HUB: sandbox,
+    };
     Object.assign(process.env, env);
     const seen: Settings[] = [];
+    const fix: Proposal = { ...push, message: 'feat: add hello' };
     const turns = [
-      [start('i'), write('hello.txt', 'TODO\n'), reply(push)],
-      [start('i'), write('hello.txt', 'hello\n'), reply(push)],
+      [start('i'), write('hello.txt', 'TODO\n'), reply(fix)],
+      [start('i'), write('hello.txt', 'hello\n'), reply(fix)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ];
     const doubles = (s: Settings) => {
       seen.push(s);
       return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), host(where.origin), scripted(turns));
     };
-    const one = { hub: join(import.meta.dirname, '..', '..', 'examples', 'sandbox'), issue: 7, data: where.data };
+    const one = { hub: sandbox, issue: 7, data: where.data };
     try {
       const parked = await main(one, doubles);
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
@@ -970,4 +976,27 @@ describe('coworker', () => {
     const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
     expect(issue.some(b => b.startsWith('And bye?') || b.startsWith('Said bye.'))).toBe(false);
   }, 30_000);
+});
+
+describe('gate', () => {
+  it('lets a check read the pending proposals from BOTHUB_PROPOSALS', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    const small = hubOf('hub', { types: { run: 'cat "$BOTHUB_PROPOSALS"; exit 1' } });
+    const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
+    const { run } = services(where, []);
+    const left = {
+      run: 'run-7',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [push, pull],
+    };
+    const { outcome } = await run(gate(step, left, small));
+    const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
+    expect(JSON.parse(findings!)).toEqual([push, pull]);
+  });
 });

@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import { context, news, shown, type Issues } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
@@ -206,6 +207,9 @@ const converse = (run: string, step: string, spec: SessionSpec, item?: string) =
     return { id: seen.id, home: seen.home ?? spec.dir, final: seen.final || seen.text, usd: seen.usd };
   });
 
+/** The JSON file of a step's pending proposals, beside the news file where checks can read it but not write it. */
+const proposalsFile = (work: Checkout) => join(dirname(work.news), 'proposals.json');
+
 type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
 
 /** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
@@ -218,7 +222,11 @@ const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hu
     let usd = 0;
     const one = (item: string | undefined) =>
       Effect.gen(function* () {
-        const env = { BOTHUB_BASE: work.base, ...(item !== undefined && { BOTHUB_ITEM: item }) };
+        const env = {
+          BOTHUB_BASE: work.base,
+          BOTHUB_PROPOSALS: proposalsFile(work),
+          ...(item !== undefined && { BOTHUB_ITEM: item }),
+        };
         const out = check.run ? yield* sh(check.run, work.dir, env, minutes) : undefined;
         const exit = out && { exit: out.code };
         if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
@@ -431,6 +439,7 @@ export const gate = (
 > =>
   Effect.gen(function* () {
     const checks = step.checks.map(name => ({ ...hub.checks[name]!, name }));
+    yield* Effect.promise(() => writeFile(proposalsFile(left), JSON.stringify(left.proposals)));
     const holds = (c: Check) => c.mode === 'block' || c.mode === 'stop';
     const results = (list: Doc<Check>[]) =>
       Effect.forEach(list, c => resultOf(left.run, step, c, left, hub), { concurrency: 'unbounded' });
