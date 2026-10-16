@@ -7,7 +7,7 @@ The words the rest of the docs use. Landscape and GitHub words keep their usual 
 | Word         | What it is                                                                                                               |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | **hub**      | The folder of config in a repo: `hub.yaml`, `agents/`, `skills/`, `checks/`, `workflows/`                                |
-| **agent**    | A role: harness, model, tools and the proposals it may make. The file body is its system prompt                          |
+| **agent**    | A role: harness, model, tools and the proposals it may make. The file body is added to the harness's own system prompt   |
 | **harness**  | The program that runs a session: Claude Code, opencode or pi                                                             |
 | **workflow** | Steps that run on an issue when an event matches its `on:`                                                               |
 | **step**     | One stage of a workflow: an agent with a skill, a script, or a human                                                     |

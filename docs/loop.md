@@ -111,7 +111,7 @@ It also keeps one status label on the issue: `bothub:working`, `bothub:waiting`,
 
 ## The prompt
 
-A session starts with the agent's body as its system prompt.
+A session starts with the agent's body in its system prompt. Claude Code and pi add the body after their own default prompt. opencode uses the body in place of its base prompt and still adds its environment block, tool definitions and skills.
 
 The prompt includes the step's skill, the workflow body, the issue and its comments, the pull request on the run's branch with its reviews, the branch to work on and where pull requests go, the `until` sentence, any feedback, and the shape of every proposal the agent may make (`code: src/context.ts#context`).
 
