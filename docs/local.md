@@ -32,7 +32,7 @@ npm install
 npm run dev
 ```
 
-The API starts on port 5181 and the app on http://localhost:5182. Pass `-- --hub <dir> --data <dir>`
+The app starts on http://localhost:5182. Pass `-- --hub <dir> --data <dir>`
 to point it elsewhere. The graph page draws each workflow as its steps, with the number of checks
 and tries on each card, and shows which step a run is on. The runs page lists runs and the ones
 waiting on a human. The studio only reads hub files.

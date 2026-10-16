@@ -1,8 +1,0 @@
-diff --git a/base.ts b/base.ts
---- a/base.ts
-+++ b/base.ts
-@@ -1,3 +1,3 @@
--export const double = (n: number) => n * 2;
-+export const double = (n: number) => n + n;
-
- export const label = (n: number) => `n=${n}`;

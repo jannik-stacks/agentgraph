@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -26,31 +26,6 @@ export const commit = (cwd: string, files: Record<string, string>) => {
   git(cwd, 'add', '.');
   git(cwd, 'commit', '-qm', 'c');
   return git(cwd, 'rev-parse', 'HEAD');
-};
-
-let template: { dir: string; main: string; feature: string } | undefined;
-
-/** A local repository on `main` with one commit, plus a `feature` branch one commit ahead. */
-export const sourceRepo = () => {
-  if (!template) {
-    const dir = temp('template');
-    git(dir, 'init', '-q', '-b', 'main');
-    const main = commit(dir, { 'README.md': 'main\n' });
-    git(dir, 'checkout', '-qb', 'feature');
-    const feature = commit(dir, { 'feature.txt': 'feature\n' });
-    git(dir, 'checkout', '-q', 'main');
-    template = { dir, main, feature };
-  }
-  const dir = temp('origin');
-  cpSync(template.dir, dir, { recursive: true });
-  return { ...template, dir };
-};
-
-/** A bare clone of `dir`, a fresh {@link sourceRepo} unless given, to serve as a local origin. */
-export const bareOrigin = (dir = sourceRepo().dir) => {
-  const bare = join(temp('bare'), 'app.git');
-  git(dir, 'clone', '-q', '--bare', dir, bare);
-  return bare;
 };
 
 /** A repository with `before` committed as the base, then `after` written on top without committing and `remove` deleted. */

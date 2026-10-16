@@ -3,22 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "bothub": "./bin/bothub.mjs"
-  },
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "engines": {
-    "node": ">=22.18"
-  },
   "scripts": {
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
-    "format": "oxfmt src tests bin studio core/src core/tests",
-    "verify": "oxfmt --check src tests bin studio core/src core/tests && oxlint && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs",
+    "format": "oxfmt tests studio core/src core/tests",
+    "verify": "oxfmt --check tests studio core/src core/tests && oxlint && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs",
     "precommit": "sh bin/precommit.sh",
     "verify:hubs": "for hub in examples/*/; do [ -e \"${hub}hub.yaml\" ] || continue; node core/bin/run.ts check --hub \"$hub\" || exit 1; done"
   },
@@ -35,5 +26,8 @@
     "oxlint": "1.87.0",
     "typescript": "7.0.2",
     "vitest": "5.0.4"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }
