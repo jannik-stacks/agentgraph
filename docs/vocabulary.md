@@ -27,14 +27,11 @@ that posts comments and opens pull requests.
 
 ## Landscape words
 
-**model**, **tool**, **prompt**, **skill** and **session** mean what they mean everywhere. Two
-need a line.
+Model, tool, prompt, skill and session keep their usual meanings. Two need a line:
 
-- **skill** is a markdown instruction file, `skills/<name>/SKILL.md`, as in Agent Skills. A step
-  hands one to its agent.
-- **session** is one harness conversation with its history. A try after a failed check resumes it.
+- A skill is a Markdown instruction file: `skills/<name>.md` or `skills/<name>/SKILL.md`. Agent Skills uses the folder form. A step hands one to its agent.
+- A session is one harness conversation with its history. A try after a failed check resumes it.
 
 ## GitHub words
 
-event, issue, comment, pull request, label, review, commit, branch and base. A hub reads them the
-way GitHub does: an event is a webhook event, a base is the branch a pull request goes into.
+Event, issue, comment, pull request, label, review, commit, branch and base keep their GitHub meanings. An event is a webhook event. A base is the branch a pull request goes into.
