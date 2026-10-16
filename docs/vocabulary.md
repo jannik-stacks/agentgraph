@@ -18,7 +18,7 @@ The words the rest of the docs use. Landscape and GitHub words keep their usual 
 | **run**      | One workflow on one issue, from its first step to done or stopped                                                        |
 | **feedback** | Text carried into the next try or step: a failed check's output, a back reason, a human's answer                         |
 | **checkout** | The files a run works in, on its own branch, started from the base                                                       |
-| **sandbox**  | The container a session or script runs in. Its only way out is the model proxy and an allowlist                          |
+| **sandbox**  | The container a session or script runs in. A session reaches only the model proxy and an allowlist; a script reaches nothing |
 | **trace**    | The lines a run writes: session events, check results, applied proposals, outcomes                                       |
 | **studio**   | The web UI that draws workflows and lists runs                                                                           |
 
@@ -29,7 +29,7 @@ that posts comments and opens pull requests.
 
 Model, tool, prompt, skill and session keep their usual meanings. Two need a line:
 
-- A skill is a Markdown instruction file: `skills/<name>.md` or `skills/<name>/SKILL.md`. Agent Skills uses the folder form. A step hands one to its agent.
+- A skill is a Markdown instruction file: `skills/<name>.md` or `skills/<name>/SKILL.md`. Agent Skills uses the folder form. Its frontmatter may hold a `description` and nothing else. A step hands one to its agent.
 - A session is one harness conversation with its history. A try after a failed check resumes it.
 
 ## GitHub words

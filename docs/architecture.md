@@ -6,35 +6,38 @@ The engine means the runner's own code in `src`.
 ## Where everything lives
 
 ```
- GitHub (issues, comments, pull requests)
-    ^  | events, read through the App
-    |  v
- +------------------- host -------------------------------------+
- |  runner process = the engine         code: src/main.ts#start
- |   - looks at the repo, begins and drives runs                |
- |   - pushes and opens pull requests (host git, App token)     |
- |   |                          |                               |
- |   | docker run --rm          | reads and writes              |
- |   v                          v                               |
- |  +--------- sandbox ------+  +------ data dir -----------+   |
- |  | one harness session    |  | <run id>/run.json         |   |
- |  | /work: git worktree    |  | <run id>/trace.jsonl      |   |
- |  | no GitHub token        |  | mirror.git, work/, homes/ |   |
- |  +----------+-------------+  | news/<id>/news.md, what a |   |
- |             | model calls    |   session has not read yet|   |
- |             v                +-------------^-------------+   |
- |  +--- LiteLLM proxy ----+                  |                 |
- |  | aliases, one key per |            studio reads only      |
- |  | agent, spend logs    |            run.json and trace     |
- |  +----------+-----------+                                    |
- +-------------|------------------------------------------------+
-               v
+ GitHub: issues, comments, pull requests
+      ▲                          │
+      │ writes, with the App     │ events, read through the App
+      │                          ▼
+┌─ host ──────────────────────────────────────────────────────────┐
+│  runner process = the engine          code: src/main.ts#start   │
+│    looks at the repo, begins and drives runs                    │
+│    pushes and opens pull requests through the Git API           │
+│         │                                 │                     │
+│         │ docker run --rm                 │ reads and writes    │
+│         ▼                                 ▼                     │
+│  ┌─ sandbox ────────────────┐  ┌─ data dir ──────────────────┐  │
+│  │ one harness session      │  │ <run id>/run.json           │  │
+│  │ /work: git worktree      │  │ <run id>/trace.jsonl        │  │
+│  │ no GitHub token          │  │ mirror.git, work/, homes/   │  │
+│  └────────────┬─────────────┘  │ news/<id>/news.md           │  │
+│               │ model calls    └──────────────┬──────────────┘  │
+│               ▼                               │                 │
+│  ┌─ LiteLLM proxy ──────────┐                 ▼                 │
+│  │ aliases, one key per     │  studio reads the hub,            │
+│  │ agent, spend logs        │  run.json and trace               │
+│  └────────────┬─────────────┘                                   │
+└───────────────┼─────────────────────────────────────────────────┘
+                ▼
          model providers
 ```
 
-The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and nothing else. Its network reaches only the model proxy and an egress proxy that allows only certain hosts.
+The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and nothing else.
 
-Each session works in its own git worktree of the bare mirror. The mirror is mounted read-only. See [Sandbox](sandbox.md) and [Runs](runs.md).
+Harness sessions and the hub's `setup` run on an internal network whose only exits are the model proxy, an Ollama relay to the host, and an egress proxy that allows HTTPS to `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`. So `npm install` and cloning from GitHub work; other registries and the open web do not. Scripts and checks get no network at all. See [The network](sandbox.md#the-network).
+
+Each run works in its own git worktree of the bare mirror. The mirror is mounted read-only. See [Sandbox](sandbox.md) and [Runs](runs.md).
 
 The engine talks to the outside through four services. Each has a test double:
 
@@ -47,23 +50,23 @@ The engine talks to the outside through four services. Each has a test double:
 
 ```
  trusted event (command or label)
-        |
-        v
- +--------------+   pass    +--------------+   pass    +-----------+
- |  step A      |---------->|  step B      |---------->| wait:     |--> done
- |  doer session|           |  reviewer    |           | human     |
- +------+-------+           +------+-------+           +-----+-----+
-        | try ends                 | until does not hold     | asks for changes
-        v                          | (back, rounds cap)      |
- script checks, all at once        +-----> back to step A    +-----> back to step A
-        | block failed? feedback
-        v                          tries cap spent, rounds cap spent, ask,
+        │
+        ▼
+ ┌──────────────┐   pass    ┌──────────────┐   pass    ┌──────────────┐
+ │ step A       │──────────→│ step B       │──────────→│ wait: human  │──→ done
+ │ doer session │           │ reviewer     │           │              │
+ └──────┬───────┘           └──────┬───────┘           └──────┬───────┘
+        │ try ends                 │ until does not hold      │ asks for changes
+        ▼                          │ (back, rounds cap)       │
+ script checks, all at once        └──→ back to step A        └──→ back to step A
+        │ block failed? feedback
+        ▼                          tries cap spent, rounds cap spent, ask,
  agent checks (PASS or FAIL)       or a session over its minutes
-        | failed? feedback             |
-        v                              v
- same session, next try          run waits (comment on the issue) or stops
-        | all pass
-        v
+        │ failed? feedback                    │
+        ▼                                     ▼
+ same session, next try            run waits (comment on the issue) or stops
+        │ all pass
+        ▼
  proposals applied by the engine (push, pull request, comment)
 ```
 
@@ -75,14 +78,14 @@ Which part is which:
 | The tries cap and the rounds cap                                       | An agent-judged check: the reply is PASS or FAIL |
 | Script checks and their modes (`warn`, `block`, `stop`)                | Whether the `until` sentence holds             |
 | Which proposals are accepted and applied: `code: src/engine.ts#land` | What the agent asks a human                 |
-| Push safety: a push uses a lease and only the host holds the token     |                                                |
-| Triggers and trust: only a collaborator's command or label starts a run, `code: src/forge.ts#matches` |                |
+| Push safety: a push never forces and only the host holds the token     |                                                |
+| Triggers and trust: only a collaborator's command or label starts a run, `code: src/engine.ts#tick` |                |
 
 Judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail, and the engine reads the answers and decides where the run goes. A reply that does not parse fails the try. `transition` is pure, so every path is a plain test. The loop around it is `code: src/engine.ts#drive`.
 
 ## Bundling for hosting
 
-Today `infra/local/docker-compose.yml` runs the model proxy, its database and the egress proxy. The runner and the studio run as node processes on the host.
+Today `infra/local/docker-compose.yml` runs the model proxy, its database, the egress proxy and the Ollama relay. The runner and the studio run as node processes on the host.
 
 The planned bundle uses one compose file with three parts:
 

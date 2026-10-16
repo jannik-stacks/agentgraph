@@ -13,11 +13,15 @@ event → run begins → step: session → checks → feedback to the same sessi
 - `issue_comment` with `command`: a comment starting with that text, such as `/bothub`.
 - `issues` with `label`: a label being added to an issue, such as `triage`.
 
-Only a collaborator's comment or label starts a run. An outsider's comment or label is ignored, and their text is withheld from agents.
+On GitHub, a comment also counts when it says `/bothub` or `@` and the App's name as a word anywhere outside quoted lines and fenced code. The engine reads it as `/bothub` followed by the rest of the comment (`code: src/forge.ts#commanded`).
 
-The issue must be open. One workflow runs once at a time on an issue. Adding a label and removing it before the engine looks starts nothing.
+`pull_request` and `branches` are accepted in `on:` but start nothing yet.
 
-On a new run, the engine reacts to the comment with an eyes reaction so people can see it was heard. It removes the reaction once it has replied. The run then keeps its own state. Later comments on a waiting run answer it. See [Waiting](loop.md#waiting).
+Only a collaborator with write access starts a run. An outsider's comment or label is ignored, and their text is withheld from agents.
+
+The issue must be open. One workflow runs once at a time on an issue. Adding a label and removing it before the engine looks starts nothing. Removing the label from an issue with a live run stops that run (`code: src/workflow.ts#reenter`).
+
+The engine reacts with an eyes emoji to the comment that started or woke a run, or to the issue for a label, so people can see it was heard, and removes it once it has replied. The run then keeps its own state. Later comments on a waiting run answer it. See [Waiting](loop.md#waiting) (`code: src/engine.ts#tick`).
 
 ## Workflows and steps
 
@@ -45,13 +49,19 @@ A step is one of three kinds:
 - `run` is a script.
 - `wait: human` waits for a person.
 
-`branch` is the branch a run works on, with `{issue}` and `{parent}` filled in from the issue. `base` is the branch its pull requests go into. It defaults to `main`.
+A workflow without `steps` is one agent step named after the file. It names its agent with `agent`, which may be left out when the hub has only one agent.
+
+`each` on an agent step opens one fresh session per item: `files` for each changed file, `hunks` for each diff hunk, or `{ run: <command> }` for each line the command prints. Such a step does not resume sessions on a retry.
+
+`branch` is the branch a run works on, with `{issue}` and `{parent}` filled in from the issue. `base` is the branch its pull requests go into. It defaults to `main` (`code: src/workflow.ts#load`).
 
 ## Tries and checks
 
 After an agent's session ends, each check in the step's `checks` runs against the checkout.
 
-Script checks run first, all at once. Agent checks run after them, only when no `block` script check failed. A broken build skips the review.
+Script checks run first, all at once. Agent checks run after them, only when no `block` or `stop` script check failed. A broken build skips the review (`code: src/engine.ts#gate`).
+
+Every check names its `mode`:
 
 | Mode    | Effect                                                                  |
 | ------- | ----------------------------------------------------------------------- |
@@ -66,10 +76,12 @@ A failed try starts another in the same session. The prompt carries each failing
 A check file can be a script, an agent, or both:
 
 - A script uses `run`. Exit 0 passes, and the output is the feedback.
-- An agent uses `agent`. Its reply must start with `PASS` or `FAIL`.
+- An agent uses `agent`. Its reply must start with `PASS`; anything else fails. On its own it judges the diff, or the item in a fan-out.
 - With both, the script runs and its output goes to the agent.
 
-`max` caps how many items a fan-out may take.
+`each` fans a check out over items, in the same three forms as a step: `files`, `hunks`, or a command that prints one item per line. The check fails when any item fails. `max` caps how many items it may take; more fails the check.
+
+A check's script gets `BOTHUB_BASE` (the commit the checkout started from), `BOTHUB_PROPOSALS` (a JSON file of the proposals the try made), `BOTHUB_ITEM` (the item, in a fan-out) and `BOTHUB_HUB` (the hub folder, read-only). A step's `run` script gets `BOTHUB_BASE` and `BOTHUB_HUB`. Scripts run with the checkout as their working directory (`code: src/engine.ts#resultOf`).
 
 ## Back
 
@@ -77,9 +89,9 @@ A check file can be a script, an agent, or both:
 
 An agent step with `back` also needs `until`, a sentence saying when the step is satisfied. While that sentence does not hold, the agent is told to make a `back` proposal with a reason. The reason becomes feedback for the step the run goes back to.
 
-`rounds` caps how many times a step may go back. It defaults to 3 for an agent step; a `wait: human` step has no cap. When rounds run out, the run waits with the reason.
+`rounds` caps how many times a step may go back. It defaults to 3; a `wait: human` step has no cap. When rounds run out, the run waits with the reason.
 
-Going forward into a step starts a fresh session. Going back keeps the session that step had.
+Going forward into a step starts a fresh session. Going back keeps the session that step had (`code: src/workflow.ts#transition`).
 
 A `wait: human` step with `back` goes back when a human asks for changes with a `/bothub` comment or a review requesting changes. A review approval, an `approved` label or a merge passes it.
 
@@ -87,15 +99,23 @@ A `wait: human` step with `back` goes back when a human asks for changes with a 
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question on the issue.
 
-A human answers with `/bothub <answer>`, which becomes feedback for the same step. `/bothub stop` ends the run. Closing the issue ends it too.
+A human answers with `/bothub <answer>`, which becomes feedback for the same step. `/bothub stop` ends a waiting run. Closing the issue ends it too.
 
-`node bin/run.ts status` lists what waits, with the command that continues each run.
+`node bin/run.ts status` lists what waits, with the command that continues each run (`code: src/status.ts#needsYou`).
+
+## Status on the issue
+
+The engine keeps one status comment on the issue up to date: the step and try it is on, the question it waits on, why it stopped, the cost so far, the pull request and any failing GitHub checks on it.
+
+It also keeps one status label on the issue: `bothub:working`, `bothub:waiting`, `bothub:done` or `bothub:stopped` (`code: src/context.ts#shown`).
 
 ## The prompt
 
 A session starts with the agent's body as its system prompt.
 
-The prompt includes the step's skill, the workflow body, the issue and its comments, the branch to work on and where pull requests go, the `until` sentence, any feedback, and the shape of every proposal the agent may make.
+The prompt includes the step's skill, the workflow body, the issue and its comments, the pull request on the run's branch with its reviews, the branch to work on and where pull requests go, the `until` sentence, any feedback, and the shape of every proposal the agent may make (`code: src/context.ts#context`).
+
+While the session works, the engine writes what is new on the issue and its pull request to a news file every minute, and the prompt tells the agent to read it before it finishes. A resumed session gets only the feedback and what is new (`code: src/context.ts#news`).
 
 The agent ends its reply with a fenced `bothub` block of proposals. See [Proposals](proposals.md).
 
@@ -107,4 +127,4 @@ The agent ends its reply with a fenced `bothub` block of proposals. See [Proposa
 - `usd-per-run` limits the run's spend. It defaults to 10.
 - `parallel` limits how many runs go at once. It defaults to 2.
 
-A session that runs past its minutes stops the run with the reason.
+A session that runs past its minutes stops the run with the reason. So does a run whose spend goes over `usd-per-run` (`code: src/engine.ts#drive`).

@@ -25,11 +25,11 @@ Triage implements, merges and closes nothing. The triager has read-only tools (`
 
 The agent proposes exactly one `size/<size>` label on the issue.
 
-- XS is a line or two.
-- S is a few lines in one or two places.
-- M is one function and its test.
-- L is one pull request a reviewer reads in one sitting.
-- XL is more than that.
+- `XS` is a line or two.
+- `S` is a few lines in one or two places.
+- `M` is one function and its test.
+- `L` is one pull request a reviewer reads in one sitting.
+- `XL` is more than that.
 
 An issue of size L or smaller only gets its size label. An XL issue is split into child issues, each small enough to land as one pull request.
 
@@ -56,7 +56,7 @@ The engine refuses when:
 - A child body has no `Done when` heading.
 - `stacks_on` or `depends_on` names a position that is not an earlier one in the same list.
 - The run's issue text is withheld because its author is not a collaborator. An outsider's text is never shown to the agent, so a run on it files nothing.
-- The run's issue already sits 3 issues deep, the depth cap `deepest`. It must be split by hand.
+- The run's issue already sits 3 issues deep, the depth cap `deepest`. It must be split by hand (`code: src/engine.ts#deepest`).
 
 GitHub writes for issues use their own token scope with only `issues: write`: the `issue` scope in `code: src/github.ts#scopes`.
 
@@ -64,19 +64,19 @@ GitHub writes for issues use their own token scope with only `issues: write`: th
 
 An issue body line `Stacks on #n` says to build on the pull request of #n. When #n has an open pull request, or a pull request on the branch its workflow works on, the run checks out that branch. Its pull request opens with that branch as base and `Stacks on #<pull>` in the body (`code: src/engine.ts#stackOf`). This only happens when `stacks: true` is set in `hub.yaml`.
 
-On GitHub, the engine also registers open pull requests whose bases chain down as a GitHub stack, or adds the new pull request on top of its parent's stack. A repo without stacks keeps the plain chain. A failure there is only logged.
+On GitHub, the engine also registers open pull requests whose bases chain down as a GitHub stack, or adds the new pull request on top of its parent's stack. A repo without stacks keeps the plain chain. A failure there is only logged (`code: src/github.ts#githubForge`).
 
-`Depends on #n` waits until #n is closed. `Stacks on #n` waits until #n has a pull request.
+`Depends on #n` waits until #n is closed. `Stacks on #n` waits until #n has a pull request (`code: src/engine.ts#pending`).
 
 While a run waits, it stays `running` and is picked up on a later tick. The engine does not drive it or post a comment yet.
 
-When the pull request it stacks on moves to a new head, the engine rebases the run's branch onto the new head (`code: src/engine.ts#follow`). On a conflict, it comments on the issue that the branch could not follow and asks for a manual rebase or instructions.
+When the pull request it stacks on moves to a new head, and the run's own pull request is open, the engine rebases the run's branch onto the new head (`code: src/engine.ts#follow`). On a conflict, it comments on the issue that the branch could not follow and asks for a manual rebase or instructions.
 
 Workflows without a `branch` ignore both lines.
 
 ## Order
 
-Runs that can be driven sort by priority label first: `priority/high`, then no label or `priority/medium`, then `priority/low`. Within the same priority, the older run goes first.
+Runs that can be driven sort by priority label first: `priority/high`, then no label or `priority/medium`, then `priority/low`. Within the same priority, the older run goes first (`code: src/engine.ts#tick`).
 
 At most `limits.parallel` runs go at once. Nothing merges or closes without a human.
 
@@ -86,6 +86,6 @@ At most `limits.parallel` runs go at once. Nothing merges or closes without a hu
 - `running`, held: it waits on a `Stacks on` or `Depends on` line and is not driven.
 - `waiting`: the agent asked a question, tries ran out, or a refusal repeated until tries ran out. A human answers with `/bothub <answer>`.
 - `done`: sized, or split and listed.
-- `stopped`: a human said `/bothub stop`, the issue closed, or a limit (minutes, usd-per-run) or a sandbox failure ended it.
+- `stopped`: a human said `/bothub stop`, the issue closed, the `triage` label was removed, or a limit (minutes, usd-per-run) or a sandbox failure ended it.
 
 A child's pull request can also be rebased by the engine when its parent moves, or get a comment when the rebase conflicts.

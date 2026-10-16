@@ -28,7 +28,7 @@ An unknown key, a missing agent or a check that does not exist is an error befor
 
 ## Services with doubles
 
-The forge, store, session and sandbox are Effect services. Production uses GitHub, files, docker and the harnesses. Tests use a forge in a folder, a scripted session and a sandbox on the host, so whole runs are tested without a network.
+The forge, store, session and sandbox are Effect services. Production uses GitHub, files, docker and the harnesses. Tests use a forge in a folder, a scripted session and a sandbox on the host, so whole runs are tested without a network. The forge folder also runs bothub locally without GitHub.
 
 `code: src/forge.ts#fileForge`
 
@@ -40,9 +40,9 @@ A removed key is reported with what to write instead.
 
 ## Secrets stay out of argv and logs
 
-A session gets only its own agent's key, passed by name, so the value never shows in a command line.
+A session gets only its own agent's key, passed to docker by name, so the value never shows in a command line. The harness output masks it.
 
-`code: src/sandbox.ts#spawned`
+`code: src/docker.ts#dockerArgs`
 
 ## Few dependencies
 

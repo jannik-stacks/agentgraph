@@ -4,7 +4,7 @@ How a run is isolated and which models it can reach.
 
 ## The sandbox
 
-Every session, script step and check script is one `docker run --rm`. Nothing runs on the host. When docker or the `bothub-sandbox` network is not usable, the run stops with the reason.
+Every session, script step, check script and setup is one `docker run --rm`. Nothing runs on the host. When docker or the `bothub-sandbox` network is not usable, the run stops with the reason.
 
 Each container has:
 
@@ -14,37 +14,53 @@ Each container has:
 - no image pulls,
 - a watchdog that kills it at the timeout.
 
-The checkout is at `/work` and the session's home at `/home/agent`, both writable. The bare mirror is mounted read-only, so refs and objects cannot be touched.
-
-Sessions use the internal `bothub-sandbox` network. They reach the model proxy and an egress proxy that allows only GitHub and the npm registry. Scripts and checks have no network at all.
+The checkout is at `/work` and the session's home at `/home/agent`, both writable. The hub is at `/hub`, read-only, and named by `BOTHUB_HUB`. The bare mirror is mounted read-only, so refs and objects cannot be touched (`code: src/docker.ts#dockerArgs`).
 
 The docker socket is never mounted and no GitHub token goes inside. A session gets the proxy URL and its own agent's key. Pushes and pull requests happen on the host, after the checks pass.
 
-`setup` in `hub.yaml` is a shell script that runs once in each new checkout, with the proxy network, before the first step. Use it to install dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. A setup that fails stops the run.
+## The network
+
+Harness sessions and the hub's `setup` join `bothub-sandbox`, an internal docker network. Its only ways out are:
+
+- the model proxy,
+- the Ollama relay to the host's Ollama, when the `sandbox` compose profile runs it,
+- the egress proxy, which allows HTTPS to the hosts in `infra/local/egress/allowlist` and nothing else: `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`.
+
+That allows `npm install` from the npm registry and cloning or downloading from GitHub over HTTPS. It does not allow other package registries (PyPI, crates.io, Docker Hub), SSH, general web browsing or web search.
+
+Scripts and checks run with no network at all.
+
+`setup` in `hub.yaml` is a shell script that runs once in each new checkout, before the first step. Use it to install dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. A setup that fails stops the run.
 
 The image is built from `infra/local/sandbox`. `smoke.sh` there checks it the way a run uses it.
 
-Tests use a host sandbox that runs commands directly in a clone, with no network rules.
+Tests use a host sandbox that runs commands directly in a clone, with no network rules (`code: src/sandbox.ts#host`).
 
 ## Harnesses
 
 An agent's `harness` picks the program that runs its session.
 
-| Harness    | Notes                                                                       |
-| ---------- | --------------------------------------------------------------------------- |
-| `opencode` | Real tool allowlists, including patterned bash like `bash(git diff*)`       |
-| `pi`       | Tools are all or nothing, so use it for read-only agents      |
-| `claude`   | Claude Code on the model proxy's Anthropic endpoint                         |
+| Harness    | Notes                                                                        |
+| ---------- | ---------------------------------------------------------------------------- |
+| `opencode` | Real tool allowlists, including patterned bash like `bash(git diff*)`        |
+| `pi`       | Plain tool names only; patterned entries are dropped, so use it for read-only agents |
+| `claude`   | Claude Code on the model proxy's Anthropic endpoint, with patterned tools    |
 
-Each harness is a small adapter in `code: src/harnesses.ts#harnesses`. It builds the command and turns the harness's output into the same session events.
+`tools` in the agent file lists the tools a session may use. It defaults to none.
+
+Each harness is a small adapter in `code: src/harnesses.ts#harnesses`. It builds the command and turns the harness's output into the same session events. Each session gets its own home under `homes/` in the data dir, reused when it resumes.
 
 ## Models
 
-An agent names a model alias, never a vendor model.
+An agent names a model alias with `model`, never a vendor model. Without one, opencode and pi use the alias `default` and Claude Code uses its own default.
 
 LiteLLM sits in front of every model and maps aliases to upstreams. It gives each agent its own virtual key, so the logs show which agent spent what.
 
-`BOTHUB_PROXY_URL` points at the proxy. `BOTHUB_PROXY_KEYS` lists `name=key` pairs, one per agent.
+`BOTHUB_PROXY_URL` points at the proxy. `BOTHUB_PROXY_KEYS` lists `name=key` pairs, one per agent, separated by commas or spaces. An agent without a key cannot start a session (`code: src/harnesses.ts#keysOf`).
+
+Inside the container the key is `BOTHUB_LLM_API_KEY` for opencode and pi, and `ANTHROPIC_AUTH_TOKEN` for Claude Code. opencode finds the proxy at `BOTHUB_LLM_BASE_URL`. The key is passed by name, never on a command line, and masked in the harness output.
+
+Usage a harness does not price, as with a subscription behind the proxy, is priced from the list prices in `infra/local/prices.json`, or the file `BOTHUB_PRICES` names (`code: src/harnesses.ts#priced`).
 
 Moving an alias from an API key to a subscription is a proxy config change. No agent file changes.
 
