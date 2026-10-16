@@ -1,4 +1,5 @@
-import { basename } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/views/scenarios.ts';
 
@@ -6,45 +7,66 @@ const id = 'virtual:fixtures';
 const core = new URL('../core/', import.meta.url);
 const from = <T>(path: string): Promise<T> => import(new URL(path, core).href);
 
-/** The served hub when it is in core format, with the name its workflows are listed under. */
+/** Whether the hub in `dir` is in core format: its hub.yaml names a `repo`. */
+export const isCore = (dir: string) =>
+  /^repo:/m.test(existsSync(join(dir, 'hub.yaml')) ? readFileSync(join(dir, 'hub.yaml'), 'utf8') : '');
+
+/** The served hub when its hub.yaml names a `repo`, as core loads it: the hub, or the problems that stop it loading. */
 const coreHub = async () => {
   const dir = process.env.VITE_BHM_HUB;
-  if (!dir) return;
-  const { Effect } = await import('effect');
+  if (!dir || !isCore(dir)) return;
+  const { Effect, Either } = await import('effect');
   const { loadHub }: typeof import('../core/src/hub.ts') = await from('src/hub.ts');
-  const hub = await Effect.runPromise(Effect.option(loadHub(dir)));
-  return hub._tag === 'Some' ? { name: basename(dir), hub: hub.value } : undefined;
+  const loaded = await Effect.runPromise(Effect.either(loadHub(dir)));
+  return Either.isRight(loaded)
+    ? { name: basename(dir), hub: loaded.right, problems: [] }
+    : { name: basename(dir), hub: undefined, problems: loaded.left.problems };
+};
+
+const json = (res: import('node:http').ServerResponse, value: unknown, status = 200) => {
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify(value));
 };
 
 /**
  * Serves core's fixture workflows, each with runs replayed through the engine's begin and transition, as
  * `virtual:fixtures`, plus the served hub's workflows when it is in core format. `GET /core/runs` answers that hub's
- * runs in the data dir with their traces, leaving out agent events.
+ * runs in the data dir with their traces, leaving out briefs and agent events; `GET /core/runs/<id>` answers one run
+ * with every trace line.
  */
 export const fixtures = (): Plugin => ({
   name: 'bothub:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
-    server.middlewares.use('/core/runs', async (_req, res) => {
+    server.middlewares.use('/core/runs', async (req, res) => {
       const served = await coreHub();
       const data = process.env.VITE_BHM_DATA;
+      const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
+      if (one && !/^[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');
       const { Store, fileStore }: typeof import('../core/src/store.ts') = await from('src/store.ts');
-      const runs =
-        !served || !data
-          ? []
-          : await Effect.runPromise(
-              Effect.gen(function* () {
-                const store = yield* Store;
-                return yield* Effect.forEach(yield* store.list(), run =>
-                  Stream.runCollect(store.read(run.id).pipe(Stream.filter(line => !('event' in line)))).pipe(
-                    Effect.map(trace => ({ fixture: `${served.name}/${run.workflow}`, run, trace: Chunk.toArray(trace) }))
-                  )
-                );
-              }).pipe(Effect.provide(fileStore(data)))
+      if (!served || !data) return json(res, one ? null : []);
+      const answer = await Effect.runPromise(
+        Effect.gen(function* () {
+          const store = yield* Store;
+          const entry = (run: import('../core/src/workflow.ts').Run, all: boolean) =>
+            Stream.runCollect(
+              store.read(run.id).pipe(Stream.filter(line => all || !('event' in line || 'brief' in line)))
+            ).pipe(
+              Effect.map(trace => ({
+                fixture: `${served.name}/${run.workflow}`,
+                repo: served.hub?.repo ?? '',
+                run,
+                trace: Chunk.toArray(trace),
+              }))
             );
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(runs));
+          if (!one) return yield* Effect.forEach(yield* store.list(), run => entry(run, false));
+          const run = yield* store.get(one);
+          return run ? yield* entry(run, true) : null;
+        }).pipe(Effect.provide(fileStore(data)))
+      );
+      json(res, answer, answer === null ? 404 : 200);
     });
   },
   async load(source) {
@@ -61,12 +83,13 @@ export const fixtures = (): Plugin => ({
       }));
     });
     const served = await coreHub();
-    const real: Fixture[] = Object.values(served?.hub.workflows ?? {}).map(workflow => ({
+    const hub = served && { name: served.name, problems: served.problems };
+    const real: Fixture[] = Object.values(served?.hub?.workflows ?? {}).map(workflow => ({
       id: `${served!.name}/${workflow.name}`,
       workflow,
-      checks: served!.hub.checks,
+      checks: served!.hub!.checks,
       runs: [],
     }));
-    return `export const fixtures = ${JSON.stringify([...real, ...all])};`;
+    return `export const fixtures = ${JSON.stringify([...real, ...all])};\nexport const served = ${JSON.stringify(hub ?? null)};`;
   },
 });

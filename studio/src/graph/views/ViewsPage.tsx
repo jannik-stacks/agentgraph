@@ -3,9 +3,10 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { fixtures } from 'virtual:fixtures';
 import { graphOf } from '../../../../core/src/graph.ts';
 import type { Trace } from '../../../../core/src/store.ts';
-import type { Outcome, Run } from '../../../../core/src/workflow.ts';
+import type { Run } from '../../../../core/src/workflow.ts';
 import { queryParam } from '../../state.ts';
 import { Muted, Segmented } from '../../ui.tsx';
+import { say } from '../../runs/trace.ts';
 import { views } from './index.ts';
 import type { Trail } from './scenarios.ts';
 
@@ -46,35 +47,6 @@ const trailOf = (run: Run, trace: Trace[]): Trail => {
     before = line.run;
     return [{ at, outcome: line.outcome }];
   });
-};
-
-const detail = (o: Outcome) =>
-  o.kind === 'refused'
-    ? [
-        ...o.failing.map(v => `${v.check} failed`),
-        ...o.rejected.map(a => `${a.proposal.kind} rejected`),
-        ...o.problems,
-      ].join('; ')
-    : 'why' in o
-      ? o.why
-      : 'question' in o
-        ? o.question
-        : 'text' in o
-          ? o.text
-          : '';
-
-/** One trace line in a few words. */
-const say = (line: Trace) => {
-  if ('session' in line)
-    return `session ${line.session.resumed ? 'resumed' : 'started'}, ended ${line.session.ended}, $${line.session.usd}`;
-  if ('verdict' in line) {
-    const { check, pass, ms, findings } = line.verdict;
-    return `${check} ${pass ? 'passed' : 'failed'}${line.item ? ` on ${line.item}` : ''} in ${ms} ms${findings ? `: ${findings}` : ''}`;
-  }
-  if ('applied' in line)
-    return `${line.applied.proposal.kind} ${line.applied.ok ? 'applied' : `failed: ${line.applied.reason}`}`;
-  if ('outcome' in line) return [line.outcome.kind, detail(line.outcome)].filter(Boolean).join(': ');
-  return line.event.type;
 };
 
 /** Every registered graph view over a workflow, as defined, with a simulated run, or with a real run of the served hub. */
