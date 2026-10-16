@@ -125,10 +125,7 @@ const RunPage = ({ id }: { id: string }) => {
           </span>
           <span className="text-zinc-500 tabular-nums">{usd(run.usd)}</span>
           <Took startedAt={run.started} endedAt={ended(r)} />
-          <Link
-            href={`/views?workflow=${encodeURIComponent(r.fixture)}&run=${encodeURIComponent(run.id)}`}
-            className="text-zinc-500 underline"
-          >
+          <Link href={`/graph?run=${encodeURIComponent(`${r.fixture}:${run.id}`)}`} className="text-zinc-500 underline">
             graph
           </Link>
           <Links r={r} />

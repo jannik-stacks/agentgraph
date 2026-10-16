@@ -1,28 +1,33 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { backOf, compile, nextOf, type Config } from '../src/config.ts';
+import { graphOf, type Graph } from '../core/src/graph.ts';
+import type { Workflow } from '../core/src/workflow.ts';
+import { fixture, hubs as coreHubs } from '../core/tests/fixtures.ts';
+import { backOf, compile, stepOrder, type Config } from '../src/config.ts';
 import { readHub } from '../src/load.ts';
 import { studioModule } from './studio.ts';
 
-type Step = { id: string; name: string; bot?: string; run?: string; next: string[]; back: { to: string }[] };
-type Flow = { workflow: string; triggers: string[]; entry: string[]; steps: Step[] };
-type Placed = { id: string; kind: string; x: number; y: number };
-type Line = { from: string; to: string; back?: string };
+type Fixture = { id: string; workflow: Workflow; checks: Parameters<typeof graphOf>[1] };
+type Box = { x: number; y: number; width: number; height: number };
+type Row = { workflow: string; frame: Box; nodes: { id: string; kind: string; step?: string; box: Box }[] };
 
-const { flowsOf } = await studioModule<{ flowsOf: (config: Config) => Flow[] }>('graph/model.ts');
-const { layout } = await studioModule<{ layout: (flows: Flow[]) => { placed: Placed[]; lines: Line[] } }>(
-  'graph/layout.ts'
-);
+const { fixturesOf } = await studioModule<{ fixturesOf: (config: Config) => Fixture[] }>('graph/model.ts');
+const { layout, liftOf, backOut, backIn } = await studioModule<{
+  layout: (graphs: { workflow: string; graph: Graph }[]) => Row[];
+  liftOf: (dx: number) => number;
+  backOut: number;
+  backIn: number;
+}>('graph/layout.ts');
 
 const examples = join(import.meta.dirname, '..', 'examples');
-const core = (dir: string) =>
+const isCore = (dir: string) =>
   /^repo:/m.test(existsSync(join(dir, 'hub.yaml')) ? readFileSync(join(dir, 'hub.yaml'), 'utf8') : '');
-const hubs = await Promise.all(
+const V1_HUBS = await Promise.all(
   readdirSync(examples)
     .filter(
       name =>
-        !core(join(examples, name)) && ['bots', 'workflows'].some(entry => existsSync(join(examples, name, entry)))
+        !isCore(join(examples, name)) && ['bots', 'workflows'].some(entry => existsSync(join(examples, name, entry)))
     )
     .map(async name => {
       const compiled = compile(await readHub(join(examples, name)));
@@ -31,51 +36,78 @@ const hubs = await Promise.all(
     })
 );
 
+const V1_WORKFLOWS = V1_HUBS.flatMap(([hub, config]) =>
+  fixturesOf(config).map(f => [`${hub} ${f.workflow.name}`, config.workflows[f.workflow.name]!, f] as const)
+);
+
+const SHOWN = [
+  ...V1_HUBS.map(([name, config]) => [name, fixturesOf(config)] as const),
+  ...coreHubs.map(hub => {
+    const { workflows, checks } = fixture(hub);
+    return [hub, Object.values(workflows).map(workflow => ({ workflow, checks }))] as const;
+  }),
+];
+
+const overlaps = (a: Box, b: Box) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+const inside = (a: Box, b: Box) =>
+  a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height;
+const graphsOf = (list: readonly Pick<Fixture, 'workflow' | 'checks'>[]) =>
+  list.map(f => ({ workflow: f.workflow.name, graph: graphOf(f.workflow, f.checks) }));
+
 describe('studio graph', () => {
-  it.each(hubs)(
-    '%s: every workflow is drawn with its steps in order, the first started by the triggers',
-    (_, config) => {
-      const workflows = Object.values(config.workflows);
-      expect(flowsOf(config).map(f => [f.workflow, f.triggers, f.entry, f.steps.map(s => s.name)])).toEqual(
-        workflows.map(w => [w.name, Object.keys(w.on), [`${w.name}/${Object.keys(w.steps)[0]}`], Object.keys(w.steps)])
+  it.each(V1_WORKFLOWS)('%s: becomes a core workflow with its steps in order and its waits going back', (_, w, f) => {
+    const order = stepOrder(w).order;
+    expect({
+      order: f.workflow.steps.map(s => s.name),
+      waits: f.workflow.steps.map(s => 'wait' in s.does),
+      back: f.workflow.steps.map(s => s.back?.to),
+      nodes: graphOf(f.workflow, f.checks).nodes.length,
+    }).toEqual({
+      order,
+      waits: order.map(name => w.steps[name]!.wait !== undefined),
+      back: order.map(name => (w.steps[name]!.wait ? backOf(w, name) : undefined)),
+      nodes: order.length,
+    });
+  });
+
+  it.each(V1_HUBS)('%s: keeps each check mode and tells script checks from judged ones', (_, config) => {
+    const [first] = fixturesOf(config);
+    expect(first?.checks).toEqual(
+      Object.fromEntries(
+        Object.entries(config.checks).map(([name, c]) => [
+          name,
+          { mode: c.mode, ...(c.type !== 'script' && { judge: c.type }) },
+        ])
+      )
+    );
+  });
+
+  it.each(SHOWN)('%s: places each step once, apart from the others, inside its own row', (_, list) => {
+    const rows = layout(graphsOf(list));
+    const boxes = rows.flatMap(r => r.nodes);
+    expect(
+      boxes.flatMap((a, i) => boxes.slice(i + 1).flatMap(b => (overlaps(a.box, b.box) ? [`${a.id} ${b.id}`] : [])))
+    ).toEqual([]);
+    expect(rows.flatMap(r => r.nodes.filter(n => !inside(n.box, r.frame)).map(n => n.id))).toEqual([]);
+    expect(
+      rows.slice(1).flatMap((r, i) => (r.frame.y > rows[i]!.frame.y + rows[i]!.frame.height ? [] : [r.workflow]))
+    ).toEqual([]);
+    expect(rows.map(r => r.nodes.flatMap(n => n.step ?? []))).toEqual(list.map(f => f.workflow.steps.map(s => s.name)));
+  });
+
+  it.each(SHOWN)('%s: leaves room above each row for its highest way back', (_, list) => {
+    const graphs = graphsOf(list);
+    const short = layout(graphs).flatMap((row, i) => {
+      const box = (step: string) => row.nodes.find(n => n.step === step)!.box;
+      const top = Math.min(...row.nodes.map(n => n.box.y));
+      const lift = (from: Box, to: Box) => liftOf(from.x + from.width * backOut - to.x - to.width * backIn);
+      return graphs[i]!.graph.edges.flatMap(e =>
+        e.kind === 'back' && top - lift(box(e.from), box(e.to)) * 0.75 < row.frame.y
+          ? [`${row.workflow} ${e.from}`]
+          : []
       );
-    }
-  );
-
-  const steps = hubs.flatMap(([hub, config]) =>
-    Object.values(config.workflows).flatMap(workflow =>
-      Object.keys(workflow.steps).map(id => [`${hub} ${workflow.name}/${id}`, config, workflow, id] as const)
-    )
-  );
-
-  it.each(steps)(
-    '%s: casts its bot or runs its script, then goes to the next step or back',
-    (_, config, workflow, id) => {
-      const spec = workflow.steps[id]!;
-      const step = flowsOf(config)
-        .find(f => f.workflow === workflow.name)!
-        .steps.find(s => s.name === id)!;
-      const ref = (to: string | undefined) => (to === undefined ? [] : [`${workflow.name}/${to}`]);
-      expect({ id: step.id, bot: step.bot, run: step.run, next: step.next, back: step.back.map(b => b.to) }).toEqual({
-        id: `${workflow.name}/${id}`,
-        bot: spec.bot,
-        run: spec.run,
-        next: ref(nextOf(workflow, id)),
-        back: [...(spec.checks ? ref(id) : []), ...(spec.wait ? ref(backOf(workflow, id)) : [])],
-      });
-    }
-  );
-
-  it.each(hubs)(
-    '%s: the layout places every node once, apart from the others, and links only placed nodes',
-    (_, config) => {
-      const flows = flowsOf(config);
-      const { placed, lines } = layout(flows);
-      const ids = new Set(placed.map(p => p.id));
-      expect(ids.size).toBe(placed.length);
-      expect(new Set(placed.map(p => `${p.x},${p.y}`)).size).toBe(placed.length);
-      for (const step of flows.flatMap(f => f.steps)) expect(ids.has(step.id)).toBe(true);
-      for (const line of lines) expect(ids.has(line.from) && ids.has(line.to)).toBe(true);
-    }
-  );
+    });
+    expect(short).toEqual([]);
+  });
 });

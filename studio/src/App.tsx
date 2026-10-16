@@ -5,7 +5,6 @@ import { navigateAtom, pageAtom, routes } from './state.ts';
 import { cx, Link, Muted } from './ui.tsx';
 
 const GraphPage = lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage })));
-const ViewsPage = lazy(() => import('./graph/views/ViewsPage.tsx').then(m => ({ default: m.ViewsPage })));
 const RunsPage = lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage })));
 const CorePage = lazy(() => import('./runs/CorePage.tsx').then(m => ({ default: m.CorePage })));
 
@@ -26,12 +25,12 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   }
 }
 
-const labels = { graph: 'Graph', views: 'Views', runs: 'Runs', core: 'Core runs' };
+const labels = { graph: 'Graph', runs: 'Runs', core: 'Core runs' };
 
 const core = !!import.meta.env.VITE_BHM_CORE;
 
-/** The routes in the header: a core-format hub has only the views and core's runs, v1 hubs everything else. */
-export const shown = routes.filter(r => (core ? r === 'views' || r === 'core' : r !== 'core'));
+/** The routes in the header: a core-format hub has only the graph and core's runs, v1 hubs everything else. */
+export const shown = routes.filter(r => (core ? r === 'graph' || r === 'core' : r !== 'core'));
 
 export const App = () => {
   const { route } = useAtomValue(pageAtom);
@@ -61,7 +60,6 @@ export const App = () => {
         <Boundary key={route}>
           <Suspense fallback={<Muted>Loading.</Muted>}>
             {route === 'graph' && <GraphPage />}
-            {route === 'views' && <ViewsPage />}
             {route === 'runs' && <RunsPage />}
             {route === 'core' && <CorePage />}
           </Suspense>

@@ -1,11 +1,23 @@
-import type { Graph } from '../../../../core/src/graph.ts';
-import type { Run } from '../../../../core/src/workflow.ts';
+import type { Graph } from '../../../core/src/graph.ts';
+import type { Trace } from '../../../core/src/store.ts';
+import type { Run } from '../../../core/src/workflow.ts';
 import type { Trail } from './scenarios.ts';
+
+/** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
+export const trailOf = (run: Run, trace: Trace[]): Trail => {
+  let before: Pick<Run, 'status' | 'tries' | 'rounds'> = { status: 'running', tries: 0, rounds: {} };
+  return trace.flatMap(line => {
+    if (!('outcome' in line)) return [];
+    const at = { ...run, ...before, step: line.step };
+    before = line.run;
+    return [{ at, outcome: line.outcome }];
+  });
+};
 
 type Node = Graph['nodes'][number];
 
 /** One time a run is at a step: how it got there, the refused tries, and how it left. */
-export type Visit = {
+type Visit = {
   node: Node;
   nth: number;
   session?: 'fresh' | 'resumed';
@@ -123,7 +135,7 @@ export function storyOf({ visits, end }: { visits: Visit[]; end: End }): string 
   const parts = collapse(groups);
   if (end.kind === 'done') parts.push('done');
   if (end.kind === 'stopped') parts.push(`stopped, ${end.why}`);
-  if (end.kind === 'asking') parts.push(`asking you`);
+  if (end.kind === 'asking') parts.push(`${visits.at(-1)?.node.step ?? 'the run'} is asking you`);
   const text = parts.join(', ');
   return text.charAt(0).toUpperCase() + text.slice(1) + '.';
 }

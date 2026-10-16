@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
-import { type Fixture, scenarios, simulate } from './src/graph/views/scenarios.ts';
+import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 
 const id = 'virtual:fixtures';
 const core = new URL('../core/', import.meta.url);

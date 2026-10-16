@@ -272,6 +272,39 @@ export const Segmented = <T extends string>({
   </div>
 );
 
+/** A labelled native select with its chevron spaced from the text. */
+export const Select = ({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) => (
+  <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+    {label}
+    <span className="relative flex items-center">
+      <select
+        className="max-w-96 appearance-none rounded-md border border-zinc-300 bg-white py-0.5 pr-7 pl-2 text-zinc-900 hover:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        {options.map(o => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <svg viewBox="0 0 24 24" aria-hidden="true" className="pointer-events-none absolute right-2 size-3 text-zinc-400">
+        <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </span>
+  </label>
+);
+
 /** Calls `poll` every `ms` while the tab is visible, and again whenever it becomes visible. `null` pauses it. */
 export const usePolling = (poll: () => void, ms: number | null) => {
   const tick = useEffectEvent(poll);
