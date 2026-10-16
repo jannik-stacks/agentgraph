@@ -62,13 +62,13 @@ Tests use a host sandbox that runs commands directly in a clone, with no network
 
 An agent's `harness` picks the program that runs its session.
 
-| Harness    | Notes                                                                        |
-| ---------- | ---------------------------------------------------------------------------- |
-| `opencode` | Real tool allowlists, including patterned bash like `bash(git diff*)`        |
+| Harness    | Notes                                                                                |
+| ---------- | ------------------------------------------------------------------------------------ |
+| `opencode` | Real tool allowlists, including patterned bash like `bash(git diff*)`                |
 | `pi`       | Plain tool names only; patterned entries are dropped, so use it for read-only agents |
-| `claude`   | Claude Code on the model proxy's Anthropic endpoint, with patterned tools    |
+| `claude`   | Claude Code on the model proxy's Anthropic endpoint, with patterned tools            |
 
-`tools` in the agent file lists the tools a session may use. It defaults to none.
+`tools` in the agent file lists the tools a session may use. It defaults to none. A bash pattern also allows the same command behind `NODE_OPTIONS= command `, the prefix some repos ask for.
 
 Each harness is a small adapter in `code: src/harnesses.ts#harnesses`. It builds the command and turns the harness's output into the same session events. Each session gets its own home under `homes/` in the data dir, reused when it resumes.
 

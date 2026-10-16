@@ -94,12 +94,16 @@ const modelTimeouts = { headersMs: 120_000, idleMs: 180_000 };
 const alias = (spec: SessionSpec) => spec.model ?? 'default';
 const pattern = (tool: string) => /^([^(]+)\((.*)\)$/.exec(tool) ?? [tool, tool, undefined];
 
+/** A bash pattern also allows its command behind an empty `NODE_OPTIONS= command ` prefix, which runs it unchanged. */
+const forms = (tools: string[]) =>
+  tools.flatMap(tool => (tool.startsWith('bash(') ? [tool, `bash(NODE_OPTIONS= command ${tool.slice(5)}`] : [tool]));
+
 /** A permission per tool entry: `read` allows the tool, `bash(git diff*)` allows one pattern. `read` dirs are reachable. */
 const permission = (tools: string[], read: string[] = []) => {
   const rules: Record<string, string | Record<string, string>> = { '*': 'deny' };
   if (read.length)
     rules.external_directory = Object.fromEntries([['*', 'deny'], ...read.map(d => [`${d}/*`, 'allow'])]);
-  for (const tool of tools) {
+  for (const tool of forms(tools)) {
     const [, name = tool, glob] = pattern(tool);
     const current = rules[name];
     if (glob === undefined) rules[name] = 'allow';
@@ -242,7 +246,7 @@ const claudeNames: Record<string, string> = {
 };
 
 const claudeTools = (tools: string[]) =>
-  tools.flatMap(tool => {
+  forms(tools).flatMap(tool => {
     const [, name = tool, glob] = pattern(tool);
     const mapped = claudeNames[name];
     return mapped ? [glob === undefined ? mapped : `${mapped}(${glob})`] : [];

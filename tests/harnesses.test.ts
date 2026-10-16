@@ -149,7 +149,13 @@ describe('opencode', () => {
     expect(JSON.parse(command.env.OPENCODE_PERMISSION!)).toEqual({
       '*': 'deny',
       read: 'allow',
-      bash: { '*': 'deny', 'git diff*': 'allow', 'git log*': 'allow' },
+      bash: {
+        '*': 'deny',
+        'git diff*': 'allow',
+        'NODE_OPTIONS= command git diff*': 'allow',
+        'git log*': 'allow',
+        'NODE_OPTIONS= command git log*': 'allow',
+      },
     });
     const config = JSON.parse(command.env.OPENCODE_CONFIG_CONTENT!);
     expect(config.agent.bothub.prompt).toBe(spec.system);
@@ -239,7 +245,9 @@ describe('claude', () => {
       expect.arrayContaining(['--permission-mode', 'dontAsk', '--resume', 'e477', '--model', 'smart'])
     );
     expect(args[args.indexOf('--tools') + 1]).toBe('Read,Bash');
-    expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Bash(git diff*),Bash(git log*)');
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe(
+      'Read,Bash(git diff*),Bash(NODE_OPTIONS= command git diff*),Bash(git log*),Bash(NODE_OPTIONS= command git log*)'
+    );
     expect(args).not.toContain('--no-session-persistence');
     expect(command.env.ANTHROPIC_BASE_URL).toBe('http://litellm:4000');
     expect(command.env).not.toHaveProperty('HOME');
