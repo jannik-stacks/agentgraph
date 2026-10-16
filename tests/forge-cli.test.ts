@@ -105,8 +105,9 @@ describe('bin/forge.ts with run --forge', () => {
     expect(w.forge('merge', '2')).toMatch(/^main at [0-9a-f]{40}$/);
     expect(git(w.origin, 'show', 'main:hello.txt')).toBe('hello world');
     expect(w.forge('show')).toBe('#1 closed Add a greeting [bothub:waiting]\n#2 merged Add hello (bothub/1 into main)');
-    const last = await w.run([], 1);
-    expect(last.map(r => [r.status, r.reason])).toEqual([['stopped', 'closed']]);
+    const last = await w.run([]);
+    expect(last.map(r => [r.issue, r.step, r.status])).toEqual([[1, 'merge', 'done']]);
+    expect(w.forge('show')).toBe('#1 closed Add a greeting [bothub:done]\n#2 merged Add hello (bothub/1 into main)');
   }, 30_000);
 
   it('runs a stacked issue on the pull request of the one it stacks on', async () => {

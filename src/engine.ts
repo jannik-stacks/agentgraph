@@ -712,13 +712,18 @@ export const tick = (
       .at(-1);
     const cursor = started === undefined ? '' : [started, ...waiting.map(p => p.at)].sort()[0]!;
     const issues = yield* forge.issues({ state: 'open' });
+    const latest = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)));
+    const merged = yield* Effect.forEach(
+      latest.filter(m => m.kind === 'merged' && !issues.some(t => t.number === m.issue)),
+      m => forge.issue(m.issue)
+    );
     const origin = new Map<Event, number>();
     const onRun = (m: Event): Event => {
       const r = runs.find(
         r =>
           r.issue !== m.issue &&
           hub.workflows[r.workflow] &&
-          pullOf(hub.workflows[r.workflow]!, r.issue, issues) === m.issue
+          pullOf(hub.workflows[r.workflow]!, r.issue, [...issues, ...merged]) === m.issue
       );
       if (!r) return m;
       const moved = { ...m, issue: r.issue };
@@ -745,15 +750,14 @@ export const tick = (
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`react for run ${run.id}`, e), run))
       );
     };
-    const events = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)))
-      .map(onRun)
-      .filter(mine);
+    const events = latest.map(onRun).filter(mine);
     const used = new Set<Event>();
     const touched: Run[] = [];
 
     for (const { run, at } of waiting) {
       const w = hub.workflows[run.workflow];
-      const m = w && events.find(m => m.issue === run.issue && m.at > at && reenter(w, run, m));
+      const answers = w ? events.filter(m => m.issue === run.issue && m.at > at && reenter(w, run, m)) : [];
+      const m = answers.find(m => m.kind === 'merged') ?? answers[0];
       if (!w || !m) continue;
       used.add(m);
       const outcome = reenter(w, run, m)!;
@@ -843,10 +847,14 @@ export const tick = (
     return [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
   });
 
-/** One pass over the open issues, one after another: each gets one look, and a new run only on a trusted mark. */
+/**
+ * One pass over the open issues and the issues of live runs, one after another: each gets one look, and a new run only
+ * on a trusted mark.
+ */
 export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
-    const issues = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(t => !t.pull);
-    const runs = yield* Effect.forEach(issues, t => tick(hub, t.number, true));
-    return runs.flat();
+    const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(t => !t.pull);
+    const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(live);
+    const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
+    return (yield* Effect.forEach(issues, n => tick(hub, n, true))).flat();
   });

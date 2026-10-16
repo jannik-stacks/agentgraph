@@ -565,6 +565,21 @@ describe('tick', () => {
     expect(stopped.map(r => [r.id, r.status, r.reason])).toEqual([['run-7', 'stopped', 'not needed']]);
     expect(specs).toHaveLength(0);
   }, 30_000);
+
+  it('ends a run waiting at merge done when its pull request is merged and its issue closed with it', async () => {
+    const where = world();
+    const { run } = services(where, []);
+    await run(waiting(where));
+    const at = '2026-10-16T00:00:05.000Z';
+    for (const n of [7, 8]) {
+      const file = join(where.forge, `${n}.md`);
+      writeFileSync(file, readFileSync(file, 'utf8').replace('state: open', `state: ${n === 7 ? 'closed' : 'merged'}`));
+    }
+    say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
+    say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at });
+    const swept = await run(sweep(merging));
+    expect(swept.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'done']]);
+  });
 });
 
 describe('stacks', () => {
