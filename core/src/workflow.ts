@@ -35,6 +35,9 @@ export type Outcome =
   | { kind: 'answer'; text: string }
   | { kind: 'stop'; why: string };
 
+/** How far a session has read its threads: the time of the last message it saw and the base its pull request was on. */
+export type Seen = { at: string; base?: string };
+
 /** Where one workflow run on one thread stands. Enough to stop and pick it up on another machine. */
 export type Run = {
   id: string;
@@ -44,7 +47,7 @@ export type Run = {
   status: 'running' | 'asking' | 'waiting' | 'done' | 'stopped';
   tries: number;
   rounds: Record<string, number>;
-  sessions: Record<string, { id: string; home: string }>;
+  sessions: Record<string, { id: string; home: string; seen?: Seen }>;
   carry?: string;
   reason?: string;
   started: string;

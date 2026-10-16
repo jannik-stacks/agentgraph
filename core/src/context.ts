@@ -1,4 +1,5 @@
 import type { Message, Thread } from './forge.ts';
+import type { Seen } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type Threads = { issue: Thread & { messages: Message[] }; pull?: Thread & { messages: Message[] } };
@@ -54,4 +55,19 @@ export function context(t: Threads): string {
     lines[i] = short;
   }
   return [...heads, lines.length > 0 && `## Timeline\n\n${lines.join('\n\n')}`].filter(Boolean).join('\n\n');
+}
+
+/** Only what came after `seen`: what people said and pushed, checks, and the base moving. Empty when nothing did. */
+export function news(t: Threads, seen: Seen): { text: string; seen: Seen } {
+  const pull = (t.pull ?? t.issue).pull;
+  const moved = pull?.base !== undefined && seen.base !== undefined && pull.base !== seen.base;
+  const lines = [
+    moved && `The base ${pull.into} moved to ${pull.base!.slice(0, 7)}.`,
+    ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || !m.actor.endsWith('[bot]'))),
+  ].filter(Boolean);
+  const at = [t.issue, t.pull].flatMap(x => x?.messages ?? []).reduce((at, m) => (m.at > at ? m.at : at), seen.at);
+  return {
+    text: lines.length > 0 ? `## New since you last looked\n\n${lines.join('\n\n')}` : '',
+    seen: { at, ...(pull?.base !== undefined && { base: pull.base }) },
+  };
 }

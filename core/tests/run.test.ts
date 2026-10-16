@@ -132,7 +132,7 @@ describe('drive', () => {
     const asked = await run(drive(w, fresh(), hub));
     expect(asked).toMatchObject({ step: 'review', status: 'asking', reason: 'still not right', usd: 0.5 + 3 * 0.25 });
     expect(asked.rounds).toEqual({ review: 2 });
-    expect(asked.sessions.implement).toEqual({ id: 'i1', home: '/homes/i1' });
+    expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
 
     // the refused try pushed nothing; the passing one did, and opened pull request #8
     const forge = await run(Effect.flatMap(Forge, f => f.thread(7)));
@@ -180,7 +180,9 @@ describe('drive', () => {
     }, {});
     expect(replayed).toEqual(asked);
     const resumed = trace.flatMap(t => ('saved' in t && t.saved.sessions ? [t.saved.sessions] : []));
-    expect(resumed).toContainEqual(expect.objectContaining({ implement: { id: 'i1', home: '/homes/i1' } }));
+    expect(resumed).toContainEqual(
+      expect.objectContaining({ implement: expect.objectContaining({ id: 'i1', home: '/homes/i1' }) })
+    );
     const sessions = trace.flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'stop', exit: 0, usd: 0.5 });
     expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
@@ -449,7 +451,9 @@ describe('tick', () => {
     expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
     expect(specs).toHaveLength(1);
     expect(specs[0]!.resume?.id).toBe('a');
-    expect(specs[0]!.prompt).toBe('the merge step sent this back: please undo the greeting');
+    expect(specs[0]!.prompt).toBe(
+      'the merge step sent this back: please undo the greeting\n\n## New since you last looked\n\n#8 @morgan: @bothub please undo the greeting'
+    );
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
   }, 30_000);
@@ -565,5 +569,51 @@ describe('coworker', () => {
     expect(specs[0]!.prompt).toContain('#7 @morgan: /bothub');
     expect(specs[0]!.prompt).toContain('#8 @ana: mind the edge case');
     expect(specs[0]!.prompt).toContain('#8 check test: failure');
+  }, 30_000);
+
+  /** Run 7 parked on a question in its kept implement session, with pull request #8 on base b1. */
+  const parked = async (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {
+    pullRequest(where);
+    const s = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })], ...turns]);
+    const asked = await s.run(drive(flow, begun(), small));
+    expect(asked).toMatchObject({ status: 'asking', sessions: { implement: { id: 'a' } } });
+    return { ...s, asked };
+  };
+  const later = (s: number) => `2099-01-01T00:00:0${s}.000Z`;
+
+  it('catches a resumed session up on what people said and pushed while it was parked, and nothing older', async () => {
+    const where = world();
+    const { specs, run, asked } = await parked(where, [[start('a'), reply({ kind: 'reply', body: 'ok' })]]);
+    say(where, comment(7, 'morgan', true, '/bothub hello', later(1)));
+    say(where, {
+      thread: 8,
+      kind: 'commit',
+      actor: 'ana',
+      trusted: false,
+      at: later(2),
+      commit: { sha: 'abcdef123', title: 'Tweak the greeting' },
+    });
+    await run(drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
+    expect(specs[1]!.resume?.id).toBe('a');
+    expect(specs[1]!.prompt).toBe(
+      'hello\n\n## New since you last looked\n\n#7 @morgan: /bothub hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
+    );
+  }, 30_000);
+
+  it('resumes with only the feedback when nothing is new, and names a moved base and a flipped check', async () => {
+    const where = world();
+    say(where, check(8, 'test', 'failure', '2026-10-16T00:00:00.500Z'));
+    const { specs, run, asked } = await parked(where, [
+      [start('a'), reply({ kind: 'ask', question: 'And now?' })],
+      [start('a'), reply({ kind: 'reply', body: 'ok' })],
+    ]);
+    const again = await run(drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
+    expect(specs[1]!.prompt).toBe('hello');
+    pullRequest(where, 'b2');
+    say(where, check(8, 'test', 'success', later(3)));
+    await run(drive(flow, transition(flow, again, { kind: 'answer', text: 'go on' }), small));
+    expect(specs[2]!.prompt).toBe(
+      'go on\n\n## New since you last looked\n\nThe base main moved to b2.\n\n#8 check test: success'
+    );
   }, 30_000);
 });

@@ -1,6 +1,6 @@
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
-import { context, type Threads } from './context.ts';
+import { context, news, type Threads } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
 import type { Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Work } from './sandbox.ts';
@@ -290,6 +290,7 @@ export const attempt = (
         .filter(Boolean)
         .join('\n\n');
       const items: (string | undefined)[] = step.each ? yield* itemsOf(step.each, work, minutes) : [undefined];
+      const caught = news(t, kept ? (kept.seen ?? { at: run.started }) : { at: '' });
       for (const item of items) {
         const r = yield* converse(
           run.id,
@@ -300,7 +301,11 @@ export const attempt = (
             minutes,
             ...(bot.model !== undefined && { model: bot.model }),
             system: bot.body,
-            prompt: kept ? (run.carry ?? 'Continue.') : item === undefined ? brief : `${brief}\n\n## Item\n\n${item}`,
+            prompt: kept
+              ? [run.carry ?? 'Continue.', caught.text].filter(Boolean).join('\n\n')
+              : item === undefined
+                ? brief
+                : `${brief}\n\n## Item\n\n${item}`,
             dir: work.dir,
             tools: bot.tools,
             ...(kept && { resume: kept }),
@@ -312,7 +317,9 @@ export const attempt = (
           ...tried,
           usd: tried.usd + r.usd,
           ...(step.each === undefined &&
-            r.id !== undefined && { sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home } } }),
+            r.id !== undefined && {
+              sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, seen: caught.seen } },
+            }),
         };
       }
     }
