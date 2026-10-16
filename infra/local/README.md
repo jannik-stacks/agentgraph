@@ -37,32 +37,17 @@ runs-per-day budget. `ROTATE=1 ./keys.sh` replaces every key.
 
 Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `docker compose up -d litellm`.
 
-## Point bothub at it and dry-run
-
-```sh
-export BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000/v1 BOTHUB_DATA=/tmp/bothub-sim
-../../bin/bothub.mjs run --event issue_comment ../../examples/payloads/issue-comment.json --dir ../../examples/hub --dry-run
-```
-
 ## A full local run
 
-`e2e.sh` prepares a data directory with a copy of `examples/acme-app`, a bare clone of the source
-repository as origin and the bots' keys. `bothub serve` then watches the hub's local issues, runs
-every job in a sandbox container and pushes to that origin only; pull requests are recorded in
-`<data>/pulls.jsonl`. Without the `sandbox` profile up and the image built, runs fail as
-`sandbox-failed`; nothing falls back to the host.
+`e2e.sh` writes the agents' keys from `.keys.env` into a data directory and prints the commands
+that run a hub against its GitHub repo: one look at one issue, or a loop over every open issue.
+It needs `BOTHUB_APP_ENV` set to the App env file from `core/bin/setup-app.ts`. Every agent runs
+in a sandbox container; without the `sandbox` profile up and the image built, runs fail and
+nothing falls back to the host.
 
 ```sh
-./e2e.sh /tmp/bothub-e2e
-../../bin/bothub.mjs serve --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e --repo /tmp/bothub-e2e/origin.git --name acme/app
-./comment.sh /tmp/bothub-e2e/hub 6 '/bothub add kit/tests/smoke.test.ts with one test'
+./e2e.sh /tmp/bothub-e2e ../../examples/sandbox
 ```
-
-The studio API is served on 5181 (`--port` to change it). To watch the runs in the studio
-dashboard instead, give serve another port and point the studio at the same data directory:
-`cd ../../studio && npm run dev -- --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e` (API on 5181,
-UI on 5182). Set `BHM_API_PORT` and `BHM_PORT` to run a second studio beside it; a port already in
-use stops the studio with a message instead of a crash.
 
 ## Prices
 

@@ -35,11 +35,10 @@ a harness that cannot continue sessions. Each run records everything it loaded, 
 
 ## Local quickstart
 
-1. Validate a hub and dry-run a webhook, which needs no model or container.
+1. Validate a hub, which needs no model or container.
 
    ```sh
-   node bin/bothub.mjs check --dir examples/acme-app
-   node bin/bothub.mjs run --event issue_comment examples/payloads/issue-comment.json --dir examples/hub --dry-run
+   node core/bin/run.ts check --hub examples/acme-app
    ```
 
 2. Start the model proxy. LiteLLM runs in front of every model. In `infra/local`, copy
@@ -62,13 +61,12 @@ a harness that cannot continue sessions. Each run records everything it loaded, 
    docker build -t bothub-sandbox:local sandbox
    ```
 
-4. Serve a hub. `infra/local/e2e.sh` prepares a data directory with a copy of `examples/acme-app`
-   and a local origin; `comment.sh` posts a comment as the human.
+4. Create the GitHub App once with `node core/bin/setup-app.ts` (see `infra/github/README.md`) and
+   set `BOTHUB_APP_ENV` to the `app.env` it prints. Then `infra/local/e2e.sh` prepares a data
+   directory with the agents' keys and prints the commands that run a hub against its repo.
 
    ```sh
-   ./e2e.sh /tmp/bothub-e2e
-   node ../../bin/bothub.mjs serve --hub /tmp/bothub-e2e/hub --data /tmp/bothub-e2e --repo /tmp/bothub-e2e/origin.git --name acme/app
-   ./comment.sh /tmp/bothub-e2e/hub 6 '/bothub add kit/tests/smoke.test.ts with one test'
+   ./e2e.sh /tmp/bothub-e2e ../../examples/sandbox
    ```
 
 5. Open the studio dashboard. From `studio/`, run `npm install`, then `npm run dev -- --data /tmp/bothub-e2e`.
@@ -85,9 +83,9 @@ The docs are plain Markdown in `docs/`, starting at `docs/index.md`. `npm run ve
 - `examples/bothub` is the hub bothub runs on its own repository.
 - `examples/acme-app` is the hub for the acme-app repository: triage, implement, review and
   plans step by step.
-- `examples/clarinet` is a hub for a Rust repository, with its own sandbox setup.
-- `examples/hub` is a small hub for trying `check` and `run --dry-run`.
-- `examples/sandbox` is a small hub over a JavaScript package, and `examples/sk` is a hub for Acme App; both load with `node core/bin/run.ts check --hub <dir>`.
-- `examples/payloads` holds sample webhook payloads.
+- `examples/clarinet` is a hub for a Rust repository.
+- `examples/sandbox` is a small hub over a JavaScript package, and `examples/sk` is a hub for the Acme App twin.
+
+Every hub loads with `node core/bin/run.ts check --hub <dir>`.
 
 `bench/` has the tools for comparing hub settings over mined cases; see `bench/README.md`.
