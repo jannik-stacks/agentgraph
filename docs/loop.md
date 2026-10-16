@@ -6,6 +6,19 @@ A step is done when its checks pass.
 event → run begins → step: session → checks → feedback to the same session → proposals applied → next step
 ```
 
+## Triggers
+
+`on:` in a workflow file names what starts a run. Two forms start runs today:
+
+- `issue_comment` with `command`: a comment starting with that text, such as `/bothub`.
+- `issues` with `label`: a label being added to an issue, such as `triage`.
+
+Only a collaborator's comment or label starts a run. An outsider's comment or label is ignored, and their text is withheld from agents.
+
+The issue must be open. One workflow runs once at a time on an issue. Adding a label and removing it before the engine looks starts nothing.
+
+On a new run, the engine reacts to the comment with an eyes reaction so people can see it was heard. The run then keeps its own state. Later comments on a waiting run answer it. See [Waiting](loop.md#waiting).
+
 ## Workflows and steps
 
 A workflow is a file in `workflows/`. Its `on:` names the events that start it. Its `steps` run in the order written. The body is the description, or the prompt when the workflow has no steps.
