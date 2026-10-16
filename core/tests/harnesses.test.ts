@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
@@ -286,6 +286,22 @@ describe('pi', () => {
     expect(models.providers.bothub).toMatchObject({ baseUrl: 'http://litellm:4000/v1', apiKey: '$BOTHUB_LLM_API_KEY' });
     expect(readFileSync(join(command.home!, '.pi/agent/models.json'), 'utf8')).not.toContain(key);
     expect(existsSync(join(command.home!, '.pi/agent/settings.json'))).toBe(true);
+  });
+
+  it('never writes through a link the agent left in a resumed home', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'core-outside-'));
+    writeFileSync(join(outside, 'victim'), 'keep');
+    const linked = mkdtempSync(join(tmpdir(), 'core-home-'));
+    mkdirSync(join(linked, '.pi', 'agent'), { recursive: true });
+    symlinkSync(join(outside, 'victim'), join(linked, '.pi', 'agent', 'models.json'));
+    const dir = mkdtempSync(join(tmpdir(), 'core-home-'));
+    symlinkSync(outside, join(dir, '.pi'));
+    for (const home of [linked, dir]) {
+      const { exit } = await session({ ...pi, resume: { id: 's', home } }, []);
+      expect(JSON.stringify(exit)).toContain('run home');
+    }
+    expect(readFileSync(join(outside, 'victim'), 'utf8')).toBe('keep');
+    expect(existsSync(join(outside, 'agent'))).toBe(false);
   });
 
   it('reads a recorded run', async () => {

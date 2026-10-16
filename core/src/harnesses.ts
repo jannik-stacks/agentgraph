@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, mkdir, open as openFile, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Effect, Layer, Redacted, Stream } from 'effect';
 import type { Agent } from './hub.ts';
@@ -399,6 +400,21 @@ const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usa
   return { ...usage, usd };
 };
 
+/** Writes `text` to `path` under `home` without following a link the sandbox may have left in the home. */
+const writeHome = async (home: string, path: string, text: string) => {
+  let dir = home;
+  for (const part of dirname(path).split('/')) {
+    dir = join(dir, part);
+    await mkdir(dir).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== 'EEXIST') throw e;
+    });
+    if (!(await lstat(dir)).isDirectory()) throw new Error(`${dir} is not a directory`);
+  }
+  const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = constants;
+  const file = await openFile(join(home, path), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW);
+  await file.writeFile(text).finally(() => file.close());
+};
+
 const stopOf = (e: SandboxError) =>
   new SessionStop({ reason: e.reason === 'infra' ? 'sandbox' : e.reason, detail: e.detail });
 
@@ -432,10 +448,8 @@ export const harnesses = (s: {
             yield* Effect.tryPromise({
               try: async () => {
                 await mkdir(home, { recursive: true });
-                for (const [path, text] of Object.entries(adapter.files?.(spec, s.proxy.url) ?? {})) {
-                  await mkdir(dirname(join(home, path)), { recursive: true });
-                  await writeFile(join(home, path), text);
-                }
+                for (const [path, text] of Object.entries(adapter.files?.(spec, s.proxy.url) ?? {}))
+                  await writeHome(home, path, text);
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
