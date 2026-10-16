@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
@@ -45,6 +45,39 @@ const command = (dir: string, more: Partial<Command> = {}): Command => ({
   minutes: 1,
   ...more,
 });
+
+/**
+ * What a session could leave in its worktree to steer host git: a `.git` pointing at its own repo whose config runs a
+ * script through fsmonitor, a clean filter and hooks, and, given the admin dir, a commondir and gitdir pointing away.
+ * The script touches `marker`.
+ */
+const plant = (dir: string, admin?: string) => {
+  const evil = tmp('evil');
+  const marker = join(evil, 'marker');
+  const script = join(evil, 'run.sh');
+  writeFileSync(script, `#!/bin/sh\ntouch ${marker}\ncat\n`);
+  chmodSync(script, 0o755);
+  git(evil, 'init', '-q', '--bare');
+  for (const [key, value] of [
+    ['core.fsmonitor', script],
+    ['core.hooksPath', join(evil, 'hooks')],
+    ['filter.evil.clean', script],
+    ['filter.evil.required', 'true'],
+  ] as const)
+    git(evil, 'config', key, value);
+  mkdirSync(join(evil, 'hooks'), { recursive: true });
+  for (const hook of ['pre-commit', 'post-commit', 'reference-transaction', 'post-checkout', 'post-index-change'])
+    writeFileSync(join(evil, 'hooks', hook), `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+  writeFileSync(join(dir, '.git'), `gitdir: ${evil}\n`);
+  writeFileSync(join(dir, '.gitattributes'), '* filter=evil\n');
+  const victim = tmp('victim');
+  writeFileSync(join(victim, 'keep.txt'), 'mine\n');
+  if (admin) {
+    writeFileSync(join(admin, 'commondir'), `${evil}\n`);
+    writeFileSync(join(admin, 'gitdir'), `${join(victim, '.git')}\n`);
+  }
+  return { marker, victim };
+};
 
 describe('docker with a stand-in docker client', () => {
   const bin = tmp('bin');
@@ -121,6 +154,29 @@ describe('docker with a stand-in docker client', () => {
   it('fails as a timeout when the command runs past its minutes', async () => {
     const exit = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'sleep'], minutes: 0.01 })));
     expect(JSON.stringify(exit)).toContain('"reason":"timeout"');
+  });
+
+  it('mounts no git dir a work tree names, only the ones recorded for a checkout', async () => {
+    const dir = tmp('work');
+    writeFileSync(join(dir, '.git'), 'gitdir: /tmp/x\n');
+    await use(layer, s => s.exec(command(dir)));
+    expect(logged().join('\n')).not.toContain('/tmp/x');
+
+    const data = tmp('data');
+    const exit = await use(docker({ data, origin: origin() }), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        writeFileSync(join(work.dir, '.git'), 'gitdir: /tmp/x\n');
+        yield* s.exec(command(work.dir));
+        return logged().filter(a => a.startsWith('type=bind'));
+      })
+    );
+    const mirror = join(data, 'mirror.git');
+    const binds = Exit.isSuccess(exit) ? exit.value : [];
+    expect(binds.join('\n')).not.toContain('/tmp/x');
+    expect(binds).toHaveLength(3);
+    expect(binds[1]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror},dst=.*,readonly$`));
+    expect(binds[2]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror}/worktrees/\\w+,dst=`));
   });
 
   it('refuses to mount a docker socket', async () => {
@@ -238,6 +294,28 @@ describe('docker checkout', () => {
       ])
     );
     expect(again).toEqual(Exit.succeed(['second try', true]));
+  }, 30_000);
+
+  it('keeps the files through host git that nothing in the worktree can steer', async () => {
+    const data = tmp('data');
+    const keep = 'refs/bothub/runs/r3';
+    const mirror = join(data, 'mirror.git');
+    let planted = { marker: '', victim: '' };
+    let dir = '';
+    const exit = await use(docker({ data, origin: origin() }), s =>
+      Effect.map(s.checkout('main', undefined, keep), c => {
+        dir = c.dir;
+        writeFileSync(join(c.dir, 'b.txt'), 'kept\n');
+        const admin = readFileSync(join(c.dir, '.git'), 'utf8').slice('gitdir: '.length).trim();
+        planted = plant(c.dir, admin);
+      })
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(existsSync(planted.marker)).toBe(false);
+    expect(readFileSync(join(planted.victim, 'keep.txt'), 'utf8')).toBe('mine\n');
+    expect(existsSync(dir)).toBe(false);
+    expect(git(mirror, 'show', `${keep}:b.txt`)).toBe('kept');
+    expect(git(mirror, 'worktree', 'list', '--porcelain')).not.toContain(dir);
   }, 30_000);
 
   it('fails for a ref that does not exist', async () => {

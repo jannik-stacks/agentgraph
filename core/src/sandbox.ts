@@ -20,6 +20,16 @@ export type Command = {
 
 export type Exit = { code: number; output: string };
 
+/**
+ * A checkout: the work tree `dir`, the commit `base` it starts from, and `git`, the repo and index host git uses for it.
+ * `git` names only paths the host keeps out of the sandbox's reach.
+ */
+export type Work = {
+  dir: string;
+  base: string;
+  git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
+};
+
 export class SandboxError extends Data.TaggedError('SandboxError')<{
   reason: 'timeout' | 'stalled' | 'infra';
   detail: string;
@@ -34,17 +44,62 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 export class Sandbox extends Context.Tag('bothub/Sandbox')<
   Sandbox,
   {
-    checkout: (
-      ref: string,
-      branch?: string,
-      keep?: string
-    ) => Effect.Effect<{ dir: string; base: string }, SandboxError, Scope.Scope>;
+    checkout: (ref: string, branch?: string, keep?: string) => Effect.Effect<Work, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string, SandboxError, Scope.Scope>;
   }
 >() {}
 
 const git = promisify(execFile);
+
+const hardened = [
+  '-c',
+  'core.hooksPath=/dev/null',
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.attributesFile=/dev/null',
+  '-c',
+  'core.excludesFile=/dev/null',
+];
+
+/**
+ * Git on the host for the repo `env` names, with no user or system config, hooks, fsmonitor or attributes file, and no
+ * `GIT_*` variables from the host's environment. Without `GIT_DIR` it runs in the temp dir, for a clone.
+ */
+export const hostGit = (env: Record<string, string>, args: string[]) =>
+  Effect.async<Buffer, SandboxError>(resume => {
+    const inherited = Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'));
+    execFile(
+      'git',
+      [...hardened, ...args],
+      {
+        cwd: env.GIT_WORK_TREE ?? env.GIT_DIR ?? tmpdir(),
+        encoding: 'buffer',
+        maxBuffer: 256 << 20,
+        timeout: 600_000,
+        env: {
+          ...Object.fromEntries(inherited),
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_ATTR_NOSYSTEM: '1',
+          ...env,
+        },
+      },
+      (error, stdout, stderr) =>
+        resume(
+          error
+            ? Effect.fail(
+                new SandboxError({
+                  reason: 'infra',
+                  detail: `git ${args.slice(0, 3).join(' ')}: ${(stderr.toString().trim() || error.message).slice(-2000)}`,
+                })
+              )
+            : Effect.succeed(stdout)
+        )
+    );
+  });
 
 const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
@@ -97,7 +152,7 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
             const commit = await run(...ident, 'commit-tree', await run('write-tree'), ...parents, '-m', keep);
             await run('push', '-q', 'origin', `+${commit}:${keep}`);
           }).pipe(Effect.ignoreLogged, Effect.zipRight(Effect.promise(() => rm(dir, { recursive: true, force: true }))))
-      ).pipe(Effect.map(({ dir, base }) => ({ dir, base })));
+      ).pipe(Effect.map(({ dir, base }) => ({ dir, base, git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir } })));
     },
     exec: command =>
       Effect.async<Exit, SandboxError>(resume => {

@@ -1,10 +1,10 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { copyFile, mkdir, readFile, realpath, rm } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
-import { type Command, type Exit, Sandbox, SandboxError } from './sandbox.ts';
+import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Work } from './sandbox.ts';
 
 const network = 'bothub-sandbox';
 const egress = 'http://egress:8888';
@@ -18,25 +18,24 @@ const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
 
+/**
+ * The admin dir git just made for the worktree `dir` of `mirror`, read before any container ran in `dir`. It must be
+ * `<mirror>/worktrees/<name of dir>`.
+ */
+const worktreeAdmin = async (mirror: string, dir: string) => {
+  const admin = /^gitdir: (.+)$/m.exec(await readFile(join(dir, '.git'), 'utf8'))?.[1]?.trim() ?? '';
+  const expected = await realpath(join(mirror, 'worktrees', basename(dir)));
+  if (!admin.startsWith('/') || (await realpath(admin)) !== expected)
+    throw new Error(`worktree admin dir ${admin} is not ${expected}`);
+  return admin;
+};
+
 const infra = (detail: string) => new SandboxError({ reason: 'infra', detail });
 
 const bind = ({ src, dst, readonly }: Mount) => {
   if (/[,\n"]/.test(src + dst) || ['/', '/run', '/var/run'].includes(src) || src.endsWith('docker.sock'))
     throw infra(`mount not allowed: ${src}`);
   return ['--mount', `type=bind,src=${src},dst=${dst}${readonly ? ',readonly' : ''}`];
-};
-
-/** The mirror (read-only) and the worktree's own admin dir a linked worktree's `.git` file points into. */
-const gitMounts = async (dir: string): Promise<Mount[]> => {
-  const dotGit = await readFile(join(dir, '.git'), 'utf8').catch(() => '');
-  const gitdir = /^gitdir: (.+)$/m.exec(dotGit)?.[1]?.trim();
-  if (!gitdir) return [];
-  const admin = resolve(dir, gitdir);
-  const common = resolve(admin, (await readFile(join(admin, 'commondir'), 'utf8').catch(() => '../..')).trim());
-  return [
-    { src: common, dst: common, readonly: true },
-    { src: admin, dst: admin },
-  ];
 };
 
 const user = () => {
@@ -174,6 +173,10 @@ export const docker = (o: {
       const image = o.image ?? 'bothub-sandbox:local';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
+      /** The git mounts of each live checkout, recorded by the host when it made the worktree. */
+      const mounts = new Map<string, Mount[]>();
+      const inMirror = (args: string[], env: Record<string, string> = {}) =>
+        Effect.map(hostGit({ GIT_DIR: mirror, ...env }, args), out => out.toString('utf8').trim());
       const ready = yield* Effect.cached(
         run('docker', ['network', 'inspect', '--format', '{{.Internal}}', network]).pipe(
           Effect.filterOrFail(
@@ -186,10 +189,9 @@ export const docker = (o: {
       const prepare = (c: Command) =>
         Effect.gen(function* () {
           if (c.network === 'proxy') yield* ready;
-          const mounts = yield* Effect.promise(() => gitMounts(c.dir));
           const name = `bothub-${randomBytes(6).toString('hex')}`;
           const args = yield* Effect.try({
-            try: () => dockerArgs(c, image, name, mounts),
+            try: () => dockerArgs(c, image, name, mounts.get(c.dir) ?? []),
             catch: e => e as SandboxError,
           });
           return { name, args };
@@ -241,45 +243,57 @@ export const docker = (o: {
                 )
               );
               const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
-              if (exists) yield* run('git', ['-C', mirror, 'fetch', '--prune', 'origin', '+refs/*:refs/*', ours], env);
+              if (exists) yield* inMirror(['fetch', '--prune', 'origin', '+refs/*:refs/*', ours], env);
               else {
                 yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
-                yield* run('git', ['clone', '--mirror', o.origin, mirror], env);
+                yield* Effect.asVoid(hostGit(env, ['clone', '--mirror', o.origin, mirror]));
               }
             })
           );
           const verify = (name: string) =>
-            run('git', ['-C', mirror, 'rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(
-              Effect.orElseSucceed(() => '')
-            );
+            inMirror(['rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(Effect.orElseSucceed(() => ''));
           const saved = keep ? yield* verify(keep) : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
           const rev =
             own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));
           if (!rev) return yield* infra(`no commit for ${ref}`);
-          const dir = join(o.data, 'work', randomBytes(6).toString('hex'));
+          const id = randomBytes(6).toString('hex');
+          const dir = join(o.data, 'work', id);
+          const index = join(o.data, 'index', id);
+          const work: Work = { dir, base: rev, git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index } };
+          const inWork = (args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
           const save = (name: string) =>
             Effect.gen(function* () {
-              yield* run('git', ['-C', dir, 'add', '-A']);
-              const tree = yield* run('git', ['-C', dir, 'write-tree']);
+              yield* inWork(['add', '-A']);
+              const tree = yield* inWork(['write-tree']);
               const parents = ['-p', rev, ...(saved ? ['-p', saved] : [])];
-              const commit = yield* run('git', ['-C', dir, ...ident, 'commit-tree', tree, ...parents, '-m', name]);
-              yield* run('git', ['-C', dir, 'update-ref', name, commit]);
+              const commit = yield* inWork([...ident, 'commit-tree', tree, ...parents, '-m', name]);
+              yield* inWork(['update-ref', name, commit]);
             }).pipe(Effect.ignoreLogged);
-          yield* Effect.acquireRelease(
-            Effect.zipRight(
-              lock.withPermits(1)(run('git', ['-C', mirror, 'worktree', 'add', '--detach', dir, rev])),
-              saved ? run('git', ['-C', dir, 'read-tree', '-u', '--reset', saved]) : Effect.void
-            ),
-            () =>
-              Effect.zipRight(
-                keep ? save(keep) : Effect.void,
-                lock.withPermits(1)(
-                  run('git', ['-C', mirror, 'worktree', 'remove', '--force', dir]).pipe(Effect.ignore)
-                )
-              )
-          );
-          return { dir, base: rev };
+          let admin = '';
+          const add = Effect.gen(function* () {
+            yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
+            admin = yield* Effect.tryPromise({
+              try: async () => {
+                const found = await worktreeAdmin(mirror, dir);
+                await mkdir(dirname(index), { recursive: true });
+                await copyFile(join(found, 'index'), index);
+                return found;
+              },
+              catch: e => infra((e as Error).message),
+            });
+            if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
+            mounts.set(dir, [
+              { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
+              { src: admin, dst: admin },
+            ]);
+          });
+          const remove = Effect.promise(() => {
+            mounts.delete(dir);
+            return Promise.all([dir, index, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true })));
+          });
+          yield* Effect.acquireRelease(add, () => Effect.zipRight(keep ? save(keep) : Effect.void, remove));
+          return work;
         });
 
       return { checkout, exec, lines };
