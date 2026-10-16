@@ -71,7 +71,7 @@ const rules = [
   [guarded, /\bunsandboxed\b/, 'the unsandboxed launcher outside the runner and the simulator', path => inTests(path) || launchers.has(path)],
   [guarded, /push[^\n]*(--force\b|\s-f\b|--force-with-lease)/, 'a force push', inTests],
   [guarded, /@ts-(ignore|nocheck|expect-error)/, 'a silenced type error'],
-  [guarded, /\bas any\b|:\s*any\b/, 'an `any` that hides a type', path => !/\.(ts|tsx|mts)$/.test(path)],
+  [guarded, /\bas any\b|:\s*any\b|<any[>,]|,\s*any>|=\s*any\s*;|ReturnType<typeof JSON\.parse>/, 'an `any` that hides a type', path => !/\.(ts|tsx|mts)$/.test(path)],
   [guarded, /\b(eslint|oxlint)-disable/, 'a silenced lint rule'],
 
   [shipped, /\b(TODO|FIXME|XXX|HACK)\b/, 'a marker for later; finish it or open an issue'],

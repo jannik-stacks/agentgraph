@@ -19,6 +19,7 @@ const check = (script: string, repo: { dir: string; base: string }, ...args: str
 
 const silenced = ['@ts-', 'ignore'].join('');
 const loose = ['as ', 'any'].join('');
+const parsed = ['ReturnType<typeof JSON', '.parse>'].join('');
 
 describe('code-shape check, studio UI rules', () => {
   it('fails the cost tilde, the arrow before its number and the native title the dashboard first shipped with', () => {
@@ -281,6 +282,7 @@ describe('rules check, guards', () => {
         'src/harnesses/pi.ts': "export const args = ['--dangerously-skip-permissions'];\n",
         'src/queue.ts': `// ${silenced}\nexport const q = (x ${loose}).y;\n`,
         'src/workspace.ts': "await run(['push', '--force', 'origin', branch]);\n",
+        'src/wire.ts': `type Line = ${parsed};\nconst rows: Array<${'any'}> = [];\n`,
       }
     );
     const { ok, out } = check('rules.mjs', repo);
@@ -291,6 +293,8 @@ describe('rules check, guards', () => {
     expect(out).toContain('src/queue.ts:1: a silenced type error');
     expect(out).toContain('src/queue.ts:2: an `any` that hides a type');
     expect(out).toContain('src/workspace.ts:1: a force push');
+    expect(out).toContain('src/wire.ts:1: an `any` that hides a type');
+    expect(out).toContain('src/wire.ts:2: an `any` that hides a type');
   });
 
   it('passes the unsandboxed launcher in tests, removal with force and raw HTML', () => {
