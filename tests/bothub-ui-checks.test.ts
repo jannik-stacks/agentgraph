@@ -375,7 +375,7 @@ describe('rules check, new checks', () => {
     const repo = change({}, { 'examples/hub/checks/new.md': checkFile('mode: block\n', 'issue 3') });
     expect(check('rules.mjs', repo)).toEqual({
       ok: false,
-      out: 'examples/hub/checks/new.md:1: a new check in block mode with no calibration; start it in warn or log mode, or say in human: which replay calibrated it\nrules: 1 finding',
+      out: 'examples/hub/checks/new.md:1: a new check in block mode with no calibration; start it in warn or log mode, or say in human: or the body which replay calibrated it\nrules: 1 finding',
     });
   });
 
@@ -387,6 +387,8 @@ describe('rules check, new checks', () => {
         'examples/hub/checks/calibrated.md': checkFile('mode: block\n', 'replay of 60 commits flagged 3, all real'),
         'examples/hub/checks/warned.md': checkFile('mode: warn\n', 'issue 3'),
         'examples/hub/checks/unset.md': checkFile('', 'issue 3'),
+        'examples/hub/checks/body.md':
+          '---\nmode: block\nrun: npm test\n---\nTests pass. Calibrated by a replay on the base.\n',
       }
     );
     expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
