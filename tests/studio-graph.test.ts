@@ -71,13 +71,13 @@ describe('studio graph', () => {
     });
   });
 
-  it.each(V1_HUBS)('%s: keeps each check mode and tells script checks from judged ones', (_, config) => {
+  it.each(V1_HUBS)('%s: keeps each check mode, log as warn, and tells script checks from judged ones', (_, config) => {
     const [first] = fixturesOf(config);
     expect(first?.checks).toEqual(
       Object.fromEntries(
         Object.entries(config.checks).map(([name, c]) => [
           name,
-          { mode: c.mode, ...(c.type !== 'script' && { judge: c.type }) },
+          { mode: c.mode === 'log' ? 'warn' : c.mode, ...(c.type !== 'script' && { judge: c.type }) },
         ])
       )
     );
