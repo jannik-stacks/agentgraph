@@ -166,7 +166,8 @@ const requester = (fetch: Fetch) => {
 
 /** The permissions each kind of call needs; every token is also limited to the one repository (`repos` has none). */
 const scopes = {
-  read: { contents: 'read', issues: 'read', pull_requests: 'read', checks: 'read', statuses: 'read' },
+  read: { contents: 'read', issues: 'read', pull_requests: 'read' },
+  checks: { checks: 'read', statuses: 'read' },
   comment: { issues: 'write', pull_requests: 'write' },
   push: { contents: 'write' },
   pull: { contents: 'read', pull_requests: 'write' },
@@ -364,8 +365,8 @@ export const githubForge = (
     /** The checks and statuses on a commit: name and conclusion only. Without the permission to read them, none. */
     const checked = (thread: number, sha: string) =>
       Effect.all([
-        gh<{ check_runs: RestCheck[] }>('GET', `${repo}/commits/${sha}/check-runs?per_page=100`),
-        gh<{ statuses: RestStatus[] }>('GET', `${repo}/commits/${sha}/status`),
+        gh<{ check_runs: RestCheck[] }>('GET', `${repo}/commits/${sha}/check-runs?per_page=100`, undefined, 'checks'),
+        gh<{ statuses: RestStatus[] }>('GET', `${repo}/commits/${sha}/status`, undefined, 'checks'),
       ]).pipe(
         Effect.map(([runs, status]): Message[] => [
           ...runs.check_runs.map(c => ({
@@ -386,7 +387,7 @@ export const githubForge = (
           })),
         ]),
         Effect.catchIf(
-          e => e.status === 403 || e.status === 404,
+          e => e.status === 403 || e.status === 404 || e.status === 422,
           () => Effect.succeed([])
         )
       );

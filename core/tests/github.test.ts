@@ -237,6 +237,10 @@ describe('githubForge', () => {
 
   it('reads a thread without its checks when the installation may not read them', async () => {
     const f = fake({
+      'POST /app/installations/9/access_tokens': (body: any) =>
+        body.permissions.checks
+          ? { status: 422, body: { message: 'The permissions requested are not granted to this installation.' } }
+          : { body: { token: 'tok', expires_at: '2999-01-01T00:00:00Z' } },
       'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
       'GET /repos/o/r/pulls/8': pull(8),
       'GET /repos/o/r/issues/8/comments': [],
@@ -244,7 +248,6 @@ describe('githubForge', () => {
       'GET /repos/o/r/pulls/8/reviews': [],
       'GET /repos/o/r/pulls/8/commits': [],
       'GET /repos/o/r/issues/8/events': [],
-      'GET /repos/o/r/commits/head8/check-runs': () => ({ status: 403, body: { message: 'Resource not accessible' } }),
     });
     const t = await run(
       f,
@@ -420,7 +423,7 @@ describe('githubForge', () => {
       })
     );
     const permissions = [
-      { contents: 'read', issues: 'read', pull_requests: 'read', checks: 'read', statuses: 'read' },
+      { contents: 'read', issues: 'read', pull_requests: 'read' },
       { issues: 'write', pull_requests: 'write' },
       { contents: 'read', pull_requests: 'write' },
       { contents: 'write', pull_requests: 'write' },
