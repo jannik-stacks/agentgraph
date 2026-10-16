@@ -6,6 +6,7 @@ import { createServer } from 'vite';
 import { api, serve } from '../src/api.ts';
 import { loadPrices } from '../src/prices.ts';
 import { openStore } from '../src/store.ts';
+import { isCore } from './fixtures.ts';
 import { apiPort } from './vite.config.ts';
 
 const { values } = parseArgs({
@@ -39,6 +40,7 @@ if (!(await store.list()).length) console.log(`no runs yet; add one with: npm ru
 
 process.env.VITE_BHM_HUB = hubDir;
 process.env.VITE_BHM_DATA = dataDir;
+process.env.VITE_BHM_CORE = isCore(hubDir) ? '1' : '';
 const vite = await createServer({ root: import.meta.dirname });
 await vite.listen().catch((e: Error) => fail(`${e.message}; pick another port with BHM_PORT`));
 vite.printUrls();

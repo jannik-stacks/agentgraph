@@ -23,9 +23,9 @@ beforeAll(async () => {
   const { createElement } = await dependency<{ createElement: CreateElement }>('react');
   const { renderToString } = await dependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
   const jotai = await dependency<{ createStore: () => Store; Provider: unknown }>('jotai');
-  const { App } = await studioModule<{ App: () => unknown }>('App.tsx');
-  const state = await studioModule<{ locationAtom: Atom; routes: string[] }>('state.ts');
-  ({ routes } = state);
+  const { App, shown } = await studioModule<{ App: () => unknown; shown: string[] }>('App.tsx');
+  const state = await studioModule<{ locationAtom: Atom }>('state.ts');
+  routes = shown;
   render = path => {
     const store = jotai.createStore();
     store.set(state.locationAtom, { path, query: new URLSearchParams() });
