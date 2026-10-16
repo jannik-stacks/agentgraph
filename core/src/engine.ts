@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import { context, news, shown, type Issues } from './context.ts';
-import { Forge, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
+import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
@@ -40,19 +40,27 @@ const ProposalSchema = Schema.Union(
     kind: Schema.Literal('issue'),
     title: Schema.String,
     body: Schema.String,
-    parent: Schema.optionalWith(Schema.Int, { exact: true }),
+    size: Schema.Literal('XS', 'S', 'M', 'L', 'XL'),
+    priority: Schema.Literal('high', 'medium', 'low'),
+    stacks_on: Schema.optionalWith(Schema.Int, { exact: true }),
+    depends_on: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Int)), { exact: true }),
   }),
   Schema.Struct({ kind: Schema.Literal('ask'), question: Schema.String }),
   Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String })
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
+/** A proposal as an agent writes it. */
+type Said = typeof ProposalSchema.Type;
+/** An issue an agent proposes; `stacks_on` and `depends_on` name earlier issues in the same block by position, from 1. */
+type Child = Extract<Said, { kind: 'issue' }>;
 const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   comment: '{"kind":"comment","body":"..."}',
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',
   pull_request: '{"kind":"pull_request","branch":"...","base":"...","title":"...","body":"..."}',
   merge: '{"kind":"merge","number":1,"head":"<sha>"}',
-  issue: '{"kind":"issue","title":"...","body":"...","parent":1}',
+  issue:
+    '{"kind":"issue","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","priority":"high|medium|low","stacks_on":1,"depends_on":[1]}',
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
 };
@@ -65,7 +73,7 @@ const shapeOf = (item: unknown) => {
 const block = /^(`{3,}|~{3,})[ \t]*bothub[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
 
 /** The proposals in the last fenced `bothub` block of a reply: a JSON array. */
-const proposalsOf = (reply: string, required: boolean): { proposals: Proposal[]; problems: string[] } => {
+const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; problems: string[] } => {
   const source = [...reply.matchAll(block)].at(-1)?.[2]?.trim();
   if (source === undefined)
     return { proposals: [], problems: required ? ['end the reply with a fenced bothub block: a JSON array'] : [] };
@@ -84,7 +92,7 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Proposal[];
   }
   if (items !== null && typeof items === 'object' && !Array.isArray(items)) items = [items];
   if (!Array.isArray(items)) return { proposals: [], problems: ['bothub block: a JSON array of proposals'] };
-  const proposals: Proposal[] = [];
+  const proposals: Said[] = [];
   const problems: string[] = [];
   items.forEach((item, i) =>
     Either.match(decodeProposal(item), {
@@ -116,6 +124,79 @@ const stackOf = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
   const pull = on?.pull ? on : open.find(t => t.number === pullOf(w, n, open));
   return pull?.pull && { pull: pull.number, branch: pull.pull.branch, sha: pull.pull.head };
 };
+
+/** The issues a run's "Stacks on" and "Depends on" lines name that are still open without a pull request. */
+const pending = (w: Workflow, issue: number, open: Issue[]) =>
+  w.branch === undefined
+    ? []
+    : [...(open.find(t => t.number === issue)?.body ?? '').matchAll(/^\s*(?:stacks|depends) on #(\d+)\s*$/gim)]
+        .map(m => Number(m[1]))
+        .filter(n => open.some(t => t.number === n && !t.pull) && pullOf(w, n, open) === undefined);
+
+/** How deep a run's issue may sit and still file children. */
+const deepest = 3;
+
+/** How many parents sit above issue `n`, counted up to `deepest`. */
+const depthOf = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge> =>
+  Effect.flatMap(Forge, f => f.issue(n)).pipe(
+    Effect.flatMap(t =>
+      t.parent === undefined || above >= deepest ? Effect.succeed(above) : depthOf(t.parent, above + 1)
+    )
+  );
+
+/**
+ * Files children in order under the run's issue, with their size and priority labels and their "Stacks on" and
+ * "Depends on" lines, lists them on the issue and begins the workflow again on each XL child. One refusal files none.
+ */
+const file = (w: Workflow, run: Run, children: Child[]) =>
+  Effect.gen(function* () {
+    if (children.length === 0) return [];
+    const forge = yield* Forge;
+    const issue = yield* forge.issue(run.issue);
+    const depth = yield* depthOf(run.issue);
+    const refusal = (p: Child, i: number) => {
+      if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
+      if (depth >= deepest) return `#${run.issue} sits ${depth} issues deep; split it by hand`;
+      if (!/^#+\s*done when\b/im.test(p.body)) return `${p.title}: say when it is done under a "Done when" heading`;
+      const named = [...(p.stacks_on === undefined ? [] : [p.stacks_on]), ...(p.depends_on ?? [])];
+      if (named.some(k => k < 1 || k > i))
+        return `${p.title}: stacks_on and depends_on name an earlier issue here by position`;
+    };
+    const refused = children.flatMap((p, i): Applied[] => {
+      const reason = refusal(p, i);
+      return reason === undefined ? [] : [{ proposal: p, ok: false, reason }];
+    });
+    if (refused.length > 0) return refused;
+
+    const applied: Applied[] = [];
+    const numbers: number[] = [];
+    for (const p of children) {
+      const lines = [
+        ...(p.stacks_on === undefined ? [] : [`Stacks on #${numbers[p.stacks_on - 1]}`]),
+        ...(p.depends_on ?? []).map(k => `Depends on #${numbers[k - 1]}`),
+      ];
+      const a = yield* forge.apply(run.issue, {
+        kind: 'issue',
+        title: p.title,
+        body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
+        parent: run.issue,
+        labels: [`size/${p.size}`, `priority/${p.priority}`],
+      });
+      applied.push(a);
+      if (!a.ok) break;
+      numbers.push(Number(a.id));
+    }
+    if (numbers.length === 0) return applied;
+    const list = numbers.map(n => `- [ ] #${n}`).join('\n');
+    applied.push(yield* forge.apply(run.issue, { kind: 'comment', body: `Split into:\n\n${list}` }));
+    const store = yield* Store;
+    for (const [i, n] of numbers.entries()) {
+      if (children[i]!.size !== 'XL' || depth + 1 >= deepest) continue;
+      const at = now();
+      yield* store.put(begin(w, { id: `${w.name}-${n}-${at.replace(/\D/g, '')}`, issue: n, started: at }));
+    }
+    return applied;
+  });
 
 /** The run's issue and the pull request on its branch, fetched before every session. */
 export const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forge> =>
@@ -415,7 +496,12 @@ export const attempt = (
       world.some(p => p.kind === 'comment') && !run.said
         ? pullOf(w, run.issue, yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' })))
         : undefined;
-    const landed = yield* Effect.either(land(tried, world, work, to));
+    const children = world.filter((p): p is Child => p.kind === 'issue');
+    const rest = world.filter(p => p.kind !== 'issue');
+    const landed = yield* Effect.either(
+      Effect.zipWith(land(tried, rest, work, to), file(w, tried, children), (a, b) => [...a, ...b])
+    );
+    if (Either.isLeft(landed) && landed.left._tag === 'StoreError') return yield* landed.left;
     if (Either.isLeft(landed))
       return done({ kind: 'ask', question: `GitHub failed: ${squeeze(landed.left.message, 200)}` }, tried);
     const applied = landed.right;
@@ -723,11 +809,16 @@ export const tick = (
       yield* follow(w, r, r.base, head).pipe(Effect.catchAll(e => Effect.logError(`follow run ${r.id}`, e)));
     }
 
+    const rank = (r: Run) => {
+      const labels = issues.find(t => t.number === r.issue)?.labels ?? [];
+      return labels.includes('priority/high') ? 0 : labels.includes('priority/low') ? 2 : 1;
+    };
     const running = (yield* store.list({ status: 'running' }))
       .filter(mine)
-      .sort((a, b) => a.started.localeCompare(b.started));
+      .filter(r => hub.workflows[r.workflow] && pending(hub.workflows[r.workflow]!, r.issue, issues).length === 0)
+      .sort((a, b) => rank(a) - rank(b) || a.started.localeCompare(b.started));
     const driven = yield* Effect.forEach(
-      running.filter(r => hub.workflows[r.workflow]),
+      running,
       r =>
         drive(hub.workflows[r.workflow]!, r, hub).pipe(
           Effect.catchAll(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
