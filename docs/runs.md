@@ -27,7 +27,7 @@ A run id is the workflow name, the issue number and a timestamp, so runs sort in
 | `tries`    | Tries used on this step                                    |
 | `rounds`   | Times each step has gone back                              |
 | `sessions` | The session of each step, so a try resumes it              |
-| `carry`    | The feedback for the next try                              |
+| `feedback` | The feedback for the next try                              |
 | `reason`   | Why the run waits or stopped                               |
 | `usd`      | What its sessions cost                                     |
 
@@ -39,6 +39,7 @@ another machine.
 
 `trace.jsonl` is append-only. Every line has a time and a step, and one of these:
 
+- `prompt`: what a session was opened with: harness, model, system prompt, prompt and tools.
 - `event`: something the session did, as the harness reported it: text, a tool call, usage, the end.
 - `session`: how a session ended, whether it resumed one, and what it cost.
 - `verdict`: one check's result, with its output when it failed.

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
@@ -49,6 +49,31 @@ describe('fileStore', () => {
     expect(lines.slice(3)).toMatchObject([
       { saved: { status: 'asking', reason: 'why' } },
       { saved: {}, cleared: ['reason'] },
+    ]);
+  });
+
+  it('reads a run.json and trace lines written with older names under the current ones', async () => {
+    const dir = temp();
+    const old = { ...begin(w, { id: 'r1', thread: 3, started: 'a' }), carry: 'fix it' };
+    mkdirSync(join(dir, 'r1'));
+    writeFileSync(join(dir, 'r1', 'run.json'), JSON.stringify(old));
+    const lines = [
+      { at: 'a', step: 'triage', brief: { prompt: 'p', bot: 'triager' } },
+      { at: 'b', step: 'triage', event: { type: 'tool', input: { carry: 1 } } },
+      { at: 'c', step: 'triage', saved: {}, cleared: ['carry'] },
+    ];
+    writeFileSync(join(dir, 'r1', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
+    const [run, trace] = await Effect.runPromise(
+      Effect.flatMap(Store, s => Effect.all([s.get('r1'), Stream.runCollect(s.read('r1'))])).pipe(
+        Effect.provide(fileStore(dir))
+      )
+    );
+    expect(run).toMatchObject({ feedback: 'fix it' });
+    expect(run).not.toHaveProperty('carry');
+    expect(Chunk.toArray(trace)).toEqual([
+      { at: 'a', step: 'triage', prompt: { prompt: 'p', bot: 'triager' } },
+      lines[1],
+      { at: 'c', step: 'triage', saved: {}, cleared: ['feedback'] },
     ]);
   });
 

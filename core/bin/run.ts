@@ -1,7 +1,7 @@
 /**
  * Looks at one issue once: reenters its parked run, or begins one, and drives it until it parks or ends.
  * Usage: node core/bin/run.ts --hub <dir> --issue <n> --data <dir>
- *        node core/bin/run.ts --hub <dir> --issue all --data <dir>   (one pass over every open issue)
+ *        node core/bin/run.ts --hub <dir> --all --data <dir>   (one pass over every open issue)
  *        node core/bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
  *        node core/bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV; read-only)
  */
@@ -14,10 +14,10 @@ import { needsYou } from '../src/status.ts';
 import { fileStore } from '../src/store.ts';
 
 const { values, positionals } = parseArgs({
-  options: { hub: { type: 'string' }, issue: { type: 'string' }, data: { type: 'string' } },
+  options: { hub: { type: 'string' }, issue: { type: 'string' }, all: { type: 'boolean' }, data: { type: 'string' } },
   allowPositionals: true,
 });
-const issue = values.issue === 'all' ? 'all' : Number(values.issue);
+const issue = values.all ? 'all' : Number(values.issue);
 
 if (positionals[0] === 'check') {
   if (!values.hub) {
@@ -60,7 +60,7 @@ if (positionals[0] === 'status') {
 }
 
 if (!values.hub || !values.data || (issue !== 'all' && (!Number.isInteger(issue) || issue < 1))) {
-  console.error('usage: node core/bin/run.ts --hub <dir> --issue <n|all> --data <dir>');
+  console.error('usage: node core/bin/run.ts --hub <dir> (--issue <n> | --all) --data <dir>');
   process.exit(2);
 }
 

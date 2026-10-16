@@ -28,7 +28,7 @@ export const say = (line: Trace) => {
   if ('applied' in line)
     return `${line.applied.proposal.kind} ${line.applied.ok ? 'applied' : `failed: ${line.applied.reason}`}`;
   if ('outcome' in line) return [line.outcome.kind, detail(line.outcome)].filter(Boolean).join(': ');
-  if ('brief' in line) return `brief for ${line.brief.bot}`;
+  if ('prompt' in line) return `prompt for ${line.prompt.bot}`;
   if ('saved' in line) return `saved ${[...Object.keys(line.saved), ...(line.cleared ?? [])].join(', ')}`;
   return line.event.type;
 };
@@ -38,8 +38,8 @@ export type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] 
 
 type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
 
-/** One harness session: its brief when the trace has one, its events, and how it ended. */
-export type Session = { brief?: Line<'brief'>; events: Line<'event'>[]; end?: Line<'session'> };
+/** One harness session: its prompt when the trace has one, its events, and how it ended. */
+export type Session = { prompt?: Line<'prompt'>; events: Line<'event'>[]; end?: Line<'session'> };
 
 /** A run's trace as the steps it visited in order, each a list of sessions and the other lines. */
 export const visitsOf = (trace: Trace[]) => {
@@ -56,7 +56,7 @@ export const visitsOf = (trace: Trace[]) => {
       parts.push(open);
       return open;
     };
-    if ('brief' in line) fresh().brief = line;
+    if ('prompt' in line) fresh().prompt = line;
     else if ('event' in line) {
       const started = open?.events.some(e => e.event.type === 'start');
       (!open || (line.event.type === 'start' && started) ? fresh() : open).events.push(line);

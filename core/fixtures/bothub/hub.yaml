@@ -6,33 +6,33 @@ checks:
   criterion-met: { mode: block, judge: reviewer }
   docs-stale: { mode: warn, judge: reviewer }
   docs-sync: warn
-  docs-tone-marketing: { mode: log, judge: checker }
+  docs-tone-marketing: { mode: warn, judge: checker }
   docs-tone-provenance: { mode: warn, judge: reviewer }
   docs-tone-repeats: { mode: warn, judge: reviewer }
-  docs-tone-tagline: { mode: log, judge: reviewer }
+  docs-tone-tagline: { mode: warn, judge: reviewer }
   enum-copy: warn
   lesson-size: block
   lint: block
   near-duplicate: { mode: warn, judge: reviewer }
-  notes-followed: log
+  notes-followed: warn
   old-tests: warn
-  principle-named: log
+  principle-named: warn
   propagation: warn
   reduce: { mode: block, judge: reviewer }
   removed: { mode: block, judge: reviewer }
   review-docs: { mode: warn, judge: reviewer }
   review-src: { mode: block, judge: reviewer }
-  review-tests: { mode: log, judge: reviewer }
-  risky: log
+  review-tests: { mode: warn, judge: reviewer }
+  risky: warn
   rules: block
   safety: block
-  scope: { mode: log, judge: reviewer }
+  scope: { mode: warn, judge: reviewer }
   size: block
-  state-transitions: { mode: log, judge: reviewer }
+  state-transitions: { mode: warn, judge: reviewer }
   studio-build: block
   test-guards: block
   tests: block
-  tooltip-text: { mode: log, judge: checker }
+  tooltip-text: { mode: warn, judge: checker }
   triage-brief: block
   triage-width: warn
   types: block

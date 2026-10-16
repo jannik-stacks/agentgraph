@@ -47,6 +47,6 @@ export const hubOf = (hub: string, checks: Record<string, Omit<Check, 'mode'>> =
     skills: Object.fromEntries(f.names.skills.map(s => [s, doc(s, {})])),
     checks: Object.fromEntries(Object.entries(f.checks).map(([n, { mode }]) => [n, doc(n, { mode, ...checks[n] })])),
     workflows: f.workflows,
-    limits: { minutes: 1, usdPerRun: 10, working: 2 },
+    limits: { minutes: 1, usdPerRun: 10, parallel: 2 },
   };
 };

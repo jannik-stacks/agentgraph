@@ -7,11 +7,11 @@ import type { AgentEvent, SessionSpec, SessionStop } from './session.ts';
 import type { Outcome, Run } from './workflow.ts';
 
 /**
- * One line of a run's trace. A `brief` line holds everything a session is opened with and precedes its events. A
+ * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
  * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed.
  */
 export type Trace = { at: string; step: string } & (
-  | { brief: SessionSpec; item?: string }
+  | { prompt: SessionSpec; item?: string }
   | { event: AgentEvent }
   | {
       session: {
@@ -57,6 +57,18 @@ export class Store extends Context.Tag('bothub/Store')<
   }
 >() {}
 
+const renamed: Record<string, string> = { brief: 'prompt', carry: 'feedback' };
+const values: Record<string, Record<string, string>> = {};
+
+/** A run or trace line as older versions wrote it, read with today's field names and values. */
+const current = (value: unknown, key = ''): unknown => {
+  if (typeof value === 'string') return values[key]?.[value] ?? value;
+  if (Array.isArray(value))
+    return value.map(v => (key === 'cleared' && typeof v === 'string' ? (renamed[v] ?? v) : current(v)));
+  if (!value || typeof value !== 'object' || 'event' in value || key === 'rounds' || key === 'sessions') return value;
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [renamed[k] ?? k, current(v, k)]));
+};
+
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 
 const alive = (pid: number) => {
@@ -80,7 +92,7 @@ export const fileStore = (dir: string): Layer.Layer<Store> => {
   const readRun = (id: string) =>
     io(runFile(id), () =>
       readFile(runFile(id), 'utf8').then(
-        text => JSON.parse(text) as Run,
+        text => current(JSON.parse(text)) as Run,
         e => (missing(e) ? undefined : Promise.reject(e))
       )
     );
@@ -140,7 +152,7 @@ export const fileStore = (dir: string): Layer.Layer<Store> => {
                 .split('\n')
                 .filter(Boolean)
                 .slice(from)
-                .map(line => JSON.parse(line) as Trace),
+                .map(line => current(JSON.parse(line)) as Trace),
             e => (missing(e) ? [] : Promise.reject(e))
           )
         )

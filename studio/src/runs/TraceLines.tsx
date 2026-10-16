@@ -107,15 +107,15 @@ const EventRow = ({ line }: { line: Extract<Trace, { event: unknown }> }) => {
   );
 };
 
-/** A session folded to who ran, how it ended and what it cost; open, its brief and every event in order. */
+/** A session folded to who ran, how it ended and what it cost; open, its prompt and every event in order. */
 export const SessionBlock = ({ session, running }: { session: Session; running: boolean }) => {
-  const { brief, events, end } = session;
-  const spec = brief?.brief;
+  const { prompt, events, end } = session;
+  const spec = prompt?.prompt;
   const tools = events.filter(e => e.event.type === 'tool').length;
   const tally = { in: 0, out: 0, cached: 0, reasoning: 0 };
   for (const { event: e } of events)
     if (e.type === 'usage') Object.assign(tally, { in: tally.in + e.input, out: tally.out + e.output });
-  const first = brief ?? events[0] ?? end;
+  const first = prompt ?? events[0] ?? end;
   const started = events.find(e => e.event.type === 'start')?.event;
   const id = end?.session.id ?? spec?.resume?.id ?? (started?.type === 'start' ? started.session : undefined);
   return (
@@ -133,7 +133,7 @@ export const SessionBlock = ({ session, running }: { session: Session; running: 
             )}
             {id && <span className="text-zinc-500">{id}</span>}
             {(spec?.resume || end?.session.resumed) && <span className="text-zinc-500">resumed</span>}
-            {brief?.item && <span className="truncate text-zinc-500">on {short(brief.item, 60)}</span>}
+            {prompt?.item && <span className="truncate text-zinc-500">on {short(prompt.item, 60)}</span>}
             <span className="text-zinc-500">{tools} tool calls</span>
             <Io tally={tally} />
             {end ? (
@@ -149,20 +149,19 @@ export const SessionBlock = ({ session, running }: { session: Session; running: 
         }
       >
         <ol className="space-y-0.5 py-1 font-mono text-[11px]">
-          {brief ? (
-            <Row line={brief} summary={<span className="font-medium">brief</span>}>
+          {prompt && spec ? (
+            <Row line={prompt} summary={<span className="font-medium">prompt</span>}>
               <div className="font-sans text-xs text-zinc-500">
-                tools: {brief.brief.tools.length ? brief.brief.tools.join(', ') : 'none'}, dir {brief.brief.dir},{' '}
-                {brief.brief.minutes} minutes
+                tools: {spec.tools.length ? spec.tools.join(', ') : 'none'}, dir {spec.dir}, {spec.minutes} minutes
               </div>
               <Disclosure summary={<span className="font-sans text-xs">system prompt</span>}>
-                <Markdown text={brief.brief.system} className="font-sans" />
+                <Markdown text={spec.system} className="font-sans" />
               </Disclosure>
-              <Markdown text={brief.brief.prompt} className="font-sans" />
+              <Markdown text={spec.prompt} className="font-sans" />
             </Row>
           ) : (
             <li className="font-sans text-xs text-zinc-500">
-              No brief in this trace; it was recorded before briefs were.
+              No prompt in this trace; it was recorded before prompts were.
             </li>
           )}
           {events.map((line, i) => (

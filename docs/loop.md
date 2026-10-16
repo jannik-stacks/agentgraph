@@ -80,5 +80,5 @@ its reply with a fenced `bothub` block of proposals, see [Proposals](proposals.m
 
 ## Limits
 
-`limits` in `hub.yaml` caps a run: `minutes` for one session or script, and `working`, how many runs
+`limits` in `hub.yaml` caps a run: `minutes` for one session or script, and `parallel`, how many runs
 go at once. A session that runs past its minutes stops the run with the reason.

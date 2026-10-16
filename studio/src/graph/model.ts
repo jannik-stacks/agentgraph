@@ -28,7 +28,7 @@ export const fixturesOf = (config: Config): Fixture[] =>
       checks: Object.fromEntries(
         Object.entries(config.checks).map(([name, check]) => [
           name,
-          { mode: check.mode, ...(check.type !== 'script' && { judge: check.type }) },
+          { mode: check.mode === 'log' ? 'warn' : check.mode, ...(check.type !== 'script' && { judge: check.type }) },
         ])
       ),
       runs: [],

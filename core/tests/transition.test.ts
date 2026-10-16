@@ -39,10 +39,10 @@ describe('begin', () => {
 });
 
 describe('transition, running', () => {
-  it('pass: next step, tries reset, a fresh session there, carry cleared', () => {
-    const next = transition(w, at('triage', { tries: 0, carry: 'x' }), { kind: 'pass' });
+  it('pass: next step, tries reset, a fresh session there, feedback cleared', () => {
+    const next = transition(w, at('triage', { tries: 0, feedback: 'x' }), { kind: 'pass' });
     expect(next).toMatchObject({ step: 'implement', status: 'running', tries: 0 });
-    expect(next.carry).toBeUndefined();
+    expect(next.feedback).toBeUndefined();
     expect(next.sessions.implement).toBeUndefined();
     expect(next.sessions.triage).toEqual(session('s-triage'));
   });
@@ -63,7 +63,7 @@ describe('transition, running', () => {
       tries: 2,
       sessions: { implement: session('s-implement') },
     });
-    expect(next.carry).toBe('types: x.ts:1 error\nno bothub block');
+    expect(next.feedback).toBe('types: x.ts:1 error\nno bothub block');
   });
 
   it('refused with no tries left: asking, the refusal is the question', () => {
@@ -91,7 +91,7 @@ describe('transition, running', () => {
       tries: 0,
       rounds: { review: 2 },
       sessions: { implement: session('s-implement') },
-      carry: 'the review step sent this back: hunk 2 leaks',
+      feedback: 'the review step sent this back: hunk 2 leaks',
     });
   });
 
@@ -103,7 +103,7 @@ describe('transition, running', () => {
   it('back on a step without one: counted as a refusal with a rejected proposal', () => {
     const next = transition(w, at('implement', { tries: 0 }), { kind: 'back', why: 'brief is wrong' });
     expect(next).toMatchObject({ step: 'implement', status: 'running', tries: 1 });
-    expect(next.carry).toBe('back rejected: implement has no way back');
+    expect(next.feedback).toBe('back rejected: implement has no way back');
   });
 
   it('ask: asking, same step, session kept', () => {
@@ -137,7 +137,7 @@ describe('transition, waiting', () => {
       status: 'running',
       rounds: { merge: 6 },
       sessions: { implement: session('s-implement') },
-      carry: 'the merge step sent this back: rename foo',
+      feedback: 'the merge step sent this back: rename foo',
     });
   });
 
@@ -157,7 +157,7 @@ describe('transition, asking', () => {
   it('answer: running again, same session, the answer carried, the spent tries drop by one', () => {
     const asking = transition(w, at('implement', { tries: 3 }), refused);
     const next = transition(w, asking, { kind: 'answer', text: 'use the v2 API' });
-    expect(next).toMatchObject({ step: 'implement', status: 'running', tries: 3, carry: 'use the v2 API' });
+    expect(next).toMatchObject({ step: 'implement', status: 'running', tries: 3, feedback: 'use the v2 API' });
     expect(next.reason).toBeUndefined();
     expect(transition(w, next, refused).status).toBe('asking');
   });

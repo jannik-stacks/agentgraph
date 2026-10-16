@@ -33,7 +33,7 @@ export type Bot = typeof Bot.Type;
 export const Limits = Schema.Struct({
   minutes: Schema.optionalWith(Schema.Number, { default: () => 30 }),
   usdPerRun: Schema.optionalWith(Schema.Number, { default: () => 10 }).pipe(Schema.fromKey('usd-per-run')),
-  working: Schema.optionalWith(Schema.Int, { default: () => 2 }),
+  parallel: Schema.optionalWith(Schema.Int, { default: () => 2 }),
 });
 export type Limits = typeof Limits.Type;
 
@@ -61,7 +61,7 @@ const HubFile = Schema.Struct({
 });
 
 const CheckFile = Schema.Struct({
-  mode: Schema.Literal('log', 'warn', 'block', 'stop'),
+  mode: Schema.Literal('warn', 'block', 'stop'),
   each: exact(Schema.String),
   run: exact(Schema.String),
   judge: exact(Schema.String),
@@ -94,7 +94,7 @@ const gone = {
     summarizer: rest,
     skills: 'a step names its skill',
     budget: 'set limits in hub.yaml',
-    concurrency: 'set limits.working in hub.yaml',
+    concurrency: 'set limits.parallel in hub.yaml',
     'max-turns': 'limits.minutes in hub.yaml ends a session that hangs',
     preload: '',
     loads: '',

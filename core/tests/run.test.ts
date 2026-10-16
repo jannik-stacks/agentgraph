@@ -180,9 +180,9 @@ describe('drive', () => {
     expect(specs[4]!.prompt).toContain('+hello');
 
     const trace = traceOf(where.data, 'run-7');
-    const briefs = trace.flatMap(t => ('brief' in t ? [t.brief] : []));
-    expect(briefs).toEqual(specs);
-    const first = trace.findIndex(t => 'brief' in t && t.step === 'implement');
+    const prompts = trace.flatMap(t => ('prompt' in t ? [t.prompt] : []));
+    expect(prompts).toEqual(specs);
+    const first = trace.findIndex(t => 'prompt' in t && t.step === 'implement');
     expect(trace[first + 1]).toMatchObject({ step: 'implement', event: { type: 'start', session: 'i1' } });
     const replayed = trace.reduce<Partial<Run>>((run, t) => {
       if (!('saved' in t)) return run;
@@ -298,7 +298,7 @@ describe('drive', () => {
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, session);
     await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
     const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
-    expect(text).toContain('"brief"');
+    expect(text).toContain('"prompt"');
     expect(text).toContain('BOTHUB_LLM_API_KEY=***');
     expect(text).not.toContain(key);
   }, 30_000);
@@ -612,7 +612,7 @@ describe('coworker', () => {
   const flow = small.workflows.issue!;
   const begun = () => begin(flow, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' });
 
-  it('briefs a fresh session with the issue, its pull request and its checks', async () => {
+  it('prompts a fresh session with the issue, its pull request and its checks', async () => {
     const where = world();
     pullRequest(where);
     say(where, comment(8, 'ana', true, 'mind the edge case', '2026-10-16T00:00:02.000Z'));

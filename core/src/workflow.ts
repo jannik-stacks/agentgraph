@@ -50,7 +50,7 @@ export type Run = {
   tries: number;
   rounds: Record<string, number>;
   sessions: Record<string, { id: string; home: string; seen?: Seen }>;
-  carry?: string;
+  feedback?: string;
   reason?: string;
   comment?: string;
   said?: { thread: number; under?: string };
@@ -195,7 +195,7 @@ export function load(
 const waits = (step: Step) => 'wait' in step.does;
 const entered = (step: Step): Run['status'] => (waits(step) ? 'waiting' : 'running');
 
-const fresh = ({ carry: _carry, reason: _reason, ...run }: Run): Run => run;
+const fresh = ({ feedback: _feedback, reason: _reason, ...run }: Run): Run => run;
 
 const refusalText = (o: Extract<Outcome, { kind: 'refused' }>) =>
   [
@@ -245,7 +245,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
       status: entered(to),
       tries: 0,
       rounds: { ...run.rounds, [step.name]: taken + 1 },
-      carry: `the ${step.name} step sent this back: ${why}`,
+      feedback: `the ${step.name} step sent this back: ${why}`,
     };
   };
 
@@ -256,7 +256,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
       case 'refused': {
         const tries = run.tries + 1;
         const text = refusalText(o);
-        return tries < step.tries ? { ...fresh(run), tries, carry: text } : { ...ask(text), tries };
+        return tries < step.tries ? { ...fresh(run), tries, feedback: text } : { ...ask(text), tries };
       }
       case 'back':
         if (step.back) return back(o.why);
@@ -287,7 +287,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     const tries = run.tries >= step.tries ? step.tries - 1 : run.tries;
     const outOfRounds = run.tries < step.tries && step.back?.rounds !== undefined && taken >= step.back.rounds;
     const rounds = outOfRounds ? { ...run.rounds, [step.name]: taken - 1 } : run.rounds;
-    return { ...fresh(run), status: entered(step), tries, rounds, carry: o.text };
+    return { ...fresh(run), status: entered(step), tries, rounds, feedback: o.text };
   }
   return run;
 }

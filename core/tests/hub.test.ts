@@ -66,7 +66,7 @@ describe('loadHub', () => {
     const { dir } = fromFixture('acme-app');
     const hub = await Effect.runPromise(loadHub(dir));
     expect(hub.repo).toBe('o/r');
-    expect(hub.limits).toEqual({ minutes: 20, usdPerRun: 10, working: 2 });
+    expect(hub.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2 });
     expect(hub.bots.implementor).toEqual({
       harness: 'opencode',
       tools: [],
@@ -122,14 +122,14 @@ describe('loadHub', () => {
 
   it('reports wrong values, unknown keys, unknown judges and checks without a command or judge', async () => {
     const dir = hubDir({
-      'hub.yaml': 'limits: { working: many }\n',
+      'hub.yaml': 'limits: { parallel: many }\n',
       'bots/a.md': '---\nharness: codex\ncolor: red\n---\n',
       'checks/judged.md': '---\nmode: block\njudge: ghost\n---\n',
       'checks/empty.md': '---\nmode: warn\n---\n',
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { bot: a, checks: [judged, nope] }\n---\n',
     });
     const found = await problems(dir);
-    expect(found.some(p => p.startsWith('hub.yaml: limits.working: '))).toBe(true);
+    expect(found.some(p => p.startsWith('hub.yaml: limits.parallel: '))).toBe(true);
     expect(found.some(p => p.startsWith('bots/a.md: harness: '))).toBe(true);
     expect(found.some(p => p.startsWith('bots/a.md: color: '))).toBe(true);
     expect(found).toContain('checks/judged.md: judge: unknown bot ghost');

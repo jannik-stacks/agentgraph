@@ -32,7 +32,7 @@ const json = (res: import('node:http').ServerResponse, value: unknown, status = 
 /**
  * Serves core's fixture workflows, each with runs replayed through the engine's begin and transition, as
  * `virtual:fixtures`, plus the served hub's workflows when it is in core format. `GET /core/runs` answers that hub's
- * runs in the data dir with their traces, leaving out briefs and agent events; `GET /core/runs/<id>` answers one run
+ * runs in the data dir with their traces, leaving out prompts and session events; `GET /core/runs/<id>` answers one run
  * with every trace line.
  */
 export const fixtures = (): Plugin => ({
@@ -52,7 +52,7 @@ export const fixtures = (): Plugin => ({
           const store = yield* Store;
           const entry = (run: import('../core/src/workflow.ts').Run, all: boolean) =>
             Stream.runCollect(
-              store.read(run.id).pipe(Stream.filter(line => all || !('event' in line || 'brief' in line)))
+              store.read(run.id).pipe(Stream.filter(line => all || !('event' in line || 'prompt' in line)))
             ).pipe(
               Effect.map(trace => ({
                 fixture: `${served.name}/${run.workflow}`,

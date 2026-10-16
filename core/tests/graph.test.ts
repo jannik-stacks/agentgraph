@@ -47,7 +47,7 @@ describe('graphOf', () => {
     expect(implement!.checks[0]).toEqual({ name: 'safety', mode: 'stop', kind: 'script' });
     expect(implement!.checks.find(c => c.name === 'docs-tone')).toEqual({
       name: 'docs-tone',
-      mode: 'log',
+      mode: 'warn',
       kind: 'bot',
     });
     expect(review).toMatchObject({ doer: 'reviewer / review-hunk', each: 'hunks' });

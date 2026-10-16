@@ -193,7 +193,7 @@ const converse = (run: string, step: string, spec: SessionSpec, item?: string) =
         step,
         session: { ...(seen.id !== undefined && { id: seen.id }), resumed: !!spec.resume, ...how, usd: seen.usd },
       });
-    yield* store.trace(run, { at: now(), step, brief: spec, ...(item !== undefined && { item }) });
+    yield* store.trace(run, { at: now(), step, prompt: spec, ...(item !== undefined && { item }) });
     yield* session.open(spec).pipe(
       Stream.runForEach(event => {
         if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
@@ -323,7 +323,7 @@ export const attempt = (
       const thread = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const kinds = [...bot.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
-      const brief = [
+      const prompt = [
         step.does.skill && hub.skills[step.does.skill]?.body,
         w.body,
         context(t),
@@ -331,7 +331,7 @@ export const attempt = (
           `Work on the branch ${expand(w.branch, thread)}; pull requests go into ${thread.pull?.into ?? expand(w.into ?? 'main', thread)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         `People may comment while you work: ${newsFile} holds what is new, refreshed every minute. Read it before you finish.`,
-        run.carry,
+        run.feedback,
         [
           'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
           'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
@@ -355,10 +355,10 @@ export const attempt = (
             ...(bot.model !== undefined && { model: bot.model }),
             system: bot.body,
             prompt: kept
-              ? [run.carry ?? 'Continue.', caught.text].filter(Boolean).join('\n\n')
+              ? [run.feedback ?? 'Continue.', caught.text].filter(Boolean).join('\n\n')
               : item === undefined
-                ? brief
-                : `${brief}\n\n## Item\n\n${item}`,
+                ? prompt
+                : `${prompt}\n\n## Item\n\n${item}`,
             dir: work.dir,
             tools: bot.tools,
             ...(kept && { resume: kept }),
@@ -554,7 +554,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 
 /**
- * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.working`. What is said on the pull
+ * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`. What is said on the pull
  * request a run opened counts as said on the run's thread. With `only`, it looks at
  * that thread alone and begins a run there when none was live, command or not; with `fresh` too, only when the thread
  * never had a run.
@@ -689,7 +689,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
         drive(hub.workflows[r.workflow]!, r, hub).pipe(
           Effect.catchAll(e => Effect.as(Effect.logError(`run ${r.id}`, e), r))
         ),
-      { concurrency: hub.limits.working }
+      { concurrency: hub.limits.parallel }
     );
     return [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
   });

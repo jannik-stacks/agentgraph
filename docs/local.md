@@ -9,7 +9,7 @@ You need Node 22.18 or later, and Docker for the sandbox. Commands run from the 
 ```sh
 node core/bin/run.ts check --hub examples/sandbox
 node core/bin/run.ts --hub examples/sandbox --issue 3 --data /tmp/bothub-data
-node core/bin/run.ts --hub examples/sandbox --issue all --data /tmp/bothub-data
+node core/bin/run.ts --hub examples/sandbox --all --data /tmp/bothub-data
 node core/bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 ```
 
@@ -17,13 +17,13 @@ node core/bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 - `--issue <n>` looks at one issue once. It continues a run that is waiting when a human has
   answered, begins a run when none is live, and drives it until it waits or ends. It prints one
   line per run: id, step, status and the reason.
-- `--issue all` does the same for every open issue that has never had a run.
+- `--all` does the same for every open issue that has never had a run.
 - `status` lists what waits on a human, with the command that continues each run. It needs
   `BOTHUB_APP_ENV`.
 
 Besides the flags, the runner reads `BOTHUB_REPO` (the repo), `BOTHUB_APP_ENV` (the GitHub App env
 file) and `BOTHUB_PROXY_KEYS` (the agents' model keys, see [Sandbox](sandbox.md)). Started without
-`--issue`, `core/src/main.ts` looks at the repo every `BOTHUB_EVERY` minutes, 5 by default.
+`--issue` or `--all`, `core/src/main.ts` looks at the repo every `BOTHUB_EVERY` minutes, 5 by default.
 
 ## The studio
 

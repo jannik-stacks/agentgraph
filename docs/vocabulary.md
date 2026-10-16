@@ -50,10 +50,7 @@ The docs say each key as the code reads it today. Each one becomes the word on t
 | check `judge:`              | `agent:`                     |
 | proposal `reply`            | `comment`                    |
 | proposal `pull`, `into`     | `pull_request`, `base`       |
-| `limits.working`            | `limits.parallel`            |
-| `--issue all`               | `--all`                      |
-| check mode `log`            | dropped, `warn` does the same |
-| run field `thread`, `carry` | `issue`, `feedback`          |
+| run field `thread`          | `issue`                      |
 | status `asking`             | `waiting`                    |
 
 ## Old words
