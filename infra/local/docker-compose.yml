@@ -41,7 +41,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
-    networks: [db, egress, sandbox]
+    networks: [db, egress, sandbox, models]
     restart: unless-stopped
 
   postgres:
@@ -106,6 +106,10 @@ networks:
   egress: {}
   sandbox:
     name: bothub-sandbox
+    internal: true
+  # For hubs with network: models. The model proxy is the only thing on it.
+  models:
+    name: bothub-models
     internal: true
 
 volumes:

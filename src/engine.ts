@@ -640,7 +640,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const ref = issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue);
       const work = yield* Effect.flatMap(Sandbox, s =>
-        s.checkout(ref, w.branch && expand(w.branch, issue), `refs/bothub/runs/${run.id}`)
+        s.checkout(ref, w.branch && expand(w.branch, issue), `refs/bothub/runs/${run.id}`, hub)
       );
       if (hub.setup) {
         const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');

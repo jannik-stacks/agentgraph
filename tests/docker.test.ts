@@ -180,6 +180,20 @@ describe('docker with a stand-in docker client', () => {
     expect(binds[3]).toMatch(new RegExp(`^type=bind,src=${data}/news/(\\w+),dst=${data}/news/\\1,readonly$`));
   });
 
+  it('runs every command of a checkout in its hub image and, with network models, on the proxy-only network', async () => {
+    const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { image: 'acme-rust:1', network: 'models' });
+        yield* s.exec(command(work.dir, { network: 'proxy' }));
+        return logged();
+      })
+    );
+    const args = Exit.isSuccess(exit) ? exit.value : [];
+    expect(args[args.indexOf('--network') + 1]).toBe('bothub-models');
+    expect(args.join('\n')).not.toContain('HTTPS_PROXY');
+    expect(args.slice(-6, -4)).toEqual(['acme-rust:1', 'sh']);
+  });
+
   it('refuses to mount a docker socket', async () => {
     const exit = await use(layer, s => s.exec(command('/var/run/docker.sock')));
     expect(JSON.stringify(exit)).toContain('mount not allowed');

@@ -147,6 +147,14 @@ describe('loadHub', () => {
     expect(found).toContain('workflows/w.md: steps.x.checks: unknown check nope');
   });
 
+  it('reads the image and network every command of a run gets, and refuses an image that reads as a flag', async () => {
+    const hub = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'image: acme-rust:1\nnetwork: models\n' })));
+    expect([hub.image, hub.network]).toEqual(['acme-rust:1', 'models']);
+    const found = await problems(hubDir({ 'hub.yaml': 'image: --privileged\nnetwork: open\n' }));
+    expect(found.some(p => p.startsWith('hub.yaml: image: '))).toBe(true);
+    expect(found.some(p => p.startsWith('hub.yaml: network: '))).toBe(true);
+  });
+
   it('reports broken frontmatter and a skill defined twice', async () => {
     const dir = hubDir({
       'agents/a.md': '---\nharness: [claude\n---\n',

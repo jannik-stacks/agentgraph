@@ -4,9 +4,11 @@ import { copyFile, mkdir, readFile, realpath, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
+import type { Hub } from './hub.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
-const network = 'bothub-sandbox';
+/** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
+const networks = { egress: 'bothub-sandbox', models: 'bothub-models' } as const;
 const egress = 'http://egress:8888';
 const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
 const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub' };
@@ -44,11 +46,15 @@ const user = () => {
   return id;
 };
 
+/** What the host recorded for a checkout: its git mounts and the hub's container settings. */
+type Made = { mounts: Mount[] } & Pick<Hub, 'image' | 'network'>;
+
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
- * the only routes out are the model proxy and the egress allowlist; with `none` there is no network.
+ * the only routes out are the model proxy and, unless the hub's network is `models`, the egress allowlist; with
+ * `none` there is no network.
  */
-const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) => [
+const dockerArgs = (c: Command, image: string, name: string, { mounts, network = 'egress' }: Made) => [
   'run',
   '--rm',
   '--init',
@@ -57,7 +63,7 @@ const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) =>
   '--name',
   name,
   '--network',
-  c.network === 'proxy' ? network : 'none',
+  c.network === 'proxy' ? networks[network] : 'none',
   '--read-only',
   '--tmpfs',
   `${inside.tmp}:rw,exec,nosuid,nodev,size=1g`,
@@ -86,14 +92,15 @@ const dockerArgs = (c: Command, image: string, name: string, mounts: Mount[]) =>
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'safe.directory',
     GIT_CONFIG_VALUE_0: '*',
-    ...(c.network === 'proxy' && {
-      HTTPS_PROXY: egress,
-      HTTP_PROXY: egress,
-      https_proxy: egress,
-      http_proxy: egress,
-      NO_PROXY: direct,
-      no_proxy: direct,
-    }),
+    ...(c.network === 'proxy' &&
+      network === 'egress' && {
+        HTTPS_PROXY: egress,
+        HTTP_PROXY: egress,
+        https_proxy: egress,
+        http_proxy: egress,
+        NO_PROXY: direct,
+        no_proxy: direct,
+      }),
     ...c.env,
     ...(c.hub && { BOTHUB_HUB: inside.hub }),
   }).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
@@ -172,11 +179,11 @@ export const docker = (o: {
       const image = o.image ?? 'bothub-sandbox:local';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
-      /** The git mounts of each live checkout, recorded by the host when it made the worktree. */
-      const mounts = new Map<string, Mount[]>();
+      /** Each live checkout as the host made it. */
+      const made = new Map<string, Made>();
       const inMirror = (args: string[], env: Record<string, string> = {}) =>
         Effect.map(hostGit({ GIT_DIR: mirror, ...env }, args), out => out.toString('utf8').trim());
-      const ready = yield* Effect.cached(
+      const ready = yield* Effect.cachedFunction((network: string) =>
         run('docker', ['network', 'inspect', '--format', '{{.Internal}}', network]).pipe(
           Effect.filterOrFail(
             internal => internal === 'true',
@@ -187,10 +194,11 @@ export const docker = (o: {
 
       const prepare = (c: Command) =>
         Effect.gen(function* () {
-          if (c.network === 'proxy') yield* ready;
+          const box = made.get(c.dir) ?? { mounts: [] };
+          if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
           const name = `bothub-${randomBytes(6).toString('hex')}`;
           const args = yield* Effect.try({
-            try: () => dockerArgs(c, image, name, mounts.get(c.dir) ?? []),
+            try: () => dockerArgs(c, box.image ?? image, name, box),
             catch: e => e as SandboxError,
           });
           return { name, args };
@@ -231,7 +239,7 @@ export const docker = (o: {
           return { code, output } satisfies Exit;
         });
 
-      const checkout = (ref: string, branch?: string, keep?: string) =>
+      const checkout = (ref: string, branch?: string, keep?: string, hub: Pick<Hub, 'image' | 'network'> = {}) =>
         Effect.gen(function* () {
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
@@ -290,14 +298,18 @@ export const docker = (o: {
               catch: e => infra((e as Error).message),
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
-            mounts.set(dir, [
-              { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
-              { src: admin, dst: admin },
-              { src: news, dst: news, readonly: true },
-            ]);
+            made.set(dir, {
+              ...(hub.image !== undefined && { image: hub.image }),
+              ...(hub.network !== undefined && { network: hub.network }),
+              mounts: [
+                { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
+                { src: admin, dst: admin },
+                { src: news, dst: news, readonly: true },
+              ],
+            });
           });
           const remove = Effect.promise(() => {
-            mounts.delete(dir);
+            made.delete(dir);
             return Promise.all(
               [dir, index, news, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true }))
             );

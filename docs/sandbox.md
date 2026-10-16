@@ -30,9 +30,31 @@ That allows `npm install` from the npm registry and cloning or downloading from 
 
 Scripts and checks run with no network at all.
 
+With `network: models` in `hub.yaml`, sessions and setup join `bothub-models` instead. Only the model proxy is on that network, so nothing else can be reached, not even the npm registry. Dependencies then come from the hub's image. The local compose stack creates the network and puts the proxy on it.
+
 `setup` in `hub.yaml` is a shell script that runs once in each new checkout, before the first step. Use it to install dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. A setup that fails stops the run.
 
 The image is built from `infra/local/sandbox`. `smoke.sh` there checks it the way a run uses it.
+
+## A hub's own image
+
+`image` in `hub.yaml` names a local image that every command of a run starts in: sessions, setup, scripts and checks. bothub never builds or pulls it. Build it beforehand from the sandbox image, so the harnesses are already in it, and add what the repo needs, such as a toolchain or installed dependencies:
+
+```dockerfile
+FROM bothub-sandbox:local
+USER root
+COPY package.json package-lock.json /
+RUN npm ci --no-audit --no-fund && npm cache clean --force
+ENV PATH=/node_modules/.bin:$PATH
+USER node
+```
+
+Node looks for packages in every parent folder, so `/node_modules` from the image serves the checkout at `/work` with no install. The dependencies are the ones locked when the image was built, and a pull request that changes them does not change the image.
+
+```yaml
+image: acme-node:bothub
+network: models
+```
 
 Tests use a host sandbox that runs commands directly in a clone, with no network rules (`code: src/sandbox.ts#host`).
 

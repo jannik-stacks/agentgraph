@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { Context, Data, Effect, Layer, Redacted, Stream, type Scope } from 'effect';
+import type { Hub } from './hub.ts';
 
 /** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given. */
 export type Command = {
@@ -42,12 +43,18 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 /**
  * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
  * checkout starts from the files last kept under that ref, on the run branch when it exists, else on their base.
- * It keeps its own files there as one local commit when its scope closes.
+ * It keeps its own files there as one local commit when its scope closes. Every command in a checkout runs in the
+ * `image` and on the `network` of the `hub` it was made for.
  */
 export class Sandbox extends Context.Tag('bothub/Sandbox')<
   Sandbox,
   {
-    checkout: (ref: string, branch?: string, keep?: string) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
+    checkout: (
+      ref: string,
+      branch?: string,
+      keep?: string,
+      hub?: Pick<Hub, 'image' | 'network'>
+    ) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string, SandboxError, Scope.Scope>;
   }
