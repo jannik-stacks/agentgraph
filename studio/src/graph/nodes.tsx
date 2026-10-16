@@ -12,6 +12,7 @@ import { useSetAtom } from 'jotai';
 import type { ReactNode } from 'react';
 import type { Graph } from '../../../src/graph.ts';
 import type { Run } from '../../../src/workflow.ts';
+import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
 import { accent, cx, Tooltip } from '../ui.tsx';
 import { backIn, backOut, liftOf, stepSize } from './layout.ts';
@@ -103,15 +104,6 @@ const Chip = ({ tip, className, children }: { tip: string; className?: string; c
   </Tooltip>
 );
 
-const statusTip = (o: Overlay) =>
-  o.status === 'waiting' && o.reason !== undefined
-    ? `Asked: ${o.reason}\nWaits for an answer: comment on the issue with the bot's command. Saying stop ends the run.`
-    : o.status === 'waiting'
-      ? 'Waits for a human, not the bot. Merge or approve the pull request to go on; comment or request changes to send it back.'
-      : o.status === 'stopped'
-        ? `Ended early${o.reason ? `: ${o.reason}` : ''}.`
-        : 'The agent is working on this step now.';
-
 const statusLine = (node: GraphNode, o: Overlay) =>
   o.status === 'waiting' && o.reason !== undefined
     ? 'asking you'
@@ -172,7 +164,19 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
         <span className="truncate text-[13px] font-semibold">{node.step}</span>
       </div>
       {status ? (
-        <Tooltip tip={here ? statusTip(overlay) : 'Working on this step now.'} className="block">
+        <Tooltip
+          tip={
+            overlay?.status
+              ? statusTip({
+                  status: overlay.status,
+                  step: node.step,
+                  tries: node.run?.tries ?? 0,
+                  ...(overlay.reason !== undefined && { reason: overlay.reason }),
+                })
+              : `${status}. Click the step for its runs; hover a run's status for what it waits for.`
+          }
+          className="block"
+        >
           <div className="truncate text-sky-600 dark:text-sky-400">
             {status}
             {overlay?.reason && overlay.status !== 'waiting' && (

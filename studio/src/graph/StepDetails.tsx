@@ -148,7 +148,7 @@ export const StepDetails = ({
       {lines && (
         <Section title="In the picked run">
           {lines.length ? (
-            <Rows rows={lines.map(lineRow)} />
+            <Rows rows={lines.map(line => lineRow(line))} />
           ) : (
             <p className="text-zinc-500">The run has not been here.</p>
           )}

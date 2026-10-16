@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue } from 'jotai';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
 import { storyOfRun, WorkflowGraph } from '../graph/GraphPage.tsx';
 import { trailOf } from '../graph/visits.ts';
@@ -47,25 +47,30 @@ const RunList = () => {
   );
 };
 
-const graphKey = 'bothub.runGraph';
-const readOpen = () => {
-  try {
-    return localStorage.getItem(graphKey) !== 'closed';
-  } catch {
-    return true;
-  }
-};
-const saveOpen = (open: boolean) => {
-  try {
-    localStorage.setItem(graphKey, open ? 'open' : 'closed');
-  } catch {
-    // Without storage the section opens by default next time.
-  }
+/** A yes or no the reader set, kept in local storage under `key` when the browser allows it. */
+const useStored = (key: string, fallback: boolean) => {
+  const [value, setValue] = useState(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved === null ? fallback : saved === 'open';
+    } catch {
+      return fallback;
+    }
+  });
+  const set = (next: boolean) => {
+    setValue(next);
+    try {
+      localStorage.setItem(key, next ? 'open' : 'closed');
+    } catch {
+      // Without storage the default comes back next time.
+    }
+  };
+  return [value, set] as const;
 };
 
 /** The run drawn over its workflow, folded or open as the reader last left it, and resizable from its corner. */
 const RunGraph = ({ r }: { r: CoreRun }) => {
-  const [open, setOpen] = useState(readOpen);
+  const [open, setOpen] = useStored('bothub.runGraph', true);
   const fixture = fixtures.find(f => f.id === r.fixture);
   const picked = useMemo(
     () => fixture && { fixture, run: r.run, trail: trailOf(r.run, r.trace), trace: r.trace },
@@ -75,10 +80,7 @@ const RunGraph = ({ r }: { r: CoreRun }) => {
   return (
     <Disclosure
       open={open}
-      onToggle={next => {
-        setOpen(next);
-        saveOpen(next);
-      }}
+      onToggle={setOpen}
       summary={
         <span className="min-w-0 truncate text-xs text-zinc-500">
           <span className="font-medium text-zinc-900 dark:text-zinc-100">Graph</span> {storyOfRun(picked)}
@@ -95,12 +97,25 @@ const RunGraph = ({ r }: { r: CoreRun }) => {
 const RunPage = ({ id }: { id: string }) => {
   const one = useMemo(() => live<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`), [id]);
   const { value: r, failure } = useAtomValue(one);
+  const [expand, setExpand] = useStored('bothub.expandSessions', true);
+  const end = useRef<HTMLDivElement>(null);
+  const following = expand && r?.run.status === 'running';
+  useEffect(() => {
+    if (!following) return;
+    for (const box of document.querySelectorAll('[data-scroll]')) box.scrollTop = box.scrollHeight;
+    end.current?.scrollIntoView({ block: 'end' });
+  }, [following, r]);
   if (r === undefined) return <Muted>{failure ?? 'Loading the run.'}</Muted>;
   if (r === null) return <Muted>No run {id} in this data dir.</Muted>;
   return (
     <>
       <RunGraph r={r} />
-      <Rows rows={[runRow(r, true)]} />
+      <label className="flex w-fit items-center gap-1.5 text-xs text-zinc-500">
+        <input type="checkbox" checked={expand} onChange={e => setExpand(e.target.checked)} />
+        Open every session{r.run.status === 'running' && ' and follow the newest events'}
+      </label>
+      <Rows rows={[runRow(r, true, expand)]} />
+      <div ref={end} />
     </>
   );
 };
