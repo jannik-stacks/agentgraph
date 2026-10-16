@@ -15,11 +15,9 @@ and in Kubernetes:
 | Variable | What |
 |---|---|
 | `BOTHUB_APP_ID` | the App id |
-| `BOTHUB_APP_SLUG` | the App slug; `@<slug>` in a comment works like `/bothub` |
 | `BOTHUB_APP_KEY_FILE` | path to the private key (PEM, as GitHub hands it out) |
-| `BOTHUB_INSTALLATION_ID` | the installation on the repository |
 
-Locally they go in `~/.bothub/.env` (or `$BOTHUB_DATA/.env`) or the shell. In Kubernetes, put the
+Locally they go in the env file `BOTHUB_APP_ENV` names, or the shell. In Kubernetes, put the
 key in a Secret mounted as a file into the runner only, and set the variables on the runner:
 
 ```sh
@@ -32,8 +30,8 @@ Keys never live in a repository and never appear in logs.
 ## Create the App
 
 ```sh
-bothub setup-app                      # the App belongs to your account
-bothub setup-app --org acme       # the App belongs to the organization
+node core/bin/setup-app.ts                    # the App belongs to your account
+node core/bin/setup-app.ts --org acme     # the App belongs to the organization
 ```
 
 1. The command prints `http://127.0.0.1:5189/`; open it in the browser where you are signed in. The
@@ -43,7 +41,7 @@ bothub setup-app --org acme       # the App belongs to the organization
 3. GitHub sends you back; the command saves `~/.config/bothub/<slug>/key.pem` and `app.env`, both
    readable only by you, and forwards you to the install page.
 4. On the install page, pick **Only select repositories**, choose the one repository, click
-   **Install**. The command adds `BOTHUB_INSTALLATION_ID` to `app.env` and exits.
+   **Install**. bothub finds the installation from the repo, so `app.env` needs nothing more.
 
 Who must approve the install:
 
@@ -53,10 +51,9 @@ Who must approve the install:
 | the organization | the organization | an organization owner installs it, or anyone with admin on the repository can request it |
 | your account | an organization | a repository admin can only request it; an organization owner approves under the organization's settings, GitHub Apps, pending requests |
 
-When the install was only requested, the command says so and exits; once an owner approves, the
-installation id is the number at the end of the installation's settings URL. Add it to `app.env`.
+When the install was only requested, bothub works once an owner approves it.
 
-Then copy the lines of `app.env` into `~/.bothub/.env`.
+Then point `BOTHUB_APP_ENV` at the `app.env` the command printed.
 
 ## Webhooks later
 
