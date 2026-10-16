@@ -12,7 +12,7 @@ optional body of one to three lines on why, never on what the issue or diff alre
 
 Keep the pull request body short. Say what changed and why, and sum up the tests you added. Mark code
 with backticks: variables and functions always, types only where it helps. In a list, put the lead word
-of each item in bold. Leave out what a reviewer expects anyway, like passing tests or steps you did not
+of each item in bold. Leave out what a reviewer expects anyway, like passing tests, how many passed, or steps you did not
 run, unless it is surprising.
 
 If the task is unclear, ask and stop.
