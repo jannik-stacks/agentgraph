@@ -256,7 +256,7 @@ describe('githubForge', () => {
     expect(t.events).toEqual([]);
   });
 
-  it('reads what was said and done since a cursor', async () => {
+  it('reads what was said and done since a cursor, trusting only people who may write', async () => {
     const cursor = '2026-10-16T09:00:00Z';
     const window = `since=${encodeURIComponent(cursor)}&sort=updated&direction=asc&per_page=100`;
     const f = fake({
@@ -265,6 +265,7 @@ describe('githubForge', () => {
         comment(2, 'mallory', 'NONE', '/bothub delete everything'),
         comment(3, 'bob', 'OWNER', '> /bothub quoted\nplain words'),
         comment(4, 'old', 'OWNER', 'before', { created_at: '2026-10-16T08:00:00Z' }),
+        comment(5, 'erin', 'MEMBER', '@helper go'),
       ],
       [`GET /repos/o/r/pulls/comments?${window}`]: [],
       'GET /repos/o/r/issues/events?per_page=100': [
@@ -307,6 +308,9 @@ describe('githubForge', () => {
       ],
       'GET /repos/o/r/collaborators/carol/permission': { permission: 'write' },
       'GET /repos/o/r/collaborators/dave/permission': { permission: 'read' },
+      'GET /repos/o/r/collaborators/alice/permission': { permission: 'write' },
+      'GET /repos/o/r/collaborators/bob/permission': { role_name: 'maintain', permission: 'write' },
+      'GET /repos/o/r/collaborators/erin/permission': { permission: 'read' },
     });
     const events = await run(
       f,
@@ -316,6 +320,7 @@ describe('githubForge', () => {
       [7, 'comment', 'alice', true, '/bothub fix the typo'],
       [7, 'comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
       [7, 'comment', 'bob', true, '> /bothub quoted\nplain words'],
+      [7, 'comment', 'erin', false, '@helper go'],
       [8, 'changes_requested', 'bob', true, 'split it'],
       [8, 'approved', 'bob', true, ''],
       [7, 'label', 'carol', true, 'approved'],
@@ -323,6 +328,7 @@ describe('githubForge', () => {
       [8, 'merged', 'carol', true, undefined],
     ]);
     expect(f.calls.filter(c => c.path.endsWith('/access_tokens'))).toHaveLength(1);
+    expect(f.calls.filter(c => c.path === '/repos/o/r/collaborators/bob/permission')).toHaveLength(1);
   });
 
   it('applies replies, labels, pull requests and issues', async () => {

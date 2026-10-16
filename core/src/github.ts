@@ -438,6 +438,15 @@ export const githubForge = (
             Effect.map(found => [found?.role_name, found?.permission].some(r => r !== undefined && writers.has(r)))
           );
 
+    /** `permitted`, asked once per login for the life of the returned function. */
+    const writer = () => {
+      const asked = new Map<string, boolean>();
+      return (user: User) =>
+        asked.has(login(user))
+          ? Effect.succeed(asked.get(login(user))!)
+          : Effect.tap(permitted(user), ok => asked.set(login(user), ok));
+    };
+
     const since: Forge['Type']['since'] = cursor =>
       Stream.fromIterableEffect(
         Effect.gen(function* () {
@@ -478,6 +487,8 @@ export const githubForge = (
                 : undefined;
             if (m) found.push(m);
           }
+          const may = writer();
+          for (const m of found) if (m.trusted && m.comment) m.trusted = yield* may({ login: m.actor });
           for (const m of found)
             if (m.trusted && m.comment) m.comment = { ...m.comment, body: commanded(m.comment.body, self) };
           return found.sort((a, b) => a.at.localeCompare(b.at));
