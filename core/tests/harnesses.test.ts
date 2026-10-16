@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { type SessionEvent, Session, type SessionSpec } from '../src/session.ts';
-import { todo } from '../src/todo.ts';
 
 const sample = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8').split('\n');
 
@@ -28,8 +27,8 @@ const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError,
   const data = mkdtempSync(join(tmpdir(), 'core-harness-'));
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
-    checkout: () => todo('checkout'),
-    exec: () => todo('exec'),
+    checkout: () => Effect.die('checkout'),
+    exec: () => Effect.die('exec'),
     lines: command => {
       commands.push(command);
       const out = Stream.fromIterable([...lines, '', `bothub-exit ${exit}`]);
