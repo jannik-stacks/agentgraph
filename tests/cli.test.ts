@@ -272,3 +272,32 @@ describe('op commands', () => {
     }
   });
 });
+
+const hub = (bots: Record<string, string>) => {
+  const dir = temp('check');
+  mkdirSync(join(dir, 'bots'));
+  for (const [name, front] of Object.entries(bots))
+    writeFileSync(join(dir, 'bots', `${name}.md`), `---\n${front}\n---\nYou help.\n`);
+  return dir;
+};
+
+describe('bothub check', () => {
+  it('rejects tool names the harness does not know, such as capitalised ones', async () => {
+    const dir = hub({ shouty: 'harness: opencode\ntools: [Read, Bash]\nreturns: [reply]' });
+    const io = capture();
+    expect(await main(['check', '--dir', dir, '--json'])).toBe(2);
+    const { errors } = JSON.parse(io.out.join('')) as { errors: { path: string; message: string }[] };
+    expect(errors.map(e => e.message)).toEqual([
+      expect.stringMatching(/^lists tool "Read", which opencode does not have/),
+      expect.stringMatching(/^lists tool "Bash", which opencode does not have/),
+    ]);
+  });
+
+  it('warns on stderr that pi gets no hub tools, and still passes', async () => {
+    const dir = hub({ quiet: 'harness: pi\ntools: [read, notes_search]\nreturns: [reply]' });
+    const io = capture();
+    expect(await main(['check', '--dir', dir, '--no-json'])).toBe(0);
+    const warnings = io.err.join('');
+    expect(warnings).toMatch(/^warning: bots\/quiet\.md: lists hub tools \(notes_search\) that pi runs do not get/m);
+  });
+});

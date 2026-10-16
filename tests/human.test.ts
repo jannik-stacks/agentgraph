@@ -13,7 +13,8 @@ import { limiter, unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { fakeHarness, sourceRepo, temp } from './kit.ts';
+import { fakeHarness } from './fake-harness.ts';
+import { sourceRepo, temp } from './kit.ts';
 
 const marker = 'HUMAN-MARKER-7f3a';
 const map = (kind: string) => `human: { source: "${marker} ${kind}", other: "${marker} extra" }`;

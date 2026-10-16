@@ -11,7 +11,8 @@ import { openStore } from '../src/store.ts';
 import { workspaces } from '../src/workspace.ts';
 import type { JobResult } from '../src/pipeline.ts';
 import type { AgentEvent, BotEvent } from '../src/types.ts';
-import { bareOrigin, commit, fakeHarness, sourceRepo, temp } from './kit.ts';
+import { fakeHarness } from './fake-harness.ts';
+import { bareOrigin, commit, sourceRepo, temp } from './kit.ts';
 
 const files: Record<string, string> = {
   'hub.yaml': 'issues: local\n',

@@ -10,7 +10,8 @@ import { limiter, unsandboxed } from '../src/runner.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { commit, fakeHarness, git, sourceRepo, temp } from './kit.ts';
+import { fakeHarness } from './fake-harness.ts';
+import { commit, git, sourceRepo, temp } from './kit.ts';
 
 const md = (path: string, frontmatter: string, body = '') => ({ path, source: `---\n${frontmatter}\n---\n\n${body}` });
 const script = join(import.meta.dirname, '../examples/acme-app/scripts/merge-next.mjs');

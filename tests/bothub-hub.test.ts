@@ -2,7 +2,7 @@ import { chmodSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, temp, write } from './kit.ts';
-import { Proposal } from '../src/outputs.ts';
+import type { Proposal } from '../core/src/forge.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');
@@ -862,9 +862,9 @@ describe('triage-brief', () => {
   });
 
   it('tells the triager only the fields the ask schema accepts', () => {
-    const ask = Proposal.options.find(option => option.shape.kind.value === 'ask')!;
+    const ask: Record<Exclude<keyof Extract<Proposal, { kind: 'ask' }>, 'kind'>, true> = { question: true };
     const skill = readFileSync(join(scripts, '../skills/triage.md'), 'utf8').replace(/\s+/g, ' ');
-    const fields = Object.keys(ask.shape).filter(key => key !== 'kind');
+    const fields = Object.keys(ask);
     expect(skill).toContain(`\`ask\` has only a ${fields.map(f => `\`${f}\``).join(', ')};`);
     expect(skill).not.toMatch(/its title is/i);
   });

@@ -11,7 +11,8 @@ import { compiledHub, handleEvent, type Hub } from '../src/serve.ts';
 import { openStore } from '../src/store.ts';
 import type { BotEvent, RunSpec } from '../src/types.ts';
 import { workspaces } from '../src/workspace.ts';
-import { bareOrigin, fakeHarness, git, temp, write } from './kit.ts';
+import { fakeHarness } from './fake-harness.ts';
+import { bareOrigin, git, temp, write } from './kit.ts';
 
 const block = (proposals: unknown[]) => ['Done.', '```bothub', JSON.stringify(proposals), '```'].join('\n');
 
