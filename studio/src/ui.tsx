@@ -5,7 +5,6 @@ import {
   type ReactElement,
   type ReactNode,
   useEffect,
-  useEffectEvent,
   useId,
   useRef,
   useState,
@@ -41,13 +40,8 @@ export const Link = ({ href, onClick, ...props }: ComponentProps<'a'>) => {
   );
 };
 
-export const Badge = ({ on = false, children }: { on?: boolean; children: ReactNode }) => (
-  <span
-    className={cx(
-      'inline-block rounded border px-1.5 text-[10px] leading-4 font-medium',
-      on ? cx(accent.border, accent.text) : 'border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300'
-    )}
-  >
+export const Badge = ({ children }: { children: ReactNode }) => (
+  <span className="inline-block rounded border border-zinc-200 px-1.5 text-[10px] leading-4 font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
     {children}
   </span>
 );
@@ -121,17 +115,9 @@ export const Disclosure = ({
   );
 };
 
-export const field =
-  'rounded border border-zinc-300 bg-white px-2 py-1 text-[13px] outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900';
-
 const buttons = {
-  default:
-    'rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-400',
-  primary:
-    'rounded bg-zinc-800 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-zinc-300',
   small:
     'rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] whitespace-nowrap text-zinc-600 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-400',
-  ghost: 'rounded p-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200',
   quiet:
     'inline-flex size-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:text-zinc-900 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:text-zinc-100',
 };
@@ -214,7 +200,7 @@ export const Tooltip = ({
 };
 
 export const Button = ({
-  variant = 'default',
+  variant = 'small',
   className,
   ...props
 }: ComponentProps<'button'> & { variant?: keyof typeof buttons }) => (
@@ -230,46 +216,6 @@ export const IconButton = ({ tip, variant = 'small', ...props }: ComponentProps<
   <Tooltip action={tip}>
     <Button variant={variant} aria-label={tip} {...props} />
   </Tooltip>
-);
-
-/** A row of mutually exclusive options as pressed buttons. */
-export const Segmented = <T extends string>({
-  options,
-  value,
-  onChange,
-  label = String,
-  className = 'text-xs',
-  'aria-label': ariaLabel,
-}: {
-  options: readonly T[];
-  value: T | null | undefined;
-  onChange: (option: T) => void;
-  label?: (option: T) => ReactNode;
-  className?: string;
-  'aria-label'?: string;
-}) => (
-  <div
-    role="group"
-    aria-label={ariaLabel}
-    className={cx('inline-flex flex-wrap gap-0.5 rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-900', className)}
-  >
-    {options.map(option => (
-      <button
-        key={option}
-        type="button"
-        aria-pressed={option === value}
-        className={cx(
-          'rounded px-2 py-0.5',
-          option === value
-            ? 'bg-white font-medium text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-white'
-            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
-        )}
-        onClick={() => onChange(option)}
-      >
-        {label(option)}
-      </button>
-    ))}
-  </div>
 );
 
 /** A labelled native select with its chevron spaced from the text. */
@@ -304,20 +250,3 @@ export const Select = ({
     </span>
   </label>
 );
-
-/** Calls `poll` every `ms` while the tab is visible, and again whenever it becomes visible. `null` pauses it. */
-export const usePolling = (poll: () => void, ms: number | null) => {
-  const tick = useEffectEvent(poll);
-  useEffect(() => {
-    if (ms === null) return;
-    const run = () => {
-      if (!document.hidden) tick();
-    };
-    const timer = setInterval(run, ms);
-    document.addEventListener('visibilitychange', run);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', run);
-    };
-  }, [ms]);
-};

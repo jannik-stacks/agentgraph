@@ -30,12 +30,7 @@ describe('Markdown in the studio', () => {
     expect(html).toMatch(/<a href="https:\/\/example.com" target="_blank" rel="noreferrer">docs<\/a>/);
   });
 
-  it('renders GitHub tables and lets a caller turn code spans into links', () => {
-    const html = render({
-      text: '| a | b |\n| - | - |\n| `x` | 2 |',
-      code: (text: string) => React.createElement('a', { href: `#${text}` }, text),
-    });
-    expect(html).toContain('<table>');
-    expect(html).toContain('<a href="#x">x</a>');
+  it('renders GitHub tables', () => {
+    expect(render({ text: '| a | b |\n| - | - |\n| `x` | 2 |' })).toContain('<table>');
   });
 });

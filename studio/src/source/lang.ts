@@ -26,9 +26,6 @@ const byExtension: Record<string, string> = {
   socket: 'ini',
 };
 
-/** Every shiki language `langOf` can return, besides `text`. */
-export const languages = [...new Set([...Object.values(byExtension), 'dockerfile', 'dotenv'])];
-
 /** The shiki language for a file path, or `text`. */
 export const langOf = (path: string) => {
   const name = path.split('/').pop() ?? path;

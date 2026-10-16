@@ -7,7 +7,6 @@ import {
   type ReactNode,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -41,7 +40,7 @@ const CopyCode = ({ code }: { code: string }) => {
 };
 
 /**
- * A code block, colored in place once shiki has loaded. `actions` sit beside the copy button. With `lines`, a longer
+ * A code block, colored in place once shiki has loaded. With `lines`, a longer
  * block shows only that many lines and fades out over a button to the rest. `compact` sets it smaller for tool calls;
  * `wrap` breaks long lines instead of scrolling.
  */
@@ -49,7 +48,6 @@ export const Code = memo(function Code({
   code,
   lang = 'text',
   className,
-  actions,
   lines,
   compact = false,
   wrap = false,
@@ -57,7 +55,6 @@ export const Code = memo(function Code({
   code: string;
   lang?: string | undefined;
   className?: string | undefined;
-  actions?: ReactNode;
   lines?: number | undefined;
   compact?: boolean;
   wrap?: boolean;
@@ -77,7 +74,6 @@ export const Code = memo(function Code({
   return (
     <div className={cx('relative my-1.5', codeSurface, className)}>
       <div className="absolute top-1 right-1 z-2 flex items-center gap-0.5 rounded bg-(--bhm-code-bg)">
-        {actions}
         {more && (
           <IconButton
             tip={open ? 'Show fewer lines' : 'Show every line'}
@@ -118,55 +114,19 @@ export const Code = memo(function Code({
 
 type CodeElement = ReactElement<{ className?: string; children?: ReactNode }>;
 
-type Fences = Record<string, (code: string) => ReactNode>;
-
-const preWith =
-  (fences: Fences | undefined) =>
-  ({ children }: ComponentProps<'pre'>) => {
-    const { className = '', children: text } = (children as CodeElement).props;
-    const code = String(text ?? '').replace(/\n$/, '');
-    const lang = /language-(\S+)/.exec(className)?.[1];
-    const fence = lang ? fences?.[lang] : undefined;
-    return fence ? fence(code) : <Code code={code} lang={lang} />;
-  };
+const pre = ({ children }: ComponentProps<'pre'>) => {
+  const { className = '', children: text } = (children as CodeElement).props;
+  return <Code code={String(text ?? '').replace(/\n$/, '')} lang={/language-(\S+)/.exec(className)?.[1]} />;
+};
 
 const a = (props: ComponentProps<'a'>) => <a {...props} target="_blank" rel="noreferrer" />;
+const components = { pre, a };
 
-/**
- * Markdown with GitHub extensions and highlighted code blocks, sized for panels. `code` may turn an inline code span into
- * something richer, like a link; `fences` draws fenced blocks of a language its own way.
- */
-export const Markdown = memo(function Markdown({
-  text,
-  code,
-  fences,
-  className,
-}: {
-  text: string;
-  code?: ((text: string) => ReactNode) | undefined;
-  fences?: Fences | undefined;
-  className?: string | undefined;
-}) {
-  const components = useMemo(
-    () => ({
-      pre: preWith(fences),
-      a,
-      ...(code && {
-        code: ({ children, className, ...props }: ComponentProps<'code'>) =>
-          (!className && typeof children === 'string' && code(children)) || (
-            <code className={className} {...props}>
-              {children}
-            </code>
-          ),
-      }),
-    }),
-    [code, fences]
-  );
+/** Markdown with GitHub extensions and highlighted code blocks, sized for panels. */
+export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string | undefined }) {
   return (
     <div className={cx('bhm-md', className)}>
       <Render components={components}>{text}</Render>
     </div>
   );
 });
-
-export default Markdown;
