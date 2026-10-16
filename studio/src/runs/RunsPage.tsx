@@ -10,13 +10,24 @@ import type { CoreRun } from './trace.ts';
 
 const issueParam = queryParam('issue');
 
-/** Each issue the runs worked on, newest first, as a filter option naming its workflows. */
+/** Each issue the runs worked on, newest first, as a filter option with its title and body, else its workflows. */
 const issuesOf = (runs: CoreRun[]) => {
-  const byIssue = new Map<number, Set<string>>();
-  for (const { run } of runs) byIssue.set(run.issue, (byIssue.get(run.issue) ?? new Set()).add(run.workflow));
+  const byIssue = new Map<number, { workflows: Set<string>; title?: string | undefined; body?: string | undefined }>();
+  for (const { run } of runs.toSorted((a, b) => a.run.started.localeCompare(b.run.started))) {
+    const seen = byIssue.get(run.issue) ?? { workflows: new Set() };
+    byIssue.set(run.issue, {
+      workflows: seen.workflows.add(run.workflow),
+      title: run.title ?? seen.title,
+      body: run.body ?? seen.body,
+    });
+  }
   return [...byIssue]
     .sort(([a], [b]) => b - a)
-    .map(([issue, workflows]) => ({ value: String(issue), label: `#${issue} ${[...workflows].join(', ')}` }));
+    .map(([issue, { workflows, title, body }]) => ({
+      value: String(issue),
+      label: `#${issue} ${title ?? [...workflows].join(', ')}`,
+      ...(body !== undefined && { detail: body }),
+    }));
 };
 
 const RunList = () => {

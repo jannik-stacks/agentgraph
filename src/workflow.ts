@@ -46,6 +46,9 @@ export type Run = {
   id: string;
   workflow: string;
   issue: number;
+  /** The issue's title and body as the run last saw them. */
+  title?: string;
+  body?: string;
   step: string;
   status: 'running' | 'waiting' | 'done' | 'stopped';
   tries: number;

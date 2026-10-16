@@ -251,9 +251,35 @@ export const Select = ({
   </label>
 );
 
+const pattern = (words: string[]) =>
+  new RegExp(`(${words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'i');
+
+/** `text` with every occurrence of a word wrapped in a mark. */
+const Marked = ({ text, words }: { text: string; words: string[] }) =>
+  words.length === 0
+    ? text
+    : text.split(pattern(words)).map((part, i) =>
+        i % 2 ? (
+          <mark key={i} className="bg-zinc-200 text-inherit dark:bg-zinc-700">
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      );
+
+/** The first line of `detail`, or when a word matches further in, the stretch around the first match. */
+const snippet = (detail: string, words: string[]) => {
+  const flat = detail.replace(/\s+/g, ' ').trim();
+  const at = words.length ? flat.search(pattern(words)) : -1;
+  if (at < 0) return detail.split('\n').find(l => l.trim()) ?? '';
+  return (at > 24 ? '... ' : '') + flat.slice(Math.max(0, at - 24));
+};
+
 /**
- * A labelled text field that lists `options` as you type and filters them by their label. Picking one reports its
- * value; the clear button reports null.
+ * A labelled text field that lists `options` as you type. Every word of the query must appear in an option's label or
+ * detail, label hits first; matches are highlighted and an option with a detail shows a line of it below the label.
+ * Picking one reports its value; the clear button reports null.
  */
 export const Combobox = ({
   label,
@@ -265,7 +291,7 @@ export const Combobox = ({
   label: string;
   placeholder: string;
   value: string | null;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; detail?: string }[];
   onChange: (value: string | null) => void;
 }) => {
   const id = useId();
@@ -273,8 +299,18 @@ export const Combobox = ({
   const [text, setText] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const current = options.find(o => o.value === value);
-  const query = text?.trim().toLowerCase();
-  const shown = query === undefined ? [] : options.filter(o => o.label.toLowerCase().includes(query)).slice(0, 100);
+  const words = text?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+  const rank = (o: { label: string; detail?: string }) => {
+    const all = (where: string) => words.every(w => where.toLowerCase().includes(w));
+    return all(o.label) ? 0 : all(`${o.label} ${o.detail ?? ''}`) ? 1 : 2;
+  };
+  const shown =
+    text === null
+      ? []
+      : options
+          .filter(o => rank(o) < 2)
+          .toSorted((a, b) => rank(a) - rank(b))
+          .slice(0, 100);
   const pick = (option: { value: string } | undefined) => {
     onChange(option?.value ?? null);
     setText(null);
@@ -330,7 +366,7 @@ export const Combobox = ({
           <ul
             id={id}
             role="listbox"
-            className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-56 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900"
+            className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-96 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900"
           >
             {shown.map((o, i) => (
               <li
@@ -344,11 +380,17 @@ export const Combobox = ({
                 onMouseEnter={() => setActive(i)}
                 className={cx(
                   'cursor-pointer truncate px-2 py-0.5 text-zinc-900 dark:text-zinc-100',
+                  o.detail !== undefined && 'h-10',
                   i === active && 'bg-zinc-100 dark:bg-zinc-800',
                   o.value === value && 'font-medium'
                 )}
               >
-                {o.label}
+                <Marked text={o.label} words={words} />
+                {o.detail !== undefined && (
+                  <div className="truncate text-zinc-500">
+                    <Marked text={snippet(o.detail, words)} words={words} />
+                  </div>
+                )}
               </li>
             ))}
             {!shown.length && <li className="px-2 py-0.5">No match.</li>}

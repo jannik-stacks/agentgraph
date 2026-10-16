@@ -633,9 +633,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       });
     const walk = Effect.gen(function* () {
       yield* store.lock(run.id);
-      current = yield* show(w, current);
-      yield* store.put(current);
       const issue = yield* forge.issue(run.issue);
+      current = yield* show(w, { ...current, title: issue.title, body: issue.body });
+      yield* store.put(current);
       const stacked = hub.stacks && !current.base && stackOf(w, issue, yield* forge.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
       const ref = issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue);
