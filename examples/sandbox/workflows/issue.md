@@ -5,7 +5,7 @@ steps:
   implement:
     agent: implementor
     tries: 3
-    checks: [tests]
+    checks: [tests, pr-text]
   review:
     agent: reviewer
     back: implement
