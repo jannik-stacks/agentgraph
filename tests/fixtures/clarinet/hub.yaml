@@ -1,5 +1,5 @@
 agents: [implementor, reviewer, triager]
-skills: [implement, pr-body, principles, review-hunk, triage]
+skills: [implement, triage]
 checks:
   clippy: block
   conventions-warn: warn

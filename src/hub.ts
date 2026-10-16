@@ -94,6 +94,13 @@ const SkillFile = Schema.Struct({
 });
 type SkillFile = typeof SkillFile.Type;
 
+/** The folders a hub holds besides those a hub file reads through `$BOTHUB_HUB`: the four it loads, scripts and fixtures. */
+const folders = ['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures'];
+
+/** Whether a hub file reads the hub folder `name` through `$BOTHUB_HUB`. */
+const reads = (texts: string[], name: string) =>
+  texts.some(text => new RegExp(`BOTHUB_HUB[^\\n]*['"\`/]${name.replace(/\W/g, '\\$&')}['"\`/]`).test(text));
+
 const rest = 'a step starts a fresh session and a retry resumes it';
 
 /** Removed keys, each with its replacement. */
@@ -257,6 +264,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
       say
     );
   });
+  const used = new Set(Object.values(skills).flatMap(s => s.uses ?? []));
   for (const skill of Object.values(skills))
     for (const name of skill.uses ?? []) if (!(name in skills)) sayer(skill.path)(`uses: unknown skill ${name}`);
   const checks = docs(groups.checks, (data, say): Check | undefined => {
@@ -283,6 +291,14 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
     problems.push(...loaded.problems);
     if (loaded.workflow) workflows[loaded.workflow.name] = loaded.workflow;
   }
+  for (const w of Object.values(workflows))
+    for (const step of w.steps) if ('agent' in step.does && step.does.skill) used.add(step.does.skill);
+  if (Object.keys(workflows).length === groups.workflows.length)
+    for (const skill of Object.values(skills))
+      if (!used.has(skill.name))
+        sayer(skill.path)(
+          `no step names ${skill.name} and no skill uses it; name it as a step's skill or in a skill's uses, or remove it`
+        );
   return { hub, agents, skills, checks, workflows, problems };
 };
 
@@ -296,12 +312,26 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
           (['agents', 'skills', 'checks', 'workflows', 'bots'] as const).map(sub => markdown(dir, sub))
         );
         const groups = { agents: [...agents!, ...bots!], skills: skills!, checks: checks!, workflows: workflows! };
-        return { hubText, groups, renamed: bots!.length > 0 };
+        const scripts = (await readdir(join(dir, 'scripts'), { recursive: true, withFileTypes: true }).catch(() => []))
+          .filter(e => e.isFile())
+          .map(e => join(e.parentPath, e.name));
+        const texts = [hubText ?? '', ...(await Promise.all(scripts.map(p => readFile(p, 'utf8'))))];
+        texts.push(...Object.values(groups).flatMap(files => files.map(f => f.text)));
+        const unread = (await readdir(dir, { withFileTypes: true }).catch(() => []))
+          .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'bots' && !folders.includes(e.name))
+          .map(e => e.name)
+          .filter(name => !reads(texts, name));
+        return { hubText, groups, renamed: bots!.length > 0, unread };
       },
       catch: e => new HubError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
     });
     const { hub, problems, ...parts } = compile(read.hubText, read.groups);
     if (read.renamed) problems.push({ path: 'bots', message: 'bots/ is now agents/; rename the folder' });
+    for (const name of read.unread)
+      problems.push({
+        path: name,
+        message: `nothing reads ${name}/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $BOTHUB_HUB`,
+      });
     if (problems.length > 0 || !hub) return yield* new HubError({ problems });
     const sha = createHash('sha256');
     for (const file of [{ path: 'hub.yaml', text: read.hubText ?? '' }, ...Object.values(read.groups).flat()]) {

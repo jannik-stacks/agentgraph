@@ -1,5 +1,5 @@
 agents: [checker, implementor, librarian, retro, reviewer, triager]
-skills: [implement, librarian, pr-body, principles, retro, review-hunk, triage]
+skills: [implement, retro, triage]
 checks:
   code-shape: block
   coverage: block

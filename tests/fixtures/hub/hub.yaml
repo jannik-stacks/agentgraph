@@ -1,5 +1,5 @@
 agents: [implementor, reviewer]
-skills: [implement, review-file, review]
+skills: [implement, review]
 checks:
   review: { mode: warn, agent: reviewer }
   types: block

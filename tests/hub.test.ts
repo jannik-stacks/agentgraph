@@ -157,6 +157,25 @@ describe('loadHub', () => {
     expect(await problems(dir)).toEqual(['skills/x.md: uses: unknown skill ghost']);
   });
 
+  it('fails on a skill no step names and no skill uses, and on a folder neither it nor a hub script reads', async () => {
+    const dir = hubDir({
+      'agents/a.md': '---\nharness: opencode\n---\n',
+      'skills/x.md': '---\nuses: [rules]\n---\nDo x.\n',
+      'skills/rules.md': 'Keep it small.\n',
+      'skills/orphan.md': 'Never read.\n',
+      'scripts/check.mjs': '',
+      'fixtures/check.jsonl': '',
+      'notes/style/a.md': 'A note.\n',
+      'issues/1-a.md': 'An issue.\n',
+      'scripts/brief.mjs': "const dir = join(process.env.BOTHUB_HUB, 'issues');\n",
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
+    });
+    expect(await problems(dir)).toEqual([
+      "skills/orphan.md: no step names orphan and no skill uses it; name it as a step's skill or in a skill's uses, or remove it",
+      'notes: nothing reads notes/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $BOTHUB_HUB',
+    ]);
+  });
+
   it('reads the milestone and the trust list, unset by default', async () => {
     const set = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'milestone: v1\ntrust: [ana, bob]\n' })));
     expect(set.milestone).toBe('v1');
