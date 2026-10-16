@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { useHighlighted } from './source/highlight.tsx';
 import { Icon } from './icons.tsx';
-import { cx, IconButton } from './ui.tsx';
+import { cx, IconButton, Link } from './ui.tsx';
 
 const { Markdown: Render } = createMarkdownRenderer({ remarkPlugins: [remarkGfm] });
 
@@ -119,8 +119,17 @@ const pre = ({ children }: ComponentProps<'pre'>) => {
   return <Code code={String(text ?? '').replace(/\n$/, '')} lang={/language-(\S+)/.exec(className)?.[1]} />;
 };
 
-const a = (props: ComponentProps<'a'>) => <a {...props} target="_blank" rel="noreferrer" />;
-const components = { pre, a };
+const a = ({ href = '', ...props }: ComponentProps<'a'>) => {
+  const page = /^([\w-]+)\.md(#.*)?$/.exec(href);
+  if (page) return <Link {...props} href={`/docs/${page[1]}${page[2] ?? ''}`} />;
+  return <a href={href} {...props} target="_blank" rel="noreferrer" />;
+};
+
+const code = ({ children, ...props }: ComponentProps<'code'>) => {
+  const ref = /^code: \S+\/([^/\s]+)$/.exec(String(children));
+  return ref ? <code className="bhm-ref">{ref[1]}</code> : <code {...props}>{children}</code>;
+};
+const components = { pre, a, code };
 
 /** Markdown with GitHub extensions and highlighted code blocks, sized for panels. */
 export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string | undefined }) {

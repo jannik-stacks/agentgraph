@@ -25,6 +25,6 @@ export default defineConfig({
   appType: 'spa',
   plugins: [noNodeInBrowser(), fixtures(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
-  server: { ...server, warmup: { clientFiles: ['./src/main.tsx'] } },
+  server: { ...server, fs: { allow: ['..'] }, warmup: { clientFiles: ['./src/main.tsx'] } },
   preview: server,
 });

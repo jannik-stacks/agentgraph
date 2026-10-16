@@ -23,7 +23,9 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   }
 }
 
-const labels = { graph: 'Graph', runs: 'Runs' };
+const DocsPage = lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage })));
+
+const labels = { graph: 'Graph', runs: 'Runs', docs: 'Docs' };
 
 export const App = () => {
   const { route } = useAtomValue(pageAtom);
@@ -53,6 +55,7 @@ export const App = () => {
           <Suspense fallback={<Muted>Loading.</Muted>}>
             {route === 'graph' && <GraphPage />}
             {route === 'runs' && <RunsPage />}
+            {route === 'docs' && <DocsPage />}
           </Suspense>
         </Boundary>
       </main>

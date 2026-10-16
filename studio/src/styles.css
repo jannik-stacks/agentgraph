@@ -78,3 +78,7 @@ body {
     @apply border border-zinc-200 px-2 py-1 text-left dark:border-zinc-800;
   }
 }
+
+.bhm-ref {
+  @apply rounded border border-zinc-200 px-1 font-mono text-[0.85em] text-zinc-600 dark:border-zinc-700 dark:text-zinc-400;
+}

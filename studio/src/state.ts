@@ -1,7 +1,7 @@
 import { atom } from 'jotai';
 import type { CoreRun } from './runs/trace.ts';
 
-export const routes = ['graph', 'runs'] as const;
+export const routes = ['graph', 'runs', 'docs'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
 /** The current location; tests set it. @public */
@@ -18,11 +18,12 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
   set(locationAtom, readLocation());
 });
 
-/** The route: `/graph` or `/runs[/<id>]`. */
+/** The route: `/graph`, `/runs[/<id>]` or `/docs[/<page>]`. */
 export const pageAtom = atom(get => {
   const [page, id] = get(locationAtom).path.split('/').filter(Boolean);
   if (page === 'graph') return { route: 'graph' as const, run: null };
   if (page === 'runs') return { route: 'runs' as const, run: id ? decodeURIComponent(id) : null };
+  if (page === 'docs') return { route: 'docs' as const, run: id ? decodeURIComponent(id) : null };
   return { route: undefined, run: null };
 });
 
