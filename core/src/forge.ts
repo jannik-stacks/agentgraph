@@ -91,6 +91,17 @@ export const commanded = (body: string, slug: string): string => {
   return body;
 };
 
+/** Whether an issue passes the `issues` filter. */
+export const matches =
+  (filter: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>> = {}) =>
+  (t: Issue) =>
+    (filter.state === undefined || t.state === filter.state) &&
+    (filter.parent === undefined || t.parent === filter.parent) &&
+    (filter.labels ?? []).every(l => t.labels.includes(l));
+
+/** The text shown in place of a comment from someone who is not a collaborator. */
+export const withheld = (author: string) => `(comment by @${author} withheld: not a collaborator)`;
+
 const execGit = promisify(execFile);
 const me = 'bothub[bot]';
 
@@ -251,20 +262,14 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         issues: filter =>
           io(async () => {
             const all = await Promise.all((await numbers()).map(read));
-            return all.filter(
-              (t): t is Issue =>
-                t !== undefined &&
-                (filter?.state === undefined || t.state === filter.state) &&
-                (filter?.parent === undefined || t.parent === filter.parent) &&
-                (filter?.labels ?? []).every(l => t.labels.includes(l))
-            );
+            return all.filter((t): t is Issue => t !== undefined).filter(matches(filter));
           }),
         issue: n =>
           io(async () => ({
             ...(await must(n)),
             events: (await eventsOf(n)).map(m =>
               m.comment && !m.trusted && m.actor !== me
-                ? { ...m, comment: { ...m.comment, body: `(comment by @${m.actor} withheld: not a collaborator)` } }
+                ? { ...m, comment: { ...m.comment, body: withheld(m.actor) } }
                 : m
             ),
           })),

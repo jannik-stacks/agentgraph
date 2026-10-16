@@ -9,6 +9,8 @@ import {
   type Event,
   type Proposal,
   type Issue,
+  matches,
+  withheld,
 } from './forge.ts';
 import { hostGit, type Checkout } from './sandbox.ts';
 
@@ -288,8 +290,6 @@ export const githubForge = (
       };
     };
 
-    const withheld = (author: string) => `(comment by @${author} withheld: not a collaborator)`;
-
     const toComment = (c: RestComment, self: string): Comment => {
       const author = login(c.user);
       const shown = members.has(c.author_association) || author === `${self}[bot]`;
@@ -358,9 +358,7 @@ export const githubForge = (
           ? yield* all<RestPull>(`${repo}/pulls?state=${listState(state)}&per_page=100`)
           : [];
         const byNumber = new Map(pulls.map(p => [p.number, p]));
-        return issues
-          .map(i => toIssue(i, byNumber.get(i.number), parent))
-          .filter(t => (state === undefined || t.state === state) && labels.every(l => t.labels.includes(l)));
+        return issues.map(i => toIssue(i, byNumber.get(i.number), parent)).filter(matches(filter));
       });
 
     /** The checks and statuses on a commit: name and conclusion only. Without the permission to read them, none. */
