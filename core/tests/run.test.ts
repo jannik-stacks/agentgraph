@@ -1,8 +1,17 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Chunk, Effect, Layer, Redacted, Stream } from 'effect';
+import { Chunk, Effect, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drive, sweep, tick } from '../src/engine.ts';
 import { start as main } from '../src/main.ts';
@@ -615,5 +624,46 @@ describe('coworker', () => {
     expect(specs[2]!.prompt).toBe(
       'go on\n\n## New since you last looked\n\nThe base main moved to b2.\n\n#8 check test: success'
     );
+  }, 30_000);
+
+  it('refreshes the news file every minute while a session runs, keeps it on a failed refresh, and never pushes it', async () => {
+    const where = world();
+    const seen: string[] = [];
+    const wait = (ms: number) => Effect.promise(() => new Promise(r => setTimeout(r, ms)));
+    const news = (dir: string) => readFileSync(join(dir, '.bothub', 'news.md'), 'utf8');
+    const minute = (dir: string, until: (text: string) => boolean) =>
+      Effect.gen(function* () {
+        yield* wait(50);
+        yield* TestClock.adjust('1 minute');
+        for (let i = 0; i < 40 && !until(news(dir)); i++) yield* wait(25);
+        seen.push(news(dir));
+      });
+    const session = Layer.succeed(Session, {
+      open: (spec: SessionSpec) =>
+        Stream.fromEffect(
+          Effect.gen(function* () {
+            seen.push(news(spec.dir));
+            say(where, comment(7, 'ana', true, 'also say bye', later(1)));
+            yield* minute(spec.dir, text => text.includes('also say bye'));
+            renameSync(join(where.forge, '7.md'), join(where.forge, '7.away'));
+            say(where, comment(7, 'ana', true, 'never seen', later(2)));
+            yield* minute(spec.dir, () => false);
+            renameSync(join(where.forge, '7.away'), join(where.forge, '7.md'));
+            writeFileSync(join(spec.dir, 'hello.txt'), 'hello\n');
+          })
+        ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push)]))),
+    });
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), session);
+    const done = await Effect.runPromise(
+      drive(flow, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext))
+    );
+    expect(done.status).toBe('done');
+    expect(seen).toEqual([
+      'Nothing new yet.\n',
+      '## New since you last looked\n\n@ana: also say bye\n',
+      '## New since you last looked\n\n@ana: also say bye\n',
+    ]);
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(git(where.origin, 'ls-tree', '-r', '--name-only', 'bothub/7')).not.toContain('.bothub');
   }, 30_000);
 });
