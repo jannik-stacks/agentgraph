@@ -1,0 +1,4 @@
+#!/bin/sh
+# Holds the message of a commit that touches bothub/ to the hub's pr-text rules.
+git diff --cached --quiet -- bothub && exit 0
+exec env NODE_OPTIONS= node bothub/bin/commit-msg.mjs "$1"

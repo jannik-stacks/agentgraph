@@ -59,6 +59,12 @@ Run them from this directory as `node bin/run.ts <command>`. `docs/local.md` has
 
 The docs are plain Markdown in `docs/`, starting at `docs/index.md`. `npm run verify` runs every check the project has.
 
+## Git hooks
+
+`npm run hooks` points git at `bin/hooks`. Then a commit that touches `bothub/` runs `npm run precommit`,
+the studio build when it touches `studio/` or `src/`, and the pr-text rules on its message. It sets
+`core.hooksPath` for the whole repository and every worktree; `git config --unset core.hooksPath` undoes it.
+
 ## Examples
 
 - `examples/bothub` is the hub bothub runs on its own repository.

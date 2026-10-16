@@ -1,0 +1,8 @@
+#!/bin/sh
+# Runs bothub's precommit when the commit touches bothub/, and the studio build when it touches studio/ or src/.
+staged=$(git diff --cached --name-only -- bothub)
+[ -n "$staged" ] || exit 0
+cd bothub || exit 1
+NODE_OPTIONS= npm run -s precommit || exit 1
+echo "$staged" | grep -qE '^bothub/(studio|src)/' || exit 0
+NODE_OPTIONS= npm --prefix studio run -s build >/dev/null 2>&1 || { echo 'studio build fails: npm --prefix studio run build'; exit 1; }

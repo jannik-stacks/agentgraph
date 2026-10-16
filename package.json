@@ -12,6 +12,7 @@
     "format": "oxfmt src tests bin studio",
     "verify": "oxfmt --check src tests bin studio && oxlint && knip && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs",
     "precommit": "sh bin/precommit.sh",
+    "hooks": "git config core.hooksPath bothub/bin/hooks",
     "verify:hubs": "for hub in examples/*/; do [ -e \"${hub}hub.yaml\" ] || continue; node bin/run.ts check --hub \"$hub\" || exit 1; done"
   },
   "dependencies": {
