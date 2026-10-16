@@ -20,8 +20,8 @@ is the runner's own code in `core/src`, and "v2" is the current version of it.
  |  | one harness session    |  | <run id>/run.json         |   |
  |  | /work: git worktree    |  | <run id>/trace.jsonl      |   |
  |  | no GitHub token        |  | mirror.git, work/, homes/ |   |
- |  +----------+-------------+  | news (what each session   |   |
- |             | model calls    |   has already read)       |   |
+ |  +----------+-------------+  | news/<id>/news.md, what a |   |
+ |             | model calls    |   session has not read yet|   |
  |             v                +-------------^-------------+   |
  |  +--- LiteLLM proxy ----+                  |                 |
  |  | aliases, one key per |            studio reads only      |
@@ -83,7 +83,9 @@ the try. `transition` is pure, so every path above is a plain test. The loop aro
 
 ## Bundling for hosting
 
-The stack is one compose file with three parts:
+Today `infra/local/docker-compose.yml` runs the proxy, its database and the egress proxy, while the
+runner and the studio run as node processes on the host. The planned bundle is one compose file
+with three parts:
 
 - the runner, with access to the docker socket on its host, because it starts the sandboxes,
 - the proxy, LiteLLM with its database, which holds the keys and the spend logs,
