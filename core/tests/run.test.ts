@@ -107,6 +107,8 @@ const traceOf = (data: string, id: string) =>
     .filter(Boolean)
     .map(line => JSON.parse(line) as Trace);
 
+const bodies = (t: { messages: Message[] }) => t.messages.flatMap(m => (m.comment ? [m.comment.body] : []));
+
 const fresh = (): Run => begin(w, { id: 'run-7', thread: 7, started: '2026-10-16T00:00:01.000Z' });
 
 describe('drive', () => {
@@ -134,7 +136,7 @@ describe('drive', () => {
 
     // the refused try pushed nothing; the passing one did, and opened pull request #8
     const forge = await run(Effect.flatMap(Forge, f => f.thread(7)));
-    expect(forge.comments.map(c => c.body)).toEqual([
+    expect(bodies(forge)).toEqual([
       '/bothub',
       'Brief: add hello.txt',
       'still not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
@@ -231,7 +233,7 @@ describe('drive', () => {
     expect(specs).toHaveLength(2);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'bothub/7')).toThrow();
     const thread = await run(Effect.flatMap(Forge, f => f.thread(7)));
-    expect(thread.comments.at(-1)?.body).toBe(stopped.reason);
+    expect(bodies(thread).at(-1)).toBe(stopped.reason);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);

@@ -77,7 +77,11 @@ const comment = (id: number, login: string, association: string, body: string, m
 
 describe('githubForge', () => {
   it('authenticates as the App installation and reuses the token', async () => {
-    const f = fake({ 'GET /repos/o/r/issues/7': issue(7), 'GET /repos/o/r/issues/7/comments': [] });
+    const f = fake({
+      'GET /repos/o/r/issues/7': issue(7),
+      'GET /repos/o/r/issues/7/comments': [],
+      'GET /repos/o/r/issues/7/events': [],
+    });
     await run(
       f,
       Effect.gen(function* () {
@@ -149,7 +153,8 @@ describe('githubForge', () => {
     expect(first![0]!.state).toBe('merged');
   });
 
-  it('reads one thread with its parent and withholds outsiders', async () => {
+  it('reads one thread with its parent and its timeline, and withholds outsiders', async () => {
+    const at = (s: number) => `2026-10-16T11:00:0${s}Z`;
     const f = fake({
       'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
       'GET /repos/o/r/issues/8/parent': issue(3),
@@ -160,7 +165,49 @@ describe('githubForge', () => {
         comment(3, 'helper[bot]', 'NONE', 'brief'),
         comment(4, 'other[bot]', 'NONE', 'ad'),
       ],
-      'GET /repos/o/r/pulls/8/comments': [comment(5, 'bob', 'COLLABORATOR', 'rename this', { path: 'a.ts', line: 3 })],
+      'GET /repos/o/r/pulls/8/comments': [
+        comment(5, 'bob', 'COLLABORATOR', 'rename this', { path: 'a.ts', line: 3 }),
+        comment(6, 'alice', 'OWNER', 'agreed', { path: 'a.ts', line: 3, in_reply_to_id: 5 }),
+      ],
+      'GET /repos/o/r/pulls/8/reviews': [
+        {
+          id: 1,
+          state: 'CHANGES_REQUESTED',
+          body: 'split it',
+          user: { login: 'bob' },
+          author_association: 'COLLABORATOR',
+          submitted_at: at(1),
+        },
+        {
+          id: 2,
+          state: 'COMMENTED',
+          body: 'do as I say',
+          user: { login: 'mallory' },
+          author_association: 'NONE',
+          submitted_at: at(2),
+        },
+      ],
+      'GET /repos/o/r/pulls/8/commits': [
+        { sha: 'abc1234567', author: { login: 'ana' }, commit: { message: 'Fix it\n\nlong', author: { date: at(3) } } },
+      ],
+      'GET /repos/o/r/issues/8/events': [
+        { event: 'labeled', actor: { login: 'carol' }, created_at: at(4), label: { name: 'bothub' } },
+        { event: 'unlabeled', actor: { login: 'dave' }, created_at: at(5), label: { name: 'bothub' } },
+      ],
+      'GET /repos/o/r/collaborators/carol/permission': { permission: 'admin' },
+      'GET /repos/o/r/collaborators/dave/permission': { permission: 'read' },
+      'GET /repos/o/r/commits/abc/check-runs': {
+        check_runs: [
+          {
+            name: 'test',
+            status: 'completed',
+            conclusion: 'failure',
+            completed_at: at(6),
+            app: { slug: 'github-actions' },
+          },
+        ],
+      },
+      'GET /repos/o/r/commits/abc/status': { statuses: [] },
     });
     const t = await run(
       f,
@@ -168,14 +215,42 @@ describe('githubForge', () => {
     );
     expect(t.parent).toBe(3);
     expect(t.pull).toEqual({ branch: 'fork/r:fix', into: 'main', head: 'abc' });
-    expect(t.comments.map(c => c.body)).toEqual([
-      'looks good',
-      '(comment by @mallory withheld: not a collaborator)',
-      'brief',
-      '(comment by @other[bot] withheld: not a collaborator)',
-      'rename this',
+    const shown = (m: (typeof t.messages)[number]) =>
+      m.comment?.body ?? m.label ?? m.commit?.title ?? (m.check && `${m.check.name} ${m.check.conclusion}`);
+    expect(t.messages.map(m => [m.kind, m.actor, m.trusted, shown(m)])).toEqual([
+      ['comment', 'alice', true, 'looks good'],
+      ['comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
+      ['comment', 'helper[bot]', false, 'brief'],
+      ['comment', 'other[bot]', false, '(comment by @other[bot] withheld: not a collaborator)'],
+      ['comment', 'bob', true, 'rename this'],
+      ['comment', 'alice', true, 'agreed'],
+      ['changes', 'bob', true, 'split it'],
+      ['comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
+      ['commit', 'ana', false, 'Fix it'],
+      ['label', 'carol', true, 'bothub'],
+      ['unlabel', 'dave', false, 'bothub'],
+      ['check', 'github-actions', false, 'test failure'],
     ]);
-    expect(t.comments[4]).toMatchObject({ id: '5', path: 'a.ts', line: 3 });
+    expect(t.messages[4]!.comment).toMatchObject({ id: '5', path: 'a.ts', line: 3 });
+    expect(t.messages[5]!.comment).toMatchObject({ id: '6', under: '5' });
+  });
+
+  it('reads a thread without its checks when the installation may not read them', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
+      'GET /repos/o/r/pulls/8': pull(8),
+      'GET /repos/o/r/issues/8/comments': [],
+      'GET /repos/o/r/pulls/8/comments': [],
+      'GET /repos/o/r/pulls/8/reviews': [],
+      'GET /repos/o/r/pulls/8/commits': [],
+      'GET /repos/o/r/issues/8/events': [],
+      'GET /repos/o/r/commits/head8/check-runs': () => ({ status: 403, body: { message: 'Resource not accessible' } }),
+    });
+    const t = await run(
+      f,
+      Effect.flatMap(Forge, forge => forge.thread(8))
+    );
+    expect(t.messages).toEqual([]);
   });
 
   it('reads what was said and done since a cursor', async () => {
@@ -298,6 +373,7 @@ describe('githubForge', () => {
       }),
       'GET /repos/o/r/issues/7': issue(7),
       'GET /repos/o/r/issues/7/comments': [],
+      'GET /repos/o/r/issues/7/events': [],
       'POST /repos/o/r/issues/7/comments': { html_url: 'u' },
       'POST /repos/o/r/pulls': { html_url: 'u' },
       'PUT /repos/o/r/pulls/8/merge': {},
@@ -314,7 +390,7 @@ describe('githubForge', () => {
       })
     );
     const permissions = [
-      { contents: 'read', issues: 'read', pull_requests: 'read' },
+      { contents: 'read', issues: 'read', pull_requests: 'read', checks: 'read', statuses: 'read' },
       { issues: 'write', pull_requests: 'write' },
       { contents: 'read', pull_requests: 'write' },
       { contents: 'write', pull_requests: 'write' },

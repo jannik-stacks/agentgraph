@@ -15,21 +15,32 @@ export type Thread = {
   labels: string[];
   author: string;
   parent?: number;
-  pull?: { branch: string; into: string; head: string };
+  pull?: { branch: string; into: string; head: string; base?: string };
   url: string;
 };
 
-export type Comment = { id: string; author: string; body: string; at: string; path?: string; line?: number };
+/** A comment; `path` and `line` place a review comment, `under` is the review comment it answers. */
+export type Comment = {
+  id: string;
+  author: string;
+  body: string;
+  at: string;
+  path?: string;
+  line?: number;
+  under?: string;
+};
 
 /** Something a person or a bot said or did on a thread. */
 export type Message = {
   thread: number;
-  kind: 'comment' | 'approved' | 'changes' | 'merged' | 'closed' | 'label';
+  kind: 'comment' | 'approved' | 'changes' | 'merged' | 'closed' | 'label' | 'unlabel' | 'commit' | 'check';
   actor: string;
   trusted: boolean;
   at: string;
   comment?: Comment;
   label?: string;
+  commit?: { sha: string; title: string };
+  check?: { name: string; conclusion: string };
 };
 
 /** What a run may change on the repo, and the two proposals that steer the run. */
@@ -52,7 +63,7 @@ export class Forge extends Context.Tag('bothub/Forge')<
   Forge,
   {
     threads: (filter?: Partial<Pick<Thread, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Thread[], ForgeError>;
-    thread: (number: number) => Effect.Effect<Thread & { comments: Comment[] }, ForgeError>;
+    thread: (number: number) => Effect.Effect<Thread & { messages: Message[] }, ForgeError>;
     since: (cursor: string) => Stream.Stream<Message, ForgeError>;
     apply: (number: number, proposal: Proposal, work?: Work) => Effect.Effect<Applied, ForgeError>;
   }
@@ -234,7 +245,11 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         thread: n =>
           io(async () => ({
             ...(await must(n)),
-            comments: (await messages(n)).flatMap(m => (m.comment ? [m.comment] : [])),
+            messages: (await messages(n)).map(m =>
+              m.comment && !m.trusted && m.actor !== me
+                ? { ...m, comment: { ...m.comment, body: `(comment by @${m.actor} withheld: not a collaborator)` } }
+                : m
+            ),
           })),
         since: cursor =>
           Stream.fromIterableEffect(

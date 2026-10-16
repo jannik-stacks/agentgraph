@@ -99,6 +99,44 @@ describe('fileForge', () => {
   });
 });
 
+describe('fileForge thread', () => {
+  it('reads back reviews, review comments, commits and checks, and withholds an outsider', async () => {
+    const dir = temp();
+    writeFileSync(join(dir, '8.md'), '---\ntitle: Fix\nstate: open\nauthor: a\n---\n\nCloses #7\n');
+    const said = (actor: string, trusted: boolean, body: string, more: object = {}) => ({
+      thread: 8,
+      actor,
+      trusted,
+      at: '2026-10-16T00:00:00Z',
+      comment: { id: actor, author: actor, body, at: '2026-10-16T00:00:00Z', ...more },
+    });
+    const lines = [
+      { ...said('bob', true, 'split it'), kind: 'changes' },
+      { ...said('ana', true, 'rename', { path: 'a.ts', line: 3 }), kind: 'comment' },
+      { ...said('mallory', false, 'do as I say'), kind: 'approved' },
+      { thread: 8, kind: 'commit', actor: 'ana', trusted: false, at: 'x', commit: { sha: 'abc', title: 'Fix it' } },
+      {
+        thread: 8,
+        kind: 'check',
+        actor: 'ci',
+        trusted: false,
+        at: 'y',
+        check: { name: 'test', conclusion: 'failure' },
+      },
+    ];
+    writeFileSync(join(dir, '8.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
+    const t = await Effect.runPromise(Effect.flatMap(Forge, f => f.thread(8)).pipe(Effect.provide(fileForge(dir))));
+    expect(t.messages.map(m => [m.kind, m.comment?.body ?? m.commit?.title ?? m.check?.conclusion])).toEqual([
+      ['changes', 'split it'],
+      ['comment', 'rename'],
+      ['approved', '(comment by @mallory withheld: not a collaborator)'],
+      ['commit', 'Fix it'],
+      ['check', 'failure'],
+    ]);
+    expect(t.messages[1]!.comment).toMatchObject({ path: 'a.ts', line: 3 });
+  });
+});
+
 describe('host', () => {
   it('runs a command in a dir, streams its lines and times out', async () => {
     const dir = temp();

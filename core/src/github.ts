@@ -29,7 +29,7 @@ type RestPull = {
   number: number;
   merged_at?: string | null;
   head: { ref: string; sha: string; repo?: { full_name: string } | null };
-  base: { ref: string };
+  base: { ref: string; sha?: string };
 };
 type RestComment = {
   id: number;
@@ -42,14 +42,29 @@ type RestComment = {
   pull_request_url?: string;
   path?: string;
   line?: number | null;
+  in_reply_to_id?: number;
 };
 type RestEvent = {
   event: string;
   actor?: User;
   created_at: string;
-  issue: { number: number };
+  issue?: { number: number };
   label?: { name: string };
 };
+type RestCommit = {
+  sha: string;
+  author?: User;
+  commit: { message: string; author?: { name?: string; date?: string } | null };
+};
+type RestCheck = {
+  name: string;
+  status: string;
+  conclusion?: string | null;
+  completed_at?: string | null;
+  started_at?: string | null;
+  app?: { slug?: string } | null;
+};
+type RestStatus = { context: string; state: string; updated_at: string; creator?: User };
 type RestReview = {
   id: number;
   state: string;
@@ -149,7 +164,7 @@ const requester = (fetch: Fetch) => {
 
 /** The permissions each kind of call needs; every token is also limited to the one repository (`repos` has none). */
 const scopes = {
-  read: { contents: 'read', issues: 'read', pull_requests: 'read' },
+  read: { contents: 'read', issues: 'read', pull_requests: 'read', checks: 'read', statuses: 'read' },
   comment: { issues: 'write', pull_requests: 'write' },
   push: { contents: 'write' },
   pull: { contents: 'read', pull_requests: 'write' },
@@ -263,6 +278,7 @@ export const githubForge = (
             branch: own ? pull.head.ref : `${pull.head.repo?.full_name ?? 'unknown'}:${pull.head.ref}`,
             into: pull.base.ref,
             head: pull.head.sha,
+            ...(pull.base.sha && { base: pull.base.sha }),
           },
         }),
         url: i.html_url,
@@ -281,8 +297,44 @@ export const githubForge = (
         at: c.created_at,
         ...(c.path !== undefined && { path: c.path }),
         ...(typeof c.line === 'number' && { line: c.line }),
+        ...(c.in_reply_to_id !== undefined && { under: String(c.in_reply_to_id) }),
       };
     };
+
+    const heard = (thread: number, c: RestComment, self: string, kind: Message['kind'] = 'comment'): Message => {
+      const comment = toComment(c, self);
+      const trusted = members.has(c.author_association) && !isBot(c.user);
+      return { thread, kind, actor: comment.author, trusted, at: c.created_at, comment };
+    };
+
+    /** A review as a message: its verdict, or a comment when it only has a body; undefined for an empty comment. */
+    const reviewed = (thread: number, r: RestReview, self: string): Message | undefined => {
+      const kind = r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes' : 'comment';
+      if (!r.submitted_at || (kind === 'comment' && !visible(r.body).trim())) return undefined;
+      return heard(thread, { ...r, created_at: r.submitted_at, html_url: '' }, self, kind);
+    };
+
+    const kinds: Record<string, Message['kind']> = {
+      merged: 'merged',
+      closed: 'closed',
+      labeled: 'label',
+      unlabeled: 'unlabel',
+    };
+    /** An issue event as a message, trusted when its actor may write; undefined for events that say nothing here. */
+    const evented = (thread: number, e: RestEvent, merged: boolean) =>
+      Effect.gen(function* () {
+        const kind = kinds[e.event];
+        if (!kind || (kind === 'closed' && merged) || ((kind === 'label' || kind === 'unlabel') && !e.label))
+          return undefined;
+        return {
+          thread,
+          kind,
+          actor: login(e.actor),
+          trusted: yield* permitted(e.actor),
+          at: e.created_at,
+          ...(e.label && { label: e.label.name }),
+        } satisfies Message;
+      });
 
     const listState = (state?: Thread['state']) => (state === undefined ? 'all' : state === 'open' ? 'open' : 'closed');
 
@@ -307,22 +359,73 @@ export const githubForge = (
           .filter(t => (state === undefined || t.state === state) && labels.every(l => t.labels.includes(l)));
       });
 
+    /** The checks and statuses on a commit: name and conclusion only. Without the permission to read them, none. */
+    const checked = (thread: number, sha: string) =>
+      Effect.all([
+        gh<{ check_runs: RestCheck[] }>('GET', `${repo}/commits/${sha}/check-runs?per_page=100`),
+        gh<{ statuses: RestStatus[] }>('GET', `${repo}/commits/${sha}/status`),
+      ]).pipe(
+        Effect.map(([runs, status]): Message[] => [
+          ...runs.check_runs.map(c => ({
+            thread,
+            kind: 'check' as const,
+            actor: c.app?.slug ?? 'checks',
+            trusted: false,
+            at: c.completed_at ?? c.started_at ?? '',
+            check: { name: visible(c.name), conclusion: c.conclusion ?? c.status },
+          })),
+          ...status.statuses.map(s => ({
+            thread,
+            kind: 'check' as const,
+            actor: login(s.creator),
+            trusted: false,
+            at: s.updated_at,
+            check: { name: visible(s.context), conclusion: s.state },
+          })),
+        ]),
+        Effect.catchIf(
+          e => e.status === 403 || e.status === 404,
+          () => Effect.succeed([])
+        )
+      );
+
     const thread: Forge['Type']['thread'] = number =>
       Effect.gen(function* () {
         const self = yield* me;
         const issue = yield* gh<RestIssue>('GET', `${repo}/issues/${number}`);
         const isPull = !!issue.pull_request;
-        const [said, parent, pull, lined] = yield* Effect.all(
+        const none = Effect.succeed([]);
+        const [said, parent, pull, lined, reviews, commits, events] = yield* Effect.all(
           [
             all<RestComment>(`${repo}/issues/${number}/comments?per_page=100`),
             missing(gh<RestIssue>('GET', `${repo}/issues/${number}/parent`)),
             isPull ? gh<RestPull>('GET', `${repo}/pulls/${number}`) : Effect.succeed(undefined),
-            isPull ? all<RestComment>(`${repo}/pulls/${number}/comments?per_page=100`) : Effect.succeed([]),
+            isPull ? all<RestComment>(`${repo}/pulls/${number}/comments?per_page=100`) : none,
+            isPull ? all<RestReview>(`${repo}/pulls/${number}/reviews?per_page=100`) : none,
+            isPull ? all<RestCommit>(`${repo}/pulls/${number}/commits?per_page=100`) : none,
+            all<RestEvent>(`${repo}/issues/${number}/events?per_page=100`),
           ],
           { concurrency: 'unbounded' }
         );
-        const comments = [...said, ...lined].map(c => toComment(c, self)).sort((a, b) => a.at.localeCompare(b.at));
-        return { ...toThread(issue, pull, parent?.number), comments };
+        const merged = events.some(e => e.event === 'merged');
+        const messages: Message[] = [
+          ...[...said, ...lined].map(c => heard(number, c, self)),
+          ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
+          ...commits.map(c => ({
+            thread: number,
+            kind: 'commit' as const,
+            actor: c.author ? login(c.author) : (c.commit.author?.name ?? 'ghost'),
+            trusted: false,
+            at: c.commit.author?.date ?? '',
+            commit: { sha: c.sha, title: visible(c.commit.message.split('\n')[0]) },
+          })),
+          ...(yield* Effect.forEach(events, e => evented(number, e, merged))).flatMap(m => m ?? []),
+          ...(pull ? yield* checked(number, pull.head.sha) : []),
+        ];
+        return {
+          ...toThread(issue, pull, parent?.number),
+          messages: messages.sort((a, b) => a.at.localeCompare(b.at)),
+        };
       });
 
     const permitted = (user: User) =>
@@ -362,50 +465,23 @@ export const githubForge = (
             { concurrency: 4 }
           );
 
-          const text = (body: string | null | undefined) => commanded(visible(body), self);
-          const heard = (thread: number, c: RestComment, kind: Message['kind'] = 'comment'): Message => {
-            const trusted = members.has(c.author_association) && !isBot(c.user);
-            const comment = toComment(c, self);
-            return {
-              thread,
-              kind,
-              actor: comment.author,
-              trusted,
-              at: c.created_at,
-              comment: trusted ? { ...comment, body: text(c.body) } : comment,
-            };
-          };
-
           const messages: Message[] = [];
-          for (const c of said) if (after(c.created_at)) messages.push(heard(numberIn(c.issue_url), c));
-          for (const c of lined) if (after(c.created_at)) messages.push(heard(numberIn(c.pull_request_url), c));
+          for (const c of said) if (after(c.created_at)) messages.push(heard(numberIn(c.issue_url), c, self));
+          for (const c of lined) if (after(c.created_at)) messages.push(heard(numberIn(c.pull_request_url), c, self));
           for (const r of reviews.flat()) {
-            if (!after(r.submitted_at)) continue;
-            const kind = r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes' : 'comment';
-            if (kind === 'comment' && !visible(r.body).trim()) continue;
-            messages.push(heard(r.thread, { ...r, created_at: r.submitted_at, html_url: '' }, kind));
+            const m = after(r.submitted_at) ? reviewed(r.thread, r, self) : undefined;
+            if (m) messages.push(m);
           }
-          const merged = new Set(events.filter(e => e.event === 'merged').map(e => e.issue.number));
+          const merged = new Set(events.filter(e => e.event === 'merged').map(e => e.issue?.number));
           for (const e of events) {
-            if (!after(e.created_at)) continue;
-            const kind =
-              e.event === 'merged'
-                ? 'merged'
-                : e.event === 'closed' && !merged.has(e.issue.number)
-                  ? 'closed'
-                  : e.event === 'labeled' && e.label
-                    ? 'label'
-                    : undefined;
-            if (!kind) continue;
-            messages.push({
-              thread: e.issue.number,
-              kind,
-              actor: login(e.actor),
-              trusted: yield* permitted(e.actor),
-              at: e.created_at,
-              ...(kind === 'label' && { label: e.label!.name }),
-            });
+            const m =
+              after(e.created_at) && e.issue
+                ? yield* evented(e.issue.number, e, merged.has(e.issue.number))
+                : undefined;
+            if (m) messages.push(m);
           }
+          for (const m of messages)
+            if (m.trusted && m.comment) m.comment = { ...m.comment, body: commanded(m.comment.body, self) };
           return messages.sort((a, b) => a.at.localeCompare(b.at));
         })
       );
