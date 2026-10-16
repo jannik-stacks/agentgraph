@@ -1,17 +1,14 @@
 import { Controls, type Edge, MarkerType, type Node, ReactFlow, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { atom, useAtom, useAtomValue } from 'jotai';
-import { useEffect, useMemo, useState } from 'react';
+import { useAtom, useAtomValue } from 'jotai';
+import { useMemo } from 'react';
+import { fixtures, served } from 'virtual:fixtures';
 import { type Graph, graphOf } from '../../../core/src/graph.ts';
 import type { Trace } from '../../../core/src/store.ts';
 import type { Run } from '../../../core/src/workflow.ts';
-import { clock } from '../runs/bits.tsx';
-import { useLiveStream } from '../runs/live.ts';
-import { phaseWord } from '../runs/model.ts';
-import { hubAtom, infoAtom, queryParam, selectedStepAtom } from '../state.ts';
-import { Muted, Select, usePolling } from '../ui.tsx';
+import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
+import { Muted, Select } from '../ui.tsx';
 import { layout } from './layout.ts';
-import { fixturesOf } from './model.ts';
 import {
   BackEdge,
   type BackFlowEdge,
@@ -24,17 +21,12 @@ import {
   type StepFlowNode,
 } from './nodes.tsx';
 import type { Fixture, Trail } from './scenarios.ts';
-import { type StepState, stepStatesAtom } from './state.ts';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
 import { storyOf, trailOf, visitsOf } from './visits.ts';
 
-/** Core's example workflows and the served core hub's, loaded on first use. */
-const fixturesAtom = atom(async () => (await import('virtual:fixtures')).fixtures);
 const hubParam = queryParam('hub');
 const runParam = queryParam('run');
-const served = 'served';
 
-type Real = { fixture: string; run: Run; trace: Trace[] };
 type Picked = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | undefined };
 
 const nodeTypes = { step: StepCard, pill: Pill, frame: Frame };
@@ -43,25 +35,44 @@ const gray = '#a1a1aa';
 const sky = '#0284c7';
 const arrow = (color: string) => ({ type: MarkerType.ArrowClosed, color, width: 16, height: 16 });
 
-/** A v1 step's latest live run, when it needs attention. */
-const liveLine = (state: StepState | undefined, tries: number) => {
-  if (!state || state.phase === 'done') return;
-  if (state.phase === 'running') return `running${state.startedAt ? ` since ${clock(state.startedAt)}` : ''}`;
-  if (state.phase === 'failed' && tries > 1)
-    return `${phaseWord('failed', state.status)}, try ${state.tries} of ${tries}`;
-  return phaseWord(state.phase, state.status);
+/** How many of the served hub's runs stand at each step and are not done, keyed `fixture/step`. */
+const useHere = () => {
+  const { value: runs = [] } = useAtomValue(runsAtom);
+  return useMemo(() => {
+    const here = new Map<string, Record<string, number>>();
+    for (const { fixture, run } of runs) {
+      if (run.status !== 'running' && run.status !== 'waiting') continue;
+      const key = `${fixture}/${run.step}`;
+      const counts = here.get(key) ?? {};
+      counts[run.status] = (counts[run.status] ?? 0) + 1;
+      here.set(key, counts);
+    }
+    return here;
+  }, [runs]);
 };
+
+const hereLine = (counts: Record<string, number> | undefined) =>
+  counts &&
+  Object.entries(counts)
+    .map(([status, n]) => `${n} ${status}`)
+    .join(', ');
 
 /** Draws the workflows, each with its run overlay when it holds the picked run. */
 const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefined }) => {
   const [selected, select] = useAtom(selectedStepAtom);
-  const { states } = useAtomValue(stepStatesAtom);
+  const here = useHere();
   const graphs = useMemo(
     () =>
       shown.map(f => {
         const run = picked?.fixture === f ? picked : undefined;
         const graph = graphOf(f.workflow, f.checks, run?.run);
-        return { workflow: f.workflow.name, graph, run, visits: run && visitsOf(graph, run.trail, run.run).visits };
+        return {
+          fixture: f.id,
+          workflow: f.workflow.name,
+          graph,
+          run,
+          visits: run && visitsOf(graph, run.trail, run.run).visits,
+        };
       }),
     [shown, picked]
   );
@@ -69,7 +80,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
   const { nodes, edges } = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
-    graphs.forEach(({ workflow, graph, run, visits }, r) => {
+    graphs.forEach(({ fixture, workflow, graph, run, visits }, r) => {
       const row = rows[r]!;
       nodes.push({
         id: `${workflow}:frame`,
@@ -113,7 +124,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           data: {
             node,
             selected: selected === placed.id,
-            live: liveLine(states.get(placed.id), node.tries),
+            live: hereLine(here.get(`${fixture}/${node.step}`)),
             ...(run && {
               overlay: {
                 visits: visits!.filter(v => v.node.step === node.step).length,
@@ -155,7 +166,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
         } satisfies BackFlowEdge);
     });
     return { nodes, edges };
-  }, [graphs, rows, selected, states]);
+  }, [graphs, rows, selected, here]);
   return (
     <ReactFlow
       nodes={nodes}
@@ -177,50 +188,28 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
   );
 };
 
-/** The hubs the graph can show: the served v1 hub when it compiles, then every core hub the fixtures carry. */
-const useHubs = () => {
-  const hub = useAtomValue(hubAtom);
-  const fixtures = useAtomValue(fixturesAtom);
-  const info = useAtomValue(infoAtom);
-  return useMemo(() => {
-    const name = info?.hub.split('/').at(-1) ?? '';
-    const groups = new Map<string, Fixture[]>();
-    for (const f of fixtures) {
-      const key = f.id.slice(0, f.id.indexOf('/'));
-      groups.set(key, [...(groups.get(key) ?? []), f]);
-    }
-    const hubs = [...groups].map(([key, list]) => ({
-      key,
-      label: key === name ? `${key} (served)` : `${key} (example)`,
-      fixtures: list,
-    }));
-    if ('config' in hub)
-      return {
-        name,
-        hubs: [{ key: served, label: `${name} (served)`, fixtures: fixturesOf(hub.config) }, ...hubs],
-        config: hub.config,
-        errors: [],
-      };
-    return { name, hubs, errors: groups.has(name) ? [] : hub.errors };
-  }, [hub, info, fixtures]);
-};
+/** The hubs the graph can show: the served hub first, then every example hub the fixtures carry. */
+const hubs = (() => {
+  const groups = new Map<string, Fixture[]>();
+  for (const f of fixtures) {
+    const key = f.id.slice(0, f.id.indexOf('/'));
+    groups.set(key, [...(groups.get(key) ?? []), f]);
+  }
+  return [...groups].map(([key, list]) => ({
+    key,
+    label: key === served?.name ? `${key} (served)` : `${key} (example)`,
+    fixtures: list,
+  }));
+})();
 
 /** Every workflow of a hub as one graph: the main path as arrows, ways back as arcs, the common moves as badges. */
 export const GraphPage = () => {
-  useLiveStream();
-  const { name, hubs, config, errors } = useHubs();
   const [hubKey, setHub] = useAtom(hubParam);
   const [runKey, setRun] = useAtom(runParam);
   const selected = useAtomValue(selectedStepAtom);
-  const [real, setReal] = useState<Real[]>([]);
-  const poll = () =>
-    fetch('/core/runs')
-      .then(r => (r.ok ? r.json() : []))
-      .then(setReal, () => {});
-  useEffect(() => void poll(), []);
-  usePolling(poll, 3000);
+  const { value: real = [] } = useAtomValue(runsAtom);
 
-  const hub = hubs.find(h => h.key === hubKey) ?? hubs.find(h => h.key === served || h.key === name) ?? hubs[0];
+  const hub = hubs.find(h => h.key === hubKey) ?? hubs[0];
   const runs = useMemo(
     () =>
       (hub?.fixtures ?? []).flatMap(fixture => [
@@ -246,19 +235,6 @@ export const GraphPage = () => {
   );
   const picked = runs.find(r => r.key === runKey);
 
-  if (errors.length)
-    return (
-      <div className="space-y-2 p-4">
-        <p className="font-medium">The hub does not compile.</p>
-        <ul className="list-disc space-y-1 pl-5 text-xs">
-          {errors.map((error, i) => (
-            <li key={i}>
-              <span className="font-mono">{error.path}</span>: {error.message}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
   if (!hub || !hub.fixtures.length) return <Muted>This hub has no workflows.</Muted>;
 
   const [workflowName, stepName] = selected?.split('/') ?? [];
@@ -269,6 +245,15 @@ export const GraphPage = () => {
     storyOf(visitsOf(graphOf(picked.fixture.workflow, picked.fixture.checks, picked.run), picked.trail, picked.run));
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {served && served.problems.length > 0 && (
+        <ul className="list-disc space-y-1 border-b border-zinc-200 py-2 pr-4 pl-8 text-xs dark:border-zinc-800">
+          {served.problems.map((problem, i) => (
+            <li key={i}>
+              {served?.name} does not load: <span className="font-mono">{problem.path}</span>, {problem.message}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="flex flex-wrap items-center gap-4 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
         {hubs.length > 1 && (
           <Select
@@ -303,12 +288,7 @@ export const GraphPage = () => {
         {fixture && (
           <aside className="w-80 shrink-0 overflow-y-auto border-l border-zinc-200 dark:border-zinc-800">
             {step ? (
-              <StepDetails
-                fixture={fixture}
-                step={step}
-                run={picked?.fixture === fixture ? picked : undefined}
-                config={hub.key === served ? config : undefined}
-              />
+              <StepDetails fixture={fixture} step={step} run={picked?.fixture === fixture ? picked : undefined} />
             ) : (
               <WorkflowDetails workflow={fixture.workflow} />
             )}

@@ -23,22 +23,16 @@ beforeAll(async () => {
   const { createElement } = await dependency<{ createElement: CreateElement }>('react');
   const { renderToString } = await dependency<{ renderToString: (node: unknown) => string }>('react-dom/server');
   const jotai = await dependency<{ createStore: () => Store; Provider: unknown }>('jotai');
-  const { App, shown } = await studioModule<{ App: () => unknown; shown: string[] }>('App.tsx');
-  const state = await studioModule<{ locationAtom: Atom }>('state.ts');
-  routes = shown;
+  const { App } = await studioModule<{ App: () => unknown }>('App.tsx');
+  const state = await studioModule<{ locationAtom: Atom; routes: readonly string[] }>('state.ts');
+  routes = state.routes;
   render = path => {
     const store = jotai.createStore();
     store.set(state.locationAtom, { path, query: new URLSearchParams() });
     return renderToString(createElement(jotai.Provider, { store }, createElement(App)));
   };
-  for (const [route, view] of [
-    ['/graph', 'graph/GraphPage.tsx'],
-    ['/runs', 'runs/RunsPage.tsx'],
-  ] as const) {
-    render(route);
-    await studioModule(view);
-    await new Promise(resolve => setTimeout(resolve));
-  }
+  render('/runs');
+  await new Promise(resolve => setTimeout(resolve));
 });
 
 /** The `href` of every link in the HTML, with whether it is marked as the current page. */

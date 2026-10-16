@@ -1,9 +1,24 @@
 import { type ComponentType, type ReactNode, useState } from 'react';
-import { langOf } from '../../source/lang.ts';
-import { Icon } from '../../icons.tsx';
-import { Badge, cx } from '../../ui.tsx';
-import { Code, codeSurface } from '../../Markdown.tsx';
-import { json, Label, parseJson, Raw, Text } from './core.tsx';
+import { langOf } from '../source/lang.ts';
+import { Icon } from '../icons.tsx';
+import { Badge, cx } from '../ui.tsx';
+import { Code, codeSurface, Markdown as Text } from '../Markdown.tsx';
+
+const json = (value: unknown) => JSON.stringify(value, null, 2) ?? String(value);
+
+/** Parses text that holds a JSON object or array, else undefined. */
+const parseJson = (text: string | undefined): unknown => {
+  const trimmed = text?.trim();
+  if (!trimmed || !/^[[{]/.test(trimmed)) return;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return;
+  }
+};
+
+const Raw = ({ value }: { value: unknown }) => <Code code={json(value)} lang="json" compact wrap lines={12} />;
+const Label = ({ children }: { children: ReactNode }) => <span className="text-[11px] text-zinc-500">{children}</span>;
 
 type Input = Record<string, unknown>;
 type ToolProps = { input: Input; output?: string | undefined; ok?: boolean | undefined };
@@ -259,7 +274,7 @@ const Write = ({ input, output, ok }: ToolProps) => (
   </>
 );
 
-type Todo = { content?: string; status?: string; priority?: string };
+type Todo = { content?: string; status?: string };
 
 const todoGlyph = { completed: 'ok', in_progress: 'live', cancelled: 'skipped' } as const;
 
@@ -416,19 +431,17 @@ const record = (input: unknown): Input =>
 export const toolSummary = (tool: string, input: unknown) =>
   known(tool)?.summary(record(input)) ?? clip(JSON.stringify(input)?.replace(/\s+/g, ' ') ?? '');
 
-/** A tool call's arguments and result, drawn for what the tool is, or as the raw JSON when `raw` is set. */
+/** A tool call's arguments and result, drawn for what the tool is. */
 export const ToolBody = ({
   tool,
   input,
   output,
   ok,
-  raw = false,
 }: {
   tool: string;
   input: unknown;
   output?: string | undefined;
   ok?: boolean | undefined;
-  raw?: boolean;
 }) => {
   const Body = known(tool)?.Body ?? Unknown;
   return (
@@ -438,7 +451,7 @@ export const ToolBody = ({
         ok === false && 'rounded border-l-2 border-sky-600 pl-2 dark:border-sky-400'
       )}
     >
-      {raw ? <Raw value={{ input, output }} /> : <Body input={record(input)} output={output} ok={ok} />}
+      <Body input={record(input)} output={output} ok={ok} />
     </div>
   );
 };

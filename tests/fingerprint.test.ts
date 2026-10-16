@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { api } from '../src/api.ts';
 import { fingerprint, srcDir } from '../src/fingerprint.ts';
 import { openStore } from '../src/store.ts';
-import { studioModule } from './studio.ts';
 
 const tree = () => {
   const dir = mkdtempSync(join(tmpdir(), 'bothub-fingerprint-'));
@@ -60,18 +59,5 @@ describe('GET /api/build', () => {
     writeFileSync(join(dir, 'api.ts'), 'export const a = 2;\n');
     expect(await build(h)).toEqual({ running: before.running, disk: fingerprint(dir), stale: true });
     expect((await build(handler(dir))).stale).toBe(false);
-  });
-
-  it('drives the studio banner, which also treats an API without the route as out of date', async () => {
-    Object.assign(globalThis, { location: new URL('http://127.0.0.1/'), addEventListener: () => {} });
-    const { isStale } = await studioModule<{ isStale: (get: typeof fetch) => Promise<boolean> }>('StaleApi.tsx');
-    const dir = tree();
-    const h = handler(dir);
-    const get = ((path: string) => h(new Request(`http://127.0.0.1${path}`))) as typeof fetch;
-    expect(await isStale(get)).toBe(false);
-    writeFileSync(join(dir, 'api.ts'), 'export const a = 2;\n');
-    expect(await isStale(get)).toBe(true);
-    const old = (async () => Response.json({ error: 'not found' }, { status: 404 })) as typeof fetch;
-    expect(await isStale(old)).toBe(true);
   });
 });

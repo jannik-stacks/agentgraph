@@ -3,8 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch-path=../src --watch-path=dev.ts dev.ts",
-    "seed": "node seed.ts",
+    "dev": "node dev.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"

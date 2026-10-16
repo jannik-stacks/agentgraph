@@ -17,22 +17,6 @@ export const detail = (o: Outcome) =>
           ? o.text
           : '';
 
-/** One trace line in a few words. */
-export const say = (line: Trace) => {
-  if ('session' in line)
-    return `session ${line.session.resumed ? 'resumed' : 'started'}, ended ${line.session.ended}, $${line.session.usd}`;
-  if ('check' in line) {
-    const { check, pass, ms, findings } = line.check;
-    return `${check} ${pass ? 'passed' : 'failed'}${line.item ? ` on ${line.item}` : ''} in ${ms} ms${findings ? `: ${findings}` : ''}`;
-  }
-  if ('applied' in line)
-    return `${line.applied.proposal.kind} ${line.applied.ok ? 'applied' : `failed: ${line.applied.reason}`}`;
-  if ('outcome' in line) return [line.outcome.kind, detail(line.outcome)].filter(Boolean).join(': ');
-  if ('prompt' in line) return `prompt for ${line.prompt.agent}`;
-  if ('saved' in line) return `saved ${[...Object.keys(line.saved), ...(line.cleared ?? [])].join(', ')}`;
-  return line.event.type;
-};
-
 /** A core run as the dev server answers it: the run, its trace, and where it lives. */
 export type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] };
 
@@ -67,9 +51,3 @@ export const visitsOf = (trace: Trace[]) => {
   }
   return visits;
 };
-
-/** The pages a run left on the forge: the comments, commits, pull requests and issues it applied. */
-export const linksOf = (trace: Trace[]) =>
-  trace.flatMap(line =>
-    'applied' in line && line.applied.url ? [{ kind: line.applied.proposal.kind, url: line.applied.url }] : []
-  );

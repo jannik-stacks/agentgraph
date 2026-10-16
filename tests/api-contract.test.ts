@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -23,23 +23,7 @@ const studioPaths = () => {
 
 const setup = async () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'bothub-contract-')));
-  const pull = { number: 1, op: 'open', title: 't', body: '', branch: 'b', into: 'main', sha: 'x' };
-  writeFileSync(join(store.dir, 'pulls.jsonl'), `${JSON.stringify(pull)}\n`);
-  const run = await store.create({
-    workflow: 'w',
-    job: 'j',
-    harness: 'opencode',
-    event: {
-      id: 'e',
-      ts: '2026-10-12T00:00:00.000Z',
-      source: 'cli',
-      trigger: 'issue_comment',
-      repo: 'acme/app',
-      actor: { login: 'morgan', association: 'OWNER' },
-    },
-  });
-  await store.update(run.id, { status: 'succeeded', endedAt: new Date().toISOString() });
-  return { handler: api({ hubDir, store }), runId: run.id };
+  return { handler: api({ hubDir, store }) };
 };
 
 const status = async (handler: ReturnType<typeof api>, path: string) => {
@@ -49,21 +33,8 @@ const status = async (handler: ReturnType<typeof api>, path: string) => {
 };
 
 describe('studio and API contract', () => {
-  it('finds the API paths the studio fetches', () => {
-    const paths = [...studioPaths().keys()];
-    expect(paths).toContain('/api/hub');
-    expect(paths).toContain('/api/stream');
-    expect(paths).toContain('/api/info');
-  });
-
-  it('serves every API path the studio fetches', async () => {
-    const { handler, runId } = await setup();
-    const unserved: string[] = [];
-    for (const [path, at] of studioPaths()) {
-      const concrete = path.replace(/\$\{number\}/g, '1').replace(/\$\{[^}]*\}/g, runId);
-      if ((await status(handler, concrete)) === 404) unserved.push(`${at} ${path}`);
-    }
-    expect(unserved).toEqual([]);
+  it('leaves the studio on core alone: it fetches no v1 API path', () => {
+    expect([...studioPaths()]).toEqual([]);
   });
 
   it('answers 404 for a path it does not serve', async () => {

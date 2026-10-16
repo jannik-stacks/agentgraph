@@ -1,16 +1,11 @@
 import { useAtomValue } from 'jotai';
 import type { Trace } from '../../../core/src/store.ts';
-import type { Outcome, Step, Workflow } from '../../../core/src/workflow.ts';
-import { skillOf, type Config } from '../../../src/config.ts';
+import type { Run, Step, Workflow } from '../../../core/src/workflow.ts';
 import { Markdown } from '../Markdown.tsx';
-import { age, PhaseWord } from '../runs/bits.tsx';
-import { live } from '../runs/live.ts';
-import { phaseOf } from '../runs/model.ts';
-import { detail, say } from '../runs/trace.ts';
-import { Field, Fields, Link } from '../ui.tsx';
+import { lineRow, Rows, runRow } from '../runs/rows.tsx';
+import { runsAtom } from '../state.ts';
+import { Field, Fields } from '../ui.tsx';
 import type { Fixture, Trail } from './scenarios.ts';
-
-const said = (o: Outcome) => [o.kind, detail(o)].filter(Boolean).join(': ');
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="space-y-1">
@@ -26,6 +21,13 @@ const doing = (does: Step['does']) =>
       ? 'a script'
       : 'you';
 
+/** A simulated trail as the outcome lines a real run would have traced. */
+const traceOf = (trail: Trail, run: Run): Trace[] =>
+  trail.map(({ at, outcome }, i) => {
+    const { step, status, tries, rounds } = trail[i + 1]?.at ?? run;
+    return { at: '', step: at.step, outcome, run: { step, status, tries, rounds } };
+  });
+
 /** A workflow's trigger and description. */
 export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   <div className="space-y-4 p-4 text-xs">
@@ -39,67 +41,29 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
   </div>
 );
 
-/** What one run did at a step: its trace lines when it is real, its outcomes when it is simulated. */
-const RunAtStep = ({ step, trail, trace }: { step: string; trail: Trail; trace?: Trace[] | undefined }) => {
-  const lines = trace
-    ? trace.filter(line => line.step === step).map(line => ({ at: line.at.slice(11, 19), text: say(line), line }))
-    : trail.filter(t => t.at.step === step).map(t => ({ at: '', text: said(t.outcome), line: undefined }));
-  if (!lines.length) return <p className="text-zinc-500">The run has not been here.</p>;
-  return (
-    <ol className="space-y-0.5 font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
-      {lines.map(({ at, text, line }, i) => (
-        <li key={i} className="break-words">
-          {at && `${at} `}
-          {text}
-          {line && 'applied' in line && line.applied.url && (
-            <a className="ml-1 text-sky-600 underline" href={line.applied.url} target="_blank" rel="noreferrer">
-              {line.applied.url.replace('https://github.com/', '')}
-            </a>
-          )}
-        </li>
-      ))}
-    </ol>
+/** The served hub's runs that stand at a step now. */
+const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
+  const { value: runs = [] } = useAtomValue(runsAtom);
+  const here = runs.filter(
+    r => r.fixture === fixture && r.run.step === step && ['running', 'waiting'].includes(r.run.status)
   );
+  if (!here.length) return <p className="text-zinc-500">No run stands here.</p>;
+  return <Rows rows={here.slice(0, 8).map(r => runRow(r))} />;
 };
 
-/** The latest v1 runs of a step from the live run list. */
-const LatestRuns = ({ workflow, step }: { workflow: string; step: string }) => {
-  const rows = useAtomValue(live.rows);
-  const runs = (rows ?? []).filter(r => r.workflow === workflow && r.job === step && !r.check).slice(0, 8);
-  if (!runs.length) return <p className="text-zinc-500">No runs yet.</p>;
-  return (
-    <ul className="space-y-0.5">
-      {runs.map(run => (
-        <li key={run.id}>
-          <Link href={`/runs/${encodeURIComponent(run.id)}`} className="flex items-center gap-2 hover:underline">
-            <span className="min-w-0 flex-1 truncate">
-              {run.event.number !== undefined ? `#${run.event.number}` : run.event.trigger}
-              {(run.attempt ?? 1) > 1 && `, try ${run.attempt}`}
-            </span>
-            <PhaseWord phase={phaseOf(run)} status={run.status} />
-            <span className="w-14 shrink-0 text-right text-zinc-500">{age(run.startedAt ?? run.event.ts)}</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-};
-
-/** A step's doer, checks, tries and way back in plain words, what the picked run did there, and its prose. */
+/** A step's doer, checks, tries and way back in plain words, what the picked run did there, and its prompts. */
 export const StepDetails = ({
   fixture,
   step,
   run,
-  config,
 }: {
   fixture: Fixture;
   step: Step;
-  run?: { trail: Trail; trace?: Trace[] | undefined } | undefined;
-  config?: Config | undefined;
+  run?: { run: Run; trail: Trail; trace?: Trace[] | undefined } | undefined;
 }) => {
   const { workflow, checks } = fixture;
-  const spec = config?.workflows[workflow.name]?.steps[step.name];
-  const about = spec?.bot ? config?.skills[skillOf(step.name, spec)]?.body : spec?.run;
+  const { does } = step;
+  const lines = run && (run.trace ?? traceOf(run.trail, run.run)).filter(line => line.step === step.name);
   return (
     <div className="space-y-4 p-4 text-xs">
       <div>
@@ -107,8 +71,8 @@ export const StepDetails = ({
         <p className="text-zinc-500">in {workflow.name}</p>
       </div>
       <Fields>
-        <Field name="done by">{doing(step.does)}</Field>
-        {!('wait' in step.does) && <Field name="tries">{step.tries}, then it asks you</Field>}
+        <Field name="done by">{doing(does)}</Field>
+        {!('wait' in does) && <Field name="tries">{step.tries}, then it asks you</Field>}
         {step.each && <Field name="each">{typeof step.each === 'string' ? step.each : step.each.run}</Field>}
         {step.back && (
           <Field name="back">
@@ -138,19 +102,33 @@ export const StepDetails = ({
           </ul>
         </Section>
       )}
-      {run && (
+      {lines && (
         <Section title="In the picked run">
-          <RunAtStep step={step.name} trail={run.trail} trace={run.trace} />
+          {lines.length ? (
+            <Rows rows={lines.map(lineRow)} />
+          ) : (
+            <p className="text-zinc-500">The run has not been here.</p>
+          )}
         </Section>
       )}
-      {config && (
-        <Section title="Latest runs">
-          <LatestRuns workflow={workflow.name} step={step.name} />
+      {fixture.agents && (
+        <Section title="Runs here now">
+          <RunsHere fixture={fixture.id} step={step.name} />
         </Section>
       )}
-      {about && (
-        <Section title={spec?.bot ? 'Skill' : 'Command'}>
-          <Markdown text={spec?.bot ? about : `\`\`\`sh\n${about}\n\`\`\``} />
+      {'run' in does && (
+        <Section title="Command">
+          <Markdown text={`\`\`\`sh\n${does.run}\n\`\`\``} />
+        </Section>
+      )}
+      {'agent' in does && does.skill && fixture.skills?.[does.skill] && (
+        <Section title="Skill">
+          <Markdown text={fixture.skills[does.skill]!} />
+        </Section>
+      )}
+      {'agent' in does && fixture.agents?.[does.agent] && (
+        <Section title="Agent">
+          <Markdown text={fixture.agents[does.agent]!} />
         </Section>
       )}
     </div>

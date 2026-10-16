@@ -1,23 +1,7 @@
-import { type Atom, atom } from 'jotai';
-import { atomWithRefresh, unwrap } from 'jotai/utils';
-import type { ApiInfo } from '../../src/api.ts';
-import type { Config, ConfigError } from '../../src/config.ts';
+import { atom } from 'jotai';
+import type { CoreRun } from './runs/trace.ts';
 
-const last = new Map<string, { text: string; value: unknown }>();
-
-/** Fetches JSON, answering with the previous value when the response text has not changed. */
-const getJson = async <T>(path: string): Promise<T> => {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error(`${path} answered ${response.status}`);
-  const text = await response.text();
-  const previous = last.get(path);
-  if (previous?.text === text) return previous.value as T;
-  const value = JSON.parse(text) as T;
-  last.set(path, { text, value });
-  return value;
-};
-
-export const routes = ['graph', 'runs', 'core'] as const;
+export const routes = ['graph', 'runs'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
 
 export const locationAtom = atom(readLocation());
@@ -33,32 +17,13 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
   set(locationAtom, readLocation());
 });
 
-const segments = atom(get => get(locationAtom).path.split('/').filter(Boolean));
-
-/**
- * The route: `/graph`, `/runs[/<id>]`, `/pulls[/<n>]`, `/core[/<id>]`.
- */
+/** The route: `/graph` or `/runs[/<id>]`. */
 export const pageAtom = atom(get => {
-  const [page, id] = get(segments);
-  if (page === 'graph') return { route: 'graph' as const };
+  const [page, id] = get(locationAtom).path.split('/').filter(Boolean);
+  if (page === 'graph') return { route: 'graph' as const, run: null };
   if (page === 'runs') return { route: 'runs' as const, run: id ? decodeURIComponent(id) : null };
-  if (page === 'core') return { route: 'core' as const, run: id ? decodeURIComponent(id) : null };
-  if (page === 'pulls') return { route: 'runs' as const, pull: id && /^\d+$/.test(id) ? Number(id) : null };
-  return { route: undefined };
+  return { route: undefined, run: null };
 });
-
-/** The selected run, at `/runs/<id>`. */
-export const runIdAtom = atom(
-  get => {
-    const page = get(pageAtom);
-    return 'run' in page ? page.run : null;
-  },
-  (get, set, id: string | null) => {
-    const query = get(locationAtom).query;
-    const path = id ? `/runs/${encodeURIComponent(id)}` : '/runs';
-    set(navigateAtom, { href: query.size ? `${path}?${query}` : path });
-  }
-);
 
 /** One query parameter of the location, written in place. */
 export const queryParam = (key: string) =>
@@ -76,19 +41,36 @@ export const queryParam = (key: string) =>
 /** The step selected on the graph, as `workflow/step`. */
 export const selectedStepAtom = queryParam('step');
 
-/** The run list's status filter. */
-export const statusFilterAtom = queryParam('status');
+/**
+ * Answers `path` as JSON while something reads it: again every few seconds while the tab is visible and `again` holds
+ * for the last answer.
+ */
+export const polled = <T>(path: string, again: (value: T) => boolean = () => true) => {
+  const value = atom<{ value?: T; failure?: string }>({});
+  value.onMount = set => {
+    let last: { value: T } | undefined;
+    const load = () => {
+      if (document.hidden || (last && !again(last.value))) return;
+      fetch(path)
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error(`${path} answered ${r.status}`))))
+        .then(
+          v => {
+            last = { value: v as T };
+            set(last);
+          },
+          (e: Error) => set(previous => ({ ...previous, failure: e.message }))
+        );
+    };
+    load();
+    const timer = setInterval(load, 3000);
+    document.addEventListener('visibilitychange', load);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', load);
+    };
+  };
+  return value;
+};
 
-/** A server read: suspends until `path` answers, throws when it fails, and fetches again when written. */
-export const apiAtom = <T>(path: string) => atomWithRefresh(() => getJson<T>(path));
-
-/** The last answer of an `apiAtom` without suspending: `fallback` while it first loads or when it fails. */
-export const latest = <T, F>(query: Atom<Promise<T>>, fallback: F) =>
-  unwrap(
-    atom(get => get(query).catch(() => fallback)),
-    previous => previous ?? fallback
-  );
-
-export const hubAtom = apiAtom<{ config: Config } | { errors: ConfigError[] }>('/api/hub');
-
-export const infoAtom = latest(apiAtom<ApiInfo>('/api/info'), null);
+/** Every run of the served hub, with its trace short of prompts and session events. */
+export const runsAtom = polled<CoreRun[]>('/core/runs');

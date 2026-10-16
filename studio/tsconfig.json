@@ -17,5 +17,5 @@
     "noEmit": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "dev.ts", "seed.ts", "vite.config.ts", "fixtures.ts"]
+  "include": ["src", "dev.ts", "vite.config.ts", "fixtures.ts"]
 }

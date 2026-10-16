@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 
@@ -7,14 +6,10 @@ const id = 'virtual:fixtures';
 const core = new URL('../core/', import.meta.url);
 const from = <T>(path: string): Promise<T> => import(new URL(path, core).href);
 
-/** Whether the hub in `dir` is in core format: its hub.yaml names a `repo`. */
-export const isCore = (dir: string) =>
-  /^repo:/m.test(existsSync(join(dir, 'hub.yaml')) ? readFileSync(join(dir, 'hub.yaml'), 'utf8') : '');
-
-/** The served hub when its hub.yaml names a `repo`, as core loads it: the hub, or the problems that stop it loading. */
+/** The served hub as core loads it: the hub, or the problems that stop it loading. */
 const coreHub = async () => {
   const dir = process.env.VITE_BHM_HUB;
-  if (!dir || !isCore(dir)) return;
+  if (!dir) return;
   const { Effect, Either } = await import('effect');
   const { loadHub }: typeof import('../core/src/hub.ts') = await from('src/hub.ts');
   const loaded = await Effect.runPromise(Effect.either(loadHub(dir)));
@@ -29,11 +24,13 @@ const json = (res: import('node:http').ServerResponse, value: unknown, status = 
   res.end(JSON.stringify(value));
 };
 
+const bodies = (docs: Record<string, { body: string }>) =>
+  Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
+
 /**
  * Serves core's fixture workflows, each with runs replayed through the engine's begin and transition, as
- * `virtual:fixtures`, plus the served hub's workflows when it is in core format. `GET /core/runs` answers that hub's
- * runs in the data dir with their traces, leaving out prompts and session events; `GET /core/runs/<id>` answers one run
- * with every trace line.
+ * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
+ * their traces, leaving out prompts and session events; `GET /core/runs/<id>` answers one run with every trace line.
  */
 export const fixtures = (): Plugin => ({
   name: 'bothub:fixtures',
@@ -83,13 +80,16 @@ export const fixtures = (): Plugin => ({
       }));
     });
     const served = await coreHub();
-    const hub = served && { name: served.name, problems: served.problems };
-    const real: Fixture[] = Object.values(served?.hub?.workflows ?? {}).map(workflow => ({
+    const hub = served?.hub;
+    const real: Fixture[] = Object.values(hub?.workflows ?? {}).map(workflow => ({
       id: `${served!.name}/${workflow.name}`,
       workflow,
-      checks: served!.hub!.checks,
+      checks: hub!.checks,
       runs: [],
+      agents: bodies(hub!.agents),
+      skills: bodies(hub!.skills),
     }));
-    return `export const fixtures = ${JSON.stringify([...real, ...all])};\nexport const served = ${JSON.stringify(hub ?? null)};`;
+    const shown = served && { name: served.name, problems: served.problems };
+    return `export const fixtures = ${JSON.stringify([...real, ...all])};\nexport const served = ${JSON.stringify(shown ?? null)};`;
   },
 });
