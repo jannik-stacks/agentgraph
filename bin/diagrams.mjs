@@ -101,7 +101,7 @@ function checkBlock(block, unicode) {
     for (let c = 0; c < grid[r].length; c++) {
       if (grid[r][c] !== '┌') continue;
       let c2 = c + 1;
-      while ('─┬'.includes(at(r, c2)) && c2 < grid[r].length) c2++;
+      while ('─┬┴┼'.includes(at(r, c2)) && c2 < grid[r].length) c2++;
       if (at(r, c2) !== '┐') {
         report(r, c, `top edge from ┌ does not end in ┐ (stops at col ${c2 + 1})`);
         continue;
@@ -113,7 +113,7 @@ function checkBlock(block, unicode) {
         continue;
       }
       let c3 = c + 1;
-      while ('─┴'.includes(at(r2, c3)) && c3 < grid[r2].length) c3++;
+      while ('─┬┴┼'.includes(at(r2, c3)) && c3 < grid[r2].length) c3++;
       if (at(r2, c3) !== '┘')
         report(r2, c3, `bottom edge does not end in ┘ (box at ${r + 1}:${c + 1} has its right edge at col ${c2 + 1})`);
       else if (c3 !== c2) report(r2, c3, `bottom right corner at col ${c3 + 1}, top right corner at col ${c2 + 1}`);

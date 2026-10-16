@@ -23,6 +23,10 @@ describe('diagrams', () => {
     expect(check('┌─────┐\n│ hi  │\n└─────┘\n')).toEqual({ status: 0, lines: ['1 diagrams ok'] });
   });
 
+  it('accepts a line leaving a box through its bottom edge', () => {
+    expect(check('┌─────┐\n│ hi  │\n└──┬──┘\n   ▼\n').status).toBe(0);
+  });
+
   it('reports a right edge one column off', () => {
     const { status, lines } = check('┌─────┐\n│ hi   │\n└─────┘\n');
     expect(status).toBe(1);
