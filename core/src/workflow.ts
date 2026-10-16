@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
-import type { Verdict } from './check.ts';
+import type { CheckResult } from './check.ts';
 import type { Applied, Message } from './forge.ts';
 
 /** A hub file after parsing: its name, where it lives and its markdown body. */
@@ -28,10 +28,10 @@ export type Step = {
   each?: 'files' | 'hunks' | { run: string };
 };
 
-/** How one try of a step ended, or what a human said to a parked run. */
+/** How one try of a step ended, or what a human said to a waiting run. */
 export type Outcome =
   | { kind: 'pass' }
-  | { kind: 'refused'; failing: Verdict[]; rejected: Applied[]; problems: string[] }
+  | { kind: 'failed'; checks: CheckResult[]; proposals: Applied[]; problems: string[] }
   | { kind: 'back'; why: string }
   | { kind: 'ask'; question: string }
   | { kind: 'answer'; text: string }
@@ -46,7 +46,7 @@ export type Run = {
   workflow: string;
   issue: number;
   step: string;
-  status: 'running' | 'asking' | 'waiting' | 'done' | 'stopped';
+  status: 'running' | 'waiting' | 'done' | 'stopped';
   tries: number;
   rounds: Record<string, number>;
   sessions: Record<string, { id: string; home: string; seen?: Seen }>;
@@ -197,10 +197,10 @@ const entered = (step: Step): Run['status'] => (waits(step) ? 'waiting' : 'runni
 
 const fresh = ({ feedback: _feedback, reason: _reason, ...run }: Run): Run => run;
 
-const refusalText = (o: Extract<Outcome, { kind: 'refused' }>) =>
+const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
   [
-    ...o.failing.map(v => `${v.check}: ${v.findings ?? 'failed'}`),
-    ...o.rejected.map(a => `${a.proposal.kind} rejected: ${a.reason ?? 'not allowed'}`),
+    ...o.checks.map(c => `${c.check}: ${c.findings ?? 'failed'}`),
+    ...o.proposals.map(a => `${a.proposal.kind} failed: ${a.reason ?? 'not allowed'}`),
     ...o.problems,
   ].join('\n');
 
@@ -225,7 +225,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const step = w.steps[i];
   if (!step) return run;
   const stop = (why: string): Run => ({ ...fresh(run), status: 'stopped', reason: why });
-  const ask = (question: string): Run => ({ ...fresh(run), status: 'asking', reason: question });
+  const ask = (question: string): Run => ({ ...fresh(run), status: 'waiting', reason: question });
 
   const forward = (): Run => {
     const next = w.steps[i + 1];
@@ -253,17 +253,17 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     switch (o.kind) {
       case 'pass':
         return forward();
-      case 'refused': {
+      case 'failed': {
         const tries = run.tries + 1;
-        const text = refusalText(o);
+        const text = failure(o);
         return tries < step.tries ? { ...fresh(run), tries, feedback: text } : { ...ask(text), tries };
       }
       case 'back':
         if (step.back) return back(o.why);
         return transition(w, run, {
-          kind: 'refused',
-          failing: [],
-          rejected: [{ proposal: { kind: 'back', why: o.why }, ok: false, reason: `${step.name} has no way back` }],
+          kind: 'failed',
+          checks: [],
+          proposals: [{ proposal: { kind: 'back', why: o.why }, ok: false, reason: `${step.name} has no way back` }],
           problems: [],
         });
       case 'ask':
@@ -274,13 +274,13 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
         return run;
     }
   }
-  if (run.status === 'waiting') {
+  if (run.status === 'waiting' && waits(step)) {
     if (o.kind === 'pass') return forward();
     if (o.kind === 'back') return back(o.why);
     if (o.kind === 'stop') return stop(o.why);
     return run;
   }
-  if (run.status === 'asking') {
+  if (run.status === 'waiting') {
     if (o.kind === 'stop') return stop(o.why);
     if (o.kind !== 'answer') return run;
     const taken = run.rounds[step.name] ?? 0;
@@ -292,14 +292,14 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   return run;
 }
 
-/** What a new message means for a parked run; undefined when it is only context. */
+/** What a new message means for a waiting run: a review at a human step, an answer elsewhere; undefined when it is only context. */
 export function reenter(w: Workflow, run: Run, m: Message): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
     return { kind: 'stop', why: `the ${label} label was removed` };
-  if (m.kind === 'closed' && (run.status === 'waiting' || run.status === 'asking'))
-    return { kind: 'stop', why: 'closed' };
+  const waiting = run.status === 'waiting';
+  if (m.kind === 'closed' && waiting) return { kind: 'stop', why: 'closed' };
   const command = Object.values(w.on).find(t => t?.command)?.command;
   const body = m.comment?.body.trim() ?? '';
   const said =
@@ -307,14 +307,14 @@ export function reenter(w: Workflow, run: Run, m: Message): Outcome | undefined 
       ? body.slice(command.length).trim()
       : undefined;
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
-  if (first.toLowerCase() === 'stop' && (run.status === 'waiting' || run.status === 'asking'))
-    return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
-  if (run.status === 'waiting') {
+  if (first.toLowerCase() === 'stop' && waiting) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
+  const step = w.steps.find(s => s.name === run.step);
+  if (waiting && step && waits(step)) {
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
       return { kind: 'pass' };
     if (m.kind === 'changes') return { kind: 'back', why: body || 'changes requested' };
     if (said !== undefined) return { kind: 'back', why: said };
   }
-  if (run.status === 'asking' && said !== undefined) return { kind: 'answer', text: said };
+  if (waiting && said !== undefined) return { kind: 'answer', text: said };
   return undefined;
 }

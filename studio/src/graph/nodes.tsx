@@ -110,7 +110,7 @@ const Chip = ({ tip, className, children }: { tip: string; className?: string; c
 );
 
 const statusLine = (node: GraphNode, o: Overlay) =>
-  o.status === 'asking'
+  o.status === 'waiting' && o.reason !== undefined
     ? 'asking you'
     : o.status === 'waiting'
       ? 'waiting for you'
@@ -217,7 +217,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           {refused ? `${Math.min(node.run!.tries + 1, node.tries)}/${node.tries}` : node.tries}
         </Bubble>
       )}
-      {overlay?.status === 'asking' && (
+      {overlay?.status === 'waiting' && overlay.reason !== undefined && (
         <Bubble tip={`Asking you: ${overlay.reason ?? ''}`} className="-top-2.5 -left-2.5 [&>span]:bg-sky-600">
           <Glyph name="hand" />
         </Bubble>

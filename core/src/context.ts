@@ -74,7 +74,6 @@ export function news(t: Issues, seen: Seen): { text: string; seen: Seen } {
 
 const statuses: Record<Run['status'], string> = {
   running: 'bothub:working',
-  asking: 'bothub:waiting',
   waiting: 'bothub:waiting',
   done: 'bothub:done',
   stopped: 'bothub:stopped',
@@ -94,8 +93,9 @@ export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
   const body = [
     {
       running: `Working on ${run.step}, try ${run.tries + 1} of ${tries}${round ? `, round ${round + 1}` : ''}.`,
-      asking: `Waiting for an answer at ${run.step}:\n\n${run.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`,
-      waiting: `Waiting for a human at ${run.step}.`,
+      waiting: run.reason
+        ? `Waiting for an answer at ${run.step}:\n\n${run.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`
+        : `Waiting for a human at ${run.step}.`,
       done: 'Done.',
       stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,
     }[run.status],

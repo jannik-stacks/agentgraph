@@ -23,7 +23,7 @@ A run id is the workflow name, the issue number and a timestamp, so runs sort in
 | `workflow` | The workflow it runs                                       |
 | `issue`    | The issue number                                           |
 | `step`     | The step it is on                                          |
-| `status`   | `running`, `asking`, `waiting`, `done` or `stopped`        |
+| `status`   | `running`, `waiting`, `done` or `stopped`                  |
 | `tries`    | Tries used on this step                                    |
 | `rounds`   | Times each step has gone back                              |
 | `sessions` | The session of each step, so a try resumes it              |
@@ -31,8 +31,8 @@ A run id is the workflow name, the issue number and a timestamp, so runs sort in
 | `reason`   | Why the run waits or stopped                               |
 | `usd`      | What its sessions cost                                     |
 
-`asking` is a run that waits for an answer, `waiting` one at a human step. Both need a person; see
-[The loop](loop.md#waiting). The file is rewritten whole each time, so a run can be picked up on
+`waiting` needs a person: a review at a human step, an answer to the question in `reason` anywhere
+else. See [The loop](loop.md#waiting). The file is rewritten whole each time, so a run can be picked up on
 another machine.
 
 ## The trace
@@ -42,9 +42,9 @@ another machine.
 - `prompt`: what a session was opened with: harness, model, system prompt, prompt and tools.
 - `event`: something the session did, as the harness reported it: text, a tool call, usage, the end.
 - `session`: how a session ended, whether it resumed one, and what it cost.
-- `verdict`: one check's result, with its output when it failed.
+- `check`: one check's result, with its output when it failed.
 - `applied`: a proposal and whether it was applied, with its URL or the reason it was not.
-- `outcome`: how a try ended (pass, refused, back, ask, answer or stop) and where the run went next.
+- `outcome`: how a try ended (pass, failed, back, ask, answer or stop) and where the run went next.
 
 The studio and `status` read these files and nothing else.
 

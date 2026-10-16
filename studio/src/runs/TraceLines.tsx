@@ -183,10 +183,10 @@ export const SessionBlock = ({ session, running }: { session: Session; running: 
   );
 };
 
-/** A verdict, an applied proposal or an outcome. */
+/** A check result, an applied proposal or an outcome. */
 export const LineRow = ({ line }: { line: Trace }) => {
-  if ('verdict' in line) {
-    const v = line.verdict;
+  if ('check' in line) {
+    const v = line.check;
     return (
       <Row
         line={line}

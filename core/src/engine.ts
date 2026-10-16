@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
-import type { Check, Verdict } from './check.ts';
+import type { Check, CheckResult } from './check.ts';
 import { context, news, shown, type Issues } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Issue } from './forge.ts';
 import type { Hub } from './hub.ts';
@@ -212,10 +212,10 @@ const converse = (run: string, step: string, spec: SessionSpec, item?: string) =
     return { id: seen.id, home: seen.home ?? spec.dir, final: seen.final || seen.text, usd: seen.usd };
   });
 
-type Result = { item: string | undefined; pass: boolean; findings: string; exit?: number };
+type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
 
-/** One check over what a try left: its items, the command per item, then the judge. Per-item verdicts are traced; judge sessions' cost comes back as `usd`. */
-const verdictOf = (run: string, step: Step, check: Doc<Check>, work: Work, hub: Hub) =>
+/** One check over what a try left: its items, the command per item, then the judge. Per-item results are traced; judge sessions' cost comes back as `usd`. */
+const resultOf = (run: string, step: Step, check: Doc<Check>, work: Work, hub: Hub) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const started = Date.now();
@@ -249,11 +249,11 @@ const verdictOf = (run: string, step: Step, check: Doc<Check>, work: Work, hub: 
         return { item, pass: /^\W*PASS\b/.test(judged.final), findings: judged.final, ...exit };
       });
     const over = check.max !== undefined && items.length > check.max;
-    const results: Result[] = over
+    const results: Item[] = over
       ? [{ item: undefined, pass: false, findings: `${items.length} items, more than ${check.max}` }]
       : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
     const failing = results.filter(r => !r.pass);
-    const verdict: Verdict = {
+    const result: CheckResult = {
       check: check.name,
       pass: failing.length === 0,
       ...(failing.length > 0 && {
@@ -271,13 +271,18 @@ const verdictOf = (run: string, step: Step, check: Doc<Check>, work: Work, hub: 
         .map(r => ({
           at,
           step: step.name,
-          verdict: { check: check.name, pass: r.pass, ...(!r.pass && { findings: squeeze(r.findings) }), ms: 0 },
+          check: { check: check.name, pass: r.pass, ...(!r.pass && { findings: squeeze(r.findings) }), ms: 0 },
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
         })),
-      { at, step: step.name, verdict, ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }) }
+      {
+        at,
+        step: step.name,
+        check: result,
+        ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
+      }
     );
-    return { verdict, usd };
+    return { result, usd };
   });
 
 /** One try of the current step: a session, a script or a wait, then the gate, then land on a pass. */
@@ -308,14 +313,14 @@ export const attempt = (
     if ('run' in step.does) {
       const started = Date.now();
       const out = yield* sh(step.does.run, work.dir, { BOTHUB_BASE: work.base }, minutes);
-      const verdict: Verdict = {
+      const result: CheckResult = {
         check: step.name,
         pass: out.code === 0,
         ...(out.code !== 0 && { findings: squeeze(out.output) }),
         ms: Date.now() - started,
       };
-      yield* store.trace(run.id, { at: now(), step: step.name, verdict, exit: out.code });
-      if (!verdict.pass) return done({ kind: 'refused', failing: [verdict], rejected: [], problems: [] });
+      yield* store.trace(run.id, { at: now(), step: step.name, check: result, exit: out.code });
+      if (!result.pass) return done({ kind: 'failed', checks: [result], proposals: [], problems: [] });
       replies.push(out.output);
     } else {
       const bot = hub.bots[step.does.bot]!;
@@ -388,11 +393,11 @@ export const attempt = (
 
     const { outcome: gated, usd } = yield* gate(step, { run: run.id, ...work, proposals: world }, hub);
     tried = { ...tried, usd: tried.usd + usd };
-    if (gated.kind === 'refused' || (gated.kind === 'pass' && problems.length > 0))
+    if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
-        gated.kind === 'refused'
+        gated.kind === 'failed'
           ? { ...gated, problems: [...gated.problems, ...problems] }
-          : { kind: 'refused', failing: [], rejected: [], problems },
+          : { kind: 'failed', checks: [], proposals: [], problems },
         tried
       );
     if (gated.kind !== 'pass') return done(gated, tried);
@@ -409,7 +414,7 @@ export const attempt = (
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
     const failed = applied.filter(a => !a.ok);
     return done(
-      failed.length ? { kind: 'refused', failing: [], rejected: failed, problems: [] } : { kind: 'pass' },
+      failed.length ? { kind: 'failed', checks: [], proposals: failed, problems: [] } : { kind: 'pass' },
       tried
     );
   });
@@ -427,15 +432,15 @@ export const gate = (
   Effect.gen(function* () {
     const checks = step.checks.map(name => ({ ...hub.checks[name]!, name }));
     const holds = (c: Check) => c.mode === 'block' || c.mode === 'stop';
-    const verdicts = (list: Doc<Check>[]) =>
-      Effect.forEach(list, c => verdictOf(left.run, step, c, left, hub), { concurrency: 'unbounded' });
+    const results = (list: Doc<Check>[]) =>
+      Effect.forEach(list, c => resultOf(left.run, step, c, left, hub), { concurrency: 'unbounded' });
     const scripts = checks.filter(c => !c.judge);
     const judged = checks.filter(c => c.judge);
-    const first = (yield* verdicts(scripts)).map(r => r.verdict);
+    const first = (yield* results(scripts)).map(r => r.result);
     const blocked = first.some((v, i) => !v.pass && holds(scripts[i]!));
-    const bots = blocked ? [] : yield* verdicts(judged);
+    const bots = blocked ? [] : yield* results(judged);
     const usd = bots.reduce((sum, r) => sum + r.usd, 0);
-    const all = [...first, ...bots.map(r => r.verdict)];
+    const all = [...first, ...bots.map(r => r.result)];
     const failed = (mode: Check['mode']) =>
       all.filter(v => !v.pass && checks.find(c => c.name === v.check)?.mode === mode);
 
@@ -446,13 +451,13 @@ export const gate = (
         usd,
       };
     const returns = 'bot' in step.does ? hub.bots[step.does.bot]?.returns : undefined;
-    const rejected: Applied[] = left.proposals
+    const proposals: Applied[] = left.proposals
       .filter(p => returns && !returns.some(k => k === p.kind))
       .map(p => ({ proposal: p, ok: false, reason: `${step.name} may not propose ${p.kind}` }));
-    const failing = failed('block');
+    const blocking = failed('block');
     const outcome: Outcome =
-      failing.length > 0 || rejected.length > 0
-        ? { kind: 'refused', failing, rejected, problems: [] }
+      blocking.length > 0 || proposals.length > 0
+        ? { kind: 'failed', checks: blocking, proposals, problems: [] }
         : { kind: 'pass' };
     return { outcome, usd };
   });
@@ -510,7 +515,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           outcome,
           run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
         });
-        if (next.status === 'asking' && next.reason) {
+        if (next.status === 'waiting' && next.reason) {
           const body = `${next.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`;
           const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
           if (Either.isRight(said))

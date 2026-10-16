@@ -1,7 +1,7 @@
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Context, Data, Effect, Layer, Stream, type Scope } from 'effect';
-import type { Verdict } from './check.ts';
+import type { CheckResult } from './check.ts';
 import type { Applied } from './forge.ts';
 import type { AgentEvent, SessionSpec, SessionStop } from './session.ts';
 import type { Outcome, Run } from './workflow.ts';
@@ -22,7 +22,7 @@ export type Trace = { at: string; step: string } & (
         usd: number;
       };
     }
-  | { verdict: Verdict; item?: string; exit?: number }
+  | { check: CheckResult; item?: string; exit?: number }
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
@@ -57,8 +57,19 @@ export class Store extends Context.Tag('bothub/Store')<
   }
 >() {}
 
-const renamed: Record<string, string> = { brief: 'prompt', carry: 'feedback', thread: 'issue', into: 'base' };
-const values: Record<string, Record<string, string>> = { kind: { reply: 'comment', pull: 'pull_request' } };
+const renamed: Record<string, string> = {
+  brief: 'prompt',
+  carry: 'feedback',
+  thread: 'issue',
+  into: 'base',
+  verdict: 'check',
+  failing: 'checks',
+  rejected: 'proposals',
+};
+const values: Record<string, Record<string, string>> = {
+  kind: { reply: 'comment', pull: 'pull_request', refused: 'failed' },
+  status: { asking: 'waiting' },
+};
 
 /** A run or trace line as older versions wrote it, read with today's field names and values. */
 const current = (value: unknown, key = ''): unknown => {

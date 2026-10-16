@@ -14,13 +14,15 @@ const { privateKey } = generateKeyPairSync('rsa', {
 });
 const app = { repo: 'o/r', id: '42', key: Redacted.make(privateKey) };
 
-const run = (id: string, issue: number, status: string) =>
+/** A run.json as an older version wrote it: `thread` for the issue, `asking` for a run waiting on an answer. */
+const run = (id: string, thread: number, status: string) =>
   JSON.stringify({
     id,
     workflow: 'fix',
-    issue,
+    thread,
     step: 's',
     status,
+    ...(status === 'asking' && { reason: 'which one?' }),
     tries: 0,
     rounds: {},
     sessions: {},
@@ -64,7 +66,7 @@ const check = async (repositories: string[]) => {
   return { lines, calls, bodies };
 };
 
-it('warns about extra repos and lists parked runs', async () => {
+it('warns about extra repos and lists waiting runs', async () => {
   const { lines, calls, bodies } = await check(['o/r', 'o/other']);
   expect(bodies).toEqual([{ permissions: { metadata: 'read' } }]);
   expect(lines[0]).toContain('o/other');

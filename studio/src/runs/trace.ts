@@ -3,10 +3,10 @@ import type { Outcome, Run } from '../../../core/src/workflow.ts';
 
 /** What an outcome says beyond its kind. */
 export const detail = (o: Outcome) =>
-  o.kind === 'refused'
+  o.kind === 'failed'
     ? [
-        ...o.failing.map(v => `${v.check} failed`),
-        ...o.rejected.map(a => `${a.proposal.kind} rejected`),
+        ...o.checks.map(c => `${c.check} failed`),
+        ...o.proposals.map(a => `${a.proposal.kind} failed`),
         ...o.problems,
       ].join('; ')
     : 'why' in o
@@ -21,8 +21,8 @@ export const detail = (o: Outcome) =>
 export const say = (line: Trace) => {
   if ('session' in line)
     return `session ${line.session.resumed ? 'resumed' : 'started'}, ended ${line.session.ended}, $${line.session.usd}`;
-  if ('verdict' in line) {
-    const { check, pass, ms, findings } = line.verdict;
+  if ('check' in line) {
+    const { check, pass, ms, findings } = line.check;
     return `${check} ${pass ? 'passed' : 'failed'}${line.item ? ` on ${line.item}` : ''} in ${ms} ms${findings ? `: ${findings}` : ''}`;
   }
   if ('applied' in line)

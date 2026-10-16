@@ -39,15 +39,15 @@ describe('fileStore', () => {
         expect(yield* store.get('nope')).toBeUndefined();
         expect((yield* store.list({ issue: 4 })).map(r => r.id)).toEqual(['r2']);
         yield* store.put(run);
-        yield* store.put({ ...run, status: 'asking', reason: 'why' });
-        yield* store.put({ ...run, status: 'asking' });
+        yield* store.put({ ...run, status: 'waiting', reason: 'why' });
+        yield* store.put({ ...run, status: 'waiting' });
         return Chunk.toArray(yield* Stream.runCollect(store.read('r1')));
       }).pipe(Effect.provide(fileStore(temp())))
     );
     expect(lines[0]).toMatchObject({ step: 'triage', saved: run });
     expect(lines.slice(1, 3).map(l => l.at)).toEqual(['a', 'b']);
     expect(lines.slice(3)).toMatchObject([
-      { saved: { status: 'asking', reason: 'why' } },
+      { saved: { status: 'waiting', reason: 'why' } },
       { saved: {}, cleared: ['reason'] },
     ]);
   });
@@ -55,7 +55,7 @@ describe('fileStore', () => {
   it('reads a run.json and trace lines written with older names under the current ones', async () => {
     const dir = temp();
     const { issue: _issue, ...run } = begin(w, { id: 'r1', issue: 3, started: 'a' });
-    const old = { ...run, thread: 3, carry: 'fix it', said: { thread: 4 } };
+    const old = { ...run, thread: 3, status: 'asking', carry: 'fix it', said: { thread: 4 } };
     mkdirSync(join(dir, 'r1'));
     writeFileSync(join(dir, 'r1', 'run.json'), JSON.stringify(old));
     const lines = [
@@ -64,6 +64,13 @@ describe('fileStore', () => {
       { at: 'c', step: 'triage', saved: {}, cleared: ['carry'] },
       { at: 'd', step: 'triage', applied: { proposal: { kind: 'pull', into: 'main' }, ok: true } },
       { at: 'e', step: 'triage', applied: { proposal: { kind: 'reply', body: 'reply' }, ok: true } },
+      { at: 'f', step: 'triage', verdict: { check: 'types', pass: false, ms: 1 } },
+      {
+        at: 'g',
+        step: 'triage',
+        outcome: { kind: 'refused', failing: [{ check: 'types', pass: false, ms: 1 }], rejected: [], problems: [] },
+        run: { step: 'triage', status: 'asking', tries: 1, rounds: { into: 1 } },
+      },
     ];
     writeFileSync(join(dir, 'r1', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const [read, trace] = await Effect.runPromise(
@@ -71,13 +78,20 @@ describe('fileStore', () => {
         Effect.provide(fileStore(dir))
       )
     );
-    expect(read).toEqual({ ...run, issue: 3, feedback: 'fix it', said: { issue: 4 } });
+    expect(read).toEqual({ ...run, issue: 3, status: 'waiting', feedback: 'fix it', said: { issue: 4 } });
     expect(Chunk.toArray(trace)).toEqual([
       { at: 'a', step: 'triage', prompt: { prompt: 'p', bot: 'triager' } },
       lines[1],
       { at: 'c', step: 'triage', saved: {}, cleared: ['feedback'] },
       { at: 'd', step: 'triage', applied: { proposal: { kind: 'pull_request', base: 'main' }, ok: true } },
       { at: 'e', step: 'triage', applied: { proposal: { kind: 'comment', body: 'reply' }, ok: true } },
+      { at: 'f', step: 'triage', check: { check: 'types', pass: false, ms: 1 } },
+      {
+        at: 'g',
+        step: 'triage',
+        outcome: { kind: 'failed', checks: [{ check: 'types', pass: false, ms: 1 }], proposals: [], problems: [] },
+        run: { step: 'triage', status: 'waiting', tries: 1, rounds: { into: 1 } },
+      },
     ]);
   });
 

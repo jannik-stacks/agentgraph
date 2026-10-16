@@ -14,10 +14,10 @@ const at = (step: string, more: Partial<Run> = {}): Run => ({
   sessions: { triage: session('s-triage'), implement: session('s-implement'), review: session('s-review') },
   ...more,
 });
-const refused: Outcome = {
-  kind: 'refused',
-  failing: [{ check: 'types', pass: false, findings: 'x.ts:1 error', ms: 10 }],
-  rejected: [],
+const failed: Outcome = {
+  kind: 'failed',
+  checks: [{ check: 'types', pass: false, findings: 'x.ts:1 error', ms: 10 }],
+  proposals: [],
   problems: ['no bothub block'],
 };
 
@@ -55,8 +55,8 @@ describe('transition, running', () => {
     expect(transition(merge, begin(merge, start), { kind: 'pass' })).toMatchObject({ step: 'merge', status: 'done' });
   });
 
-  it('refused with tries left: same step, tries + 1, same session, the refusal carried', () => {
-    const next = transition(w, at('implement', { tries: 1 }), refused);
+  it('failed with tries left: same step, tries + 1, same session, the failure carried', () => {
+    const next = transition(w, at('implement', { tries: 1 }), failed);
     expect(next).toMatchObject({
       step: 'implement',
       status: 'running',
@@ -66,18 +66,18 @@ describe('transition, running', () => {
     expect(next.feedback).toBe('types: x.ts:1 error\nno bothub block');
   });
 
-  it('refused with no tries left: asking, the refusal is the question', () => {
-    const next = transition(w, at('implement', { tries: 3 }), refused);
+  it('failed with no tries left: waiting, the failure is the question', () => {
+    const next = transition(w, at('implement', { tries: 3 }), failed);
     expect(next).toMatchObject({
       step: 'implement',
-      status: 'asking',
+      status: 'waiting',
       tries: 4,
       reason: 'types: x.ts:1 error\nno bothub block',
     });
   });
 
-  it('refused on a step with one try: asking at once', () => {
-    expect(transition(w, at('triage'), refused).status).toBe('asking');
+  it('failed on a step with one try: waiting at once', () => {
+    expect(transition(w, at('triage'), failed).status).toBe('waiting');
   });
 
   it('back with rounds left: the target step, its session resumed, the round counted on the owner', () => {
@@ -95,20 +95,20 @@ describe('transition, running', () => {
     });
   });
 
-  it('back with no rounds left: asking, the reason is the question', () => {
+  it('back with no rounds left: waiting, the reason is the question', () => {
     const next = transition(w, at('review', { rounds: { review: 2 } }), { kind: 'back', why: 'hunk 2 leaks' });
-    expect(next).toMatchObject({ step: 'review', status: 'asking', reason: 'hunk 2 leaks', rounds: { review: 2 } });
+    expect(next).toMatchObject({ step: 'review', status: 'waiting', reason: 'hunk 2 leaks', rounds: { review: 2 } });
   });
 
-  it('back on a step without one: counted as a refusal with a rejected proposal', () => {
+  it('back on a step without one: counted as a failure with a failed proposal', () => {
     const next = transition(w, at('implement', { tries: 0 }), { kind: 'back', why: 'brief is wrong' });
     expect(next).toMatchObject({ step: 'implement', status: 'running', tries: 1 });
-    expect(next.feedback).toBe('back rejected: implement has no way back');
+    expect(next.feedback).toBe('back failed: implement has no way back');
   });
 
-  it('ask: asking, same step, session kept', () => {
+  it('ask: waiting, same step, session kept', () => {
     const next = transition(w, at('implement', { tries: 1 }), { kind: 'ask', question: 'which API?' });
-    expect(next).toMatchObject({ step: 'implement', status: 'asking', tries: 1, reason: 'which API?' });
+    expect(next).toMatchObject({ step: 'implement', status: 'waiting', tries: 1, reason: 'which API?' });
     expect(next.sessions.implement).toEqual(session('s-implement'));
   });
 
@@ -118,7 +118,7 @@ describe('transition, running', () => {
   });
 
   it('a script step reruns on a refusal with tries left', () => {
-    const next = transition(merge, begin(merge, start), refused);
+    const next = transition(merge, begin(merge, start), failed);
     expect(next).toMatchObject({ step: 'merge', status: 'running', tries: 1 });
   });
 });
@@ -149,22 +149,22 @@ describe('transition, waiting', () => {
   });
 
   it('ignores an outcome a waiting run cannot have', () => {
-    expect(transition(w, waiting, refused)).toBe(waiting);
+    expect(transition(w, waiting, failed)).toBe(waiting);
   });
 });
 
-describe('transition, asking', () => {
+describe('transition, waiting for an answer', () => {
   it('answer: running again, same session, the answer carried, the spent tries drop by one', () => {
-    const asking = transition(w, at('implement', { tries: 3 }), refused);
-    const next = transition(w, asking, { kind: 'answer', text: 'use the v2 API' });
+    const asked = transition(w, at('implement', { tries: 3 }), failed);
+    const next = transition(w, asked, { kind: 'answer', text: 'use the v2 API' });
     expect(next).toMatchObject({ step: 'implement', status: 'running', tries: 3, feedback: 'use the v2 API' });
     expect(next.reason).toBeUndefined();
-    expect(transition(w, next, refused).status).toBe('asking');
+    expect(transition(w, next, failed).status).toBe('waiting');
   });
 
   it('answer: the spent rounds drop by one', () => {
-    const asking = transition(w, at('review', { rounds: { review: 2 } }), { kind: 'back', why: 'still wrong' });
-    const next = transition(w, asking, { kind: 'answer', text: 'one more go' });
+    const asked = transition(w, at('review', { rounds: { review: 2 } }), { kind: 'back', why: 'still wrong' });
+    const next = transition(w, asked, { kind: 'answer', text: 'one more go' });
     expect(next).toMatchObject({ step: 'review', status: 'running', rounds: { review: 1 } });
     expect(transition(w, next, { kind: 'back', why: 'again' })).toMatchObject({
       step: 'implement',
@@ -173,8 +173,8 @@ describe('transition, asking', () => {
   });
 
   it('answer to a plain ask: no counter changes', () => {
-    const asking = transition(w, at('implement', { tries: 1 }), { kind: 'ask', question: 'which API?' });
-    expect(transition(w, asking, { kind: 'answer', text: 'v2' })).toMatchObject({
+    const asked = transition(w, at('implement', { tries: 1 }), { kind: 'ask', question: 'which API?' });
+    expect(transition(w, asked, { kind: 'answer', text: 'v2' })).toMatchObject({
       status: 'running',
       tries: 1,
       rounds: {},
@@ -182,8 +182,8 @@ describe('transition, asking', () => {
   });
 
   it('stop: stopped', () => {
-    const asking = at('implement', { status: 'asking', reason: 'which API?' });
-    expect(transition(w, asking, { kind: 'stop', why: 'not now' })).toMatchObject({
+    const asked = at('implement', { status: 'waiting', reason: 'which API?' });
+    expect(transition(w, asked, { kind: 'stop', why: 'not now' })).toMatchObject({
       status: 'stopped',
       reason: 'not now',
     });
@@ -209,7 +209,7 @@ describe('reenter', () => {
   const comment = (body: string) =>
     said('comment', { comment: { id: 'c1', author: 'morgan', body, at: '2026-10-16T01:00:00Z' } });
   const waiting = at('merge', { status: 'waiting' });
-  const asking = at('implement', { status: 'asking', reason: 'which API?' });
+  const asked = at('implement', { status: 'waiting', reason: 'which API?' });
 
   it('waiting: merged, approved or the approved label is pass', () => {
     expect(reenter(w, waiting, said('merged'))).toEqual({ kind: 'pass' });
@@ -222,20 +222,20 @@ describe('reenter', () => {
     expect(reenter(w, waiting, comment('/bothub rename foo'))).toEqual({ kind: 'back', why: 'rename foo' });
   });
 
-  it('waiting or asking: closed is stop', () => {
+  it('waiting: closed is stop', () => {
     expect(reenter(w, waiting, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
-    expect(reenter(w, asking, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
+    expect(reenter(w, asked, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
   });
 
-  it('asking: a command comment is the answer, unless its first word is stop', () => {
-    expect(reenter(w, asking, comment('/bothub use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
-    expect(reenter(w, asking, comment('/bothub stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
+  it('waiting at an agent step: a command comment is the answer, unless its first word is stop', () => {
+    expect(reenter(w, asked, comment('/bothub use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
+    expect(reenter(w, asked, comment('/bothub stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
   });
 
   it('ignores comments without the command, untrusted authors, other issues and running runs', () => {
-    expect(reenter(w, asking, comment('looks good'))).toBeUndefined();
-    expect(reenter(w, asking, { ...comment('/bothub v2'), trusted: false })).toBeUndefined();
-    expect(reenter(w, asking, { ...comment('/bothub v2'), issue: 8 })).toBeUndefined();
+    expect(reenter(w, asked, comment('looks good'))).toBeUndefined();
+    expect(reenter(w, asked, { ...comment('/bothub v2'), trusted: false })).toBeUndefined();
+    expect(reenter(w, asked, { ...comment('/bothub v2'), issue: 8 })).toBeUndefined();
     expect(reenter(w, at('implement'), comment('/bothub v2'))).toBeUndefined();
   });
 });

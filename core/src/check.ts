@@ -7,4 +7,4 @@ export type Check = {
   max?: number;
 };
 
-export type Verdict = { check: string; pass: boolean; findings?: string; ms: number };
+export type CheckResult = { check: string; pass: boolean; findings?: string; ms: number };

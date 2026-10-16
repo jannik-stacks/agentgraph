@@ -145,11 +145,11 @@ describe('drive', () => {
     ]);
 
     const asked = await run(drive(w, fresh(), hub));
-    expect(asked).toMatchObject({ step: 'review', status: 'asking', reason: 'still not right', usd: 0.5 + 3 * 0.25 });
+    expect(asked).toMatchObject({ step: 'review', status: 'waiting', reason: 'still not right', usd: 0.5 + 3 * 0.25 });
     expect(asked.rounds).toEqual({ review: 2 });
     expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
 
-    // the refused try pushed nothing; the passing one did, and opened pull request #8
+    // the failed try pushed nothing; the passing one did, and opened pull request #8
     const forge = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(bodies(forge)).toEqual([
       '/bothub',
@@ -205,13 +205,13 @@ describe('drive', () => {
     expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'stop', exit: 0, usd: 0.5 });
     expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
     expect(sessions[3]).toMatchObject({ id: 'j', resumed: false, ended: 'stop', exit: 0 });
-    const types = trace.flatMap(t => ('verdict' in t && t.verdict.check === 'types' ? [t] : []));
-    expect(types[0]).toMatchObject({ verdict: { pass: false }, exit: 1 });
-    expect(types[1]).toMatchObject({ verdict: { pass: true }, exit: 0 });
+    const types = trace.flatMap(t => ('check' in t && t.check.check === 'types' ? [t] : []));
+    expect(types[0]).toMatchObject({ check: { pass: false }, exit: 1 });
+    expect(types[1]).toMatchObject({ check: { pass: true }, exit: 0 });
     const outcomes = trace.flatMap(t => ('outcome' in t ? [[t.step, t.outcome.kind, t.run.tries, t.run.rounds]] : []));
     expect(outcomes).toEqual([
       ['triage', 'pass', 0, {}],
-      ['implement', 'refused', 1, {}],
+      ['implement', 'failed', 1, {}],
       ['implement', 'pass', 0, {}],
       ['review', 'back', 0, { review: 1 }],
       ['implement', 'pass', 0, { review: 1 }],
@@ -427,7 +427,7 @@ describe('tick', () => {
         return [asked, yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small), saved];
       })
     );
-    expect(asked).toMatchObject({ step: 'implement', status: 'asking', reason: 'Hello or hi?' });
+    expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Hello or hi?' });
     expect(done).toMatchObject({ status: 'done' });
     expect(saved).toBe('hello');
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
@@ -469,7 +469,7 @@ describe('tick', () => {
     const { specs, run } = services(where, []);
     const start = { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), step: 'merge' };
     const parked = await run(drive(flow, start, merging));
-    expect(parked).toMatchObject({ step: 'merge', status: 'asking' });
+    expect(parked).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(parked.reason).toMatch(/^No pull request is open for branch /);
     expect(specs).toHaveLength(0);
   }, 30_000);
@@ -496,7 +496,7 @@ describe('tick', () => {
     const asked = await Effect.runPromise(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
-    expect(asked).toMatchObject({ step: 'implement', status: 'asking', reason: 'GitHub failed: forbidden' });
+    expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'GitHub failed: forbidden' });
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
   }, 30_000);
 
@@ -600,7 +600,7 @@ describe('sweep', () => {
       [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Done.' })],
       [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Done.' })],
     ]);
-    for (const r of [parked(8, 'asking'), parked(9, 'waiting')]) {
+    for (const r of [parked(8, 'waiting'), parked(9, 'waiting')]) {
       mkdirSync(join(where.data, r.id), { recursive: true });
       writeFileSync(join(where.data, r.id, 'run.json'), JSON.stringify(r));
     }
@@ -636,7 +636,7 @@ describe('coworker', () => {
     pullRequest(where);
     const s = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })], ...turns]);
     const asked = await s.run(drive(flow, begun(), small));
-    expect(asked).toMatchObject({ status: 'asking', sessions: { implement: { id: 'a' } } });
+    expect(asked).toMatchObject({ status: 'waiting', sessions: { implement: { id: 'a' } } });
     return { ...s, asked };
   };
   const later = (s: number) => `2099-01-01T00:00:0${s}.000Z`;
@@ -735,7 +735,7 @@ describe('coworker', () => {
     expect(await run(tick(assigned))).toEqual([]);
     say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:02.000Z'));
     const [asked] = await run(tick(assigned));
-    expect(asked).toMatchObject({ issue: 7, status: 'asking' });
+    expect(asked).toMatchObject({ issue: 7, status: 'waiting' });
     expect(specs).toHaveLength(1);
     say(where, labelled('mallory', false, 'unlabel', later(1)));
     expect(await run(tick(assigned))).toEqual([]);
@@ -754,7 +754,7 @@ describe('coworker', () => {
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(await run(tick(assigned, 7, true))).toEqual([]);
     say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:04.000Z'));
-    expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['asking']);
+    expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['waiting']);
   }, 30_000);
 
   it('keeps one status comment through two tries and an ask, with the question as its own comment', async () => {
@@ -764,7 +764,7 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
     ]);
     const asked = await run(drive(flow, begun(), small));
-    expect(asked).toMatchObject({ status: 'asking', tries: 1, comment: '7-3' });
+    expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: '7-3' });
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(issue.labels).toEqual(['bothub:waiting']);
     expect(bodies(issue)).toEqual([
@@ -804,7 +804,7 @@ describe('coworker', () => {
         return [again, done];
       })
     );
-    expect(again).toMatchObject({ status: 'asking', said: { issue: 8 } });
+    expect(again).toMatchObject({ status: 'waiting', said: { issue: 8 } });
     expect(done).toMatchObject({ status: 'done', said: { issue: 8, under: review.at } });
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).messages.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([

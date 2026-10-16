@@ -45,7 +45,7 @@ broken build never pays for a review.
 | `stop`  | Its failure ends the run                                                |
 
 A failed try starts another in the same session, and the prompt carries the feedback: each failing
-check's output, and any proposal the engine refused. `tries` counts the first one. It defaults to 3
+check's output, and any proposal that failed. `tries` counts the first one. It defaults to 3
 for a step with checks and 1 for one without. When the tries run out, the run waits and a comment
 on the issue says why.
 

@@ -43,12 +43,11 @@ returns: [comment, push, pull_request, ask]
 
 A reply that needs proposals and has no `bothub` block fails the try, and so does a block that is
 not valid JSON or has a kind with the wrong fields. The failure goes back as feedback with the
-expected shape. A proposal of a kind the agent may not make is refused with a reason, and also
-fails the try.
+expected shape. A proposal of a kind the agent may not make fails with a reason, and so does the try.
 
 ## Applying
 
 Proposals are applied only after the step's checks pass. Pushes go first, then the rest in order.
-Each one is traced with its result: the URL it made, or why it was refused, for example a merge of a
-pull request that moved, or a pull request whose branch was never pushed. A refused proposal fails
+Each one is traced with its result: the URL it made, or why it failed, for example a merge of a
+pull request that moved, or a pull request whose branch was never pushed. A failed proposal fails
 the try with that reason as feedback. A push never forces.

@@ -2,7 +2,7 @@ import { Effect, Redacted } from 'effect';
 import { appToken } from './github.ts';
 import { Store } from './store.ts';
 
-/** What waits on a human: repos the installation reaches beyond `app.repo`, and parked runs with the command to continue each. */
+/** What waits on a human: repos the installation reaches beyond `app.repo`, and waiting runs with the command to continue each. */
 export const needsYou = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   where: { hub: string; data: string },
@@ -27,13 +27,10 @@ export const needsYou = (
       lines.push('  Narrow it at https://github.com/settings/installations');
     }
     const store = yield* Store;
-    const parked = [...(yield* store.list({ status: 'asking' })), ...(yield* store.list({ status: 'waiting' }))];
-    for (const run of parked) {
+    for (const run of yield* store.list({ status: 'waiting' })) {
       lines.push(`${run.id} ${run.workflow} #${run.issue} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
       const issue = `https://github.com/${app.repo}/issues/${run.issue}`;
-      lines.push(
-        run.status === 'asking' ? `  Answer at ${issue}, then:` : `  Review the PR linked from ${issue}, then:`
-      );
+      lines.push(run.reason ? `  Answer at ${issue}, then:` : `  Review the PR linked from ${issue}, then:`);
       lines.push(`  node core/bin/run.ts --hub ${where.hub} --issue ${run.issue} --data ${where.data}`);
     }
     return lines;

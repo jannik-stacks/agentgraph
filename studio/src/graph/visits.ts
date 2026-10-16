@@ -16,13 +16,13 @@ export const trailOf = (run: Run, trace: Trace[]): Trail => {
 
 type Node = Graph['nodes'][number];
 
-/** One time a run is at a step: how it got there, the refused tries, and how it left. */
+/** One time a run is at a step: how it got there, the failed tries, and how it left. */
 type Visit = {
   node: Node;
   nth: number;
   session?: 'fresh' | 'resumed';
   via?: { from: string; round: number; of?: number; why: string };
-  refused: number[];
+  failed: number[];
   answered: number;
   outOfRounds?: boolean;
   left?: 'pass' | 'back' | 'stop';
@@ -54,7 +54,7 @@ export function visitsOf(graph: Graph, trail: Trail, run: Run): { visits: Visit[
       ...(back?.outcome.kind === 'back' && {
         via: { from: back.at.step, round, ...(of !== undefined && { of }), why: back.outcome.why },
       }),
-      refused: [],
+      failed: [],
       answered: 0,
     });
   };
@@ -64,9 +64,9 @@ export function visitsOf(graph: Graph, trail: Trail, run: Run): { visits: Visit[
     if (!last || last.left === 'pass' || last.left === 'back') enter(entry.at.step, trail[i - 1]);
     const visit = visits.at(-1)!;
     const o = entry.outcome;
-    if (o.kind === 'refused') visit.refused.push(o.failing.length + o.rejected.length + o.problems.length);
+    if (o.kind === 'failed') visit.failed.push(o.checks.length + o.proposals.length + o.problems.length);
     else if (o.kind === 'answer') visit.answered++;
-    else if (o.kind === 'back' && (trail[i + 1]?.at ?? run).status === 'asking') visit.outOfRounds = true;
+    else if (o.kind === 'back' && (trail[i + 1]?.at ?? run).reason !== undefined) visit.outOfRounds = true;
     else if (o.kind === 'pass' || o.kind === 'back' || o.kind === 'stop') visit.left = o.kind;
   });
   const last = visits.at(-1);
@@ -77,8 +77,8 @@ export function visitsOf(graph: Graph, trail: Trail, run: Run): { visits: Visit[
       ? { kind: 'done' }
       : run.status === 'stopped'
         ? { kind: 'stopped', why: run.reason ?? '' }
-        : run.status === 'asking'
-          ? { kind: 'asking', why: run.reason ?? '' }
+        : run.status === 'waiting' && run.reason !== undefined
+          ? { kind: 'asking', why: run.reason }
           : run.status === 'waiting'
             ? { kind: 'waiting' }
             : { kind: 'running', try: run.tries + 1 };
@@ -118,7 +118,7 @@ const collapse = (groups: string[][]): string[] => {
 export function storyOf({ visits, end }: { visits: Visit[]; end: End }): string {
   const groups = visits.map((v, i): string[] => {
     const step = v.node.step;
-    const failed = v.refused.length > 0 ? [`${step} failed its checks ${times(v.refused.length)}`] : [];
+    const failed = v.failed.length > 0 ? [`${step} failed its checks ${times(v.failed.length)}`] : [];
     const isLast = i === visits.length - 1;
     if (v.left === 'pass') return [...failed, failed.length ? 'then passed' : `${step} passed`];
     if (v.left === 'back') {

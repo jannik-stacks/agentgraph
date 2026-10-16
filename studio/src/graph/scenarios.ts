@@ -23,11 +23,11 @@ const waits = (s: Step) => 'wait' in s.does;
 const pass: Outcome = { kind: 'pass' };
 const sentBack = (s: Step): Outcome => ({ kind: 'back', why: s.back?.until ?? 'not there yet' });
 
-/** A refusal naming the first `n` checks of the step as failing. */
+/** A failure naming the first `n` checks of the step. */
 const refuse = (s: Step, n = 2): Outcome => ({
-  kind: 'refused',
-  failing: s.checks.slice(0, n).map(check => ({ check, pass: false, findings: `${check} found a problem`, ms: 40 })),
-  rejected: [],
+  kind: 'failed',
+  checks: s.checks.slice(0, n).map(check => ({ check, pass: false, findings: `${check} found a problem`, ms: 40 })),
+  proposals: [],
   problems: s.checks.length ? [] : ['the change does not build'],
 });
 
@@ -84,9 +84,9 @@ export const scenarios = (w: Workflow, checks: Fixture['checks']): Scenario[] =>
       next: (s, run, trail) =>
         trail.some(t => t.outcome.kind === 'back') ? undefined : at(loop!.name, sentBack)(s, run, trail),
     })),
-    ...one(tried, () => ({ label: `${tried!.name}, asking, out of tries`, next: at(tried!.name, s => refuse(s)) })),
+    ...one(tried, () => ({ label: `${tried!.name}, waiting, out of tries`, next: at(tried!.name, s => refuse(s)) })),
     ...one(loop, () => ({
-      label: `${loop!.name}, asking, out of rounds`,
+      label: `${loop!.name}, waiting, out of rounds`,
       next: s => (s === loop ? sentBack(s) : pass),
     })),
     ...one(human, () => ({ label: `${human!.name}, waiting for a human`, next: s => (waits(s) ? undefined : pass) })),
