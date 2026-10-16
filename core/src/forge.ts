@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { Context, Data, Effect, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
-import type { Work } from './sandbox.ts';
+import type { Checkout } from './sandbox.ts';
 
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
 export type Issue = {
@@ -31,9 +31,9 @@ export type Comment = {
 };
 
 /** Something a person or a bot said or did on an issue. */
-export type Message = {
+export type Event = {
   issue: number;
-  kind: 'comment' | 'approved' | 'changes' | 'merged' | 'closed' | 'label' | 'unlabel' | 'commit' | 'check';
+  kind: 'comment' | 'approved' | 'changes_requested' | 'merged' | 'closed' | 'label' | 'unlabel' | 'commit' | 'check';
   actor: string;
   trusted: boolean;
   at: string;
@@ -65,9 +65,9 @@ export class Forge extends Context.Tag('bothub/Forge')<
   Forge,
   {
     issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
-    issue: (number: number) => Effect.Effect<Issue & { messages: Message[] }, ForgeError>;
-    since: (cursor: string) => Stream.Stream<Message, ForgeError>;
-    apply: (number: number, proposal: Proposal, work?: Work) => Effect.Effect<Applied, ForgeError>;
+    issue: (number: number) => Effect.Effect<Issue & { events: Event[] }, ForgeError>;
+    since: (cursor: string) => Stream.Stream<Event, ForgeError>;
+    apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;
   }
 >() {}
 
@@ -96,7 +96,7 @@ const me = 'bothub[bot]';
 
 /**
  * A forge in a folder, for tests. `<n>.md` is an issue (frontmatter title, state, author, labels, parent; then the
- * body), `<n>.jsonl` its timeline of messages, `<n>.reactions` the 👀 given, and a folder `<n>/` makes it a pull request (`pull.json`, `diff.patch`).
+ * body), `<n>.jsonl` its timeline of events, `<n>.reactions` the 👀 given, and a folder `<n>/` makes it a pull request (`pull.json`, `diff.patch`).
  * Branches live in the git remote of the worktree a push comes from. Authors ending in `[bot]` are not trusted.
  */
 export const fileForge = (dir: string): Layer.Layer<Forge> =>
@@ -140,13 +140,13 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
           await writeFile(pullFile(number), `${JSON.stringify(pull, null, 2)}\n`);
         }
       };
-      const messages = async (n: number) =>
+      const eventsOf = async (n: number) =>
         ((await optional(readFile(timeline(n), 'utf8'))) ?? '')
           .split('\n')
           .filter(Boolean)
-          .map(line => JSON.parse(line) as Message);
+          .map(line => JSON.parse(line) as Event);
       const now = () => new Date().toISOString();
-      const say = (m: Omit<Message, 'actor' | 'trusted' | 'at'>) =>
+      const say = (m: Omit<Event, 'actor' | 'trusted' | 'at'>) =>
         appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: me, trusted: false, at: now() })}\n`);
       const open = async (fields: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
         const number = Math.max(0, ...(await numbers())) + 1;
@@ -164,7 +164,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         const t = await must(n);
         switch (p.kind) {
           case 'comment': {
-            const all = await messages(n);
+            const all = await eventsOf(n);
             if (p.edit !== undefined) {
               const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === me);
               if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);
@@ -262,7 +262,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         issue: n =>
           io(async () => ({
             ...(await must(n)),
-            messages: (await messages(n)).map(m =>
+            events: (await eventsOf(n)).map(m =>
               m.comment && !m.trusted && m.actor !== me
                 ? { ...m, comment: { ...m.comment, body: `(comment by @${m.actor} withheld: not a collaborator)` } }
                 : m
@@ -271,7 +271,7 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         since: cursor =>
           Stream.fromIterableEffect(
             io(async () =>
-              (await Promise.all((await numbers()).map(messages)))
+              (await Promise.all((await numbers()).map(eventsOf)))
                 .flat()
                 .filter(m => m.at > cursor)
                 .map(m =>

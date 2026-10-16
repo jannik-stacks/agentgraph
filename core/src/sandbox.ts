@@ -24,7 +24,7 @@ export type Exit = { code: number; output: string };
  * A checkout: the work tree `dir`, the commit `base` it starts from, and `git`, the repo and index host git uses for it.
  * `git` names only paths the host keeps out of the sandbox's reach.
  */
-export type Work = {
+export type Checkout = {
   dir: string;
   base: string;
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
@@ -44,7 +44,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
 export class Sandbox extends Context.Tag('bothub/Sandbox')<
   Sandbox,
   {
-    checkout: (ref: string, branch?: string, keep?: string) => Effect.Effect<Work, SandboxError, Scope.Scope>;
+    checkout: (ref: string, branch?: string, keep?: string) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string, SandboxError, Scope.Scope>;
   }

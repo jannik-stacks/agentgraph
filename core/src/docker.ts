@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile, realpath, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
-import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Work } from './sandbox.ts';
+import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 const network = 'bothub-sandbox';
 const egress = 'http://egress:8888';
@@ -260,7 +260,11 @@ export const docker = (o: {
           const id = randomBytes(6).toString('hex');
           const dir = join(o.data, 'work', id);
           const index = join(o.data, 'index', id);
-          const work: Work = { dir, base: rev, git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index } };
+          const work: Checkout = {
+            dir,
+            base: rev,
+            git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
+          };
           const inWork = (args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
           const save = (name: string) =>
             Effect.gen(function* () {

@@ -6,11 +6,11 @@ import {
   ForgeError,
   type Applied,
   type Comment,
-  type Message,
+  type Event,
   type Proposal,
   type Issue,
 } from './forge.ts';
-import { hostGit, type Work } from './sandbox.ts';
+import { hostGit, type Checkout } from './sandbox.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type User = { login: string; type?: string } | null | undefined;
@@ -100,9 +100,9 @@ const appJwt = (id: string, pem: string, now: number) => {
   return `${input}.${sign('sha256', Buffer.from(input), key).toString('base64url')}`;
 };
 
-const git = (work: Work, args: string[]) =>
+const git = (work: Checkout, args: string[]) =>
   Effect.mapError(hostGit(work.git, args), e => new ForgeError({ message: e.detail }));
-const gitText = (work: Work, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
+const gitText = (work: Checkout, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
 
 /** The branches a push may move, the files it may change at most, and the largest file it may write. */
 const pushable = { prefix: 'bothub/', files: 200, bytes: 1 << 20 };
@@ -304,26 +304,27 @@ export const githubForge = (
       };
     };
 
-    const heard = (issue: number, c: RestComment, self: string, kind: Message['kind'] = 'comment'): Message => {
+    const heard = (issue: number, c: RestComment, self: string, kind: Event['kind'] = 'comment'): Event => {
       const comment = toComment(c, self);
       const trusted = members.has(c.author_association) && !isBot(c.user);
       return { issue, kind, actor: comment.author, trusted, at: c.created_at, comment };
     };
 
-    /** A review as a message: its verdict, or a comment when it only has a body; undefined for an empty comment. */
-    const reviewed = (issue: number, r: RestReview, self: string): Message | undefined => {
-      const kind = r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes' : 'comment';
+    /** A review as an event: its state, or a comment when it only has a body; undefined for an empty comment. */
+    const reviewed = (issue: number, r: RestReview, self: string): Event | undefined => {
+      const kind =
+        r.state === 'APPROVED' ? 'approved' : r.state === 'CHANGES_REQUESTED' ? 'changes_requested' : 'comment';
       if (!r.submitted_at || (kind === 'comment' && !visible(r.body).trim())) return undefined;
       return heard(issue, { ...r, created_at: r.submitted_at, html_url: '' }, self, kind);
     };
 
-    const kinds: Record<string, Message['kind']> = {
+    const kinds: Record<string, Event['kind']> = {
       merged: 'merged',
       closed: 'closed',
       labeled: 'label',
       unlabeled: 'unlabel',
     };
-    /** An issue event as a message, trusted when its actor may write; undefined for events that say nothing here. */
+    /** An issue event in our shape, trusted when its actor may write; undefined for events that say nothing here. */
     const evented = (issue: number, e: RestEvent, merged: boolean) =>
       Effect.gen(function* () {
         const kind = kinds[e.event];
@@ -336,7 +337,7 @@ export const githubForge = (
           trusted: yield* permitted(e.actor),
           at: e.created_at,
           ...(e.label && { label: e.label.name }),
-        } satisfies Message;
+        } satisfies Event;
       });
 
     const listState = (state?: Issue['state']) => (state === undefined ? 'all' : state === 'open' ? 'open' : 'closed');
@@ -368,7 +369,7 @@ export const githubForge = (
         gh<{ check_runs: RestCheck[] }>('GET', `${repo}/commits/${sha}/check-runs?per_page=100`, undefined, 'checks'),
         gh<{ statuses: RestStatus[] }>('GET', `${repo}/commits/${sha}/status`, undefined, 'checks'),
       ]).pipe(
-        Effect.map(([runs, status]): Message[] => [
+        Effect.map(([runs, status]): Event[] => [
           ...runs.check_runs.map(c => ({
             issue,
             kind: 'check' as const,
@@ -411,7 +412,7 @@ export const githubForge = (
           { concurrency: 'unbounded' }
         );
         const merged = events.some(e => e.event === 'merged');
-        const messages: Message[] = [
+        const timeline: Event[] = [
           ...[...said, ...lined].map(c => heard(number, c, self)),
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
           ...commits.map(c => ({
@@ -427,7 +428,7 @@ export const githubForge = (
         ];
         return {
           ...toIssue(issue, pull, parent?.number),
-          messages: messages.sort((a, b) => a.at.localeCompare(b.at)),
+          events: timeline.sort((a, b) => a.at.localeCompare(b.at)),
         };
       });
 
@@ -468,12 +469,12 @@ export const githubForge = (
             { concurrency: 4 }
           );
 
-          const messages: Message[] = [];
-          for (const c of said) if (after(c.created_at)) messages.push(heard(numberIn(c.issue_url), c, self));
-          for (const c of lined) if (after(c.created_at)) messages.push(heard(numberIn(c.pull_request_url), c, self));
+          const found: Event[] = [];
+          for (const c of said) if (after(c.created_at)) found.push(heard(numberIn(c.issue_url), c, self));
+          for (const c of lined) if (after(c.created_at)) found.push(heard(numberIn(c.pull_request_url), c, self));
           for (const r of reviews.flat()) {
             const m = after(r.submitted_at) ? reviewed(r.issue, r, self) : undefined;
-            if (m) messages.push(m);
+            if (m) found.push(m);
           }
           const merged = new Set(events.filter(e => e.event === 'merged').map(e => e.issue?.number));
           for (const e of events) {
@@ -481,11 +482,11 @@ export const githubForge = (
               after(e.created_at) && e.issue
                 ? yield* evented(e.issue.number, e, merged.has(e.issue.number))
                 : undefined;
-            if (m) messages.push(m);
+            if (m) found.push(m);
           }
-          for (const m of messages)
+          for (const m of found)
             if (m.trusted && m.comment) m.comment = { ...m.comment, body: commanded(m.comment.body, self) };
-          return messages.sort((a, b) => a.at.localeCompare(b.at));
+          return found.sort((a, b) => a.at.localeCompare(b.at));
         })
       );
 
@@ -497,7 +498,7 @@ export const githubForge = (
      * Commits the checkout's files on top of its base, or of its last push, through the Git data API, then moves
      * `branch` forward to that commit. Only regular files outside `.github/` and `.git/` are pushed, within the limits.
      */
-    const push = (work: Work, branch: string, message: string) =>
+    const push = (work: Checkout, branch: string, message: string) =>
       Effect.gen(function* () {
         if (!branch.startsWith(pushable.prefix)) return yield* refuse(`a push goes to a ${pushable.prefix} branch`);
         const ref = yield* refPath(branch);
@@ -529,7 +530,7 @@ export const githubForge = (
       });
 
     /** The tree entries that turn tree `from` into `to`, uploading each changed blob once every change passed. */
-    const entries = (work: Work, from: string, to: string) =>
+    const entries = (work: Checkout, from: string, to: string) =>
       Effect.gen(function* () {
         const fields = (yield* git(work, ['diff-tree', '-r', '-z', '--no-renames', '--no-abbrev', from, to]))
           .toString('utf8')
@@ -577,7 +578,7 @@ export const githubForge = (
     const act = (
       number: number,
       p: Proposal,
-      work?: Work
+      work?: Checkout
     ): Effect.Effect<{ url?: string; id?: string }, ForgeError> => {
       switch (p.kind) {
         case 'comment':

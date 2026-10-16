@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Message } from '../src/forge.ts';
+import type { Event } from '../src/forge.ts';
 import { begin, reenter, transition, type Outcome, type Run } from '../src/workflow.ts';
 import { fixture } from './fixtures.ts';
 
@@ -198,7 +198,7 @@ describe('transition, settled runs', () => {
 });
 
 describe('reenter', () => {
-  const said = (kind: Message['kind'], more: Partial<Message> = {}): Message => ({
+  const said = (kind: Event['kind'], more: Partial<Event> = {}): Event => ({
     issue: 7,
     kind,
     actor: 'morgan',
@@ -218,7 +218,7 @@ describe('reenter', () => {
   });
 
   it('waiting: changes requested or a command comment is back', () => {
-    expect(reenter(w, waiting, said('changes'))).toEqual({ kind: 'back', why: 'changes requested' });
+    expect(reenter(w, waiting, said('changes_requested'))).toEqual({ kind: 'back', why: 'changes requested' });
     expect(reenter(w, waiting, comment('/bothub rename foo'))).toEqual({ kind: 'back', why: 'rename foo' });
   });
 

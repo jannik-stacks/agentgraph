@@ -3,9 +3,9 @@ import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, CheckResult } from './check.ts';
 import { context, news, shown, type Issues } from './context.ts';
-import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Issue } from './forge.ts';
+import { Forge, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Hub } from './hub.ts';
-import { Sandbox, SandboxError, type Work } from './sandbox.ts';
+import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, type SessionSpec, type SessionStop } from './session.ts';
 import { Store, type StoreError, type Trace } from './store.ts';
@@ -128,11 +128,11 @@ const sh = (
 ) =>
   Effect.flatMap(Sandbox, s => Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, env, network, minutes })));
 
-const diffOf = (work: Work, minutes: number) =>
+const diffOf = (work: Checkout, minutes: number) =>
   Effect.map(sh(`git add -N . && git diff ${work.base}`, work.dir, {}, minutes), out => out.output);
 
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
-const itemsOf = (each: string | { run: string }, work: Work, minutes: number) => {
+const itemsOf = (each: string | { run: string }, work: Checkout, minutes: number) => {
   const lines = (text: string) => text.split('\n').filter(line => line.trim());
   if (each === 'hunks')
     return Effect.map(diffOf(work, minutes), diff =>
@@ -153,7 +153,7 @@ const itemsOf = (each: string | { run: string }, work: Work, minutes: number) =>
 const newsFile = '.bothub/news.md';
 
 /** Keeps the news file out of every commit the checkout makes. */
-const excluded = (work: Work) =>
+const excluded = (work: Checkout) =>
   Effect.tryPromise({
     try: async () => {
       const file = join(work.git.GIT_DIR, 'info', 'exclude');
@@ -166,7 +166,7 @@ const excluded = (work: Work) =>
   });
 
 /** Writes the news since `seen` into the checkout; a failed refresh logs and keeps the old file. */
-const refresh = (w: Workflow, run: Run, work: Work, seen: Seen, t?: Issues) =>
+const refresh = (w: Workflow, run: Run, work: Checkout, seen: Seen, t?: Issues) =>
   (t ? Effect.succeed(t) : issuesOf(w, run)).pipe(
     Effect.flatMap(t =>
       Effect.tryPromise(async () => {
@@ -215,7 +215,7 @@ const converse = (run: string, step: string, spec: SessionSpec, item?: string) =
 type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
 
 /** One check over what a try left: its items, the command per item, then the judge. Per-item results are traced; judge sessions' cost comes back as `usd`. */
-const resultOf = (run: string, step: Step, check: Doc<Check>, work: Work, hub: Hub) =>
+const resultOf = (run: string, step: Step, check: Doc<Check>, work: Checkout, hub: Hub) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const started = Date.now();
@@ -290,7 +290,7 @@ export const attempt = (
   w: Workflow,
   run: Run,
   hub: Hub,
-  work: Work
+  work: Checkout
 ): Effect.Effect<{ outcome: Outcome; run: Run }, SandboxError | SessionStop | ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -422,7 +422,7 @@ export const attempt = (
 /** The step's checks over what a try left behind: scripts in one batch, bot checks only when no script failed. `usd` is what the bot checks cost. */
 export const gate = (
   step: Step,
-  left: Work & { run: string; proposals: Proposal[] },
+  left: Checkout & { run: string; proposals: Proposal[] },
   hub: Hub
 ): Effect.Effect<
   { outcome: Outcome; usd: number },
@@ -481,7 +481,7 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
 export const land = (
   run: Run,
   proposals: Proposal[],
-  work?: Work,
+  work?: Checkout,
   to?: number
 ): Effect.Effect<Applied[], ForgeError, Forge> =>
   Effect.flatMap(Forge, forge =>
@@ -582,8 +582,8 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       .at(-1);
     const cursor = started === undefined ? '' : [started, ...parked.map(p => p.at)].sort()[0]!;
     const issues = yield* forge.issues({ state: 'open' });
-    const origin = new Map<Message, number>();
-    const onRun = (m: Message): Message => {
+    const origin = new Map<Event, number>();
+    const onRun = (m: Event): Event => {
       const r = runs.find(
         r =>
           r.issue !== m.issue &&
@@ -596,12 +596,12 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       return moved;
     };
     /** Where a human spoke: the issue, and the review comment thread when it was one. */
-    const heard = (m: Message): NonNullable<Run['said']> => {
+    const heard = (m: Event): NonNullable<Run['said']> => {
       const c = m.kind === 'comment' ? m.comment : undefined;
       return { issue: origin.get(m) ?? m.issue, ...(c?.path !== undefined && { under: c.under ?? c.id }) };
     };
     /** 👀 on the comment that woke a run, or on its issue for a label. */
-    const eyes = (run: Run, m: Message) =>
+    const eyes = (run: Run, m: Event) =>
       m.kind !== 'comment' && m.kind !== 'label'
         ? Effect.void
         : forge
@@ -614,15 +614,15 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
               Effect.flatMap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
               Effect.catchTag('ForgeError', e => Effect.logWarning(`react for run ${run.id}`, e))
             );
-    const messages = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)))
+    const events = Chunk.toArray(yield* Stream.runCollect(forge.since(cursor)))
       .map(onRun)
       .filter(mine);
-    const used = new Set<Message>();
+    const used = new Set<Event>();
     const touched: Run[] = [];
 
     for (const { run, at } of parked) {
       const w = hub.workflows[run.workflow];
-      const m = w && messages.find(m => m.issue === run.issue && m.at > at && reenter(w, run, m));
+      const m = w && events.find(m => m.issue === run.issue && m.at > at && reenter(w, run, m));
       if (!w || !m) continue;
       used.add(m);
       const outcome = reenter(w, run, m)!;
@@ -647,13 +647,13 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     const assigned = (issue: number) =>
       Effect.map(forge.issue(issue), t =>
         labelled.find(w => {
-          const last = t.messages
+          const last = t.events
             .filter(m => (m.kind === 'label' || m.kind === 'unlabel') && m.label === w.on.issues!.label)
             .at(-1);
           return last?.kind === 'label' && last.trusted;
         })
       );
-    const start = (w: Workflow, issue: number, at: string, m?: Message) =>
+    const start = (w: Workflow, issue: number, at: string, m?: Event) =>
       Effect.gen(function* () {
         const begun = {
           ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
@@ -665,8 +665,8 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
         if (m) yield* eyes(run, m);
         touched.push(run);
       });
-    for (const m of messages) {
-      const relabelled = messages.some(
+    for (const m of events) {
+      const relabelled = events.some(
         n => n.issue === m.issue && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
       );
       const w =

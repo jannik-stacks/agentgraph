@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Context, Data, Effect, Layer, Stream, type Scope } from 'effect';
 import type { CheckResult } from './check.ts';
 import type { Applied } from './forge.ts';
-import type { AgentEvent, SessionSpec, SessionStop } from './session.ts';
+import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
 import type { Outcome, Run } from './workflow.ts';
 
 /**
@@ -12,12 +12,12 @@ import type { Outcome, Run } from './workflow.ts';
  */
 export type Trace = { at: string; step: string } & (
   | { prompt: SessionSpec; item?: string }
-  | { event: AgentEvent }
+  | { event: SessionEvent }
   | {
       session: {
         id?: string;
         resumed: boolean;
-        ended: Extract<AgentEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
+        ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
         exit?: number;
         usd: number;
       };

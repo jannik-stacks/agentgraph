@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 import { Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import type { CheckResult } from './check.ts';
-import type { Applied, Message } from './forge.ts';
+import type { Applied, Event } from './forge.ts';
 
 /** A hub file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
@@ -37,7 +37,7 @@ export type Outcome =
   | { kind: 'answer'; text: string }
   | { kind: 'stop'; why: string };
 
-/** How far a session has read its issues: the time of the last message it saw and the base its pull request was on. */
+/** How far a session has read its issues: the time of the last event it saw and the base its pull request was on. */
 export type Seen = { at: string; base?: string };
 
 /** Where one workflow run on one issue stands. Enough to stop and pick it up on another machine. */
@@ -65,7 +65,7 @@ const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(
   Schema.Struct({ command: exact(Schema.String), label: exact(Schema.String), branches: exact(Names) })
 );
-const Event = Schema.Literal('issues', 'issue_comment', 'pull_request');
+const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request');
 
 const StepFile = Schema.Struct({
   bot: exact(Schema.String),
@@ -82,7 +82,7 @@ const StepFile = Schema.Struct({
 
 const Front = Schema.Struct({
   on: Schema.Union(
-    Event,
+    EventName,
     Schema.Struct({ issues: exact(Trigger), issue_comment: exact(Trigger), pull_request: exact(Trigger) })
   ),
   branch: exact(Schema.String),
@@ -292,8 +292,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   return run;
 }
 
-/** What a new message means for a waiting run: a review at a human step, an answer elsewhere; undefined when it is only context. */
-export function reenter(w: Workflow, run: Run, m: Message): Outcome | undefined {
+/** What a new event means for a waiting run: a review at a human step, an answer elsewhere; undefined when it is only context. */
+export function reenter(w: Workflow, run: Run, m: Event): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
@@ -312,7 +312,7 @@ export function reenter(w: Workflow, run: Run, m: Message): Outcome | undefined 
   if (waiting && step && waits(step)) {
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
       return { kind: 'pass' };
-    if (m.kind === 'changes') return { kind: 'back', why: body || 'changes requested' };
+    if (m.kind === 'changes_requested') return { kind: 'back', why: body || 'changes requested' };
     if (said !== undefined) return { kind: 'back', why: said };
   }
   if (waiting && said !== undefined) return { kind: 'answer', text: said };

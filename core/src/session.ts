@@ -17,7 +17,7 @@ export type SessionSpec = {
 };
 
 /** What a session does, as the harness reports it. `end` comes once the harness exits; with `ended: 'error'` and no reply, `final` holds the harness's error. */
-export type AgentEvent =
+export type SessionEvent =
   | { type: 'start'; session: string; model: string; home: string }
   | { type: 'text'; text: string }
   | {
@@ -41,10 +41,10 @@ export class SessionStop extends Data.TaggedError('SessionStop')<{
 /** Runs one harness session in the sandbox and streams what it does. The harness exiting ends it. */
 export class Session extends Context.Tag('bothub/Session')<
   Session,
-  { open: (spec: SessionSpec) => Stream.Stream<AgentEvent, SessionStop, Scope.Scope> }
+  { open: (spec: SessionSpec) => Stream.Stream<SessionEvent, SessionStop, Scope.Scope> }
 >() {}
 
-const written = (dir: string, event: AgentEvent) =>
+const written = (dir: string, event: SessionEvent) =>
   event.type === 'tool' && event.name === 'write'
     ? Effect.promise(async () => {
         const { path, content } = event.input as { path: string; content: string };
@@ -58,7 +58,7 @@ const written = (dir: string, event: AgentEvent) =>
  * writes that file into the session's dir before it is emitted. A list without an `end` gets one that stops cleanly
  * with the last text as the reply.
  */
-export const scripted = (turns: AgentEvent[][]): Layer.Layer<Session> =>
+export const scripted = (turns: SessionEvent[][]): Layer.Layer<Session> =>
   Layer.sync(Session, () => {
     let next = 0;
     return {
@@ -66,7 +66,7 @@ export const scripted = (turns: AgentEvent[][]): Layer.Layer<Session> =>
         const events = turns[next++];
         if (!events) return Stream.fail(new SessionStop({ reason: 'provider', detail: 'no scripted session left' }));
         const last = events.findLast(e => e.type === 'text');
-        const end: AgentEvent[] = events.some(e => e.type === 'end')
+        const end: SessionEvent[] = events.some(e => e.type === 'end')
           ? []
           : [{ type: 'end', final: last?.type === 'text' ? last.text : '', ended: 'stop', exit: 0 }];
         return Stream.fromIterable([...events, ...end]).pipe(Stream.tap(event => written(spec.dir, event)));

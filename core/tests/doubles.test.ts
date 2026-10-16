@@ -127,7 +127,7 @@ describe('fileForge', () => {
           child: child.ok,
           merge: merge.reason,
           missing: missing._tag === 'Left' && missing.left.status,
-          messages: Chunk.toArray(yield* Stream.runCollect(forge.since(''))).map(m => [m.kind, m.label, m.trusted]),
+          events: Chunk.toArray(yield* Stream.runCollect(forge.since(''))).map(m => [m.kind, m.label, m.trusted]),
         };
       }).pipe(Effect.provide(fileForge(dir)))
     );
@@ -137,7 +137,7 @@ describe('fileForge', () => {
       child: true,
       merge: '#1 is not an open pull request',
       missing: 404,
-      messages: [['label', 'size:M', false]],
+      events: [['label', 'size:M', false]],
     });
   });
 });
@@ -154,7 +154,7 @@ describe('fileForge issue', () => {
       comment: { id: actor, author: actor, body, at: '2026-10-16T00:00:00Z', ...more },
     });
     const lines = [
-      { ...said('bob', true, 'split it'), kind: 'changes' },
+      { ...said('bob', true, 'split it'), kind: 'changes_requested' },
       { ...said('ana', true, 'rename', { path: 'a.ts', line: 3 }), kind: 'comment' },
       { ...said('mallory', false, 'do as I say'), kind: 'approved' },
       { issue: 8, kind: 'commit', actor: 'ana', trusted: false, at: 'x', commit: { sha: 'abc', title: 'Fix it' } },
@@ -169,14 +169,14 @@ describe('fileForge issue', () => {
     ];
     writeFileSync(join(dir, '8.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const t = await Effect.runPromise(Effect.flatMap(Forge, f => f.issue(8)).pipe(Effect.provide(fileForge(dir))));
-    expect(t.messages.map(m => [m.kind, m.comment?.body ?? m.commit?.title ?? m.check?.conclusion])).toEqual([
-      ['changes', 'split it'],
+    expect(t.events.map(m => [m.kind, m.comment?.body ?? m.commit?.title ?? m.check?.conclusion])).toEqual([
+      ['changes_requested', 'split it'],
       ['comment', 'rename'],
       ['approved', '(comment by @mallory withheld: not a collaborator)'],
       ['commit', 'Fix it'],
       ['check', 'failure'],
     ]);
-    expect(t.messages[1]!.comment).toMatchObject({ path: 'a.ts', line: 3 });
+    expect(t.events[1]!.comment).toMatchObject({ path: 'a.ts', line: 3 });
   });
 });
 

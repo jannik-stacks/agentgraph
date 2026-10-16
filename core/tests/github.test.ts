@@ -7,7 +7,7 @@ import { Effect, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { Forge, type Proposal } from '../src/forge.ts';
 import { githubForge } from '../src/github.ts';
-import type { Work } from '../src/sandbox.ts';
+import type { Checkout } from '../src/sandbox.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -215,24 +215,24 @@ describe('githubForge', () => {
     );
     expect(t.parent).toBe(3);
     expect(t.pull).toEqual({ branch: 'fork/r:fix', base: 'main', head: 'abc' });
-    const shown = (m: (typeof t.messages)[number]) =>
+    const shown = (m: (typeof t.events)[number]) =>
       m.comment?.body ?? m.label ?? m.commit?.title ?? (m.check && `${m.check.name} ${m.check.conclusion}`);
-    expect(t.messages.map(m => [m.kind, m.actor, m.trusted, shown(m)])).toEqual([
+    expect(t.events.map(m => [m.kind, m.actor, m.trusted, shown(m)])).toEqual([
       ['comment', 'alice', true, 'looks good'],
       ['comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
       ['comment', 'helper[bot]', false, 'brief'],
       ['comment', 'other[bot]', false, '(comment by @other[bot] withheld: not a collaborator)'],
       ['comment', 'bob', true, 'rename this'],
       ['comment', 'alice', true, 'agreed'],
-      ['changes', 'bob', true, 'split it'],
+      ['changes_requested', 'bob', true, 'split it'],
       ['comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
       ['commit', 'ana', false, 'Fix it'],
       ['label', 'carol', true, 'bothub'],
       ['unlabel', 'dave', false, 'bothub'],
       ['check', 'github-actions', false, 'test failure'],
     ]);
-    expect(t.messages[4]!.comment).toMatchObject({ id: '5', path: 'a.ts', line: 3 });
-    expect(t.messages[5]!.comment).toMatchObject({ id: '6', under: '5' });
+    expect(t.events[4]!.comment).toMatchObject({ id: '5', path: 'a.ts', line: 3 });
+    expect(t.events[5]!.comment).toMatchObject({ id: '6', under: '5' });
   });
 
   it('reads an issue without its checks when the installation may not read them', async () => {
@@ -253,7 +253,7 @@ describe('githubForge', () => {
       f,
       Effect.flatMap(Forge, forge => forge.issue(8))
     );
-    expect(t.messages).toEqual([]);
+    expect(t.events).toEqual([]);
   });
 
   it('reads what was said and done since a cursor', async () => {
@@ -308,15 +308,15 @@ describe('githubForge', () => {
       'GET /repos/o/r/collaborators/carol/permission': { permission: 'write' },
       'GET /repos/o/r/collaborators/dave/permission': { permission: 'read' },
     });
-    const messages = await run(
+    const events = await run(
       f,
       Effect.flatMap(Forge, forge => Stream.runCollect(forge.since(cursor)))
     ).then(chunk => [...chunk]);
-    expect(messages.map(m => [m.issue, m.kind, m.actor, m.trusted, m.comment?.body ?? m.label])).toEqual([
+    expect(events.map(m => [m.issue, m.kind, m.actor, m.trusted, m.comment?.body ?? m.label])).toEqual([
       [7, 'comment', 'alice', true, '/bothub fix the typo'],
       [7, 'comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
       [7, 'comment', 'bob', true, '> /bothub quoted\nplain words'],
-      [8, 'changes', 'bob', true, 'split it'],
+      [8, 'changes_requested', 'bob', true, 'split it'],
       [8, 'approved', 'bob', true, ''],
       [7, 'label', 'carol', true, 'approved'],
       [7, 'label', 'dave', false, 'ready'],
@@ -476,7 +476,7 @@ describe('githubForge', () => {
       git('add', '-A');
       git('commit', '-qm', 'base');
       const base = git('rev-parse', 'HEAD');
-      const work: Work = { dir, base, git: env };
+      const work: Checkout = { dir, base, git: env };
       return { dir, git, base, work };
     };
     const blobSha = (base64: string) => {
@@ -487,7 +487,7 @@ describe('githubForge', () => {
      * The Git data API over a bare repo standing in for GitHub, sharing the checkout's objects as uploaded blobs would
      * be. Its commits get another committer, as GitHub's signed ones do.
      */
-    const dataApi = (work: Work, more: Record<string, Route> = {}) => {
+    const dataApi = (work: Checkout, more: Record<string, Route> = {}) => {
       const bare = tmp('bare');
       sh(['init', '-q', '--bare', bare]);
       writeFileSync(join(bare, 'objects', 'info', 'alternates'), `${join(work.git.GIT_DIR, 'objects')}\n`);
@@ -533,7 +533,7 @@ describe('githubForge', () => {
         ...more,
       });
     };
-    const pushTo = (f: ReturnType<typeof fake>, work: Work, branch = 'bothub/7', message = 'Fix the typo') =>
+    const pushTo = (f: ReturnType<typeof fake>, work: Checkout, branch = 'bothub/7', message = 'Fix the typo') =>
       run(
         f,
         Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch, message }, work))

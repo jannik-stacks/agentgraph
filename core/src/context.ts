@@ -1,12 +1,12 @@
-import type { Message, Proposal, Issue } from './forge.ts';
+import type { Event, Proposal, Issue } from './forge.ts';
 import type { Run, Seen, Workflow } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
-export type Issues = { issue: Issue & { messages: Message[] }; pull?: Issue & { messages: Message[] } };
+export type Issues = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
 
 const cap = 20_000;
 
-const line = (m: Message): string => {
+const line = (m: Event): string => {
   const c = m.comment;
   const said = c ? `${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ''}` : ''}: ${c.body}` : '';
   const who = `@${m.actor}`;
@@ -15,7 +15,7 @@ const line = (m: Message): string => {
       return `${who}${said}`;
     case 'approved':
       return `${who} approved${said}`;
-    case 'changes':
+    case 'changes_requested':
       return `${who} requested changes${said}`;
     case 'commit':
       return `${who} pushed ${m.commit?.sha.slice(0, 7)} ${m.commit?.title}`;
@@ -32,9 +32,9 @@ const line = (m: Message): string => {
 };
 
 /** Both timelines merged by time, each entry marked with its number when there are two. */
-const timeline = (t: Issues, keep: (m: Message) => boolean) =>
+const timeline = (t: Issues, keep: (m: Event) => boolean) =>
   [t.issue, ...(t.pull ? [t.pull] : [])]
-    .flatMap(issue => issue.messages.filter(keep))
+    .flatMap(issue => issue.events.filter(keep))
     .sort((a, b) => a.at.localeCompare(b.at))
     .map(m => (t.pull ? `#${m.issue} ${line(m)}` : line(m)));
 
@@ -65,7 +65,7 @@ export function news(t: Issues, seen: Seen): { text: string; seen: Seen } {
     moved && `The base ${pull.base} moved to ${pull.baseSha!.slice(0, 7)}.`,
     ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || !m.actor.endsWith('[bot]'))),
   ].filter(Boolean);
-  const at = [t.issue, t.pull].flatMap(x => x?.messages ?? []).reduce((at, m) => (m.at > at ? m.at : at), seen.at);
+  const at = [t.issue, t.pull].flatMap(x => x?.events ?? []).reduce((at, m) => (m.at > at ? m.at : at), seen.at);
   return {
     text: lines.length > 0 ? `## New since you last looked\n\n${lines.join('\n\n')}` : '',
     seen: { at, ...(pull?.baseSha !== undefined && { base: pull.baseSha }) },
@@ -86,7 +86,7 @@ export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
   const labels = t.issue.labels;
   const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
   const pull = t.pull ?? (t.issue.pull ? t.issue : undefined);
-  const checks = new Map((pull?.messages ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
+  const checks = new Map((pull?.events ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
   const failing = [...checks].filter(([, c]) => failures.has(c)).map(([name]) => name);
   const round = Math.max(0, ...Object.values(run.rounds));
   const tries = w.steps.find(s => s.name === run.step)?.tries ?? 1;
@@ -105,7 +105,7 @@ export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
   ]
     .filter(Boolean)
     .join('\n\n');
-  const now = run.comment && t.issue.messages.find(m => m.comment?.id === run.comment)?.comment?.body;
+  const now = run.comment && t.issue.events.find(m => m.comment?.id === run.comment)?.comment?.body;
   return [
     ...(labels.includes(label) && stale.length === 0
       ? []

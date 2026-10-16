@@ -4,16 +4,16 @@ import { dirname, join } from 'node:path';
 import { Effect, Layer, Redacted, Stream } from 'effect';
 import type { Harness } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
-import { type AgentEvent, Session, type SessionSpec, SessionStop } from './session.ts';
+import { type SessionEvent, Session, type SessionSpec, SessionStop } from './session.ts';
 
-type Ended = Extract<AgentEvent, { type: 'end' }>['ended'];
-type Tool = Extract<AgentEvent, { type: 'tool' }>;
+type Ended = Extract<SessionEvent, { type: 'end' }>['ended'];
+type Tool = Extract<SessionEvent, { type: 'tool' }>;
 
 /** What one harness output line says, before the session loop adds the home, the reply and the exit code. */
 type Piece =
   | { type: 'session'; id: string; model?: string }
-  | Extract<AgentEvent, { type: 'text' | 'tool' }>
-  | (Extract<AgentEvent, { type: 'usage' }> & { cached?: number })
+  | Extract<SessionEvent, { type: 'text' | 'tool' }>
+  | (Extract<SessionEvent, { type: 'usage' }> & { cached?: number })
   | { type: 'done'; ended: Ended; error?: string };
 
 type Adapter = {
@@ -447,7 +447,7 @@ export const harnesses = (s: {
             let done: Extract<Piece, { type: 'done' }> | undefined;
             let tail = '';
 
-            const step = (raw: string): AgentEvent[] => {
+            const step = (raw: string): SessionEvent[] => {
               const line = secret.length >= 8 ? raw.replaceAll(secret, '***') : raw;
               const exit = exitLine.exec(line);
               if (exit) {
@@ -462,7 +462,7 @@ export const harnesses = (s: {
                 if (line.trim()) tail = (tail + '\n' + line).slice(-2000);
                 return [];
               }
-              return parse(json).flatMap((piece): AgentEvent[] => {
+              return parse(json).flatMap((piece): SessionEvent[] => {
                 if (piece.type === 'session') {
                   if (session) return [];
                   session = piece.id;

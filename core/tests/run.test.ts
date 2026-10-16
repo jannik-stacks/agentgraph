@@ -16,10 +16,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { drive, sweep, tick } from '../src/engine.ts';
 import { start as main } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
-import { fileForge, Forge, ForgeError, type Message, type Proposal } from '../src/forge.ts';
+import { fileForge, Forge, ForgeError, type Event, type Proposal } from '../src/forge.ts';
 import { host, Sandbox, type Command } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
-import { scripted, Session, type AgentEvent, type SessionSpec } from '../src/session.ts';
+import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import { begin, reenter, transition, type Run } from '../src/workflow.ts';
 import { hubOf } from './fixtures.ts';
@@ -63,21 +63,21 @@ const world = () => {
   const human = (body: string, at: string) =>
     appendFileSync(
       join(forge, '7.jsonl'),
-      `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Message)}\n`
+      `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
     );
   human('/bothub', '2026-10-16T00:00:00.000Z');
   return { root, origin: join(root, 'origin.git'), forge, data: join(root, 'data'), human };
 };
 
-const start = (session: string): AgentEvent => ({ type: 'start', session, model: 'test', home: `/homes/${session}` });
-const write = (path: string, content: string): AgentEvent => ({
+const start = (session: string): SessionEvent => ({ type: 'start', session, model: 'test', home: `/homes/${session}` });
+const write = (path: string, content: string): SessionEvent => ({
   type: 'tool',
   id: path,
   name: 'write',
   input: { path, content },
   ok: true,
 });
-const reply = (...proposals: Proposal[]): AgentEvent => ({
+const reply = (...proposals: Proposal[]): SessionEvent => ({
   type: 'end',
   final: `Done.\n\n\`\`\`bothub\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
   ended: 'stop',
@@ -91,14 +91,14 @@ const pull: Proposal = {
   title: 'Add hello',
   body: 'Closes #7',
 };
-const judged: AgentEvent[] = [
+const judged: SessionEvent[] = [
   start('j'),
   { type: 'usage', input: 4, output: 2, usd: 0.25 },
   { type: 'text', text: 'PASS, no claims' },
 ];
 
 /** The file doubles, with every session spec and every sandbox command recorded, both also in `order`. */
-const services = (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {
+const services = (where: ReturnType<typeof world>, turns: SessionEvent[][]) => {
   const specs: SessionSpec[] = [];
   const commands: Command[] = [];
   const order: (SessionSpec | Command)[] = [];
@@ -122,7 +122,7 @@ const traceOf = (data: string, id: string) =>
     .filter(Boolean)
     .map(line => JSON.parse(line) as Trace);
 
-const bodies = (t: { messages: Message[] }) => t.messages.flatMap(m => (m.comment ? [m.comment.body] : []));
+const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m.comment.body] : []));
 
 const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
@@ -311,7 +311,7 @@ describe('drive', () => {
 });
 
 describe('setup', () => {
-  const stopping = (): AgentEvent[][] => [
+  const stopping = (): SessionEvent[][] => [
     [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
     [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
   ];
@@ -347,10 +347,10 @@ describe('setup', () => {
   }, 30_000);
 });
 
-const say = (where: ReturnType<typeof world>, m: Message) =>
+const say = (where: ReturnType<typeof world>, m: Event) =>
   appendFileSync(join(where.forge, `${m.issue}.jsonl`), `${JSON.stringify(m)}\n`);
 
-const comment = (issue: number, actor: string, trusted: boolean, body: string, at: string): Message => ({
+const comment = (issue: number, actor: string, trusted: boolean, body: string, at: string): Event => ({
   issue,
   kind: 'comment',
   actor,
@@ -358,7 +358,7 @@ const comment = (issue: number, actor: string, trusted: boolean, body: string, a
   at,
   comment: { id: at, author: actor, body, at },
 });
-const check = (issue: number, name: string, conclusion: string, at: string): Message => ({
+const check = (issue: number, name: string, conclusion: string, at: string): Event => ({
   issue,
   kind: 'check',
   actor: 'ci',
@@ -632,7 +632,7 @@ describe('coworker', () => {
   }, 30_000);
 
   /** Run 7 parked on a question in its kept implement session, with pull request #8 on base b1. */
-  const parked = async (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {
+  const parked = async (where: ReturnType<typeof world>, turns: SessionEvent[][]) => {
     pullRequest(where);
     const s = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })], ...turns]);
     const asked = await s.run(drive(flow, begun(), small));
@@ -719,7 +719,7 @@ describe('coworker', () => {
   }, 30_000);
 
   const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'bothub' } } } } };
-  const labelled = (actor: string, trusted: boolean, kind: 'label' | 'unlabel', at: string): Message => ({
+  const labelled = (actor: string, trusted: boolean, kind: 'label' | 'unlabel', at: string): Event => ({
     issue: 7,
     kind,
     actor,
@@ -806,7 +806,7 @@ describe('coworker', () => {
     );
     expect(again).toMatchObject({ status: 'waiting', said: { issue: 8 } });
     expect(done).toMatchObject({ status: 'done', said: { issue: 8, under: review.at } });
-    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).messages.flatMap(m => m.comment ?? []);
+    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
       ['And bye?', undefined, undefined],
       ['Said bye.', review.at, 'hello.txt'],

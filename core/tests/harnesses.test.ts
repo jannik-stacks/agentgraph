@@ -5,7 +5,7 @@ import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
-import { type AgentEvent, Session, type SessionSpec } from '../src/session.ts';
+import { type SessionEvent, Session, type SessionSpec } from '../src/session.ts';
 import { todo } from '../src/todo.ts';
 
 const sample = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8').split('\n');
@@ -161,7 +161,7 @@ describe('opencode', () => {
 
   it('reads a recorded run', async () => {
     const { events: got, command } = await events(spec, sample('opencode-run.jsonl'));
-    expect(got).toEqual<AgentEvent[]>([
+    expect(got).toEqual<SessionEvent[]>([
       { type: 'start', session: 'ses_ecfe5c55cffe3r1vZYoqdYrwvF', model: 'smart', home: command.home! },
       { type: 'text', text: 'Listing files.' },
       expect.objectContaining({
