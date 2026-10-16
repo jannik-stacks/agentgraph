@@ -3,14 +3,14 @@ import type { Run, Step, Workflow } from './workflow.ts';
 
 /**
  * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
- * can take before it asks. A check's kind says whether an agent judges it or only a script runs.
+ * can take before it asks. A check names the agent that judges it; a check without one is only a script.
  */
 export type Graph = {
   trigger: string;
   nodes: {
     step: string;
     doer: string;
-    checks: { name: string; mode: Check['mode']; kind: 'script' | 'agent' }[];
+    checks: { name: string; mode: Check['mode']; agent?: string }[];
     tries: number;
     each?: string;
     run?: { tries: number; current: boolean; visited: boolean };
@@ -51,11 +51,10 @@ export function graphOf(w: Workflow, checks: Record<string, Pick<Check, 'mode' |
   const nodes: Graph['nodes'] = w.steps.map((s, k) => ({
     step: s.name,
     doer: doer(s),
-    checks: s.checks.map(name => ({
-      name,
-      mode: checks[name]?.mode ?? 'block',
-      kind: checks[name]?.agent === undefined ? ('script' as const) : ('agent' as const),
-    })),
+    checks: s.checks.map(name => {
+      const agent = checks[name]?.agent;
+      return { name, mode: checks[name]?.mode ?? 'block', ...(agent !== undefined && { agent }) };
+    }),
     tries: s.tries,
     ...(s.each !== undefined && { each: typeof s.each === 'string' ? s.each : s.each.run }),
     ...(run && { run: { tries: k === current ? run.tries : 0, current: k === current, visited: k <= reached } }),

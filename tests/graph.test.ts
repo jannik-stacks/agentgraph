@@ -44,11 +44,11 @@ describe('graphOf', () => {
     expect(g.trigger).toBe('/bothub comment');
     const [triage, implement, review, merge] = g.nodes;
     expect(triage).toEqual({ step: 'triage', doer: 'triager / triage', checks: [], tries: 1 });
-    expect(implement!.checks[0]).toEqual({ name: 'safety', mode: 'stop', kind: 'script' });
+    expect(implement!.checks[0]).toEqual({ name: 'safety', mode: 'stop' });
     expect(implement!.checks.find(c => c.name === 'docs-tone')).toEqual({
       name: 'docs-tone',
       mode: 'warn',
-      kind: 'agent',
+      agent: 'reviewer',
     });
     expect(review).toMatchObject({ doer: 'reviewer / review-hunk', each: 'hunks' });
     expect(merge!.doer).toBe('human');

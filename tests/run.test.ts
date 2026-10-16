@@ -21,6 +21,7 @@ import { host, Sandbox, type Command } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
+import type { Hub } from '../src/hub.ts';
 import { begin, reenter, transition, type Run } from '../src/workflow.ts';
 import { git, hubOf } from './fixtures.ts';
 
@@ -1057,5 +1058,67 @@ describe('gate', () => {
     const { outcome } = await run(gate(step, left, small));
     const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
     expect(findings?.trim()).toBe('from hub');
+  });
+
+  it('lets two agents on different harnesses and models review one try side by side', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    git(dir, 'init', '-q');
+    git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+    const base = hubOf('hub');
+    const agent = (name: string, harness: Hub['agents'][string]['harness'], model: string): Hub['agents'][string] => ({
+      name,
+      path: `${name}.md`,
+      body: `You are ${name}.`,
+      harness,
+      model,
+      tools: [],
+      returns: [],
+    });
+    const check = (name: string, judge: string) => ({
+      name,
+      path: `${name}.md`,
+      body: name,
+      mode: 'block' as const,
+      agent: judge,
+    });
+    const small = {
+      ...base,
+      agents: {
+        ...base.agents,
+        critic: agent('critic', 'claude', 'opus'),
+        tester: agent('tester', 'opencode', 'smart'),
+      },
+      checks: { correct: check('correct', 'critic'), covered: check('covered', 'tester') },
+    };
+    const step = { name: 'implement', does: { agent: 'critic' }, checks: ['correct', 'covered'], tries: 3 };
+    const specs: SessionSpec[] = [];
+    const verdicts: Record<string, string> = { critic: 'FAIL off by one', tester: 'PASS' };
+    const judges = Layer.succeed(Session, {
+      open: (spec: SessionSpec) => {
+        specs.push(spec);
+        return Stream.fromIterable<SessionEvent>([
+          start(spec.agent),
+          { type: 'end', final: verdicts[spec.agent]!, ended: 'stop', exit: 0 },
+        ]);
+      },
+    });
+    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const left = {
+      run: 'run-7',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const { outcome } = await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    expect(specs.map(s => [s.agent, s.harness, s.model]).sort()).toEqual([
+      ['critic', 'claude', 'opus'],
+      ['tester', 'opencode', 'smart'],
+    ]);
+    expect(outcome).toMatchObject({ kind: 'failed', checks: [{ check: 'correct', findings: 'FAIL off by one' }] });
   });
 });

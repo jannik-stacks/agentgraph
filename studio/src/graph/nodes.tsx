@@ -120,6 +120,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
   const here = overlay?.status !== undefined;
   const refused = here && !!node.run && node.run.tries > 0;
   const stops = node.checks.filter(c => c.mode === 'stop');
+  const judges = [...new Set(node.checks.flatMap(c => c.agent ?? []))];
   const fan = node.each === undefined ? undefined : each(node.each);
   const status = here ? statusLine(node, overlay) : live;
   return (
@@ -188,6 +189,14 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           >
             <Glyph name="checks" />
             {node.checks.length} {node.checks.length === 1 ? 'check' : 'checks'}
+          </Chip>
+        )}
+        {judges.length > 1 && (
+          <Chip
+            tip={`${judges.join(' and ')} review each try side by side, each in its own session. Their findings go back together.`}
+          >
+            <Glyph name="agent" />
+            {judges.length} reviewers
           </Chip>
         )}
         {fan && (
