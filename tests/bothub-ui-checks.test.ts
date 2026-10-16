@@ -216,7 +216,7 @@ export const App = () => {
     const repo = studioChange(
       {},
       {
-        'src/schema.ts': "export const Check = z.discriminatedUnion('type', [script, bot]);\n",
+        'src/hub.ts': "export const Check = z.discriminatedUnion('type', [script, bot]);\n",
         'studio/src/App.tsx': `import type { Route } from './state.ts';
 const DashboardView = lazy(() => import('./dashboard/DashboardView.tsx'));
 const Row = ({ n }: { n: number }) => <li>{n}</li>;
@@ -276,7 +276,7 @@ describe('rules check, guards', () => {
     const repo = studioChange(
       {},
       {
-        'src/schema.ts': 'export const Workflow = z.strictObject({ allowSkip: z.boolean().optional() });\n',
+        'src/hub.ts': 'export const Workflow = z.strictObject({ allowSkip: z.boolean().optional() });\n',
         'examples/hub/hub.yaml': 'sandbox: none\n',
         'src/harnesses/pi.ts': "export const args = ['--dangerously-skip-permissions'];\n",
         'src/queue.ts': `// ${silenced}\nexport const q = (x ${loose}).y;\n`,
@@ -285,7 +285,7 @@ describe('rules check, guards', () => {
     );
     const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
-    expect(out).toContain('src/schema.ts:1: a way to skip checks');
+    expect(out).toContain('src/hub.ts:1: a way to skip checks');
     expect(out).toContain('examples/hub/hub.yaml:1: the sandbox switched off');
     expect(out).toContain('src/harnesses/pi.ts:1: a harness that approves its own tool calls');
     expect(out).toContain('src/queue.ts:1: a silenced type error');
@@ -359,7 +359,7 @@ describe('rules check, retired names', () => {
     const repo = studioChange(
       {},
       {
-        'src/schema.ts': `issue.input === 'open-pr'\n  ? 'there is no "open-pr"; a request to merge a branch is "merge-request"'\n`,
+        'src/hub.ts': `issue.input === 'open-pr'\n  ? 'there is no "open-pr"; a request to merge a branch is "merge-request"'\n`,
         'tests/schema.test.ts': "expect(parse({ soul: 'x' })).toThrow();\n",
       }
     );
@@ -435,18 +435,18 @@ ${fence}
 
 describe('docs-sync check', () => {
   it('fails a new schema no docs page names, and passes once one does', () => {
-    const schema = 'export const Budget = z.strictObject({ usd: z.number() });\n';
+    const schema = 'export const Budget = Schema.Struct({ usd: Schema.Number });\n';
     const missing = studioChange(
-      { 'docs/reference/config.md': 'See `Bot` in src/schema.ts.\n' },
-      { 'src/schema.ts': schema }
+      { 'docs/reference/config.md': 'See `Bot` in src/hub.ts.\n' },
+      { 'src/hub.ts': schema }
     );
     const { ok, out } = check('docs-sync.mjs', missing);
     expect(ok).toBe(false);
-    expect(out).toContain('src/schema.ts:1: Budget is in no docs page');
+    expect(out).toContain('src/hub.ts:1: Budget is in no docs page');
 
     const named = studioChange(
-      { 'docs/reference/config.md': 'See `Bot` in src/schema.ts.\n' },
-      { 'src/schema.ts': schema, 'docs/reference/config.md': 'See `Budget` in src/schema.ts.\n' }
+      { 'docs/reference/config.md': 'See `Bot` in src/hub.ts.\n' },
+      { 'src/hub.ts': schema, 'docs/reference/config.md': 'See `Budget` in src/hub.ts.\n' }
     );
     expect(check('docs-sync.mjs', named)).toEqual({ ok: true, out: 'docs-sync: ok' });
   });

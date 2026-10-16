@@ -1,13 +1,10 @@
-// One JSON line per run status or closure value the change touches under src/ and studio/src/: every changed line that
+// One JSON line per run status value the change touches under src/ and studio/src/: every changed line that
 // names it, with the code around it, so a reviewer follows that one value through the transitions the change makes.
 // The values are read from where the code declares them; a change that names none prints nothing.
 import { existsSync, readFileSync } from 'node:fs';
 import { base, changeText } from './changes.mjs';
 
-const declared = [
-  ['run status', 'src/store.ts', /export type RunStatus =([^;]+);/],
-  ['closure', 'src/schema.ts', /export const Closure = z\.enum\(\[([^\]]+)\]/],
-];
+const declared = [['run status', 'src/workflow.ts', /\bstatus: ([^;]+);/]];
 const context = 12;
 const maxChars = 12_000;
 

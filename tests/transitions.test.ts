@@ -10,36 +10,31 @@ const items = (repo: { dir: string; base: string }) => {
 };
 
 const declared = {
-  'src/store.ts': "export type RunStatus =\n  | 'queued'\n  | 'running'\n  | 'failed';\n",
-  'src/schema.ts': "export const Closure = z.enum(['done', 'blocked']);\n",
+  'src/workflow.ts': "export type Run = {\n  status: 'queued' | 'running' | 'failed';\n};\n",
 };
-const close = (closure: string) =>
-  `export const close = (left: number) => {\n  if (left > 0) return 'more';\n  return ${closure};\n};\n`;
+const jobs = (status: string) =>
+  `export const step = (left: number) => {\n  if (left > 0) return 'more';\n  return ${status};\n};\n`;
 
 describe('transitions', () => {
-  it('emits one item per status or closure value the change names, with the code around it', () => {
+  it('emits one item per status value the change names, with the code around it', () => {
     const repo = change(
-      { ...declared, 'src/jobs.ts': close("'done'") },
+      { ...declared, 'src/jobs.ts': jobs("'running'") },
       {
-        'src/jobs.ts': close("'blocked'"),
+        'src/jobs.ts': jobs("'failed'"),
         'studio/src/badge.ts': "export const live = (s: string) => s === 'running';\n",
       }
     );
-    expect(items(repo)).toEqual([
-      {
-        'run status': 'running',
-        transitions: expect.stringContaining("+export const live = (s: string) => s === 'running';"),
-      },
-      { closure: 'done', transitions: expect.stringContaining("-  return 'done';") },
-      { closure: 'blocked', transitions: expect.stringContaining("+  return 'blocked';") },
-    ]);
-    expect(items(repo)[2]!.transitions).toContain("   if (left > 0) return 'more';");
+    const found = items(repo);
+    expect(found.map(i => i['run status'])).toEqual(['running', 'failed']);
+    expect(found[0]!.transitions).toContain("+export const live = (s: string) => s === 'running';");
+    expect(found[0]!.transitions).toContain("-  return 'running';");
+    expect(found[1]!.transitions).toContain("+  return 'failed';");
   });
 
-  it('emits nothing when the change names no status or closure value', () => {
+  it('emits nothing when the change names no status value', () => {
     const repo = change(
-      { ...declared, 'src/jobs.ts': close("'done'") },
-      { 'src/jobs.ts': close("'done'").replace('left > 0', 'left >= 1'), 'docs.md': "'failed'\n" }
+      { ...declared, 'src/jobs.ts': jobs("'running'") },
+      { 'src/jobs.ts': jobs("'running'").replace('left > 0', 'left >= 1'), 'docs.md': "'failed'\n" }
     );
     expect(items(repo)).toEqual([]);
   });
