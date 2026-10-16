@@ -153,8 +153,11 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
             const parents = ['-p', from, ...(kept ? ['-p', kept] : [])];
             const commit = await run(...ident, 'commit-tree', await run('write-tree'), ...parents, '-m', keep);
             await run('push', '-q', 'origin', `+${commit}:${keep}`);
-          }).pipe(Effect.ignoreLogged,
-            Effect.zipRight(Effect.promise(() => Promise.all([dir, news].map(p => rm(p, { recursive: true, force: true })))))
+          }).pipe(
+            Effect.ignoreLogged,
+            Effect.zipRight(
+              Effect.promise(() => Promise.all([dir, news].map(p => rm(p, { recursive: true, force: true }))))
+            )
           )
       ).pipe(
         Effect.map(({ dir, base, news }) => ({

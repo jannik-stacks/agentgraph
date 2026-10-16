@@ -415,20 +415,17 @@ export const githubForge = (
           ...[...said, ...lined].map(c => heard(number, c, self)),
           ...reviews.flatMap(r => reviewed(number, r, self) ?? []),
           ...(yield* Effect.forEach(commits, c =>
-            Effect.map(
-              login(c.author) === `${self}[bot]` ? Effect.succeed(true) : may(c.author),
-              (shown): Event => ({
-                issue: number,
-                kind: 'commit',
-                actor: login(c.author),
-                trusted: false,
-                at: c.commit.author?.date ?? '',
-                commit: {
-                  sha: c.sha,
-                  title: shown ? visible(c.commit.message.split('\n')[0]) : withheld(login(c.author), 'commit title'),
-                },
-              })
-            )
+            Effect.map(login(c.author) === `${self}[bot]` ? Effect.succeed(true) : may(c.author), (shown): Event => ({
+              issue: number,
+              kind: 'commit',
+              actor: login(c.author),
+              trusted: false,
+              at: c.commit.author?.date ?? '',
+              commit: {
+                sha: c.sha,
+                title: shown ? visible(c.commit.message.split('\n')[0]) : withheld(login(c.author), 'commit title'),
+              },
+            }))
           )),
           ...(yield* Effect.forEach(events, e => evented(number, e, merged))).flatMap(m => m ?? []),
           ...(pull ? yield* checked(number, pull.head.sha) : []),

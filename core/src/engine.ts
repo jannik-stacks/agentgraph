@@ -168,9 +168,7 @@ const itemsOf = (each: string | { run: string }, work: Checkout, minutes: number
 /** Writes the news since `seen` to the checkout's news file; a failed refresh logs and keeps the old file. */
 const refresh = (w: Workflow, run: Run, work: Checkout, seen: Seen, t?: Issues) =>
   (t ? Effect.succeed(t) : issuesOf(w, run)).pipe(
-    Effect.flatMap(t =>
-      Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`))
-    ),
+    Effect.flatMap(t => Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`))),
     Effect.catchAll(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
 
@@ -584,7 +582,11 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
  * With `only`, it looks at that issue alone and begins a run there when none was live; with `marked` too, only on a
  * trusted command or label.
  */
-export const tick = (hub: Hub, only?: number, marked = false): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+export const tick = (
+  hub: Hub,
+  only?: number,
+  marked = false
+): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;

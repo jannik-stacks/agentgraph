@@ -295,7 +295,9 @@ export const docker = (o: {
           });
           const remove = Effect.promise(() => {
             mounts.delete(dir);
-            return Promise.all([dir, index, news, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true })));
+            return Promise.all(
+              [dir, index, news, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true }))
+            );
           });
           yield* Effect.acquireRelease(add, () => Effect.zipRight(keep ? save(keep) : Effect.void, remove));
           return work;
