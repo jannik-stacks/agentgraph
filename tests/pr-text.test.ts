@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Proposal } from '../src/forge.ts';
 
-const script = join(import.meta.dirname, '..', '..', 'examples');
+const script = join(import.meta.dirname, '..', 'examples');
 
 const check = (hub: string, proposals: Proposal[]) => {
   const file = join(mkdtempSync(join(tmpdir(), 'pr-text-')), 'proposals.json');

@@ -30,8 +30,8 @@ Keys never live in a repository and never appear in logs.
 ## Create the App
 
 ```sh
-node core/bin/setup-app.ts                    # the App belongs to your account
-node core/bin/setup-app.ts --org acme     # the App belongs to the organization
+node bin/setup-app.ts                    # the App belongs to your account
+node bin/setup-app.ts --org acme     # the App belongs to the organization
 ```
 
 1. The command prints `http://127.0.0.1:5189/`; open it in the browser where you are signed in. The

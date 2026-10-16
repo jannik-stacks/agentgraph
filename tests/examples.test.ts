@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { Effect } from 'effect';
-import { loadHub } from '../core/src/hub.ts';
+import { loadHub } from '../src/hub.ts';
 
 const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');

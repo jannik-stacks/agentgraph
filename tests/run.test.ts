@@ -38,7 +38,7 @@ afterEach(() => {
 
 /** A bare origin with one commit on main, a forge with issue #7 and its `/bothub` comment, and a data dir. */
 const world = () => {
-  const root = mkdtempSync(join(tmpdir(), 'bothub-core-run-'));
+  const root = mkdtempSync(join(tmpdir(), 'bothub-run-'));
   dirs.push(root);
   const seed = join(root, 'seed');
   mkdirSync(seed);
@@ -685,7 +685,7 @@ describe('start with one issue', () => {
       join(where.root, 'app.env'),
       `BOTHUB_APP_ID=42\nBOTHUB_APP_SLUG=stx-bothub\nBOTHUB_APP_KEY_FILE="${key}"\nBOTHUB_INSTALLATION_ID=7\n`
     );
-    const sandbox = join(import.meta.dirname, '..', '..', 'examples', 'sandbox');
+    const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
     const env = {
       BOTHUB_APP_ENV: join(where.root, 'app.env'),
       BOTHUB_PROXY_KEYS: 'implementor=k1,reviewer=k2',

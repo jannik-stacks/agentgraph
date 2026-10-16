@@ -22,7 +22,7 @@ a step that names a missing agent or a check that does not exist.
 
 ## Ways in
 
-- The CLI, `node core/bin/run.ts`, checks a hub, looks at one issue or all open ones, and shows
+- The CLI, `node bin/run.ts`, checks a hub, looks at one issue or all open ones, and shows
   what waits on a human.
 - The studio draws each workflow as its steps and lists runs. It reads the same files.
 

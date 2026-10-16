@@ -1,5 +1,5 @@
 import dagre from '@dagrejs/dagre';
-import type { Graph } from '../../../core/src/graph.ts';
+import type { Graph } from '../../../src/graph.ts';
 
 export type Box = { x: number; y: number; width: number; height: number };
 

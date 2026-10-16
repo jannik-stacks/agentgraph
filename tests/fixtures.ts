@@ -7,7 +7,7 @@ import type { Check } from '../src/hub.ts';
 import type { Hub } from '../src/hub.ts';
 import { load, type Problem, type Workflow } from '../src/workflow.ts';
 
-export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `core-${name}-`));
+export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `bothub-${name}-`));
 
 /** Runs the tool in `cwd` with a committer identity and no signing. */
 export const git = (cwd: string, ...args: string[]) =>
@@ -16,7 +16,7 @@ export const git = (cwd: string, ...args: string[]) =>
     encoding: 'utf8',
   }).trim();
 
-const root = join(import.meta.dirname, '..', 'fixtures');
+const root = join(import.meta.dirname, 'fixtures');
 
 export const hubs = ['bothub', 'clarinet', 'acme-app', 'hub', 'loop'];
 

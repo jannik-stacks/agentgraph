@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Prepares a data directory for a real local core run of a hub against its GitHub repo, and prints the commands.
+# Prepares a data directory for a real local run of a hub against its GitHub repo, and prints the commands.
 #
 #   e2e.sh <data-dir> [hub]     hub defaults to examples/sandbox
 #
 # Needs the local stack up (README), the sandbox image built, .keys.env from keys.sh, and BOTHUB_APP_ENV naming
-# the App env file that core/bin/setup-app.ts wrote. Nothing runs here.
+# the App env file that bin/setup-app.ts wrote. Nothing runs here.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd -P)"
 bothub="$(cd "$here/../.." && pwd -P)"
@@ -13,7 +13,7 @@ hub="$(cd "${2:-$bothub/examples/sandbox}" && pwd -P)"
 
 [[ -f "$here/.keys.env" ]] || { echo "no $here/.keys.env; run keys.sh first" >&2; exit 1; }
 [[ -n "${BOTHUB_APP_ENV:-}" ]] || { echo "set BOTHUB_APP_ENV to the App env file" >&2; exit 1; }
-node "$bothub/core/bin/run.ts" check --hub "$hub" >/dev/null
+node "$bothub/bin/run.ts" check --hub "$hub" >/dev/null
 mkdir -p "$data"
 data="$(cd "$data" && pwd -P)"
 
@@ -27,7 +27,7 @@ ready: $data
   hub   $hub
 
 load the keys:  set -a; . $data/.env; set +a
-one issue:      node $bothub/core/bin/run.ts --hub $hub --issue <n> --data $data
-every issue:    node $bothub/core/bin/run.ts loop --hub $hub --data $data
-needs you:      node $bothub/core/bin/run.ts status --hub $hub --data $data
+one issue:      node $bothub/bin/run.ts --hub $hub --issue <n> --data $data
+every issue:    node $bothub/bin/run.ts loop --hub $hub --data $data
+needs you:      node $bothub/bin/run.ts status --hub $hub --data $data
 EOF

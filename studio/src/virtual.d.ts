@@ -1,5 +1,5 @@
 declare module 'virtual:fixtures' {
   export const fixtures: import('./graph/scenarios.ts').Fixture[];
-  /** The served hub when it is in core format, with the problems that stop core loading it. */
-  export const served: { name: string; problems: import('../../core/src/workflow.ts').Problem[] } | null;
+  /** The served hub, with the problems that stop the engine loading it. */
+  export const served: { name: string; problems: import('../../src/workflow.ts').Problem[] } | null;
 }

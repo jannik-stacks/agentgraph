@@ -1,7 +1,7 @@
 /**
  * Creates the bothub GitHub App through the manifest flow and saves its id and key, both 0600, under
  * `<dir>/<slug>/`. Point `BOTHUB_APP_ENV` at the `app.env` it prints, then install the App on the repo.
- * Usage: node core/bin/setup-app.ts [--org <org>] [--name bothub] [--dir ~/.config/bothub] [--port 5189]
+ * Usage: node bin/setup-app.ts [--org <org>] [--name bothub] [--dir ~/.config/bothub] [--port 5189]
  */
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-/** The one bothub App: private, no webhook, and only the permissions core uses. */
+/** The one bothub App: private, no webhook, and only the permissions the engine uses. */
 export const manifest = (name: string, base: string) => ({
   name,
   url: 'https://github.com',

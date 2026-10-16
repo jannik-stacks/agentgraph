@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Trace } from '../core/src/store.ts';
-import type { Run } from '../core/src/workflow.ts';
+import type { Trace } from '../src/store.ts';
+import type { Run } from '../src/workflow.ts';
 import { studioModule } from './studio.ts';
 
 type Row = { at?: string; children?: Row[]; raw?: unknown; open?: boolean };

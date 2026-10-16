@@ -1,5 +1,5 @@
-import type { Trace } from '../../../core/src/store.ts';
-import type { Outcome, Run } from '../../../core/src/workflow.ts';
+import type { Trace } from '../../../src/store.ts';
+import type { Outcome, Run } from '../../../src/workflow.ts';
 
 /** What an outcome says beyond its kind. */
 export const detail = (o: Outcome) =>
@@ -17,7 +17,7 @@ export const detail = (o: Outcome) =>
           ? o.text
           : '';
 
-/** A core run as the dev server answers it: the run, its trace, and where it lives. */
+/** A run as the dev server answers it: the run, its trace, and where it lives. */
 export type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] };
 
 type Line<K extends string> = Extract<Trace, Record<K, unknown>>;

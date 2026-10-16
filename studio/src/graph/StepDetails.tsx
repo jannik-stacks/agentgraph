@@ -1,6 +1,6 @@
 import { useAtomValue } from 'jotai';
-import type { Trace } from '../../../core/src/store.ts';
-import type { Run, Step, Workflow } from '../../../core/src/workflow.ts';
+import type { Trace } from '../../../src/store.ts';
+import type { Run, Step, Workflow } from '../../../src/workflow.ts';
 import { Markdown } from '../Markdown.tsx';
 import { lineRow, Rows, runRow } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';

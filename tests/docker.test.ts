@@ -359,7 +359,7 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
     const layer = harnesses({
       data: tmp('data'),
       proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(process.env.BOTHUB_PROXY_KEYS ?? '') },
-      prices: join(import.meta.dirname, '../../infra/local/prices.json'),
+      prices: join(import.meta.dirname, '../infra/local/prices.json'),
     }).pipe(Layer.provide(docker({ data: tmp('data'), origin: '/nowhere' })));
     const open = (prompt: string, resume?: { id: string; home: string }) =>
       Effect.runPromise(

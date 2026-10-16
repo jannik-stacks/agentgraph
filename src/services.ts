@@ -21,7 +21,7 @@ export type Settings = {
   app: { id: string; key: Redacted.Redacted };
 };
 
-const prices = fileURLToPath(new URL('../../infra/local/prices.json', import.meta.url));
+const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.url));
 
 export const settings: Config.Config<Settings> = Config.all({
   repo: Config.string('BOTHUB_REPO'),

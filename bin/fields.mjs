@@ -1,4 +1,4 @@
-// Fails when a field of a hub or workflow schema is never read in core/src. Usage: node core/bin/fields.mjs
+// Fails when a field of a hub or workflow schema is never read in src. Usage: node bin/fields.mjs
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -51,5 +51,5 @@ for (const [file, s] of Object.entries(text)) {
 const all = Object.values(reading).join('\n');
 const read = key => new RegExp(`\\.${key}\\b|[{,]\\s*${key}\\s*[,}=]|\\['${key}'\\]|\\b${key}\\s*\\(`).test(all);
 const unread = declared.filter(({ key }) => !read(key));
-for (const { file, key } of unread) console.log(`${file}: schema field ${key} is never read in core/src`);
+for (const { file, key } of unread) console.log(`${file}: schema field ${key} is never read in src`);
 process.exit(unread.length ? 1 : 0);

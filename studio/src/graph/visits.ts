@@ -1,6 +1,6 @@
-import type { Graph } from '../../../core/src/graph.ts';
-import type { Trace } from '../../../core/src/store.ts';
-import type { Run } from '../../../core/src/workflow.ts';
+import type { Graph } from '../../../src/graph.ts';
+import type { Trace } from '../../../src/store.ts';
+import type { Run } from '../../../src/workflow.ts';
 import type { Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */

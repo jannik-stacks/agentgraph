@@ -70,7 +70,7 @@ review requesting them. A review approval, an `approved` label or a merge passes
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step.
 The engine posts the question on the issue. A human answers with `/bothub <answer>`, which becomes
 feedback for the same step, or ends the run with `/bothub stop`. Closing the issue ends it too.
-`node core/bin/run.ts status` lists what waits, with the command that continues each run.
+`node bin/run.ts status` lists what waits, with the command that continues each run.
 
 ## The prompt
 

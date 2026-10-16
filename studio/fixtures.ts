@@ -3,15 +3,15 @@ import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 
 const id = 'virtual:fixtures';
-const core = new URL('../core/', import.meta.url);
-const from = <T>(path: string): Promise<T> => import(new URL(path, core).href);
+const root = new URL('../', import.meta.url);
+const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
-/** The served hub as core loads it: the hub, or the problems that stop it loading. */
-const coreHub = async () => {
+/** The served hub as the engine loads it: the hub, or the problems that stop it loading. */
+const servedHub = async () => {
   const dir = process.env.VITE_BHM_HUB;
   if (!dir) return;
   const { Effect, Either } = await import('effect');
-  const { loadHub }: typeof import('../core/src/hub.ts') = await from('src/hub.ts');
+  const { loadHub }: typeof import('../src/hub.ts') = await from('src/hub.ts');
   const loaded = await Effect.runPromise(Effect.either(loadHub(dir)));
   return Either.isRight(loaded)
     ? { name: basename(dir), hub: loaded.right, problems: [] }
@@ -28,7 +28,7 @@ const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
 /**
- * Serves core's fixture workflows, each with runs replayed through the engine's begin and transition, as
+ * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
  * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
  * their traces, leaving out prompts and session events; `GET /core/runs/<id>` answers one run with every trace line.
  */
@@ -37,17 +37,17 @@ export const fixtures = (): Plugin => ({
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
     server.middlewares.use('/core/runs', async (req, res) => {
-      const served = await coreHub();
+      const served = await servedHub();
       const data = process.env.VITE_BHM_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');
-      const { Store, fileStore }: typeof import('../core/src/store.ts') = await from('src/store.ts');
+      const { Store, fileStore }: typeof import('../src/store.ts') = await from('src/store.ts');
       if (!served || !data) return json(res, one ? null : []);
       const answer = await Effect.runPromise(
         Effect.gen(function* () {
           const store = yield* Store;
-          const entry = (run: import('../core/src/workflow.ts').Run, all: boolean) =>
+          const entry = (run: import('../src/workflow.ts').Run, all: boolean) =>
             Stream.runCollect(
               store.read(run.id).pipe(Stream.filter(line => all || !('event' in line || 'prompt' in line)))
             ).pipe(
@@ -68,8 +68,8 @@ export const fixtures = (): Plugin => ({
   },
   async load(source) {
     if (source !== `\0${id}`) return;
-    const { hubs, fixture }: typeof import('../core/tests/fixtures.ts') = await from('tests/fixtures.ts');
-    const engine: typeof import('../core/src/workflow.ts') = await from('src/workflow.ts');
+    const { hubs, fixture }: typeof import('../tests/fixtures.ts') = await from('tests/fixtures.ts');
+    const engine: typeof import('../src/workflow.ts') = await from('src/workflow.ts');
     const all: Fixture[] = hubs.flatMap(hub => {
       const { checks, workflows } = fixture(hub);
       return Object.values(workflows).map(workflow => ({
@@ -79,7 +79,7 @@ export const fixtures = (): Plugin => ({
         runs: scenarios(workflow, checks).map(({ label, next }) => ({ label, ...simulate(workflow, next, engine) })),
       }));
     });
-    const served = await coreHub();
+    const served = await servedHub();
     const hub = served?.hub;
     const real: Fixture[] = Object.values(hub?.workflows ?? {}).map(workflow => ({
       id: `${served!.name}/${workflow.name}`,

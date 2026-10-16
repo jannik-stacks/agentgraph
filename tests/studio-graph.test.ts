@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { graphOf, type Graph } from '../core/src/graph.ts';
-import type { Workflow } from '../core/src/workflow.ts';
-import { fixture, hubs as coreHubs } from '../core/tests/fixtures.ts';
+import { graphOf, type Graph } from '../src/graph.ts';
+import type { Workflow } from '../src/workflow.ts';
+import { fixture, hubs as fixtureHubs } from './fixtures.ts';
 import { studioModule } from './studio.ts';
 
 type Fixture = { workflow: Workflow; checks: Parameters<typeof graphOf>[1] };
@@ -15,7 +15,7 @@ const { layout, liftOf, backOut, backIn } = await studioModule<{
   backIn: number;
 }>('graph/layout.ts');
 
-const SHOWN = coreHubs.map(hub => {
+const SHOWN = fixtureHubs.map(hub => {
   const { workflows, checks } = fixture(hub);
   return [hub, Object.values(workflows).map(workflow => ({ workflow, checks }))] as const;
 });

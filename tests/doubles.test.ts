@@ -11,7 +11,7 @@ import { fixture } from './fixtures.ts';
 
 const dirs: string[] = [];
 const temp = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'bothub-core-doubles-'));
+  const dir = mkdtempSync(join(tmpdir(), 'bothub-doubles-'));
   dirs.push(dir);
   return dir;
 };

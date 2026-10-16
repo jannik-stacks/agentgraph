@@ -8,7 +8,7 @@ Needs Node 22.18 or later, and Docker for the sandbox.
 
 ## Commands
 
-Run them from this directory as `node core/bin/run.ts <command>`. `docs/local.md` has the details.
+Run them from this directory as `node bin/run.ts <command>`. `docs/local.md` has the details.
 
 - `check --hub <dir>` loads a hub and prints every problem with its file, or `ok`.
 - `--hub <dir> --issue <n> --data <dir>` looks at one issue once and drives its run until it waits or ends.
@@ -21,7 +21,7 @@ Run them from this directory as `node core/bin/run.ts <command>`. `docs/local.md
 1. Validate a hub, which needs no model or container.
 
    ```sh
-   node core/bin/run.ts check --hub examples/acme-app
+   node bin/run.ts check --hub examples/acme-app
    ```
 
 2. Start the model proxy. LiteLLM runs in front of every model. In `infra/local`, copy
@@ -44,7 +44,7 @@ Run them from this directory as `node core/bin/run.ts <command>`. `docs/local.md
    docker build -t bothub-sandbox:local sandbox
    ```
 
-4. Create the GitHub App once with `node core/bin/setup-app.ts` (see `infra/github/README.md`) and
+4. Create the GitHub App once with `node bin/setup-app.ts` (see `infra/github/README.md`) and
    set `BOTHUB_APP_ENV` to the `app.env` it prints. Then `infra/local/e2e.sh` prepares a data
    directory with the agents' keys and prints the commands that run a hub against its repo.
 
@@ -67,4 +67,4 @@ The docs are plain Markdown in `docs/`, starting at `docs/index.md`. `npm run ve
 - `examples/clarinet` is a hub for a Rust repository.
 - `examples/sandbox` is a small hub over a JavaScript package, and `examples/sk` is a hub for the Acme App twin.
 
-Every hub loads with `node core/bin/run.ts check --hub <dir>`.
+Every hub loads with `node bin/run.ts check --hub <dir>`.

@@ -41,7 +41,7 @@ Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `docker com
 
 `e2e.sh` writes the agents' keys from `.keys.env` into a data directory and prints the commands
 that run a hub against its GitHub repo: one look at one issue, or a loop over every open issue.
-It needs `BOTHUB_APP_ENV` set to the App env file from `core/bin/setup-app.ts`. Every agent runs
+It needs `BOTHUB_APP_ENV` set to the App env file from `bin/setup-app.ts`. Every agent runs
 in a sandbox container; without the `sandbox` profile up and the image built, runs fail and
 nothing falls back to the host.
 

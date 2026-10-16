@@ -2,7 +2,7 @@ import { chmodSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, temp, write } from './kit.ts';
-import type { Proposal } from '../core/src/forge.ts';
+import type { Proposal } from '../src/forge.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');

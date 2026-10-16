@@ -1,7 +1,7 @@
 # Architecture
 
 Where everything lives, how a run moves, and what is code versus judgement. In this page, "the engine"
-is the runner's own code in `core/src`, and "v2" is the current version of it.
+is the runner's own code in `src`.
 
 ## Where everything lives
 
@@ -10,7 +10,7 @@ is the runner's own code in `core/src`, and "v2" is the current version of it.
     ^  | events, read through the App
     |  v
  +------------------- host -------------------------------------+
- |  runner process = the engine         code: core/src/main.ts#start
+ |  runner process = the engine         code: src/main.ts#start
  |   - looks at the repo, begins and drives runs                |
  |   - pushes and opens pull requests (host git, App token)     |
  |   |                          |                               |
@@ -38,8 +38,8 @@ works in its own worktree of the bare mirror, which is mounted read-only. See [S
 and [Runs](runs.md).
 
 The engine talks to its surroundings through four services, each with a test double. The code is
-`code: core/src/forge.ts#Forge`, `code: core/src/store.ts#Store`, `code: core/src/sandbox.ts#Sandbox`
-and `code: core/src/session.ts#Session`.
+`code: src/forge.ts#Forge`, `code: src/store.ts#Store`, `code: src/sandbox.ts#Sandbox`
+and `code: src/session.ts#Session`.
 
 ## One run through the state machine
 
@@ -69,17 +69,17 @@ Which part is which:
 
 | Deterministic engine code                                              | LLM judgement                                  |
 | ---------------------------------------------------------------------- | ---------------------------------------------- |
-| Transitions between steps: `code: core/src/workflow.ts#transition`     | The doer session: what it writes and proposes  |
+| Transitions between steps: `code: src/workflow.ts#transition`     | The doer session: what it writes and proposes  |
 | The tries cap and the rounds cap                                       | An agent-judged check: the reply is PASS or FAIL |
 | Script checks and their modes (`warn`, `block`, `stop`)                | Whether the `until` sentence holds             |
-| Which proposals are accepted and applied: `code: core/src/engine.ts#land` | What the agent asks a human                 |
+| Which proposals are accepted and applied: `code: src/engine.ts#land` | What the agent asks a human                 |
 | Push safety: a push uses a lease and only the host holds the token     |                                                |
-| Triggers and trust: only a collaborator's command or label starts a run, `code: core/src/forge.ts#matches` |                |
+| Triggers and trust: only a collaborator's command or label starts a run, `code: src/forge.ts#matches` |                |
 
 The judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail,
 and the engine reads those answers and decides where the run goes. A reply that does not parse fails
 the try. `transition` is pure, so every path above is a plain test. The loop around it is
-`code: core/src/engine.ts#drive`.
+`code: src/engine.ts#drive`.
 
 ## Bundling for hosting
 

@@ -10,8 +10,8 @@ import {
 } from '@xyflow/react';
 import { useSetAtom } from 'jotai';
 import type { ReactNode } from 'react';
-import type { Graph } from '../../../core/src/graph.ts';
-import type { Run } from '../../../core/src/workflow.ts';
+import type { Graph } from '../../../src/graph.ts';
+import type { Run } from '../../../src/workflow.ts';
 import { selectedStepAtom } from '../state.ts';
 import { cx, Tooltip } from '../ui.tsx';
 import { backIn, backOut, liftOf, stepSize } from './layout.ts';

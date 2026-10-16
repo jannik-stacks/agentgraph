@@ -6,11 +6,9 @@ import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { loadHub } from '../src/hub.ts';
 
-const core = join(import.meta.dirname, '..');
-
 /** A hub directory with `files` written into it. */
 const hubDir = (files: Record<string, string>) => {
-  const dir = mkdtempSync(join(tmpdir(), 'core-hub-'));
+  const dir = mkdtempSync(join(tmpdir(), 'bothub-hub-'));
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), text);
@@ -20,7 +18,7 @@ const hubDir = (files: Record<string, string>) => {
 
 /** A real hub around a fixture's workflows: one file per agent, skill and check its hub.yaml names. */
 const fromFixture = (name: string) => {
-  const fixture = join(core, 'fixtures', name);
+  const fixture = join(import.meta.dirname, 'fixtures', name);
   const names = parse(readFileSync(join(fixture, 'hub.yaml'), 'utf8')) as {
     agents: string[];
     skills: string[];

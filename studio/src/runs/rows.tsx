@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Trace } from '../../../core/src/store.ts';
+import type { Trace } from '../../../src/store.ts';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, cx, Disclosure, Link } from '../ui.tsx';
 import { ToolBody, toolName, toolSummary } from './tools.tsx';

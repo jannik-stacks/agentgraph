@@ -8,10 +8,10 @@ set -u
 cd "$(dirname "$0")/.."
 export BOTHUB_HUB="$PWD/examples/bothub" BOTHUB_BASE="${BOTHUB_BASE:-HEAD}"
 if [ $# -eq 0 ]; then
-  for hub in examples/*/hub.yaml; do node core/bin/run.ts check --hub "${hub%/hub.yaml}" >/dev/null || exit 1; done
-  node core/bin/fields.mjs || exit 1
-  node core/bin/refs.mjs >/dev/null || { node core/bin/refs.mjs; exit 1; }
-  npx --no-install oxfmt --check core/src core/tests >/dev/null || { echo 'core is not formatted: npx oxfmt core/src core/tests'; exit 1; }
+  for hub in examples/*/hub.yaml; do node bin/run.ts check --hub "${hub%/hub.yaml}" >/dev/null || exit 1; done
+  node bin/fields.mjs || exit 1
+  node bin/refs.mjs >/dev/null || { node bin/refs.mjs; exit 1; }
+  npx --no-install oxfmt --check src tests bin >/dev/null || { echo 'not formatted: npx oxfmt src tests bin'; exit 1; }
   set -- $(node --input-type=module -e "import { fast } from './examples/bothub/scripts/fast.mjs'; console.log(fast.filter(c => c !== 'safety').join(' '))")
 fi
 exec node examples/bothub/scripts/fast.mjs "$@"

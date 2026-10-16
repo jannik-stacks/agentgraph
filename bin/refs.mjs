@@ -1,15 +1,15 @@
 // Fails when a `code: path#symbol` ref in docs/*.md points at a missing file or an undeclared symbol.
-// Usage: node core/bin/refs.mjs
+// Usage: node bin/refs.mjs
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const root = join(import.meta.dirname, '..', '..');
+const root = join(import.meta.dirname, '..');
 const docs = join(root, 'docs');
 const ref = /code: ([\w./-]+)#([\w$]+)/g;
 const declared = (text, name) =>
   new RegExp(
     `^\\s*(export\\s+)?(default\\s+)?(async\\s+)?(const|let|var|function\\*?|class|type|interface|enum)\\s+${name.replace(/\$/g, '\\$')}\\b`,
-    'm',
+    'm'
   ).test(text);
 
 const bad = [];

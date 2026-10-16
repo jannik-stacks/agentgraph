@@ -24,7 +24,7 @@ const key = 'sk-bh-implementor-0123456789abcdef';
 
 /** Runs one session over a sandbox that replays `lines` and then the exit line, recording the command it got. */
 const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError, prices?: string) => {
-  const data = mkdtempSync(join(tmpdir(), 'core-harness-'));
+  const data = mkdtempSync(join(tmpdir(), 'bothub-harness-'));
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
     checkout: () => Effect.die('checkout'),
@@ -59,7 +59,7 @@ const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 
 describe('the session loop', () => {
   it('prices usage the harness reports at $0 from the price table, cached input at its own rate', async () => {
-    const prices = join(mkdtempSync(join(tmpdir(), 'core-prices-')), 'prices.json');
+    const prices = join(mkdtempSync(join(tmpdir(), 'bothub-prices-')), 'prices.json');
     writeFileSync(
       prices,
       JSON.stringify({
@@ -118,7 +118,7 @@ describe('the session loop', () => {
   });
 
   it('resumes in the session home it was given', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'core-home-'));
+    const home = mkdtempSync(join(tmpdir(), 'bothub-home-'));
     const { command, events: got } = await events(
       { ...spec, resume: { id: 'ses_1', home } },
       sample('opencode-run.jsonl')
@@ -289,12 +289,12 @@ describe('pi', () => {
   });
 
   it('never writes through a link the agent left in a resumed home', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'core-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'bothub-outside-'));
     writeFileSync(join(outside, 'victim'), 'keep');
-    const linked = mkdtempSync(join(tmpdir(), 'core-home-'));
+    const linked = mkdtempSync(join(tmpdir(), 'bothub-home-'));
     mkdirSync(join(linked, '.pi', 'agent'), { recursive: true });
     symlinkSync(join(outside, 'victim'), join(linked, '.pi', 'agent', 'models.json'));
-    const dir = mkdtempSync(join(tmpdir(), 'core-home-'));
+    const dir = mkdtempSync(join(tmpdir(), 'bothub-home-'));
     symlinkSync(outside, join(dir, '.pi'));
     for (const home of [linked, dir]) {
       const { exit } = await session({ ...pi, resume: { id: 's', home } }, []);

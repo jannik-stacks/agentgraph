@@ -13,5 +13,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["tests", "core"]
+  "include": ["src", "tests", "bin"]
 }

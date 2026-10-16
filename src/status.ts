@@ -31,7 +31,7 @@ export const needsYou = (
       lines.push(`${run.id} ${run.workflow} #${run.issue} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
       const issue = `https://github.com/${app.repo}/issues/${run.issue}`;
       lines.push(run.reason ? `  Answer at ${issue}, then:` : `  Review the PR linked from ${issue}, then:`);
-      lines.push(`  node core/bin/run.ts --hub ${where.hub} --issue ${run.issue} --data ${where.data}`);
+      lines.push(`  node bin/run.ts --hub ${where.hub} --issue ${run.issue} --data ${where.data}`);
     }
     return lines;
   });

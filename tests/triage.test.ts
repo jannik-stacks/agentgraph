@@ -11,7 +11,7 @@ import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
 import { git, tmp } from './fixtures.ts';
 
-const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', '..', 'examples', 'sandbox')));
+const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));
 
 const dirs: string[] = [];
 afterEach(() => {

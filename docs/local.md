@@ -5,10 +5,10 @@ You need Node 22.18 or later, and Docker for the sandbox. Commands run from the 
 ## The CLI
 
 ```sh
-node core/bin/run.ts check --hub examples/sandbox
-node core/bin/run.ts --hub examples/sandbox --issue 3 --data /tmp/bothub-data
-node core/bin/run.ts --hub examples/sandbox --all --data /tmp/bothub-data
-node core/bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
+node bin/run.ts check --hub examples/sandbox
+node bin/run.ts --hub examples/sandbox --issue 3 --data /tmp/bothub-data
+node bin/run.ts --hub examples/sandbox --all --data /tmp/bothub-data
+node bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 ```
 
 - `check` loads a hub and prints every problem with its file, or `ok`.
@@ -21,7 +21,7 @@ node core/bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 
 Besides the flags, the runner reads `BOTHUB_REPO` (the repo), `BOTHUB_APP_ENV` (the GitHub App env
 file) and `BOTHUB_PROXY_KEYS` (the agents' model keys, see [Sandbox](sandbox.md)). Started without
-`--issue` or `--all`, the runner looks at the repo every `BOTHUB_EVERY` minutes, 5 by default (`code: core/src/main.ts#start`).
+`--issue` or `--all`, the runner looks at the repo every `BOTHUB_EVERY` minutes, 5 by default (`code: src/main.ts#start`).
 
 ## The studio
 
@@ -53,6 +53,6 @@ docker build -t bothub-sandbox:local sandbox
 
 ## Before you commit
 
-`npm run precommit` runs the core hub check, the core format check and the bothub hub's own fast
+`npm run precommit` runs the hub check, the format check and the bothub hub's own fast
 checks over the uncommitted change, against `HEAD` or `BOTHUB_BASE`. `npx tsc --noEmit` and
 `npx vitest run --testTimeout=60000` cover the code.
