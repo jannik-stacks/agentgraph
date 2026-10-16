@@ -216,7 +216,9 @@ const sh = (
   minutes: number,
   network: 'none' | 'proxy' = 'none'
 ) =>
-  Effect.flatMap(Sandbox, s => Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, hub, env, network, minutes })));
+  Effect.flatMap(Sandbox, s =>
+    Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, hub, env, network, minutes }))
+  );
 
 const index = Effect.unsafeMakeSemaphore(1);
 
