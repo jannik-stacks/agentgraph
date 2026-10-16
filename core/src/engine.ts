@@ -472,7 +472,7 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
     const parked = yield* Effect.forEach(
       runs.filter(r => r.status === 'asking' || r.status === 'waiting'),
       r =>
-        Effect.map(Stream.runLast(store.read(r.id)), last => ({
+        Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => !('saved' in t))), last => ({
           run: r,
           at: last._tag === 'Some' ? last.value.at : r.started,
         }))
