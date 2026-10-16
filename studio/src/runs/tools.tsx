@@ -448,7 +448,7 @@ export const ToolBody = ({
     <div
       className={cx(
         'min-w-0 space-y-1.5 text-xs',
-        ok === false && 'rounded border-l-2 border-sky-600 pl-2 dark:border-sky-400'
+        ok === false && 'rounded border border-sky-200 px-2 py-1 dark:border-sky-900'
       )}
     >
       <Body input={record(input)} output={output} ok={ok} />
