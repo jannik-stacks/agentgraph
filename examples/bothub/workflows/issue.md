@@ -31,6 +31,7 @@ steps:
         near-duplicate,
         review-docs,
         docs-stale,
+        doc-pairs,
         docs-tone-provenance,
         docs-tone-repeats,
         scope,
