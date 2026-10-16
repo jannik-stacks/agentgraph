@@ -6,6 +6,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -807,11 +808,14 @@ describe('coworker', () => {
     );
   }, 30_000);
 
-  it('refreshes the news file every minute while a session runs, keeps it on a failed refresh, and never pushes it', async () => {
+  it('refreshes the news file outside the checkout every minute, keeps it on a failed refresh, and never writes through links in the checkout', async () => {
     const where = world();
     const seen: string[] = [];
     const wait = (ms: number) => Effect.promise(() => new Promise(r => setTimeout(r, ms)));
-    const news = (dir: string) => readFileSync(join(dir, '.bothub', 'news.md'), 'utf8');
+    let file = '';
+    const news = (_dir: string) => readFileSync(file, 'utf8');
+    const target = join(where.forge, 'victim.txt');
+    writeFileSync(target, 'keep\n');
     const minute = (dir: string, until: (text: string) => boolean) =>
       Effect.gen(function* () {
         yield* wait(50);
@@ -823,6 +827,11 @@ describe('coworker', () => {
       open: (spec: SessionSpec) =>
         Stream.fromEffect(
           Effect.gen(function* () {
+            file = /(\S+) holds what is new/.exec(spec.prompt)![1]!;
+            expect(file.startsWith(spec.dir)).toBe(false);
+            mkdirSync(join(spec.dir, '.bothub'));
+            symlinkSync(target, join(spec.dir, '.bothub', 'news.md'));
+            symlinkSync(where.forge, join(spec.dir, 'news'));
             seen.push(news(spec.dir));
             say(where, comment(7, 'ana', true, 'also say bye', later(1)));
             yield* minute(spec.dir, text => text.includes('also say bye'));
@@ -831,6 +840,8 @@ describe('coworker', () => {
             yield* minute(spec.dir, () => false);
             renameSync(join(where.forge, '7.away'), join(where.forge, '7.md'));
             writeFileSync(join(spec.dir, 'hello.txt'), 'hello\n');
+            rmSync(join(spec.dir, '.bothub'), { recursive: true });
+            rmSync(join(spec.dir, 'news'));
           })
         ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push)]))),
     });
@@ -846,6 +857,7 @@ describe('coworker', () => {
     ]);
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
     expect(git(where.origin, 'ls-tree', '-r', '--name-only', 'bothub/7')).not.toContain('.bothub');
+    expect(readFileSync(target, 'utf8')).toBe('keep\n');
   }, 30_000);
 
   const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'bothub' } } } } };

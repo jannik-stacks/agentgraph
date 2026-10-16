@@ -1,5 +1,4 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import { context, news, shown, type Issues } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
@@ -157,31 +156,11 @@ const itemsOf = (each: string | { run: string }, work: Checkout, minutes: number
   return Effect.map(sh(script, work.dir, { BOTHUB_BASE: work.base }, minutes), out => lines(out.output));
 };
 
-/** Where a session finds what is new on its issues, refreshed every minute while it runs. */
-const newsFile = '.bothub/news.md';
-
-/** Keeps the news file out of every commit the checkout makes. */
-const excluded = (work: Checkout) =>
-  Effect.tryPromise({
-    try: async () => {
-      const file = join(work.git.GIT_DIR, 'info', 'exclude');
-      const text = await readFile(file, 'utf8').catch(() => '');
-      if (text.split('\n').includes(`/${newsFile}`)) return;
-      await mkdir(dirname(file), { recursive: true });
-      await appendFile(file, `${text && !text.endsWith('\n') ? '\n' : ''}/${newsFile}\n`);
-    },
-    catch: e => new SandboxError({ reason: 'infra', detail: `exclude ${newsFile}: ${(e as Error).message}` }),
-  });
-
-/** Writes the news since `seen` into the checkout; a failed refresh logs and keeps the old file. */
+/** Writes the news since `seen` to the checkout's news file; a failed refresh logs and keeps the old file. */
 const refresh = (w: Workflow, run: Run, work: Checkout, seen: Seen, t?: Issues) =>
   (t ? Effect.succeed(t) : issuesOf(w, run)).pipe(
     Effect.flatMap(t =>
-      Effect.tryPromise(async () => {
-        const file = join(work.dir, newsFile);
-        await mkdir(dirname(file), { recursive: true });
-        await writeFile(file, `${news(t, seen).text || 'Nothing new yet.'}\n`);
-      })
+      Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`))
     ),
     Effect.catchAll(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
@@ -343,7 +322,7 @@ export const attempt = (
         w.branch &&
           `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
-        `People may comment while you work: ${newsFile} holds what is new, refreshed every minute. Read it before you finish.`,
+        `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
         run.feedback,
         [
           'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
@@ -548,7 +527,6 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const work = yield* Effect.flatMap(Sandbox, s =>
         s.checkout(ref, w.branch && expand(w.branch, issue), `refs/bothub/runs/${run.id}`)
       );
-      yield* excluded(work);
       if (hub.setup) {
         const out = yield* sh(hub.setup, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
         if (out.code !== 0)

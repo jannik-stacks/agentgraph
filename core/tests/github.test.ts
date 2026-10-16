@@ -521,7 +521,7 @@ describe('githubForge', () => {
       git('add', '-A');
       git('commit', '-qm', 'base');
       const base = git('rev-parse', 'HEAD');
-      const work: Checkout = { dir, base, git: env };
+      const work: Checkout = { dir, base, git: env, news: join(dir, 'news.md') };
       return { dir, git, base, work };
     };
     const blobSha = (base64: string) => {

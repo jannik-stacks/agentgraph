@@ -115,9 +115,7 @@ const unpushable = (path: string, modes: string[]) =>
     ? `${path} has mode ${modes.join(' to ')}; only regular files can be pushed`
     : /^\.github\//i.test(path) || /(^|\/)\.git(\/|$)/i.test(path)
       ? `${path} is under .github/ or .git/`
-      : path === '.bothub/news.md'
-        ? `${path} is the runner's news file`
-        : undefined;
+      : undefined;
 
 const refPath = (branch: string) =>
   branch.split('/').some(part => !part || part === '.' || part === '..')

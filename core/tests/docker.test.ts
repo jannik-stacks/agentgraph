@@ -166,9 +166,10 @@ describe('docker with a stand-in docker client', () => {
     const mirror = join(data, 'mirror.git');
     const binds = Exit.isSuccess(exit) ? exit.value : [];
     expect(binds.join('\n')).not.toContain('/tmp/x');
-    expect(binds).toHaveLength(3);
+    expect(binds).toHaveLength(4);
     expect(binds[1]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror},dst=.*,readonly$`));
     expect(binds[2]).toMatch(new RegExp(`^type=bind,src=(/private)?${mirror}/worktrees/\\w+,dst=`));
+    expect(binds[3]).toMatch(new RegExp(`^type=bind,src=${data}/news/(\\w+),dst=${data}/news/\\1,readonly$`));
   });
 
   it('refuses to mount a docker socket', async () => {

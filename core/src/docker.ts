@@ -257,10 +257,12 @@ export const docker = (o: {
           const id = randomBytes(6).toString('hex');
           const dir = join(o.data, 'work', id);
           const index = join(o.data, 'index', id);
+          const news = join(o.data, 'news', id);
           const work: Checkout = {
             dir,
             base: rev,
             git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
+            news: join(news, 'news.md'),
           };
           const inWork = (args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
           const save = (name: string) =>
@@ -278,6 +280,7 @@ export const docker = (o: {
               try: async () => {
                 const found = await worktreeAdmin(mirror, dir);
                 await mkdir(dirname(index), { recursive: true });
+                await mkdir(news, { recursive: true });
                 await copyFile(join(found, 'index'), index);
                 return found;
               },
@@ -287,11 +290,12 @@ export const docker = (o: {
             mounts.set(dir, [
               { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
               { src: admin, dst: admin },
+              { src: news, dst: news, readonly: true },
             ]);
           });
           const remove = Effect.promise(() => {
             mounts.delete(dir);
-            return Promise.all([dir, index, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true })));
+            return Promise.all([dir, index, news, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true })));
           });
           yield* Effect.acquireRelease(add, () => Effect.zipRight(keep ? save(keep) : Effect.void, remove));
           return work;

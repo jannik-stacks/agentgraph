@@ -22,12 +22,14 @@ export type Exit = { code: number; output: string };
 
 /**
  * A checkout: the work tree `dir`, the commit `base` it starts from, and `git`, the repo and index host git uses for it.
- * `git` names only paths the host keeps out of the sandbox's reach.
+ * `git` names only paths the host keeps out of the sandbox's reach. `news` is a file outside `dir` that only the host
+ * writes; the sandbox reads it at the same path.
  */
 export type Checkout = {
   dir: string;
   base: string;
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
+  news: string;
 };
 
 export class SandboxError extends Data.TaggedError('SandboxError')<{
@@ -123,6 +125,7 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
     checkout: (ref, branch, keep) => {
       const work = async () => {
         const dir = await mkdtemp(join(tmpdir(), 'bothub-work-'));
+        const news = await mkdtemp(join(tmpdir(), 'bothub-news-'));
         const run = (...args: string[]) => git('git', args, { cwd: dir }).then(r => r.stdout.trim());
         await git('git', ['clone', '-q', repo, dir]);
         const base = await run('rev-parse', '--verify', `origin/${ref}`).catch(() => run('rev-parse', '--verify', ref));
@@ -136,22 +139,31 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
         const from = kept ? await run('rev-parse', '--verify', `${kept}^`) : remote || base;
         await run('checkout', '-q', ...(branch ? ['-B', branch] : ['--detach']), from);
         if (kept) await run('read-tree', '-u', '--reset', kept);
-        return { dir, base, run, from, kept };
+        return { dir, base, run, from, kept, news };
       };
       return Effect.acquireRelease(
         Effect.tryPromise({
           try: work,
           catch: e => new SandboxError({ reason: 'infra', detail: `checkout ${ref}: ${(e as Error).message}` }),
         }),
-        ({ dir, run, from, kept }) =>
+        ({ dir, run, from, kept, news }) =>
           Effect.tryPromise(async () => {
             if (!keep) return;
             await run('add', '-A');
             const parents = ['-p', from, ...(kept ? ['-p', kept] : [])];
             const commit = await run(...ident, 'commit-tree', await run('write-tree'), ...parents, '-m', keep);
             await run('push', '-q', 'origin', `+${commit}:${keep}`);
-          }).pipe(Effect.ignoreLogged, Effect.zipRight(Effect.promise(() => rm(dir, { recursive: true, force: true }))))
-      ).pipe(Effect.map(({ dir, base }) => ({ dir, base, git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir } })));
+          }).pipe(Effect.ignoreLogged,
+            Effect.zipRight(Effect.promise(() => Promise.all([dir, news].map(p => rm(p, { recursive: true, force: true })))))
+          )
+      ).pipe(
+        Effect.map(({ dir, base, news }) => ({
+          dir,
+          base,
+          git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+          news: join(news, 'news.md'),
+        }))
+      );
     },
     exec: command =>
       Effect.async<Exit, SandboxError>(resume => {
