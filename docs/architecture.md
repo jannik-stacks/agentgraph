@@ -10,23 +10,26 @@ The engine means the runner's own code in `src`.
       ▲                          │
       │ writes, with the App     │ events, read through the App
       │                          ▼
-┌─ host ──────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────┐
+│ host                                                            │
 │  runner process = the engine          code: src/main.ts#start   │
 │    looks at the repo, begins and drives runs                    │
 │    pushes and opens pull requests through the Git API           │
 │         │                                 │                     │
 │         │ docker run --rm                 │ reads and writes    │
 │         ▼                                 ▼                     │
-│  ┌─ sandbox ────────────────┐  ┌─ data dir ──────────────────┐  │
+│  ┌──────────────────────────┐  ┌─────────────────────────────┐  │
+│  │ sandbox                  │  │ data dir                    │  │
 │  │ one harness session      │  │ <run id>/run.json           │  │
 │  │ /work: git worktree      │  │ <run id>/trace.jsonl        │  │
 │  │ no GitHub token          │  │ mirror.git, work/, homes/   │  │
 │  └────────────┬─────────────┘  │ news/<id>/news.md           │  │
 │               │ model calls    └──────────────┬──────────────┘  │
 │               ▼                               │                 │
-│  ┌─ LiteLLM proxy ──────────┐                 ▼                 │
-│  │ aliases, one key per     │  studio reads the hub,            │
-│  │ agent, spend logs        │  run.json and trace               │
+│  ┌──────────────────────────┐                 ▼                 │
+│  │ LiteLLM proxy            │  studio reads the hub,            │
+│  │ aliases, one key per     │  run.json and trace               │
+│  │ agent, spend logs        │                                   │
 │  └────────────┬─────────────┘                                   │
 └───────────────┼─────────────────────────────────────────────────┘
                 ▼
