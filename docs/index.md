@@ -27,7 +27,8 @@ hub/
 ## Where to go next
 
 - [Vocabulary](vocabulary.md)
-- [The loop](loop.md)
+- [The loop](loop.md): triggers, steps, checks, tries, back and rounds, waiting
+- [Triage](triage.md): sizing, splitting, stacking and ordering issues
 - [Proposals](proposals.md)
 - [Runs](runs.md)
 - [Sandbox](sandbox.md)
