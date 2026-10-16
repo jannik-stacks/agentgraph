@@ -67,6 +67,8 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
 const kindOf = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
 
 const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
+/** Where arrows end: a few pixels short of the node, so the head never touches its border. */
+const arrival = { left: -5 };
 
 /** The run drawn over one step: how often it came here, and where the run stands when it stands here. */
 type Overlay = { visits: number; status?: Run['status'] | undefined; reason?: string | undefined };
@@ -141,7 +143,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
             : 'shadow-xs'
       )}
     >
-      <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
+      <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} style={arrival} />
       <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
       <Handle
         id="out"
@@ -157,7 +159,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
         position={Position.Top}
         isConnectable={false}
         className={hidden}
-        style={{ left: `${backIn * 100}%` }}
+        style={{ left: `${backIn * 100}%`, top: -5 }}
       />
       <div className="flex min-w-0 items-center gap-1.5">
         <Glyph name={kind === 'human' ? 'person' : kind} className="size-3.5 text-zinc-500" />
@@ -268,7 +270,7 @@ export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>
       reached ? accent.text : 'text-zinc-500'
     )}
   >
-    <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
+    <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} style={arrival} />
     <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
     {done ? (
       <span className="flex size-4 shrink-0 items-center justify-center rounded-full border-[1.5px] border-current">
