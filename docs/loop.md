@@ -134,7 +134,7 @@ A session starts with the agent's body in its system prompt. Claude Code and pi 
 
 The prompt includes the step's skill, the workflow body, the issue and its comments, the pull request on the run's branch with its reviews, the branch to work on and where pull requests go, the `until` sentence, any feedback, and the shape of every proposal the agent may make (`code: src/context.ts#context`).
 
-While the session works, the engine writes what is new on the issue and its pull request to a news file every minute. An agent with the `read` tool may read that file outside the checkout, and only its prompt tells it to read the file before it finishes. A resumed session gets only the feedback and what is new (`code: src/context.ts#news`).
+While the session works, the engine writes what is new on the issue and its pull request to a news file every minute. An agent with the `read` tool may read that file outside the checkout, and its prompt tells it to read the file before it finishes. An agent without `read` is not told about the file. A resumed session gets only the feedback and what is new (`code: src/context.ts#news`).
 
 The agent ends its reply with a fenced `bothub` block of proposals. See [Proposals](proposals.md).
 
