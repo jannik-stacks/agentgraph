@@ -249,7 +249,8 @@ export const attempt = (
         w.body,
         `## #${thread.number} ${thread.title}\n\n${thread.body}`,
         ...thread.comments.map(c => `@${c.author}: ${c.body}`),
-        w.branch && `Work on the branch ${expand(w.branch, thread)}.`,
+        w.branch &&
+          `Work on the branch ${expand(w.branch, thread)}; pull requests go into ${thread.pull?.into ?? expand(w.into ?? 'main', thread)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
         run.carry,
         [
