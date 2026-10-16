@@ -87,7 +87,7 @@ describe('loadHub', () => {
     expect(found).toEqual(
       expect.arrayContaining([
         'hub.yaml: issues is gone; threads come from the forge',
-        'hub.yaml: deps is gone; remove it',
+        'hub.yaml: deps is gone; name the install command as setup',
         'bots/implementor.md: skills is gone; a step names its skill',
         'bots/implementor.md: returns: merge-request is now pull',
         'bots/implementor.md: returns: note is gone; memory is docs in the repo, written by a push',

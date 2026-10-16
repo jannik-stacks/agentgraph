@@ -46,6 +46,8 @@ export type Hub = {
   checks: Record<string, Doc<Check>>;
   workflows: Record<string, Workflow>;
   limits: Limits;
+  /** A shell script each checkout runs once, with network, before the first step. */
+  setup?: string;
 };
 
 export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {}
@@ -54,6 +56,7 @@ const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(sc
 
 const HubFile = Schema.Struct({
   repo: exact(Schema.String),
+  setup: exact(Schema.String),
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
@@ -75,7 +78,7 @@ const gone = {
     issues: 'threads come from the forge',
     merge: 'a workflow step merges or waits for a human',
     'merge-request': 'the pull proposal carries the body',
-    deps: '',
+    deps: 'name the install command as setup',
     sandbox: '',
     loads: '',
     context: rest,
@@ -268,5 +271,11 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
     for (const file of [{ path: 'hub.yaml', text: read.hubText ?? '' }, ...Object.values(read.groups).flat()]) {
       sha.update(`${file.path}\0${file.text}\0`);
     }
-    return { repo: hub.repo ?? '', sha: sha.digest('hex'), limits: hub.limits, ...parts };
+    return {
+      repo: hub.repo ?? '',
+      sha: sha.digest('hex'),
+      limits: hub.limits,
+      ...(hub.setup !== undefined && { setup: hub.setup }),
+      ...parts,
+    };
   });

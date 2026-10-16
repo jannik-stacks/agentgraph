@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { drive, sweep, tick } from '../src/engine.ts';
 import { start as main } from '../src/main.ts';
 import { fileForge, Forge, type Message, type Proposal } from '../src/forge.ts';
-import { host } from '../src/sandbox.ts';
+import { host, Sandbox, type Command } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import { scripted, Session, type AgentEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
@@ -81,17 +81,23 @@ const judged: AgentEvent[] = [
   { type: 'text', text: 'PASS, no claims' },
 ];
 
-/** The file doubles, with every session spec recorded. */
+/** The file doubles, with every session spec and every sandbox command recorded, both also in `order`. */
 const services = (where: ReturnType<typeof world>, turns: AgentEvent[][]) => {
   const specs: SessionSpec[] = [];
+  const commands: Command[] = [];
+  const order: (SessionSpec | Command)[] = [];
   const recording = Layer.effect(
     Session,
-    Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), s.open(spec)) }))
+    Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), order.push(spec), s.open(spec)) }))
   ).pipe(Layer.provide(scripted(turns)));
-  const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), recording);
-  const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Session | import('../src/sandbox.ts').Sandbox>) =>
+  const sandbox = Layer.effect(
+    Sandbox,
+    Effect.map(Sandbox, s => ({ ...s, exec: (c: Command) => (commands.push(c), order.push(c), s.exec(c)) }))
+  ).pipe(Layer.provide(host(where.origin)));
+  const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, recording);
+  const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Session | Sandbox>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)));
-  return { specs, run };
+  return { specs, commands, order, run };
 };
 
 const traceOf = (data: string, id: string) =>
@@ -226,6 +232,43 @@ describe('drive', () => {
     expect(stops).toContainEqual({ kind: 'stop', why: 'SessionStop: no scripted session left' });
     const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions).toEqual([{ resumed: false, ended: 'provider', usd: 0 }]);
+  }, 30_000);
+});
+
+describe('setup', () => {
+  const stopping = (): AgentEvent[][] => [
+    [start('t1'), reply({ kind: 'reply', body: 'Brief' })],
+    [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
+  ];
+
+  it('runs once per checkout with network before the first step', async () => {
+    const where = world();
+    const { order, commands, run } = services(where, stopping());
+    await run(drive(w, fresh(), { ...hub, setup: 'test -e README.md' }));
+    const setups = commands.filter(c => c.args.includes('test -e README.md'));
+    expect(setups).toHaveLength(1);
+    expect(order[0]).toBe(setups[0]);
+    expect(setups[0]).toMatchObject({ cmd: 'sh', network: 'proxy' });
+    expect(commands.length).toBeGreaterThan(1);
+    expect(commands.slice(1).every(c => c.network === 'none')).toBe(true);
+  }, 30_000);
+
+  it('stops the run as infra with the output when setup fails, before any step', async () => {
+    const where = world();
+    const { specs, run } = services(where, []);
+    const stopped = await run(drive(w, fresh(), { ...hub, setup: 'echo registry unreachable; exit 3' }));
+    expect(stopped).toMatchObject({ step: 'triage', status: 'stopped', tries: 0 });
+    expect(specs).toHaveLength(0);
+    const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
+    expect(stops).toContainEqual({ kind: 'stop', why: 'SandboxError: setup exited 3: registry unreachable' });
+  }, 30_000);
+
+  it('runs nothing with network when the hub has no setup', async () => {
+    const where = world();
+    const { commands, run } = services(where, stopping());
+    await run(drive(w, fresh(), hub));
+    expect(commands.length).toBeGreaterThan(0);
+    expect(commands.some(c => c.network === 'proxy')).toBe(false);
   }, 30_000);
 });
 

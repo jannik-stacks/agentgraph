@@ -2,7 +2,7 @@ import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
 import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
 import type { Hub } from './hub.ts';
-import { Sandbox, type SandboxError, type Work } from './sandbox.ts';
+import { Sandbox, SandboxError, type Work } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, type SessionSpec, type SessionStop } from './session.ts';
 import { Store, type StoreError, type Trace } from './store.ts';
@@ -89,10 +89,14 @@ const squeeze = (text: string, max = 1500) =>
 const expand = (template: string, t: Thread) =>
   template.replaceAll('{issue}', String(t.number)).replaceAll('{parent}', String(t.parent ?? ''));
 
-const sh = (script: string, dir: string, env: Record<string, string>, minutes: number) =>
-  Effect.flatMap(Sandbox, s =>
-    Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, env, network: 'none', minutes }))
-  );
+const sh = (
+  script: string,
+  dir: string,
+  env: Record<string, string>,
+  minutes: number,
+  network: 'none' | 'proxy' = 'none'
+) =>
+  Effect.flatMap(Sandbox, s => Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, env, network, minutes })));
 
 const diffOf = (work: Work, minutes: number) =>
   Effect.map(sh(`git add -N . && git diff ${work.base}`, work.dir, {}, minutes), out => out.output);
@@ -366,7 +370,8 @@ export const land = (run: Run, proposals: Proposal[], work?: Work): Effect.Effec
   );
 
 /**
- * attempt, transition and persist until the run is no longer running. An infra failure stops the run with its reason.
+ * Runs the hub's setup in the checkout, then attempt, transition and persist while the run is running. An infra
+ * failure, a failed setup included, stops the run with its reason.
  * The worktree's files are kept under `refs/bothub/runs/<run id>`, so a parked run picks up where it left off.
  */
 export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
@@ -402,6 +407,14 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const work = yield* Effect.flatMap(Sandbox, s =>
         s.checkout(ref, w.branch && expand(w.branch, thread), `refs/bothub/runs/${run.id}`)
       );
+      if (hub.setup) {
+        const out = yield* sh(hub.setup, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
+        if (out.code !== 0)
+          return yield* new SandboxError({
+            reason: 'infra',
+            detail: `setup exited ${out.code}: ${squeeze(out.output)}`,
+          });
+      }
       while (current.status === 'running') {
         const tried = yield* attempt(w, current, hub, work);
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
