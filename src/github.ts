@@ -739,8 +739,25 @@ export const githubForge = (
           }));
         case 'pull_request':
           return Effect.gen(function* () {
+            type Made = { number: number; html_url: string };
             const body = { title: p.title, head: p.branch, base: p.base, body: p.body };
-            const made = yield* gh<{ number: number; html_url: string }>('POST', `${repo}/pulls`, body, 'pull_request');
+            const owner = app.repo.split('/')[0];
+            const made = yield* gh<Made>('POST', `${repo}/pulls`, body, 'pull_request').pipe(
+              Effect.catchIf(
+                e => e.status === 422,
+                e =>
+                  Effect.flatMap(gh<Made[]>('GET', `${repo}/pulls?state=open&head=${owner}:${p.branch}`), ([open]) =>
+                    open
+                      ? gh<Made>(
+                          'PATCH',
+                          `${repo}/pulls/${open.number}`,
+                          { title: p.title, body: p.body },
+                          'pull_request'
+                        )
+                      : Effect.fail(e)
+                  )
+              )
+            );
             yield* stack(made.number, p.base).pipe(
               Effect.catchAll(e => Effect.logWarning(`stack for #${made.number}`, e))
             );

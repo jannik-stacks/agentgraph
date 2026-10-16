@@ -542,6 +542,18 @@ describe('githubForge', () => {
       expect(stackCalls(f).at(-1)).toEqual(['POST', '/repos/o/r/stacks/14/add', { pull_requests: [12] }]);
     });
 
+    it('updates the open pull request of a branch that already has one', async () => {
+      const f = fake({
+        ...chained,
+        'POST /repos/o/r/pulls': () => ({ status: 422, body: { message: 'A pull request already exists' } }),
+        'GET /repos/o/r/pulls?state=open&head=o:bothub/12': [{ number: 12 }],
+        'PATCH /repos/o/r/pulls/12': { number: 12, html_url: 'https://github.com/o/r/pull/12' },
+      });
+      expect(await open(f)).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/12' });
+      const patch = f.calls.find(c => c.method === 'PATCH')!;
+      expect(patch.body).toEqual({ title: 'T', body: 'B' });
+    });
+
     it('keeps the plain chain when the repo has no stacks', async () => {
       const f = fake(chained);
       expect(await open(f)).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/12' });
