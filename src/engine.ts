@@ -444,7 +444,7 @@ const attempt = (
       const reads = agent.tools.includes('read');
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       const prompt = [
-        step.does.skill && hub.skills[step.does.skill]?.body,
+        ...[step.does.skill, ...(hub.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && hub.skills[s]?.body),
         w.body,
         context(t),
         w.branch &&

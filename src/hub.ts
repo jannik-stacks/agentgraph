@@ -40,7 +40,7 @@ export type Hub = {
   repo: string;
   sha: string;
   agents: Record<string, Doc<Agent>>;
-  skills: Record<string, Doc<{ description?: string }>>;
+  skills: Record<string, Doc<SkillFile>>;
   checks: Record<string, Doc<Check>>;
   workflows: Record<string, Workflow>;
   limits: Limits;
@@ -87,7 +87,12 @@ export const Check = Schema.Struct({
 });
 export type Check = typeof Check.Type;
 
-const SkillFile = Schema.Struct({ description: exact(Schema.String) });
+/** A skill file's frontmatter; `uses` names the skills whose bodies follow its own in the prompt. */
+const SkillFile = Schema.Struct({
+  description: exact(Schema.String),
+  uses: exact(Schema.mutable(Schema.Array(Schema.String))),
+});
+type SkillFile = typeof SkillFile.Type;
 
 const rest = 'a step starts a fresh session and a retry resumes it';
 
@@ -242,13 +247,18 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
     }
     return decode(Agent, kept, say);
   });
-  const skills = docs(groups.skills, (data, say) =>
-    decode(
+  const skills = docs(groups.skills, (data, say) => {
+    const { description, uses } = isRecord(data) ? data : {};
+    return decode(
       SkillFile,
-      isRecord(data) ? (data.description === undefined ? {} : { description: data.description }) : data,
+      isRecord(data)
+        ? { ...(description !== undefined && { description }), ...(uses !== undefined && { uses }) }
+        : data,
       say
-    )
-  );
+    );
+  });
+  for (const skill of Object.values(skills))
+    for (const name of skill.uses ?? []) if (!(name in skills)) sayer(skill.path)(`uses: unknown skill ${name}`);
   const checks = docs(groups.checks, (data, say): Check | undefined => {
     const check = decode(Check, strip(data, gone.check, say), say);
     if (!check) return;

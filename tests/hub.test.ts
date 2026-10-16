@@ -147,6 +147,16 @@ describe('loadHub', () => {
     expect(found).toContain('workflows/w.md: steps.x.checks: unknown check nope');
   });
 
+  it('fails on a skill that uses an unknown skill', async () => {
+    const dir = hubDir({
+      'agents/a.md': '---\nharness: opencode\n---\n',
+      'skills/x.md': '---\nuses: [rules, ghost]\n---\nDo x.\n',
+      'skills/rules.md': 'Keep it small.\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
+    });
+    expect(await problems(dir)).toEqual(['skills/x.md: uses: unknown skill ghost']);
+  });
+
   it('reads the milestone and the trust list, unset by default', async () => {
     const set = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'milestone: v1\ntrust: [ana, bob]\n' })));
     expect(set.milestone).toBe('v1');

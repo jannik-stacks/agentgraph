@@ -29,7 +29,7 @@ that posts comments and opens pull requests.
 
 Model, tool, prompt, skill and session keep their usual meanings. Two need a line:
 
-- A skill is a Markdown instruction file: `skills/<name>.md` or `skills/<name>/SKILL.md`. Agent Skills uses the folder form. Its frontmatter may hold a `description` and nothing else. A step hands one to its agent.
+- A skill is a Markdown instruction file: `skills/<name>.md` or `skills/<name>/SKILL.md`. Agent Skills uses the folder form. Its frontmatter may hold a `description` and `uses`, the skills whose bodies follow its own. A step hands one to its agent.
 - A session is one harness conversation with its history. A try after a failed check resumes it.
 
 ## GitHub words

@@ -295,6 +295,15 @@ describe('drive', () => {
     expect(specs[1]!.prompt).toContain(seen.trim());
   });
 
+  it('prompts a step with its skill, then the skills it uses, in order', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
+    const rules = { name: 'rules', path: 'skills/rules.md', body: 'Keep it small.' };
+    const uses = { ...hub.skills.triage!, uses: ['rules', 'implement'] };
+    await run(drive(w, fresh(), { ...hub, skills: { ...hub.skills, rules, triage: uses } }));
+    expect(specs[0]!.prompt).toContain('You are triage.\n\nKeep it small.\n\nYou are implement.');
+  });
+
   it('stops the run once its summed session cost passes usd-per-run', async () => {
     const where = world();
     const { specs, run } = services(where, [
