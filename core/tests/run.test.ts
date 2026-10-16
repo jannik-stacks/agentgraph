@@ -147,9 +147,12 @@ describe('drive', () => {
     const forge = await run(Effect.flatMap(Forge, f => f.thread(7)));
     expect(bodies(forge)).toEqual([
       '/bothub',
+      'Waiting for an answer at review:\n\nstill not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $1.25.\n\nPull request: ' +
+        join(where.forge, '8.md'),
       'Brief: add hello.txt',
       'still not right\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
     ]);
+    expect(forge.labels).toEqual(['bothub:waiting']);
     const pr = await run(Effect.flatMap(Forge, f => f.thread(8)));
     expect(pr.pull).toMatchObject({ branch: 'bothub/7', into: 'main' });
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello world');
@@ -244,7 +247,8 @@ describe('drive', () => {
     expect(specs).toHaveLength(2);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'bothub/7')).toThrow();
     const thread = await run(Effect.flatMap(Forge, f => f.thread(7)));
-    expect(bodies(thread).at(-1)).toBe(stopped.reason);
+    expect(bodies(thread)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\nCost so far: $0.00.`);
+    expect(thread.labels).toEqual(['bothub:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);
@@ -696,6 +700,7 @@ describe('coworker', () => {
     const [stopped] = await run(tick(assigned));
     expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the bothub label was removed' });
     expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('eyes #7\n');
+    expect((await run(Effect.flatMap(Forge, f => f.thread(7)))).labels).toEqual(['bothub:stopped']);
   }, 30_000);
 
   it('begins on one issue only where the latest bothub label came from a maintainer', async () => {
@@ -707,5 +712,29 @@ describe('coworker', () => {
     expect(await run(tick(assigned, 7, true))).toEqual([]);
     say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:04.000Z'));
     expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['asking']);
+  }, 30_000);
+
+  it('keeps one status comment through two tries and an ask, with the question as its own comment', async () => {
+    const where = world();
+    const { run } = services(where, [
+      [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
+      [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
+    ]);
+    const asked = await run(drive(flow, begun(), small));
+    expect(asked).toMatchObject({ status: 'asking', tries: 1, comment: '7-3' });
+    const thread = await run(Effect.flatMap(Forge, f => f.thread(7)));
+    expect(thread.labels).toEqual(['bothub:waiting']);
+    expect(bodies(thread)).toEqual([
+      '/bothub',
+      'Waiting for an answer at implement:\n\nHello or hi?\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $0.00.',
+      'Hello or hi?\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.',
+    ]);
+    const edits = traceOf(where.data, 'run-7').flatMap(t =>
+      'applied' in t && t.applied.proposal.kind === 'reply' && t.applied.proposal.edit ? [t.applied.proposal.body] : []
+    );
+    expect(edits).toEqual([
+      'Working on implement, try 2 of 2.\n\nCost so far: $0.00.',
+      expect.stringMatching(/^Waiting for an answer/),
+    ]);
   }, 30_000);
 });

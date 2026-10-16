@@ -52,6 +52,7 @@ export type Run = {
   sessions: Record<string, { id: string; home: string; seen?: Seen }>;
   carry?: string;
   reason?: string;
+  comment?: string;
   started: string;
   ended?: string;
   usd: number;

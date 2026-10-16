@@ -565,15 +565,22 @@ export const githubForge = (
         return changes.map(({ path, mode, sha }) => ({ path, mode, type: 'blob' as const, sha }));
       });
 
-    const comment = (number: number, body: string) =>
-      Effect.map(gh<{ html_url: string }>('POST', `${repo}/issues/${number}/comments`, { body }, 'comment'), c => ({
-        url: c.html_url,
-      }));
+    const comment = (number: number, body: string, edit?: string) =>
+      Effect.map(
+        edit === undefined
+          ? gh<{ id: number; html_url: string }>('POST', `${repo}/issues/${number}/comments`, { body }, 'comment')
+          : gh<{ id: number; html_url: string }>('PATCH', `${repo}/issues/comments/${edit}`, { body }, 'comment'),
+        c => ({ url: c.html_url, id: String(c.id) })
+      );
 
-    const act = (number: number, p: Proposal, work?: Work): Effect.Effect<{ url?: string }, ForgeError> => {
+    const act = (
+      number: number,
+      p: Proposal,
+      work?: Work
+    ): Effect.Effect<{ url?: string; id?: string }, ForgeError> => {
       switch (p.kind) {
         case 'reply':
-          return comment(number, p.body);
+          return comment(number, p.body, p.edit);
         case 'ask':
           return comment(number, p.question);
         case 'react': {

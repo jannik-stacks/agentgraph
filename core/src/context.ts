@@ -1,5 +1,5 @@
-import type { Message, Thread } from './forge.ts';
-import type { Seen } from './workflow.ts';
+import type { Message, Proposal, Thread } from './forge.ts';
+import type { Run, Seen, Workflow } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type Threads = { issue: Thread & { messages: Message[] }; pull?: Thread & { messages: Message[] } };
@@ -70,4 +70,52 @@ export function news(t: Threads, seen: Seen): { text: string; seen: Seen } {
     text: lines.length > 0 ? `## New since you last looked\n\n${lines.join('\n\n')}` : '',
     seen: { at, ...(pull?.base !== undefined && { base: pull.base }) },
   };
+}
+
+const statuses: Record<Run['status'], string> = {
+  running: 'bothub:working',
+  asking: 'bothub:waiting',
+  waiting: 'bothub:waiting',
+  done: 'bothub:done',
+  stopped: 'bothub:stopped',
+};
+const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
+
+/** The labels and status comment for a run, as proposals; only what differs from the thread now. */
+export function shown(run: Run, w: Workflow, t: Threads): Proposal[] {
+  const label = statuses[run.status];
+  const labels = t.issue.labels;
+  const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
+  const pull = t.pull ?? (t.issue.pull ? t.issue : undefined);
+  const checks = new Map((pull?.messages ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
+  const failing = [...checks].filter(([, c]) => failures.has(c)).map(([name]) => name);
+  const round = Math.max(0, ...Object.values(run.rounds));
+  const tries = w.steps.find(s => s.name === run.step)?.tries ?? 1;
+  const body = [
+    {
+      running: `Working on ${run.step}, try ${run.tries + 1} of ${tries}${round ? `, round ${round + 1}` : ''}.`,
+      asking: `Waiting for an answer at ${run.step}:\n\n${run.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`,
+      waiting: `Waiting for a human at ${run.step}.`,
+      done: 'Done.',
+      stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,
+    }[run.status],
+    `Cost so far: $${run.usd.toFixed(2)}.`,
+    pull && `Pull request: ${pull.url}`,
+    failing.length > 0 && `Failing checks: ${failing.join(', ')}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  const now = run.comment && t.issue.messages.find(m => m.comment?.id === run.comment)?.comment?.body;
+  return [
+    ...(labels.includes(label) && stale.length === 0
+      ? []
+      : [
+          {
+            kind: 'label' as const,
+            ...(!labels.includes(label) && { add: [label] }),
+            ...(stale.length > 0 && { remove: stale }),
+          },
+        ]),
+    ...(now === body ? [] : [{ kind: 'reply' as const, body, ...(run.comment && { edit: run.comment }) }]),
+  ];
 }

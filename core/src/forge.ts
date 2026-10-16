@@ -45,7 +45,7 @@ export type Message = {
 
 /** What a run may change on the repo, and the two proposals that steer the run. `react` is the runner's own. */
 export type Proposal =
-  | { kind: 'reply'; body: string }
+  | { kind: 'reply'; body: string; edit?: string }
   | { kind: 'react'; comment?: string; review?: boolean }
   | { kind: 'label'; add?: string[]; remove?: string[] }
   | { kind: 'push'; branch: string; message: string }
@@ -55,7 +55,8 @@ export type Proposal =
   | { kind: 'ask'; question: string }
   | { kind: 'back'; why: string };
 
-export type Applied = { proposal: Proposal; ok: boolean; url?: string; reason?: string };
+/** How a proposal landed; `id` is the comment a reply posted or edited. */
+export type Applied = { proposal: Proposal; ok: boolean; url?: string; id?: string; reason?: string };
 
 export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string }> {}
 
@@ -163,9 +164,17 @@ export const fileForge = (dir: string): Layer.Layer<Forge> =>
         const t = await must(n);
         switch (p.kind) {
           case 'reply': {
-            const id = `${n}-${(await messages(n)).length + 1}`;
+            const all = await messages(n);
+            if (p.edit !== undefined) {
+              const at = all.findIndex(m => m.comment?.id === p.edit && m.actor === me);
+              if (at < 0) return no(`no comment ${p.edit} of ours on #${n}`);
+              all[at] = { ...all[at]!, comment: { ...all[at]!.comment!, body: p.body } };
+              await writeFile(timeline(n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
+              return { proposal: p, ok: true, id: p.edit, url: `${md(n)}#${p.edit}` };
+            }
+            const id = `${n}-${all.length + 1}`;
             await say({ thread: n, kind: 'comment', comment: { id, author: me, body: p.body, at: now() } });
-            return { proposal: p, ok: true, url: `${md(n)}#${id}` };
+            return { proposal: p, ok: true, id, url: `${md(n)}#${id}` };
           }
           case 'label': {
             const added = (p.add ?? []).filter(l => !t.labels.includes(l));

@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
 import type { Check, Verdict } from './check.ts';
-import { context, news, type Threads } from './context.ts';
+import { context, news, shown, type Threads } from './context.ts';
 import { Forge, type Applied, type ForgeError, type Message, type Proposal, type Thread } from './forge.ts';
 import type { Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Work } from './sandbox.ts';
@@ -444,6 +444,21 @@ export const gate = (
     return { outcome, usd };
   });
 
+/** Lands the run's status labels and status comment; the run comes back holding its status comment's id. */
+const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Store> =>
+  Effect.gen(function* () {
+    const forge = yield* Forge;
+    const t = yield* threadsOf(w, run);
+    const applied = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.thread, p));
+    yield* Effect.flatMap(Store, s =>
+      s.trace(run.id, ...applied.map(a => ({ at: now(), step: run.step, applied: a })))
+    );
+    const reply = applied.find(a => a.proposal.kind === 'reply');
+    if (!reply) return run;
+    const { comment: _gone, ...rest } = run;
+    return reply.ok && reply.id ? { ...rest, comment: reply.id } : rest;
+  }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
+
 /** Applies the accepted proposals after a pass, pushes first. Replies go to thread `to` when given. */
 export const land = (
   run: Run,
@@ -476,20 +491,18 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           outcome,
           run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
         });
-        if ((next.status === 'asking' || next.status === 'stopped') && next.reason) {
-          const body =
-            next.status === 'asking'
-              ? `${next.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`
-              : next.reason;
+        if (next.status === 'asking' && next.reason) {
+          const body = `${next.reason}\n\nAnswer with \`/bothub <your answer>\`, or \`/bothub stop\` to end the run.`;
           const said = yield* Effect.either(land(next, [{ kind: 'reply', body }]));
           if (Either.isRight(said))
             yield* store.trace(next.id, ...said.right.map(applied => ({ at: now(), step: next.step, applied })));
         }
-        yield* store.put(next);
-        current = next;
+        current = yield* show(w, next);
+        yield* store.put(current);
       });
     const walk = Effect.gen(function* () {
       yield* store.lock(run.id);
+      current = yield* show(w, current);
       yield* store.put(current);
       const thread = yield* forge.thread(run.thread);
       const ref = thread.pull?.branch ?? expand(w.into ?? 'main', thread);
@@ -585,7 +598,8 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       used.add(m);
       const outcome = reenter(w, run, m)!;
       if (m.kind === 'comment') yield* eyes(run, m);
-      const next = transition(w, run, outcome);
+      const moved = transition(w, run, outcome);
+      const next = moved.status === 'running' ? moved : yield* show(w, moved);
       yield* store.trace(run.id, {
         at: now(),
         step: run.step,
@@ -612,7 +626,8 @@ export const tick = (hub: Hub, only?: number, fresh = false): Effect.Effect<Run[
       );
     const start = (w: Workflow, thread: number, at: string, m?: Message) =>
       Effect.gen(function* () {
-        const run = begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at });
+        const begun = begin(w, { id: `${w.name}-${thread}-${at.replace(/\D/g, '')}`, thread, started: at });
+        const run = begun.status === 'running' ? begun : yield* show(w, begun);
         busy.add(`${w.name}#${thread}`);
         yield* store.put(run);
         if (m) yield* eyes(run, m);
