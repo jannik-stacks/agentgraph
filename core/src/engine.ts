@@ -544,6 +544,10 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       while (current.status === 'running') {
         const tried = yield* attempt(w, current, hub, work);
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
+        if (current.status === 'running' && current.usd > hub.limits.usdPerRun) {
+          const why = `Spent $${current.usd.toFixed(2)}, over the hub's usd-per-run of ${hub.limits.usdPerRun}.`;
+          yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
+        }
       }
     });
     const halt = (e: SandboxError | SessionStop | ForgeError) => {

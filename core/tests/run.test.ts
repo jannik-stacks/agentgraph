@@ -252,6 +252,18 @@ describe('drive', () => {
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);
 
+  it('stops the run once its summed session cost passes usd-per-run', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('t1'), { type: 'usage', input: 1, output: 1, usd: 0.5 }, reply({ kind: 'comment', body: 'Brief' })],
+    ]);
+    const capped = { ...hub, limits: { ...hub.limits, usdPerRun: 0.1 } };
+    const stopped = await run(drive(w, fresh(), capped));
+    expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', usd: 0.5 });
+    expect(stopped.reason).toBe("Spent $0.50, over the hub's usd-per-run of 0.1.");
+    expect(specs).toHaveLength(1);
+  }, 30_000);
+
   it('stops the run with the reason when a session cannot run', async () => {
     const where = world();
     const { run } = services(where, []);
