@@ -38,6 +38,7 @@ steps:
         docs-tone-tagline,
         docs-tone-marketing,
         tooltip-text,
+        pr-text,
       ]
   review: { wait: human, back: implement }
 ---

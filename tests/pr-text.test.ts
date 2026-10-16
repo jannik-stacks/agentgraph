@@ -25,7 +25,7 @@ const pull = (body: string): Proposal => ({
   body,
 });
 
-describe.each(['sk', 'sandbox'])('pr-text in %s', hub => {
+describe.each(['bothub', 'sk', 'sandbox'])('pr-text in %s', hub => {
   it('fails one line per hit on the real long body and a loose commit', () => {
     const body =
       'Validation: new regressions failed without the fix. Each touched test file passes individually; npm --prefix kit run typecheck passes; npm --prefix kit test passes all 897 tests in 37 files. No docs generators run.\n\nNothing left open for this issue. Human review and merge required.';
