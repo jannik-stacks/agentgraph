@@ -35,7 +35,7 @@ An agent's `harness` picks the program that runs its session.
 | `pi`       | Tools are all or nothing, so use it for read-only agents      |
 | `claude`   | Claude Code on the model proxy's Anthropic endpoint                         |
 
-Each is a small adapter in `core/src/harnesses.ts` that builds the command and turns the harness's
+Each is a small adapter in `code: core/src/harnesses.ts#harnesses` that builds the command and turns the harness's
 output into the same session events.
 
 ## Models

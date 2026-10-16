@@ -21,7 +21,7 @@ node core/bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 
 Besides the flags, the runner reads `BOTHUB_REPO` (the repo), `BOTHUB_APP_ENV` (the GitHub App env
 file) and `BOTHUB_PROXY_KEYS` (the agents' model keys, see [Sandbox](sandbox.md)). Started without
-`--issue` or `--all`, `core/src/main.ts` looks at the repo every `BOTHUB_EVERY` minutes, 5 by default.
+`--issue` or `--all`, the runner looks at the repo every `BOTHUB_EVERY` minutes, 5 by default (`code: core/src/main.ts#start`).
 
 ## The studio
 
