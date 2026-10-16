@@ -292,7 +292,16 @@ export const attempt = (
     const step = w.steps.find(s => s.name === run.step)!;
     const minutes = hub.limits.minutes;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next });
-    if ('wait' in step.does) return done({ kind: 'ask', question: `${step.name} waits for a human` });
+    if ('wait' in step.does) {
+      const { issue, pull } = yield* threadsOf(w, run);
+      const open = w.branch === undefined || issue.pull !== undefined || pull !== undefined;
+      return done({
+        kind: 'ask',
+        question: open
+          ? `${step.name} waits for a human`
+          : `No pull request is open for branch ${expand(w.branch!, issue)}. Open one, or say what to do.`,
+      });
+    }
 
     const replies: string[] = [];
     let tried = run;
@@ -393,7 +402,10 @@ export const attempt = (
       world.some(p => p.kind === 'reply') && !run.said
         ? pullOf(w, run.thread, yield* Effect.flatMap(Forge, f => f.threads({ state: 'open' })))
         : undefined;
-    const applied = yield* land(tried, world, work, to);
+    const landed = yield* Effect.either(land(tried, world, work, to));
+    if (Either.isLeft(landed))
+      return done({ kind: 'ask', question: `GitHub failed: ${squeeze(landed.left.message, 200)}` }, tried);
+    const applied = landed.right;
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
     const failed = applied.filter(a => !a.ok);
     return done(

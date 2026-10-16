@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { drive, sweep, tick } from '../src/engine.ts';
 import { start as main } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
-import { fileForge, Forge, type Message, type Proposal } from '../src/forge.ts';
+import { fileForge, Forge, ForgeError, type Message, type Proposal } from '../src/forge.ts';
 import { host, Sandbox, type Command } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import { scripted, Session, type AgentEvent, type SessionSpec } from '../src/session.ts';
@@ -456,6 +456,43 @@ describe('tick', () => {
       })
     );
   };
+
+  it('asks instead of waiting for a merge when no pull request is open on the branch', async () => {
+    const where = world();
+    const flow = merging.workflows.issue;
+    const { specs, run } = services(where, []);
+    const start = { ...begin(flow, { id: 'run-7', thread: 7, started: fresh().started }), step: 'merge' };
+    const parked = await run(drive(flow, start, merging));
+    expect(parked).toMatchObject({ step: 'merge', status: 'asking' });
+    expect(parked.reason).toMatch(/^No pull request is open for branch /);
+    expect(specs).toHaveLength(0);
+  }, 30_000);
+
+  it('applies the push, then asks with the error when a reply fails on the forge', async () => {
+    const where = world();
+    const failing = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
+          p.kind === 'reply' && p.body === 'boom'
+            ? Effect.fail(new ForgeError({ status: 403, message: 'forbidden' }))
+            : f.apply(n, p, work),
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const flow = small.workflows.issue!;
+    const layer = Layer.mergeAll(
+      failing,
+      fileStore(where.data),
+      host(where.origin),
+      scripted([[start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'reply', body: 'boom' }, push)]])
+    );
+    const asked = await Effect.runPromise(
+      drive(flow, begin(flow, { id: 'run-7', thread: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+    );
+    expect(asked).toMatchObject({ step: 'implement', status: 'asking', reason: 'GitHub failed: forbidden' });
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+  }, 30_000);
 
   it('wakes a run waiting at merge on a mention in its pull request and resumes the work session there', async () => {
     const where = world();
