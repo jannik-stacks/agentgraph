@@ -1,245 +1,84 @@
 # The loop
 
-A step is done when its checks pass, not when the bot says so.
+A step is done when its checks pass, not when the agent says so.
 
 ```
-trigger → bot runs a skill on a branch → returns → checks → findings go back to the bot → proposals applied
+event → run begins → step: session → checks → feedback to the same session → proposals applied → next step
 ```
 
-A run ends when the bot returns. Then the checks judge it, and a failing check loops back to the
-bot.
+## Workflows and steps
 
-## Checks and tries
-
-A bot step with `checks` runs its bot, then each listed check against the worktree. `runPlanned` starts
-the step, and the loop itself is on [Pipeline and checks](reference/pipeline.md#the-checks-loop). If a gating check
-fails, its findings go back to the same bot as a follow-up message in the same worktree, and the
-bot tries again.
+A workflow is a file in `workflows/`. Its `on:` names the events that start it, and its `steps`
+run in the order written. The body is the description, or the prompt when the workflow has no steps.
 
 ```yaml
+on: { issue_comment: { command: /bothub } }
+branch: bothub/{issue}
 steps:
   implement:
     bot: implementor
-    branch: bothub/{issue}
-    checks: [types, tests, review]
     tries: 3
-    returns: [push, merge-request, reply]
+    checks: [tests]
+  review:
+    bot: reviewer
+    back: implement
+    rounds: 2
+    until: the change does what the issue asks and the tests cover it
+  merge: { wait: human, back: implement }
 ```
 
-The checks run in three stages, each all at once. The gating script checks run first. The gating
-bot and decide checks run after that, only when no `block` script failed, so a broken build never
-pays for a review. Checks in `log` mode run last, and only when no `block` check failed, so they
-judge only the attempt that goes through. A check left out this way is skipped with the reason in
-its findings.
-The bot stage does not wait for slow script checks. Once every script check has passed or run for
-30 seconds, the bot checks, and the `log` checks after them, start beside the script checks still
-running. A fast failure, such as a lint or type error, still stops the attempt before any review
-starts. When a slow script check fails later, the running bot checks are stopped and skipped, so the
-verdicts and what goes back to the bot are the same as when the stages run one after the other;
-only the review work done before the failure is spent.
-A failing script check runs once more on the change's base. When it fails there too and names only
-files the base run names and the change did not touch, it is red on base: it does not gate, costs
-no attempt and never goes back to the bot, and the merge request lists it under Known gaps.
-Verdicts keep the order of the `checks` list, and each records when it started and ended.
+A step is one of three kinds: `bot` names an agent, which gets the step's skill (the step's name
+unless `skill` says otherwise), `run` is a script, and `wait: human` waits for a person. `branch` is
+the branch a run works on, `{issue}` and `{parent}` filled in from the issue.
 
-A bot check judges an item only once it changed. When an earlier check run of the same job on the
-same issue passed the same item for the same check, bot and skill, the item passes again without a
-run, with that run named in its findings. Line numbers and blob ids do not count as a change, so a
-later attempt, or the run that resolves a merge conflict, pays only for the items it changed.
-Script checks always run again.
+## Tries and checks
 
-`tries` counts attempts in all, the first included, and defaults to 3. The count runs per issue across
-runs of the step: a rerun of the same event, such as after a restart, or a human comment before the
-limit goes on from the last attempt. It starts over after work that closed done or handed off, and
-when a human comments after a run that used every attempt. An attempt that ended outside the
-bot's work does not count: out of turns, stalled, a provider or sandbox fault, a fault that
-outlasted its restarts, or stopped by a human. The loop also stops once the attempts
-and checks have spent the bot's `usd-per-run`. When `block` checks still fail after the last one, the run is marked failed, every proposal except `ask` is held back, and bothub adds
-an `ask` that names the failing checks and the run, and quotes each check's findings, cut to a
-readable length. Every attempt is stored
-as its own run, linked to the one before it.
+After an agent's session ends, each check in `checks` runs against the checkout. Script checks run
+first, all at once. Agent checks run after them, and only when no `block` script check failed, so a
+broken build never pays for a review.
 
-A check that could not run is blocked, not failed: its sandbox did not start, it timed out, its
-bot was over budget, or its bot run met a fault outside its work that outlasted its
-[restarts](runs.md#restarts). Nothing goes back to the
-bot for it. The job holds its proposals and asks a human once, even when the check is in `warn`
-mode, in plain words: which checks could not run and why, until when a provider limit lasts, and
-that a `/bothub` comment runs them again. When no other check held the change, that comment runs
-only the checks, on the parked work and without a bot turn; when they pass, the held proposals land
-as the bot wrote them, its merge request text included.
+| Mode    | Effect                                                                  |
+| ------- | ----------------------------------------------------------------------- |
+| `warn`  | Its failure is recorded and never holds the step                        |
+| `block` | Its failure fails the try; its output goes back as feedback             |
+| `stop`  | Its failure ends the run                                                |
 
-## Parked work
+A failed try starts another in the same session, and the prompt carries the feedback: each failing
+check's output, and any proposal the engine refused. `tries` counts the first one. It defaults to 3
+for a step with checks and 1 for one without. When the tries run out, the run waits and a comment
+on the issue says why.
 
-Every run of a job with a `branch` that may `push` parks its work, whatever it closed as: bothub
-commits the whole worktree, untracked files and files outside the job's `paths` included, pushes it
-to a new branch `<branch>-parked-<run id>`, and records that branch on the run as `parked`. Parked
-branches are never moved or deleted, and neither are runs, so every attempt can be read back later.
-Any other worktree bothub removes, such as a check's or one a stopped process left behind, first has
-work no branch holds committed to the local mirror branch `bothub/kept-<run id>`, which is never pushed; a worktree it cannot keep stays on disk.
-The job's own branch and its merge request only get work whose checks settled. A deferred job also
-comments on the issue with the reason, when a budget frees up, and where its work waits.
+A check file is a script (`run`, exit 0 passes and the output is the feedback), an agent (`judge`,
+which must start its reply with `PASS` or `FAIL`), or both: the script runs and its output goes to
+the agent. `max` caps how many items a fan-out may take.
 
-When the last run stopped unfinished, because it asked a question, ran out of attempts, stalled or
-was deferred, for example by its bot's `runs-per-day`, the next run of that job on the same issue
-starts from the latest parked branch, unless the command is `/bothub fresh`. The resumed run's prompt gets a
-`## Resuming` section with what the stopped run asked, or why it stopped and what its last failing
-checks found, and what the human answered: the text of the comment that started the run, and
-comments on the `unsure` issues it opened. The checks measure the change from where the branch forked, so the parked work is checked
-with the rest. A resumed `push` lists the files it changed on top of the parked work. The jobs it
-needs that already closed done on the issue are not run again while the issue reads as it did when
-they ran: their runs are reused, so answering the implementor does not redo triage. Editing the
-issue, or `/bothub all`, runs them again.
+## Back
 
-## Continuing
+`back: implement` on a step sends the run to an earlier step. An agent step with `back` also needs
+`until`, a sentence that says when the step is satisfied. The agent is told to make a `back`
+proposal with a reason while that sentence does not hold, and the reason becomes the feedback of
+the step it goes back to. `rounds` caps how many times, 3 by default. When they run out, the run
+waits with the reason. Going forward into a step starts a fresh session; going back keeps the one
+that step had.
 
-A command comment on an issue whose job already pushed its work, or on the merge request that job
-opened, continues that job. A comment on the merge request is planned as a comment on the issue
-the request was opened for, for that workflow only. A request that is closed or merged, or that no
-bothub run opened, continues nothing, and a bot's comment starts nothing.
+A `wait: human` step with `back` goes back when a human asks for changes, with a `/bothub` comment or a
+review requesting them. A review approval, an `approved` label or a merge passes it.
 
-The worktree starts at the job's branch, and the prompt gets a `## Continuing` section: the
-earlier runs of the job on the issue, the branch and the open merge request, and what the human
-asks, the command's text and every human comment since the last run, a line comment with its file
-and line. The jobs it needs that already closed on the issue are reused.
+## Waiting
 
-The command's first word picks how much runs again:
+A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step.
+The engine posts the question on the issue. A human answers with `/bothub <answer>`, which becomes
+feedback for the same step, or ends the run with `/bothub stop`. Closing the issue ends it too.
+`node core/bin/run.ts status` lists what waits, with the command that continues each run.
 
-| Command         | Branch            | Jobs before it | Checks look at                   |
-| --------------- | ----------------- | -------------- | -------------------------------- |
-| `/bothub`       | kept              | reused         | the whole branch since it forked |
-| `/bothub all`   | kept              | run again      | the whole branch since it forked |
-| `/bothub fresh` | reset to the base | run again      | the whole new change             |
+## The prompt
 
-A fresh run replaces the branch only while it is still at the tip the run started from, so a push
-a human makes meanwhile is refused, not overwritten. The merge request stays open and shows the new
-change. In the dashboard a merge request page has a comment box, with the same choice and line
-comments from the diff gutter, and a blocked run has an answer box; both write the local backend's
-files, and with GitHub they link there.
+A session starts with the agent's body as its system prompt. The prompt is the step's skill, the
+workflow body, the issue and its comments, the branch to work on and where pull requests go, the
+`until` sentence, any feedback, and the shape of every proposal the agent may make. The agent ends
+its reply with a fenced `bothub` block of proposals, see [Proposals](proposals.md).
 
-## Check modes
+## Limits
 
-| Mode    | Effect                                                                                    |
-| ------- | ----------------------------------------------------------------------------------------- |
-| `log`   | Runs and records its verdict, never shown to the bot, never holds the change. The default |
-| `warn`  | A failure goes back with a `block` failure, and never holds the change on its own         |
-| `block` | A failure sends findings back, and fails the run after the last try                       |
-
-A change that only `warn` checks fail goes through on that attempt, with their verdicts recorded:
-their findings go back to the bot only alongside a failing `block` check. A `warn` script that
-fails does not hold back the bot and decide checks either. A merge request the change opens gets a
-"Known gaps" section in its body, one line per failing `warn` or `log` check with its first finding.
-These checks hold nothing, so their judges are told to call no finding blocking, and a `blocking`
-label left on a finding is dropped from its line.
-Jobs have a mode too: a job in `log` validates and stores its proposals but never applies them, which is how a new bot or skill starts
-out.
-
-## Checks
-
-A check is a file in `checks/`. Two fields describe it: `over` says what it looks at, and `type`
-says who judges it.
-
-| `over`                    | What the check looks at                                                   |
-| ------------------------- | ------------------------------------------------------------------------- |
-| `diff`                    | The whole diff of the change, once. The default                           |
-| `added`                   | Only the lines the change adds, under their file names                    |
-| `event`                   | The text of the event that started the run                                |
-| `each-file`               | Every changed file on its own, one verdict each                           |
-| `each-hunk`               | Every hunk on its own, with its file header so it reads alone, at most 30 |
-| `{ run: <script> }`       | What the script prints, once                                              |
-| `{ each: <script> }`      | One item per line the script prints, JSON or plain; at most 50 by default |
-
-| `type`   | Who judges                                                                          |
-| -------- | ----------------------------------------------------------------------------------- |
-| `script` | Its `run` command: exit 0 passes, anything else fails and the output is the finding |
-| `bot`    | A bot, prompted with its `skill` if it names one and then the body                  |
-| `decide` | A small local model, asked the body as a yes or no question; yes passes             |
-
-A script check with the default `over` runs once against the worktree. When it fans out, each run
-gets its item in `BOTHUB_ITEM` and on stdin. `BOTHUB_BASE` names the commit the change started
-from, for the check and for scripts named by `over`, which run in the same sandbox.
-`BOTHUB_ISSUE` holds the event's issue or pull request number, and `BOTHUB_REPLY` what the attempt
-replied with the bodies of its merge requests. When an `each` script fails or prints more lines than `items`, the check fails with that as
-its finding and nothing is judged. A passing script check keeps the last lines of its output,
-shown with the run. Checks see the worktree read-only; see [Sandbox](sandbox.md).
-
-A check that fans out judges 8 items at once. A change with more hunks than `each-hunk` takes,
-30 unless `items` says otherwise, fails the check with a finding that asks for a smaller change:
-
-```yaml
-type: bot
-bot: reviewer
-over: each-hunk
-items: 60
-```
-
-A bot check ends with a reply whose first line is `PASS` or `FAIL`, read by `verdictOf`;
-a final message with no `bothub` block counts as that reply, since small models often leave it out.
-Its prompt starts with what every item shares, the skill, the body, the issue the bot preloads, the
-event and the verdict format, and ends with the item, so a provider can cache everything before it.
-A decide check passes when the probability of yes reaches its `threshold`. Without one it only
-records the probability, which is how a threshold gets tuned; see
-[Pipeline and checks](reference/pipeline.md#verdicts).
-
-A bot reading each changed docs page, with no skill, prompted by the body alone:
-
-```yaml
-type: bot
-bot: reviewer
-over: each-file
-paths: [docs/content/**/*.mdx]
----
-Judge tone and length for this one page. Report only clear cases.
-```
-
-A decide check asking one question of every hunk:
-
-```yaml
-type: decide
-over: each-hunk
----
-Is this hunk free of secrets: private keys, seed phrases, API tokens and passwords?
-```
-
-A bot judging what a command prints:
-
-```yaml
-type: bot
-bot: reviewer
-over:
-  run: git diff -U0 "$BOTHUB_BASE" -- kit/src | grep '^+export' || true
----
-The output lists the exports this change adds. Judge only their names.
-```
-
-A bot judging every claim a script extracts from the docs, one run per claim:
-
-```yaml
-type: bot
-bot: claim-checker
-skill: check-claim
-over:
-  each: node "$BOTHUB_HUB/scripts/claims/extract.mjs" --changed 'docs/**/*.mdx'
-items: 40
-```
-
-A check with `paths` applies only when the change touches a matching file. A check that applies to
-nothing, or whose `over` finds nothing to look at, is skipped and does not gate. If no gating check
-ran at all, every skipped gating check fails instead, so a change never passes unchecked.
-
-Jobs take `over` too. It defaults to `event`, one run for the event. Any other value runs the job
-once per item: a bot job gets the item at the end of its prompt, and a script job gets it in
-`BOTHUB_ITEM` and on stdin. The items' replies are posted as one comment that counts the items
-and passes and lists the findings of each item that had any.
-
-## The correction ladder
-
-Mistakes that repeat should get harder to make. A correction climbs one step at a time, each step
-a pull request:
-
-1. a **caveat** or **style** note, proposed by a bot and merged by a human, which is then surfaced
-   to every run it is relevant to,
-2. a **check** the note names, in `log`, then `warn`, then `block`,
-3. ideally a lint rule, so the mistake cannot be written at all.
-
-The `learn` workflow in the example hub reads review findings and proposes the next step once a
-correction has been seen twice.
+`limits` in `hub.yaml` caps a run: `minutes` for one session or script, and `working`, how many runs
+go at once. A session that runs past its minutes stops the run with the reason.
