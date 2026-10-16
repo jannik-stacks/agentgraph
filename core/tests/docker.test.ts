@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -8,14 +7,7 @@ import { docker } from '../src/docker.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
-
-const tmp = (name: string) => mkdtempSync(join(tmpdir(), `core-${name}-`));
-
-const git = (dir: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
-    cwd: dir,
-    encoding: 'utf8',
-  }).trim();
+import { git, tmp } from './fixtures.ts';
 
 /** A repo with one commit on `main` and a `feature` branch one commit ahead. */
 const origin = () => {

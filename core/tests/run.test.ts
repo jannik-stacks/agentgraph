@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
   existsSync,
@@ -22,7 +21,7 @@ import type { Settings } from '../src/services.ts';
 import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import { begin, reenter, transition, type Run } from '../src/workflow.ts';
-import { hubOf } from './fixtures.ts';
+import { git, hubOf } from './fixtures.ts';
 
 const hub = hubOf('acme-app', {
   types: { run: '! grep -q TODO hello.txt' },
@@ -35,12 +34,6 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-
-const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
-    cwd,
-    encoding: 'utf8',
-  }).trim();
 
 /** A bare origin with one commit on main, a forge with issue #7 and its `/bothub` comment, and a data dir. */
 const world = () => {

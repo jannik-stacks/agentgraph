@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { Forge, type Proposal } from '../src/forge.ts';
 import { githubForge } from '../src/github.ts';
 import type { Checkout } from '../src/sandbox.ts';
+import { tmp } from './fixtures.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -458,7 +458,6 @@ describe('githubForge', () => {
   });
 
   describe('push', () => {
-    const tmp = (name: string) => mkdtempSync(join(tmpdir(), `core-github-${name}-`));
     const sh = (args: string[], env: Record<string, string> = {}, input?: string) =>
       execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
         encoding: 'utf8',

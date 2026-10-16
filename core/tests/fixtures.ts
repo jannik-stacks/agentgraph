@@ -1,9 +1,20 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import type { Check } from '../src/hub.ts';
 import type { Hub } from '../src/hub.ts';
 import { load, type Problem, type Workflow } from '../src/workflow.ts';
+
+export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `core-${name}-`));
+
+/** Runs the tool in `cwd` with a committer identity and no signing. */
+export const git = (cwd: string, ...args: string[]) =>
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+  }).trim();
 
 const root = join(import.meta.dirname, '..', 'fixtures');
 
