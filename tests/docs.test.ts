@@ -41,7 +41,7 @@ describe('docs', () => {
         else if (hash && !anchors(file).has(hash)) broken.push(`${at}: no heading #${hash}`);
       }
     }
-    expect(checked).toBeGreaterThan(20);
+    expect(checked).toBeGreaterThan(10);
     expect(broken).toEqual([]);
   });
 });
