@@ -259,6 +259,35 @@ describe('githubForge', () => {
     expect(t.events[5]!.comment).toMatchObject({ id: '6', under: '5' });
   });
 
+  it('trusts only the listed logins when given a trust list, labels included', async () => {
+    const f = fake({
+      'GET /repos/o/r/issues/8': issue(8, { user: { login: 'bob' }, author_association: 'COLLABORATOR' }),
+      'GET /repos/o/r/issues/8/comments': [
+        comment(1, 'alice', 'OWNER', 'hello'),
+        comment(2, 'bob', 'COLLABORATOR', 'hi'),
+      ],
+      'GET /repos/o/r/issues/8/events': [
+        { event: 'labeled', actor: { login: 'carol' }, created_at: '2026-10-16T11:00:01Z', label: { name: 'bothub' } },
+        { event: 'labeled', actor: { login: 'bob' }, created_at: '2026-10-16T11:00:02Z', label: { name: 'bothub' } },
+      ],
+      'GET /repos/o/r/collaborators/carol/permission': { permission: 'admin' },
+      'GET /repos/o/r/collaborators/bob/permission': { permission: 'write' },
+    });
+    const t = await Effect.runPromise(
+      Effect.provide(
+        Effect.flatMap(Forge, forge => forge.issue(8)),
+        githubForge(app, f.fetch, undefined, ['bob'])
+      )
+    );
+    expect(t.title).toBe('Issue 8');
+    expect(t.events.map(m => [m.kind, m.actor, m.trusted, m.comment?.body])).toEqual([
+      ['comment', 'alice', false, '(comment by @alice withheld: not a collaborator)'],
+      ['comment', 'bob', true, 'hi'],
+      ['label', 'carol', false, undefined],
+      ['label', 'bob', true, undefined],
+    ]);
+  });
+
   it('shows commit titles on its own branches only from people who may write', async () => {
     const at = '2026-10-16T10:00:00Z';
     const f = fake({

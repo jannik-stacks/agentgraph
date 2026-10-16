@@ -219,15 +219,17 @@ const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
   });
 
 /**
- * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators is withheld, and pushes
+ * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators (or logins outside `trust`) is withheld, and pushes
  * go through the Git data API so GitHub signs the commits.
  */
 export const githubForge = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch,
-  token: (scope: Scope) => Effect.Effect<string, ForgeError> = appToken(app, fetch)
+  token: (scope: Scope) => Effect.Effect<string, ForgeError> = appToken(app, fetch),
+  trust?: readonly string[]
 ): Layer.Layer<Forge> =>
   Layer.sync(Forge, () => {
+    const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
     const repo = `/repos/${app.repo}`;
     let slug: string | undefined;
 
@@ -270,7 +272,7 @@ export const githubForge = (
     const toIssue = (i: RestIssue, self: string, pull?: RestPull, parent?: number): Issue => {
       const own = pull?.head.repo?.full_name === app.repo;
       const author = login(i.user);
-      const shown = members.has(i.author_association ?? '') || author === `${self}[bot]`;
+      const shown = listed(i.user, i.author_association) || author === `${self}[bot]`;
       return {
         number: i.number,
         title: shown ? visible(i.title) : withheld(author, 'title'),
@@ -294,7 +296,7 @@ export const githubForge = (
 
     const toComment = (c: RestComment, self: string): Comment => {
       const author = login(c.user);
-      const shown = members.has(c.author_association) || author === `${self}[bot]`;
+      const shown = listed(c.user, c.author_association) || author === `${self}[bot]`;
       return {
         id: String(c.id),
         author,
@@ -308,7 +310,7 @@ export const githubForge = (
 
     const heard = (issue: number, c: RestComment, self: string, kind: Event['kind'] = 'comment'): Event => {
       const comment = toComment(c, self);
-      const trusted = members.has(c.author_association) && !isBot(c.user);
+      const trusted = listed(c.user, c.author_association) && !isBot(c.user);
       return { issue, kind, actor: comment.author, trusted, at: c.created_at, comment };
     };
 
@@ -336,7 +338,7 @@ export const githubForge = (
           issue,
           kind,
           actor: login(e.actor),
-          trusted: yield* permitted(e.actor),
+          trusted: (yield* permitted(e.actor)) && (!trust || trust.includes(login(e.actor))),
           at: e.created_at,
           ...(e.label && { label: e.label.name }),
         } satisfies Event;

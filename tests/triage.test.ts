@@ -98,6 +98,18 @@ describe('triage', () => {
     expect(value[0]!.reason).toContain('No size label proposed');
   });
 
+  it('treats an actor outside the trust list as untrusted in the forge folder', async () => {
+    const where = world([[1, 'morgan']]);
+    where.label(1);
+    const read = (trust: string[]) =>
+      Effect.runPromise(
+        Effect.flatMap(Forge, f => f.issue(1)).pipe(Effect.provide(fileForge(where.forge, undefined, trust)))
+      );
+    expect((await read(['morgan'])).events[0]).toMatchObject({ trusted: true });
+    expect((await read(['ana'])).events[0]).toMatchObject({ trusted: false });
+    expect((await read(['ana'])).title).toMatch(/withheld/);
+  });
+
   it('starts runs only on issues in the hub milestone', async () => {
     const where = world([
       [1, 'morgan'],

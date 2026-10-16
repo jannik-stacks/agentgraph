@@ -146,6 +146,8 @@ The agent ends its reply with a fenced `bothub` block of proposals. See [Proposa
 
 A session that runs past its minutes stops the run with the reason. So does a run whose spend goes over `usd-per-run` (`code: src/engine.ts#drive`).
 
-## Scope
+## Scope and trust
+
+`trust` in `hub.yaml` lists the logins that may steer the bot, for example `trust: [ana, bob]`. When it is set, only those logins and the bot itself count as trusted: their issue and comment text reaches agents, their comments and replies start or answer runs, and their labels start runs. Everyone else is treated as an outsider, even a collaborator or an org member, so a collaborator outside the list cannot start work by labelling. Without it, owners, members and collaborators are trusted, and a label counts when its actor may write. The list is read once when the runner starts. A hub that does not load at that point trusts no one until the runner restarts. The forge folder honors the list by the author or actor login (`code: src/github.ts#githubForge`).
 
 `milestone` in `hub.yaml` names a milestone by its title. While it is set, only open issues in that milestone start runs, whether by a label, a command or a sweep. Runs already live keep going. Follow-up issues an agent files are not put in the milestone, so they wait until a person moves them in. Without it, every open issue can start a run (`code: src/engine.ts#inScope`).

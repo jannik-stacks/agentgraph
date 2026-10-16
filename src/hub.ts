@@ -54,6 +54,8 @@ export type Hub = {
   stacks?: boolean;
   /** The milestone whose issues new runs start on; every open issue when unset. */
   milestone?: string;
+  /** The logins whose text reaches agents and whose marks start runs; the repo's collaborators when unset. */
+  trust?: string[];
 };
 
 export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {
@@ -71,6 +73,7 @@ const HubFile = Schema.Struct({
   network: exact(Schema.Literal('egress', 'models')),
   stacks: exact(Schema.Boolean),
   milestone: exact(Schema.String),
+  trust: exact(Schema.mutable(Schema.Array(Schema.String))),
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
@@ -304,6 +307,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       ...(hub.network !== undefined && { network: hub.network }),
       ...(hub.stacks !== undefined && { stacks: hub.stacks }),
       ...(hub.milestone !== undefined && { milestone: hub.milestone }),
+      ...(hub.trust !== undefined && { trust: hub.trust }),
       ...parts,
     };
   });

@@ -124,7 +124,7 @@ const me = 'bothub[bot]';
  * Authors ending in `[bot]` are not trusted, and their issues' text is withheld. It acts as the bot, or as the
  * trusted person `as`.
  */
-export const fileForge = (dir: string, as?: string): Layer.Layer<Forge> =>
+export const fileForge = (dir: string, as?: string, trust?: readonly string[]): Layer.Layer<Forge> =>
   Layer.effect(
     Forge,
     Effect.map(Effect.makeSemaphore(1), lock => {
@@ -164,7 +164,7 @@ export const fileForge = (dir: string, as?: string): Layer.Layer<Forge> =>
       };
       /** The issue as an agent may read it: an outsider's title and text withheld. */
       const shown = (t: Issue): Issue =>
-        !t.author?.endsWith('[bot]') || t.author === me
+        t.author === me || (trust ? trust.includes(t.author) : !t.author?.endsWith('[bot]'))
           ? t
           : { ...t, title: withheld(t.author, 'title'), body: withheld(t.author, 'issue text') };
       const write = async ({ number, body, url: _url, pull, ...front }: Issue) => {
@@ -179,7 +179,8 @@ export const fileForge = (dir: string, as?: string): Layer.Layer<Forge> =>
         ((await optional(readFile(timeline(n), 'utf8'))) ?? '')
           .split('\n')
           .filter(Boolean)
-          .map(line => JSON.parse(line) as Event);
+          .map(line => JSON.parse(line) as Event)
+          .map(m => (trust && !trust.includes(m.actor) ? { ...m, trusted: false } : m));
       const now = () => new Date().toISOString();
       const say = (m: Omit<Event, 'actor' | 'trusted' | 'at'>) =>
         appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: who, trusted: who !== me, at: now() })}\n`);
