@@ -15,4 +15,5 @@ with backticks: variables and functions always, types only where it helps. In a 
 of each item in bold. Leave out what a reviewer expects anyway, like passing tests, how many passed, or steps you did not
 run, unless it is surprising.
 
-If the task is unclear, ask and stop.
+If the issue and the repo do not say what the problem is or what done looks like, ask the one to
+three short questions you cannot answer by reading, numbered in one comment, and stop.

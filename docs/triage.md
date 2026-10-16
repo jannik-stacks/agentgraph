@@ -2,6 +2,8 @@
 
 Triage is a workflow in the sandbox hub (`examples/sandbox/workflows/triage.md`, agent `triager`). A maintainer adds the `triage` label to an issue. The agent reads the issue and the code and sizes it from XS to XL.
 
+When the issue and the repo do not say what the problem is or what done looks like, the triager asks instead of guessing. It asks only what it cannot find by reading, in one numbered comment of at most six questions (the problem, who hits it, what done looks like, scope, constraints, an example), and waits for `/bothub <answer>`. If only one thing is missing, it asks that one question.
+
 Triage implements, merges and closes nothing. The triager has read-only tools (`read`, `grep`, `glob`) and may return `comment`, `label`, `issue` and `ask`.
 
 ```

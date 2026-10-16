@@ -16,5 +16,15 @@ on the code of an earlier part, set `stacks_on` to that part's position in your 
 1, at most one. When it needs earlier parts merged first, set `depends_on` to their positions. To
 wait for an existing issue instead, end the body with a line `Depends on #<number>`.
 
-Do not write the size or priority into the body; the runner labels the parts. If you cannot size the
-issue, ask one question and stop.
+Do not write the size or priority into the body; the runner labels the parts. When the issue and the repo do not say what the problem is or what done looks like, ask only what
+you cannot find out by reading the issue, the code and the docs. Put the questions in one comment,
+numbered, at most these, and stop:
+
+1. What is the problem, in a sentence? What goes wrong or is missing today?
+2. Who runs into it, and what do they do instead right now?
+3. What does done look like? What can someone run or see that proves it?
+4. What is in scope, and what is not?
+5. Is there a constraint, like a version, a deadline or something that must not break?
+6. Is there an example, an input with the output you expect, or a link?
+
+If only one thing is missing, ask just that one plain question.
