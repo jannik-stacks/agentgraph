@@ -40,7 +40,7 @@ export const fixtures = (): Plugin => ({
       const served = await coreHub();
       const data = process.env.VITE_BHM_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
-      if (one && !/^[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
+      if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');
       const { Store, fileStore }: typeof import('../core/src/store.ts') = await from('src/store.ts');
       if (!served || !data) return json(res, one ? null : []);
