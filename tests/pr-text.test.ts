@@ -42,6 +42,11 @@ describe.each(['sk', 'sandbox'])('pr-text in %s', hub => {
     expect(check(hub, [{ kind: 'push', branch: 'b', message }]).lines).toHaveLength(2);
   });
 
+  it('fails a body that names two pull requests it stacks on', () => {
+    const { lines } = check(hub, [pull('Adds `bye`. Stacks on #20.\n\nCloses #23\n\nStacks on #22')]);
+    expect(lines).toEqual(['pull request body has 2 Stacks on lines: Stacks on #20, Stacks on #22']);
+  });
+
   it('passes a short body and a conventional commit', () => {
     const message = 'fix(signing): reject a signer from another key\n\nThe key was never compared.';
     const body = '`verifySigner` compares the recovered key with `expected`.\n\n- **Test:** another key is rejected.';

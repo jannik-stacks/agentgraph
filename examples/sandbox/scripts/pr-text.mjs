@@ -17,6 +17,8 @@ for (const p of proposals) {
       const found = re.exec(p.body);
       if (found) hits.push(`pull request body ${why}: "${found[0]}"`);
     }
+  const stacks = p.kind === 'pull_request' ? (p.body.match(/\bstacks on #\d+/gi) ?? []) : [];
+  if (stacks.length > 1) hits.push(`pull request body has ${stacks.length} Stacks on lines: ${stacks.join(', ')}`);
   if (p.kind === 'push') {
     const [subject, ...rest] = p.message.split('\n');
     if (!conventional.test(subject)) hits.push(`commit subject is not a conventional commit: "${subject}"`);
