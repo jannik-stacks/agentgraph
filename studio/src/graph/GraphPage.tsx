@@ -7,7 +7,7 @@ import { type Graph, graphOf } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/store.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
-import { Muted, Select } from '../ui.tsx';
+import { accent, Muted, Select } from '../ui.tsx';
 import { layout } from './layout.ts';
 import {
   BackEdge,
@@ -86,6 +86,8 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
         id: `${workflow}:frame`,
         type: 'frame',
         position: row.frame,
+        width: row.frame.width,
+        height: row.frame.height,
         data: {
           workflow,
           trigger: graph.trigger,
@@ -106,6 +108,8 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
             id: placed.id,
             type: 'pill',
             position: placed.box,
+            width: placed.box.width,
+            height: placed.box.height,
             style: { width: placed.box.width, height: placed.box.height },
             data: {
               label: done ? 'done' : graph.trigger,
@@ -121,6 +125,8 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           id: placed.id,
           type: 'step',
           position: placed.box,
+          width: placed.box.width,
+          height: placed.box.height,
           data: {
             node,
             selected: selected === placed.id,
@@ -161,7 +167,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           sourceHandle: 'out',
           target: `${workflow}/${edge.to}`,
           targetHandle: 'in',
-          markerEnd: arrow((edge.taken ?? 0) > 0 ? sky : '#fb923c'),
+          markerEnd: arrow((edge.taken ?? 0) > 0 ? sky : gray),
           data: { edge },
         } satisfies BackFlowEdge);
     });
@@ -188,7 +194,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
   );
 };
 
-/** The hubs the graph can show: the served hub first, then every example hub the fixtures carry. */
+/** The hubs the graph can show: the live hub first, then every example hub the fixtures carry. */
 const hubs = (() => {
   const groups = new Map<string, Fixture[]>();
   for (const f of fixtures) {
@@ -197,7 +203,7 @@ const hubs = (() => {
   }
   return [...groups].map(([key, list]) => ({
     key,
-    label: key === served?.name ? `${key} (served)` : `${key} (example)`,
+    label: key === served?.name ? `${key}, live` : `${key}, example`,
     fixtures: list,
   }));
 })();
@@ -277,7 +283,21 @@ export const GraphPage = () => {
             onChange={key => setRun(key || null)}
           />
         )}
-        {story && <p className="min-w-0 flex-1 text-xs text-sky-700 dark:text-sky-300">{story}</p>}
+        <p className="min-w-0 flex-1 text-xs text-zinc-500">
+          {picked ? (
+            <>
+              <span className={accent.text}>
+                {'trace' in picked ? `Live, run ${picked.run.id}` : 'Simulated run'}, {picked.run.status} at{' '}
+                {picked.run.step}.
+              </span>{' '}
+              {story}
+            </>
+          ) : hub.key === served?.name ? (
+            'The workflows as written. A blue step holds runs that are live now.'
+          ) : (
+            'The workflows as written. An example hub, with no runs of its own.'
+          )}
+        </p>
       </div>
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">

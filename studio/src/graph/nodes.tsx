@@ -13,7 +13,7 @@ import type { ReactNode } from 'react';
 import type { Graph } from '../../../src/graph.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { selectedStepAtom } from '../state.ts';
-import { cx, Tooltip } from '../ui.tsx';
+import { accent, cx, Tooltip } from '../ui.tsx';
 import { backIn, backOut, liftOf, stepSize } from './layout.ts';
 
 type GraphNode = Graph['nodes'][number];
@@ -63,12 +63,6 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
   </svg>
 );
 
-/** What a step does, as its left rule color. */
-const doerColor = {
-  agent: 'border-l-indigo-500',
-  script: 'border-l-slate-500',
-  human: 'border-l-amber-500',
-};
 const kindOf = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
 
 const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
@@ -132,15 +126,17 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
     <div
       style={stepSize}
       className={cx(
-        'relative flex cursor-pointer flex-col justify-center gap-0.5 rounded-md border border-l-4 bg-white px-2.5 text-xs dark:bg-zinc-950',
-        doerColor[kind],
+        'relative flex cursor-pointer flex-col justify-center gap-0.5 rounded-md border bg-white px-2.5 text-xs transition-shadow dark:bg-zinc-950',
         here || live
-          ? 'border-y-sky-500 border-r-sky-500 dark:border-y-sky-400 dark:border-r-sky-400'
-          : 'border-y-zinc-200 border-r-zinc-200 hover:border-y-zinc-400 hover:border-r-zinc-400 dark:border-y-zinc-700 dark:border-r-zinc-700',
+          ? accent.border
+          : selected
+            ? 'border-zinc-400 dark:border-zinc-500'
+            : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700',
         fan
-          ? 'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-300),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-300)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-950),3px_3px_0_0_var(--color-zinc-700),6px_6px_0_-1px_var(--color-zinc-950),6px_6px_0_0_var(--color-zinc-700)]'
-          : 'shadow-sm',
-        selected && 'ring-2 ring-zinc-800 ring-offset-1 dark:ring-zinc-200 dark:ring-offset-zinc-950'
+          ? 'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-200),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-200)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-950),3px_3px_0_0_var(--color-zinc-800),6px_6px_0_-1px_var(--color-zinc-950),6px_6px_0_0_var(--color-zinc-800)]'
+          : selected
+            ? 'shadow-md'
+            : 'shadow-xs'
       )}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
@@ -181,11 +177,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           </Chip>
         )}
         {stops.map(c => (
-          <Chip
-            key={c.name}
-            tip={`If ${c.name} fails, the run stops at once.`}
-            className="border-rose-200 text-rose-700 dark:border-rose-900 dark:text-rose-300"
-          >
+          <Chip key={c.name} tip={`If ${c.name} fails, the run stops at once.`}>
             <Glyph name="stop" />
             {c.name}
           </Chip>
@@ -199,7 +191,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           </Chip>
         )}
         {fan && (
-          <Chip tip={fan.tip} className="border-teal-200 text-teal-700 dark:border-teal-900 dark:text-teal-300">
+          <Chip tip={fan.tip}>
             <Glyph name="each" />
             {fan.label}
           </Chip>
@@ -241,21 +233,25 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
 
 export type PillFlowNode = Node<{ label: string; done?: boolean; reached?: boolean }, 'pill'>;
 
-/** What starts a workflow, or where it ends. */
+/** Where a workflow starts, a dot after its trigger, or where it ends, a ringed dot; drawn as a state machine would. */
 export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>) => (
   <div
     className={cx(
-      'flex h-full items-center justify-center truncate rounded-full border px-3 text-[11px]',
-      reached
-        ? 'border-sky-500 text-sky-700 dark:text-sky-300'
-        : done
-          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
-          : 'border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200'
+      'flex h-full items-center gap-1.5 text-[11px]',
+      done ? 'justify-start' : 'justify-end',
+      reached ? accent.text : 'text-zinc-500'
     )}
   >
     <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} />
     <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
-    {label}
+    {done ? (
+      <span className="flex size-4 shrink-0 items-center justify-center rounded-full border-[1.5px] border-current">
+        <span className="size-2 rounded-full bg-current" />
+      </span>
+    ) : (
+      <span className="truncate">{label}</span>
+    )}
+    {done ? <span>done</span> : <span className="size-3 shrink-0 rounded-full bg-current" />}
   </div>
 );
 
@@ -318,7 +314,7 @@ export const BackEdge = ({ id, sourceX, sourceY, targetX, targetY, markerEnd, da
       <BaseEdge
         path={path}
         {...(markerEnd && { markerEnd })}
-        style={{ stroke: taken ? '#0284c7' : '#fb923c', strokeWidth: 1.5, strokeDasharray: '6 4' }}
+        style={{ stroke: taken ? '#0284c7' : '#a1a1aa', strokeWidth: 1.25, strokeDasharray: '5 4' }}
       />
       <EdgeLabelRenderer>
         <div
@@ -334,8 +330,8 @@ export const BackEdge = ({ id, sourceX, sourceY, targetX, targetY, markerEnd, da
               className={cx(
                 'rounded-full border bg-white px-2 py-px text-[10px] whitespace-nowrap hover:shadow-sm dark:bg-zinc-950',
                 taken
-                  ? 'border-sky-500 text-sky-700 dark:text-sky-300'
-                  : 'border-orange-300 text-orange-700 hover:border-orange-500 dark:border-orange-800 dark:text-orange-300'
+                  ? cx(accent.border, accent.text)
+                  : 'border-zinc-300 text-zinc-600 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-400'
               )}
             >
               {label}
@@ -349,40 +345,34 @@ export const BackEdge = ({ id, sourceX, sourceY, targetX, targetY, markerEnd, da
 
 const LegendItem = ({ mark, children }: { mark: ReactNode; children: ReactNode }) => (
   <li className="flex items-center gap-1.5">
-    <span className="flex shrink-0 justify-center">{mark}</span>
+    {mark}
     {children}
   </li>
 );
 
-/** What the badges mean. */
+/** What the badges mean, short of what the graph says by itself. */
 export const Legend = () => (
-  <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-zinc-200 px-4 py-1.5 text-[11px] text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+  <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 text-[11px] text-zinc-500">
     <LegendItem
       mark={
-        <span className="flex size-4 items-center justify-center rounded-full bg-zinc-600 text-[9px] font-semibold text-white">
+        <span className="flex size-3.5 items-center justify-center rounded-full bg-zinc-600 text-[8px] font-semibold text-white">
           3
         </span>
       }
     >
-      tries; out of tries it asks you
+      tries
     </LegendItem>
     <LegendItem
       mark={
-        <span className="rounded-full border border-orange-300 px-1 text-[9px] text-orange-700 dark:border-orange-800 dark:text-orange-300">
-          back
-        </span>
+        <svg width="16" height="2" aria-hidden className="text-zinc-400">
+          <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeDasharray="4 3" />
+        </svg>
       }
     >
-      a way back, at most so many rounds
+      a way back
     </LegendItem>
-    <LegendItem mark={<Glyph name="stop" className="size-3 text-rose-600" />}>
-      a failing stop check ends the run
-    </LegendItem>
-    <LegendItem mark={<Glyph name="each" className="size-3 text-teal-600" />}>runs once per item</LegendItem>
-    <LegendItem mark={<span className="h-3 w-1 rounded-sm bg-indigo-500" />}>an agent works</LegendItem>
-    <LegendItem mark={<span className="h-3 w-1 rounded-sm bg-slate-500" />}>a script runs</LegendItem>
-    <LegendItem mark={<span className="h-3 w-1 rounded-sm bg-amber-500" />}>waits for you</LegendItem>
-    <LegendItem mark={<span className="size-2.5 rounded-full bg-sky-600" />}>the picked run</LegendItem>
-    <li className="ml-auto text-zinc-500">Click a step or a badge for details.</li>
+    <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
+    <LegendItem mark={<span className={cx('size-2 rounded-full bg-current', accent.text)} />}>live</LegendItem>
+    <li className="ml-auto">Click a step for its checks and runs.</li>
   </ul>
 );
