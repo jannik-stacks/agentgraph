@@ -169,7 +169,7 @@ export const Tooltip = ({
   return (
     <span
       className={cx('inline-flex min-w-0', className)}
-      onMouseEnter={e => show(e.currentTarget, 300)}
+      onMouseEnter={e => show(e.currentTarget, 100)}
       onMouseLeave={hide}
       onFocus={e => show(e.currentTarget, 0)}
       onBlur={hide}

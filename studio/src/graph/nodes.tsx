@@ -103,6 +103,15 @@ const Chip = ({ tip, className, children }: { tip: string; className?: string; c
   </Tooltip>
 );
 
+const statusTip = (o: Overlay) =>
+  o.status === 'waiting' && o.reason !== undefined
+    ? `Asked: ${o.reason}\nWaits for an answer: comment on the issue with the bot's command. Saying stop ends the run.`
+    : o.status === 'waiting'
+      ? 'Waits for a human, not the bot. Merge or approve the pull request to go on; comment or request changes to send it back.'
+      : o.status === 'stopped'
+        ? `Ended early${o.reason ? `: ${o.reason}` : ''}.`
+        : 'The agent is working on this step now.';
+
 const statusLine = (node: GraphNode, o: Overlay) =>
   o.status === 'waiting' && o.reason !== undefined
     ? 'asking you'
@@ -163,10 +172,14 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
         <span className="truncate text-[13px] font-semibold">{node.step}</span>
       </div>
       {status ? (
-        <div className="truncate text-sky-600 dark:text-sky-400">
-          {status}
-          {overlay?.reason && overlay.status !== 'waiting' && <span className="text-zinc-500">, {overlay.reason}</span>}
-        </div>
+        <Tooltip tip={here ? statusTip(overlay) : 'Working on this step now.'} className="block">
+          <div className="truncate text-sky-600 dark:text-sky-400">
+            {status}
+            {overlay?.reason && overlay.status !== 'waiting' && (
+              <span className="text-zinc-500">, {overlay.reason}</span>
+            )}
+          </div>
+        </Tooltip>
       ) : (
         <div className="truncate text-zinc-500">{kind === 'human' ? 'waits for you' : node.doer}</div>
       )}

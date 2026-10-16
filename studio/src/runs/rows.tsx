@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
+import type { Run } from '../../../src/workflow.ts';
 import type { Trace } from '../../../src/store.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
-import { accent, cx, Disclosure, Link } from '../ui.tsx';
+import { accent, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { ToolBody, toolName, toolSummary } from './tools.tsx';
 import { type CoreRun, detail, type Session, visitsOf } from './trace.ts';
 
@@ -185,6 +186,16 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean): Row => 
 
 const live = (r: CoreRun) => r.run.status === 'running';
 
+const statusTip = (run: Run) => {
+  const at = `issue #${run.said?.issue ?? run.issue}`;
+  if (run.status === 'running') return `Working on ${run.step}, try ${run.tries + 1}.`;
+  if (run.status === 'done') return 'Finished every step.';
+  if (run.status === 'stopped') return `Ended early${run.reason ? `: ${run.reason}` : ''}.`;
+  if (run.reason !== undefined)
+    return `Asked on ${at}: ${short(run.reason, 300)}\nWaits for an answer: comment there with the bot's command. Saying stop ends the run.`;
+  return `Waits at ${run.step} for a human, not the bot.\nMerge or approve the pull request to move on; comment with the bot's command or request changes to send it back; saying stop ends the run.`;
+};
+
 /** A fixed-width cell of a run row, so numbers line up down the list. */
 const Col = ({ className, children }: { className: string; children: ReactNode }) => (
   <span className={cx('shrink-0 truncate tabular-nums', className)}>{children}</span>
@@ -217,7 +228,9 @@ export const runRow = (r: CoreRun, open = false): Row => {
           </Link>
         </Col>
         <Col className="w-20">
-          {flag(run.status, run.status !== 'done')}
+          <Tooltip tip={statusTip(run)} focusable>
+            {flag(run.status, run.status !== 'done')}
+          </Tooltip>
           {live(r) && (
             <span className={cx('ml-1.5 align-middle', accent.text)}>
               <Pulse />
