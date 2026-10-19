@@ -137,6 +137,21 @@ describe('the session loop', () => {
     expect(harnessArgs(command)).toContain('--session');
     expect(got[0]).toMatchObject({ type: 'start', home });
   });
+
+  it.each([
+    ['opencode', ['--session', 'ses_1', '--fork']],
+    ['claude', ['--resume', 'ses_1', '--fork-session']],
+    ['pi', ['--fork', 'ses_1']],
+  ] as const)('forks a %s session in a copy of its home', async (harness, flags) => {
+    const home = mkdtempSync(join(tmpdir(), 'bothub-home-'));
+    writeFileSync(join(home, 'history'), 'kept');
+    const { command } = await events({ ...spec, harness, resume: { id: 'ses_1', home }, fork: true }, []);
+    const args = harnessArgs(command);
+    expect(args.slice(args.indexOf(flags[0]), args.indexOf(flags[0]) + flags.length)).toEqual(flags);
+    if (harness === 'pi') expect(args).not.toContain('--session');
+    expect(command.home).not.toBe(home);
+    expect(readFileSync(join(command.home!, 'history'), 'utf8')).toBe('kept');
+  });
 });
 
 describe('thinking', () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
+import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Effect, Layer, Option, Redacted, Schema, Stream } from 'effect';
 import type { Agent } from './hub.ts';
@@ -154,7 +154,7 @@ const opencode: Adapter = {
       'bothub',
       '--model',
       `bothub/${alias(spec)}`,
-      ...(spec.resume ? ['--session', spec.resume.id] : []),
+      ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
       '--',
       ...words(spec.prompt),
     ],
@@ -298,7 +298,7 @@ const claude: Adapter = {
         ...(list.length ? ['--allowedTools', list.join(',')] : []),
         ...(spec.read ?? []).flatMap(dir => ['--add-dir', dir]),
         ...(spec.model ? ['--model', spec.model] : []),
-        ...(spec.resume ? ['--resume', spec.resume.id] : []),
+        ...(spec.resume ? ['--resume', spec.resume.id, ...(spec.fork ? ['--fork-session'] : [])] : []),
         '--append-system-prompt',
         spec.system,
         '--',
@@ -386,7 +386,7 @@ const pi: Adapter = {
         ...(tools.length ? ['--tools', tools.join(',')] : ['--no-tools']),
         '--model',
         `bothub/${alias(spec)}`,
-        ...(spec.resume ? ['--session', spec.resume.id] : []),
+        ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
         '--append-system-prompt',
         spec.system,
         '--',
@@ -553,9 +553,10 @@ export const harnesses = (s: {
             const key = keys[spec.agent];
             if (!key)
               return yield* new SessionStop({ reason: 'provider', detail: `no proxy key for agent ${spec.agent}` });
-            const home = spec.resume?.home ?? join(s.data, 'homes', randomUUID());
+            const home = (!spec.fork && spec.resume?.home) || join(s.data, 'homes', randomUUID());
             yield* Effect.tryPromise({
               try: async () => {
+                if (spec.fork && spec.resume) await cp(spec.resume.home, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
                 for (const [path, text] of Object.entries(adapter.files?.(spec, s.proxy.url) ?? {}))
                   await writeHome(home, path, text);
