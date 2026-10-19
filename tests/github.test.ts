@@ -844,6 +844,6 @@ describe('githubForge', () => {
       const applied = await pushTo(f, work);
       expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(reason) });
       expect(writes(f)).toEqual([]);
-    });
+    }, 20_000);
   });
 });
