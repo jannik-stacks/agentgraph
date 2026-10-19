@@ -616,13 +616,15 @@ type Item = {
   exit?: number;
 };
 
-/** The judge prompts that passed, per run, check and diff; the same prompt on the same diff is not judged again. */
-const passed = new Set<string>();
+/** The judge prompts that passed per data dir, run, check and diff; the same prompt on the same diff is not judged again. */
+const passes = new WeakMap<object, Set<string>>();
 
 /** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
 const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
   Effect.gen(function* () {
     const store = yield* Store;
+    const passed = passes.get(store) ?? new Set<string>();
+    passes.set(store, passed);
     const run = work.run;
     const started = Date.now();
     const minutes = hub.limits.minutes;
@@ -1279,10 +1281,10 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
     yield* store.lock(run.id);
-    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, pull.branch, undefined, hub));
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, undefined, undefined, hub));
     const text = (...args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
     const onto = work.base;
-    const from = yield* text('merge-base', 'HEAD', onto);
+    const from = yield* text('merge-base', pull.head, onto);
     const moved = !run.base && from !== onto;
     const current = { ...run, hub: hub.sha };
     if (!moved && (run.hub ?? hub.sha) === hub.sha) return run.hub ? undefined : { run: current };
@@ -1290,7 +1292,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: pull.branch, from, onto }, work);
       yield* store.trace(run.id, { at: now(), step: run.step, applied });
       if (!applied.ok) {
-        const files = yield* hostGit(work.git, ['merge', '-q', '--no-commit', '--no-ff', onto]).pipe(
+        const files = yield* hostGit(work.git, ['merge', '-q', '--no-commit', '--no-ff', pull.head]).pipe(
           Effect.ignore,
           Effect.zipRight(text('diff', '--name-only', '--diff-filter=U'))
         );
