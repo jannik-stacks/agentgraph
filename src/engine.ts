@@ -1695,7 +1695,7 @@ export const tick = (
         w && !young(run.issue)
           ? events.filter(m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m))
           : [];
-      const m = answers.find(m => m.kind === 'merged') ?? answers[0];
+      const m = answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
       if (!w || !m) continue;
       for (const a of answers) used.add(a);
       const lined = events.filter(

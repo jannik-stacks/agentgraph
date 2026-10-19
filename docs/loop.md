@@ -165,7 +165,7 @@ A failed try starts another in the same session, with each failing check's outpu
 
 `back: implement` lets a step send the run to an earlier step. An agent step with `back` also needs `until`, a sentence saying when the step is satisfied. While it does not hold, the agent proposes `back` with a reason, and the reason becomes feedback for the earlier step. `rounds` caps how often that happens. When rounds run out, the run waits.
 
-A `wait: human` step with `back` goes back when a human requests changes in a review. An approving review, an `approved` label or a merge passes it. Anything else a human says there, a comment, a line comment or a mention, goes to an [aside](#asides). <!-- code: src/workflow.ts#reenter -->
+A `wait: human` step with `back` goes back when a human requests changes in a review. The line comments that came with or just before the review join its reason. An approving review, an `approved` label or a merge passes it. Anything else a human says there, a comment, a line comment or a mention, goes to an [aside](#asides). <!-- code: src/workflow.ts#reenter -->
 
 Going forward into a step starts a fresh session. Going back resumes the session that step had. <!-- code: src/workflow.ts#transition -->
 

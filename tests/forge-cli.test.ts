@@ -118,6 +118,37 @@ describe('bin/forge.ts with run --forge', () => {
     );
   }, 30_000);
 
+  it('sends a pull request back with the line comments posted just before the review in its reason', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'Add a greeting');
+    w.forge('label', '1', 'agent:ready');
+    const push = (message: string): Proposal => ({ kind: 'push', branch: 'bothub/1', message });
+    const pull: Proposal = {
+      kind: 'pull_request',
+      branch: 'bothub/1',
+      base: 'main',
+      title: 'Add hello',
+      body: 'Adds it.',
+    };
+    const [waiting] = await w.run([
+      [start('i'), write('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    w.forge('comment', '2', 'say hello world', '--line', 'hello.txt:1');
+    w.forge('review', '2', 'changes', 'see the line note');
+    await w.run([
+      [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    const backs = readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map(l => JSON.parse(l) as { outcome?: { kind: string; why?: string } })
+      .flatMap(l => (l.outcome?.kind === 'back' ? [l.outcome.why] : []));
+    expect(backs).toEqual(['see the line note\nhello.txt:1: say hello world']);
+  }, 30_000);
+
   it('runs a stacked issue on the pull request of the one it stacks on', async () => {
     const w = world();
     w.forge('init', w.seed);

@@ -372,7 +372,8 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
   const waiting = run.status === 'waiting';
   const live = waiting || run.status === 'running';
   if (m.kind === 'closed' && live) return { kind: 'stop', why: 'closed' };
-  const said = afterCommand(m, Object.values(w.on).find(t => t?.command)?.command ?? fallback);
+  const command = Object.values(w.on).find(t => t?.command)?.command ?? fallback;
+  const said = afterCommand(m, command);
   const body = m.comment?.body.trim() ?? '';
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
   if (first.toLowerCase() === 'stop' && live) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
@@ -384,8 +385,10 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
       return { kind: 'pass' };
     if (m.kind === 'changes_requested') {
-      const notes = lined.flatMap(({ comment: c }) =>
-        c?.path ? `${c.path}${c.line ? `:${c.line}` : ''}: ${c.body}` : []
+      const notes = lined.flatMap(l =>
+        l.comment?.path
+          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}: ${afterCommand(l, command) ?? l.comment.body}`
+          : []
       );
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
     }
