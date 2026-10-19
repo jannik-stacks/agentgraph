@@ -44,7 +44,7 @@ export const Link = ({ href, onClick, ...props }: ComponentProps<'a'>) => {
 };
 
 export const Badge = ({ children }: { children: ReactNode }) => (
-  <span className="inline-block rounded border border-zinc-300 px-1.5 text-[10px] leading-4 font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+  <span className="inline-block rounded border border-zinc-300 px-[5px] text-[10px] leading-[14px] font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
     {children}
   </span>
 );
