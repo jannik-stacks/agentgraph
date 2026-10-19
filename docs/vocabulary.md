@@ -17,6 +17,7 @@ The terms the rest of the docs use. Common agent and GitHub terms keep their usu
 | **proposal**  | A change an agent asks the engine to make: a comment, a label, a push, a pull request, a merge, an issue, an ask, a back     |
 | **follow-up** | An issue an agent files for something the run's issue does not ask for. It waits for a person                                |
 | **run**       | One workflow on one issue, from its first step to done or stopped                                                            |
+| **dispatch**  | One run starting another with a `run` proposal, then waiting until it asks, is done or stops                                 |
 | **feedback**  | Text carried into the next try or step: a failed check's output, a back reason, a human's answer                             |
 | **checkout**  | The files a run works in, on its own branch, started from the base                                                           |
 | **sandbox**   | The container a session or script runs in. A session reaches only the model proxy and an allowlist; a script reaches nothing |

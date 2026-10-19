@@ -61,7 +61,7 @@ Two triggers start runs today:
 - `issue_comment` with `command`: a comment starting with that text, such as `/bothub`.
 - `issues` with `label`: a label added to an issue, such as `triage`.
 
-`pull_request` and `branches` are accepted but start nothing yet.
+`pull_request` and `branches` are accepted but start nothing yet. A third way in, `dispatch`, is for runs that other runs start, see [Dispatch](#dispatch).
 
 On GitHub, the main way in is to mention the bot. A comment counts when it has `@stx-bothub` as a word outside quoted lines and fenced code. `/bothub` works the same. The engine reads either as `/bothub` followed by the rest of the comment, so a bare mention starts the workflow too. On an issue with no live run, a mention that only says `stop` starts nothing. <!-- code: src/forge.ts#commanded -->
 
@@ -74,6 +74,29 @@ A run started by a comment can reply and stop. When the comment asks for no work
 The engine puts an eyes reaction on the comment that started or woke a run, or on the issue for a label, and takes it off once it has replied. <!-- code: src/engine.ts#tick -->
 
 The issue must be open, and one workflow runs at a time on it. Removing the label from an issue with a live run stops that run. A label added and removed before the engine looks starts nothing. <!-- code: src/workflow.ts#reenter -->
+
+## Dispatch
+
+A workflow with `dispatch` under `on` can be started by another run. An agent whose `returns` has `run` proposes `{"kind": "run", "workflow": "triage", "issue": 12}`. The engine refuses it, and the try fails, unless the workflow has `dispatch`, #12 is an open issue in scope, no other live run holds it, and it is the try's only `run`. <!-- code: src/engine.ts#undispatchable -->
+
+Once the try's other proposals land, the engine begins the child run with `by` set to the parent's id. The parent waits with the reason `waiting on <child id>`, and says nothing on the issue about it. <!-- code: src/engine.ts#dispatch -->
+
+```
+ parent run proposes run
+   |
+   v
+ child run starts         parent waits on it
+   |
+   v
+ child asks, is done or stops
+   |
+   v
+ parent resumes its session with what happened, and decides
+```
+
+The parent hears of it as an answer, such as `triage on #12 is done` or `triage on #12 asks: ...`, in its kept session. It decides with the proposals it has: a comment, another `run`, or nothing. A child's question still goes on the child's issue, and a person answers it there. <!-- code: src/engine.ts#settled -->
+
+A router is a workflow whose agent returns `run`, so what a router may do is just its `returns`. In `examples/sandbox`, a mention starts the router; it starts triage, files a follow-up, or replies. Building waits for a person to add `agent:ready`.
 
 ## Trust and scope
 

@@ -2,11 +2,11 @@
 
 An example workflow from the sandbox hub, `examples/sandbox`. It is hub config, not part of the engine: a team can copy it, change it or leave it out. It shows a workflow built only from the engine's general parts, a label trigger, one agent step, a script check and the `issue` proposal.
 
-| File                  | What it does                                                                 |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `workflows/triage.md` | Starts on the `triage` label, one step `triage` with the check `sized`       |
-| `agents/triager.md`   | Read-only tools (`read`, `grep`, `glob`), returns `label`, `issue` and `ask` |
-| `checks/sized.md`     | A `block` script check: the reply ends in a size label, a split or an `ask`  |
+| File                  | What it does                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| `workflows/triage.md` | Starts on the `triage` label or from the router, one step `triage` with the check `sized` |
+| `agents/triager.md`   | Read-only tools (`read`, `grep`, `glob`), returns `label`, `issue` and `ask`              |
+| `checks/sized.md`     | A `block` script check: the reply ends in a size label, a split or an `ask`               |
 
 ```
  issue #1 gets the triage label

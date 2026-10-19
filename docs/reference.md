@@ -19,24 +19,24 @@ Every field a hub file may hold, with its type, its default and what it does. An
 
 `limits` holds four fields: <!-- code: src/hub.ts#Limits -->
 
-| Field         | Type    | Default | Meaning                                          |
-| ------------- | ------- | ------- | ------------------------------------------------ |
-| `minutes`     | number  | 30      | The longest one session, script or setup may run |
-| `usd-per-run` | number  | 10      | The most a run may spend                         |
-| `parallel`    | integer | 2       | How many runs go at once                         |
+| Field         | Type    | Default | Meaning                                                                                                  |
+| ------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `minutes`     | number  | 30      | The longest one session, script or setup may run                                                         |
+| `usd-per-run` | number  | 10      | The most a run may spend                                                                                 |
+| `parallel`    | integer | 2       | How many runs go at once                                                                                 |
 | `sessions`    | integer | 4       | How many sessions, judges included, are live at once across all runs <!-- code: src/engine.ts#gateOf --> |
 
 ## Workflows
 
 `workflows/<name>.md`. The file name is the workflow's name. The body is its description, or the prompt when it has no steps. <!-- code: src/workflow.ts#Front -->
 
-| Field    | Type                           | Default                             | Meaning                                                           |
-| -------- | ------------------------------ | ----------------------------------- | ----------------------------------------------------------------- |
-| `on`     | event name, or map of triggers | required                            | What starts a run: `issues`, `issue_comment` or `pull_request`    |
-| `branch` | template                       | none, a detached checkout           | The branch a run works on; `{issue}` and `{parent}` are filled in |
-| `base`   | template                       | `main`                              | The branch its pull requests go into                              |
-| `agent`  | agent name                     | the hub's only agent                | The agent of a workflow without `steps`                           |
-| `steps`  | map of step name to step       | one agent step named after the file | The steps, run in the order written                               |
+| Field    | Type                           | Default                             | Meaning                                                                    |
+| -------- | ------------------------------ | ----------------------------------- | -------------------------------------------------------------------------- |
+| `on`     | event name, or map of triggers | required                            | What starts a run: `issues`, `issue_comment`, `pull_request` or `dispatch` |
+| `branch` | template                       | none, a detached checkout           | The branch a run works on; `{issue}` and `{parent}` are filled in          |
+| `base`   | template                       | `main`                              | The branch its pull requests go into                                       |
+| `agent`  | agent name                     | the hub's only agent                | The agent of a workflow without `steps`                                    |
+| `steps`  | map of step name to step       | one agent step named after the file | The steps, run in the order written                                        |
 
 A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 
@@ -45,6 +45,8 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | `command`  | text          | A comment starting with it starts a run |
 | `label`    | label name    | Adding it to an issue starts a run      |
 | `branches` | list of names | Accepted, starts nothing yet            |
+
+`dispatch` takes no fields: `on: dispatch`, or `dispatch` beside other triggers as in `on: { issues: { label: triage }, dispatch }`. Such a workflow also starts from a `run` proposal, see [Dispatch](loop.md#dispatch).
 
 ## Steps
 
