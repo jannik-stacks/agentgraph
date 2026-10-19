@@ -1,10 +1,10 @@
 # Hub files
 
-Every field a hub file may hold, with its type, its default and what it does. An unknown field is an error, and a removed one is reported with what to write instead (`code: src/hub.ts#gone`).
+Every field a hub file may hold, with its type, its default and what it does. An unknown field is an error, and a removed one is reported with what to write instead. <!-- code: src/hub.ts#gone -->
 
 ## hub.yaml
 
-`code: src/hub.ts#HubFile`
+<!-- code: src/hub.ts#HubFile -->
 
 | Field       | Type                 | Default                           | Meaning                                                              |
 | ----------- | -------------------- | --------------------------------- | -------------------------------------------------------------------- |
@@ -17,7 +17,7 @@ Every field a hub file may hold, with its type, its default and what it does. An
 | `trust`     | list of logins       | owners, members and collaborators | Who may steer the bot, see [The loop](loop.md#trust-and-scope)       |
 | `limits`    | map                  | the defaults below                | Caps on a run                                                        |
 
-`limits` holds three fields (`code: src/hub.ts#Limits`):
+`limits` holds three fields: <!-- code: src/hub.ts#Limits -->
 
 | Field         | Type    | Default | Meaning                                          |
 | ------------- | ------- | ------- | ------------------------------------------------ |
@@ -27,7 +27,7 @@ Every field a hub file may hold, with its type, its default and what it does. An
 
 ## Workflows
 
-`workflows/<name>.md`. The file name is the workflow's name. The body is its description, or the prompt when it has no steps (`code: src/workflow.ts#Front`).
+`workflows/<name>.md`. The file name is the workflow's name. The body is its description, or the prompt when it has no steps. <!-- code: src/workflow.ts#Front -->
 
 | Field    | Type                           | Default                             | Meaning                                                           |
 | -------- | ------------------------------ | ----------------------------------- | ----------------------------------------------------------------- |
@@ -37,7 +37,7 @@ Every field a hub file may hold, with its type, its default and what it does. An
 | `agent`  | agent name                     | the hub's only agent                | The agent of a workflow without `steps`                           |
 | `steps`  | map of step name to step       | one agent step named after the file | The steps, run in the order written                               |
 
-A trigger under `on` holds (`code: src/workflow.ts#Trigger`):
+A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 
 | Field      | Type          | Meaning                                 |
 | ---------- | ------------- | --------------------------------------- |
@@ -47,7 +47,7 @@ A trigger under `on` holds (`code: src/workflow.ts#Trigger`):
 
 ## Steps
 
-A step names exactly one of `agent`, `run` and `wait` (`code: src/workflow.ts#StepFile`).
+A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.ts#StepFile -->
 
 | Field    | Type                                     | Default                               | Meaning                                            |
 | -------- | ---------------------------------------- | ------------------------------------- | -------------------------------------------------- |
@@ -64,7 +64,7 @@ A step names exactly one of `agent`, `run` and `wait` (`code: src/workflow.ts#St
 
 ## Agents
 
-`agents/<name>.md`. The body is added to the harness's system prompt (`code: src/hub.ts#Agent`).
+`agents/<name>.md`. The body is added to the harness's system prompt. <!-- code: src/hub.ts#Agent -->
 
 | Field     | Type                         | Default                                 | Meaning                                                 |
 | --------- | ---------------------------- | --------------------------------------- | ------------------------------------------------------- |
@@ -75,7 +75,7 @@ A step names exactly one of `agent`, `run` and `wait` (`code: src/workflow.ts#St
 
 ## Checks
 
-`checks/<name>.md`. A check names `run`, `agent` or both. The body is its description (`code: src/hub.ts#Check`).
+`checks/<name>.md`. A check names `run`, `agent` or both. The body is its description. <!-- code: src/hub.ts#Check -->
 
 | Field   | Type                          | Default  | Meaning                                               |
 | ------- | ----------------------------- | -------- | ----------------------------------------------------- |
@@ -87,7 +87,7 @@ A step names exactly one of `agent`, `run` and `wait` (`code: src/workflow.ts#St
 
 ## Skills
 
-`skills/<name>.md` or `skills/<name>/SKILL.md`. The body is the instruction (`code: src/hub.ts#SkillFile`).
+`skills/<name>.md` or `skills/<name>/SKILL.md`. The body is the instruction. <!-- code: src/hub.ts#SkillFile -->
 
 | Field         | Type                | Default | Meaning                                           |
 | ------------- | ------------------- | ------- | ------------------------------------------------- |

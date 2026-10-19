@@ -29,7 +29,7 @@ node bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 - `check` loads a hub and prints every problem with its file, or `ok`.
 - `--issue <n>` looks at one issue once. It continues a waiting run a human has answered, or begins one when none is live, and drives it until it waits or ends. It prints one line per run: id, step, status and reason.
 - `--all` does the same for every open issue, one after another. It begins a run only where a trusted command or label asks for one.
-- `loop` looks at the repo every `BOTHUB_EVERY` minutes until it is stopped (`code: src/main.ts#start`).
+- `loop` looks at the repo every `BOTHUB_EVERY` minutes until it is stopped. <!-- code: src/main.ts#start -->
 - `status` lists what waits on a human. It also warns when the App's installation reaches repos besides the hub's, and needs the App's credentials.
 
 `--hub <dir>` names the hub, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `BOTHUB_HUB`, `BOTHUB_DATA`, `BOTHUB_FORGE` and `BOTHUB_REPO`. The runner also reads:
@@ -43,11 +43,11 @@ node bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 | `BOTHUB_PROXY_KEYS`   | The agents' model keys, see [Models](sandbox.md#models)                          |
 | `BOTHUB_PRICES`       | The list prices file, `infra/local/prices.json` by default                       |
 
-The App's variables can also be set in the environment directly (`code: src/services.ts#settings`).
+The App's variables can also be set in the environment directly. <!-- code: src/services.ts#settings -->
 
 ## Without GitHub
 
-A forge folder stands in for the GitHub repo, and `bin/forge.ts` plays the maintainer on it. No GitHub App is needed (`code: src/forge.ts#fileForge`).
+A forge folder stands in for the GitHub repo, and `bin/forge.ts` plays the maintainer on it. No GitHub App is needed. <!-- code: src/forge.ts#fileForge -->
 
 ```
 /tmp/forge/
@@ -93,15 +93,15 @@ It starts on http://localhost:5182, or on `BHM_PORT`. Without `-- --hub <dir> --
 
 `npm run precommit` checks every example hub, the schema fields, the docs code refs and their coverage, unused code and formatting. Then it runs the bothub hub's fast checks over the uncommitted change, against `HEAD` or `BOTHUB_BASE`. `npx tsc --noEmit` and `npx vitest run --testTimeout=60000` cover the code.
 
-A docs sentence that a symbol backs ends with a ref like `code: src/engine.ts#land`. `bin/refs.mjs` pairs each docs section with the symbols it cites, so either side can be checked when the other changes.
+A docs sentence that a symbol backs is followed by an HTML comment like `<!-- code: src/engine.ts#land -->`, which readers never see. `bin/refs.mjs` pairs each docs section with the symbols it cites, so either side can be checked when the other changes.
 
 ```sh
 node bin/refs.mjs                    # every ref names a file and a top-level symbol in it
 node bin/refs.mjs --pairs            # every docs section with the symbols it cites
-node bin/refs.mjs --diff main        # the pairs whose other side to re-check after the change
+node bin/refs.mjs --diff main        # the other side of each pair to re-check after the change
 node bin/refs.mjs --coverage         # what no docs page names
 ```
 
-`--diff` prints `code changed: <symbol> is cited by <section>` when a change touches a cited symbol, and `docs changed: <section> cites <symbol>` when it touches a section with refs.
+`--diff` prints `code changed: <symbol> is cited by <section>` when a change touches a cited symbol, and `docs changed: <section> cites <symbol>` when it touches a section with refs, plus every other section that cites the same symbol. A pair that changed on both sides is left out. `--diff HEAD --staged` reads the staged change, and `npm run precommit` prints it as a warning.
 
 `--coverage` fails when a user-facing name appears in no docs page as code: hub file fields and values, proposal kinds and fields, run statuses and status labels, CLI commands and flags, and `BOTHUB_` variables. It only lists exports in `src` without a ref.

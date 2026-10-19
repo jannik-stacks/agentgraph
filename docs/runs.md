@@ -37,7 +37,7 @@ A run id is the workflow name, the issue number and a timestamp, so runs sort in
 | `started`  | When it began                                                   |
 | `usd`      | What its sessions cost                                          |
 
-`waiting` means a person is needed: a review at a human step, or an answer to the question in `reason` anywhere else. See [The loop](loop.md#waiting) (`code: src/workflow.ts#Run`).
+`waiting` means a person is needed: a review at a human step, or an answer to the question in `reason` anywhere else. See [The loop](loop.md#waiting). <!-- code: src/workflow.ts#Run -->
 
 The file is rewritten whole each time, so a run can be picked up on another machine.
 
@@ -53,13 +53,13 @@ The file is rewritten whole each time, so a run can be picked up on another mach
 - `outcome`: how a try ended (pass, failed, back, ask, answer or stop) and where the run went next.
 - `saved`: the fields of `run.json` that a write changed, and `cleared` for fields it removed.
 
-The studio reads only these files. `status` reads them too, and asks GitHub which repos the App reaches. Writes go through `code: src/store.ts#fileStore`.
+The studio reads only these files. `status` reads them too, and asks GitHub which repos the App reaches. Writes go through the file store. <!-- code: src/store.ts#fileStore -->
 
 ## Checkout
 
 Each run works in a checkout of the mirror, on the branch the workflow names.
 
-When a run's scope closes, its files are kept under `refs/bothub/runs/<run id>` in the mirror. A run that waits for a human picks up where it left off (`code: src/docker.ts#docker`).
+When a run's scope closes, its files are kept under `refs/bothub/runs/<run id>` in the mirror. A run that waits for a human picks up where it left off. <!-- code: src/docker.ts#docker -->
 
 The mirror's refs are read-only inside the sandbox.
 

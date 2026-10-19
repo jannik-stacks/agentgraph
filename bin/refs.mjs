@@ -1,8 +1,11 @@
-// Links docs sections and code both ways through the `code: path#symbol` refs in docs/*.md.
+// Links docs sections and code both ways through the `<!-- code: path#symbol -->` comments in docs/*.md.
+// A comment sits after the text it backs and is invisible to readers.
 //
-//   node bin/refs.mjs                 fails when a ref names a missing file or symbol
-//   node bin/refs.mjs --pairs         prints every pair: docs section, then the symbol it cites
-//   node bin/refs.mjs --diff <base>   prints the pairs whose other side to re-check after the change since <base>
+//   node bin/refs.mjs                           fails when a ref names a missing file or symbol
+//   node bin/refs.mjs --pairs                   prints every pair: docs section, then the symbol it cites
+//   node bin/refs.mjs --diff <base> [--staged]  prints what to re-check after the change since <base>, or the staged
+//                                               change: the other side of each pair that changed on one side only,
+//                                               and the docs sections that cite the same symbol
 //   node bin/refs.mjs --coverage      lists what no docs page names; fails on uncited user-facing items
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -41,17 +44,22 @@ const where = (page, anchor) => (anchor ? `${page}#${anchor}` : page);
 /** Every ref as a pair of a docs section and a symbol. */
 const pairs = pages.flatMap(page => {
   const sections = sectionsOf(page);
+  let fenced = false;
   return read(page)
     .split('\n')
-    .flatMap((text, i) =>
-      [...text.matchAll(/code: ([\w./-]+)#([\w$]+)/g)].map(([, file, symbol]) => ({
-        page,
-        anchor: sectionAt(sections, i + 1),
-        line: i + 1,
-        file,
-        symbol,
-      }))
-    );
+    .flatMap((text, i) => {
+      if (/^(```|~~~)/.test(text)) fenced = !fenced;
+      if (fenced) return [];
+      return [...text.replace(/`[^`]*`/g, '').matchAll(/<!--\s*code:([^>]*?)-->/g)].flatMap(([, body]) =>
+        [...body.matchAll(/([\w./-]+)#([\w$]+)/g)].map(([, file, symbol]) => ({
+          page,
+          anchor: sectionAt(sections, i + 1),
+          line: i + 1,
+          file,
+          symbol,
+        }))
+      );
+    });
 });
 
 const declaration = name =>
@@ -73,17 +81,17 @@ const rangeOf = (text, name) => {
 
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
 
-/** The lines a change since `base` touches in each file, on the new side. */
-const touched = base => {
+/** The lines a change since `base` (the staged one with `staged`) touches in each file, on the new side. */
+const touched = (base, staged) => {
   const lines = new Map();
   const mark = (file, from, to) => {
     if (!lines.has(file)) lines.set(file, new Set());
     for (let n = from; n <= to; n++) lines.get(file).add(n);
   };
   let file = '';
-  for (const row of git('diff', '-U0', '--no-color', '--no-renames', '--relative', base, '--', 'docs', 'src').split(
-    '\n'
-  )) {
+  const args = ['diff', '-U0', '--no-color', '--no-renames', '--relative', base, '--', 'docs', 'src'];
+  if (staged) args.splice(1, 0, '--cached');
+  for (const row of git(...args).split('\n')) {
     const name = /^\+\+\+ (?:b\/)?(.+)$/.exec(row)?.[1];
     if (name) file = name;
     const hunk = /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(row);
@@ -93,26 +101,39 @@ const touched = base => {
     if (count > 0) mark(file, start, start + count - 1);
     else mark(file, start, start + 1);
   }
-  for (const path of git('ls-files', '--others', '--exclude-standard', '--', 'docs', 'src').split('\n').filter(Boolean))
-    mark(path, 1, read(path).split('\n').length);
+  if (!staged)
+    for (const path of git('ls-files', '--others', '--exclude-standard', '--', 'docs', 'src')
+      .split('\n')
+      .filter(Boolean))
+      mark(path, 1, read(path).split('\n').length);
   return lines;
 };
 
-const diff = base => {
-  const changed = touched(base);
+/** What to re-check: the other side of each pair that changed on one side only, and the docs sections citing the same symbol. */
+const diff = (base, staged) => {
+  const changed = touched(base, staged);
+  const sections = new Map(pages.map(page => [page, sectionsOf(page)]));
+  const docsChanged = p => [...(changed.get(p.page) ?? [])].some(n => sectionAt(sections.get(p.page), n) === p.anchor);
+  const codeChanged = p => {
+    const lines = changed.get(p.file);
+    const range = lines && existsSync(join(root, p.file)) && rangeOf(read(p.file), p.symbol);
+    return !!range && [...lines].some(n => n >= range.from && n <= range.to);
+  };
   const out = new Set();
   for (const p of pairs) {
     const doc = where(p.page, p.anchor);
     const code = `${p.file}#${p.symbol}`;
-    const docLines = changed.get(p.page);
-    if (docLines) {
-      const sections = sectionsOf(p.page);
-      if ([...docLines].some(n => sectionAt(sections, n) === p.anchor)) out.add(`docs changed: ${doc} cites ${code}`);
+    const byDocs = docsChanged(p);
+    if (byDocs === codeChanged(p)) continue;
+    if (!byDocs) out.add(`code changed: ${code} is cited by ${doc}`);
+    else {
+      out.add(`docs changed: ${doc} cites ${code}`);
+      for (const q of pairs) {
+        const sibling = where(q.page, q.anchor);
+        if (q.file === p.file && q.symbol === p.symbol && sibling !== doc && !docsChanged(q))
+          out.add(`docs changed: ${sibling} also cites ${code}`);
+      }
     }
-    const codeLines = changed.get(p.file);
-    const range = codeLines && existsSync(join(root, p.file)) && rangeOf(read(p.file), p.symbol);
-    if (range && [...codeLines].some(n => n >= range.from && n <= range.to))
-      out.add(`code changed: ${code} is cited by ${doc}`);
   }
   return [...out].sort();
 };
@@ -225,8 +246,8 @@ const coverage = () => {
 const args = process.argv.slice(2);
 if (args[0] === '--pairs') for (const p of pairs) console.log(`${where(p.page, p.anchor)} ${p.file}#${p.symbol}`);
 else if (args[0] === '--diff') {
-  if (!args[1]) throw new Error('usage: node bin/refs.mjs --diff <base>');
-  for (const line of diff(args[1])) console.log(line);
+  if (!args[1]) throw new Error('usage: node bin/refs.mjs --diff <base> [--staged]');
+  for (const line of diff(args[1], args.includes('--staged'))) console.log(line);
 } else if (args[0] === '--coverage') process.exit(coverage() ? 0 : 1);
 else {
   const bad = pairs.flatMap(({ page, line, file, symbol }) =>

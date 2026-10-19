@@ -12,7 +12,7 @@ The engine means the runner's own code in `src`.
       │                          v
 ┌─────────────────────────────────────────────────────────────────┐
 │ host                                                            │
-│  runner process = the engine          code: src/main.ts#start   │
+│  runner process = the engine                                    │
 │    looks at the repo, begins and drives runs                    │
 │    pushes and opens pull requests through the Git API           │
 │         │                                 │                     │
@@ -36,6 +36,8 @@ The engine means the runner's own code in `src`.
          model providers
 ```
 
+<!-- code: src/main.ts#start -->
+
 The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and nothing else.
 
 Sessions and the hub's `setup` reach only the model proxy and an egress allowlist, and scripts and checks reach nothing, see [The network](sandbox.md#the-network).
@@ -44,10 +46,10 @@ Each run works in its own git worktree of a bare mirror, see [Runs](runs.md#chec
 
 The engine talks to the outside through four services. Each has a test double:
 
-- `code: src/forge.ts#Forge`
-- `code: src/store.ts#Store`
-- `code: src/sandbox.ts#Sandbox`
-- `code: src/session.ts#Session`
+- The forge reads and writes GitHub, or a folder when run locally. <!-- code: src/forge.ts#Forge -->
+- The store keeps runs and traces. <!-- code: src/store.ts#Store -->
+- The sandbox runs commands in docker, or on the host in tests. <!-- code: src/sandbox.ts#Sandbox -->
+- The session talks to a harness, or plays a script in tests. <!-- code: src/session.ts#Session -->
 
 ## One run through the state machine
 
@@ -73,14 +75,16 @@ Which part is which:
 
 | Deterministic engine code                                                                    | LLM judgement                                    |
 | -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Transitions between steps: `code: src/workflow.ts#transition`                                | The session: what it writes and proposes         |
+| Transitions between steps                                                                    | The session: what it writes and proposes         |
 | The tries cap and the rounds cap                                                             | An agent-judged check: the reply is PASS or FAIL |
 | Script checks and their modes (`warn`, `block`, `stop`)                                      | Whether the `until` sentence holds               |
-| Which proposals are accepted and applied: `code: src/engine.ts#land`                         | What the agent asks a human                      |
+| Which proposals are accepted and applied                                                     | What the agent asks a human                      |
 | Push safety: a push never forces and only the host holds the token                           |                                                  |
-| Triggers and trust: only a trusted command or label starts a run, `code: src/engine.ts#tick` |                                                  |
+| Triggers and trust: only a trusted command or label starts a run                             |                                                  |
 
-Judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail, and the engine reads the answers and decides where the run goes. A reply that does not parse fails the try. `transition` is pure, so every path is a plain test. The loop around it is `code: src/engine.ts#drive`.
+<!-- code: src/workflow.ts#transition src/engine.ts#land src/engine.ts#tick -->
+
+Judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail, and the engine reads the answers and decides where the run goes. A reply that does not parse fails the try. `transition` is pure, so every path is a plain test. The engine loop around it reads each answer and applies it. <!-- code: src/engine.ts#drive -->
 
 ## Bundling for hosting
 

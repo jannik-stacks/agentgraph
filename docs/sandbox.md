@@ -14,7 +14,7 @@ Each container has:
 - no image pulls,
 - a watchdog that kills it at the timeout.
 
-The checkout is at `/work` and the session's home at `/home/agent`, both writable. The hub is at `/hub`, read-only, and named by `BOTHUB_HUB`. The bare mirror is mounted read-only, so refs and objects cannot be touched (`code: src/docker.ts#dockerArgs`).
+The checkout is at `/work` and the session's home at `/home/agent`, both writable. The hub is at `/hub`, read-only, and named by `BOTHUB_HUB`. The bare mirror is mounted read-only, so refs and objects cannot be touched. <!-- code: src/docker.ts#dockerArgs -->
 
 The docker socket is never mounted and no GitHub token goes inside. A session gets the proxy URL and its own agent's key. Pushes and pull requests happen on the host, after the checks pass.
 
@@ -56,7 +56,7 @@ image: acme-node:bothub
 network: models
 ```
 
-Tests use a host sandbox that runs commands directly in a clone, with no network rules (`code: src/sandbox.ts#host`).
+Tests use a host sandbox that runs commands directly in a clone, with no network rules. <!-- code: src/sandbox.ts#host -->
 
 ## Harnesses
 
@@ -70,7 +70,7 @@ An agent's `harness` picks the program that runs its session.
 
 `tools` in the agent file lists the tools a session may use. It defaults to none. A bash pattern also allows the same command behind `NODE_OPTIONS= command `, the prefix some repos ask for.
 
-Each harness is a small adapter in `code: src/harnesses.ts#harnesses`. It builds the command and turns the harness's output into the same session events. Each session gets its own home under `homes/` in the data dir, reused when it resumes.
+Each harness is a small adapter. It builds the command and turns the harness's output into the same session events. Each session gets its own home under `homes/` in the data dir, reused when it resumes. <!-- code: src/harnesses.ts#harnesses -->
 
 ## Models
 
@@ -78,11 +78,11 @@ An agent names a model alias with `model`, never a vendor model. Without one, op
 
 LiteLLM sits in front of every model and maps aliases to upstreams. It gives each agent its own virtual key, so the logs show which agent spent what.
 
-`BOTHUB_PROXY_URL` points at the proxy. `BOTHUB_PROXY_KEYS` lists `name=key` pairs, one per agent, separated by commas or spaces. An agent without a key cannot start a session (`code: src/harnesses.ts#keysOf`).
+`BOTHUB_PROXY_URL` points at the proxy. `BOTHUB_PROXY_KEYS` lists `name=key` pairs, one per agent, separated by commas or spaces. An agent without a key cannot start a session. <!-- code: src/harnesses.ts#keysOf -->
 
 Inside the container the key is `BOTHUB_LLM_API_KEY` for opencode and pi, and `ANTHROPIC_AUTH_TOKEN` for Claude Code. opencode finds the proxy at `BOTHUB_LLM_BASE_URL`. The key is passed by name, never on a command line, and masked in the harness output.
 
-Usage a harness does not price, as with a subscription behind the proxy, is priced from the list prices in `infra/local/prices.json`, or the file `BOTHUB_PRICES` names (`code: src/harnesses.ts#priced`).
+Usage a harness does not price, as with a subscription behind the proxy, is priced from the list prices in `infra/local/prices.json`, or the file `BOTHUB_PRICES` names. <!-- code: src/harnesses.ts#priced -->
 
 Moving an alias from an API key to a subscription is a proxy config change. No agent file changes.
 
