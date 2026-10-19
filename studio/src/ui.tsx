@@ -49,7 +49,7 @@ export const Badge = ({ children }: { children: ReactNode }) => (
   </span>
 );
 
-export const Field = ({ name, children }: { name: string; children: ReactNode }) => (
+export const Field = ({ name, children }: { name: ReactNode; children: ReactNode }) => (
   <>
     <dt className="text-zinc-500">{name}</dt>
     <dd className="min-w-0 break-words">{children}</dd>
@@ -57,7 +57,7 @@ export const Field = ({ name, children }: { name: string; children: ReactNode })
 );
 
 export const Fields = ({ children }: { children: ReactNode }) => (
-  <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2">{children}</dl>
+  <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-0.5">{children}</dl>
 );
 
 export const Muted = ({ children }: { children: ReactNode }) => <p className="p-4 text-zinc-500">{children}</p>;

@@ -220,14 +220,19 @@ export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>
   >
     <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} style={arrival} />
     <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
-    {done ? (
-      <span className="flex size-4 shrink-0 items-center justify-center rounded-full border-[1.5px] border-current">
-        <span className="size-2 rounded-full bg-current" />
-      </span>
-    ) : (
-      <span className="truncate">{label}</span>
-    )}
-    {done ? <span>done</span> : <span className="size-3 shrink-0 rounded-full bg-current" />}
+    <Tooltip
+      tip={done ? 'The run is done once its last step passes.' : `A run starts here, on ${label}.`}
+      className="items-center gap-1.5"
+    >
+      {done ? (
+        <span className="flex size-4 shrink-0 items-center justify-center rounded-full border-[1.5px] border-current">
+          <span className="size-2 rounded-full bg-current" />
+        </span>
+      ) : (
+        <span className="truncate">{label}</span>
+      )}
+      {done ? <span>done</span> : <span className="size-3 shrink-0 rounded-full bg-current" />}
+    </Tooltip>
   </div>
 );
 
