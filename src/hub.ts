@@ -25,6 +25,7 @@ export const Agent = Schema.Struct({
   model: Schema.optionalWith(Schema.String, { exact: true }),
   tools: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { default: () => [] }),
   returns: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Literal(...kinds))), { default: () => ['comment'] }),
+  reads: Schema.optionalWith(Schema.Literal('traces'), { exact: true }),
 });
 export type Agent = typeof Agent.Type;
 
@@ -291,7 +292,9 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
         if (typeof kind === 'string' && kind in returns) say(`returns: ${returns[kind]}`);
       kept.returns = kept.returns.filter(kind => !(kind in returns));
     }
-    return decode(Agent, kept, say);
+    const agent = decode(Agent, kept, say);
+    if (agent?.reads && !agent.tools.includes('read')) say('reads: traces needs read in tools');
+    return agent;
   });
   const skills = docs(groups.skills, (data, say) => {
     const { description, uses } = isRecord(data) ? data : {};

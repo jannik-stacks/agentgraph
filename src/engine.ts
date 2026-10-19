@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
-import { answerWith, context, footer, news, shown, type Issues } from './context.ts';
+import { answerWith, context, footer, news, shown, transcript, type Issues } from './context.ts';
 import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
@@ -584,12 +584,36 @@ const verdictOf = (...args: Parameters<typeof converse<never>>) =>
     )
   );
 
-/** What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it and the reply. */
+/**
+ * What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it,
+ * the reply and the traces of the runs on the issue.
+ */
 const checkFiles = (work: Checkout) => ({
   BOTHUB_PROPOSALS: join(dirname(work.news), 'proposals.json'),
   BOTHUB_CONTEXT: join(dirname(work.news), 'context.md'),
   BOTHUB_REPLY: join(dirname(work.news), 'reply.md'),
+  BOTHUB_TRACES: join(dirname(work.news), 'traces.md'),
 });
+
+/** Whether a run is a retro, a run of a workflow that feedback starts. */
+const retro = (hub: Hub, r: Pick<Run, 'workflow'>) => !!hub.workflows[r.workflow]?.on.feedback;
+
+/** Writes the traces of the runs on `issue` that are not retros, oldest first, beside the news file. */
+const traced = (hub: Hub, issue: number, work: Checkout) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const runs = (yield* store.list({ issue }))
+      .filter(r => !retro(hub, r))
+      .sort((a, b) => a.started.localeCompare(b.started));
+    const read = yield* Effect.forEach(runs, run =>
+      Effect.map(Stream.runCollect(store.read(run.id)), lines => ({ run, lines: Chunk.toArray(lines) }))
+    );
+    yield* Effect.promise(() => writeFile(checkFiles(work).BOTHUB_TRACES, transcript(issue, read)));
+  });
+
+/** The prompt line that points an agent that reads traces at them. */
+const tracesAt = (work: Checkout) =>
+  `${checkFiles(work).BOTHUB_TRACES} holds the traces of the runs on this issue: per session the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
 
 /** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
 type Left = Checkout & {
@@ -659,13 +683,19 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           };
         const agent = hub.agents[check.agent]!;
         const input = out?.output ?? item ?? diff;
-        const prompt = [check.body, input, heard(work.answers), 'Reply PASS or FAIL first, then why.']
+        const prompt = [
+          check.body,
+          input,
+          heard(work.answers),
+          agent.reads && tracesAt(work),
+          'Reply PASS or FAIL first, then why.',
+        ]
           .filter(Boolean)
           .join('\n\n');
         const key = createHash('sha256')
           .update([run, check.name, check.agent, agent.model, prompt, diff].join('\0'))
           .digest('hex');
-        if (passed.has(key)) return { item, pass: true, findings: '', ...exit };
+        if (!agent.reads && passed.has(key)) return { item, pass: true, findings: '', ...exit };
         const judged = yield* verdictOf(
           hub,
           run,
@@ -679,6 +709,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
             prompt,
             dir: work.dir,
             tools: agent.tools,
+            ...(agent.reads && { read: [dirname(work.news)] }),
           },
           item
         ).pipe(
@@ -844,6 +875,7 @@ const attempt = (
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
       /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
       const diff = step.back && !step.each && !kept ? yield* diffOf(work) : '';
+      if (agent.reads) yield* traced(hub, run.issue, work);
       const prompt = [
         ...[step.does.skill, ...(hub.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && hub.skills[s]?.body),
         w.body,
@@ -860,6 +892,7 @@ const attempt = (
           'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
         reads &&
           `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
+        agent.reads && tracesAt(work),
         run.feedback,
         [
           'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
@@ -1078,6 +1111,7 @@ export const gate = (
         writeFile(files.BOTHUB_REPLY, left.reply),
       ])
     );
+    if (checks.length > 0) yield* traced(hub, left.issue, left);
     const settled = yield* Effect.forEach(checks, c => Effect.either(resultOf(step, c, left, hub)), {
       concurrency: 'unbounded',
     });

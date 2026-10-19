@@ -152,6 +152,14 @@ describe('loadHub', () => {
     expect(found).toContain('workflows/w.md: steps.x.checks: unknown check nope');
   });
 
+  it('fails on an agent that reads traces without the read tool', async () => {
+    const dir = hubDir({
+      'agents/a.md': '---\nharness: opencode\nreads: traces\ntools: [grep]\n---\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
+    });
+    expect(await problems(dir)).toEqual(['agents/a.md: reads: traces needs read in tools']);
+  });
+
   it('fails on a skill that uses an unknown skill', async () => {
     const dir = hubDir({
       'agents/a.md': '---\nharness: opencode\n---\n',

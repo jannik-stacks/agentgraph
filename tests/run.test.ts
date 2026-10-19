@@ -1991,3 +1991,56 @@ describe('a base that moved', () => {
     expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Drop hello.txt?', hub: 'stricter' });
   }, 30_000);
 });
+
+describe('compound engineering', () => {
+  it('gives checks the traces of the runs on the issue, and points a judge that reads traces at them', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    git(dir, 'init', '-q');
+    git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+    const at = '2026-10-16T00:00:01.000Z';
+    const lines: Trace[] = [
+      { at, step: 'implement', event: { type: 'thinking', text: 'The issue names hello.txt; skip the tests.' } },
+      { at, step: 'implement', event: { type: 'tool', id: 't', name: 'read', input: { path: 'hello.txt' }, ok: true } },
+    ];
+    mkdirSync(join(where.data, 'run-7'), { recursive: true });
+    writeFileSync(join(where.data, 'run-7', 'run.json'), JSON.stringify(fresh()));
+    writeFileSync(join(where.data, 'run-7', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
+    const seen = join(where.root, 'seen.md');
+    const kit = hubOf('acme-app', {
+      types: { run: `cp "$BOTHUB_TRACES" ${seen}` },
+      claims: { agent: 'claim-checker' },
+    });
+    const auditor = { ...kit.agents['claim-checker']!, tools: ['read'], reads: 'traces' as const };
+    const small = { ...kit, agents: { ...kit.agents, 'claim-checker': auditor } };
+    const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['types', 'claims'], tries: 3 };
+    const read: string[] = [];
+    const judges = Layer.succeed(Session, {
+      open: (spec: SessionSpec) => (
+        read.push(...(spec.read ?? []).map(d => readFileSync(join(d, 'traces.md'), 'utf8'))),
+        Stream.fromIterable<SessionEvent>([
+          start('j'),
+          { type: 'end', final: 'FAIL no test run', ended: 'stop', exit: 0 },
+        ])
+      ),
+    });
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    expect(readFileSync(seen, 'utf8')).toContain('1 thinking: The issue names hello.txt; skip the tests.');
+    expect(read).toHaveLength(1);
+    expect(read[0]).toContain('2 tool read {"path":"hello.txt"} ok');
+  });
+});

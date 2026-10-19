@@ -11,11 +11,15 @@ export type Doc<T> = T & { name: string; path: string; body: string };
 
 export type Problem = { path: string; message: string };
 
-/** An ordered list of steps; the body is the description, or the prompt when there are no steps. `dispatch` starts it only from a `run` proposal. */
+/**
+ * An ordered list of steps; the body is the description, or the prompt when there are no steps. `dispatch` starts it
+ * only from a `run` proposal, `feedback` on what a trusted person says or pushes where another run worked. A run of a
+ * `feedback` workflow never waits: where another run would ask, it stops.
+ */
 export type Workflow = Doc<{
   on: Partial<
     Record<
-      'issues' | 'issue_comment' | 'pull_request' | 'dispatch',
+      'issues' | 'issue_comment' | 'pull_request' | 'dispatch' | 'feedback',
       { command?: string; label?: string; branches?: string[] }
     >
   >;
@@ -89,7 +93,7 @@ const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(
   Schema.Struct({ command: exact(Schema.String), label: exact(Schema.String), branches: exact(Names) })
 );
-const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch');
+const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback');
 
 const StepFile = Schema.Struct({
   agent: exact(Schema.String),
@@ -112,6 +116,7 @@ const Front = Schema.Struct({
       issue_comment: exact(Trigger),
       pull_request: exact(Trigger),
       dispatch: exact(Schema.Null),
+      feedback: exact(Schema.Null),
     })
   ),
   branch: exact(Schema.String),
@@ -256,7 +261,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const step = w.steps[i];
   if (!step) return run;
   const stop = (why: string): Run => ({ ...fresh(run), status: 'stopped', reason: why });
-  const ask = (question: string): Run => ({ ...fresh(run), status: 'waiting', reason: question });
+  const ask = (question: string): Run =>
+    w.on.feedback ? stop(question) : { ...fresh(run), status: 'waiting', reason: question };
 
   const forward = (): Run => {
     const next = w.steps[i + 1];
