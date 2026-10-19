@@ -45,7 +45,7 @@ export type Event = {
 /**
  * What a run may change on the repo, and the two proposals that steer the run. `react` and `rebase` are the runner's
  * own; a rebase moves the commits on `branch` after `from` onto `onto`, and a react with `remove` takes back the
- * reaction of that id.
+ * reaction of that id. An issue with a `parent` is filed as its sub-issue.
  */
 export type Proposal =
   | { kind: 'comment'; body: string; edit?: string; under?: string }
@@ -301,7 +301,12 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             return { proposal: p, ok: true, url: pr.url };
           }
           case 'issue': {
-            const k = await open({ title: p.title, body: p.body, parent: p.parent ?? n, labels: p.labels ?? [] });
+            const k = await open({
+              title: p.title,
+              body: p.body,
+              ...(p.parent !== undefined && { parent: p.parent }),
+              labels: p.labels ?? [],
+            });
             return { proposal: p, ok: true, url: md(k), id: String(k) };
           }
           case 'react': {

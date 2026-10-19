@@ -15,7 +15,14 @@ const check = (hub: string, proposals: object[]) => {
   return { code: out.status, out: out.stdout.trim() };
 };
 
-const part = (title: string, size: string) => ({ kind: 'issue', title, body: 'b', size, priority: 'low' });
+const part = (title: string, size: string) => ({
+  kind: 'issue',
+  relation: 'part',
+  title,
+  body: 'b',
+  size,
+  priority: 'low',
+});
 const label = (size: string): Proposal => ({ kind: 'label', add: [`size/${size}`] });
 
 describe.each(['sk', 'sandbox'])('sized in %s', hub => {

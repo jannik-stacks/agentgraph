@@ -38,6 +38,7 @@ const ProposalSchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal('merge'), number: Schema.Int, head: Schema.String }),
   Schema.Struct({
     kind: Schema.Literal('issue'),
+    relation: Schema.Literal('part'),
     title: Schema.String,
     body: Schema.String,
     size: Schema.Literal('XS', 'S', 'M', 'L', 'XL'),
@@ -45,22 +46,34 @@ const ProposalSchema = Schema.Union(
     stacks_on: Schema.optionalWith(Schema.Int, { exact: true }),
     depends_on: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Int)), { exact: true }),
   }),
+  Schema.Struct({
+    kind: Schema.Literal('issue'),
+    relation: Schema.Literal('follow-up'),
+    title: Schema.String,
+    body: Schema.String,
+  }),
   Schema.Struct({ kind: Schema.Literal('ask'), question: Schema.String }),
   Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String })
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
 /** A proposal as an agent writes it. */
 type Said = typeof ProposalSchema.Type;
-/** An issue an agent proposes; `stacks_on` and `depends_on` name earlier issues in the same block by position, from 1. */
+/**
+ * An issue an agent proposes: a `part` of the run's issue, or a `follow-up` found while working on it. A part's
+ * `stacks_on` and `depends_on` name earlier issues in the same block by position, from 1.
+ */
 type Child = Extract<Said, { kind: 'issue' }>;
+const isPart = (p: Child): p is Extract<Child, { relation: 'part' }> => p.relation === 'part';
 const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   comment: '{"kind":"comment","body":"..."}',
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',
   pull_request: '{"kind":"pull_request","branch":"...","base":"...","title":"...","body":"..."}',
   merge: '{"kind":"merge","number":1,"head":"<sha>"}',
-  issue:
-    '{"kind":"issue","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","priority":"high|medium|low","stacks_on":1,"depends_on":[1]}',
+  issue: [
+    '{"kind":"issue","relation":"part","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","priority":"high|medium|low","stacks_on":1,"depends_on":[1]}',
+    '{"kind":"issue","relation":"follow-up","title":"...","body":"...\\n\\n## Done when\\n..."}',
+  ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
 };
@@ -152,8 +165,10 @@ const depthOf = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge>
   );
 
 /**
- * Files children in order under the run's issue, with their size and priority labels and their "Stacks on" and
- * "Depends on" lines, lists them on the issue and begins the workflow again on each XL child. One refusal files none.
+ * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size and priority labels and
+ * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
+ * again. A follow-up becomes a plain issue labelled `follow-up` that names the run's issue and starts nothing. One
+ * refusal files none.
  */
 const file = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
@@ -161,10 +176,13 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     const forge = yield* Forge;
     const issue = yield* forge.issue(run.issue);
     const depth = yield* depthOf(run.issue);
+    const titles = new Set((yield* forge.issues({ state: 'open' })).map(t => t.title.trim().toLowerCase()));
     const refusal = (p: Child, i: number) => {
       if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
-      if (depth >= deepest) return `#${run.issue} sits ${depth} issues deep; split it by hand`;
+      if (titles.has(p.title.trim().toLowerCase())) return `${p.title}: an open issue has this title`;
       if (!/^#+\s*done when\b/im.test(p.body)) return `${p.title}: say when it is done under a "Done when" heading`;
+      if (!isPart(p)) return;
+      if (depth >= deepest) return `#${run.issue} sits ${depth} issues deep; split it by hand`;
       const named = [...(p.stacks_on === undefined ? [] : [p.stacks_on]), ...(p.depends_on ?? [])];
       if (named.some(k => k < 1 || k > i))
         return `${p.title}: stacks_on and depends_on name an earlier issue here by position`;
@@ -178,27 +196,32 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     const applied: Applied[] = [];
     const numbers: number[] = [];
     for (const p of children) {
-      const lines = [
-        ...(p.stacks_on === undefined ? [] : [`Stacks on #${numbers[p.stacks_on - 1]}`]),
-        ...(p.depends_on ?? []).map(k => `Depends on #${numbers[k - 1]}`),
-      ];
+      const lines = isPart(p)
+        ? [
+            ...(p.stacks_on === undefined ? [] : [`Stacks on #${numbers[p.stacks_on - 1]}`]),
+            ...(p.depends_on ?? []).map(k => `Depends on #${numbers[k - 1]}`),
+          ]
+        : [`Found while working on #${run.issue}`];
       const a = yield* forge.apply(run.issue, {
         kind: 'issue',
         title: p.title,
         body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
-        parent: run.issue,
-        labels: [`size/${p.size}`, `priority/${p.priority}`],
+        ...(isPart(p)
+          ? { parent: run.issue, labels: [`size/${p.size}`, `priority/${p.priority}`] }
+          : { labels: ['follow-up'] }),
       });
       applied.push(a);
       if (!a.ok) break;
       numbers.push(Number(a.id));
     }
-    if (numbers.length === 0) return applied;
-    const list = numbers.map(n => `- [ ] #${n}`).join('\n');
+    const parts = numbers.filter((_, i) => isPart(children[i]!));
+    if (parts.length === 0) return applied;
+    const list = parts.map(n => `- [ ] #${n}`).join('\n');
     applied.push(yield* forge.apply(run.issue, { kind: 'comment', body: `Split into:\n\n${list}` }));
     const store = yield* Store;
     for (const [i, n] of numbers.entries()) {
-      if (children[i]!.size !== 'XL' || depth + 1 >= deepest) continue;
+      const p = children[i]!;
+      if (!isPart(p) || p.size !== 'XL' || depth + 1 >= deepest) continue;
       const at = now();
       yield* store.put(begin(w, { id: `${w.name}-${n}-${at.replace(/\D/g, '')}`, issue: n, started: at }));
     }
@@ -622,9 +645,17 @@ export const gate = (
         usd,
       };
     const returns = 'agent' in step.does ? hub.agents[step.does.agent]?.returns : undefined;
-    const proposals: Applied[] = left.proposals
-      .filter(p => returns && !returns.some(k => k === p.kind))
-      .map(p => ({ proposal: p, ok: false, reason: `${step.name} may not propose ${p.kind}` }));
+    const marks = Object.values(hub.workflows).flatMap(w => w.on.issues?.label ?? []);
+    const refusal = (p: Proposal) =>
+      returns && !returns.some(k => k === p.kind)
+        ? `${step.name} may not propose ${p.kind}`
+        : p.kind === 'label' && p.add?.some(l => marks.includes(l))
+          ? `only a human adds ${p.add.filter(l => marks.includes(l)).join(', ')}`
+          : undefined;
+    const proposals: Applied[] = left.proposals.flatMap(p => {
+      const reason = refusal(p);
+      return reason === undefined ? [] : [{ proposal: p, ok: false, reason }];
+    });
     const blocking = failed('block');
     const outcome: Outcome =
       blocking.length > 0 || proposals.length > 0

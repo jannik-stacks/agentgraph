@@ -5,7 +5,7 @@ const sizes = ['XS', 'S', 'M', 'L', 'XL'];
 const label = proposals
   .flatMap(p => (p.kind === 'label' ? (p.add ?? []) : []))
   .find(l => /^size\/(XS|S|M|L|XL)$/.test(l));
-const parts = proposals.filter(p => p.kind === 'issue');
+const parts = proposals.filter(p => p.kind === 'issue' && p.relation === 'part');
 if (!label && !parts.length) {
   console.log('No size label proposed. Propose one `label` with a size/ label, or `ask` what is missing.');
   process.exit(1);

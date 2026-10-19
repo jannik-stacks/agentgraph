@@ -774,7 +774,8 @@ export const githubForge = (
               fields,
               'issue'
             );
-            yield* gh('POST', `${repo}/issues/${p.parent ?? number}/sub_issues`, { sub_issue_id: made.id }, 'issue');
+            if (p.parent !== undefined)
+              yield* gh('POST', `${repo}/issues/${p.parent}/sub_issues`, { sub_issue_id: made.id }, 'issue');
             return { url: made.html_url, id: String(made.number) };
           });
       }

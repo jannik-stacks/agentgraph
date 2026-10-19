@@ -60,11 +60,19 @@ const reply = (...proposals: unknown[]): SessionEvent[] => [
 
 const part = (title: string, size: string, more: object = {}) => ({
   kind: 'issue',
+  relation: 'part',
   title,
   body: `Change ${title}.\n\n## Done when\n\n- the tests cover ${title}`,
   size,
   priority: 'medium',
   ...more,
+});
+
+const follow = (title: string) => ({
+  kind: 'issue',
+  relation: 'follow-up',
+  title,
+  body: `Change ${title}.\n\n## Done when\n\n- it is changed`,
 });
 
 const run = <A, E>(
@@ -159,6 +167,38 @@ describe('triage', () => {
       ['triage', 1, 'done'],
       ['triage', 4, 'running'],
     ]);
+  });
+
+  it('files a follow-up as a plain issue, and starts no run on it or on the bot own label or comment', async () => {
+    const where = world();
+    where.label(1);
+    await run(where, [reply({ kind: 'label', add: ['size/S'] }, follow('Tidy the README'))], tick(unbounded));
+    const filed = await issue(where, 2);
+    expect([filed.title, filed.parent, filed.labels]).toEqual(['Tidy the README', undefined, ['follow-up']]);
+    expect(filed.body).toMatch(/## Done when[\s\S]*\n\nFound while working on #1$/);
+    expect((await issue(where, 1)).events.some(m => m.comment?.body.startsWith('Split into'))).toBe(false);
+
+    const bot = Layer.mergeAll(fileForge(where.forge), fileStore(where.data));
+    await Effect.runPromise(
+      Effect.flatMap(Forge, f =>
+        Effect.all([f.apply(2, { kind: 'label', add: ['triage'] }), f.apply(2, { kind: 'comment', body: '/bothub' })])
+      ).pipe(Effect.provide(bot))
+    );
+    expect((await run(where, [], tick(hub))).value).toEqual([]);
+    expect((await run(where, [], sweep(hub))).value).toEqual([]);
+    expect((await runs(where)).map(r => [r.workflow, r.issue, r.status])).toEqual([['triage', 1, 'done']]);
+  });
+
+  it('refuses a follow-up an open issue already has the title of, and a label that starts a workflow', async () => {
+    const where = world();
+    where.label(1);
+    const dup = await run(where, Array(3).fill(reply(follow('Issue 1'))), tick(unbounded));
+    expect(dup.value[0]!.reason).toContain('Issue 1: an open issue has this title');
+    const where2 = world();
+    where2.label(1);
+    const marked = await run(where2, Array(3).fill(reply({ kind: 'label', add: ['size/S', 'triage'] })), tick(hub));
+    expect(marked.value[0]!.reason).toContain('label failed: only a human adds triage');
+    expect((await issues(where)).map(t => t.number)).toEqual([1]);
   });
 
   it('files no children from an issue three levels deep, and begins no triage on an XL child at the cap', async () => {

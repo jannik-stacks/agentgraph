@@ -118,7 +118,7 @@ describe('fileForge', () => {
       Effect.gen(function* () {
         const forge = yield* Forge;
         yield* forge.apply(1, { kind: 'label', add: ['size:M'], remove: ['ready'] });
-        const child = yield* forge.apply(1, { kind: 'issue', title: 'Part', body: 'A part.' });
+        const child = yield* forge.apply(1, { kind: 'issue', title: 'Part', body: 'A part.', parent: 1 });
         const merge = yield* forge.apply(1, { kind: 'merge', number: 1, head: 'x' });
         const missing = yield* Effect.either(forge.issue(9));
         return {
