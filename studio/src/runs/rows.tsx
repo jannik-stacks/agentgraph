@@ -74,14 +74,6 @@ const gist = (p: Proposal) =>
                 ? `#${p.number}`
                 : '';
 
-const outcomeFrom: Record<string, string> = {
-  ask: 'question',
-  answer: 'answer from a human',
-  stop: 'why it stopped',
-  back: 'why it goes back',
-  failed: 'what failed',
-};
-
 const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } = {
   tool: e => ({
     summary: (
@@ -186,10 +178,7 @@ const lines: {
       </>
     ),
     body: ('body' in p || 'question' in p) && (
-      <div className="space-y-1 font-sans">
-        <From>
-          {kindName(p.kind)} by {by}
-        </From>
+      <div className="space-y-1">
         {'title' in p && <p className="font-medium">{p.title}</p>}
         {'body' in p && <Markdown text={p.body} className="bhm-tight" />}
         {'question' in p && <Markdown text={p.question} className="bhm-tight" />}
@@ -206,10 +195,9 @@ const lines: {
       </>
     ),
     body: detail(line.outcome) && (
-      <>
-        <From>{outcomeFrom[line.outcome.kind]}</From>
-        <Pre text={detail(line.outcome)} />
-      </>
+      <p className="max-w-4xl break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
+        {detail(line.outcome)}
+      </p>
     ),
   }),
   saved: line => ({
