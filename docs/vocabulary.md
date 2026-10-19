@@ -19,10 +19,11 @@ The terms the rest of the docs use. Common agent and GitHub terms keep their usu
 | **hub change** | A follow-up about the bot's own workflows, agents or checks, labelled `hub`. It waits for a person                          |
 | **run**       | One workflow on one issue, from its first step to done or stopped                                                            |
 | **dispatch**  | One run starting another with a `run` proposal, then waiting until it asks, is done or stops                                 |
-| **feedback**  | Text carried into the next try or step: a failed check's output, a back reason, a human's answer                             |
+| **feedback**  | Text carried into the next try or step: a failed check's output, a back reason, a human's answer. `on: feedback` starts a retro on what a person says or pushes |
+| **retro**     | A run that asks how the bot could have avoided what a person said, and files a hub issue when the miss would come back       |
 | **checkout**  | The files a run works in, on its own branch, started from the base                                                           |
 | **sandbox**   | The container a session or script runs in. A session reaches only the model proxy and an allowlist; a script reaches nothing |
-| **trace**     | The lines a run writes: session events, check results, applied proposals, outcomes                                           |
+| **trace**     | The lines a run writes: session events, check results, applied proposals, outcomes. An agent with `reads: traces` reads those of every run on its issue |
 | **studio**    | The web UI that draws workflows and lists runs                                                                               |
 
 "Agent" always means the file. "bothub" means the whole thing. "Bot" is only the GitHub account

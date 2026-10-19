@@ -75,6 +75,7 @@ New here? Read these in order.
 - [Sub-issues and stacks](stacks.md): splitting an issue and building on another's pull request.
 - [Runs](runs.md): what a run records in the data dir.
 - [Sandbox and models](sandbox.md): the container, its network, harnesses and models.
+- [Compound engineering](compound.md): retros on what people say, and agents that read traces.
 
 ## Examples
 

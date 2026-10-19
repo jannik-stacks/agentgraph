@@ -156,6 +156,7 @@ Scripts run with the checkout as their working directory and get these variables
 | `BOTHUB_PROPOSALS` | A JSON file of the proposals the try made                    | checks           |
 | `BOTHUB_CONTEXT`   | A file with the issue and pull request as the agent saw them, then the human answers | checks           |
 | `BOTHUB_REPLY`     | A file with the try's reply                                  | checks           |
+| `BOTHUB_TRACES`    | A file with the traces of the runs on the issue, see [Reading traces](compound.md#reading-traces) | checks |
 | `BOTHUB_ITEM`      | The item, in a fan-out                                       | checks           |
 
 ## Tries and going back

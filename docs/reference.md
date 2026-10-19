@@ -34,7 +34,7 @@ A hub is a folder: `.bothub/` on the default branch of the repo it works on, or 
 
 | Field         | Type                           | Default                             | Meaning                                                                    |
 | ------------- | ------------------------------ | ----------------------------------- | -------------------------------------------------------------------------- |
-| `on`          | event name, or map of triggers | required                            | What starts a run: `issues`, `issue_comment`, `pull_request` or `dispatch` |
+| `on`          | event name, or map of triggers | required                            | What starts a run: `issues`, `issue_comment`, `pull_request`, `dispatch` or `feedback` |
 | `branch`      | template                       | none, a detached checkout           | The branch a run works on; `{issue}` and `{parent}` are filled in          |
 | `base`        | template                       | `main`                              | The branch its pull requests go into                                       |
 | `concurrency` | `steer`, `queue` or `cancel`   | `steer`                             | What a trusted comment does to a working run                               |
@@ -58,6 +58,8 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 | `branches` | list of names | Accepted, starts nothing yet            |
 
 `dispatch` takes no fields: `on: dispatch`, or `dispatch` beside other triggers as in `on: { issues: { label: triage }, dispatch }`. Such a workflow also starts from a `run` proposal, see [Dispatch](loop.md#dispatch).
+
+`feedback` takes no fields either: `on: feedback` starts a retro on what a trusted person says or pushes where another run worked, see [Compound engineering](compound.md). <!-- code: src/engine.ts#feedback -->
 
 ## Steps
 
@@ -86,6 +88,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `model`   | model alias                  | `default`, or Claude Code's own default | The alias the model proxy maps to a model               |
 | `tools`   | list of tool names           | none                                    | The tools a session may use                             |
 | `returns` | list of proposal kinds       | `[comment]`                             | The kinds it may propose, see [Proposals](proposals.md) |
+| `reads`   | `traces`                     | none                                    | Its sessions get the traces of the runs on the issue; needs `read` in `tools`, see [Reading traces](compound.md#reading-traces) |
 
 ## Checks
 
