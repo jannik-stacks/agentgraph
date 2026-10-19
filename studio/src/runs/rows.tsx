@@ -27,6 +27,8 @@ const short = (text: string, max = 140) => {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}...` : flat;
 };
+/** Numbers cut to 4 decimals, trailing zeros dropped. */
+const round = (_: string, v: unknown) => (typeof v === 'number' ? Number(v.toFixed(4)) : v);
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour12: false });
 const took = (from: string, to: string | undefined) => {
   if (!to) return `since ${clock(from)}`;
@@ -257,7 +259,7 @@ const lines: {
         {muted(
           [
             ...Object.entries(line.saved).map(
-              ([k, v]) => `${k} ${short(typeof v === 'string' ? v : JSON.stringify(v), 60)}`
+              ([k, v]) => `${k} ${short(typeof v === 'string' ? v : JSON.stringify(v, round), 60)}`
             ),
             ...(line.cleared ?? []).map(k => `cleared ${k}`),
           ].join(', ')
