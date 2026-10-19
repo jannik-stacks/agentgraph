@@ -23,7 +23,8 @@ wrong, which measures how well they catch bugs and how much they reward size.
 - `human`: the merged change.
 - `v2`: the engine with the repo's hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), or
   `examples/bench` for any other repo: an implementor that must pass the case's `test` command, then a
-  reviewer that sends it back for up to two rounds, then a human merge.
+  reviewer that may send it back once (skipped for one small edit to one source file), then a human
+  merge.
 - `floor`: one plain session in the same hub's sandbox and budget, no checks and no review
   (`bench/floor`).
 - `v1`: not yet. It needs its own sandbox image and env, and its seed must be made leak-free first.
