@@ -212,6 +212,17 @@ describe('reenter', () => {
   const waiting = at('merge', { status: 'waiting' });
   const asked = at('implement', { status: 'waiting', reason: 'which API?' });
 
+  it('changes requested carries the review body and its line comments', () => {
+    const line = (path: string, line: number, body: string) =>
+      said('comment', { comment: { id: 'l', author: 'morgan', body, at: '', path, line } });
+    const review = said('changes_requested', { comment: { id: 'r', author: 'morgan', body: 'fix these', at: '' } });
+    const lined = [line('a.ts', 3, 'rename'), line('b.ts', 9, 'drop')];
+    expect(reenter(w, waiting, review, undefined, lined)).toEqual({
+      kind: 'back',
+      why: 'fix these\na.ts:3: rename\nb.ts:9: drop',
+    });
+  });
+
   it('waiting: merged, approved or the approved label is pass', () => {
     expect(reenter(w, waiting, said('merged'))).toEqual({ kind: 'pass' });
     expect(reenter(w, waiting, said('approved'))).toEqual({ kind: 'pass' });

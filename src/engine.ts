@@ -1285,7 +1285,10 @@ export const tick = (
       const m = answers.find(m => m.kind === 'merged') ?? answers[0];
       if (!w || !m) continue;
       used.add(m);
-      const outcome = reenter(w, run, m, command)!;
+      const lined = events.filter(
+        l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
+      );
+      const outcome = reenter(w, run, m, command, lined)!;
       const seen = m.kind === 'comment' ? yield* eyes(run, m) : run;
       const moved = { ...transition(w, seen, outcome), said: heard(m) };
       const next = moved.status === 'running' ? moved : yield* show(w, moved);
