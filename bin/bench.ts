@@ -321,7 +321,8 @@ const exec = (cmd: string, cwd: string) => {
   return { ok: r.status === 0, ms: Date.now() - started, tail: `${r.stdout}${r.stderr}`.slice(-2000) };
 };
 
-const coupled = /Cannot find module|Failed to resolve import|is not a function|is not exported|does not provide an export|No matching export|is not defined|is not a constructor|TS\d{4}|Cannot destructure|Cannot read propert/i;
+const coupled =
+  /Cannot find module|Failed to resolve import|is not a function|is not exported|does not provide an export|No matching export|is not defined|is not a constructor|TS\d{4}|Cannot destructure|Cannot read propert/i;
 
 /** Whether a failed hidden run broke on the human's names and signatures (coupled) or on a result (behaviour). */
 export const failureClass = (tail: string) => (coupled.test(tail) ? 'coupled' : 'behaviour');
@@ -676,7 +677,10 @@ const headline = (cases: Scored[], valid: Scored[]) => {
     ...(hidden.length
       ? ['Hidden tests passed, valid cases, infra arms left out', '', table(hidden.map(rate)), '']
       : []),
-    ...list('Hidden test failures, coupled to the human API or behaviour', valid.flatMap(c => c.failures)),
+    ...list(
+      'Hidden test failures, coupled to the human API or behaviour',
+      valid.flatMap(c => c.failures)
+    ),
     ...list('Invalid cases, not run or judged', invalids),
     ...list('Infra arm runs, left out of every number below', infras),
   ];
