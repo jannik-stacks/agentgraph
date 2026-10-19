@@ -170,7 +170,9 @@ Going forward into a step starts a fresh session. Going back resumes the session
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question as its own comment on the issue.
 
-A human answers with a comment on the thread, or with `@stx-bothub <answer>`, and the answer becomes feedback for the same step. `@stx-bothub stop` ends a waiting run, and so does closing the issue. `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
+A human answers by replying on the thread, with no mention needed, and the answer becomes feedback for the same step. A reply that says only `stop` ends a waiting run, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
+
+`node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
 
 ## Status on the issue
 
