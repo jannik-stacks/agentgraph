@@ -535,7 +535,7 @@ const judge = async (caseDir: string, out: string) => {
               for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
                 guard(out, name !== 'sol');
                 const raw = await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
-                  ask(prompt, dir)
+                  ask(prompt, tmpdir())
                 ).catch(() => '');
                 save(join(dir, `${name}.${attempt}.raw.md`), raw);
                 const v = verdict(raw);
