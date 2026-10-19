@@ -2048,6 +2048,28 @@ describe('a base that moved', () => {
     expect(failing.specs.map(s => s.prompt)[0]).toMatch(/^the merge step sent this back: types/);
   }, 60_000);
 
+  it.each([
+    ['runs the setup before the checks', 'touch .ready', 'test -e .ready'],
+    ['takes a check whose command is missing as infrastructure, not a red change', undefined, 'not-installed-tool'],
+  ])(
+    '%s and keeps the run waiting',
+    async (_, setup, script) => {
+      const where = await moved('other.txt');
+      const { specs, run } = services(where, []);
+      const checked = {
+        ...hub,
+        ...(setup && { setup }),
+        checks: { ...hub.checks, types: { ...hub.checks.types!, run: script } },
+      };
+      await run(tick(merging({ checks: ['types'] }, checked)));
+      expect(behind(where)).toBe('0');
+      expect(specs).toHaveLength(0);
+      const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+      expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
+    },
+    60_000
+  );
+
   it('follows the base and checks nothing when the step lists no checks', async () => {
     const where = await moved('other.txt');
     const { commands, run } = services(where, []);

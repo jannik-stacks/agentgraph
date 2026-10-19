@@ -449,6 +449,15 @@ const sh = (
     )
   );
 
+/** Runs the hub's setup in a checkout, so its checks find what it installs. */
+const setUp = (hub: Hub, work: Checkout) =>
+  Effect.gen(function* () {
+    if (!hub.setup) return;
+    const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
+    if (out.code !== 0)
+      return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
+  });
+
 const index = Effect.unsafeMakeSemaphore(1);
 
 const text = (work: Checkout, args: string[]) =>
@@ -726,6 +735,11 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           ...(item !== undefined && { BOTHUB_ITEM: item }),
         };
         const out = check.run ? yield* sh(check.run, hub.dir, work.dir, env, minutes) : undefined;
+        if (out?.code === 127)
+          return yield* new SandboxError({
+            reason: 'infra',
+            detail: `${check.name}: command not found: ${squeeze(out.output, 400)}`,
+          });
         const exit = out && { exit: out.code };
         if (!check.agent)
           return {
@@ -1322,14 +1336,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/bothub/runs/${run.id}`, hub));
       const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
-      if (hub.setup && !w.on.feedback) {
-        const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
-        if (out.code !== 0)
-          return yield* new SandboxError({
-            reason: 'infra',
-            detail: `setup exited ${out.code}: ${squeeze(out.output)}`,
-          });
-      }
+      if (!w.on.feedback) yield* setUp(hub, work);
       while (current.status === 'running') {
         const tried = yield* attempt(w, current, hub, work);
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
@@ -1466,6 +1473,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       same = before === after;
     } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
     if (!to) return { run: current };
+    yield* setUp(hub, work);
     const t = yield* issuesOf(w, run);
     const left = {
       run: run.id,
