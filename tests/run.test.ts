@@ -2128,7 +2128,7 @@ describe('compound engineering', () => {
     expect((await run(retros)).map(r => r.workflow)).toEqual(['retro', 'retro']);
   }, 30_000);
 
-  it('waits for a live retro, and a live retro holds neither the issue nor its answers', async () => {
+  it('a live retro holds neither the issue nor its answers', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Hi.' })]]);
     await run(done());
@@ -2136,9 +2136,21 @@ describe('compound engineering', () => {
     await run(Effect.flatMap(Store, s => s.put({ ...live, status: 'waiting', reason: 'parked' })));
     where.human('/bothub once more', '2026-10-16T00:00:05.000Z');
     const touched = await run(tick(looking));
-    expect(touched.map(r => [r.workflow, r.started])).toEqual([['issue', '2026-10-16T00:00:05.000Z']]);
+    expect(touched.map(r => [r.workflow, r.started])).toContainEqual(['issue', '2026-10-16T00:00:05.000Z']);
     expect(specs[0]!.agent).toBe('implementor');
-    expect((await run(retros)).map(r => [r.id, r.status])).toEqual([['retro-7', 'waiting']]);
+    expect((await run(retros)).find(r => r.id === 'retro-7')?.status).toBe('waiting');
+  }, 30_000);
+
+  it('starts the next retro while one works, so what is said meanwhile waits on nothing', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('r'), reply()]]);
+    await run(done());
+    const live = begin(looking.workflows.retro, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:02.000Z' });
+    await run(Effect.flatMap(Store, s => s.put({ ...live, status: 'waiting', reason: 'parked' })));
+    say(where, pushed(7, '2026-10-16T00:00:04.000Z'));
+    const touched = await run(tick(looking));
+    expect(touched.map(r => [r.workflow, r.started])).toEqual([['retro', '2026-10-16T00:00:04.000Z']]);
+    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan pushed abcdef0 Document the field');
   }, 30_000);
 
   it('takes what is said on a merged pull request as feedback on the issue its branch worked on', async () => {

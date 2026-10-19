@@ -1652,7 +1652,7 @@ export const tick = (
       }
       for (const [issue, said] of heardOn) {
         const before = all.filter(r => r.issue === issue && r.workflow === w.name);
-        if (young(issue) || before.some(live)) continue;
+        if (young(issue)) continue;
         const first = all
           .filter(r => r.issue === issue && !retro(hub, r))
           .map(r => r.started)

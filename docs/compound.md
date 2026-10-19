@@ -28,8 +28,8 @@ run's branch. A comment that is only a command, such as `/bothub stop`, is not f
 pull request count for the issue its branch worked on, also once it is merged or closed. <!-- code: src/engine.ts#feedback -->
 
 What came in since the last retro on the issue starts one retro, once the issue has been quiet for 30
-seconds. The run's feedback is the list of what was said or pushed. One retro works on an issue at a
-time; what comes in meanwhile starts the next one. <!-- code: src/engine.ts#tick -->
+seconds. The run's feedback is the list of what was said or pushed. What comes in while a retro works
+starts the next one at once, so nothing waits for it. <!-- code: src/engine.ts#tick -->
 
 A retro keeps out of the way of the run it looks at. It never holds the issue, never takes an answer
 meant for another run, shows no status on the issue, skips the hub's `setup`, and never waits: where
