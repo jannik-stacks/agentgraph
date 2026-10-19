@@ -70,7 +70,7 @@ An agent's `harness` picks the program that runs its session.
 
 `tools` in the agent file lists the tools a session may use. It defaults to none. A bash pattern also allows the same command behind `NODE_OPTIONS= command `, the prefix some repos ask for.
 
-Each harness is a small adapter. It builds the command and turns the harness's output into the same session events. Each session gets its own home under `homes/` in the data dir, reused when it resumes. <!-- code: src/harnesses.ts#harnesses -->
+Each harness is a small adapter. It builds the command and turns the harness's output into the same session events. Each session gets its own home under `homes/` in the data dir, reused when it resumes. An [aside](loop.md#asides) forks a session in a copy of its home: opencode with `--session <id> --fork`, Claude Code with `--resume <id> --fork-session`, pi with `--fork <id>`. The session it forks stays as it was. <!-- code: src/harnesses.ts#harnesses -->
 
 ## Models
 

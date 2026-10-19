@@ -69,7 +69,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | -------- | ---------------------------------------- | ------------------------------------- | -------------------------------------------------- |
 | `agent`  | agent name                               | none                                  | An agent runs the step in a session                |
 | `run`    | shell command                            | none                                  | A script runs the step                             |
-| `wait`   | `human`                                  | none                                  | The step waits for a person                        |
+| `wait`   | `human`                                  | none                                  | The step waits for a person, see [Asides](loop.md#asides) |
 | `skill`  | skill name                               | the skill named like the step, if any | The skill handed to the agent                      |
 | `checks` | list of check names                      | none                                  | What must pass before the step is done             |
 | `tries`  | positive integer                         | 3 with checks, else 1                 | Tries before the run waits, the first one included |

@@ -18,6 +18,7 @@ The terms the rest of the docs use. Common agent and GitHub terms keep their usu
 | **follow-up** | An issue an agent files for something the run's issue does not ask for. It waits for a person                                |
 | **hub change** | A follow-up about the bot's own workflows, agents or checks, labelled `hub`. It waits for a person                          |
 | **run**       | One workflow on one issue, from its first step to done or stopped                                                            |
+| **aside**     | A fork of a step's session that answers what a human says at a human step, in a throwaway checkout. Its `back` sends the run back |
 | **dispatch**  | One run starting another with a `run` proposal, then waiting until it asks, is done or stops                                 |
 | **feedback**  | Text carried into the next try or step: a failed check's output, a back reason, a human's answer. `on: feedback` starts a retro on what a person says or pushes |
 | **retro**     | A run that asks how the bot could have avoided what a person said, and files a hub issue when the miss would come back       |

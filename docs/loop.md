@@ -165,7 +165,7 @@ A failed try starts another in the same session, with each failing check's outpu
 
 `back: implement` lets a step send the run to an earlier step. An agent step with `back` also needs `until`, a sentence saying when the step is satisfied. While it does not hold, the agent proposes `back` with a reason, and the reason becomes feedback for the earlier step. `rounds` caps how often that happens. When rounds run out, the run waits.
 
-A `wait: human` step with `back` goes back when a human asks for changes in a comment or a review. An approving review, an `approved` label or a merge passes it.
+A `wait: human` step with `back` goes back when a human requests changes in a review. An approving review, an `approved` label or a merge passes it. Anything else a human says there, a comment, a line comment or a mention, goes to an [aside](#asides). <!-- code: src/workflow.ts#reenter -->
 
 Going forward into a step starts a fresh session. Going back resumes the session that step had. <!-- code: src/workflow.ts#transition -->
 
@@ -176,6 +176,14 @@ A run waits when an agent proposes `ask`, when tries or rounds run out, and at a
 A human answers by replying on the thread, with no mention needed, and the answer becomes feedback for the same step. The run keeps every answer with its question, and every later check reads them: an agent check in its prompt, with the note that a point an answer settles is not a finding, and a script at the end of `BOTHUB_CONTEXT`. <!-- code: src/engine.ts#heard --> A reply that says only `stop` ends the run, waiting or working, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
 
 `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
+
+## Asides
+
+An aside answers what a human says to a run waiting at a `wait: human` step, without reworking the pull request. Say a maintainer asks under a line of the pull request "so this was already documented elsewhere?". That is a question, not a request for changes.
+
+The engine forks the session of the step `back` leads to, so the fork knows that session's history while the session itself stays as it was. The fork runs in a copy of the session's home, in a throwaway checkout of the pull request head, with the same agent and tools. Without a kept session, a fresh session with that step's agent answers. <!-- code: src/engine.ts#aside --> How each harness forks is in [Harnesses](sandbox.md#harnesses).
+
+The fork answers with a comment, posted under the thread the human wrote in, and the run keeps waiting. When the comment asks for a change, or the fork finds one is needed, it also proposes `back`. Then the run goes back as a request for changes would, with the fork's reason as feedback, and the fork becomes that step's session, so the next try goes on from what the fork read. Nothing else an aside proposes is applied, and whatever it changes in its checkout is thrown away. Its cost counts toward the run, and its session is in the run's trace under the waiting step. With no pull request open there is nothing to check out, and what the human says sends the run back. <!-- code: src/engine.ts#tick -->
 
 ## Comments while it works
 
