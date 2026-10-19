@@ -12,13 +12,13 @@ Agents work on their own branch. Scripts and other agents check the result. A hu
  └────────────────────┬─────────────────────┘
                       ▼
  ┌──────────────────────────────────────────┐      ┌──────────────────────┐
- │ runner (the engine)                      │─────→│ data dir             │
+ │ runner (the engine)                      │─────►│ data dir             │
  │ looks every few minutes                  │      │ run.json, trace      │
  │                                          │      │ the studio reads it  │
  └────────────────────┬─────────────────────┘      └──────────────────────┘
                       ▼
  ┌──────────────────────────────────────────┐      ┌──────────────────────┐
- │ sandbox: one session                     │←────→│ model proxy          │
+ │ sandbox: one session                     │◄────►│ model proxy          │
  │ on the run's branch                      │      │ then model providers │
  └────────────────────┬─────────────────────┘      └──────────────────────┘
                       ▼
@@ -60,20 +60,28 @@ hub/
 - CLI: `node bin/run.ts` checks a hub, looks at one issue or all open ones, runs the polling loop, and shows what waits on a human.
 - The studio (web UI) draws each workflow as its steps and lists runs. It reads the same files.
 
-## Reading order
+## Guide
 
-New here? Read the pages in this order.
+New here? Read these in order.
 
-1. [Vocabulary](vocabulary.md) for the terms the other pages use.
-2. [The loop](loop.md) for how a workflow file turns into steps, checks, tries and waiting.
-3. [Proposals](proposals.md) for what an agent may ask for and how it lands on GitHub.
-4. [Running it locally](local.md) to try it on a sandbox hub.
+1. [Vocabulary](vocabulary.md): the terms the other pages use.
+2. [The loop](loop.md): how a workflow turns into steps, checks, tries and waiting.
+3. [Proposals](proposals.md): what an agent may ask for and how it lands on GitHub.
+4. [Running it locally](local.md): trying it on the sandbox hub.
 
-Then, as you need them:
+## Reference
 
+- [Hub files](reference.md): every field of every hub file.
+- [Sub-issues and stacks](stacks.md): splitting an issue and building on another's pull request.
 - [Runs](runs.md): what a run records in the data dir.
-- [Sandbox](sandbox.md): the container, its network, harnesses and models.
-- [Triage](triage.md): sizing, splitting, stacking and ordering issues.
+- [Sandbox and models](sandbox.md): the container, its network, harnesses and models.
+
+## Examples
+
+- [Triage](triage.md): an example workflow that sizes and splits issues.
+
+## Meta
+
 - [Architecture](architecture.md): where each part runs and what is code versus judgement.
 - [Patterns](patterns.md): the conventions the engine's code follows.
 - [Bench](bench.md): replaying merged pull requests and judging the results blind.
