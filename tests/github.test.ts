@@ -837,13 +837,17 @@ describe('githubForge', () => {
         /big is over/,
       ],
       ['more than 200 files', many, /201 files changed/],
-    ])('refuses %s before any write to GitHub', async (_, change, reason) => {
-      const { dir, work } = repo();
-      change(dir);
-      const f = dataApi(work);
-      const applied = await pushTo(f, work);
-      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(reason) });
-      expect(writes(f)).toEqual([]);
-    }, 20_000);
+    ])(
+      'refuses %s before any write to GitHub',
+      async (_, change, reason) => {
+        const { dir, work } = repo();
+        change(dir);
+        const f = dataApi(work);
+        const applied = await pushTo(f, work);
+        expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(reason) });
+        expect(writes(f)).toEqual([]);
+      },
+      20_000
+    );
   });
 });
