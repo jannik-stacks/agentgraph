@@ -14,8 +14,8 @@ const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
 const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub' };
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
-/** Refs bothub writes into the mirror itself; the fetch leaves them alone. */
-const ours = '^refs/bothub/*';
+/** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
+const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*'];
 const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
@@ -250,16 +250,16 @@ export const docker = (o: {
                 )
               );
               const env = o.token ? auth(yield* Effect.mapError(o.token, e => infra(e.message))) : {};
-              if (exists)
-                yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', '+refs/*:refs/*', ours], env);
-              else {
+              if (!exists) {
                 yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
                 const part = `${mirror}.${randomBytes(4).toString('hex')}`;
-                yield* Effect.asVoid(hostGit(env, ['clone', '--mirror', o.origin, part]));
+                yield* Effect.asVoid(hostGit({}, ['init', '--bare', '-q', part]));
+                yield* Effect.asVoid(hostGit({ GIT_DIR: part }, ['config', 'remote.origin.url', o.origin]));
                 yield* Effect.promise(() =>
                   rename(part, mirror).catch(() => rm(part, { recursive: true, force: true }))
                 );
               }
+              yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', ...fetched], env);
             })
           );
           const verify = (name: string) =>

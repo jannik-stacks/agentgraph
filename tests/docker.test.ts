@@ -243,6 +243,17 @@ describe('docker checkout', () => {
     expect(config).not.toContain('extraheader');
   }, 30_000);
 
+  it('mirrors branches and tags but not pull refs', async () => {
+    const data = tmp('data');
+    const from = origin();
+    git(from, 'tag', 'v1');
+    git(from, 'update-ref', 'refs/pull/1/head', 'feature');
+    const layer = docker({ data, origin: from });
+    for (const _ of [0, 1]) expect(Exit.isSuccess(await use(layer, s => s.checkout('main')))).toBe(true);
+    const refs = git(join(data, 'mirror.git'), 'for-each-ref', '--format=%(refname)').split('\n');
+    expect(refs).toEqual(['refs/heads/feature', 'refs/heads/main', 'refs/tags/v1']);
+  });
+
   it('lets two processes create the mirror at the same time', async () => {
     const data = tmp('data');
     const from = origin();
