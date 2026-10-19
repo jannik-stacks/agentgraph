@@ -80,13 +80,28 @@ body {
 }
 
 .bhm-md.bhm-tight {
-  @apply text-[11px] leading-snug;
+  @apply font-mono text-[11px] leading-snug text-zinc-600 dark:text-zinc-400;
 
   & :where(p, ul, ol, blockquote, table, h1, h2, h3, h4) {
     @apply my-1;
   }
-  & :where(h1, h2, h3, h4, strong, b, th) {
+  & :where(h1, h2, h3, h4, h5, h6, strong, b, th) {
     @apply text-[1em] font-normal;
+  }
+  & :where(h1, h2, h3, h4, h5, h6)::before {
+    @apply text-zinc-400 dark:text-zinc-500;
+  }
+  & h1::before {
+    content: '# ';
+  }
+  & h2::before {
+    content: '## ';
+  }
+  & h3::before {
+    content: '### ';
+  }
+  & :where(h4, h5, h6)::before {
+    content: '#### ';
   }
   & :where(em, i) {
     @apply not-italic;

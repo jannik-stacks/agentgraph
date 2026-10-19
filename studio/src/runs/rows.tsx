@@ -151,10 +151,10 @@ const lines: {
       <div className="space-y-2 font-sans">
         {muted(`tools ${p.tools.length ? p.tools.join(', ') : 'none'}, dir ${p.dir}`)}
         <Disclosure summary={<span className="text-xs">system prompt, the agent's file</span>}>
-          <Markdown text={p.system} />
+          <Markdown text={p.system} className="bhm-tight" />
         </Disclosure>
         <From>prompt bothub wrote from the step, the issue and its comments</From>
-        <Markdown text={p.prompt} />
+        <Markdown text={p.prompt} className="bhm-tight" />
       </div>
     ),
   }),
@@ -191,8 +191,8 @@ const lines: {
           {kindName(p.kind)} by {by}
         </From>
         {'title' in p && <p className="font-medium">{p.title}</p>}
-        {'body' in p && <Markdown text={p.body} />}
-        {'question' in p && <Markdown text={p.question} />}
+        {'body' in p && <Markdown text={p.body} className="bhm-tight" />}
+        {'question' in p && <Markdown text={p.question} className="bhm-tight" />}
         {url && p.kind === 'pull_request' && <Url url={`${url}/files`} text="the diff on GitHub" />}
       </div>
     ),
