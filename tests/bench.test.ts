@@ -2,7 +2,19 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootstrap, infra, invalid, pad, plan, plant, scrub, stats, verdict } from '../bin/bench.ts';
+import {
+  bootstrap,
+  infra,
+  invalid,
+  orders,
+  pad,
+  parsePanel,
+  plan,
+  plant,
+  scrub,
+  stats,
+  verdict,
+} from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
@@ -91,6 +103,18 @@ describe('bench helpers', () => {
     const padded = stats(pad(diff));
     expect(padded.testCases).toBe(stats(diff).testCases + 20);
     expect(padded.srcAdded).toBe(stats(diff).srcAdded);
+  });
+
+  it('reads one order for a one-order judge, picked by the key, and both for the rest', () => {
+    const panel = parsePanel('opus:1,sonnet:2,sol:2');
+    expect(panel).toEqual({ opus: 1, sonnet: 2, sol: 2 });
+    const calls = (key: string) => Object.values(panel).reduce((n, count) => n + orders(count, key).length, 0);
+    expect(calls('demo/human-v2')).toBe(5);
+    expect(orders(1, 'demo/human-v2')).toEqual(orders(1, 'demo/human-v2'));
+    const picks = ['a', 'b', 'c', 'd'].map(k => orders(1, k)[0]);
+    expect(new Set(picks)).toEqual(new Set([0, 1]));
+    expect(() => parsePanel('opus:3')).toThrow(/bad --judges/);
+    expect(() => parsePanel('gpt:1')).toThrow(/bad --judges/);
   });
 
   it('gives a bootstrap interval around the mean', () => {

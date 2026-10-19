@@ -54,6 +54,7 @@ const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', '
 const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/bothub No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
+const panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_test\.\w+$/;
 const noise = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|CHANGELOG[^/]*)$/;
 const caseStart = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|#\[(?:tokio::)?test\]|def test_|func Test)/;
@@ -469,6 +470,20 @@ const judges: Record<string, (prompt: string, cwd: string) => Promise<string>> =
   sol,
 };
 
+/** The orders (0 is first-then-second, 1 the reverse) a judge reads a pair in; with one, it is picked by the pair's key. */
+export const orders = (count: number, key: string) =>
+  count > 1 ? [0, 1] : [[...key].reduce((n, ch) => n + ch.charCodeAt(0), 0) % 2];
+
+/** `opus:1,sonnet:2` as the number of orders per judge. */
+export const parsePanel = (spec: string) =>
+  Object.fromEntries(
+    spec.split(',').map(part => {
+      const [name = '', n = ''] = part.split(':');
+      if (!(name in judges) || !['1', '2'].includes(n)) throw new Error(`bad --judges entry: ${part}`);
+      return [name, Number(n)];
+    })
+  );
+
 const judge = async (caseDir: string, out: string) => {
   const c = loadCase(caseDir);
   const root = join(out, c.id);
@@ -488,25 +503,29 @@ const judge = async (caseDir: string, out: string) => {
   const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
   for (const [i, x] of have.entries())
     for (const y of have.slice(i + 1))
-      for (const [a, b] of [
-        [x, y],
-        [y, x],
-      ] as const) {
+      for (const [at, [a, b]] of (
+        [
+          [x, y],
+          [y, x],
+        ] as const
+      ).entries()) {
         const prompt = `${read(here('bench/judge.md'))}\n## Issue\n\n${issue}\n\n${block('A', a)}\n\n${block('B', b)}\n`;
         const dir = join(root, 'judge', `${a}-${b}`);
         save(join(dir, 'prompt.md'), prompt);
         await Promise.all(
-          Object.entries(judges).map(async ([name, ask]) => {
-            for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
-              guard(out, name !== 'sol');
-              const raw = await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
-                ask(prompt, dir)
-              ).catch(() => '');
-              save(join(dir, `${name}.${attempt}.raw.md`), raw);
-              const v = verdict(raw);
-              if (v) save(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
-            }
-          })
+          Object.entries(judges)
+            .filter(([name]) => orders(panel[name] ?? 2, `${c.id}/${x}-${y}`).includes(at))
+            .map(async ([name, ask]) => {
+              for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
+                guard(out, name !== 'sol');
+                const raw = await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
+                  ask(prompt, dir)
+                ).catch(() => '');
+                save(join(dir, `${name}.${attempt}.raw.md`), raw);
+                const v = verdict(raw);
+                if (v) save(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
+              }
+            })
         );
       }
 };
@@ -579,7 +598,7 @@ const summary = (cases: Scored[]) => {
     }
     for (const [pair, byJudge] of Object.entries(pairs)) {
       (wins[pair] ??= []).push(mean(Object.values(byJudge).flat()));
-      const calls = Object.values(byJudge).map(ps => (ps.length === 2 && ps[0] === ps[1] ? ps[0] : 0.5));
+      const calls = Object.values(byJudge).map(ps => (ps.every(p => p === ps[0]) ? ps[0] : 0.5));
       agreed.push(calls.length > 1 && calls.every(p => p === calls[0]));
     }
   }
@@ -626,9 +645,11 @@ if (import.meta.main) {
       keys: { type: 'string', default: here('infra/local/.keys.env') },
       'max-codex': { type: 'string', default: '30' },
       'max-claude-calls': { type: 'string', default: '60' },
+      judges: { type: 'string', default: 'opus:1,sonnet:2,sol:2' },
     },
   });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
+  Object.assign(panel, parsePanel(values.judges));
   const [command, a, b, c] = positionals;
   loadKeys(values.keys);
   if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
