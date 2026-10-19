@@ -599,6 +599,31 @@ describe('tick', () => {
     );
   };
 
+  it('takes an approval that came before a later trace line of the waiting run, such as a rebase', async () => {
+    const where = world();
+    const at = (s: number) => `2026-10-16T00:00:0${s}.000Z`;
+    const settled = { kind: 'pass' as const };
+    say(where, { issue: 8, kind: 'approved', actor: 'morgan', trusted: true, at: at(5) });
+    const { run } = services(where, []);
+    await run(waiting(where));
+    await run(
+      Effect.flatMap(Store, s =>
+        s.trace(
+          'run-7',
+          {
+            at: at(2),
+            step: 'implement',
+            outcome: settled,
+            run: { step: 'merge', status: 'waiting', tries: 0, rounds: {} },
+          },
+          { at: at(9), step: 'merge', applied: { proposal: { kind: 'label', add: ['x'] }, ok: true } }
+        )
+      )
+    );
+    const touched = await run(tick(merging, 7));
+    expect(touched.map(r => [r.id, r.status])).toEqual([['run-7', 'done']]);
+  }, 30_000);
+
   it('asks instead of waiting for a merge when no pull request is open on the branch', async () => {
     const where = world();
     const flow = merging.workflows.issue;

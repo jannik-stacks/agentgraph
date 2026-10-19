@@ -1373,7 +1373,7 @@ export const tick = (
     const all = yield* store.list();
     const runs = all.filter(mine);
     const waiting = yield* Effect.forEach(runs.filter(live), r =>
-      Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => !('saved' in t))), last => ({
+      Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => 'outcome' in t)), last => ({
         run: r,
         at: last._tag === 'Some' ? last.value.at : r.started,
       }))
