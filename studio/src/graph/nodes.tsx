@@ -14,7 +14,7 @@ import type { Graph } from '../../../src/graph.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
-import { accent, cx, Tooltip } from '../ui.tsx';
+import { accent, cx, TipBubble, Tooltip, useTip } from '../ui.tsx';
 import { chipsOf, kindOf, linesOf } from './chips.ts';
 import { chipRoom, type Point } from './layout.ts';
 
@@ -279,7 +279,7 @@ export const Frame = ({ data: { workflow, trigger, worst, selected, width, heigh
   );
 };
 
-export type RouteFlowEdge = Edge<{ points: Point[]; back?: GraphEdge }, 'route'>;
+export type RouteFlowEdge = Edge<{ points: Point[]; tip?: string; back?: GraphEdge }, 'route'>;
 
 /** An orthogonal polyline through `points` with rounded corners. */
 const pathOf = (points: Point[], radius = 8) =>
@@ -305,21 +305,43 @@ const pathOf = (points: Point[], radius = 8) =>
 /** An edge laid out ahead of time; a way back also carries a badge naming its rounds, which opens the step that sends it. */
 export const RouteEdge = ({ id, markerEnd, style, data }: EdgeProps<RouteFlowEdge>) => {
   const select = useSetAtom(selectedStepAtom);
+  const { ref, show, hide } = useTip();
   const { points, back } = data!;
-  const path = <BaseEdge path={pathOf(points)} {...(markerEnd && { markerEnd })} {...(style && { style })} />;
+  const d = pathOf(points);
+  const taken = (back?.taken ?? 0) > 0;
+  const tip = back
+    ? back.rounds === undefined
+      ? `Requesting changes on ${back.from} sends it back to ${back.to}, as often as you like.`
+      : `${back.from} sends the work back to ${back.to}${back.until ? ` until ${back.until}` : ''}. At most ${back.rounds} ${back.rounds === 1 ? 'time' : 'times'}, then it asks you.`
+    : data!.tip;
+  const path = (
+    <>
+      <BaseEdge path={d} {...(markerEnd && { markerEnd })} {...(style && { style })} />
+      <path
+        d={d}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={14}
+        style={{ pointerEvents: 'stroke' }}
+        onMouseEnter={e => {
+          const { clientX, clientY } = e;
+          show(() => new DOMRect(clientX, clientY, 0, 0), 100);
+        }}
+        onMouseLeave={hide}
+      />
+      <EdgeLabelRenderer>
+        <TipBubble ref={ref} tip={tip} />
+      </EdgeLabelRenderer>
+    </>
+  );
   if (!back) return path;
   const workflow = id.slice(0, id.indexOf('/'));
-  const taken = (back.taken ?? 0) > 0;
   const label =
     back.rounds === undefined
       ? 'back on changes'
       : taken
         ? `round ${back.taken} of ${back.rounds}`
         : `back, ${back.rounds} ${back.rounds === 1 ? 'round' : 'rounds'}`;
-  const tip =
-    back.rounds === undefined
-      ? `Requesting changes on ${back.from} sends it back to ${back.to}, as often as you like.`
-      : `${back.from} sends the work back to ${back.to}${back.until ? ` until ${back.until}` : ''}. At most ${back.rounds} ${back.rounds === 1 ? 'time' : 'times'}, then it asks you.`;
   const [, a, b] = points;
   return (
     <>
@@ -375,16 +397,7 @@ export const Legend = () => (
         </svg>
       }
     >
-      a way back
-    </LegendItem>
-    <LegendItem
-      mark={
-        <svg width="16" height="2" aria-hidden className="text-zinc-400">
-          <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeDasharray="2 4" />
-        </svg>
-      }
-    >
-      starts a dispatched run or a retro
+      not the main path
     </LegendItem>
     <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
     <LegendItem mark={<Glyph name="aside" className="size-3" />}>answers questions in an aside</LegendItem>

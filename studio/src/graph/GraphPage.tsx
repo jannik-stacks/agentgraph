@@ -267,8 +267,8 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
         source: `${start.workflow}/${start.step}`,
         target: `${start.target}:trigger`,
         markerEnd: arrow(gray),
-        style: { stroke: gray, strokeWidth: 1.25, strokeDasharray: '2 4' },
-        data: { points: start.points },
+        style: { stroke: gray, strokeWidth: 1.25, strokeDasharray: '5 4' },
+        data: { points: start.points, tip: `${start.step} starts a ${start.target} run.` },
       } satisfies RouteFlowEdge);
     return { nodes, edges };
   }, [graphs, laid, selected, here]);

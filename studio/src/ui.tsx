@@ -137,10 +137,54 @@ const place = (tip: HTMLElement, anchor: DOMRect) => {
   tip.style.left = `${left}px`;
 };
 
+/** A tip shown after `delay` beside the rect `anchor` gives at that moment, and hidden again. */
+export const useTip = () => {
+  const ref = useRef<HTMLSpanElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const show = (anchor: () => DOMRect, delay: number) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => ref.current && place(ref.current, anchor()), delay);
+  };
+  const hide = () => {
+    clearTimeout(timer.current);
+    if (ref.current?.matches(':popover-open')) ref.current.hidePopover();
+  };
+  useEffect(() => hide, []);
+  return { ref, show, hide };
+};
+
+/** The bubble of a tip, in the top layer so scrolling containers never clip it. */
+export const TipBubble = ({
+  ref,
+  id,
+  tip,
+  action,
+}: {
+  ref: React.RefObject<HTMLSpanElement | null>;
+  id?: string;
+  tip?: ReactNode;
+  action?: ReactNode;
+}) => {
+  const info = tip !== undefined && tip !== null && tip !== '';
+  return (
+    <span
+      ref={ref}
+      id={id}
+      role="tooltip"
+      popover="manual"
+      className="bhm-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
+    >
+      {info && tip}
+      {action && (
+        <span className={cx('block', info && 'mt-1 text-[10px] text-zinc-400 dark:text-zinc-500')}>{action}</span>
+      )}
+    </span>
+  );
+};
+
 /**
- * Explains what it wraps on hover and on keyboard focus: `tip` what it is, `action` what clicking it does. The tip sits
- * in the top layer, so scrolling containers never clip it. `focusable` lets keyboard users reach content that is not
- * interactive itself.
+ * Explains what it wraps on hover and on keyboard focus: `tip` what it is, `action` what clicking it does. `focusable`
+ * lets keyboard users reach content that is not interactive itself.
  */
 export const Tooltip = ({
   tip,
@@ -156,25 +200,15 @@ export const Tooltip = ({
   className?: string | undefined;
 }) => {
   const id = useId();
-  const ref = useRef<HTMLSpanElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const show = (target: HTMLElement, delay: number) => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => ref.current && place(ref.current, target.getBoundingClientRect()), delay);
-  };
-  const hide = () => {
-    clearTimeout(timer.current);
-    if (ref.current?.matches(':popover-open')) ref.current.hidePopover();
-  };
-  useEffect(() => hide, []);
+  const { ref, show, hide } = useTip();
   const element = isValidElement(children) && typeof children.type === 'string';
-  const info = tip !== undefined && tip !== null && tip !== '';
+  const near = (target: HTMLElement) => () => target.getBoundingClientRect();
   return (
     <span
       className={cx('inline-flex min-w-0', className)}
-      onMouseEnter={e => show(e.currentTarget, 100)}
+      onMouseEnter={e => show(near(e.currentTarget), 100)}
       onMouseLeave={hide}
-      onFocus={e => show(e.currentTarget, 0)}
+      onFocus={e => show(near(e.currentTarget), 0)}
       onBlur={hide}
       onKeyDown={e => e.key === 'Escape' && hide()}
       {...(!element && { 'aria-describedby': id })}
@@ -186,18 +220,7 @@ export const Tooltip = ({
             ...(focusable && { tabIndex: 0 }),
           })
         : children}
-      <span
-        ref={ref}
-        id={id}
-        role="tooltip"
-        popover="manual"
-        className="bhm-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
-      >
-        {info && tip}
-        {action && (
-          <span className={cx('block', info && 'mt-1 text-[10px] text-zinc-400 dark:text-zinc-500')}>{action}</span>
-        )}
-      </span>
+      <TipBubble ref={ref} id={id} tip={tip} action={action} />
     </span>
   );
 };
