@@ -20,7 +20,7 @@ The agent ends its reply with a fenced `bothub` block. The engine reads the last
 | `push`         | `branch`, `message`                                                                       | Commits the checkout and pushes the branch, see [Pushes](proposals.md#pushes)           |
 | `pull_request` | `branch`, `base`, `title`, `body`                                                         | Opens a pull request                                                                    |
 | `merge`        | `number`, `head`                                                                          | Merges a pull request, only while its head is still `head`                              |
-| `issue`        | `relation`, `title`, `body`, and for a part `size`, `priority`, `stacks_on`, `depends_on` | Files a part or a follow-up, see [Sub-issues and stacks](stacks.md)                     |
+| `issue`        | `relation`, `title`, `body`, and for a part `size`, `priority`, `stacks_on`, `depends_on` | Files a part, a follow-up or a hub change, see [Sub-issues and stacks](stacks.md)       |
 | `ask`          | `question`                                                                                | Posts the question and makes the run wait                                               |
 | `back`         | `why`                                                                                     | Sends the run back, see [The loop](loop.md#tries-and-going-back)                        |
 | `run`          | `workflow`, `issue`                                                                       | Starts a workflow with `on: dispatch` and waits on it, see [Dispatch](loop.md#dispatch) |

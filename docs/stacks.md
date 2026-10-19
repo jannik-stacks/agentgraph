@@ -1,6 +1,6 @@
 # Sub-issues and stacks
 
-An agent that returns `issue` can split the run's issue into sub-issues, and file follow-ups it found along the way. Every `issue` proposal says which with its `relation`: `part` or `follow-up`. Parts can say what to build on and what to wait for. The [triage example](triage.md) uses all of this.
+An agent that returns `issue` can split the run's issue into sub-issues, and file follow-ups it found along the way. Every `issue` proposal says which with its `relation`: `part`, `follow-up` or `hub`. Parts can say what to build on and what to wait for. The [triage example](triage.md) uses all of this.
 
 ## Filing sub-issues
 
@@ -23,6 +23,16 @@ A follow-up is something the agent noticed that the run's issue does not ask for
 ```
 
 The engine files it as a plain issue: labelled `follow-up`, with no parent and no milestone, and a last line `Found while working on #n`. It starts no run. A maintainer reads it, and adds a trigger label when it should be worked on. Like every proposal, follow-ups land only when the try passes its checks, so a try that fails and retries files nothing twice. A try that ends in `ask` files none of them.
+
+## Hub changes
+
+A hub change is a follow-up about the bot itself: a workflow, agent or check that should have caught a miss. Its body names the class of miss and the check or lint that would catch it next time, and ends with `## Done when`.
+
+```json
+{"kind": "issue", "relation": "hub", "title": "Check that new exported fields are documented", "body": "...\n\n## Done when\n..."}
+```
+
+The engine files it like a follow-up, labelled `hub`. It starts no run.
 
 GitHub writes for issues use their own token scope with only `issues: write`: the `issue` scope. <!-- code: src/github.ts#scopes -->
 

@@ -67,7 +67,7 @@ const ProposalSchema = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal('issue'),
-    relation: Schema.Literal('follow-up'),
+    relation: Schema.Literal('follow-up', 'hub'),
     title: Schema.String,
     body: Schema.String,
   }),
@@ -85,8 +85,9 @@ const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, {
 /** A proposal as an agent writes it. */
 type Said = typeof ProposalSchema.Type;
 /**
- * An issue an agent proposes: a `part` of the run's issue, or a `follow-up` found while working on it. A part's
- * `stacks_on` and `depends_on` name earlier issues in the same block by position, from 1.
+ * An issue an agent proposes: a `part` of the run's issue, a `follow-up` found while working on it, or a `hub` change
+ * to the bot's own workflows, agents or checks. A part's `stacks_on` and `depends_on` name earlier issues in the same
+ * block by position, from 1.
  */
 type Child = Extract<Said, { kind: 'issue' }>;
 const isPart = (p: Child): p is Extract<Child, { relation: 'part' }> => p.relation === 'part';
@@ -102,6 +103,7 @@ const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   issue: [
     '{"kind":"issue","relation":"part","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","priority":"high|medium|low","stacks_on":1,"depends_on":[1]}',
     '{"kind":"issue","relation":"follow-up","title":"...","body":"...\\n\\n## Done when\\n..."}',
+    '{"kind":"issue","relation":"hub","title":"...","body":"<the class of miss and the check that would catch it>\\n\\n## Done when\\n..."}',
   ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
@@ -213,8 +215,8 @@ const depthOf = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge>
 /**
  * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size and priority labels and
  * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
- * again. A follow-up becomes a plain issue labelled `follow-up` that names the run's issue and starts nothing. One
- * refusal files none.
+ * again. A follow-up or a hub change becomes a plain issue labelled with its relation that names the run's issue and
+ * starts nothing. One refusal files none.
  */
 const file = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
@@ -257,7 +259,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
               parent: run.issue,
               labels: [`size/${p.size}`, `priority/${p.priority}`],
             }
-          : { labels: ['follow-up'] }),
+          : { labels: [p.relation] }),
       });
       applied.push(a);
       if (!a.ok) break;

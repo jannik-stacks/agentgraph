@@ -189,6 +189,21 @@ describe('triage', () => {
     expect((await runs(where)).map(r => [r.workflow, r.issue, r.status])).toEqual([['triage', 1, 'done']]);
   });
 
+  it('files a hub change like a follow-up, labelled hub', async () => {
+    const where = world();
+    where.label(1);
+    const hubIssue = { ...follow('Check that new fields are documented'), relation: 'hub' };
+    await run(where, [reply({ kind: 'label', add: ['size/S'] }, hubIssue)], tick(unbounded));
+    const filed = await issue(where, 2);
+    expect([filed.title, filed.parent, filed.labels]).toEqual([
+      'Check that new fields are documented',
+      undefined,
+      ['hub'],
+    ]);
+    expect(filed.body).toMatch(/\n\nFound while working on #1$/);
+    expect((await runs(where)).map(r => r.issue)).toEqual([1]);
+  });
+
   it('refuses a follow-up an open issue already has the title of, and a label that starts a workflow', async () => {
     const where = world();
     where.label(1);

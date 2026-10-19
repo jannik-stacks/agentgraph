@@ -16,6 +16,7 @@ The terms the rest of the docs use. Common agent and GitHub terms keep their usu
 | **back**      | A step's way to an earlier step, `until` a sentence holds, at most `rounds` times. An agent's `back` proposal uses it        |
 | **proposal**  | A change an agent asks the engine to make: a comment, a label, a push, a pull request, a merge, an issue, an ask, a back     |
 | **follow-up** | An issue an agent files for something the run's issue does not ask for. It waits for a person                                |
+| **hub change** | A follow-up about the bot's own workflows, agents or checks, labelled `hub`. It waits for a person                          |
 | **run**       | One workflow on one issue, from its first step to done or stopped                                                            |
 | **dispatch**  | One run starting another with a `run` proposal, then waiting until it asks, is done or stops                                 |
 | **feedback**  | Text carried into the next try or step: a failed check's output, a back reason, a human's answer                             |
