@@ -243,7 +243,7 @@ const lines: {
       </>
     ),
     body: detail(line.outcome) && (
-      <p className="max-w-4xl break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
+      <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
         {detail(line.outcome)}
       </p>
     ),
