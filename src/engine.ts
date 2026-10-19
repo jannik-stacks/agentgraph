@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Schema, Stream } from 'effect';
@@ -451,6 +452,9 @@ const heard = (answers: Run['answers'] = []) =>
 
 type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
 
+/** The judged inputs that passed, per run, checkout, check and diff; the same input on the same diff is not judged again. */
+const passed = new Set<string>();
+
 /** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
 const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
   Effect.gen(function* () {
@@ -464,6 +468,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
       : Effect.succeed([undefined]);
     const listed = yield* all.pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
     const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
+    const diff = check.agent ? yield* diffOf(work) : '';
     let usd = 0;
     const one = (item: string | undefined) =>
       Effect.gen(function* () {
@@ -472,7 +477,9 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         const exit = out && { exit: out.code };
         if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
         const agent = hub.agents[check.agent]!;
-        const input = out?.output ?? item ?? (yield* diffOf(work));
+        const input = out?.output ?? item ?? diff;
+        const key = createHash('sha256').update([run, work.dir, check.name, diff, input].join('\0')).digest('hex');
+        if (passed.has(key)) return { item, pass: true, findings: '', ...exit };
         const judged = yield* verdictOf(
           hub,
           run,
@@ -498,7 +505,9 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         if (judged instanceof SessionStop)
           return { item, pass: false, findings: judged.detail ?? judged.reason, ...exit };
         usd += judged.usd;
-        return { item, pass: /^\W*PASS\b/.test(judged.final), findings: judged.final, ...exit };
+        const pass = /^\W*PASS\b/.test(judged.final);
+        if (pass) passed.add(key);
+        return { item, pass, findings: judged.final, ...exit };
       });
     const max = check.max ?? most;
     const over = items.length > max;

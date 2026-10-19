@@ -1462,6 +1462,46 @@ describe('gate', () => {
     });
   });
 
+  it('judges again only what changed: a pass on the same diff is kept, a fail or a new diff is judged', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    git(dir, 'init', '-q');
+    git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+    const small = hubOf('acme-app', { claims: { each: 'echo a; echo b', agent: 'claim-checker' } });
+    const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
+    const judgedItems: string[] = [];
+    const judges = Layer.succeed(Session, {
+      open: (spec: SessionSpec) => {
+        const item = spec.prompt.includes('\n\nb\n\n') ? 'b' : 'a';
+        judgedItems.push(item);
+        const final = item === 'a' ? 'PASS' : 'FAIL b is off';
+        return Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final, ended: 'stop', exit: 0 }]);
+      },
+    });
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const once = () => Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    await once();
+    await once();
+    expect(judgedItems.sort()).toEqual(['a', 'b', 'b']);
+    writeFileSync(join(dir, 'hello.txt'), 'hello\n');
+    judgedItems.length = 0;
+    await once();
+    expect(judgedItems.sort()).toEqual(['a', 'b']);
+  });
+
   describe('a judge session that did not end normally', () => {
     const judged = async (ends: Extract<SessionEvent, { type: 'end' }>[], mode: 'block' | 'warn' = 'block') => {
       const where = world();

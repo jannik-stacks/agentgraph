@@ -7,7 +7,7 @@ import { gate } from '../src/engine.ts';
 import { host } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
-import { hubOf } from './fixtures.ts';
+import { git, hubOf } from './fixtures.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -21,6 +21,8 @@ const peakOf = async (sessions: number) => {
   const work = join(root, 'work');
   mkdirSync(work);
   mkdirSync(join(root, 'news'));
+  git(work, 'init', '-q');
+  git(work, 'commit', '-q', '--allow-empty', '-m', 'base');
   const hub = hubOf('hub', { review: { agent: 'reviewer', each: 'seq 10' } });
   const small = { ...hub, dir: root, limits: { ...hub.limits, sessions } };
   const step = small.workflows.issue!.steps.find(s => s.checks.includes('review'))!;
@@ -53,7 +55,7 @@ const peakOf = async (sessions: number) => {
     reply: '',
     dir: work,
     base: 'HEAD',
-    git: { GIT_DIR: join(root, 'origin.git'), GIT_WORK_TREE: work },
+    git: { GIT_DIR: join(work, '.git'), GIT_WORK_TREE: work },
     news: join(root, 'news', 'news.md'),
     proposals: [],
   });
