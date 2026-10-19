@@ -1,7 +1,7 @@
 import { Controls, type Edge, MarkerType, type Node, ReactFlow, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useAtom, useAtomValue } from 'jotai';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
 import { graphOf } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/store.ts';
@@ -34,6 +34,37 @@ type Picked = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | unde
 export const storyOfRun = (p: Picked) =>
   storyOf(visitsOf(graphOf(p.fixture.workflow, p.fixture.checks, p.run, p.fixture.roles), p.trail, p.run));
 
+const panelKey = 'bothub.stepPanel';
+const panelWidth = (w: number) => Math.round(Math.min(Math.max(w, 260), 720, innerWidth * 0.7));
+
+/** The side panel's width, dragged from its left edge and kept in local storage when the browser allows it. */
+const usePanelWidth = () => {
+  const [width, setWidth] = useState(() => {
+    try {
+      return panelWidth(Number(localStorage.getItem(panelKey)) || 320);
+    } catch {
+      return 320;
+    }
+  });
+  const resize = (down: React.PointerEvent) => {
+    down.preventDefault();
+    const at = (e: PointerEvent) => panelWidth(width + down.clientX - e.clientX);
+    const move = (e: PointerEvent) => setWidth(at(e));
+    const up = (e: PointerEvent) => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      try {
+        localStorage.setItem(panelKey, String(at(e)));
+      } catch {
+        // Without storage the default width comes back next time.
+      }
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  };
+  return [width, resize] as const;
+};
+
 /**
  * The workflows of `shown` as one canvas, with the picked run drawn over its workflow, and a side panel for the
  * selected step or workflow.
@@ -43,6 +74,7 @@ export const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: Pic
   const [workflowName, stepName] = selected?.split('/') ?? [];
   const fixture = shown.find(f => f.workflow.name === workflowName);
   const step = fixture?.workflow.steps.find(s => s.name === stepName);
+  const [width, resize] = usePanelWidth();
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <div className="min-h-0 min-w-0 flex-1">
@@ -51,12 +83,24 @@ export const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: Pic
         </ReactFlowProvider>
       </div>
       {fixture && (
-        <aside className="max-h-[45%] shrink-0 overflow-y-auto border-t border-zinc-200 md:max-h-none md:w-80 md:border-t-0 md:border-l dark:border-zinc-800">
-          {step ? (
-            <StepDetails fixture={fixture} step={step} run={picked?.fixture === fixture ? picked : undefined} />
-          ) : (
-            <WorkflowDetails workflow={fixture.workflow} />
-          )}
+        <aside
+          style={{ '--panel': `${width}px` } as React.CSSProperties}
+          className="relative flex max-h-[45%] shrink-0 flex-col border-t border-zinc-200 md:max-h-none md:w-(--panel) md:border-t-0 md:border-l dark:border-zinc-800"
+        >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the panel"
+            onPointerDown={resize}
+            className="absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize transition-colors hover:bg-zinc-300/60 md:block dark:hover:bg-zinc-700/60"
+          />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {step ? (
+              <StepDetails fixture={fixture} step={step} run={picked?.fixture === fixture ? picked : undefined} />
+            ) : (
+              <WorkflowDetails workflow={fixture.workflow} />
+            )}
+          </div>
         </aside>
       )}
     </div>
