@@ -717,6 +717,7 @@ export const githubForge = (
           );
         }
         case 'back':
+        case 'run':
           return Effect.succeed({});
         case 'label':
           return Effect.gen(function* () {

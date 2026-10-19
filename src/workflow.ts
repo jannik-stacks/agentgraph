@@ -11,10 +11,13 @@ export type Doc<T> = T & { name: string; path: string; body: string };
 
 export type Problem = { path: string; message: string };
 
-/** An ordered list of steps; the body is the description, or the prompt when there are no steps. */
+/** An ordered list of steps; the body is the description, or the prompt when there are no steps. `dispatch` starts it only from a `run` proposal. */
 export type Workflow = Doc<{
   on: Partial<
-    Record<'issues' | 'issue_comment' | 'pull_request', { command?: string; label?: string; branches?: string[] }>
+    Record<
+      'issues' | 'issue_comment' | 'pull_request' | 'dispatch',
+      { command?: string; label?: string; branches?: string[] }
+    >
   >;
   branch?: string;
   base?: string;
@@ -63,6 +66,8 @@ export type Run = {
   eyes?: { issue: number; undo: Extract<Proposal, { kind: 'react' }> };
   /** The open pull request the run stacks on, and the head of it the run's branch builds on. */
   base?: { pull: number; branch: string; sha: string };
+  /** The run whose `run` proposal started this one. */
+  by?: string;
   started: string;
   ended?: string;
   usd: number;
@@ -74,7 +79,7 @@ const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(
   Schema.Struct({ command: exact(Schema.String), label: exact(Schema.String), branches: exact(Names) })
 );
-const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request');
+const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch');
 
 const StepFile = Schema.Struct({
   agent: exact(Schema.String),
@@ -92,7 +97,12 @@ const StepFile = Schema.Struct({
 const Front = Schema.Struct({
   on: Schema.Union(
     EventName,
-    Schema.Struct({ issues: exact(Trigger), issue_comment: exact(Trigger), pull_request: exact(Trigger) })
+    Schema.Struct({
+      issues: exact(Trigger),
+      issue_comment: exact(Trigger),
+      pull_request: exact(Trigger),
+      dispatch: exact(Schema.Null),
+    })
   ),
   branch: exact(Schema.String),
   base: exact(Schema.String),

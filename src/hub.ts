@@ -15,6 +15,7 @@ const kinds = [
   'issue',
   'ask',
   'back',
+  'run',
 ] as const satisfies readonly Proposal['kind'][];
 
 /** An agent file's frontmatter. */

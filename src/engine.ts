@@ -53,7 +53,8 @@ const ProposalSchema = Schema.Union(
     body: Schema.String,
   }),
   Schema.Struct({ kind: Schema.Literal('ask'), question: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String })
+  Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal('run'), workflow: Schema.String, issue: Schema.Int })
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
 /** A proposal as an agent writes it. */
@@ -76,6 +77,7 @@ const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
+  run: '{"kind":"run","workflow":"...","issue":1}',
 };
 const shapeOf = (item: unknown) => {
   const kind = (item as { kind?: unknown } | null)?.kind;
@@ -227,6 +229,57 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     }
     return applied;
   });
+
+const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
+
+/** The reason a run waits while a run it started works. */
+const waitingOn = (child: Run) => `waiting on ${child.id}`;
+
+/** Why the run's `run` proposals may not start: one at a time, of a dispatch workflow, on an open issue in scope that no other live run holds. */
+const undispatchable = (hub: Hub, run: Run, asked: Extract<Proposal, { kind: 'run' }>[]) =>
+  Effect.gen(function* () {
+    const [p] = asked;
+    if (!p) return [];
+    const w = hub.workflows[p.workflow];
+    const issue = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).find(t => t.number === p.issue);
+    const held = (yield* Effect.flatMap(Store, s => s.list({ issue: p.issue }))).some(r => live(r) && r.id !== run.id);
+    const reason =
+      asked.length > 1
+        ? 'propose one run at a time'
+        : !w?.on.dispatch
+          ? `${p.workflow} is not a workflow with on: dispatch`
+          : !issue || issue.pull
+            ? `#${p.issue} is not an open issue`
+            : !inScope(hub, issue)
+              ? `#${p.issue} is outside the hub milestone`
+              : held
+                ? `a live run holds #${p.issue}`
+                : undefined;
+    return reason === undefined ? [] : asked.map((proposal): Applied => ({ proposal, ok: false, reason }));
+  });
+
+/** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it. */
+const dispatch = (hub: Hub, run: Run, p: Extract<Proposal, { kind: 'run' }>) =>
+  Effect.gen(function* () {
+    const at = now();
+    const w = hub.workflows[p.workflow]!;
+    const child: Run = {
+      ...begin(w, { id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`, issue: p.issue, started: at }),
+      by: run.id,
+    };
+    yield* Effect.flatMap(Store, s => s.put(child));
+    return child;
+  });
+
+/** What a parent hears when the run it started settles. */
+const settled = (child: Run) =>
+  `${child.workflow} on #${child.issue} ${
+    child.status === 'done'
+      ? 'is done'
+      : child.status === 'stopped'
+        ? `stopped: ${child.reason}`
+        : `asks: ${child.reason}`
+  }`;
 
 /** The run's issue and the pull request on its branch, fetched before every session. */
 const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forge> =>
@@ -586,21 +639,27 @@ const attempt = (
       world.some(p => p.kind === 'comment') && !run.said
         ? pullOf(w, run.issue, yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' })))
         : undefined;
+    const runs = world.filter(p => p.kind === 'run');
+    const refused = yield* undispatchable(hub, run, runs);
+    if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
     const children = world.filter((p): p is Child => p.kind === 'issue');
-    const rest = world.filter(p => p.kind !== 'issue');
+    const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run');
     const landed = yield* Effect.either(
       Effect.zipWith(land(tried, rest, work, to), file(w, tried, children), (a, b) => [...a, ...b])
     );
     if (Either.isLeft(landed) && landed.left._tag === 'StoreError') return yield* landed.left;
     if (Either.isLeft(landed))
       return done({ kind: 'ask', question: `GitHub failed: ${squeeze(landed.left.message, 200)}` }, tried);
-    const applied = landed.right;
+    const failed = landed.right.filter(a => !a.ok);
+    const child = runs[0] && !failed.length ? yield* dispatch(hub, tried, runs[0]) : undefined;
+    const applied = [...landed.right, ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : [])];
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
-    const failed = applied.filter(a => !a.ok);
     return done(
       failed.length
         ? { kind: 'failed', checks: [], proposals: failed, problems: [] }
-        : { kind: 'pass', ...(answered && { answered: true as const }) },
+        : child
+          ? { kind: 'ask', question: waitingOn(child) }
+          : { kind: 'pass', ...(answered && { answered: true as const }) },
       tried
     );
   });
@@ -720,7 +779,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           outcome,
           run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
         });
-        if (next.status === 'waiting' && next.reason) {
+        const child = (yield* store.list()).some(r => r.by === next.id && next.reason === waitingOn(r));
+        if (next.status === 'waiting' && next.reason && !child) {
           const elsewhere = next.said && next.said.issue !== next.issue;
           const body = elsewhere ? `${next.reason}\n\n${footer(answerWith)}` : next.reason;
           const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
@@ -767,8 +827,6 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
     return current;
   });
 
-const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
-
 /** Rebases a stacked run's branch onto `head`, the new head of the pull request it stacks on; a conflict is said on the issue. */
 const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: string) =>
   Effect.gen(function* () {
@@ -798,7 +856,8 @@ export const tick = (
     const store = yield* Store;
     const forge = yield* Forge;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
-    const runs = (yield* store.list()).filter(mine);
+    const all = yield* store.list();
+    const runs = all.filter(mine);
     const waiting = yield* Effect.forEach(runs.filter(live), r =>
       Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => !('saved' in t))), last => ({
         run: r,
@@ -864,6 +923,18 @@ export const tick = (
     const events = latest.map(onRun).map(addressed).filter(mine);
     const used = new Set<Event>();
     const touched: Run[] = [];
+    /** Moves a live run outside a session: traces the outcome and saves where it led. */
+    const record = (run: Run, outcome: Outcome, next: Run) =>
+      Effect.gen(function* () {
+        yield* store.trace(run.id, {
+          at: now(),
+          step: run.step,
+          outcome,
+          run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
+        });
+        yield* store.put(next);
+        touched.push(next);
+      });
     waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
     for (const { run, at } of waiting) {
       const w = hub.workflows[run.workflow];
@@ -877,14 +948,14 @@ export const tick = (
       const seen = m.kind === 'comment' ? yield* eyes(run, m) : run;
       const moved = { ...transition(w, seen, outcome), said: heard(m) };
       const next = moved.status === 'running' ? moved : yield* show(w, moved);
-      yield* store.trace(run.id, {
-        at: now(),
-        step: run.step,
-        outcome,
-        run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
-      });
-      yield* store.put(next);
-      touched.push(next);
+      yield* record(run, outcome, next);
+    }
+    for (const parent of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id))) {
+      const w = hub.workflows[parent.workflow];
+      const child = all.find(c => c.by === parent.id && parent.reason === waitingOn(c) && c.status !== 'running');
+      if (!w || !child) continue;
+      const outcome: Outcome = { kind: 'answer', text: settled(child) };
+      yield* record(parent, outcome, transition(w, parent, outcome));
     }
 
     const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.issue}`));

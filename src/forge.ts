@@ -43,7 +43,7 @@ export type Event = {
 };
 
 /**
- * What a run may change on the repo, and the two proposals that steer the run. `react` and `rebase` are the runner's
+ * What a run may change on the repo, and the three proposals that steer the run. `react` and `rebase` are the runner's
  * own; a rebase moves the commits on `branch` after `from` onto `onto`, and a react with `remove` takes back the
  * reaction of that id. An issue with a `parent` is filed as its sub-issue.
  */
@@ -57,7 +57,8 @@ export type Proposal =
   | { kind: 'merge'; number: number; head: string }
   | { kind: 'issue'; title: string; body: string; parent?: number; labels?: string[] }
   | { kind: 'ask'; question: string }
-  | { kind: 'back'; why: string };
+  | { kind: 'back'; why: string }
+  | { kind: 'run'; workflow: string; issue: number };
 
 /**
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
@@ -325,6 +326,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           }
           case 'ask':
           case 'back':
+          case 'run':
             return no(`${p.kind} steers the run, not the repo`);
         }
       };
