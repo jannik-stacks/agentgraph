@@ -68,6 +68,8 @@ export type Run = {
   eyes?: { issue: number; undo: Extract<Proposal, { kind: 'react' }> };
   /** The open pull request the run stacks on, and the head of it the run's branch builds on. */
   base?: { pull: number; branch: string; sha: string };
+  /** The version of the hub the run was last checked under. */
+  hub?: string;
   /** The run whose `run` proposal started this one. */
   by?: string;
   started: string;

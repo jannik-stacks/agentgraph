@@ -1592,8 +1592,8 @@ describe('gate', () => {
 });
 
 describe('a base that moved', () => {
-  /** Run 7 waiting at merge on pull request #8, then `main` gets a commit that writes `file`. */
-  const moved = async (file: string) => {
+  /** Run 7 waiting at merge on pull request #8. */
+  const parked = async () => {
     const where = world();
     const first = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
@@ -1601,7 +1601,12 @@ describe('a base that moved', () => {
       judged,
       [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
-    expect(await first.run(drive(w, fresh(), hub))).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(await first.run(drive(w, fresh(), hub))).toMatchObject({ step: 'merge', status: 'waiting', hub: 'fixture' });
+    return where;
+  };
+  /** Run 7 parked, then `main` gets a commit that writes `file`. */
+  const moved = async (file: string) => {
+    const where = await parked();
     const mover = join(where.root, 'mover');
     git(where.root, 'clone', '-q', where.origin, mover);
     writeFileSync(join(mover, file), 'upstream\n');
@@ -1654,5 +1659,32 @@ describe('a base that moved', () => {
     expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
     expect(specs).toHaveLength(0);
     expect(rebases(where)).toEqual([]);
+  }, 30_000);
+
+  it('checks a waiting run again under a new hub and keeps it waiting when the checks pass', async () => {
+    const where = await parked();
+    const { specs, run } = services(where, [judged]);
+    await run(tick({ ...hub, sha: 'next' }));
+    expect(specs).toHaveLength(1);
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting', hub: 'next' });
+    expect(rebases(where)).toEqual([]);
+  }, 30_000);
+
+  it('sends a waiting run back to implement when a check of the new hub fails', async () => {
+    const where = await parked();
+    const stricter = {
+      ...hub,
+      sha: 'stricter',
+      checks: { ...hub.checks, types: { ...hub.checks.types!, run: '! test -e hello.txt' } },
+    };
+    const { specs, run } = services(where, [
+      judged,
+      [start('i2'), reply({ kind: 'ask', question: 'Drop hello.txt?' })],
+    ]);
+    await run(tick(stricter));
+    expect(specs[1]!.prompt).toMatch(/^the merge step sent this back: types: /);
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Drop hello.txt?', hub: 'stricter' });
   }, 30_000);
 });

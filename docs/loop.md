@@ -174,9 +174,13 @@ A human answers by replying on the thread, with no mention needed, and the answe
 
 `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
 
-## A base that moved
+## When the base or the hub moves
 
-Every sweep looks at each run waiting at a `wait: human` step whose pull request is open. If the branch is behind the current head of the pull request's base, for example `gh-pages` got new commits, the engine rebases it with no model, the same way it rebases a stacked branch. A clean rebase is checked again: the checks of the step that `back` leads to run on the new head. If they pass, the run keeps waiting. If they fail, or the rebase conflicts, the run goes back to that step as a request for changes would, and the reason names the conflicting files or the failed checks. A branch that is up to date is left alone. <!-- code: src/engine.ts#catchUp -->
+A run waiting at a `wait: human` step was checked against two things that can change under it: the head of its pull request's base, and the hub. Every sweep compares both with what is current.
+
+If the branch is behind its base, for example `gh-pages` got new commits, the engine rebases it with no model, the same way it rebases a stacked branch. If the hub changed since the run was last checked, nothing is rebased. Either way, the checks of the step that `back` leads to run again, under the current hub. If they pass, the run keeps waiting. If they fail, or the rebase conflicts, the run goes back to that step as a request for changes would, and the reason names the conflicting files or the failed checks. A run that is up to date with both is left alone.
+
+The hub's version is a hash of `hub.yaml`, the agents, skills, checks, workflows and scripts. Each run records the version it was last checked under. <!-- code: src/engine.ts#catchUp -->
 
 ## Status on the issue
 

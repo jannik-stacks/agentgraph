@@ -1060,6 +1060,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         ...current,
         title: issue.title,
         body: issue.body,
+        hub: hub.sha,
       });
       yield* store.put(current);
       const stacked = hub.stacks && !current.base && stackOf(w, issue, yield* forge.issues({ state: 'open' }));
@@ -1127,8 +1128,9 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
   }).pipe(Effect.scoped);
 
 /**
- * Brings the branch of a run waiting on a human onto the current head of its pull request's base. A clean rebase is
- * checked again with no model; a conflict, or a failed check, sends the run back as a request for changes would.
+ * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the hub. A branch
+ * behind its base is rebased with no model; after a clean rebase, or under a new hub, the run is checked again. A
+ * conflict, or a failed check, sends the run back as a request for changes would. Undefined when nothing moved.
  */
 const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
@@ -1141,21 +1143,23 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const text = (...args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
     const onto = work.base;
     const from = yield* text('merge-base', 'HEAD', onto);
-    if (from === onto) return undefined;
-    const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: pull.branch, from, onto }, work);
-    yield* store.trace(run.id, { at: now(), step: run.step, applied });
-    if (!applied.ok) {
-      const files = yield* hostGit(work.git, ['merge', '-q', '--no-commit', '--no-ff', onto]).pipe(
-        Effect.ignore,
-        Effect.zipRight(text('diff', '--name-only', '--diff-filter=U'))
-      );
-      const where = files ? `conflicts in ${files.split('\n').join(', ')}` : applied.reason;
-      return {
-        kind: 'back',
-        why: `${pull.branch} no longer rebases onto ${pull.base}: ${where}`,
-      } as const;
+    const moved = !run.base && from !== onto;
+    const current = { ...run, hub: hub.sha };
+    if (!moved && (run.hub ?? hub.sha) === hub.sha) return run.hub ? undefined : { run: current };
+    if (moved) {
+      const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: pull.branch, from, onto }, work);
+      yield* store.trace(run.id, { at: now(), step: run.step, applied });
+      if (!applied.ok) {
+        const files = yield* hostGit(work.git, ['merge', '-q', '--no-commit', '--no-ff', onto]).pipe(
+          Effect.ignore,
+          Effect.zipRight(text('diff', '--name-only', '--diff-filter=U'))
+        );
+        const where = files ? `conflicts in ${files.split('\n').join(', ')}` : applied.reason;
+        const why = `${pull.branch} no longer rebases onto ${pull.base}: ${where}`;
+        return { run: current, outcome: { kind: 'back', why } as const };
+      }
     }
-    if (!to) return undefined;
+    if (!to) return { run: current };
     const t = yield* issuesOf(w, run);
     const { outcome, usd } = yield* gate(
       to,
@@ -1170,12 +1174,12 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       },
       hub
     );
-    yield* store.put({ ...run, usd: run.usd + usd });
+    const checked = { ...current, usd: run.usd + usd };
     return outcome.kind === 'failed'
-      ? ({ kind: 'back', why: failure(outcome) } as const)
+      ? { run: checked, outcome: { kind: 'back', why: failure(outcome) } as const }
       : outcome.kind === 'pass'
-        ? undefined
-        : outcome;
+        ? { run: checked }
+        : { run: checked, outcome };
   }).pipe(Effect.scoped);
 
 /**
@@ -1382,11 +1386,12 @@ export const tick = (
       const w = hub.workflows[r.workflow];
       const step = w?.steps.find(s => s.name === r.step);
       const pull = w && issues.find(t => t.number === pullOf(w, r.issue, issues))?.pull;
-      if (!w || !step || !waits(step) || !pull || r.base) continue;
-      const outcome = yield* catchUp(w, r, hub, pull).pipe(
+      if (!w || !step || !waits(step) || !pull) continue;
+      const caught = yield* catchUp(w, r, hub, pull).pipe(
         Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
       );
-      if (outcome) yield* record(r, outcome, transition(w, r, outcome));
+      if (caught?.outcome) yield* record(caught.run, caught.outcome, transition(w, caught.run, caught.outcome));
+      else if (caught) yield* store.put(caught.run);
     }
 
     const rank = (r: Run) => {

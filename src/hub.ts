@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import type { Proposal } from './forge.ts';
@@ -367,16 +367,20 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
           (['agents', 'skills', 'checks', 'workflows', 'bots'] as const).map(sub => markdown(dir, sub))
         );
         const groups = { agents: [...agents!, ...bots!], skills: skills!, checks: checks!, workflows: workflows! };
-        const scripts = (await readdir(join(dir, 'scripts'), { recursive: true, withFileTypes: true }).catch(() => []))
-          .filter(e => e.isFile())
-          .map(e => join(e.parentPath, e.name));
-        const texts = [hubText ?? '', ...(await Promise.all(scripts.map(p => readFile(p, 'utf8'))))];
+        const scripts = await Promise.all(
+          (await readdir(join(dir, 'scripts'), { recursive: true, withFileTypes: true }).catch(() => []))
+            .filter(e => e.isFile())
+            .map(e => join(e.parentPath, e.name))
+            .sort()
+            .map(async p => ({ path: relative(dir, p), text: await readFile(p, 'utf8') }))
+        );
+        const texts = [hubText ?? '', ...scripts.map(f => f.text)];
         texts.push(...Object.values(groups).flatMap(files => files.map(f => f.text)));
         const unread = (await readdir(dir, { withFileTypes: true }).catch(() => []))
           .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'bots' && !folders.includes(e.name))
           .map(e => e.name)
           .filter(name => !reads(texts, name));
-        return { hubText, groups, renamed: bots!.length > 0, unread };
+        return { hubText, groups, scripts, renamed: bots!.length > 0, unread };
       },
       catch: e => new HubError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
     });
@@ -389,7 +393,11 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       });
     if (problems.length > 0 || !hub) return yield* new HubError({ problems });
     const sha = createHash('sha256');
-    for (const file of [{ path: 'hub.yaml', text: read.hubText ?? '' }, ...Object.values(read.groups).flat()]) {
+    for (const file of [
+      { path: 'hub.yaml', text: read.hubText ?? '' },
+      ...Object.values(read.groups).flat(),
+      ...read.scripts,
+    ]) {
       sha.update(`${file.path}\0${file.text}\0`);
     }
     return {
