@@ -11,18 +11,18 @@ An example workflow from the sandbox hub, `examples/sandbox`. It is hub config, 
 ```
  issue #1 gets the triage label
    │
-   ▼
+   v
  the triager reads the issue and the code
    │
-   ├──► unclear: one ask with numbered questions, the run waits
+   ├──> unclear: one ask with numbered questions, the run waits
    │
-   ├──► XS to L: one size label, the run is done
+   ├──> XS to L: one size label, the run is done
    │
-   └──► XL: a size label and a split into sub-issues
+   └──> XL: a size label and a split into sub-issues
           │
-          ├──► #2                    pull request into main
-          ├──► #3 Stacks on #2       pull request onto #2's branch
-          └──► #4 Depends on #3      held until #3 is closed
+          ├──> #2                    pull request into main
+          ├──> #3 Stacks on #2       pull request onto #2's branch
+          └──> #4 Depends on #3      held until #3 is closed
 ```
 
 ## Sizes

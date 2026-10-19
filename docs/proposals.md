@@ -35,13 +35,13 @@ returns: [comment, push, pull_request]
 ```
  the agent's reply
    │
-   ├──► ask: the run waits at once, with no checks and nothing else applied
+   ├──> ask: the run waits at once, with no checks and nothing else applied
    │
-   ├──► a check fails: nothing is applied and the try fails
+   ├──> a check fails: nothing is applied and the try fails
    │
-   ├──► back: the run goes back and nothing else is applied
+   ├──> back: the run goes back and nothing else is applied
    │
-   └──► otherwise: pushes first, then the rest in order
+   └──> otherwise: pushes first, then the rest in order
 ```
 
 The try also fails, with the expected shape as feedback, when the reply has no `bothub` block, the block is not in one of the forms above, a proposal has missing or extra fields, or the agent may not make that kind (`code: src/engine.ts#attempt`).

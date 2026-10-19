@@ -10,28 +10,28 @@ Agents work on their own branch. Scripts and other agents check the result. A hu
  ┌──────────────────────────────────────────┐
  │ GitHub issue: a bot mention or a label   │
  └────────────────────┬─────────────────────┘
-                      ▼
+                      v
  ┌──────────────────────────────────────────┐      ┌──────────────────────┐
- │ runner (the engine)                      │─────►│ data dir             │
+ │ runner (the engine)                      │─────>│ data dir             │
  │ looks every few minutes                  │      │ run.json, trace      │
  │                                          │      │ the studio reads it  │
  └────────────────────┬─────────────────────┘      └──────────────────────┘
-                      ▼
+                      v
  ┌──────────────────────────────────────────┐      ┌──────────────────────┐
- │ sandbox: one session                     │◄────►│ model proxy          │
+ │ sandbox: one session                     │<────>│ model proxy          │
  │ on the run's branch                      │      │ then model providers │
  └────────────────────┬─────────────────────┘      └──────────────────────┘
-                      ▼
+                      v
  ┌──────────────────────────────────────────┐
  │ the reply ends with proposals            │
  │ push, pull_request, comment, ...         │
  └────────────────────┬─────────────────────┘
-                      ▼
+                      v
  ┌──────────────────────────────────────────┐
  │ the engine runs the checks,              │
  │ then applies the proposals               │
  └────────────────────┬─────────────────────┘
-                      ▼
+                      v
  ┌──────────────────────────────────────────┐
  │ GitHub: a pushed branch, a pull request, │
  │ comments, labels                         │

@@ -5,20 +5,20 @@ A run walks a workflow's steps on one issue. An agent step works in a session, i
 ```
  the run enters an agent step
    │
-   ▼
- the session works, its reply ends with proposals ◄──────┐
+   v
+ the session works, its reply ends with proposals <──────┐
    │                                                     │
-   ├──► ask: the run waits for an answer                 │
-   ▼                                                     │
+   ├──> ask: the run waits for an answer                 │
+   v                                                     │
  checks: scripts at once, then agents                    │
    │                                                     │
-   ├──► a block check fails: feedback, next try ─────────┘
-   ├──► a stop check fails: the run stops
-   ▼
+   ├──> a block check fails: feedback, next try ─────────┘
+   ├──> a stop check fails: the run stops
+   v
  all pass
    │
-   ├──► back: an earlier step resumes, with the reason
-   ▼
+   ├──> back: an earlier step resumes, with the reason
+   v
  proposals applied, then the next step
 ```
 

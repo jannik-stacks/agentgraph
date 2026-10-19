@@ -7,9 +7,9 @@ The engine means the runner's own code in `src`.
 
 ```
  GitHub: issues, comments, pull requests
-      ▲                          │
+      ^                          │
       │ writes, with the App     │ events, read through the App
-      │                          ▼
+      │                          v
 ┌─────────────────────────────────────────────────────────────────┐
 │ host                                                            │
 │  runner process = the engine          code: src/main.ts#start   │
@@ -17,7 +17,7 @@ The engine means the runner's own code in `src`.
 │    pushes and opens pull requests through the Git API           │
 │         │                                 │                     │
 │         │ docker run --rm                 │ reads and writes    │
-│         ▼                                 ▼                     │
+│         v                                 v                     │
 │  ┌──────────────────────────┐  ┌─────────────────────────────┐  │
 │  │ sandbox                  │  │ data dir                    │  │
 │  │ one session              │  │ <run id>/run.json           │  │
@@ -25,14 +25,14 @@ The engine means the runner's own code in `src`.
 │  │ no GitHub token          │  │ mirror.git, work/, homes/   │  │
 │  └────────────┬─────────────┘  │ news/<id>/news.md           │  │
 │               │ model calls    └──────────────┬──────────────┘  │
-│               ▼                               │                 │
-│  ┌──────────────────────────┐                 ▼                 │
+│               v                               │                 │
+│  ┌──────────────────────────┐                 v                 │
 │  │ LiteLLM proxy            │  studio reads the hub,            │
 │  │ aliases, one key per     │  run.json and trace               │
 │  │ agent, spend logs        │                                   │
 │  └────────────┬─────────────┘                                   │
 └───────────────┼─────────────────────────────────────────────────┘
-                ▼
+                v
          model providers
 ```
 
@@ -54,17 +54,17 @@ The engine talks to the outside through four services. Each has a test double:
 ```
  trusted event: a mention, a command or a label
         │
-        ▼
+        v
  ┌────────────────────┐   pass    ┌────────────────────┐   pass    ┌────────────────────┐
- │ step: implement    │──────────►│ step: review       │──────────►│ step: merge        │──► done
+ │ step: implement    │──────────>│ step: review       │──────────>│ step: merge        │──> done
  │ agent session      │           │ agent session      │           │ wait: human        │
  └─────────┬──────────┘           └─────────┬──────────┘           └─────────┬──────────┘
            │                                │ until does not hold            │ a person asks for changes
-           │                                └──► back to implement           └──► back to implement
+           │                                └──> back to implement           └──> back to implement
            │
-           ├──► a check or proposal failed: the next try, in the same session
-           ├──► ask, tries or rounds spent: waiting, until a human answers
-           └──► a stop check, the minutes or spend limit, a sandbox failure: stopped
+           ├──> a check or proposal failed: the next try, in the same session
+           ├──> ask, tries or rounds spent: waiting, until a human answers
+           └──> a stop check, the minutes or spend limit, a sandbox failure: stopped
 ```
 
 The three ways out under `implement` hold for every agent step. [The loop](loop.md) draws one try in detail.
