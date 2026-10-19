@@ -334,10 +334,10 @@ export const RouteEdge = ({ id, markerEnd, style, data }: EdgeProps<RouteFlowEdg
               type="button"
               onClick={() => select(`${workflow}/${back.from}`)}
               className={cx(
-                'rounded-full border bg-white px-2 py-px text-[10px] whitespace-nowrap hover:shadow-sm dark:bg-zinc-950',
+                'rounded-full border bg-white px-2 py-px text-[10px] whitespace-nowrap transition-[border-color,box-shadow] duration-300 hover:shadow-sm dark:bg-zinc-950',
                 taken
                   ? cx(accent.border, accent.text)
-                  : 'border-zinc-300 text-zinc-600 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-400'
+                  : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'
               )}
             >
               {label}
