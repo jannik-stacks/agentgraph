@@ -5,8 +5,6 @@ import {
   memo,
   type ReactElement,
   type ReactNode,
-  createContext,
-  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -17,9 +15,6 @@ import { Icon } from './icons.tsx';
 import { cx, IconButton, Link } from './ui.tsx';
 
 const { Markdown: Render } = createMarkdownRenderer({ remarkPlugins: [remarkGfm] });
-
-/** True where code blocks may grow to their full length. */
-export const Room = createContext(false);
 
 /** The one surface every code block sits on: close to the page, a hairline border, no shadow. */
 export const codeSurface =
@@ -68,8 +63,7 @@ export const Code = memo(function Code({
   const [clipped, setClipped] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const all = code.split('\n');
-  const room = useContext(Room);
-  const folded = lines !== undefined && !open && !room;
+  const folded = lines !== undefined && !open;
   const shown = folded && all.length > lines ? all.slice(0, lines).join('\n') : code;
   const hidden = folded ? Math.max(0, all.length - lines) : 0;
   useLayoutEffect(() => {
@@ -97,7 +91,7 @@ export const Code = memo(function Code({
         className={cx(
           'overflow-auto px-3',
           compact ? 'py-1.5 text-[11px] leading-4' : 'py-2 text-[11.5px] leading-[1.25]',
-          room ? '' : open ? 'max-h-[40rem]' : 'max-h-96',
+          open ? 'max-h-[40rem]' : 'max-h-96',
           folded && 'overflow-y-clip',
           wrap && '[&_:is(pre,code)]:break-all [&_:is(pre,code)]:whitespace-pre-wrap'
         )}

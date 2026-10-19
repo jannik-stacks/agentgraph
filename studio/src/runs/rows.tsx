@@ -3,7 +3,7 @@ import type { Proposal } from '../../../src/forge.ts';
 import type { Run } from '../../../src/workflow.ts';
 import type { Trace } from '../../../src/store.ts';
 import { Pulse } from '../icons.tsx';
-import { Code, Markdown, Room } from '../Markdown.tsx';
+import { Code, Markdown } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { ToolBody, toolName, toolSummary } from './tools.tsx';
 import { type CoreRun, detail, type Session, visitsOf } from './trace.ts';
@@ -400,10 +400,10 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
   };
 };
 
-const Head = ({ row, children }: { row: Row; children?: ReactNode }) => (
+const Head = ({ row, full = false, children }: { row: Row; full?: boolean; children?: ReactNode }) => (
   <span className="flex min-w-0 items-baseline gap-2">
     {row.at && <span className="shrink-0 text-zinc-400 tabular-nums">{clock(row.at)}</span>}
-    <span className="min-w-0 truncate">{row.summary}</span>
+    <span className={cx('min-w-0', full ? 'break-words [&_*]:whitespace-normal' : 'truncate')}>{row.summary}</span>
     {children}
   </span>
 );
@@ -432,13 +432,24 @@ const RowButton = ({ label, open, onClick }: { label: string; open: boolean; onC
   </button>
 );
 
-/** A row with nothing under it but its JSON. */
+/** A row with nothing under it but its JSON; a line cut short opens to its full text on click. */
 const LeafView = ({ row }: { row: Row }) => {
   const [raw, setRaw] = useState(false);
+  const [full, setFull] = useState(false);
+  const [cut, setCut] = useState(false);
+  const cutOff = (el: HTMLElement) =>
+    [...el.querySelectorAll<HTMLElement>('.truncate')].some(t => t.scrollWidth > t.clientWidth);
   return (
     <li className="pl-4.5">
-      <span className="group/row block">
-        <Head row={row}>
+      <span
+        className={cx('group/row block', (cut || full) && 'cursor-pointer')}
+        onMouseEnter={e => setCut(cutOff(e.currentTarget))}
+        onClick={e => {
+          if (e.target instanceof Element && e.target.closest('a, button')) return;
+          if (full || cutOff(e.currentTarget)) setFull(!full);
+        }}
+      >
+        <Head row={row} full={full}>
           {row.raw !== undefined && <RowButton label="raw" open={raw} onClick={() => setRaw(!raw)} />}
         </Head>
       </span>
@@ -449,7 +460,6 @@ const LeafView = ({ row }: { row: Row }) => {
 
 const RowView = ({ row }: { row: Row }) => {
   const [raw, setRaw] = useState(false);
-  const [room, setRoom] = useState(false);
   const only = !row.body && row.raw === undefined && row.children?.length === 1 ? row.children[0] : undefined;
   if (only)
     return (
@@ -472,7 +482,6 @@ const RowView = ({ row }: { row: Row }) => {
       <Disclosure
         summary={
           <Head row={row}>
-            <RowButton label="expand" open={room} onClick={() => setRoom(!room)} />
             {row.raw !== undefined && <RowButton label="raw" open={raw} onClick={() => setRaw(!raw)} />}
           </Head>
         }
@@ -484,15 +493,13 @@ const RowView = ({ row }: { row: Row }) => {
             <RawJson value={row.raw} />
           </div>
         )}
-        <Room.Provider value={room}>
-          <div
-            data-scroll={row.scroll || undefined}
-            className={cx('space-y-0.5 py-0.5 pl-3', row.scroll && !room && 'max-h-[75vh] overflow-y-auto')}
-          >
-            {row.body}
-            {row.children && <Rows rows={row.children} />}
-          </div>
-        </Room.Provider>
+        <div
+          data-scroll={row.scroll || undefined}
+          className={cx('space-y-0.5 py-0.5 pl-3', row.scroll && 'max-h-[75vh] overflow-y-auto')}
+        >
+          {row.body}
+          {row.children && <Rows rows={row.children} />}
+        </div>
       </Disclosure>
     </li>
   );
