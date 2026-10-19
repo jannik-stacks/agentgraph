@@ -191,7 +191,8 @@ const shorten = (entries: string[], max = 8000) => {
 /**
  * The runs on an issue as one markdown file for an agent that reads traces: each agent's system prompt once, then per
  * run and session the prompt, thinking, text and tool calls, then checks, proposals and moves. Each entry starts with
- * its line in the run's trace. Past `budget`, the oldest runs keep only how their sessions ended and their outcomes.
+ * its line in the run's trace. Past `budget`, the older runs keep only how their sessions ended and their outcomes, and
+ * then the middle is cut, so the newest run's last sessions stay.
  */
 export function transcript(issue: number, runs: { run: Run; lines: Trace[] }[], budget = 60_000): string {
   const agents = new Map<string, string>();
@@ -221,7 +222,9 @@ export function transcript(issue: number, runs: { run: Run; lines: Trace[] }[], 
   ];
   const parts = rendered.map(r => r.full);
   const size = () => [...top, ...parts].join('\n\n').length;
-  for (let i = 0; i < parts.length && size() > budget; i++) parts[i] = rendered[i]!.short;
+  for (let i = 0; i < parts.length - 1 && size() > budget; i++) parts[i] = rendered[i]!.short;
   const text = [...top, ...parts].join('\n\n');
-  return text.length <= budget ? text : `${text.slice(0, budget)}\n\n... cut at ${budget} characters`;
+  return text.length <= budget
+    ? text
+    : `${text.slice(0, budget / 4)}\n\n... cut to ${budget} characters, the newest kept\n\n${text.slice((-budget * 3) / 4)}`;
 }

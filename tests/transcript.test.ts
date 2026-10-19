@@ -105,4 +105,17 @@ describe('transcript', () => {
     expect(two).toContain('202 session ended stop');
     expect(two).toContain('3 thinking: The issue names kit/src/fee.ts.');
   });
+
+  it('keeps the newest sessions of a run too long to fit', () => {
+    const session = (n: number): Trace[] => [
+      { at, step: 'implement', prompt: { ...spec, prompt: `try ${n}` } },
+      { at, step: 'implement', event: { type: 'text', text: `${n} `.repeat(400) } },
+      { at, step: 'implement', session: { id: `s${n}`, resumed: true, ended: 'stop', usd: 0.1 } },
+    ];
+    const text = transcript(21, [{ run, lines: Array.from({ length: 30 }, (_, n) => session(n)).flat() }], 20_000);
+    expect(text.length).toBeLessThan(20_100);
+    expect(text).toContain('# Traces of #21');
+    expect(text).toContain('prompt: try 29');
+    expect(text).toContain('90 session ended stop');
+  });
 });
