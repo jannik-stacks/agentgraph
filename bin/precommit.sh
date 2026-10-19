@@ -1,5 +1,6 @@
 #!/bin/sh
 # Runs the bothub hub's fast script checks over this repository's uncommitted change, against HEAD or $BOTHUB_BASE.
+# Warns, without failing, about the other side of every staged docs or source change that a docs ref pairs.
 # Safety is left out: its bounds are for bots, not maintainers. Prints every finding and fails when a check in block
 # mode has one.
 #
@@ -12,6 +13,8 @@ if [ $# -eq 0 ]; then
   node bin/fields.mjs || exit 1
   node bin/refs.mjs >/dev/null || { node bin/refs.mjs; exit 1; }
   node bin/refs.mjs --coverage >/dev/null || { node bin/refs.mjs --coverage | grep -v '^uncited export'; exit 1; }
+  rechecks=$(node bin/refs.mjs --diff HEAD --staged)
+  [ -z "$rechecks" ] || printf 'docs refs, re-check the other side:\n%s\n' "$rechecks"
   node bin/diagrams.mjs || echo 'diagrams: misaligned (warning only for now)'
   node bin/commands.mjs >/dev/null || exit 1
   npx --no-install knip >/dev/null || { npx --no-install knip; exit 1; }
