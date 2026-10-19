@@ -23,7 +23,7 @@ The agent ends its reply with a fenced `bothub` block. The engine reads the last
 | `issue`        | `relation`, `title`, `body`, and for a part `size`, `priority`, `stacks_on`, `depends_on` | Files a part, a follow-up or a hub change, see [Sub-issues and stacks](stacks.md)       |
 | `ask`          | `question`                                                                                | Posts the question and makes the run wait                                               |
 | `back`         | `why`                                                                                     | Sends the run back, see [The loop](loop.md#tries-and-going-back)                        |
-| `run`          | `workflow`, `issue`                                                                       | Starts a workflow with `on: dispatch` and waits on it, see [Dispatch](loop.md#dispatch) |
+| `run`          | `workflow`, `issue`                                                                       | Starts a workflow with `on: dispatch` by name and waits on it, see [Dispatch](loop.md#dispatch); it never runs a command |
 
 `returns` in the agent file lists the kinds it may propose, `comment` alone by default. Every agent may also `ask`, and a step with `back` lets its agent `back`. The prompt shows the agent the shape of each kind it may use.
 

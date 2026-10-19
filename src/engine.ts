@@ -109,7 +109,7 @@ const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
-  run: '{"kind":"run","workflow":"...","issue":1}',
+  run: '{"kind":"run","workflow":"<name of a bothub workflow to start; run a command with your shell tool instead>","issue":1}',
 };
 const shapeOf = (item: unknown) => {
   const kind = (item as { kind?: unknown } | null)?.kind;
