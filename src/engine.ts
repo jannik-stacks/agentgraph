@@ -11,6 +11,7 @@ import { Session, SessionStop, type SessionSpec } from './session.ts';
 import { Store, type StoreError, type Trace } from './store.ts';
 import {
   begin,
+  failure,
   reenter,
   transition,
   type CheckResult,
@@ -20,15 +21,22 @@ import {
   type Seen,
   type Step,
   type Workflow,
+  waits,
 } from './workflow.ts';
 
 const now = () => new Date().toISOString();
 
-const Names = Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { exact: true });
+const Names = Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), {
+  exact: true,
+});
 const ProposalSchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal('comment'), body: Schema.String }),
   Schema.Struct({ kind: Schema.Literal('label'), add: Names, remove: Names }),
-  Schema.Struct({ kind: Schema.Literal('push'), branch: Schema.String, message: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal('push'),
+    branch: Schema.String,
+    message: Schema.String,
+  }),
   Schema.Struct({
     kind: Schema.Literal('pull_request'),
     branch: Schema.String,
@@ -36,7 +44,11 @@ const ProposalSchema = Schema.Union(
     title: Schema.String,
     body: Schema.String,
   }),
-  Schema.Struct({ kind: Schema.Literal('merge'), number: Schema.Int, head: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal('merge'),
+    number: Schema.Int,
+    head: Schema.String,
+  }),
   Schema.Struct({
     kind: Schema.Literal('issue'),
     relation: Schema.Literal('part'),
@@ -45,7 +57,9 @@ const ProposalSchema = Schema.Union(
     size: Schema.Literal('XS', 'S', 'M', 'L', 'XL'),
     priority: Schema.Literal('high', 'medium', 'low'),
     stacks_on: Schema.optionalWith(Schema.Int, { exact: true }),
-    depends_on: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Int)), { exact: true }),
+    depends_on: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Int)), {
+      exact: true,
+    }),
   }),
   Schema.Struct({
     kind: Schema.Literal('issue'),
@@ -55,9 +69,15 @@ const ProposalSchema = Schema.Union(
   }),
   Schema.Struct({ kind: Schema.Literal('ask'), question: Schema.String }),
   Schema.Struct({ kind: Schema.Literal('back'), why: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal('run'), workflow: Schema.String, issue: Schema.Int })
+  Schema.Struct({
+    kind: Schema.Literal('run'),
+    workflow: Schema.String,
+    issue: Schema.Int,
+  })
 );
-const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, { onExcessProperty: 'error' });
+const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, {
+  onExcessProperty: 'error',
+});
 /** A proposal as an agent writes it. */
 type Said = typeof ProposalSchema.Type;
 /**
@@ -92,7 +112,10 @@ const block = /^(`{3,}|~{3,})[ \t]*bothub[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
 const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; problems: string[] } => {
   const source = [...reply.matchAll(block)].at(-1)?.[2]?.trim();
   if (source === undefined)
-    return { proposals: [], problems: required ? ['end the reply with a fenced bothub block: a JSON array'] : [] };
+    return {
+      proposals: [],
+      problems: required ? ['end the reply with a fenced bothub block: a JSON array'] : [],
+    };
   let items: unknown;
   try {
     items = JSON.parse(source);
@@ -103,11 +126,18 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; pro
         .filter(line => line.trim())
         .map(line => JSON.parse(line));
     } catch {
-      return { proposals: [], problems: [`bothub block: ${(e as Error).message}`] };
+      return {
+        proposals: [],
+        problems: [`bothub block: ${(e as Error).message}`],
+      };
     }
   }
   if (items !== null && typeof items === 'object' && !Array.isArray(items)) items = [items];
-  if (!Array.isArray(items)) return { proposals: [], problems: ['bothub block: a JSON array of proposals'] };
+  if (!Array.isArray(items))
+    return {
+      proposals: [],
+      problems: ['bothub block: a JSON array of proposals'],
+    };
   const proposals: Said[] = [];
   const problems: string[] = [];
   items.forEach((item, i) =>
@@ -141,7 +171,13 @@ const stackOf = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {
   const n = Number(/^\s*stacks on #(\d+)\s*$/im.exec(issue.body)?.[1]);
   const on = open.find(t => t.number === n);
   const pull = on?.pull ? on : open.find(t => t.number === pullOf(w, n, open));
-  return pull?.pull && { pull: pull.number, branch: pull.pull.branch, sha: pull.pull.head };
+  return (
+    pull?.pull && {
+      pull: pull.number,
+      branch: pull.pull.branch,
+      sha: pull.pull.head,
+    }
+  );
 };
 
 /** What a run still waits for: a "Stacks on" issue without a pull request, or a "Depends on" issue not yet closed. */
@@ -210,7 +246,10 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
         title: p.title,
         body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
         ...(isPart(p)
-          ? { parent: run.issue, labels: [`size/${p.size}`, `priority/${p.priority}`] }
+          ? {
+              parent: run.issue,
+              labels: [`size/${p.size}`, `priority/${p.priority}`],
+            }
           : { labels: ['follow-up'] }),
       });
       applied.push(a);
@@ -220,13 +259,24 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     const parts = numbers.filter((_, i) => isPart(children[i]!));
     if (parts.length === 0) return applied;
     const list = parts.map(n => `- [ ] #${n}`).join('\n');
-    applied.push(yield* forge.apply(run.issue, { kind: 'comment', body: `Split into:\n\n${list}` }));
+    applied.push(
+      yield* forge.apply(run.issue, {
+        kind: 'comment',
+        body: `Split into:\n\n${list}`,
+      })
+    );
     const store = yield* Store;
     for (const [i, n] of numbers.entries()) {
       const p = children[i]!;
       if (!isPart(p) || p.size !== 'XL' || depth + 1 >= deepest) continue;
       const at = now();
-      yield* store.put(begin(w, { id: `${w.name}-${n}-${at.replace(/\D/g, '')}`, issue: n, started: at }));
+      yield* store.put(
+        begin(w, {
+          id: `${w.name}-${n}-${at.replace(/\D/g, '')}`,
+          issue: n,
+          started: at,
+        })
+      );
     }
     return applied;
   });
@@ -265,7 +315,11 @@ const dispatch = (hub: Hub, run: Run, p: Extract<Proposal, { kind: 'run' }>) =>
     const at = now();
     const w = hub.workflows[p.workflow]!;
     const child: Run = {
-      ...begin(w, { id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`, issue: p.issue, started: at }),
+      ...begin(w, {
+        id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`,
+        issue: p.issue,
+        started: at,
+      }),
       by: run.id,
     };
     yield* Effect.flatMap(Store, s => s.put(child));
@@ -289,7 +343,10 @@ const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forg
     const issue = yield* forge.issue(run.issue);
     const pull =
       issue.pull || w.branch === undefined ? undefined : pullOf(w, run.issue, yield* forge.issues({ state: 'open' }));
-    return { issue, ...(pull !== undefined && { pull: yield* forge.issue(pull) }) };
+    return {
+      issue,
+      ...(pull !== undefined && { pull: yield* forge.issue(pull) }),
+    };
   });
 
 const sh = (
@@ -301,7 +358,17 @@ const sh = (
   network: 'none' | 'proxy' = 'none'
 ) =>
   Effect.flatMap(Sandbox, s =>
-    Effect.scoped(s.exec({ cmd: 'sh', args: ['-c', script], dir, hub, env, network, minutes }))
+    Effect.scoped(
+      s.exec({
+        cmd: 'sh',
+        args: ['-c', script],
+        dir,
+        hub,
+        env,
+        network,
+        minutes,
+      })
+    )
   );
 
 const index = Effect.unsafeMakeSemaphore(1);
@@ -373,15 +440,31 @@ const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?:
   Effect.gen(function* () {
     const session = yield* Session;
     const store = yield* Store;
-    const seen = { id: spec.resume?.id, home: spec.resume?.home, final: '', text: '', usd: 0 };
+    const seen = {
+      id: spec.resume?.id,
+      home: spec.resume?.home,
+      final: '',
+      text: '',
+      usd: 0,
+    };
     let end: Ended = { ended: 'stop' };
     const ended = (how: Ended) =>
       store.trace(run, {
         at: now(),
         step,
-        session: { ...(seen.id !== undefined && { id: seen.id }), resumed: !!spec.resume, ...how, usd: seen.usd },
+        session: {
+          ...(seen.id !== undefined && { id: seen.id }),
+          resumed: !!spec.resume,
+          ...how,
+          usd: seen.usd,
+        },
       });
-    yield* store.trace(run, { at: now(), step, prompt: spec, ...(item !== undefined && { item }) });
+    yield* store.trace(run, {
+      at: now(),
+      step,
+      prompt: spec,
+      ...(item !== undefined && { item }),
+    });
     yield* session.open(spec).pipe(
       Stream.runForEach(event => {
         if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
@@ -398,7 +481,13 @@ const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?:
       Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void))
     );
     yield* ended(end);
-    return { id: seen.id, home: seen.home ?? spec.dir, final: seen.final || seen.text, usd: seen.usd, ...end };
+    return {
+      id: seen.id,
+      home: seen.home ?? spec.dir,
+      final: seen.final || seen.text,
+      usd: seen.usd,
+      ...end,
+    };
   });
 
 /** A judging session that ends any way but a clean stop with a PASS or FAIL verdict is an infra error, tried once more. */
@@ -450,7 +539,12 @@ const heard = (answers: Run['answers'] = []) =>
         ...answers.map(a => `Asked: ${squeeze(a.asked, 600)}\n\nAnswered: ${a.said}`),
       ].join('\n\n');
 
-type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
+type Item = {
+  item: string | undefined;
+  pass: boolean;
+  findings: string;
+  exit?: number;
+};
 
 /** The judged inputs that passed, per run, checkout, check and diff; the same input on the same diff is not judged again. */
 const passed = new Set<string>();
@@ -462,7 +556,11 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
     const run = work.run;
     const started = Date.now();
     const minutes = hub.limits.minutes;
-    const base = { BOTHUB_BASE: work.base, BOTHUB_ISSUE: String(work.issue), ...checkFiles(work) };
+    const base = {
+      BOTHUB_BASE: work.base,
+      BOTHUB_ISSUE: String(work.issue),
+      ...checkFiles(work),
+    };
     const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
       ? itemsOf(check.each, hub.dir, work, minutes, base)
       : Effect.succeed([undefined]);
@@ -472,10 +570,19 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
     let usd = 0;
     const one = (item: string | undefined) =>
       Effect.gen(function* () {
-        const env = { ...base, ...(item !== undefined && { BOTHUB_ITEM: item }) };
+        const env = {
+          ...base,
+          ...(item !== undefined && { BOTHUB_ITEM: item }),
+        };
         const out = check.run ? yield* sh(check.run, hub.dir, work.dir, env, minutes) : undefined;
         const exit = out && { exit: out.code };
-        if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
+        if (!check.agent)
+          return {
+            item,
+            pass: (out?.code ?? 0) === 0,
+            findings: out?.output ?? '',
+            ...exit,
+          };
         const agent = hub.agents[check.agent]!;
         const input = out?.output ?? item ?? diff;
         const key = createHash('sha256').update([run, work.dir, check.name, diff, input].join('\0')).digest('hex');
@@ -503,7 +610,12 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           )
         );
         if (judged instanceof SessionStop)
-          return { item, pass: false, findings: judged.detail ?? judged.reason, ...exit };
+          return {
+            item,
+            pass: false,
+            findings: judged.detail ?? judged.reason,
+            ...exit,
+          };
         usd += judged.usd;
         const pass = /^\W*PASS\b/.test(judged.final);
         if (pass) passed.add(key);
@@ -513,9 +625,21 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
     const over = items.length > max;
     const results: Item[] =
       listed instanceof EachFailed
-        ? [{ item: undefined, pass: false, findings: `each failed: ${listed.detail}` }]
+        ? [
+            {
+              item: undefined,
+              pass: false,
+              findings: `each failed: ${listed.detail}`,
+            },
+          ]
         : over
-          ? [{ item: undefined, pass: false, findings: `${items.length} items, more than ${max}` }]
+          ? [
+              {
+                item: undefined,
+                pass: false,
+                findings: `${items.length} items, more than ${max}`,
+              },
+            ]
           : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
     const failing = results.filter(r => !r.pass);
     const empty = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
@@ -538,7 +662,12 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         .map(r => ({
           at,
           step: step.name,
-          check: { check: check.name, pass: r.pass, ...(!r.pass && { findings: squeeze(r.findings) }), ms: 0 },
+          check: {
+            check: check.name,
+            pass: r.pass,
+            ...(!r.pass && { findings: squeeze(r.findings) }),
+            ms: 0,
+          },
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
         })),
@@ -593,8 +722,19 @@ const attempt = (
         ...(out.code !== 0 && { findings: squeeze(out.output) }),
         ms: Date.now() - started,
       };
-      yield* store.trace(run.id, { at: now(), step: step.name, check: result, exit: out.code });
-      if (!result.pass) return done({ kind: 'failed', checks: [result], proposals: [], problems: [] });
+      yield* store.trace(run.id, {
+        at: now(),
+        step: step.name,
+        check: result,
+        exit: out.code,
+      });
+      if (!result.pass)
+        return done({
+          kind: 'failed',
+          checks: [result],
+          proposals: [],
+          problems: [],
+        });
       replies.push(out.output);
     } else {
       const agent = hub.agents[step.does.agent]!;
@@ -625,7 +765,12 @@ const attempt = (
       const listed: (string | undefined)[] = step.each
         ? yield* itemsOf(step.each, hub.dir, work, minutes).pipe(
             Effect.catchTag('EachFailed', e =>
-              Effect.fail(new SandboxError({ reason: 'infra', detail: `each failed: ${e.detail}` }))
+              Effect.fail(
+                new SandboxError({
+                  reason: 'infra',
+                  detail: `each failed: ${e.detail}`,
+                })
+              )
             )
           )
         : [undefined];
@@ -663,7 +808,10 @@ const attempt = (
           usd: tried.usd + r.usd,
           ...(step.each === undefined &&
             r.id !== undefined && {
-              sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, seen: caught.seen } },
+              sessions: {
+                ...tried.sessions,
+                [step.name]: { id: r.id, home: r.home, seen: caught.seen },
+              },
             }),
         };
       }
@@ -681,7 +829,11 @@ const attempt = (
         if (p.kind !== 'pull_request') return p;
         const body = p.body.replace(/^Stacks on #\d+\.?[ \t]*/gim, '').trim();
         return run.base
-          ? { ...p, base: run.base.branch, body: `${body}\n\nStacks on #${run.base.pull}` }
+          ? {
+              ...p,
+              base: run.base.branch,
+              body: `${body}\n\nStacks on #${run.base.pull}`,
+            }
           : { ...p, body };
       });
 
@@ -726,7 +878,13 @@ const attempt = (
     );
     if (Either.isLeft(landed) && landed.left._tag === 'StoreError') return yield* landed.left;
     if (Either.isLeft(landed))
-      return done({ kind: 'ask', question: `GitHub failed: ${squeeze(landed.left.message, 200)}` }, tried);
+      return done(
+        {
+          kind: 'ask',
+          question: `GitHub failed: ${squeeze(landed.left.message, 200)}`,
+        },
+        tried
+      );
     const failed = landed.right.filter(a => !a.ok);
     const child = runs[0] && !failed.length ? yield* dispatch(hub, tried, runs[0]) : undefined;
     const applied = [...landed.right, ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : [])];
@@ -770,7 +928,10 @@ export const gate = (
     const stops = failed('stop');
     if (stops.length > 0)
       return {
-        outcome: { kind: 'stop', why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n') },
+        outcome: {
+          kind: 'stop',
+          why: stops.map(v => `${v.check}: ${v.findings ?? 'failed'}`).join('\n'),
+        },
         usd,
       };
     const returns = 'agent' in step.does ? hub.agents[step.does.agent]?.returns : undefined;
@@ -805,11 +966,22 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
-      s.trace(run.id, ...[...status, ...undone].map(a => ({ at: now(), step: run.step, applied: a })))
+      s.trace(
+        run.id,
+        ...[...status, ...undone].map(a => ({
+          at: now(),
+          step: run.step,
+          applied: a,
+        }))
+      )
     );
     if (!reply) return run;
     const { comment: _gone, eyes, ...rest } = run;
-    return { ...rest, ...(eyes && !undone.length && { eyes }), ...(reply.ok && reply.id && { comment: reply.id }) };
+    return {
+      ...rest,
+      ...(eyes && !undone.length && { eyes }),
+      ...(reply.ok && reply.id && { comment: reply.id }),
+    };
   }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
 
 /** Applies the accepted proposals after a pass, pushes first. Replies go where a human last spoke, else to `to`. */
@@ -847,7 +1019,12 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           at: now(),
           step: current.step,
           outcome,
-          run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
+          run: {
+            step: next.step,
+            status: next.status,
+            tries: next.tries,
+            rounds: next.rounds,
+          },
         });
         const child = (yield* store.list()).some(r => r.by === next.id && next.reason === waitingOn(r));
         if (next.status === 'waiting' && next.reason && !child) {
@@ -855,7 +1032,14 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           const body = elsewhere ? `${next.reason}\n\n${footer(answerWith)}` : next.reason;
           const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
           if (Either.isRight(said))
-            yield* store.trace(next.id, ...said.right.map(applied => ({ at: now(), step: next.step, applied })));
+            yield* store.trace(
+              next.id,
+              ...said.right.map(applied => ({
+                at: now(),
+                step: next.step,
+                applied,
+              }))
+            );
         }
         current = yield* show(w, next);
         yield* store.put(current);
@@ -863,7 +1047,11 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
     const walk = Effect.gen(function* () {
       yield* store.lock(run.id);
       const issue = yield* forge.issue(run.issue);
-      current = yield* show(w, { ...current, title: issue.title, body: issue.body });
+      current = yield* show(w, {
+        ...current,
+        title: issue.title,
+        body: issue.body,
+      });
       yield* store.put(current);
       const stacked = hub.stacks && !current.base && stackOf(w, issue, yield* forge.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
@@ -896,7 +1084,14 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const question = `${said} Reply to try ${current.step} again from where it was.`;
       return settle({ kind: 'ask', question: why }, transition(w, current, { kind: 'ask', question }));
     };
-    yield* walk.pipe(Effect.scoped, Effect.catchTags({ SandboxError: halt, SessionStop: halt, ForgeError: halt }));
+    yield* walk.pipe(
+      Effect.scoped,
+      Effect.catchTags({
+        SandboxError: halt,
+        SessionStop: halt,
+        ForgeError: halt,
+      })
+    );
     return current;
   });
 
@@ -911,8 +1106,67 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
     const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from: base.sha, onto: head }, work);
     const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
     const said = applied.ok ? [] : yield* land(run, [{ kind: 'comment', body }]);
-    yield* store.trace(run.id, ...[applied, ...said].map(a => ({ at: now(), step: run.step, applied: a })));
+    yield* store.trace(
+      run.id,
+      ...[applied, ...said].map(a => ({
+        at: now(),
+        step: run.step,
+        applied: a,
+      }))
+    );
     yield* store.put({ ...run, base: { ...base, sha: head } });
+  }).pipe(Effect.scoped);
+
+/**
+ * Brings the branch of a run waiting on a human onto the current head of its pull request's base. A clean rebase is
+ * checked again with no model; a conflict, or a failed check, sends the run back as a request for changes would.
+ */
+const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull']>) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const forge = yield* Forge;
+    const step = w.steps.find(s => s.name === run.step)!;
+    const to = w.steps.find(s => s.name === step.back?.to);
+    yield* store.lock(run.id);
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, pull.branch, undefined, hub));
+    const text = (...args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
+    const onto = work.base;
+    const from = yield* text('merge-base', 'HEAD', onto);
+    if (from === onto) return undefined;
+    const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: pull.branch, from, onto }, work);
+    yield* store.trace(run.id, { at: now(), step: run.step, applied });
+    if (!applied.ok) {
+      const files = yield* hostGit(work.git, ['merge', '-q', '--no-commit', '--no-ff', onto]).pipe(
+        Effect.ignore,
+        Effect.zipRight(text('diff', '--name-only', '--diff-filter=U'))
+      );
+      const where = files ? `conflicts in ${files.split('\n').join(', ')}` : applied.reason;
+      return {
+        kind: 'back',
+        why: `${pull.branch} no longer rebases onto ${pull.base}: ${where}`,
+      } as const;
+    }
+    if (!to) return undefined;
+    const t = yield* issuesOf(w, run);
+    const { outcome, usd } = yield* gate(
+      to,
+      {
+        run: run.id,
+        ...work,
+        issue: run.issue,
+        context: context(t),
+        reply: '',
+        proposals: [],
+        answers: run.answers,
+      },
+      hub
+    );
+    yield* store.put({ ...run, usd: run.usd + usd });
+    return outcome.kind === 'failed'
+      ? ({ kind: 'back', why: failure(outcome) } as const)
+      : outcome.kind === 'pass'
+        ? undefined
+        : outcome;
   }).pipe(Effect.scoped);
 
 /**
@@ -964,7 +1218,10 @@ export const tick = (
     /** Where a human spoke: the issue, and the review comment thread when it was one. */
     const heard = (m: Event): NonNullable<Run['said']> => {
       const c = m.kind === 'comment' ? m.comment : undefined;
-      return { issue: origin.get(m) ?? m.issue, ...(c?.path !== undefined && { under: c.under ?? c.id }) };
+      return {
+        issue: origin.get(m) ?? m.issue,
+        ...(c?.path !== undefined && { under: c.under ?? c.id }),
+      };
     };
     /** 👀 on the comment that woke a run, or on its issue for a label; the run comes back holding it. */
     const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError> => {
@@ -973,7 +1230,10 @@ export const tick = (
       const react: Extract<Proposal, { kind: 'react' }> = {
         kind: 'react',
         ...(m.kind === 'comment' &&
-          m.comment && { comment: m.comment.id, ...(m.comment.path !== undefined && { review: true }) }),
+          m.comment && {
+            comment: m.comment.id,
+            ...(m.comment.path !== undefined && { review: true }),
+          }),
       };
       return forge.apply(issue, react).pipe(
         Effect.tap(applied => store.trace(run.id, { at: now(), step: run.step, applied })),
@@ -989,7 +1249,10 @@ export const tick = (
       if (m.kind !== 'comment' || !m.trusted || !m.comment || command === undefined || body.startsWith(command))
         return m;
       if (/(^|\s)@[\w-]/.test(body) || !runs.some(r => r.issue === m.issue)) return m;
-      const spoken = { ...m, comment: { ...m.comment, body: `${command} ${body}` } };
+      const spoken = {
+        ...m,
+        comment: { ...m.comment, body: `${command} ${body}` },
+      };
       if (origin.has(m)) origin.set(spoken, origin.get(m)!);
       return spoken;
     };
@@ -1003,7 +1266,12 @@ export const tick = (
           at: now(),
           step: run.step,
           outcome,
-          run: { step: next.step, status: next.status, tries: next.tries, rounds: next.rounds },
+          run: {
+            step: next.step,
+            status: next.status,
+            tries: next.tries,
+            rounds: next.rounds,
+          },
         });
         yield* store.put(next);
         touched.push(next);
@@ -1047,7 +1315,11 @@ export const tick = (
     const start = (w: Workflow, issue: number, at: string, m?: Event) =>
       Effect.gen(function* () {
         const begun = {
-          ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
+          ...begin(w, {
+            id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`,
+            issue,
+            started: at,
+          }),
           ...(m?.kind === 'comment' && { said: heard(m) }),
         };
         const first = begun.status === 'running' ? begun : yield* show(w, begun);
@@ -1094,6 +1366,17 @@ export const tick = (
       yield* follow(w, r, r.base, head).pipe(Effect.catchAll(e => Effect.logError(`follow run ${r.id}`, e)));
     }
 
+    for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => r.status === 'waiting')) {
+      const w = hub.workflows[r.workflow];
+      const step = w?.steps.find(s => s.name === r.step);
+      const pull = w && issues.find(t => t.number === pullOf(w, r.issue, issues))?.pull;
+      if (!w || !step || !waits(step) || !pull || r.base) continue;
+      const outcome = yield* catchUp(w, r, hub, pull).pipe(
+        Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
+      );
+      if (outcome) yield* record(r, outcome, transition(w, r, outcome));
+    }
+
     const rank = (r: Run) => {
       const labels = issues.find(t => t.number === r.issue)?.labels ?? [];
       return labels.includes('priority/high') ? 0 : labels.includes('priority/low') ? 2 : 1;
@@ -1124,5 +1407,7 @@ export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, S
     );
     const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(live);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
-    return (yield* Effect.forEach(issues, n => tick(hub, n, true), { concurrency: hub.limits.parallel })).flat();
+    return (yield* Effect.forEach(issues, n => tick(hub, n, true), {
+      concurrency: hub.limits.parallel,
+    })).flat();
   });

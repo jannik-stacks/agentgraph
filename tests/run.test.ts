@@ -1583,3 +1583,69 @@ describe('gate', () => {
     });
   });
 });
+
+describe('a base that moved', () => {
+  /** Run 7 waiting at merge on pull request #8, then `main` gets a commit that writes `file`. */
+  const moved = async (file: string) => {
+    const where = world();
+    const first = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
+      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      judged,
+      [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    expect(await first.run(drive(w, fresh(), hub))).toMatchObject({ step: 'merge', status: 'waiting' });
+    const mover = join(where.root, 'mover');
+    git(where.root, 'clone', '-q', where.origin, mover);
+    writeFileSync(join(mover, file), 'upstream\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-q', '-m', 'upstream');
+    git(mover, 'push', '-q', 'origin', 'main');
+    return where;
+  };
+  const behind = (where: ReturnType<typeof world>) => git(where.origin, 'rev-list', '--count', 'bothub/7..main');
+  const rebases = (where: ReturnType<typeof world>) =>
+    traceOf(where.data, 'run-7').flatMap(t =>
+      'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
+    );
+
+  it('rebases a clean branch with no model and checks it again', async () => {
+    const where = await moved('other.txt');
+    expect(behind(where)).toBe('1');
+    const { specs, run } = services(where, [judged]);
+    await run(tick(hub));
+    expect(behind(where)).toBe('0');
+    expect(git(where.origin, 'show', 'bothub/7:other.txt')).toBe('upstream');
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).not.toContain('Brief');
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(rebases(where)).toEqual([true]);
+  }, 30_000);
+
+  it('sends a conflicting branch back to implement with the files', async () => {
+    const where = await moved('hello.txt');
+    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const { specs, run } = services(where, [[start('i1'), reply({ kind: 'ask', question: 'Which side?' })]]);
+    await run(tick(hub));
+    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
+    expect(specs[0]!.prompt).toBe(
+      'the merge step sent this back: bothub/7 no longer rebases onto main: conflicts in hello.txt'
+    );
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which side?' });
+    expect(rebases(where)).toEqual([false]);
+  }, 30_000);
+
+  it('does nothing when the branch is up to date', async () => {
+    const where = await moved('other.txt');
+    git(where.origin, 'update-ref', 'refs/heads/main', git(where.origin, 'rev-parse', 'main~1'));
+    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const { specs, run } = services(where, []);
+    await run(tick(hub));
+    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
+    expect(specs).toHaveLength(0);
+    expect(rebases(where)).toEqual([]);
+  }, 30_000);
+});

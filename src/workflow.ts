@@ -214,12 +214,12 @@ export function load(
   return { workflow, problems };
 }
 
-const waits = (step: Step) => 'wait' in step.does;
+export const waits = (step: Step) => 'wait' in step.does;
 const entered = (step: Step): Run['status'] => (waits(step) ? 'waiting' : 'running');
 
 const fresh = ({ feedback: _feedback, reason: _reason, ...run }: Run): Run => run;
 
-const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
+export const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
   [
     ...o.checks.map(c => `${c.check}: ${c.findings ?? 'failed'}`),
     ...o.proposals.map(a => `${a.proposal.kind} failed: ${a.reason ?? 'not allowed'}`),

@@ -174,6 +174,10 @@ A human answers by replying on the thread, with no mention needed, and the answe
 
 `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
 
+## A base that moved
+
+Every sweep looks at each run waiting at a `wait: human` step whose pull request is open. If the branch is behind the current head of the pull request's base, for example `gh-pages` got new commits, the engine rebases it with no model, the same way it rebases a stacked branch. A clean rebase is checked again: the checks of the step that `back` leads to run on the new head. If they pass, the run keeps waiting. If they fail, or the rebase conflicts, the run goes back to that step as a request for changes would, and the reason names the conflicting files or the failed checks. A branch that is up to date is left alone. <!-- code: src/engine.ts#catchUp -->
+
 ## Status on the issue
 
 The engine keeps one status comment on the issue up to date: the step and try, a link to the open question, why the run stopped, the cost so far, the pull request and any failing GitHub checks on it. It also keeps one status label: `bothub:working`, `bothub:waiting`, `bothub:done` or `bothub:stopped`. <!-- code: src/context.ts#shown -->
