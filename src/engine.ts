@@ -1715,7 +1715,10 @@ export const tick = (
                   Effect.gen(function* () {
                     yield* Effect.logError(`aside of run ${run.id}`, e);
                     if (!run.retried)
-                      return { run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const }, again: true };
+                      return {
+                        run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const },
+                        again: true,
+                      };
                     const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
                     yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.catchAll(() => Effect.void));
                     const { retried: _retried, ...rest } = seen;
