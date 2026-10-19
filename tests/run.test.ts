@@ -1692,6 +1692,17 @@ describe('gate', () => {
     judgedItems.length = 0;
     await once();
     expect(judgedItems.sort()).toEqual(['a', 'b']);
+    const copy = join(where.root, 'copy');
+    git(where.root, 'clone', '-q', dir, copy);
+    writeFileSync(join(copy, 'hello.txt'), 'hello\n');
+    const moved = { ...left, dir: copy, git: { GIT_DIR: join(copy, '.git'), GIT_WORK_TREE: copy } };
+    judgedItems.length = 0;
+    await Effect.runPromise(gate(step, moved, small).pipe(Effect.provide(layer)));
+    expect(judgedItems).toEqual(['b']);
+    judgedItems.length = 0;
+    const answered = { ...moved, answers: [{ asked: 'Is a fine?', said: 'Not any more.' }] };
+    await Effect.runPromise(gate(step, answered, small).pipe(Effect.provide(layer)));
+    expect(judgedItems.sort()).toEqual(['a', 'b']);
   });
 
   describe('a judge session that did not end normally', () => {

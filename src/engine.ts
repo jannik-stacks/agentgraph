@@ -616,7 +616,7 @@ type Item = {
   exit?: number;
 };
 
-/** The judged inputs that passed, per run, checkout, check and diff; the same input on the same diff is not judged again. */
+/** The judge prompts that passed, per run, check and diff; the same prompt on the same diff is not judged again. */
 const passed = new Set<string>();
 
 /** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
@@ -655,7 +655,12 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           };
         const agent = hub.agents[check.agent]!;
         const input = out?.output ?? item ?? diff;
-        const key = createHash('sha256').update([run, work.dir, check.name, diff, input].join('\0')).digest('hex');
+        const prompt = [check.body, input, heard(work.answers), 'Reply PASS or FAIL first, then why.']
+          .filter(Boolean)
+          .join('\n\n');
+        const key = createHash('sha256')
+          .update([run, check.name, check.agent, agent.model, prompt, diff].join('\0'))
+          .digest('hex');
         if (passed.has(key)) return { item, pass: true, findings: '', ...exit };
         const judged = yield* verdictOf(
           hub,
@@ -667,9 +672,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
             minutes: hub.limits.minutes,
             ...(agent.model !== undefined && { model: agent.model }),
             system: agent.body,
-            prompt: [check.body, input, heard(work.answers), 'Reply PASS or FAIL first, then why.']
-              .filter(Boolean)
-              .join('\n\n'),
+            prompt,
             dir: work.dir,
             tools: agent.tools,
           },
