@@ -44,6 +44,7 @@ type Commands = {
   suite?: string;
   typecheck?: string;
   setup?: string;
+  runner?: string;
 };
 type Finding = { severity: string; category: string; text: string };
 type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
@@ -90,24 +91,22 @@ const step = async <A>(out: string, entry: Record<string, unknown>, f: () => A |
 };
 
 const quote = (p: string) => `'${p.replaceAll("'", "'\\''")}'`;
-const install = (version: string) =>
-  `npx --yes pnpm@${version} install --frozen-lockfile --ignore-scripts --store-dir node_modules/.pnpm-store`;
+const install = (fallback: string) =>
+  `npx --yes pnpm@$(node -p "((require('./package.json').packageManager ?? '').split('@')[1] ?? '${fallback}').split('+')[0]") install --frozen-lockfile --ignore-scripts --store-dir node_modules/.pnpm-store`;
 
 /** The test command and its setup, from the repo and the test files a merged change touches. */
 export const plan = (repo: string, tests: string[]): Commands => {
   const name = repo.split('/').pop();
   const js = tests.filter(p => /\.(test|spec)\.[jt]sx?$/.test(p));
   const files = js.map(quote).join(' ');
-  if (name === 'billing' && js.length)
-    return {
-      setup: `${install('11.1.3')}`,
-      test: `node_modules/.bin/vitest run ${files}`,
-    };
-  if (name === 'explorer' && js.length)
-    return {
-      setup: `${install('10.28.2')}`,
-      test: `TZ=UTC node_modules/.bin/jest --env=jsdom --runTestsByPath ${files}`,
-    };
+  if (name === 'billing' && js.length) {
+    const runner = 'node_modules/.bin/vitest run';
+    return { setup: `${install('11.1.3')}`, runner, test: `${runner} ${files}` };
+  }
+  if (name === 'explorer' && js.length) {
+    const runner = 'TZ=UTC node_modules/.bin/jest --env=jsdom --runTestsByPath';
+    return { setup: `${install('10.28.2')}`, runner, test: `${runner} ${files}` };
+  }
   if (name === 'stacks.js' && js.length) {
     const dirs = [...new Set(js.map(p => p.split('/').slice(0, 2).join('/')))];
     const run = (d: string) =>
@@ -187,11 +186,12 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   const own = `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
   cpSync(here(own), hub, { recursive: true });
-  if (own === 'examples/bench' && c.test) {
-    save(join(hub, 'checks/tests.md'), read(join(hub, 'checks/tests.md')).replace('npm test', c.test));
+  if (own === 'examples/bench' && c.runner) {
+    const mine = `set -f; files=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$'); [ -z "$files" ] || ${c.runner} $files`;
+    save(join(hub, 'checks/tests.md'), read(join(hub, 'checks/tests.md')).replace('npm test', mine));
     if (c.setup) save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${read(join(hub, 'hub.yaml'))}`);
   }
-  if (own === 'examples/bench' && !c.test) {
+  if (own === 'examples/bench' && !c.runner) {
     rmSync(join(hub, 'checks'), { recursive: true });
     save(
       join(hub, 'workflows/issue.md'),
