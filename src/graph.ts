@@ -1,20 +1,22 @@
-import type { Check } from './hub.ts';
+import type { Agent, Check } from './hub.ts';
 import type { Run, Step, Workflow } from './workflow.ts';
 
 /**
  * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
  * can take before it asks. A check names the agent that judges it; a check without one is only a script. A step
- * `dispatches` when its agent may start a workflow with `on: dispatch`.
+ * `dispatches` when its agent may start a workflow with `on: dispatch`, and `traces` when its agent reads the traces of
+ * the runs on the issue; a check the same when its judge does.
  */
 export type Graph = {
   trigger: string;
   nodes: {
     step: string;
     doer: string;
-    checks: { name: string; mode: Check['mode']; agent?: string }[];
+    checks: { name: string; mode: Check['mode']; agent?: string; traces?: true }[];
     tries: number;
     each?: string;
     dispatches?: true;
+    traces?: true;
     run?: { tries: number; current: boolean; visited: boolean };
   }[];
   edges: { from: string; to: string; kind: 'next' | 'back'; until?: string; rounds?: number; taken?: number }[];
@@ -32,16 +34,18 @@ const triggerOf = (w: Workflow) =>
         ? 'a mention or a reply'
         : event === 'dispatch'
           ? 'dispatched'
-          : `${event.replace('_', ' ')}${t?.branches ? ` on ${t.branches.join(', ')}` : ''}`
+          : event === 'feedback'
+            ? "a person's review, comment or push"
+            : `${event.replace('_', ' ')}${t?.branches ? ` on ${t.branches.join(', ')}` : ''}`
     )
     .join(', ');
 
-/** Expands a workflow into the graph the studio lays out, with a run drawn over it when given. `returns` holds each agent's proposal kinds. */
+/** Expands a workflow into the graph the studio lays out, with a run drawn over it when given. `agents` holds what each agent returns and reads. */
 export function graphOf(
   w: Workflow,
   checks: Record<string, Pick<Check, 'mode' | 'agent'>>,
   run?: Run,
-  returns: Record<string, readonly string[]> = {}
+  agents: Record<string, Pick<Agent, 'returns' | 'reads'>> = {}
 ): Graph {
   const index = (name: string) => w.steps.findIndex(s => s.name === name);
   const loops = w.steps.flatMap((s, from) =>
@@ -62,11 +66,17 @@ export function graphOf(
     doer: doer(s),
     checks: s.checks.map(name => {
       const agent = checks[name]?.agent;
-      return { name, mode: checks[name]?.mode ?? 'block', ...(agent !== undefined && { agent }) };
+      return {
+        name,
+        mode: checks[name]?.mode ?? 'block',
+        ...(agent !== undefined && { agent }),
+        ...(agent !== undefined && agents[agent]?.reads && { traces: true as const }),
+      };
     }),
     tries: s.tries,
     ...(s.each !== undefined && { each: typeof s.each === 'string' ? s.each : s.each.run }),
-    ...('agent' in s.does && returns[s.does.agent]?.includes('run') && { dispatches: true as const }),
+    ...('agent' in s.does && agents[s.does.agent]?.returns.includes('run') && { dispatches: true as const }),
+    ...('agent' in s.does && agents[s.does.agent]?.reads && { traces: true as const }),
     ...(run && { run: { tries: k === current ? run.tries : 0, current: k === current, visited: k <= reached } }),
   }));
 

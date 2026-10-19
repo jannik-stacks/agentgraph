@@ -109,7 +109,12 @@ export const fixtures = (): Plugin => ({
       runs: [],
       agents: bodies(hub!.agents),
       skills: bodies(hub!.skills),
-      returns: Object.fromEntries(Object.entries(hub!.agents).map(([name, agent]) => [name, agent.returns])),
+      roles: Object.fromEntries(
+        Object.entries(hub!.agents).map(([name, a]) => [
+          name,
+          { returns: a.returns, ...(a.reads && { reads: a.reads }) },
+        ])
+      ),
     }));
     const shown = served && { name: served.name, problems: served.problems };
     return `export const fixtures = ${JSON.stringify([...real, ...all])};\nexport const served = ${JSON.stringify(shown ?? null)};`;

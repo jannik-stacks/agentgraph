@@ -46,6 +46,7 @@ const paths = {
   each: <path d="M7 4h13v13M4 7h13v13H4z" />,
   checks: <path d="m4 7 2 2 4-4M4 17l2 2 4-4M14 7h6M14 17h6" />,
   tick: <path d="m5 12 5 5 9-10" />,
+  traces: <path d="M4 6h16M4 12h10M4 18h13" />,
 };
 
 /** A small glyph in the current text color. */
@@ -125,6 +126,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
   const stops = node.checks.filter(c => c.mode === 'stop');
   const judges = [...new Set(node.checks.flatMap(c => c.agent ?? []))];
   const fan = node.each === undefined ? undefined : each(node.each);
+  const auditors = node.checks.filter(c => c.traces).map(c => c.agent);
   const status = here ? statusLine(node, overlay) : live;
   return (
     <div
@@ -216,6 +218,14 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           >
             <Glyph name="agent" />
             {judges.length} reviewers
+          </Chip>
+        )}
+        {(node.traces || auditors.length > 0) && (
+          <Chip
+            tip={`${[...(node.traces ? [node.doer] : []), ...auditors].join(' and ')} read the traces of the runs on the issue: each session's prompt, thinking, tool calls and replies, not only the change.`}
+          >
+            <Glyph name="traces" />
+            reads traces
           </Chip>
         )}
         {fan && (
@@ -406,7 +416,7 @@ export const Legend = () => (
         </svg>
       }
     >
-      starts a dispatched run
+      starts a dispatched run or a retro
     </LegendItem>
     <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
     <LegendItem mark={<span className={cx('size-2 rounded-full bg-current', accent.text)} />}>live</LegendItem>

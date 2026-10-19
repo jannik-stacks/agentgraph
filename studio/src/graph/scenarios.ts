@@ -1,4 +1,4 @@
-import type { Check } from '../../../src/hub.ts';
+import type { Agent, Check } from '../../../src/hub.ts';
 import type { Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
 
 /** One outcome a run met, with the run as it stood before it. */
@@ -7,7 +7,7 @@ export type Trail = { at: Run; outcome: Outcome }[];
 /** A simulated run: what happened and where it ended. */
 type Simulated = { label: string; trail: Trail; run: Run };
 
-/** A fixture workflow with its checks and the runs simulated over it; a served hub's also carries its prompts and what each agent returns. */
+/** A fixture workflow with its checks and the runs simulated over it; a served hub's also carries its prompts and what each agent returns and reads. */
 export type Fixture = {
   id: string;
   workflow: Workflow;
@@ -15,7 +15,7 @@ export type Fixture = {
   runs: Simulated[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;
-  returns?: Record<string, string[]>;
+  roles?: Record<string, Pick<Agent, 'returns' | 'reads'>>;
 };
 
 /** Picks the next outcome at a step, or undefined to leave the run where it is. */

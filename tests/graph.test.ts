@@ -17,6 +17,21 @@ describe('graphOf', () => {
     }
   );
 
+  it('says a feedback workflow starts on what people say, and marks the steps and checks whose agent reads traces', () => {
+    const { workflows, checks } = fixture('acme-app');
+    const issue = workflows.issue!;
+    expect(graphOf({ ...issue, on: { feedback: {} } }, checks).trigger).toBe("a person's review, comment or push");
+    const agents = {
+      implementor: { returns: ['push' as const], reads: 'traces' as const },
+      reviewer: { returns: ['comment' as const], reads: 'traces' as const },
+    };
+    const [triage, implement] = graphOf(issue, checks, undefined, agents).nodes;
+    expect(triage!.traces).toBeUndefined();
+    expect(implement!.traces).toBe(true);
+    expect(implement!.checks.find(c => c.name === 'docs-tone')).toMatchObject({ agent: 'reviewer', traces: true });
+    expect(implement!.checks.find(c => c.name === 'safety')!.traces).toBeUndefined();
+  });
+
   it('counts the worst case of the user loop as 29 sessions', () => {
     const { workflows, checks } = fixture('loop');
     const g = graphOf(workflows.align!, checks);

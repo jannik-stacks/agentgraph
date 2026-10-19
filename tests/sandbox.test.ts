@@ -9,8 +9,7 @@ describe('the sandbox example hub', () => {
     const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));
     expect(hub.repo).toBe('acme/sandbox');
     expect(Object.keys(hub.agents).sort()).toEqual(['implementor', 'reviewer', 'router', 'triager']);
-    const returns = Object.fromEntries(Object.entries(hub.agents).map(([name, a]) => [name, a.returns]));
-    expect(graphOf(hub.workflows.router!, hub.checks, undefined, returns).nodes[0]).toMatchObject({ dispatches: true });
+    expect(graphOf(hub.workflows.router!, hub.checks, undefined, hub.agents).nodes[0]).toMatchObject({ dispatches: true });
     expect(graphOf(hub.workflows.triage!, hub.checks).trigger).toBe('issues, dispatched');
     expect(hub.workflows.issue!.on).toEqual({ issues: { label: 'agent:ready' } });
     const g = graphOf(hub.workflows.issue!, hub.checks);
