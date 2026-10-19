@@ -198,8 +198,14 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   const hub = join(at, 'hub');
   cpSync(join(engine, own), hub, { recursive: true });
   if (own === 'examples/bench' && c.runner) {
-    const mine = `set -f; files=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$'); [ -z "$files" ] || ${c.runner} $files`;
-    save(join(hub, 'checks/tests.md'), read(join(hub, 'checks/tests.md')).replace('npm test', mine));
+    save(
+      join(hub, 'scripts/tests.sh'),
+      `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n[ -z "$files" ] || ${c.runner} $files\n`
+    );
+    save(
+      join(hub, 'checks/tests.md'),
+      read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$BOTHUB_HUB/scripts/tests.sh"')
+    );
     if (c.setup) save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${read(join(hub, 'hub.yaml'))}`);
   }
   if (own === 'examples/bench' && !c.runner) {
