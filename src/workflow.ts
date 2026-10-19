@@ -319,13 +319,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
  * What a new event means for a waiting run: a review at a human step, an answer elsewhere; undefined when it is only
  * context. `lined` are the line comments that came with a review.
  */
-export function reenter(
-  w: Workflow,
-  run: Run,
-  m: Event,
-  fallback?: string,
-  lined: Event[] = []
-): Outcome | undefined {
+export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, lined: Event[] = []): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
@@ -345,7 +339,9 @@ export function reenter(
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
       return { kind: 'pass' };
     if (m.kind === 'changes_requested') {
-      const notes = lined.flatMap(({ comment: c }) => (c?.path ? `${c.path}${c.line ? `:${c.line}` : ''}: ${c.body}` : []));
+      const notes = lined.flatMap(({ comment: c }) =>
+        c?.path ? `${c.path}${c.line ? `:${c.line}` : ''}: ${c.body}` : []
+      );
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
     }
     if (said !== undefined) return { kind: 'back', why: said };
