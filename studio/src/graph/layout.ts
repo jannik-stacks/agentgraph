@@ -1,10 +1,9 @@
 import type { Graph } from '../../../src/graph.ts';
-import { chipGap, chipsOf, chipWidth } from './chips.ts';
+import { chipsOf, linesOf } from './chips.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
 export type Point = { x: number; y: number };
 
-const stepHeight = 80;
 const pillHeight = 28;
 const pad = 28;
 const header = 36;
@@ -16,11 +15,11 @@ const lane = 26;
 /** Horizontal offset between edges sharing a side, so their verticals never overlap. */
 const nest = 14;
 
-/** A step is wide enough for its name line and every chip on one line. */
-const stepWidth = (node: Graph['nodes'][number]) => {
-  const chips = chipsOf(node);
-  return Math.max(224, Math.ceil(22 + chips.reduce((sum, c) => sum + chipWidth(c), 0) + chipGap * (chips.length - 1)));
-};
+const stepWidth = 268;
+/** The width chips may fill inside a step, past its border and padding. */
+export const chipRoom = stepWidth - 22;
+/** The trigger label wraps onto two lines past this width. */
+const triggerMax = 150;
 
 export type Row = {
   workflow: string;
@@ -39,6 +38,8 @@ export type Start = { workflow: string; step: string; target: string };
  */
 export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Start[]) => {
   const gutter = 16 + nest * starts.length;
+  const lines = Math.max(1, ...graphs.flatMap(g => g.graph.nodes.map(n => linesOf(chipsOf(n), chipRoom).length)));
+  const stepHeight = 62 + 20 * lines;
   let top = 0;
   const rows = graphs.map(({ workflow, graph }): Row => {
     const backEdges = graph.edges
@@ -54,11 +55,11 @@ export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Sta
       x += width;
       return node;
     };
-    const triggerWidth = Math.min(240, Math.ceil(18 + graph.trigger.length * 5.9));
+    const triggerWidth = Math.min(triggerMax, Math.ceil(18 + graph.trigger.length * 5.9));
     const nodes = [place(`${workflow}:trigger`, 'trigger', triggerWidth, pillHeight)];
     graph.nodes.forEach((n, i) => {
       x += i ? stepGap : endGap;
-      nodes.push(place(`${workflow}/${n.step}`, 'step', stepWidth(n), stepHeight, n.step));
+      nodes.push(place(`${workflow}/${n.step}`, 'step', stepWidth, stepHeight, n.step));
     });
     x += endGap;
     nodes.push(place(`${workflow}:done`, 'done', 64, pillHeight));

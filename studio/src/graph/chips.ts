@@ -1,7 +1,7 @@
 import type { Graph } from '../../../src/graph.ts';
 
 export type Chip = {
-  glyph: 'hand' | 'stop' | 'checks' | 'agent' | 'traces' | 'aside' | 'each';
+  glyph?: 'hand' | 'stop' | 'checks' | 'agent' | 'traces' | 'aside' | 'each';
   label: string;
   count?: number;
   tip: string;
@@ -63,5 +63,36 @@ export const chipsOf = (node: Graph['nodes'][number]): Chip[] => {
 };
 
 /** Width of a chip in 10px mono: border, padding, glyph and gap, then one advance per character. */
-export const chipWidth = (chip: Chip) => 24 + chip.label.length * 6.1 + (chip.count === undefined ? 0 : 4);
-export const chipGap = 4;
+const chipWidth = (chip: Chip) =>
+  8 + (chip.glyph ? 16 : 0) + chip.label.length * 6.1 + (chip.count === undefined ? 0 : 4);
+const chipGap = 6;
+const maxLines = 3;
+
+/** The chips packed into lines of `width`, at most three; what does not fit becomes a last "+N more" chip. */
+export const linesOf = (chips: Chip[], width: number): Chip[][] => {
+  const lines: Chip[][] = [];
+  let used = Infinity;
+  for (const [i, chip] of chips.entries()) {
+    const w = chipWidth(chip);
+    if (used + chipGap + w <= width) {
+      lines.at(-1)!.push(chip);
+      used += chipGap + w;
+      continue;
+    }
+    if (lines.length === maxLines) {
+      const last = lines.at(-1)!;
+      const rest = chips.slice(i);
+      const more = () => ({
+        label: `+${rest.length} more`,
+        tip: `Also ${rest.map(c => (c.count === undefined ? c.label : `${c.count} ${c.label}`)).join(', ')}.`,
+      });
+      while (last.length > 1 && last.reduce((sum, c) => sum + chipWidth(c) + chipGap, chipWidth(more())) > width)
+        rest.unshift(last.pop()!);
+      last.push(more());
+      break;
+    }
+    lines.push([chip]);
+    used = w;
+  }
+  return lines;
+};

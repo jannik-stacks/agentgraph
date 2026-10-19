@@ -17,6 +17,9 @@ type Row = {
 const { layout } = await studioModule<{
   layout: (graphs: { workflow: string; graph: Graph }[], starts: []) => { rows: Row[] };
 }>('graph/layout.ts');
+const { linesOf } = await studioModule<{
+  linesOf: (chips: { label: string; tip: string }[], width: number) => { label: string; tip: string }[][];
+}>('graph/chips.ts');
 
 const SHOWN = fixtureHubs.map(hub => {
   const { workflows, checks } = fixture(hub);
@@ -64,5 +67,21 @@ describe('studio graph', () => {
       )
     );
     expect(bad).toEqual([]);
+  });
+
+  it('wraps chips into at most three lines, folding the rest into a last chip that lists them', () => {
+    const chips = Array.from({ length: 12 }, (_, i) => ({ label: `chip number ${i}`, tip: `tip ${i}` }));
+    const width = 200;
+    const lines = linesOf(chips, width);
+    expect(lines).toHaveLength(3);
+    const more = lines[2]!.at(-1)!;
+    const shown = lines.flat().length - 1;
+    expect(more.label).toBe(`+${12 - shown} more`);
+    expect(more.tip).toContain('chip number 11');
+    expect(
+      linesOf(chips.slice(0, 2), width)
+        .flat()
+        .map(c => c.label)
+    ).toEqual(['chip number 0', 'chip number 1']);
   });
 });

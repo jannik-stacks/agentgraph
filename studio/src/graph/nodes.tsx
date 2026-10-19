@@ -15,8 +15,8 @@ import type { Run } from '../../../src/workflow.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
 import { accent, cx, Tooltip } from '../ui.tsx';
-import { chipsOf, kindOf } from './chips.ts';
-import type { Point } from './layout.ts';
+import { chipsOf, kindOf, linesOf } from './chips.ts';
+import { chipRoom, type Point } from './layout.ts';
 
 type GraphNode = Graph['nodes'][number];
 type GraphEdge = Graph['edges'][number];
@@ -127,7 +127,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
   return (
     <div
       className={cx(
-        'relative flex size-full cursor-pointer flex-col justify-center gap-0.5 rounded-md border bg-white px-2.5 text-xs transition-shadow dark:bg-zinc-950',
+        'relative flex size-full cursor-pointer flex-col gap-0.5 rounded-md border bg-white px-2.5 pt-3 text-xs transition-shadow dark:bg-zinc-950',
         here || live
           ? accent.border
           : selected
@@ -160,7 +160,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           }
           className="block"
         >
-          <div className="truncate text-sky-600 dark:text-sky-400">
+          <div className="mb-1 truncate text-sky-600 dark:text-sky-400">
             {status}
             {overlay?.reason && overlay.status !== 'waiting' && (
               <span className="text-zinc-500">, {overlay.reason}</span>
@@ -168,14 +168,18 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           </div>
         </Tooltip>
       ) : (
-        <div className="truncate text-zinc-500">{kind === 'human' ? 'waits for you' : node.doer}</div>
+        <div className="mb-1 truncate text-zinc-500">{kind === 'human' ? 'waits for you' : node.doer}</div>
       )}
-      <div className="flex items-center gap-1">
-        {chipsOf(node).map(chip => (
-          <Chip key={chip.glyph + chip.label} tip={chip.tip} count={chip.count}>
-            <Glyph name={chip.glyph} />
-            {chip.label}
-          </Chip>
+      <div className="flex flex-col gap-0.5">
+        {linesOf(chipsOf(node), chipRoom).map((line, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            {line.map((chip, j) => (
+              <Chip key={j} tip={chip.tip} count={chip.count}>
+                {chip.glyph && <Glyph name={chip.glyph} />}
+                {chip.label}
+              </Chip>
+            ))}
+          </div>
         ))}
       </div>
       {kind !== 'human' && (node.tries > 1 || node.checks.length > 0) && (
@@ -234,7 +238,7 @@ export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>
           <span className="size-2 rounded-full bg-current" />
         </span>
       ) : (
-        <span className="truncate">{label}</span>
+        <span className="line-clamp-2 text-right leading-3.5">{label}</span>
       )}
       {done ? <span>done</span> : <span className="size-3 shrink-0 rounded-full bg-current" />}
     </Tooltip>
