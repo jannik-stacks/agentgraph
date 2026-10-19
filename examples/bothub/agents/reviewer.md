@@ -14,4 +14,5 @@ narrowly: `grep -n` one file for the function, then `read` it with `offset` and 
 lines). Never read a whole file or grep a whole directory with a loose pattern.
 
 Each finding names the file and line, what is wrong and the smallest fix, and says whether it
-blocks. Code that already works is not yours to restyle.
+blocks. Code that already works is not yours to restyle. An edge case the issue and its criteria
+do not raise never blocks; name it as a follow-up.
