@@ -676,7 +676,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           item
         ).pipe(
           Effect.catchTag('SessionStop', e =>
-            check.mode === 'block' || e.reason === 'human' ? Effect.fail(e) : Effect.succeed(e)
+            check.mode !== 'warn' || e.reason === 'human' ? Effect.fail(e) : Effect.succeed(e)
           )
         );
         if (judged instanceof SessionStop)
@@ -1052,7 +1052,10 @@ export const gate = (
         writeFile(files.BOTHUB_REPLY, left.reply),
       ])
     );
-    const results = yield* Effect.forEach(checks, c => resultOf(step, c, left, hub), { concurrency: 'unbounded' });
+    const settled = yield* Effect.forEach(checks, c => Effect.either(resultOf(step, c, left, hub)), {
+      concurrency: 'unbounded',
+    });
+    const results = settled.flatMap(r => (Either.isRight(r) ? [r.right] : []));
     const usd = results.reduce((sum, r) => sum + r.usd, 0);
     const all = results.map(r => r.result);
     const failed = (mode: Check['mode']) =>
@@ -1067,6 +1070,8 @@ export const gate = (
         },
         usd,
       };
+    const error = settled.find(Either.isLeft);
+    if (error) return yield* error.left;
     const returns = 'agent' in step.does ? hub.agents[step.does.agent]?.returns : undefined;
     const marks = Object.values(hub.workflows).flatMap(w => w.on.issues?.label ?? []);
     const refusal = (p: Proposal) =>

@@ -1695,7 +1695,11 @@ describe('gate', () => {
   });
 
   describe('a judge session that did not end normally', () => {
-    const judged = async (ends: Extract<SessionEvent, { type: 'end' }>[], mode: 'block' | 'warn' = 'block') => {
+    const judged = async (
+      ends: Extract<SessionEvent, { type: 'end' }>[],
+      mode: 'block' | 'warn' | 'stop' = 'block',
+      more: Hub['checks'] = {}
+    ) => {
       const where = world();
       const dir = join(where.root, 'work');
       mkdirSync(dir);
@@ -1714,9 +1718,14 @@ describe('gate', () => {
       const hub = {
         ...base,
         agents: { ...base.agents, critic },
-        checks: { correct: { name: 'correct', path: 'c.md', body: 'c', mode, agent: 'critic' } },
+        checks: { correct: { name: 'correct', path: 'c.md', body: 'c', mode, agent: 'critic' }, ...more },
       };
-      const step = { name: 'implement', does: { agent: 'critic' }, checks: ['correct'], tries: 3 };
+      const step = {
+        name: 'implement',
+        does: { agent: 'critic' },
+        checks: ['correct', ...Object.keys(more)],
+        tries: 3,
+      };
       let opened = 0;
       const judges = Layer.succeed(Session, {
         open: (spec: SessionSpec) => Stream.fromIterable<SessionEvent>([start(spec.agent), ends[opened++]!]),
@@ -1760,6 +1769,17 @@ describe('gate', () => {
       expect(found).toMatchObject([
         { check: 'correct', pass: false, findings: expect.stringContaining('could not be judged') },
       ]);
+    });
+
+    it('parks the run when a stop check cannot be judged', async () => {
+      const { exit } = await judged([killed, killed], 'stop');
+      expect(Exit.isFailure(exit)).toBe(true);
+    });
+
+    it('stops on a failed stop check even when another check cannot be judged', async () => {
+      const red = { name: 'red', path: 'r.md', body: '', mode: 'stop' as const, run: 'exit 1' };
+      const { exit } = await judged([killed, killed], 'block', { red });
+      expect(Exit.isSuccess(exit) && exit.value.outcome).toMatchObject({ kind: 'stop' });
     });
 
     it('treats a clean stop without a verdict line the same way', async () => {
