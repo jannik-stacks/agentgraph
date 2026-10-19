@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootstrap, scrub, stats, verdict } from '../bin/bench.ts';
+import { bootstrap, plan, scrub, stats, verdict } from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
@@ -89,7 +89,15 @@ describe('bin/bench.ts score and report', () => {
 
     const kase = join(root, 'cases', 'demo');
     mkdirSync(kase, { recursive: true });
-    const json = { repo: 'me/demo', base, merged, title: 'Fix sum', test: 'node test/run.js', kind: 'bug' };
+    const json = {
+      repo: 'me/demo',
+      base,
+      merged,
+      title: 'Fix sum',
+      test: 'node test/run.js',
+      kind: 'bug',
+      flags: ['no-issue-pr-body'],
+    };
     writeFileSync(join(kase, 'case.json'), JSON.stringify(json));
     writeFileSync(join(kase, 'issue.md'), '# Fix sum\n\nsum subtracts.\n');
     writeFileSync(join(kase, 'merged.diff'), git(repo, 'diff', base, merged));
@@ -125,7 +133,25 @@ describe('bin/bench.ts score and report', () => {
     expect(report).toContain('| human vs v2 | 1 | 0.75 | 0.75 to 0.75 |');
     expect(report).toContain('| v2 | 3 |');
     expect(report).toContain('## kind bug, 1 cases');
+    expect(report).toContain('## issue pr-body, 1 cases');
     expect(report).toContain('Judges agree, order-consistent, on 0 of 1 case pairs.');
     expect(report).toContain('| v2 | 1 | 1 | 1 | 1 | 1 | 1 |');
+  });
+});
+
+describe('plan', () => {
+  it('turns the miner test file list into a test command per repo', () => {
+    expect(plan('acme/explorer', ['src/a/[id]/x.test.ts', 'src/a/fixture.json'])).toMatchObject({
+      test: expect.stringContaining("--runTestsByPath 'src/a/[id]/x.test.ts'"),
+      setup: expect.stringContaining('pnpm@10.28.2 install'),
+    });
+    expect(plan('acme/stacks.js', ['packages/api/tests/a.test.ts', 'packages/auth/tests/setup.js']).test).toBe(
+      "(cd packages/api && npx jest --runTestsByPath 'tests/a.test.ts')"
+    );
+    expect(plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])).toEqual({
+      test: 'cargo test -p clarinet-deployments --test remap',
+    });
+    expect(plan('acme/clarinet', ['components/clarinet-sdk/node/tests/a.test.ts'])).toEqual({ hasTests: false });
+    expect(plan('acme/stacks.js', [])).toEqual({ hasTests: false });
   });
 });

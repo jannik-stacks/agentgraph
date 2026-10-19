@@ -26,7 +26,16 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
 import { start } from '../src/main.ts';
 
-type Case = { id: string; dir: string; repo: string; base: string; merged: string; title: string; body: string };
+type Case = {
+  id: string;
+  dir: string;
+  repo: string;
+  base: string;
+  merged: string;
+  title: string;
+  body: string;
+  bucket?: string;
+};
 type Commands = {
   author?: string;
   hasTests?: boolean;
@@ -40,7 +49,7 @@ type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; pre
 
 const arms = ['human', 'v2', 'floor', 'v1'];
 const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'bothub-sandbox': 'sandbox' };
-const strataKeys = ['repo', 'size', 'kind', 'hasTests', 'files', 'area'];
+const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/bothub No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_test\.\w+$/;
@@ -77,13 +86,50 @@ const step = async <A>(out: string, entry: Record<string, unknown>, f: () => A |
   }
 };
 
+const quote = (p: string) => `'${p.replaceAll("'", "'\\''")}'`;
+const pnpm = (version: string) => `npx --yes pnpm@${version}`;
+
+/** The test command and its setup, from the repo and the test files a merged change touches. */
+export const plan = (repo: string, tests: string[]): Commands => {
+  const name = repo.split('/').pop();
+  const js = tests.filter(p => /\.(test|spec)\.[jt]sx?$/.test(p));
+  const files = js.map(quote).join(' ');
+  if (name === 'billing' && js.length)
+    return {
+      setup: `${pnpm('11.1.3')} install --frozen-lockfile --ignore-scripts`,
+      test: `${pnpm('11.1.3')} exec vitest run ${files}`,
+    };
+  if (name === 'explorer' && js.length)
+    return {
+      setup: `${pnpm('10.28.2')} install --frozen-lockfile --ignore-scripts`,
+      test: `TZ=UTC ${pnpm('10.28.2')} exec jest --env=jsdom --runTestsByPath ${files}`,
+    };
+  if (name === 'stacks.js' && js.length) {
+    const dirs = [...new Set(js.map(p => p.split('/').slice(0, 2).join('/')))];
+    const run = (d: string) =>
+      `(cd ${d} && npx jest --runTestsByPath ${js
+        .filter(p => p.startsWith(`${d}/`))
+        .map(p => quote(p.slice(d.length + 1)))
+        .join(' ')})`;
+    return { setup: 'npm ci --no-audit --no-fund --ignore-scripts', test: dirs.map(run).join(' && ') };
+  }
+  const rust = tests.flatMap(p => {
+    const m = /^components\/([^/]+)\/tests\/([^/]+)\.rs$/.exec(p);
+    return m ? [`cargo test -p ${m[1]} --test ${m[2]}`] : [];
+  });
+  if (name === 'clarinet' && rust.length) return { test: rust.join(' && ') };
+  return { hasTests: false };
+};
+
 const loadCase = (dir: string): Case & Commands => {
   const c = JSON.parse(read(join(dir, 'case.json'))) as Omit<Case, 'id' | 'dir' | 'body'> &
     Commands & { tests?: unknown };
   const issue = read(join(dir, 'issue.md'));
   return {
+    ...(Array.isArray(c.tests) && plan(c.repo, c.tests as string[])),
     ...c,
     ...(typeof c.tests === 'string' && !c.test && { test: c.tests }),
+    ...(c.bucket === 'no-tests' && { hasTests: false }),
     id: basename(resolve(dir)),
     dir: resolve(dir),
     title: /^# (.+)$/m.exec(issue)?.[1] ?? c.title,
@@ -137,8 +183,10 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   const own = `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
   cpSync(here(own), hub, { recursive: true });
-  if (own === 'examples/bench' && c.test)
+  if (own === 'examples/bench' && c.test) {
     save(join(hub, 'checks/tests.md'), read(join(hub, 'checks/tests.md')).replace('npm test', c.test));
+    if (c.setup) save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${read(join(hub, 'hub.yaml'))}`);
+  }
   if (arm === 'floor') {
     rmSync(join(hub, 'workflows'), { recursive: true });
     cpSync(here('bench/floor'), hub, { recursive: true });
@@ -395,6 +443,7 @@ const loadScored = (out: string, id: string): Scored => {
   const strata = Object.fromEntries(
     strataKeys.flatMap(k => (c[k] === undefined || typeof c[k] === 'object' ? [] : [[k, String(c[k])]]))
   );
+  if (c.repo) strata.issue = Array.isArray(c.flags) && c.flags.includes('no-issue-pr-body') ? 'pr-body' : 'issue';
   const rows = ['base', ...arms].flatMap((arm): [string, Record<string, number>][] => {
     const s = read(join(out, id, arm, 'score.json'));
     return s ? [[arm, metrics(JSON.parse(s) as Record<string, unknown>)]] : [];
