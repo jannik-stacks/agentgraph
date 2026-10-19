@@ -1310,7 +1310,7 @@ describe('gate', () => {
     expect(outcome).toMatchObject({ kind: 'failed', checks: [{ check: 'correct', findings: 'FAIL off by one' }] });
   });
   describe('a judge session that did not end normally', () => {
-    const judged = async (ends: Extract<SessionEvent, { type: 'end' }>[]) => {
+    const judged = async (ends: Extract<SessionEvent, { type: 'end' }>[], mode: 'block' | 'warn' = 'block') => {
       const where = world();
       const dir = join(where.root, 'work');
       mkdirSync(dir);
@@ -1329,7 +1329,7 @@ describe('gate', () => {
       const hub = {
         ...base,
         agents: { ...base.agents, critic },
-        checks: { correct: { name: 'correct', path: 'c.md', body: 'c', mode: 'block' as const, agent: 'critic' } },
+        checks: { correct: { name: 'correct', path: 'c.md', body: 'c', mode, agent: 'critic' } },
       };
       const step = { name: 'implement', does: { agent: 'critic' }, checks: ['correct'], tries: 3 };
       let opened = 0;
@@ -1349,7 +1349,7 @@ describe('gate', () => {
         proposals: [],
       };
       const exit = await Effect.runPromiseExit(gate(step, left, hub).pipe(Effect.provide(layer)));
-      return { exit, opened };
+      return { exit, opened, data: where.data };
     };
     const killed: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'Killed', ended: 'error', exit: 137 };
     const pass: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'PASS fine', ended: 'stop', exit: 0 };
@@ -1365,6 +1365,16 @@ describe('gate', () => {
       expect(opened).toBe(2);
       expect(Exit.isFailure(exit)).toBe(true);
       expect(JSON.stringify(exit)).toContain('could not be judged');
+    });
+
+    it('records an error finding and goes on when the check only warns', async () => {
+      const { exit, opened, data } = await judged([killed, killed], 'warn');
+      expect(opened).toBe(2);
+      expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
+      const found = traceOf(data, 'run-7').flatMap(t => ('check' in t ? [t.check] : []));
+      expect(found).toMatchObject([
+        { check: 'correct', pass: false, findings: expect.stringContaining('could not be judged') },
+      ]);
     });
 
     it('treats a clean stop without a verdict line the same way', async () => {

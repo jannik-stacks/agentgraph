@@ -405,10 +405,18 @@ const verdictOf = (...args: Parameters<typeof converse>) =>
       j =>
         new SessionStop({
           reason: 'provider',
-          detail: `check ${args[3].agent} could not be judged: session ${j.ended === 'stop' ? 'gave no verdict' : j.ended} (exit ${j.exit ?? 0}), final: ${squeeze(j.final, 200)}`,
+          detail: `session ${j.ended === 'stop' ? 'gave no verdict' : j.ended} (exit ${j.exit ?? 0}), final: ${squeeze(j.final, 200)}`,
         })
     ),
-    Effect.retry({ times: 1, while: e => e._tag === 'SessionStop' })
+    Effect.retry({ times: 1, while: e => e._tag === 'SessionStop' }),
+    Effect.catchTag('SessionStop', e =>
+      Effect.fail(
+        new SessionStop({
+          reason: e.reason,
+          detail: `check ${args[3].agent} could not be judged: ${e.detail ?? e.reason}`,
+        })
+      )
+    )
   );
 
 /** What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it and the reply. */
@@ -431,9 +439,10 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
     const started = Date.now();
     const minutes = hub.limits.minutes;
     const base = { BOTHUB_BASE: work.base, BOTHUB_ISSUE: String(work.issue), ...checkFiles(work) };
-    const listed = yield* (
-      check.each ? itemsOf(check.each, hub.dir, work, minutes, base) : Effect.succeed([undefined])
-    ).pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
+    const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
+      ? itemsOf(check.each, hub.dir, work, minutes, base)
+      : Effect.succeed([undefined]);
+    const listed = yield* all.pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
     const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
     let usd = 0;
     const one = (item: string | undefined) =>
@@ -459,7 +468,13 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
             tools: agent.tools,
           },
           item
+        ).pipe(
+          Effect.catchTag('SessionStop', e =>
+            check.mode === 'block' || e.reason === 'human' ? Effect.fail(e) : Effect.succeed(e)
+          )
         );
+        if (judged instanceof SessionStop)
+          return { item, pass: false, findings: judged.detail ?? judged.reason, ...exit };
         usd += judged.usd;
         return { item, pass: /^\W*PASS\b/.test(judged.final), findings: judged.final, ...exit };
       });

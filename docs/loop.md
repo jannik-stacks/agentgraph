@@ -131,7 +131,7 @@ After a session ends, the step's checks run against the checkout. Script checks 
 A check file holds a script, an agent, or both:
 
 - `run`: exit 0 passes, and the output is the feedback.
-- `agent`: the reply must start with `PASS`; `FAIL` is a finding. On its own the agent judges the diff, or the item in a fan-out. A judging session that is killed, crashes, times out or replies without `PASS` or `FAIL` is not a verdict: it is tried once more, and if it fails again the run stops with an error saying the check could not be judged, so nothing is fed back to the agent as review feedback. <!-- code: src/engine.ts#verdictOf -->
+- `agent`: the reply must start with `PASS`; `FAIL` is a finding. On its own the agent judges the diff, or the item in a fan-out. A judging session that is killed, crashes, times out or replies without `PASS` or `FAIL` is not a verdict: it is tried once more, and if it fails again, a `block` check stops the run with an error saying the check could not be judged, so nothing is fed back to the agent as review feedback. A `warn` or `stop` check records that error as its finding and the run goes on. <!-- code: src/engine.ts#verdictOf -->
 - Both: the script runs and its output goes to the agent.
 
 `each` fans a check out over `files`, `hunks`, or the lines a command prints, and the check fails when any item fails. When there are no items, the check passes marked `empty` with the finding "Judged nothing", so a slicer that lost its input shows up. More items than `max` fail the check. A command that exits nonzero gives no items: the check fails once with the command's output as the finding.
