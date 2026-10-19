@@ -94,10 +94,15 @@ const Bubble = ({ tip, className, children }: { tip: string; className: string; 
   </Tooltip>
 );
 
-const Chip = ({ tip, children }: { tip: string; children: ReactNode }) => (
+const Chip = ({ tip, count, children }: { tip: string; count?: number | undefined; children: ReactNode }) => (
   <Tooltip tip={tip} action="Click for the step" focusable>
-    <span className="flex items-center gap-1 rounded border border-zinc-200 px-1 font-mono text-[10px] leading-4 whitespace-nowrap text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+    <span className="relative flex items-center gap-1 rounded border border-zinc-200 px-1 font-mono text-[10px] leading-4 whitespace-nowrap text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
       {children}
+      {count !== undefined && (
+        <span className="absolute -top-1.5 -right-1.5 min-w-3 rounded-full bg-zinc-500 px-0.5 text-center text-[8px] leading-3 font-medium text-white tabular-nums dark:bg-zinc-400 dark:text-zinc-950">
+          {count}
+        </span>
+      )}
     </span>
   </Tooltip>
 );
@@ -167,7 +172,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
       )}
       <div className="flex items-center gap-1">
         {chipsOf(node).map(chip => (
-          <Chip key={chip.glyph + chip.label} tip={chip.tip}>
+          <Chip key={chip.glyph + chip.label} tip={chip.tip} count={chip.count}>
             <Glyph name={chip.glyph} />
             {chip.label}
           </Chip>

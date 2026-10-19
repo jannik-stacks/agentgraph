@@ -3,6 +3,7 @@ import type { Graph } from '../../../src/graph.ts';
 export type Chip = {
   glyph: 'hand' | 'stop' | 'checks' | 'agent' | 'traces' | 'aside' | 'each';
   label: string;
+  count?: number;
   tip: string;
 };
 
@@ -25,13 +26,15 @@ export const chipsOf = (node: Graph['nodes'][number]): Chip[] => {
   if (n > 0)
     chips.push({
       glyph: 'checks',
-      label: `${n} ${n === 1 ? 'check' : 'checks'}`,
+      label: n === 1 ? 'check' : 'checks',
+      count: n,
       tip: `${n === 1 ? 'One check runs' : `${n} checks run`} after each try: ${node.checks.map(c => c.name).join(', ')}.`,
     });
   if (judges.length > 1)
     chips.push({
       glyph: 'agent',
-      label: `${judges.length} reviewers`,
+      label: 'reviewers',
+      count: judges.length,
       tip: `${judges.join(' and ')} review each try side by side, each in its own session. Their findings go back together.`,
     });
   if (readers.length > 0)
@@ -60,5 +63,5 @@ export const chipsOf = (node: Graph['nodes'][number]): Chip[] => {
 };
 
 /** Width of a chip in 10px mono: border, padding, glyph and gap, then one advance per character. */
-export const chipWidth = (chip: Chip) => 24 + chip.label.length * 6.1;
+export const chipWidth = (chip: Chip) => 24 + chip.label.length * 6.1 + (chip.count === undefined ? 0 : 4);
 export const chipGap = 4;
