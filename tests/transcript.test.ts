@@ -70,6 +70,10 @@ describe('transcript', () => {
       'use ghp_abcdefghijklmnopqrstuvwxyz0123 and -----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
     const text = transcript(21, [{ run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt } }] }]);
     expect(text).toContain('1 prompt: use [redacted] and [redacted]');
+    const more =
+      'AKIAIOSFODNN7EXAMPLE npm_abcdefghijklmnopqrstuvwxyz0123456789 Authorization: Bearer abc.def-ghi_jkl012 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    const also = transcript(21, [{ run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt: more } }] }]);
+    expect(also).toContain('1 prompt: [redacted] [redacted] Authorization: Bearer [redacted] [redacted]');
   });
 
   it('tallies the middle of a long session and shortens the oldest runs past the budget', () => {

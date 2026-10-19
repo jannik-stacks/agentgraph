@@ -134,6 +134,10 @@ const secrets = [
   /\b(?:gh[pousr]_|github_pat_)\w{20,}/g,
   /\bsk-[\w-]{16,}/g,
   /\bxox[abp]-[\w-]{10,}/g,
+  /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+  /\bnpm_\w{30,}/g,
+  /\beyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}/g,
+  /\b(bearer\s+)[\w.~+/-]{12,}=*/gi,
   /\b(\w*(?:key|token|secret|password)\w*["']?\s*[=:]\s*["']?)[^\s"']{12,}/gi,
 ];
 
