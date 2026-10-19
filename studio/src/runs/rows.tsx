@@ -226,10 +226,10 @@ const lines: {
       </>
     ),
     body: ('body' in p || 'question' in p) && (
-      <div className="space-y-1">
+      <div className="space-y-1 py-0.5 pl-2 font-sans text-zinc-700 dark:text-zinc-300">
         {'title' in p && <p className="font-medium">{p.title}</p>}
-        {'body' in p && <Markdown text={p.body} className="bhm-tight" />}
-        {'question' in p && <Markdown text={p.question} className="bhm-tight" />}
+        {'body' in p && <Markdown text={p.body} />}
+        {'question' in p && <Markdown text={p.question} />}
         {url && p.kind === 'pull_request' && <Url url={`${url}/files`} text="the diff on GitHub" />}
       </div>
     ),
