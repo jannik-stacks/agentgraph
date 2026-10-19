@@ -3,7 +3,7 @@ import type { Proposal } from '../../../src/forge.ts';
 import type { Run } from '../../../src/workflow.ts';
 import type { Trace } from '../../../src/store.ts';
 import { Pulse } from '../icons.tsx';
-import { Code, Markdown } from '../Markdown.tsx';
+import { Code, Markdown, Room } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { ToolBody, toolName, toolSummary } from './tools.tsx';
 import { type CoreRun, detail, type Session, visitsOf } from './trace.ts';
@@ -103,7 +103,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
     body: (
       <>
         <From>session text</From>
-        <Markdown text={e.text} className="font-sans" />
+        <Markdown text={e.text} className="bhm-tight" />
       </>
     ),
   }),
@@ -116,7 +116,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
     body: (
       <>
         <From>session thinking</From>
-        <Markdown text={e.text} className="font-sans" />
+        <Markdown text={e.text} className="bhm-tight" />
       </>
     ),
   }),
@@ -131,7 +131,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
     body: (
       <>
         <From>final reply</From>
-        <Markdown text={e.final} className="font-sans" />
+        <Markdown text={e.final} className="bhm-tight" />
       </>
     ),
   }),
@@ -412,8 +412,8 @@ const RawJson = ({ value }: { value: unknown }) => (
   <Code code={JSON.stringify(value, null, 2)} lang="json" compact wrap lines={12} />
 );
 
-/** A quiet button, shown on hover, that folds out a row's JSON. */
-const RawButton = ({ open, onClick }: { open: boolean; onClick: () => void }) => (
+/** A quiet button on a row's line, shown on hover, that opens the row and switches one of its views. */
+const RowButton = ({ label, open, onClick }: { label: string; open: boolean; onClick: () => void }) => (
   <button
     type="button"
     aria-pressed={open}
@@ -428,7 +428,7 @@ const RawButton = ({ open, onClick }: { open: boolean; onClick: () => void }) =>
       onClick();
     }}
   >
-    raw
+    {label}
   </button>
 );
 
@@ -438,7 +438,9 @@ const LeafView = ({ row }: { row: Row }) => {
   return (
     <li className="pl-4.5">
       <span className="group/row block">
-        <Head row={row}>{row.raw !== undefined && <RawButton open={raw} onClick={() => setRaw(!raw)} />}</Head>
+        <Head row={row}>
+          {row.raw !== undefined && <RowButton label="raw" open={raw} onClick={() => setRaw(!raw)} />}
+        </Head>
       </span>
       {raw && <RawJson value={row.raw} />}
     </li>
@@ -447,6 +449,7 @@ const LeafView = ({ row }: { row: Row }) => {
 
 const RowView = ({ row }: { row: Row }) => {
   const [raw, setRaw] = useState(false);
+  const [room, setRoom] = useState(false);
   const only = !row.body && row.raw === undefined && row.children?.length === 1 ? row.children[0] : undefined;
   if (only)
     return (
@@ -468,7 +471,10 @@ const RowView = ({ row }: { row: Row }) => {
     <li>
       <Disclosure
         summary={
-          <Head row={row}>{row.raw !== undefined && <RawButton open={raw} onClick={() => setRaw(!raw)} />}</Head>
+          <Head row={row}>
+            <RowButton label="expand" open={room} onClick={() => setRoom(!room)} />
+            {row.raw !== undefined && <RowButton label="raw" open={raw} onClick={() => setRaw(!raw)} />}
+          </Head>
         }
         summaryClassName="group/row"
         open={row.open ?? false}
@@ -478,13 +484,15 @@ const RowView = ({ row }: { row: Row }) => {
             <RawJson value={row.raw} />
           </div>
         )}
-        <div
-          data-scroll={row.scroll || undefined}
-          className={cx('space-y-0.5 py-0.5 pl-3', row.scroll && 'max-h-[75vh] overflow-y-auto')}
-        >
-          {row.body}
-          {row.children && <Rows rows={row.children} />}
-        </div>
+        <Room.Provider value={room}>
+          <div
+            data-scroll={row.scroll || undefined}
+            className={cx('space-y-0.5 py-0.5 pl-3', row.scroll && !room && 'max-h-[75vh] overflow-y-auto')}
+          >
+            {row.body}
+            {row.children && <Rows rows={row.children} />}
+          </div>
+        </Room.Provider>
       </Disclosure>
     </li>
   );

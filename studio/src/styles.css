@@ -79,6 +79,32 @@ body {
   }
 }
 
+.bhm-md.bhm-tight {
+  @apply text-[11px] leading-snug;
+
+  & :where(p, ul, ol, blockquote, table, h1, h2, h3, h4) {
+    @apply my-1;
+  }
+  & :where(h1, h2, h3, h4, strong, b, th) {
+    @apply text-[1em] font-normal;
+  }
+  & :where(em, i) {
+    @apply not-italic;
+  }
+  & :where(ul, ol) {
+    @apply pl-4;
+  }
+  & blockquote {
+    @apply px-2 py-0.5;
+  }
+  & :not(pre) > code {
+    @apply bg-transparent px-0 text-[1em];
+  }
+  & :where(th, td) {
+    @apply px-1.5 py-0.5;
+  }
+}
+
 .bhm-in {
   animation: bhm-in 150ms ease-out;
 }
