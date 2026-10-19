@@ -13,7 +13,7 @@ type Tool = Extract<SessionEvent, { type: 'tool' }>;
 /** What one harness output line says, before the session loop adds the home, the reply and the exit code. */
 type Piece =
   | { type: 'session'; id: string; model?: string }
-  | Extract<SessionEvent, { type: 'text' | 'tool' }>
+  | Extract<SessionEvent, { type: 'text' | 'thinking' | 'tool' }>
   | Extract<SessionEvent, { type: 'usage' }>
   | { type: 'done'; ended: Ended; error?: string };
 
@@ -56,7 +56,7 @@ const OpencodeLine = Struct({
 });
 
 const ClaudeBlock = Struct({
-  ...some(Str, 'type', 'text', 'id', 'name', 'tool_use_id'),
+  ...some(Str, 'type', 'text', 'thinking', 'id', 'name', 'tool_use_id'),
   ...some(Unknown, 'input', 'content'),
   is_error: opt(Bool),
 });
@@ -204,6 +204,7 @@ const opencode: Adapter = {
           { type: 'done', ended: 'error', error: line.error?.data?.message ?? line.error?.name ?? 'opencode error' },
         ];
       if (part.type === 'text' && part.text) return [...session, { type: 'text', text: part.text }];
+      if (part.type === 'reasoning' && part.text) return [...session, { type: 'thinking', text: part.text }];
       if (part.type === 'tool' && (part.state?.status === 'completed' || part.state?.status === 'error')) {
         const { state } = part;
         const output = state.output ?? state.error;
@@ -263,11 +264,13 @@ const claudeTools = (tools: string[]) =>
     return mapped ? [glob === undefined ? mapped : `${mapped}(${glob})`] : [];
   });
 
-const blockText = (content: unknown): string =>
+const blockText = (content: unknown, type = 'text'): string =>
   typeof content === 'string'
-    ? content
+    ? type === 'text'
+      ? content
+      : ''
     : Array.isArray(content)
-      ? content.flatMap(b => (b?.type === 'text' && typeof b.text === 'string' ? [b.text] : [])).join('')
+      ? content.flatMap(b => (b?.type === type && typeof b[type] === 'string' ? [b[type]] : [])).join('')
       : '';
 
 /**
@@ -319,6 +322,7 @@ const claude: Adapter = {
       if ((line.type === 'assistant' || line.type === 'user') && Array.isArray(content))
         return content.flatMap((b): Piece[] => {
           if (b.type === 'text' && b.text) return [{ type: 'text', text: b.text }];
+          if (b.type === 'thinking' && b.thinking) return [{ type: 'thinking', text: b.thinking }];
           if (b.type === 'tool_use' && b.id) calls.set(b.id, { name: b.name ?? '', input: b.input });
           if (b.type !== 'tool_result' || !b.tool_use_id) return [];
           const call = calls.get(b.tool_use_id);
@@ -418,8 +422,10 @@ const pi: Adapter = {
       const m = line.message;
       if (line.type === 'message_end' && m?.role === 'assistant') {
         const text = blockText(m.content);
+        const thinking = blockText(m.content, 'thinking');
         const u = m.usage;
         return [
+          ...(thinking ? [{ type: 'thinking' as const, text: thinking }] : []),
           ...(text ? [{ type: 'text' as const, text }] : []),
           ...(u && (u.input || u.output)
             ? [

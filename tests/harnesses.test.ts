@@ -139,6 +139,28 @@ describe('the session loop', () => {
   });
 });
 
+describe('thinking', () => {
+  it('records what each harness reports as thinking apart from the reply', async () => {
+    const lines = {
+      opencode: { type: 'text', part: { type: 'reasoning', text: 'the test names add' } },
+      claude: { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'the test names add' }] } },
+      pi: {
+        type: 'message_end',
+        message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'the test names add' }] },
+      },
+    };
+    for (const [harness, line] of Object.entries(lines)) {
+      const { events: got } = await events({ ...spec, harness: harness as SessionSpec['harness'] }, [
+        JSON.stringify(line),
+      ]);
+      expect(got).toEqual([
+        { type: 'thinking', text: 'the test names add' },
+        expect.objectContaining({ type: 'end', final: '' }),
+      ]);
+    }
+  });
+});
+
 describe('opencode', () => {
   it('passes the prompt as space-free words after -- and denies every tool outside the allowlist', async () => {
     const { command } = await events(spec, []);

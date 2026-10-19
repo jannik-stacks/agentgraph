@@ -22,6 +22,7 @@ export type SessionSpec = {
 export type SessionEvent =
   | { type: 'start'; session: string; model: string; home: string }
   | { type: 'text'; text: string }
+  | { type: 'thinking'; text: string }
   | {
       type: 'tool';
       id: string;

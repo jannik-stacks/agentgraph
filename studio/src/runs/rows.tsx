@@ -107,6 +107,19 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
       </>
     ),
   }),
+  thinking: e => ({
+    summary: (
+      <>
+        <Badge>thinking</Badge> {muted(short(e.text))}
+      </>
+    ),
+    body: (
+      <>
+        <From>session thinking</From>
+        <Markdown text={e.text} className="font-sans" />
+      </>
+    ),
+  }),
   usage: e => ({
     summary: muted(
       `usage ${e.input.toLocaleString()} in, ${e.output.toLocaleString()} out${e.usd === undefined ? '' : `, ${usd(e.usd)}`}`
