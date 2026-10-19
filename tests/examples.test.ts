@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { Effect } from 'effect';
-import { loadHub } from '../src/hub.ts';
+import { loadHub, retiredIn } from '../src/hub.ts';
 
 const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');
@@ -23,14 +23,16 @@ describe('example hubs', () => {
     await expect(Effect.runPromise(loadHub(dir))).resolves.toMatchObject({ workflows: expect.any(Object) });
   });
 
-  it.each(hubDirs)('%s skills use no vocabulary the engine lacks', async dir => {
-    const hub = await Effect.runPromise(loadHub(dir));
-    const old = /`reply`|`close`|## Resuming|main-worktree|\/hub\/scripts|criteria table|adds the Closes/;
-    expect(
-      Object.values(hub.skills)
-        .filter(skill => old.test(skill.body))
-        .map(skill => skill.path)
-    ).toEqual([]);
+  it.each(hubDirs)('%s notes use no retired words', dir => {
+    const notes = join(dir, 'notes');
+    const found = (existsSync(notes) ? (readdirSync(notes, { recursive: true }) as string[]) : [])
+      .filter(path => path.endsWith('.md') && !path.endsWith('retired-names.md'))
+      .flatMap(path => {
+        const out: string[] = [];
+        retiredIn(readFileSync(join(notes, path), 'utf8'), message => out.push(`${path}: ${message}`));
+        return out;
+      });
+    expect(found).toEqual([]);
   });
 });
 

@@ -198,6 +198,23 @@ describe('loadHub', () => {
     ]);
   });
 
+  it('fails retired words in any hub prompt, naming the word and what to say now', async () => {
+    const dir = hubDir({
+      'agents/a.md': '---\nharness: opencode\n---\nOpen a merge request.\n',
+      'skills/s.md': 'A human answers with `/bothub <answer>` on the issue.\n',
+      'checks/c.md': '---\nmode: warn\nrun: "true"\n---\nReads bots/triage.md.\n',
+      'workflows/w.md':
+        '---\non: issues\nsteps:\n  x: { agent: a, skill: s, checks: [c] }\n---\nThe persona runs for-each file.\n',
+    });
+    expect(await problems(dir)).toEqual([
+      'agents/a.md: says "merge request", which is retired; say pull request',
+      'skills/s.md: says "/bothub <", which is retired; say a plain reply answers and a reply of stop ends the run, with no command',
+      'checks/c.md: says "bots/", which is retired; say agents/',
+      'workflows/w.md: says "persona", which is retired; say agent, or harness for the program that runs a session',
+      'workflows/w.md: says "for-each", which is retired; say returns: and each:',
+    ]);
+  });
+
   it('reads the milestone and the trust list, unset by default', async () => {
     const set = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'milestone: v1\ntrust: [ana, bob]\n' })));
     expect(set.milestone).toBe('v1');

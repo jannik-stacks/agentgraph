@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { Chunk, Effect, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drive, gate, sweep, tick } from '../src/engine.ts';
+import { answerWith } from '../src/context.ts';
 import { start as main } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { fileForge, Forge, ForgeError, type Event, type Proposal } from '../src/forge.ts';
@@ -27,7 +28,7 @@ import { git, hubOf } from './fixtures.ts';
 
 const foot = (...lines: string[]) =>
   `<details><summary><sub>bothub</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
-const replyHint = 'Reply here to answer, or reply <code>stop</code> to end the run.';
+const replyHint = answerWith;
 const hub = hubOf('acme-app', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },

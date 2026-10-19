@@ -182,6 +182,29 @@ const unknownKinds = (body: string, say: (message: string) => void) => {
   }
 };
 
+/** Words and phrases that described bothub once and no longer do, each with what to say now. */
+const retiredWords: [RegExp, string][] = [
+  [
+    /\/bothub\s*<|\/bothub\s+(?:answer|stop)\b/i,
+    'a plain reply answers and a reply of stop ends the run, with no command',
+  ],
+  [/\bmerge requests?\b/i, 'pull request'],
+  [/\bopen-pr\b/, 'pull_request'],
+  [/\b(?:souls?|personas?|executors?)\b/i, 'agent, or harness for the program that runs a session'],
+  [/\bbots\//, 'agents/'],
+  [/^\s*can:|\bfor-each\b|\bover:/m, 'returns: and each:'],
+  [/\bruns-per-day\b|\bmax-turns\b/, 'limits in hub.yaml'],
+  [/## Resuming|main-worktree|\/hub\/scripts|criteria table|adds the Closes/, 'nothing; the engine no longer has it'],
+];
+
+/** Reports each retired word a hub or notes file still uses. */
+export const retiredIn = (text: string, say: (message: string) => void) => {
+  for (const [word, now] of retiredWords) {
+    const found = word.exec(text);
+    if (found) say(`says ${JSON.stringify(found[0].trim())}, which is retired; say ${now}`);
+  }
+};
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Reports and strips the removed keys in `table`. */
@@ -292,6 +315,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
 
   for (const doc of [...Object.values(agents), ...Object.values(skills), ...Object.values(checks)])
     unknownKinds(doc.body, sayer(doc.path));
+  for (const file of Object.values(groups).flat()) retiredIn(file.text, sayer(file.path));
 
   const names = { agents: Object.keys(agents), skills: Object.keys(skills), checks: Object.keys(checks) };
   const workflows: Record<string, Workflow> = {};

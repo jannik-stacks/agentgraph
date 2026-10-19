@@ -13,7 +13,7 @@ files.
 Bad:
 
 ```ts
-// formerly executor, renamed after decision 0012; asked for two retries
+// formerly runner, renamed after decision 0012; asked for two retries
 const harness = pick(bot);
 ```
 
