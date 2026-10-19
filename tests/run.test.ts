@@ -2043,4 +2043,92 @@ describe('compound engineering', () => {
     expect(read).toHaveLength(1);
     expect(read[0]).toContain('2 tool read {"path":"hello.txt"} ok');
   });
+
+  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const looking = {
+    ...small,
+    setup: 'touch setup-ran',
+    workflows: { ...small.workflows, retro: { ...small.workflows.issue!, name: 'retro', on: { feedback: {} } } },
+  };
+  const pushed = (issue: number, at: string): Event => ({
+    issue,
+    kind: 'commit',
+    actor: 'morgan',
+    trusted: true,
+    at,
+    commit: { sha: 'abcdef0123', title: 'Document the field' },
+  });
+  const done = () =>
+    Effect.flatMap(Store, s =>
+      s.put({ ...begin(small.workflows.issue!, { id: 'run-7', issue: 7, started: fresh().started }), status: 'done' })
+    );
+  const retros = Effect.map(
+    Effect.flatMap(Store, s => s.list({ issue: 7 })),
+    runs => runs.filter(r => r.workflow === 'retro')
+  );
+
+  it('starts one quiet retro on what people said or pushed where a run worked, and nothing from commands or bots', async () => {
+    const where = world();
+    say(where, comment(7, 'mallory', false, 'this is wrong', '2026-10-16T00:00:04.000Z'));
+    say(where, pushed(7, '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'morgan', true, '/bothub stop', '2026-10-16T00:00:06.000Z'));
+    say(where, {
+      ...comment(7, 'morgan', true, 'Fine, but the new field needs docs.', '2026-10-16T00:00:07.000Z'),
+      kind: 'approved',
+    });
+    const { specs, commands, run } = services(where, [[start('r'), reply()]]);
+    await run(done());
+    const touched = await run(tick(looking));
+    expect(touched.map(r => [r.workflow, r.status, r.started])).toEqual([
+      ['retro', 'done', '2026-10-16T00:00:07.000Z'],
+    ]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).toContain(
+      '## What a person said or pushed\n\n@morgan pushed abcdef0 Document the field\n\n@morgan approved: Fine, but the new field needs docs.'
+    );
+
+    expect(commands.map(c => c.args.join(' ')).join('\n')).not.toContain('setup-ran');
+    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8').trim().split('\n')).toHaveLength(5);
+    expect(readFileSync(join(where.forge, '7.md'), 'utf8')).toContain('labels: []');
+    expect(await run(tick(looking))).toEqual([]);
+    say(where, pushed(7, '2026-10-16T00:00:08.000Z'));
+    const again = await run(tick(looking));
+    expect(again.map(r => [r.workflow, r.started])).toEqual([['retro', '2026-10-16T00:00:08.000Z']]);
+    expect(specs.at(-1)!.prompt).toMatch(
+      /## What a person said or pushed\n\n@morgan pushed abcdef0 Document the field\n\n(?!@morgan approved)/
+    );
+    expect((await run(retros)).map(r => r.workflow)).toEqual(['retro', 'retro']);
+  }, 30_000);
+
+  it('waits for a live retro, and a live retro holds neither the issue nor its answers', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Hi.' })]]);
+    await run(done());
+    const live = begin(looking.workflows.retro, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:02.000Z' });
+    await run(Effect.flatMap(Store, s => s.put({ ...live, status: 'waiting', reason: 'parked' })));
+    where.human('/bothub once more', '2026-10-16T00:00:05.000Z');
+    const touched = await run(tick(looking));
+    expect(touched.map(r => [r.workflow, r.status])).toEqual([['issue', 'done']]);
+    expect(specs).toHaveLength(1);
+    expect((await run(retros)).map(r => [r.id, r.status])).toEqual([['retro-7', 'waiting']]);
+  }, 30_000);
+
+  it('takes what is said on a merged pull request as feedback on the issue its branch worked on', async () => {
+    const where = world();
+    writeFileSync(
+      join(where.forge, '8.md'),
+      '---\ntitle: Add hello\nstate: merged\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+    );
+    mkdirSync(join(where.forge, '8'), { recursive: true });
+    writeFileSync(
+      join(where.forge, '8', 'pull.json'),
+      JSON.stringify({ branch: 'bothub/7', base: 'main', head: 'x', baseSha: 'b1' })
+    );
+    say(where, comment(8, 'morgan', true, 'Next time reuse the helper.', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [[start('r'), reply()]]);
+    await run(done());
+    const touched = await run(tick(looking));
+    expect(touched.map(r => [r.workflow, r.issue])).toEqual([['retro', 7]]);
+    expect(specs[0]!.prompt).toContain('@morgan: Next time reuse the helper.');
+  }, 30_000);
 });

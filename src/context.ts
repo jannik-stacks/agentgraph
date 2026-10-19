@@ -7,7 +7,8 @@ export type Issues = { issue: Issue & { events: Event[] }; pull?: Issue & { even
 
 const cap = 20_000;
 
-const line = (m: Event): string => {
+/** One event as a line of a timeline: who did what, and what they said. */
+export const line = (m: Event): string => {
   const c = m.comment;
   const said = c ? `${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ''}, id ${c.id}` : ''}: ${c.body}` : '';
   const who = `@${m.actor}`;

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
-import { answerWith, context, footer, news, shown, transcript, type Issues } from './context.ts';
+import { answerWith, context, footer, line, news, shown, transcript, type Issues } from './context.ts';
 import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
@@ -382,6 +382,7 @@ const addressed = (m: Event, command?: string): Event => {
 
 /** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
 const told = (w: Workflow, run: Run, t: Issues, command?: string) => {
+  if (w.on.feedback) return undefined;
   const since = run.seen ?? run.started;
   const said = [...t.issue.events, ...(t.pull?.events ?? [])]
     .filter(m => m.at > since)
@@ -393,6 +394,15 @@ const told = (w: Workflow, run: Run, t: Issues, command?: string) => {
   const outcome = fold(said.map(s => s.o));
   return outcome && { outcome, at: newest(...said.map(s => s.at))! };
 };
+
+/** A trusted person's comment, review or pushed commit; a bare stop, cancel or restart is a command, not feedback. */
+const feedback = (m: Event, command?: string) =>
+  m.trusted &&
+  (m.kind === 'comment' ||
+    m.kind === 'changes_requested' ||
+    m.kind === 'commit' ||
+    (m.kind === 'approved' && !!m.comment?.body.trim())) &&
+  !/^(stop|cancel|restart)\b/i.test(afterCommand(m, command) ?? '');
 
 /** When a trusted person last did something on the issue or its pull request. */
 const lastHeard = (t: Issues) =>
@@ -1158,6 +1168,7 @@ export const gate = (
  */
 const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Store> =>
   Effect.gen(function* () {
+    if (w.on.feedback) return run;
     const forge = yield* Forge;
     const t = yield* issuesOf(w, run);
     const status = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.issue, p));
@@ -1259,7 +1270,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         (own && issue.pull?.branch === own && issue.pull.base) ||
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
       const work = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/bothub/runs/${run.id}`, hub));
-      if (hub.setup) {
+      if (hub.setup && !w.on.feedback) {
         const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
         if (out.code !== 0)
           return yield* new SandboxError({
@@ -1407,7 +1418,7 @@ export const tick = (
     const forge = yield* Forge;
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const all = yield* store.list();
-    const runs = all.filter(mine);
+    const runs = all.filter(mine).filter(r => !retro(hub, r));
     const waiting = yield* Effect.forEach(runs.filter(live), r =>
       Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => 'outcome' in t)), last => ({
         run: r,
@@ -1596,6 +1607,47 @@ export const tick = (
         )
       )
         yield* start(w, only, now());
+    }
+
+    /** The issue a run worked on for what was said there, or on a pull request of its branch that is no longer open. */
+    const pulls = new Map<number, number | undefined>();
+    const workedOn = (m: Event) =>
+      Effect.gen(function* () {
+        if (all.some(r => r.issue === m.issue && !retro(hub, r))) return m.issue;
+        if (!pulls.has(m.issue)) {
+          const branch = Option.getOrUndefined(yield* Effect.option(forge.issue(m.issue)))?.pull?.branch;
+          const by = all.find(r => {
+            const w = hub.workflows[r.workflow];
+            return !retro(hub, r) && w?.branch !== undefined && branch === expand(w.branch, { number: r.issue });
+          });
+          pulls.set(m.issue, by?.issue);
+        }
+        return pulls.get(m.issue);
+      });
+    for (const w of Object.values(hub.workflows).filter(w => w.on.feedback)) {
+      const heardOn = new Map<number, Event[]>();
+      for (const m of latest.map(onRun).filter(m => feedback(m, command))) {
+        const issue = yield* workedOn(m);
+        if (issue !== undefined && mine({ issue })) heardOn.set(issue, [...(heardOn.get(issue) ?? []), m]);
+      }
+      for (const [issue, said] of heardOn) {
+        const before = all.filter(r => r.issue === issue && r.workflow === w.name);
+        if (young(issue) || before.some(live)) continue;
+        const first = all
+          .filter(r => r.issue === issue && !retro(hub, r))
+          .map(r => r.started)
+          .sort()[0];
+        const since = newest(first, ...before.map(r => r.started))!;
+        const fresh = said.filter(m => m.at > since);
+        if (fresh.length === 0) continue;
+        const at = newest(...fresh.map(m => m.at))!;
+        const begun: Run = {
+          ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
+          feedback: `## What a person said or pushed\n\n${fresh.map(line).join('\n\n')}`,
+        };
+        yield* store.put(begun);
+        touched.push(begun);
+      }
     }
 
     for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(live)) {
