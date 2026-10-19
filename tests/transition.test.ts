@@ -264,12 +264,13 @@ describe('reenter', () => {
     expect(reenter(w, at('implement', { status: 'done' }), comment('/bothub v2'))).toBeUndefined();
   });
 
-  it('running: a comment is an answer, cancel parks the run, stop and closing end it', () => {
+  it('running: a comment is an answer, cancel parks the run, stop, restart and closing end it', () => {
     const running = at('implement');
     expect(reenter(w, running, comment('/bothub use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
     expect(reenter(w, running, comment('/bothub cancel'))).toEqual({ kind: 'ask', question: cancelled });
     expect(reenter(w, running, comment('/bothub stop'))).toEqual({ kind: 'stop', why: 'a human said stop' });
     expect(reenter(w, running, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
+    expect(reenter(w, running, comment('/bothub restart'))).toEqual({ kind: 'stop', why: 'a human restarted it' });
     expect(reenter(w, asked, comment('/bothub cancel'))).toBeUndefined();
   });
 
