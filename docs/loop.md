@@ -65,9 +65,11 @@ Two triggers start runs today:
 
 On GitHub, the main way in is to mention the bot. A comment counts when it has `@stx-bothub` as a word outside quoted lines and fenced code. `/bothub` works the same. The engine reads either as `/bothub` followed by the rest of the comment, so a bare mention starts the workflow too (`code: src/forge.ts#commanded`). On an issue with no live run, a mention that only says `stop` starts nothing.
 
-Once the bot has a run on an issue, a trusted comment there speaks to it without a mention, unless it mentions someone else. A waiting run takes the comment as its answer. When every run there is finished, the comment starts the comment workflow, so a question like "where is the PR?" gets a reply. Comments on the run's pull request count for its issue. The bot's own comments never count.
+Once the bot has a run on an issue, a trusted comment there speaks to it without a mention, unless it mentions someone else. Comments on the run's pull request count for its issue, and the bot's own comments never count.
 
-A run that a comment started may answer it and stop: when the comment asks for no work, the first session is told to reply with comments only, and such a reply ends the run without checks or later steps.
+A waiting run takes the comment as its answer. When every run there is finished, the comment starts the comment workflow, so a question like "where is the PR?" gets a reply.
+
+A run started by a comment can reply and stop. When the comment asks for no work, the first session is told to reply with comments only, and that reply ends the run without checks or later steps.
 
 The engine puts an eyes reaction on the comment that started or woke a run, or on the issue for a label, and takes it off once it has replied (`code: src/engine.ts#tick`).
 

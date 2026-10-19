@@ -38,9 +38,9 @@ The engine means the runner's own code in `src`.
 
 The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and nothing else.
 
-Sessions and the hub's `setup` run on an internal network whose only exits are the model proxy, an Ollama relay to the host, and an egress proxy that allows HTTPS to `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`. So `npm install` and cloning from GitHub work; other registries and the open web do not. A hub with `network: models` reaches the model proxy only. Scripts and checks get no network at all. See [The network](sandbox.md#the-network).
+Sessions and the hub's `setup` reach only the model proxy and an egress allowlist, and scripts and checks reach nothing, see [The network](sandbox.md#the-network).
 
-Each run works in its own git worktree of the bare mirror. The mirror is mounted read-only. See [Sandbox](sandbox.md) and [Runs](runs.md).
+Each run works in its own git worktree of a bare mirror, see [Runs](runs.md#checkout).
 
 The engine talks to the outside through four services. Each has a test double:
 
