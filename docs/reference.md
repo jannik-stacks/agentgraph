@@ -2,6 +2,8 @@
 
 Every field a hub file may hold, with its type, its default and what it does. An unknown field is an error, and a removed one is reported with what to write instead. <!-- code: src/hub.ts#gone -->
 
+A hub is a folder: `.bothub/` on the default branch of the repo it works on, or a folder on this machine given with `--hub`, see [A hub in the repo](loop.md#a-hub-in-the-repo). Its version is a hash of `hub.yaml` and every agent, skill, check, workflow and script in it. When the version changes, runs waiting for a human are checked again, see [When the base or the hub moves](loop.md#when-the-base-or-the-hub-moves). <!-- code: src/hub.ts#loadHub -->
+
 ## hub.yaml
 
 <!-- code: src/hub.ts#HubFile -->
@@ -42,7 +44,7 @@ A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 
 | Field      | Type          | Meaning                                 |
 | ---------- | ------------- | --------------------------------------- |
-| `command`  | text          | A comment starting with it starts a run |
+| `command`  | text          | A comment starting with it starts a run; with `restart [step]` after it, starts one again, see [Starting a run](loop.md#starting-a-run) |
 | `label`    | label name    | Adding it to an issue starts a run      |
 | `branches` | list of names | Accepted, starts nothing yet            |
 
