@@ -278,7 +278,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (existsSync(join(at, 'diff.patch'))) return;
   if (!process.env.BOTHUB_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   if (await prepare(c, out, repo)) return;
-  const treeSha = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./'], { encoding: 'utf8' }).stdout.trim();
+  const treeSha = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./src'], { encoding: 'utf8' }).stdout.trim();
   const own = hubs[c.repo.split('/').pop() ?? ''] ?? 'bench';
   const kept = slot(
     'arm',
