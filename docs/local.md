@@ -34,16 +34,17 @@ node bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 
 `--hub <dir>` names a hub folder on this machine, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. `--instance <dir>` stands for all three, see [Instances](#instances). The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `BOTHUB_HUB`, `BOTHUB_DATA`, `BOTHUB_FORGE` and `BOTHUB_REPO`. The runner also reads:
 
-| Variable              | What it is                                                                       |
-| --------------------- | -------------------------------------------------------------------------------- |
-| `BOTHUB_APP_ENV`      | An env file with the GitHub App's `BOTHUB_APP_ID` and `BOTHUB_APP_KEY`           |
-| `BOTHUB_APP_KEY_FILE` | In that file, a path to the App's private key, read in as `BOTHUB_APP_KEY`       |
-| `BOTHUB_EVERY`        | Minutes between looks in `loop`, 5 by default                                    |
-| `BOTHUB_PROXY_URL`    | The model proxy, `http://litellm:4000/v1` by default                             |
-| `BOTHUB_PROXY_KEYS`   | The agents' model keys, see [Models](sandbox.md#models)                          |
-| `BOTHUB_PRICES`       | The list prices file, `infra/local/prices.json` by default                       |
+| Variable              | What it is                                                                 |
+| --------------------- | -------------------------------------------------------------------------- |
+| `BOTHUB_APP_ENV`      | An env file with the GitHub App's `BOTHUB_APP_ID` and `BOTHUB_APP_KEY`     |
+| `BOTHUB_APP_KEY_FILE` | In that file, a path to the App's private key, read in as `BOTHUB_APP_KEY` |
+| `BOTHUB_EVERY`        | Minutes between looks in `loop`, 5 by default                              |
+| `BOTHUB_PROXY_URL`    | The model proxy, `http://litellm:4000/v1` by default                       |
+| `BOTHUB_PROXY_KEYS`   | The agents' model keys, see [Models](sandbox.md#models)                    |
+| `BOTHUB_PRICES`       | The list prices file, `infra/local/prices.json` by default                 |
+| `BOTHUB_CHECK_LOGS`   | Which check output the data dir keeps: `all` by default, `failed` or `off` |
 
-The App's variables can also be set in the environment directly. <!-- code: src/services.ts#settings -->
+The App's variables can also be set in the environment directly. `--logs` on the CLI, or `logs` in `instance.yaml`, sets `BOTHUB_CHECK_LOGS`. <!-- code: src/services.ts#settings -->
 
 ## Without GitHub
 

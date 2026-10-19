@@ -116,8 +116,9 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 An [instance](local.md#instances) is a folder with `instance.yaml`, the hub in `hub/`, a forge folder in `forge/`, the data dir in `data/` and an optional `keys.env`. `node bin/forge.ts <dir> init <repo> --hub <hub>` writes it. <!-- code: src/instance.ts#Instance -->
 
-| Field   | Type        | Default                | Meaning                                                         |
-| ------- | ----------- | ---------------------- | --------------------------------------------------------------- |
-| `repo`  | path        | none                   | The git repo on this machine the instance copies and exports to |
-| `base`  | branch name | `main`                 | The branch `sync` and `export --patch` read from the repo       |
-| `owner` | name        | `git config user.name` | Who `bin/forge.ts` acts as when `--as` is not given             |
+| Field   | Type                     | Default                | Meaning                                                         |
+| ------- | ------------------------ | ---------------------- | --------------------------------------------------------------- |
+| `repo`  | path                     | none                   | The git repo on this machine the instance copies and exports to |
+| `base`  | branch name              | `main`                 | The branch `sync` and `export --patch` read from the repo       |
+| `owner` | name                     | `git config user.name` | Who `bin/forge.ts` acts as when `--as` is not given             |
+| `logs`  | `all`, `failed` or `off` | `all`                  | Which check output the data dir keeps, as `BOTHUB_CHECK_LOGS`   |
