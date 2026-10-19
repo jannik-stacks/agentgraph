@@ -3,6 +3,22 @@
 The bench replays merged pull requests. Each arm gets the issue text at the merge's parent commit, and
 its result is scored against what was merged, first by tests and then by a blind panel of judges.
 
+## Run it at a commit
+
+```sh
+BENCH_CASES=<miner cases> BENCH_REPOS=<clones> npm run bench -- --at <engine-commit> [--set smoke] [--fresh]
+```
+
+It checks the commit out as a git worktree under `runs/<sha>/engine`, runs every case of
+`bench/sets/<set>.json` (validity, v2, floor, score, judge) with that engine, and writes
+`runs/<sha>/report.md` and `compare.md`, the headline numbers that changed against the newest earlier
+report. `--cases-dir`, `--repos-dir`, `--out` (default `runs`), `--parallel` (default 3) and `--judges`
+override the defaults. A set pins each case's `base`; a case whose folder has another base is skipped.
+
+Nothing unchanged is run or judged again. Results live in `runs/.cache`: validity by case, an arm by
+case, arm, hub content and the engine's `src` tree (the floor arm leaves the tree out), a judge verdict by
+judge and prompt, which holds both diffs and their order. `--fresh` ignores the cache.
+
 ## Cases
 
 A case is a folder with `case.json`, `issue.md` and `merged.diff`. `case.json` names the repo, the
