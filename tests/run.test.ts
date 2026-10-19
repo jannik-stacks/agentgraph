@@ -1189,6 +1189,35 @@ describe('gate', () => {
     ]);
   });
 
+  it('fails a check as one error carrying stderr when its each command exits nonzero', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    const small = hubOf('hub', { types: { each: 'echo at x.js:1 >&2; echo boom >&2; exit 1', run: 'exit 0' } });
+    const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
+    const { run } = services(where, []);
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const { outcome } = await run(gate(step, left, small));
+    expect(outcome.kind).toBe('failed');
+    const checks = traceOf(where.data, 'run-7').flatMap(t =>
+      'check' in t && t.check.check === 'types' ? [t.check] : []
+    );
+    expect(checks).toEqual([
+      { check: 'types', pass: false, findings: 'each failed: at x.js:1\nboom', ms: expect.any(Number) },
+    ]);
+  });
+
   it('lets a check read the hub directory through BOTHUB_HUB', async () => {
     const where = world();
     const dir = join(where.root, 'work');

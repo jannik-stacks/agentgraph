@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Chunk, Effect, Either, Schema, Stream } from 'effect';
+import { Chunk, Data, Effect, Either, Schema, Stream } from 'effect';
 import { answerWith, context, footer, news, shown, type Issues } from './context.ts';
 import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
@@ -315,6 +315,8 @@ const changes = (work: Checkout, ...args: string[]) =>
 
 const diffOf = (work: Checkout) => changes(work, '--text');
 
+class EachFailed extends Data.TaggedError('EachFailed')<{ detail: string }> {}
+
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
 const itemsOf = (
   each: string | { run: string },
@@ -336,7 +338,9 @@ const itemsOf = (
     );
   if (each === 'files') return Effect.map(changes(work, '--name-only'), lines);
   const script = typeof each === 'string' ? each : each.run;
-  return Effect.map(sh(script, hub, work.dir, env, minutes), out => lines(out.output));
+  return Effect.flatMap(sh(script, hub, work.dir, env, minutes), out =>
+    out.code === 0 ? Effect.succeed(lines(out.output)) : Effect.fail(new EachFailed({ detail: out.output.trim() }))
+  );
 };
 
 /** Writes the news since `seen` to the checkout's news file; a failed refresh logs and keeps the old file. */
@@ -427,9 +431,10 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
     const started = Date.now();
     const minutes = hub.limits.minutes;
     const base = { BOTHUB_BASE: work.base, BOTHUB_ISSUE: String(work.issue), ...checkFiles(work) };
-    const items: (string | undefined)[] = check.each
-      ? yield* itemsOf(check.each, hub.dir, work, minutes, base)
-      : [undefined];
+    const listed = yield* (
+      check.each ? itemsOf(check.each, hub.dir, work, minutes, base) : Effect.succeed([undefined])
+    ).pipe(Effect.catchTag('EachFailed', e => Effect.succeed(e)));
+    const items: (string | undefined)[] = listed instanceof EachFailed ? [] : listed;
     let usd = 0;
     const one = (item: string | undefined) =>
       Effect.gen(function* () {
@@ -459,11 +464,14 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         return { item, pass: /^\W*PASS\b/.test(judged.final), findings: judged.final, ...exit };
       });
     const over = check.max !== undefined && items.length > check.max;
-    const results: Item[] = over
-      ? [{ item: undefined, pass: false, findings: `${items.length} items, more than ${check.max}` }]
-      : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
+    const results: Item[] =
+      listed instanceof EachFailed
+        ? [{ item: undefined, pass: false, findings: `each failed: ${listed.detail}` }]
+        : over
+          ? [{ item: undefined, pass: false, findings: `${items.length} items, more than ${check.max}` }]
+          : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
     const failing = results.filter(r => !r.pass);
-    const empty = check.each !== undefined && items.length === 0;
+    const empty = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
     const result: CheckResult = {
       check: check.name,
       pass: failing.length === 0,
@@ -567,7 +575,13 @@ const attempt = (
       ]
         .filter(Boolean)
         .join('\n\n');
-      const items: (string | undefined)[] = step.each ? yield* itemsOf(step.each, hub.dir, work, minutes) : [undefined];
+      const items: (string | undefined)[] = step.each
+        ? yield* itemsOf(step.each, hub.dir, work, minutes).pipe(
+            Effect.catchTag('EachFailed', e =>
+              Effect.fail(new SandboxError({ reason: 'infra', detail: `each failed: ${e.detail}` }))
+            )
+          )
+        : [undefined];
       const caught = news(t, kept ? (kept.seen ?? { at: run.started }) : { at: '' });
       for (const item of items) {
         yield* refresh(w, run, work, caught.seen, t);
