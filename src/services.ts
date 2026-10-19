@@ -8,7 +8,7 @@ import { harnesses } from './harnesses.ts';
 import { hubAt } from './hub.ts';
 import type { Sandbox } from './sandbox.ts';
 import type { Session } from './session.ts';
-import { fileStore, Store } from './store.ts';
+import { checkLogs, fileStore, Store } from './store.ts';
 
 export type Services = Forge | Store | Session | Sandbox;
 
@@ -20,6 +20,7 @@ export type Settings = {
   every: number;
   proxy: { url: string; keys: Redacted.Redacted };
   prices: string;
+  checkLogs: (typeof checkLogs)[number];
   /** A forge folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
   forge: string | { id: string; key: Redacted.Redacted };
 };
@@ -36,6 +37,7 @@ export const settings: Config.Config<Settings> = Config.all({
     keys: Config.redacted('BOTHUB_PROXY_KEYS'),
   }),
   prices: Config.string('BOTHUB_PRICES').pipe(Config.withDefault(prices)),
+  checkLogs: Config.literal(...checkLogs)('BOTHUB_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   forge: Config.string('BOTHUB_FORGE').pipe(
     Config.orElse(() => Config.all({ id: Config.string('BOTHUB_APP_ID'), key: Config.redacted('BOTHUB_APP_KEY') }))
   ),
@@ -69,7 +71,7 @@ export const layers = (s: Settings): Layer.Layer<Services> => {
   );
   return Layer.unwrapEffect(
     Effect.map(trust, trust =>
-      Layer.mergeAll(forge(trust), fileStore(s.data), harnesses(s).pipe(Layer.provideMerge(sandbox)))
+      Layer.mergeAll(forge(trust), fileStore(s.data, s.checkLogs), harnesses(s).pipe(Layer.provideMerge(sandbox)))
     )
   );
 };

@@ -9,6 +9,7 @@
  * With --forge <dir>, the runs act on a forge folder (see bin/forge.ts) instead of GitHub, and need no App.
  * --instance <dir> stands for the hub, forge and data of an instance, and loads its keys.env; without --hub, --forge
  * or --data, the instance is the one around the working directory, if any.
+ * --logs all|failed|off says which check output the data dir keeps, as BOTHUB_CHECK_LOGS.
  */
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -28,6 +29,7 @@ const { values, positionals } = parseArgs({
     data: { type: 'string' },
     forge: { type: 'string' },
     instance: { type: 'string' },
+    logs: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -39,9 +41,11 @@ if (values.instance && !instance) {
 }
 if (instance) {
   Object.assign(values, { hub: instance.hub, forge: instance.forge, data: instance.data });
+  if (instance.logs) process.env.BOTHUB_CHECK_LOGS ??= instance.logs;
   if (existsSync(instance.keys)) for (const [k, v] of Object.entries(await appEnv(instance.keys))) process.env[k] ??= v;
 }
 if (values.forge) process.env.BOTHUB_FORGE = resolve(values.forge);
+if (values.logs) process.env.BOTHUB_CHECK_LOGS = values.logs;
 const issue = values.all ? 'all' : Number(values.issue);
 
 if (positionals[0] === 'check') {
