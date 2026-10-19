@@ -69,7 +69,7 @@ Once the bot has a run on an issue, a trusted comment there speaks to it without
 
 A waiting run takes the comment as its answer, and a working run takes it as its workflow's `concurrency` says, see [Comments while it works](#comments-while-it-works). When every run there is finished, the comment starts the comment workflow, so a question like "where is the PR?" gets a reply.
 
-A run started by a comment can reply and stop. When the comment asks for no work, the first session is told to reply with comments only, and that reply ends the run without checks or later steps.
+A run started by a comment can reply and stop. When the comment asks for no work, the first session is told to reply with comments only, and that reply ends the run without checks or later steps. That holds only where the work the comment asks about exists: a workflow without a branch, an open pull request, or a finished run of the workflow on the issue. Elsewhere, and whenever the reply leaves files changed but not pushed, a first session that may push and replies with comments only fails the try.
 
 `/bothub restart` starts the workflow again on an issue whose run is done, stopped or waiting, and `/bothub restart implement` starts it at that step. A waiting or working run stops first. The new run keeps the human answers of the last one, so nothing settled is asked again. <!-- code: src/engine.ts#tick -->
 

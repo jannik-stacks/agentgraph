@@ -528,6 +528,25 @@ describe('tick', () => {
     ]);
   }, 30_000);
 
+  it.each([
+    [true, 'files changed but nothing was pushed'],
+    [false, 'a pass needs a pull request or an ask'],
+  ])(
+    'fails a commanded first try that only comments while no pull request holds its work (edits %s)',
+    async (edits, why) => {
+      const where = world();
+      const { specs, run } = services(where, [
+        [start('a'), ...(edits ? [write('hello.txt', 'hello\n')] : []), reply({ kind: 'comment', body: 'Looked.' })],
+        [start('a'), reply({ kind: 'ask', question: 'Push it?' })],
+      ]);
+      const [asked] = await run(tick(small));
+      expect(asked).toMatchObject({ status: 'waiting', reason: 'Push it?' });
+      expect(specs[0]!.prompt).not.toContain('answer it with comment proposals only');
+      expect(specs[1]!.prompt).toContain(why);
+    },
+    30_000
+  );
+
   it('keeps the worktree files of a parked run and puts them back when it reenters', async () => {
     const where = world();
     const flow = small.workflows.issue!;
@@ -990,8 +1009,8 @@ describe('sweep', () => {
       comment: { id: 'a', author: 'morgan', body: '/bothub hi', at: answer },
     });
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Done.' })],
-      [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Done.' })],
+      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
+      [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
     ]);
     for (const r of [parked(8, 'waiting'), parked(9, 'waiting')]) {
       mkdirSync(join(where.data, r.id), { recursive: true });

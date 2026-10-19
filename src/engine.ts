@@ -768,12 +768,9 @@ const attempt = (
     const step = w.steps.find(s => s.name === run.step)!;
     const minutes = hub.limits.minutes;
     const done = (outcome: Outcome, next = run) => ({ outcome, run: next });
-    /** The first session of a run a comment started may only answer that comment. */
-    const answering =
-      'agent' in step.does &&
-      !!hub.agents[step.does.agent]?.returns.includes('comment') &&
-      run.said !== undefined &&
-      Object.keys(run.sessions).length === 0;
+    const returns = 'agent' in step.does ? (hub.agents[step.does.agent]?.returns ?? []) : [];
+    /** The first session of a run a comment started, which may answer that comment. */
+    const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
     if ('wait' in step.does) {
       const { issue, pull } = yield* issuesOf(w, run);
       const open = w.branch === undefined || issue.pull !== undefined || pull !== undefined;
@@ -806,6 +803,13 @@ const attempt = (
     const t = yield* issuesOf(w, run);
     /** On a retry, the files before it: a retry that changes none cannot pass checks that failed on them. */
     const before = run.tries > 0 && step.checks.length > 0 ? yield* treeOf(work) : undefined;
+    /** Whether the work a comment-only reply answers exists: no branch, a pull request, or a finished run. */
+    const held =
+      w.branch === undefined ||
+      t.issue.pull !== undefined ||
+      t.pull !== undefined ||
+      (yield* store.list({ issue: run.issue })).some(r => r.workflow === w.name && r.status === 'done');
+    const answering = asked && held;
     if ('run' in step.does) {
       const started = Date.now();
       const out = yield* sh(step.does.run, hub.dir, work.dir, { BOTHUB_BASE: work.base }, minutes);
@@ -961,7 +965,23 @@ const attempt = (
           : { ...p, body };
       });
 
-    const answered = answering && !back && world.length > 0 && world.every(p => p.kind === 'comment');
+    const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
+    const edited = commented && (yield* hostGit(work.git, ['status', '--porcelain'])).length > 0;
+    const answered = commented && answering && !edited;
+    if (commented && (edited || !held) && asked && (returns.includes('push') || returns.includes('pull_request')))
+      return done(
+        {
+          kind: 'failed',
+          checks: [],
+          proposals: [],
+          problems: [
+            edited
+              ? 'files changed but nothing was pushed: push them with a pull request, or ask'
+              : 'a pass needs a pull request or an ask',
+          ],
+        },
+        tried
+      );
     const checked = answered
       ? { outcome: { kind: 'pass' } as const, usd: 0 }
       : yield* Effect.raceFirst(
