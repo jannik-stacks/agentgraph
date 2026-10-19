@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Either, Schema, Stream } from 'effect';
-import { answerWith, context, news, shown, type Issues } from './context.ts';
+import { answerWith, context, footer, news, shown, type Issues } from './context.ts';
 import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
@@ -637,15 +637,11 @@ export const gate = (
  * Lands the run's status labels and status comment; the run comes back holding its status comment's id, and without
  * its 👀 once that comment is posted.
  */
-const slugOf = (forge: Forge['Type']) =>
-  forge.slug ? Effect.orElseSucceed(forge.slug, () => undefined) : Effect.succeed(undefined);
-
 const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Store> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
     const t = yield* issuesOf(w, run);
-    const slug = yield* slugOf(forge);
-    const status = yield* Effect.forEach(shown(run, w, t, slug), p => forge.apply(run.issue, p));
+    const status = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.issue, p));
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
@@ -695,7 +691,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         });
         if (next.status === 'waiting' && next.reason) {
           const elsewhere = next.said && next.said.issue !== next.issue;
-          const body = elsewhere ? `${next.reason}\n\n${answerWith(yield* slugOf(forge))}` : next.reason;
+          const body = elsewhere ? `${next.reason}\n\n${footer(answerWith)}` : next.reason;
           const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
           if (Either.isRight(said))
             yield* store.trace(next.id, ...said.right.map(applied => ({ at: now(), step: next.step, applied })));

@@ -80,14 +80,14 @@ const statuses: Record<Run['status'], string> = {
 };
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 
-/** How to answer a waiting run: mention the bot when its slug is known, else the `/bothub` command. */
-export const answerWith = (slug?: string): string => {
-  const say = slug ? `@${slug}` : '/bothub';
-  return `Answer with \`${say} <your answer>\`, or \`${say} stop\` to end the run.`;
-};
+/** Housekeeping lines as a collapsed, small-print footer. */
+export const footer = (...lines: string[]): string =>
+  `<details><summary><sub>bothub</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
+
+export const answerWith = 'Reply here to answer, or reply <code>stop</code> to end the run.';
 
 /** The labels and status comment for a run, as proposals; only what differs from the issue now. */
-export function shown(run: Run, w: Workflow, t: Issues, slug?: string): Proposal[] {
+export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
@@ -100,14 +100,14 @@ export function shown(run: Run, w: Workflow, t: Issues, slug?: string): Proposal
     {
       running: `Working on ${run.step}, try ${run.tries + 1} of ${tries}${round ? `, round ${round + 1}` : ''}.`,
       waiting: run.reason
-        ? `Waiting for an answer to the question below, at ${run.step}.\n\n${answerWith(slug)}`
+        ? `Waiting for an answer to the question below, at ${run.step}.`
         : `Waiting for a human at ${run.step}.`,
       done: 'Done.',
       stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,
     }[run.status],
-    `Cost so far: $${run.usd.toFixed(2)}.`,
     pull && `Pull request: ${pull.url}`,
     failing.length > 0 && `Failing checks: ${failing.join(', ')}`,
+    footer(...(run.status === 'waiting' && run.reason ? [answerWith] : []), `Cost so far: $${run.usd.toFixed(2)}.`),
   ]
     .filter(Boolean)
     .join('\n\n');

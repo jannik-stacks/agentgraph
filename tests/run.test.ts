@@ -25,6 +25,9 @@ import type { Hub } from '../src/hub.ts';
 import { begin, reenter, transition, type Run } from '../src/workflow.ts';
 import { git, hubOf } from './fixtures.ts';
 
+const foot = (...lines: string[]) =>
+  `<details><summary><sub>bothub</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
+const replyHint = 'Reply here to answer, or reply <code>stop</code> to end the run.';
 const hub = hubOf('acme-app', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },
@@ -158,8 +161,9 @@ describe('drive', () => {
     const forge = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(bodies(forge)).toEqual([
       '/bothub',
-      'Waiting for an answer to the question below, at review.\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $1.25.\n\nPull request: ' +
-        join(where.forge, '8.md'),
+      'Waiting for an answer to the question below, at review.\n\nPull request: ' +
+        join(where.forge, '8.md') +
+        `\n\n${foot(replyHint, 'Cost so far: $1.25.')}`,
       'Brief: add hello.txt',
       'still not right',
     ]);
@@ -272,7 +276,7 @@ describe('drive', () => {
     expect(specs).toHaveLength(2);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'bothub/7')).toThrow();
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
-    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\nCost so far: $0.00.`);
+    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\n${foot('Cost so far: $0.00.')}`);
     expect(issue.labels).toEqual(['bothub:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
@@ -1059,7 +1063,7 @@ describe('coworker', () => {
     expect(issue.labels).toEqual(['bothub:waiting']);
     expect(bodies(issue)).toEqual([
       '/bothub',
-      'Waiting for an answer to the question below, at implement.\n\nAnswer with `/bothub <your answer>`, or `/bothub stop` to end the run.\n\nCost so far: $0.00.',
+      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint, 'Cost so far: $0.00.')}`,
       'Hello or hi?',
     ]);
     const edits = traceOf(where.data, 'run-7').flatMap(t =>
@@ -1068,18 +1072,18 @@ describe('coworker', () => {
         : []
     );
     expect(edits).toEqual([
-      'Working on implement, try 2 of 2.\n\nCost so far: $0.00.',
+      `Working on implement, try 2 of 2.\n\n${foot('Cost so far: $0.00.')}`,
       expect.stringMatching(/^Waiting for an answer/),
     ]);
   }, 30_000);
 
-  it('tells a waiting run to be answered by mentioning the bot, once, when the forge knows its slug', async () => {
+  it('tells a waiting run how to be answered in its status footer, and posts the question itself plain', async () => {
     const where = world();
-    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]], 'stx-bothub');
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     await run(drive(flow, begun(), small));
     const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
     expect(issue.filter(b => b.includes('Hello or hi?'))).toEqual(['Hello or hi?']);
-    expect(issue.filter(b => b.includes('`@stx-bothub <your answer>`, or `@stx-bothub stop`'))).toHaveLength(1);
+    expect(issue.filter(b => b.includes(replyHint))).toHaveLength(1);
   });
 
   it('replies where the human answered: on the pull request, and under a review comment in its issue', async () => {
