@@ -11,7 +11,7 @@
   ],
   "project": ["src/**/*.ts", "bin/**", "studio/**/*.{ts,tsx}", "examples/*/scripts/**"],
   "vitest": false,
-  "ignoreBinaries": ["continue"],
+  "ignoreBinaries": ["continue", "codex"],
   "ignoreDependencies": [
     "react",
     "react-dom",
