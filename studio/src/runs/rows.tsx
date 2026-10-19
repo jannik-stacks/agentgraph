@@ -205,7 +205,7 @@ const lines: {
   check: line => ({
     summary: (
       <>
-        <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? '✓' : '✗', !line.check.pass)}
+        <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? 'pass' : 'fail', !line.check.pass)}
         {muted(
           `${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
         )}
