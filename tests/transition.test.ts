@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from '../src/forge.ts';
-import { begin, reenter, transition, type Outcome, type Run } from '../src/workflow.ts';
+import { begin, cancelled, fold, reenter, transition, type Outcome, type Run } from '../src/workflow.ts';
 import { fixture } from './fixtures.ts';
 
 // acme-app issue: triage (1 try), implement (4 tries), review (back to implement, 2 rounds), merge (wait, back to implement)
@@ -192,6 +192,19 @@ describe('transition, waiting for an answer', () => {
 });
 
 describe('transition, settled runs', () => {
+  it('running: an answer joins the feedback and keeps the try and the session', () => {
+    const run = at('implement', {
+      tries: 1,
+      feedback: 'types failed',
+      sessions: { implement: { id: 's', home: '/h' } },
+    });
+    expect(transition(w, run, { kind: 'answer', text: 'use v2' })).toEqual({
+      ...run,
+      feedback: 'types failed\n\nuse v2',
+      answers: [{ asked: '', said: 'use v2' }],
+    });
+  });
+
   it('leaves done and stopped runs as they are', () => {
     const done = at('merge', { status: 'done' });
     expect(transition(w, done, { kind: 'pass' })).toBe(done);
@@ -244,10 +257,26 @@ describe('reenter', () => {
     expect(reenter(w, asked, comment('/bothub stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
   });
 
-  it('ignores comments without the command, untrusted authors, other issues and running runs', () => {
+  it('ignores comments without the command, untrusted authors, other issues and finished runs', () => {
     expect(reenter(w, asked, comment('looks good'))).toBeUndefined();
     expect(reenter(w, asked, { ...comment('/bothub v2'), trusted: false })).toBeUndefined();
     expect(reenter(w, asked, { ...comment('/bothub v2'), issue: 8 })).toBeUndefined();
-    expect(reenter(w, at('implement'), comment('/bothub v2'))).toBeUndefined();
+    expect(reenter(w, at('implement', { status: 'done' }), comment('/bothub v2'))).toBeUndefined();
+  });
+
+  it('running: a comment is an answer, cancel parks the run, stop and closing end it', () => {
+    const running = at('implement');
+    expect(reenter(w, running, comment('/bothub use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
+    expect(reenter(w, running, comment('/bothub cancel'))).toEqual({ kind: 'ask', question: cancelled });
+    expect(reenter(w, running, comment('/bothub stop'))).toEqual({ kind: 'stop', why: 'a human said stop' });
+    expect(reenter(w, running, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
+    expect(reenter(w, asked, comment('/bothub cancel'))).toBeUndefined();
+  });
+
+  it('folds a burst into one outcome: the first that is not an answer, else every answer', () => {
+    const answer = (text: string) => ({ kind: 'answer', text }) as const;
+    expect(fold([answer('a'), answer('b')])).toEqual(answer('a\n\nb'));
+    expect(fold([answer('a'), { kind: 'stop', why: 'x' }, { kind: 'pass' }])).toEqual({ kind: 'stop', why: 'x' });
+    expect(fold([])).toBeUndefined();
   });
 });

@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { drive, gate, sweep, tick } from '../src/engine.ts';
+import { drive, gate, settle, sweep, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
 import { start as main } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
@@ -23,7 +23,7 @@ import type { Settings } from '../src/services.ts';
 import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import type { Hub } from '../src/hub.ts';
-import { begin, reenter, transition, type Run } from '../src/workflow.ts';
+import { begin, cancelled, reenter, transition, type Run } from '../src/workflow.ts';
 import { git, hubOf } from './fixtures.ts';
 
 const foot = (...lines: string[]) =>
@@ -644,6 +644,35 @@ describe('tick', () => {
     expect(specs.map(s => s.prompt).join('\n')).toContain('the second one');
   });
 
+  it('takes a burst on a waiting run as one answer, and a label starts nothing while another run holds the issue', async () => {
+    const where = world();
+    const triage = { ...merging.workflows.issue, name: 'triage', on: { issues: { label: 'triage' } } };
+    const fix = { ...merging.workflows.issue, name: 'fix', on: { issues: { label: 'fix' } } };
+    const all = { ...merging, workflows: { ...merging.workflows, triage, fix } };
+    say(where, comment(7, 'morgan', true, '/bothub the second one', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'ana', true, 'and keep it short', '2026-10-16T00:00:06.000Z'));
+    say(where, { issue: 7, kind: 'label', actor: 'ana', trusted: true, at: '2026-10-16T00:00:07.000Z', label: 'fix' });
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Thanks.' })]]);
+    const asked = { ...begin(triage, { id: 'triage-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }) };
+    await run(Effect.flatMap(Store, s => s.put({ ...asked, status: 'waiting', reason: 'Which one?' })));
+    await run(tick(all, 7));
+    expect((await run(Effect.flatMap(Store, s => s.list({ issue: 7 })))).map(r => r.workflow)).toEqual(['triage']);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).toContain('the second one\n\nand keep it short');
+  });
+
+  it('waits for an issue to settle before a burst starts work, and never starts again on what a run took in', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Hi.' })]]);
+    where.human('/bothub hello', new Date().toISOString());
+    expect(await run(tick(small, undefined, false, settle))).toEqual([]);
+    const [done] = await run(tick(small));
+    expect(done).toMatchObject({ status: 'done' });
+    expect(done!.seen! >= done!.started).toBe(true);
+    expect(await run(tick(small))).toEqual([]);
+    expect(specs).toHaveLength(1);
+  }, 30_000);
+
   it('takes a plain comment in its pull request as the answer of a run waiting at merge', async () => {
     const where = world();
     say(where, comment(8, 'morgan', true, 'please undo the greeting', '2026-10-16T00:00:05.000Z'));
@@ -1096,7 +1125,10 @@ describe('coworker', () => {
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), session);
     const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));
     const done = await Effect.runPromise(
-      drive(flow, begun(), { ...small, agents }).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext))
+      drive({ ...flow, concurrency: 'queue' }, begun(), { ...small, agents }).pipe(
+        Effect.provide(layer),
+        Effect.provide(TestContext.TestContext)
+      )
     );
     expect(done.status).toBe('done');
     expect(seen).toEqual([
@@ -1107,6 +1139,77 @@ describe('coworker', () => {
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
     expect(git(where.origin, 'ls-tree', '-r', '--name-only', 'bothub/7')).not.toContain('.bothub');
     expect(readFileSync(target, 'utf8')).toBe('keep\n');
+  }, 30_000);
+
+  /**
+   * The doubles, where the first session says `m` on the forge while it works. With `cut`, it then lets a minute pass and
+   * works until it is cut short; else it plays the first turn.
+   */
+  const during = (where: ReturnType<typeof world>, m: Event, turns: SessionEvent[][], cut = false) => {
+    const specs: SessionSpec[] = [];
+    const session = Layer.effect(
+      Session,
+      Effect.map(Session, s => ({
+        open: (spec: SessionSpec) => {
+          if (specs.push(spec) > 1) return s.open(spec);
+          const said = Stream.execute(Effect.sync(() => say(where, m)));
+          if (!cut) return Stream.concat(said, s.open(spec));
+          const minute = Effect.gen(function* () {
+            yield* Effect.promise(() => new Promise(r => setTimeout(r, 50)));
+            yield* TestClock.adjust('1 minute');
+            return yield* Effect.never;
+          });
+          return Stream.make(start('a')).pipe(Stream.concat(said), Stream.concat(Stream.execute(minute)));
+        },
+      }))
+    ).pipe(Layer.provide(scripted(turns)));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), session);
+    const go = (w: typeof flow) =>
+      Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext)));
+    return { specs, go };
+  };
+  const bye = comment(7, 'ana', true, 'say bye too', later(1));
+  const greet = [start('a'), write('hello.txt', 'hello\n'), reply(push)];
+
+  it('steer: a comment made while the session works reaches it in one more turn of the same session', async () => {
+    const where = world();
+    const { specs, go } = during(where, bye, [greet, [start('a'), reply(push)]]);
+    const done = await go(flow);
+    expect(done).toMatchObject({ status: 'done', seen: later(1) });
+    expect(specs).toHaveLength(2);
+    expect(specs[1]!.resume?.id).toBe('a');
+    expect(specs[1]!.prompt).toContain('@ana: say bye too');
+    expect(specs[1]!.prompt).toContain('end your reply with the whole bothub block again');
+  }, 30_000);
+
+  it('queue: a comment made while the session works applies once the try ends, as an answer would', async () => {
+    const where = world();
+    const asks = [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })];
+    const { specs, go } = during(where, bye, [asks, greet]);
+    const done = await go({ ...flow, concurrency: 'queue' });
+    expect(done).toMatchObject({ status: 'done', answers: [{ asked: 'Hello or hi?', said: 'say bye too' }] });
+    expect(specs).toHaveLength(2);
+    expect(specs[1]!.prompt.startsWith('say bye too')).toBe(true);
+  }, 30_000);
+
+  it('cancel: a comment cuts the session short and the step starts again at once with it, in the same session', async () => {
+    const where = world();
+    const { specs, go } = during(where, bye, [greet], true);
+    const done = await go({ ...flow, concurrency: 'cancel' });
+    expect(done).toMatchObject({ status: 'done', tries: 0, seen: later(1) });
+    expect(specs).toHaveLength(2);
+    expect(specs[1]!.resume?.id).toBe('a');
+    expect(specs[1]!.prompt.startsWith('say bye too')).toBe(true);
+    const ends = traceOf(where.data, done.id).flatMap(t => ('session' in t ? [t.session.ended] : []));
+    expect(ends[0]).toBe('human');
+  }, 30_000);
+
+  it('cancel parks a working run with its session, and stop ends it, whatever the concurrency', async () => {
+    const parked = await during(world(), comment(7, 'ana', true, 'cancel', later(1)), [], true).go(flow);
+    expect(parked).toMatchObject({ status: 'waiting', reason: cancelled, sessions: { implement: { id: 'a' } } });
+    const stop = comment(7, 'ana', true, '/bothub stop wrong issue', later(1));
+    const stopped = await during(world(), stop, [], true).go({ ...flow, concurrency: 'queue' });
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'wrong issue' });
   }, 30_000);
 
   const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'bothub' } } } } };

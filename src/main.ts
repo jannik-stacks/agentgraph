@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { ConfigProvider, Effect, Layer, Schedule } from 'effect';
-import { sweep, tick } from './engine.ts';
+import { settle, sweep, tick } from './engine.ts';
 import { hubAt, loadHub } from './hub.ts';
 import { layers, settings, type Services, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
@@ -52,7 +52,7 @@ export const start = (
         const loop = Effect.gen(function* () {
           const s = yield* settings;
           const once = hubAt(s.hub).pipe(
-            Effect.flatMap(tick),
+            Effect.flatMap(hub => tick(hub, undefined, false, settle)),
             Effect.scoped,
             Effect.catchAll(e => Effect.logError(e))
           );

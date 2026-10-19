@@ -21,6 +21,8 @@ export type Workflow = Doc<{
   >;
   branch?: string;
   base?: string;
+  /** What a trusted comment does to a run that is working: reach its session, wait for the try to end, or cut the try short. */
+  concurrency: 'steer' | 'queue' | 'cancel';
   steps: Step[];
 }>;
 
@@ -59,9 +61,11 @@ export type Run = {
   rounds: Record<string, number>;
   sessions: Record<string, { id: string; home: string; seen?: Seen }>;
   feedback?: string;
-  /** What a human answered while the run waited, with the question each answer settled. */
+  /** What a human answered or said to the run, with the question each answer settled. */
   answers?: { asked: string; said: string }[];
   reason?: string;
+  /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
+  seen?: string;
   comment?: string;
   said?: { issue: number; under?: string };
   /** The 👀 the run gave where it was woken, as the proposal that takes it back once the run has replied. */
@@ -110,6 +114,7 @@ const Front = Schema.Struct({
   ),
   branch: exact(Schema.String),
   base: exact(Schema.String),
+  concurrency: exact(Schema.Literal('steer', 'queue', 'cancel')),
   agent: exact(Schema.String),
   steps: exact(Schema.Record({ key: Schema.String, value: StepFile })),
 });
@@ -211,6 +216,7 @@ export function load(
     on: Object.fromEntries(Object.entries(on).map(([event, trigger]) => [event, trigger ?? {}])),
     ...(front.branch !== undefined && { branch: front.branch }),
     ...(front.base !== undefined && { base: front.base }),
+    concurrency: front.concurrency ?? 'steer',
     steps,
   };
   return { workflow, problems };
@@ -294,7 +300,11 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
       case 'stop':
         return stop(o.why);
       case 'answer':
-        return run;
+        return {
+          ...run,
+          feedback: [run.feedback, o.text].filter(Boolean).join('\n\n'),
+          answers: [...(run.answers ?? []), { asked: '', said: o.text }],
+        };
     }
   }
   if (run.status === 'waiting' && waits(step)) {
@@ -324,9 +334,12 @@ export const afterCommand = (m: Event, command?: string) => {
     : undefined;
 };
 
+/** The question a run parks with when a human cancels the try it is on. */
+export const cancelled = 'Cancelled. Reply to go on from here, or reply stop to end the run.';
+
 /**
- * What a new event means for a waiting run: a review at a human step, an answer elsewhere; undefined when it is only
- * context. `lined` are the line comments that came with a review.
+ * What a new event means for a live run: a review at a human step, an answer elsewhere, `cancel` parks a working run;
+ * undefined when it is only context. `lined` are the line comments that came with a review.
  */
 export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, lined: Event[] = []): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
@@ -334,12 +347,15 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
     return { kind: 'stop', why: `the ${label} label was removed` };
   const waiting = run.status === 'waiting';
-  if (m.kind === 'closed' && waiting) return { kind: 'stop', why: 'closed' };
+  const live = waiting || run.status === 'running';
+  if (m.kind === 'closed' && live) return { kind: 'stop', why: 'closed' };
   const said = afterCommand(m, Object.values(w.on).find(t => t?.command)?.command ?? fallback);
   const body = m.comment?.body.trim() ?? '';
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
-  if (first.toLowerCase() === 'stop' && waiting) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
-  if (first.toLowerCase() === 'restart' && waiting) return { kind: 'stop', why: 'a human restarted it' };
+  if (first.toLowerCase() === 'stop' && live) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
+  if (first.toLowerCase() === 'restart' && live) return { kind: 'stop', why: 'a human restarted it' };
+  if (first.toLowerCase() === 'cancel')
+    return run.status === 'running' ? { kind: 'ask', question: cancelled } : undefined;
   const step = w.steps.find(s => s.name === run.step);
   if (waiting && step && waits(step)) {
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
@@ -352,6 +368,15 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
     }
     if (said !== undefined) return { kind: 'back', why: said };
   }
-  if (waiting && said !== undefined) return { kind: 'answer', text: said };
+  if (said !== undefined && live) return { kind: 'answer', text: said };
   return undefined;
 }
+
+/** Several outcomes at once as one: the first that is not an answer, else every answer joined. */
+export const fold = (outcomes: Outcome[]): Outcome | undefined => {
+  const answers = outcomes.flatMap(o => (o.kind === 'answer' ? [o.text] : []));
+  return (
+    outcomes.find(o => o.kind !== 'answer') ??
+    (answers.length > 0 ? { kind: 'answer', text: answers.join('\n\n') } : undefined)
+  );
+};

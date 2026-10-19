@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Chunk, Data, Effect, Either, Schema, Stream } from 'effect';
+import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
 import { answerWith, context, footer, news, shown, type Issues } from './context.ts';
 import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
@@ -12,6 +12,7 @@ import { Store, type StoreError, type Trace } from './store.ts';
 import {
   begin,
   failure,
+  fold,
   reenter,
   transition,
   type CheckResult,
@@ -359,6 +360,42 @@ const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forg
     };
   });
 
+const newest = (...times: (string | undefined)[]) =>
+  times
+    .filter(t => t !== undefined)
+    .sort()
+    .at(-1);
+
+/** The command a comment starts with to speak to the bot. */
+const commandOf = (hub: Hub) =>
+  Object.values(hub.workflows).find(w => w.on.issue_comment?.command)?.on.issue_comment?.command;
+
+/** A trusted comment that mentions no one else speaks to the bot, read as the command followed by the comment. */
+const addressed = (m: Event, command?: string): Event => {
+  const body = m.comment?.body.trim() ?? '';
+  if (m.kind !== 'comment' || !m.trusted || !m.comment || command === undefined || body.startsWith(command)) return m;
+  if (/(^|\s)@[\w-]/.test(body)) return m;
+  return { ...m, comment: { ...m.comment, body: `${command} ${body}` } };
+};
+
+/** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
+const told = (w: Workflow, run: Run, t: Issues, command?: string) => {
+  const since = run.seen ?? run.started;
+  const said = [...t.issue.events, ...(t.pull?.events ?? [])]
+    .filter(m => m.at > since)
+    .map(m => addressed({ ...m, issue: run.issue }, command))
+    .flatMap(m => {
+      const o = reenter(w, run, m, command);
+      return o ? [{ o, at: m.at }] : [];
+    });
+  const outcome = fold(said.map(s => s.o));
+  return outcome && { outcome, at: newest(...said.map(s => s.at))! };
+};
+
+/** When a trusted person last did something on the issue or its pull request. */
+const lastHeard = (t: Issues) =>
+  newest(...[t.issue, t.pull].flatMap(x => x?.events ?? []).flatMap(m => (m.trusted ? m.at : [])));
+
 const sh = (
   script: string,
   hub: string,
@@ -429,10 +466,9 @@ const itemsOf = (
   );
 };
 
-/** Writes the news since `seen` to the checkout's news file; a failed refresh logs and keeps the old file. */
-const refresh = (w: Workflow, run: Run, work: Checkout, seen: Seen, t?: Issues) =>
-  (t ? Effect.succeed(t) : issuesOf(w, run)).pipe(
-    Effect.flatMap(t => Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`))),
+/** Writes the news since `seen` to the checkout's news file; a failed write logs and keeps the old file. */
+const refresh = (run: Run, work: Checkout, seen: Seen, t: Issues) =>
+  Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`)).pipe(
     Effect.catchAll(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
 
@@ -450,8 +486,18 @@ const gateOf = (hub: Hub) => {
   return gate;
 };
 
-/** One harness session: what it was opened with, every event and how it ended become trace lines. It holds a session permit only while the harness runs. */
-const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?: string) =>
+/**
+ * One harness session: what it was opened with, every event and how it ended become trace lines. It holds a session
+ * permit only while the harness runs. When `until` ends first, the session is cut short and its result comes back as `cut`.
+ */
+const converse = <A = never, R = never>(
+  hub: Hub,
+  run: string,
+  step: string,
+  spec: SessionSpec,
+  item?: string,
+  until?: Effect.Effect<A, never, R>
+) =>
   Effect.gen(function* () {
     const session = yield* Session;
     const store = yield* Store;
@@ -480,7 +526,7 @@ const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?:
       prompt: spec,
       ...(item !== undefined && { item }),
     });
-    yield* session.open(spec).pipe(
+    const talked = session.open(spec).pipe(
       Stream.runForEach(event => {
         if (event.type === 'start') Object.assign(seen, { id: event.session, home: event.home });
         if (event.type === 'text') seen.text = event.text;
@@ -493,8 +539,16 @@ const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?:
       }),
       Effect.scoped,
       gateOf(hub).withPermits(1),
-      Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void))
+      Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void)),
+      Effect.as(undefined)
     );
+    const cut = until
+      ? yield* Effect.raceFirst(
+          talked,
+          Effect.map(until, a => ({ a }))
+        )
+      : yield* talked;
+    if (cut) end = { ended: 'human' };
     yield* ended(end);
     return {
       id: seen.id,
@@ -502,11 +556,12 @@ const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?:
       final: seen.final || seen.text,
       usd: seen.usd,
       ...end,
+      ...(cut && { cut: cut.a }),
     };
   });
 
 /** A judging session that ends any way but a clean stop with a PASS or FAIL verdict is an infra error, tried once more. */
-const verdictOf = (...args: Parameters<typeof converse>) =>
+const verdictOf = (...args: Parameters<typeof converse<never>>) =>
   converse(...args).pipe(
     Effect.filterOrFail(
       j => j.ended === 'stop' && (j.exit ?? 0) === 0 && /^\W*(PASS|FAIL)\b/.test(j.final),
@@ -551,7 +606,7 @@ const heard = (answers: Run['answers'] = []) =>
     : [
         '## What a human answered during this run',
         'A point an answer settles is not a finding.',
-        ...answers.map(a => `Asked: ${squeeze(a.asked, 600)}\n\nAnswered: ${a.said}`),
+        ...answers.map(a => (a.asked ? `Asked: ${squeeze(a.asked, 600)}\n\nAnswered: ${a.said}` : `Said: ${a.said}`)),
       ].join('\n\n');
 
 type Item = {
@@ -727,6 +782,22 @@ const attempt = (
 
     const replies: string[] = [];
     let tried = run;
+    const command = commandOf(hub);
+    /** Refreshes the news file every minute and ends with what a human said that cuts the try short. */
+    const watch = (by: Run, seen: Seen) =>
+      Effect.gen(function* () {
+        for (;;) {
+          yield* Effect.sleep('1 minute');
+          const now = yield* Effect.either(issuesOf(w, run));
+          if (Either.isLeft(now)) {
+            yield* Effect.logWarning(`news for run ${run.id}`, now.left);
+            continue;
+          }
+          yield* refresh(run, work, seen, now.right);
+          const cut = told(w, by, now.right, command);
+          if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
+        }
+      });
     const t = yield* issuesOf(w, run);
     /** On a retry, the files before it: a retry that changes none cannot pass checks that failed on them. */
     const before = run.tries > 0 && step.checks.length > 0 ? yield* treeOf(work) : undefined;
@@ -754,7 +825,8 @@ const attempt = (
         });
       replies.push(out.output);
     } else {
-      const agent = hub.agents[step.does.agent]!;
+      const name = step.does.agent;
+      const agent = hub.agents[name]!;
       const issue = t.issue;
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const reads = agent.tools.includes('read');
@@ -800,44 +872,67 @@ const attempt = (
         : [undefined];
       const items = listed.length > most ? [listed.join('\n\n')] : listed;
       const caught = news(t, kept ? (kept.seen ?? { at: run.started }) : { at: '' });
+      tried = { ...tried, seen: newest(run.seen, run.started, lastHeard(t))! };
+      const talk = (prompt: string, seen: Seen, resume?: Run['sessions'][string], item?: string) =>
+        Effect.gen(function* () {
+          const r = yield* converse(
+            hub,
+            run.id,
+            step.name,
+            {
+              harness: agent.harness,
+              agent: name,
+              minutes,
+              ...(agent.model !== undefined && { model: agent.model }),
+              system: agent.body,
+              prompt,
+              dir: work.dir,
+              tools: agent.tools,
+              ...(reads && { read: [dirname(work.news)] }),
+              ...(resume && { resume }),
+            },
+            item,
+            watch(tried, seen)
+          );
+          tried = {
+            ...tried,
+            usd: tried.usd + r.usd,
+            ...(step.each === undefined &&
+              r.id !== undefined && {
+                sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, seen } },
+              }),
+          };
+          return r;
+        });
       for (const item of items) {
-        yield* refresh(w, run, work, caught.seen, t);
-        const fresher = Effect.forever(Effect.delay(refresh(w, run, work, caught.seen), '1 minute'));
-        const talk = converse(
-          hub,
-          run.id,
-          step.name,
-          {
-            harness: agent.harness,
-            agent: step.does.agent,
-            minutes,
-            ...(agent.model !== undefined && { model: agent.model }),
-            system: agent.body,
-            prompt: kept
-              ? [run.feedback ?? 'Continue.', caught.text].filter(Boolean).join('\n\n')
-              : item === undefined
-                ? prompt
-                : `${prompt}\n\n## Item\n\n${item}`,
-            dir: work.dir,
-            tools: agent.tools,
-            ...(reads && { read: [dirname(work.news)] }),
-            ...(kept && { resume: kept }),
-          },
+        yield* refresh(run, work, caught.seen, t);
+        const r = yield* talk(
+          kept
+            ? [run.feedback ?? 'Continue.', caught.text].filter(Boolean).join('\n\n')
+            : item === undefined
+              ? prompt
+              : `${prompt}\n\n## Item\n\n${item}`,
+          caught.seen,
+          kept,
           item
         );
-        const r = yield* Effect.scoped(Effect.zipRight(Effect.forkScoped(fresher), talk));
+        if (r.cut) return done(r.cut.outcome, { ...tried, seen: r.cut.at });
         replies.push(r.final);
-        tried = {
-          ...tried,
-          usd: tried.usd + r.usd,
-          ...(step.each === undefined &&
-            r.id !== undefined && {
-              sessions: {
-                ...tried.sessions,
-                [step.name]: { id: r.id, home: r.home, seen: caught.seen },
-              },
-            }),
-        };
+      }
+      const session = step.each === undefined ? tried.sessions[step.name] : undefined;
+      const now = session && Option.getOrUndefined(yield* Effect.option(issuesOf(w, run)));
+      const late = now && told(w, tried, now, command);
+      if (late && late.outcome.kind !== 'answer') return done(late.outcome, { ...tried, seen: late.at });
+      if (now && late && w.concurrency === 'steer') {
+        const since = news(now, caught.seen);
+        const r = yield* talk(
+          `${since.text}\n\nTake this into account, then end your reply with the whole bothub block again.`,
+          since.seen,
+          session
+        );
+        if (r.cut) return done(r.cut.outcome, { ...tried, seen: r.cut.at });
+        replies.splice(0, replies.length, r.final);
+        tried = { ...tried, seen: newest(tried.seen, late.at, lastHeard(now))! };
       }
     }
 
@@ -862,21 +957,26 @@ const attempt = (
       });
 
     const answered = answering && !back && world.length > 0 && world.every(p => p.kind === 'comment');
-    const { outcome: gated, usd } = answered
+    const checked = answered
       ? { outcome: { kind: 'pass' } as const, usd: 0 }
-      : yield* gate(
-          step,
-          {
-            run: run.id,
-            ...work,
-            issue: run.issue,
-            context: context(t),
-            reply: replies.join('\n\n'),
-            proposals: world,
-            ...(run.answers && { answers: run.answers }),
-          },
-          hub
+      : yield* Effect.raceFirst(
+          gate(
+            step,
+            {
+              run: run.id,
+              ...work,
+              issue: run.issue,
+              context: context(t),
+              reply: replies.join('\n\n'),
+              proposals: world,
+              ...(run.answers && { answers: run.answers }),
+            },
+            hub
+          ),
+          Effect.map(watch(tried, { at: tried.seen ?? run.started }), cut => ({ cut }))
         );
+    if ('cut' in checked) return done(checked.cut.outcome, { ...tried, seen: checked.cut.at });
+    const { outcome: gated, usd } = checked;
     tried = { ...tried, usd: tried.usd + usd };
     if (
       gated.kind === 'failed' &&
@@ -1108,6 +1208,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           const why = `Spent $${current.usd.toFixed(2)}, over the hub's usd-per-run of ${hub.limits.usdPerRun}.`;
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
+        const t = live(current) ? yield* Effect.option(issuesOf(w, current)) : Option.none();
+        const queued = Option.isSome(t) ? told(w, current, t.value, commandOf(hub)) : undefined;
+        if (queued) yield* settle(queued.outcome, { ...transition(w, current, queued.outcome), seen: queued.at });
       }
     });
     const halt = (e: SandboxError | SessionStop | ForgeError) => {
@@ -1206,15 +1309,19 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
         : { run: checked, outcome };
   }).pipe(Effect.scoped);
 
+/** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
+export const settle = 30_000;
+
 /**
  * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`.
  * With `only`, it looks at that issue alone and begins a run there when none was live; with `marked` too, only on a
- * trusted command or label.
+ * trusted command or label. An issue with a trusted event younger than `quiet` ms is left for a later look.
  */
 export const tick = (
   hub: Hub,
   only?: number,
-  marked = false
+  marked = false,
+  quiet = 0
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -1279,21 +1386,18 @@ export const tick = (
       );
     };
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
-    const command = triggered[0]?.on.issue_comment?.command;
+    const command = commandOf(hub);
     /** A trusted comment on a thread the bot has a run on speaks to the bot, unless it mentions someone else. */
-    const addressed = (m: Event): Event => {
-      const body = m.comment?.body.trim() ?? '';
-      if (m.kind !== 'comment' || !m.trusted || !m.comment || command === undefined || body.startsWith(command))
-        return m;
-      if (/(^|\s)@[\w-]/.test(body) || !runs.some(r => r.issue === m.issue)) return m;
-      const spoken = {
-        ...m,
-        comment: { ...m.comment, body: `${command} ${body}` },
-      };
-      if (origin.has(m)) origin.set(spoken, origin.get(m)!);
-      return spoken;
+    const spoken = (m: Event): Event => {
+      if (!runs.some(r => r.issue === m.issue)) return m;
+      const said = addressed(m, command);
+      if (origin.has(m)) origin.set(said, origin.get(m)!);
+      return said;
     };
-    const events = latest.map(onRun).map(addressed).filter(mine);
+    /** Whether a trusted event on the issue is younger than `quiet`, so a burst still coming starts nothing yet. */
+    const young = (issue: number) =>
+      quiet > 0 && latest.some(m => m.issue === issue && m.trusted && Date.now() - Date.parse(m.at) < quiet);
+    const events = latest.map(onRun).map(spoken).filter(mine);
     const used = new Set<Event>();
     const touched: Run[] = [];
     /** Moves a live run outside a session: traces the outcome and saves where it led. */
@@ -1316,18 +1420,24 @@ export const tick = (
     waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
     for (const { run, at } of waiting) {
       const w = hub.workflows[run.workflow];
-      const answers = w
-        ? events.filter(m => m.issue === run.issue && m.at > at && !used.has(m) && reenter(w, run, m, command))
-        : [];
+      /** A working run takes only a stop here; what else people say reaches it where it works. */
+      const taken = (m: Event, lined: Event[] = []) => {
+        const o = w && reenter(w, run, m, command, lined);
+        return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
+      };
+      const answers =
+        w && !young(run.issue)
+          ? events.filter(m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m))
+          : [];
       const m = answers.find(m => m.kind === 'merged') ?? answers[0];
       if (!w || !m) continue;
-      used.add(m);
+      for (const a of answers) used.add(a);
       const lined = events.filter(
         l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
       );
-      const outcome = reenter(w, run, m, command, lined)!;
+      const outcome = fold([m, ...answers.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
       const seen = m.kind === 'comment' ? yield* eyes(run, m) : run;
-      const moved = { ...transition(w, seen, outcome), said: heard(m) };
+      const moved = { ...transition(w, seen, outcome), said: heard(m), seen: newest(...answers.map(a => a.at))! };
       const next = moved.status === 'running' ? moved : yield* show(w, moved);
       yield* record(run, outcome, next);
     }
@@ -1391,11 +1501,11 @@ export const tick = (
             : undefined;
       const [verb = '', step = ''] = afterCommand(m, w?.on.issue_comment?.command)?.split(/\s+/) ?? [];
       const restart = /^restart$/i.test(verb) ? step : undefined;
-      if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || /^stop$/i.test(verb))
-        continue;
-      const held =
-        m.kind === 'comment' ? [...busy].some(k => k.endsWith(`#${m.issue}`)) : busy.has(`${w.name}#${m.issue}`);
-      if (!held) yield* start(w, m.issue, m.at, m, restart);
+      if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || young(m.issue)) continue;
+      if (/^(stop|cancel)$/i.test(verb)) continue;
+      const old = restart === undefined && runs.some(r => r.issue === m.issue && m.at <= (r.seen ?? r.started));
+      const held = [...busy].some(k => k.endsWith(`#${m.issue}`));
+      if (!held && !old) yield* start(w, m.issue, m.at, m, restart);
     }
     if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
