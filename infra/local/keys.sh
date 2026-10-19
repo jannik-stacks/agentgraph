@@ -23,10 +23,13 @@ BOTS=(
   "triager       smart,fast,local,luna            1  30  300000"
   "checker       fast,local,luna                  1  30  200000"
   "claim-checker fast,local,luna                  1  30  200000"
+  "router        fast,local,luna                  1  30  200000"
+  "retro         smart,fast,local,luna            2  30  400000"
+  "auditor       smart,fast,local,luna            1  30  400000"
 )
 
 # Every bot in the example hubs needs a row.
-for file in ../../examples/*/bots/*.md; do
+for file in ../../examples/*/agents/*.md; do
   bot=$(basename "$file" .md)
   printf '%s\n' "${BOTS[@]}" | grep -q "^$bot " || echo "warn: $bot (${file#../../}) has no row in keys.sh" >&2
 done
