@@ -2108,8 +2108,8 @@ describe('compound engineering', () => {
     await run(Effect.flatMap(Store, s => s.put({ ...live, status: 'waiting', reason: 'parked' })));
     where.human('/bothub once more', '2026-10-16T00:00:05.000Z');
     const touched = await run(tick(looking));
-    expect(touched.map(r => [r.workflow, r.status])).toEqual([['issue', 'done']]);
-    expect(specs).toHaveLength(1);
+    expect(touched.map(r => [r.workflow, r.started])).toEqual([['issue', '2026-10-16T00:00:05.000Z']]);
+    expect(specs[0]!.agent).toBe('implementor');
     expect((await run(retros)).map(r => [r.id, r.status])).toEqual([['retro-7', 'waiting']]);
   }, 30_000);
 
