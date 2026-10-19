@@ -15,7 +15,8 @@ import type { Run } from '../../../src/workflow.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
 import { accent, cx, Tooltip } from '../ui.tsx';
-import { backIn, backOut, liftOf, stepSize } from './layout.ts';
+import { chipsOf, kindOf } from './chips.ts';
+import type { Point } from './layout.ts';
 
 type GraphNode = Graph['nodes'][number];
 type GraphEdge = Graph['edges'][number];
@@ -66,8 +67,6 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
   </svg>
 );
 
-const kindOf = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
-
 const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
 /** Where arrows end: a few pixels short of the node, so the head never touches its border. */
 const arrival = { left: -5 };
@@ -75,13 +74,13 @@ const arrival = { left: -5 };
 /** The run drawn over one step: how often it came here, and where the run stands when it stands here. */
 type Overlay = { visits: number; status?: Run['status'] | undefined; reason?: string | undefined };
 
-type StepData = { node: GraphNode; overlay?: Overlay | undefined; live?: string | undefined; selected: boolean };
+type StepData = {
+  node: GraphNode;
+  overlay?: Overlay | undefined;
+  live?: string | undefined;
+  selected: boolean;
+};
 export type StepFlowNode = Node<StepData, 'step'>;
-
-const each = (text: string) =>
-  text === 'hunks' || text === 'files'
-    ? { label: `each ${text.slice(0, -1)}`, tip: `Runs once per ${text.slice(0, -1)}, each in a fresh session.` }
-    : { label: 'each item', tip: `Runs once per line that ${text} prints, each in a fresh session.` };
 
 const triesTip = (tries: number) =>
   `${tries === 1 ? 'One try' : `Up to ${tries} tries`}. A failing check sends its findings back into the same session. Out of tries it asks you; an answer gives it one more try, and stop ends the run.`;
@@ -95,14 +94,9 @@ const Bubble = ({ tip, className, children }: { tip: string; className: string; 
   </Tooltip>
 );
 
-const Chip = ({ tip, className, children }: { tip: string; className?: string; children: ReactNode }) => (
-  <Tooltip tip={tip} action="Click for the step" focusable className="min-w-0">
-    <span
-      className={cx(
-        'flex min-w-0 items-center gap-1 rounded border px-1 text-[10px] leading-4 whitespace-nowrap',
-        className ?? 'border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400'
-      )}
-    >
+const Chip = ({ tip, children }: { tip: string; children: ReactNode }) => (
+  <Tooltip tip={tip} action="Click for the step" focusable>
+    <span className="flex items-center gap-1 rounded border border-zinc-200 px-1 font-mono text-[10px] leading-4 whitespace-nowrap text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
       {children}
     </span>
   </Tooltip>
@@ -119,30 +113,22 @@ const statusLine = (node: GraphNode, o: Overlay) =>
           ? `try ${Math.min(node.run.tries + 1, node.tries)} of ${node.tries}`
           : 'working';
 
-const asideTip =
-  "A plain comment or question here is answered by a fork of the earlier step's session, in your thread; the run keeps waiting.";
-
 /** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
 export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<StepFlowNode>) => {
   const kind = kindOf(node.doer);
   const here = overlay?.status !== undefined;
   const refused = here && !!node.run && node.run.tries > 0;
-  const stops = node.checks.filter(c => c.mode === 'stop');
-  const judges = [...new Set(node.checks.flatMap(c => c.agent ?? []))];
-  const fan = node.each === undefined ? undefined : each(node.each);
-  const auditors = node.checks.filter(c => c.traces).map(c => c.agent);
   const status = here ? statusLine(node, overlay) : live;
   return (
     <div
-      style={stepSize}
       className={cx(
-        'relative flex cursor-pointer flex-col justify-center gap-0.5 rounded-md border bg-white px-2.5 text-xs transition-shadow dark:bg-zinc-950',
+        'relative flex size-full cursor-pointer flex-col justify-center gap-0.5 rounded-md border bg-white px-2.5 text-xs transition-shadow dark:bg-zinc-950',
         here || live
           ? accent.border
           : selected
             ? 'border-zinc-400 dark:border-zinc-500'
             : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700',
-        fan
+        node.each !== undefined
           ? 'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-200),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-200)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-950),3px_3px_0_0_var(--color-zinc-800),6px_6px_0_-1px_var(--color-zinc-950),6px_6px_0_0_var(--color-zinc-800)]'
           : selected
             ? 'shadow-md'
@@ -151,22 +137,6 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
     >
       <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} style={arrival} />
       <Handle type="source" position={Position.Right} isConnectable={false} className={hidden} />
-      <Handle
-        id="out"
-        type="source"
-        position={Position.Top}
-        isConnectable={false}
-        className={hidden}
-        style={{ left: `${backOut * 100}%` }}
-      />
-      <Handle
-        id="in"
-        type="target"
-        position={Position.Top}
-        isConnectable={false}
-        className={hidden}
-        style={{ left: `${backIn * 100}%`, top: -5 }}
-      />
       <div className="flex min-w-0 items-center gap-1.5">
         <Glyph name={kind === 'human' ? 'person' : kind} className="size-3.5 text-zinc-500" />
         <span className="truncate text-[13px] font-semibold">{node.step}</span>
@@ -195,55 +165,13 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
       ) : (
         <div className="truncate text-zinc-500">{kind === 'human' ? 'waits for you' : node.doer}</div>
       )}
-      <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-        {kind === 'human' && (
-          <Chip tip="Waits for you. Approve or merge to go on; request changes to send it back.">
-            <Glyph name="hand" />
-            you decide
-          </Chip>
-        )}
-        {stops.map(c => (
-          <Chip key={c.name} tip={`If ${c.name} fails, the run stops at once.`}>
-            <Glyph name="stop" />
-            {c.name}
+      <div className="flex items-center gap-1">
+        {chipsOf(node).map(chip => (
+          <Chip key={chip.glyph + chip.label} tip={chip.tip}>
+            <Glyph name={chip.glyph} />
+            {chip.label}
           </Chip>
         ))}
-        {node.checks.length > 0 && (
-          <Chip
-            tip={`${node.checks.length} ${node.checks.length === 1 ? 'check runs' : 'checks run'} after each try: ${node.checks.map(c => c.name).join(', ')}.`}
-          >
-            <Glyph name="checks" />
-            {node.checks.length} {node.checks.length === 1 ? 'check' : 'checks'}
-          </Chip>
-        )}
-        {judges.length > 1 && (
-          <Chip
-            tip={`${judges.join(' and ')} review each try side by side, each in its own session. Their findings go back together.`}
-          >
-            <Glyph name="agent" />
-            {judges.length} reviewers
-          </Chip>
-        )}
-        {(node.traces || auditors.length > 0) && (
-          <Chip
-            tip={`${[...(node.traces ? [node.doer] : []), ...auditors].join(' and ')} read the traces of the runs on the issue: each session's prompt, thinking, tool calls and replies, not only the change.`}
-          >
-            <Glyph name="traces" />
-            reads traces
-          </Chip>
-        )}
-        {node.asides && (
-          <Chip tip={asideTip}>
-            <Glyph name="aside" />
-            answers asides
-          </Chip>
-        )}
-        {fan && (
-          <Chip tip={fan.tip}>
-            <Glyph name="each" />
-            {fan.label}
-          </Chip>
-        )}
       </div>
       {kind !== 'human' && (node.tries > 1 || node.checks.length > 0) && (
         <Bubble
@@ -337,44 +265,60 @@ export const Frame = ({ data: { workflow, trigger, worst, selected, width, heigh
   );
 };
 
-export type BackFlowEdge = Edge<{ edge: GraphEdge }, 'back'>;
+export type RouteFlowEdge = Edge<{ points: Point[]; back?: GraphEdge }, 'route'>;
 
-/** A way back, drawn as an arc over the row with a badge naming its rounds; the badge opens the step that sends it. */
-export const BackEdge = ({ id, sourceX, sourceY, targetX, targetY, markerEnd, data }: EdgeProps<BackFlowEdge>) => {
+/** An orthogonal polyline through `points` with rounded corners. */
+const pathOf = (points: Point[], radius = 8) =>
+  points
+    .map((p, i) => {
+      const before = points[i - 1];
+      const after = points[i + 1];
+      if (!before) return `M ${p.x} ${p.y}`;
+      if (!after) return `L ${p.x} ${p.y}`;
+      const r = Math.min(
+        radius,
+        Math.hypot(p.x - before.x, p.y - before.y) / 2,
+        Math.hypot(after.x - p.x, after.y - p.y) / 2
+      );
+      const toward = (q: Point) => {
+        const d = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+        return `${p.x + ((q.x - p.x) / d) * r} ${p.y + ((q.y - p.y) / d) * r}`;
+      };
+      return `L ${toward(before)} Q ${p.x} ${p.y} ${toward(after)}`;
+    })
+    .join(' ');
+
+/** An edge laid out ahead of time; a way back also carries a badge naming its rounds, which opens the step that sends it. */
+export const RouteEdge = ({ id, markerEnd, style, data }: EdgeProps<RouteFlowEdge>) => {
   const select = useSetAtom(selectedStepAtom);
-  const edge = data!.edge;
+  const { points, back } = data!;
+  const path = <BaseEdge path={pathOf(points)} {...(markerEnd && { markerEnd })} {...(style && { style })} />;
+  if (!back) return path;
   const workflow = id.slice(0, id.indexOf('/'));
-  const lift = liftOf(sourceX - targetX);
-  const path = `M ${sourceX} ${sourceY} C ${sourceX} ${sourceY - lift}, ${targetX} ${targetY - lift}, ${targetX} ${targetY}`;
-  const taken = (edge.taken ?? 0) > 0;
+  const taken = (back.taken ?? 0) > 0;
   const label =
-    edge.rounds === undefined
+    back.rounds === undefined
       ? 'back on changes'
       : taken
-        ? `round ${edge.taken} of ${edge.rounds}`
-        : `back, ${edge.rounds} ${edge.rounds === 1 ? 'round' : 'rounds'}`;
+        ? `round ${back.taken} of ${back.rounds}`
+        : `back, ${back.rounds} ${back.rounds === 1 ? 'round' : 'rounds'}`;
   const tip =
-    edge.rounds === undefined
-      ? `Requesting changes on ${edge.from} sends it back to ${edge.to}, as often as you like.`
-      : `${edge.from} sends the work back to ${edge.to}${edge.until ? ` until ${edge.until}` : ''}. At most ${edge.rounds} ${edge.rounds === 1 ? 'time' : 'times'}, then it asks you.`;
+    back.rounds === undefined
+      ? `Requesting changes on ${back.from} sends it back to ${back.to}, as often as you like.`
+      : `${back.from} sends the work back to ${back.to}${back.until ? ` until ${back.until}` : ''}. At most ${back.rounds} ${back.rounds === 1 ? 'time' : 'times'}, then it asks you.`;
+  const [, a, b] = points;
   return (
     <>
-      <BaseEdge
-        path={path}
-        {...(markerEnd && { markerEnd })}
-        style={{ stroke: taken ? '#0284c7' : '#a1a1aa', strokeWidth: 1.25, strokeDasharray: '5 4' }}
-      />
+      {path}
       <EdgeLabelRenderer>
         <div
           className="nodrag nopan pointer-events-auto absolute"
-          style={{
-            transform: `translate(-50%, -50%) translate(${(sourceX + targetX) / 2}px, ${sourceY - lift * 0.75}px)`,
-          }}
+          style={{ transform: `translate(-50%, -50%) translate(${(a!.x + b!.x) / 2}px, ${a!.y}px)` }}
         >
-          <Tooltip tip={tip} action={`Click for ${edge.from}`}>
+          <Tooltip tip={tip} action={`Click for ${back.from}`}>
             <button
               type="button"
-              onClick={() => select(`${workflow}/${edge.from}`)}
+              onClick={() => select(`${workflow}/${back.from}`)}
               className={cx(
                 'rounded-full border bg-white px-2 py-px text-[10px] whitespace-nowrap hover:shadow-sm dark:bg-zinc-950',
                 taken

@@ -17,7 +17,6 @@
     "react-dom",
     "jotai",
     "@xyflow/react",
-    "@dagrejs/dagre",
     "fumadocs-core",
     "@tailwindcss/vite",
     "@vitejs/plugin-react",

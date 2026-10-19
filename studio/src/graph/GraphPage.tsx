@@ -3,20 +3,20 @@ import '@xyflow/react/dist/style.css';
 import { useAtom, useAtomValue } from 'jotai';
 import { useMemo } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
-import { type Graph, graphOf } from '../../../src/graph.ts';
+import { graphOf } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/store.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
 import { accent, Combobox, Muted, Select } from '../ui.tsx';
-import { layout } from './layout.ts';
+import { layout, type Start } from './layout.ts';
 import {
-  BackEdge,
-  type BackFlowEdge,
   Frame,
   type FrameFlowNode,
   Legend,
   Pill,
   type PillFlowNode,
+  RouteEdge,
+  type RouteFlowEdge,
   StepCard,
   type StepFlowNode,
 } from './nodes.tsx';
@@ -64,7 +64,7 @@ export const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: Pic
 };
 
 const nodeTypes = { step: StepCard, pill: Pill, frame: Frame };
-const edgeTypes = { back: BackEdge };
+const edgeTypes = { route: RouteEdge };
 const gray = '#a1a1aa';
 const sky = '#0284c7';
 const arrow = (color: string) => ({ type: MarkerType.ArrowClosed, color, width: 16, height: 16 });
@@ -112,12 +112,23 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
       }),
     [shown, picked]
   );
-  const rows = useMemo(() => layout(graphs), [graphs]);
+  const laid = useMemo(() => {
+    const dispatched = graphs.filter(g => g.dispatched);
+    const starts: Start[] = graphs.flatMap(({ workflow, graph }) => {
+      const heard = graphs.filter(g => g.heard && g.workflow !== workflow);
+      const asked = graph.nodes.filter(n => n.doer === 'human');
+      return [
+        ...graph.nodes.filter(n => n.dispatches).flatMap(n => dispatched.map(t => ({ node: n, target: t }))),
+        ...(asked.length > 0 ? asked : graph.nodes.slice(-1)).flatMap(n => heard.map(t => ({ node: n, target: t }))),
+      ].map(({ node, target }) => ({ workflow, step: node.step, target: target.workflow }));
+    });
+    return layout(graphs, starts);
+  }, [graphs]);
   const { nodes, edges } = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
     graphs.forEach(({ fixture, workflow, graph, run, visits }, r) => {
-      const row = rows[r]!;
+      const row = laid.rows[r]!;
       nodes.push({
         id: `${workflow}:frame`,
         type: 'frame',
@@ -160,6 +171,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           type: 'step',
           position: placed.box,
           measured: { width: placed.box.width, height: placed.box.height },
+          style: { width: placed.box.width, height: placed.box.height },
           data: {
             node,
             selected: selected === placed.id,
@@ -188,39 +200,34 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           id: `${from}>${to}`,
           source: from,
           target: to,
+          type: 'straight',
           markerEnd: arrow(color),
           style: { stroke: color, strokeWidth: taken ? 2 : 1.25 },
         });
       });
-      for (const edge of graph.edges.filter((e: Graph['edges'][number]) => e.kind === 'back'))
+      for (const { edge, points } of row.backs)
         edges.push({
           id: `${workflow}/back/${edge.from}`,
-          type: 'back',
+          type: 'route',
           source: `${workflow}/${edge.from}`,
-          sourceHandle: 'out',
           target: `${workflow}/${edge.to}`,
-          targetHandle: 'in',
           markerEnd: arrow((edge.taken ?? 0) > 0 ? sky : gray),
-          data: { edge },
-        } satisfies BackFlowEdge);
-      const dispatched = graphs.filter(g => g.dispatched);
-      const heard = graphs.filter(g => g.heard && g.workflow !== workflow);
-      const asked = graph.nodes.filter(n => n.doer === 'human');
-      const starts = [
-        ...graph.nodes.filter(n => n.dispatches).flatMap(n => dispatched.map(target => ({ node: n, target }))),
-        ...(asked.length > 0 ? asked : graph.nodes.slice(-1)).flatMap(n => heard.map(target => ({ node: n, target }))),
-      ];
-      for (const { node, target } of starts)
-        edges.push({
-          id: `${workflow}/${node.step}>${target.workflow}`,
-          source: `${workflow}/${node.step}`,
-          target: `${target.workflow}:trigger`,
-          markerEnd: arrow(gray),
-          style: { stroke: gray, strokeWidth: 1.25, strokeDasharray: '2 4' },
-        });
+          style: { stroke: (edge.taken ?? 0) > 0 ? sky : gray, strokeWidth: 1.25, strokeDasharray: '5 4' },
+          data: { points, back: edge },
+        } satisfies RouteFlowEdge);
     });
+    for (const start of laid.starts)
+      edges.push({
+        id: `${start.workflow}/${start.step}>${start.target}`,
+        type: 'route',
+        source: `${start.workflow}/${start.step}`,
+        target: `${start.target}:trigger`,
+        markerEnd: arrow(gray),
+        style: { stroke: gray, strokeWidth: 1.25, strokeDasharray: '2 4' },
+        data: { points: start.points },
+      } satisfies RouteFlowEdge);
     return { nodes, edges };
-  }, [graphs, rows, selected, here]);
+  }, [graphs, laid, selected, here]);
   return (
     <ReactFlow
       nodes={nodes}
