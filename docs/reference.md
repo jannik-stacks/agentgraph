@@ -111,3 +111,13 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | ------------- | ------------------- | ------- | ------------------------------------------------- |
 | `description` | text                | none    | What the skill is for                             |
 | `uses`        | list of skill names | none    | Skills whose bodies follow this one in the prompt |
+
+## instance.yaml
+
+An [instance](local.md#instances) is a folder with `instance.yaml`, the hub in `hub/`, a forge folder in `forge/`, the data dir in `data/` and an optional `keys.env`. `node bin/forge.ts <dir> init <repo> --hub <hub>` writes it. <!-- code: src/instance.ts#Instance -->
+
+| Field   | Type        | Default                | Meaning                                                         |
+| ------- | ----------- | ---------------------- | --------------------------------------------------------------- |
+| `repo`  | path        | none                   | The git repo on this machine the instance copies and exports to |
+| `base`  | branch name | `main`                 | The branch `sync` and `export --patch` read from the repo       |
+| `owner` | name        | `git config user.name` | Who `bin/forge.ts` acts as when `--as` is not given             |

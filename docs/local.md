@@ -32,7 +32,7 @@ node bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 - `loop` looks at the repo every `BOTHUB_EVERY` minutes until it is stopped. Without `--hub`, it reads the hub from `.bothub/` in the repo, and `BOTHUB_REPO` names the repo, see [A hub in the repo](loop.md#a-hub-in-the-repo). <!-- code: src/main.ts#start -->
 - `status` lists what waits on a human. It also warns when the App's installation reaches repos besides the hub's, and needs the App's credentials.
 
-`--hub <dir>` names a hub folder on this machine, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `BOTHUB_HUB`, `BOTHUB_DATA`, `BOTHUB_FORGE` and `BOTHUB_REPO`. The runner also reads:
+`--hub <dir>` names a hub folder on this machine, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. `--instance <dir>` stands for all three, see [Instances](#instances). The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `BOTHUB_HUB`, `BOTHUB_DATA`, `BOTHUB_FORGE` and `BOTHUB_REPO`. The runner also reads:
 
 | Variable              | What it is                                                                       |
 | --------------------- | -------------------------------------------------------------------------------- |
@@ -76,7 +76,80 @@ node bin/run.ts --forge /tmp/forge --hub examples/sandbox --issue 1 --data /tmp/
 - `close <n>` closes an issue.
 - `init <repo> --at <sha>` puts only that commit and its history in `origin.git`, as `main`, so a replayed task cannot find its own fix.
 
-Agents still run in the Docker sandbox with `BOTHUB_PROXY_KEYS`. `--forge` works with `loop` too, while `status` still needs the App.
+Agents still run in the Docker sandbox with `BOTHUB_PROXY_KEYS`. `--forge` works with `loop` and `status` too, and `status` then needs no App. <!-- code: src/status.ts#needsYou -->
+
+## Instances
+
+An instance lets you work on a repo through bothub without touching it. It is one folder that holds the hub, a forge folder over a copy of the repo, the data dir and the model keys. Keep as many as you like under one root, one folder per repo. <!-- code: src/instance.ts#instanceAt -->
+
+```
+~/bothub/
+  kit/
+    instance.yaml   repo: /path/to/repo, base: main, owner: <you>
+    hub/            the hub, as .bothub/ would hold it
+    forge/          the forge folder, with origin.git
+    data/           runs, traces and the sandbox mirror
+    keys.env        optional KEY=value lines, such as BOTHUB_PROXY_KEYS
+  clarinet/
+    ...
+```
+
+The repo is only read. `init` copies it into `forge/origin.git`, and every branch, push and merge lands there. Nothing reaches the repo until you run `export`.
+
+### Set one up
+
+```sh
+node bin/forge.ts ~/bothub/kit init ~/code/acme-app --hub examples/sandbox --base main
+```
+
+`--hub` copies a hub into `hub/`, where you edit it in place. `--base` names the branch pull requests go into, `main` by default; a workflow on another base sets `base:` too. The owner is `git config user.name`, or `--as <name>`, and everything you do as the owner counts as a maintainer's.
+
+For the model keys, put the agents' keys in `keys.env`. `run.ts` loads it when the variables are not set already:
+
+```sh
+sed -n 's/^BOTHUB_LLM_API_KEY_\([A-Z_]*\)=\(.*\)$/\1=\2/p' infra/local/.keys.env |
+  awk -F= '{ n = tolower($1); gsub("_", "-", n); printf "%s%s=%s", (NR > 1 ? "," : ""), n, $2 }' |
+  sed 's/^/BOTHUB_PROXY_KEYS=/' > ~/bothub/kit/keys.env
+```
+
+### A loop by hand
+
+`bin/forge.ts` and `bin/run.ts` take the instance folder, or any folder inside it. `run.ts` also finds it from the working directory when you pass no `--hub`, `--forge` or `--data`.
+
+```sh
+node bin/forge.ts ~/bothub/kit issue "Reject a negative count" --body issue.md --label agent:ready
+node bin/run.ts --instance ~/bothub/kit --all
+node bin/forge.ts ~/bothub/kit show                  # issues and pull requests
+node bin/forge.ts ~/bothub/kit show 2                # one thread, with the diff
+node bin/forge.ts ~/bothub/kit comment 2 "count zero as valid" --line src/math.js:12
+node bin/forge.ts ~/bothub/kit review 2 changes "also cover zero"
+node bin/run.ts --instance ~/bothub/kit --all
+node bin/forge.ts ~/bothub/kit comment 1 "zero is valid"   # answers a question the run asked
+node bin/run.ts --instance ~/bothub/kit --issue 1
+node bin/forge.ts ~/bothub/kit review 2 approve
+node bin/forge.ts ~/bothub/kit merge 2
+node bin/forge.ts ~/bothub/kit export 2
+```
+
+- `review <n> changes <text>` requests changes on a pull request, and `review <n> approve [text]` approves it. Line comments made with `comment <n> <text> --line <path>:<line>` reach the run with the review.
+- `run.ts status --instance <dir>` lists what waits on you, with the command to go on.
+- `export <n>` fetches the pull request's branch into the repo as a branch of the same name. It never moves the checked-out branch and fails rather than overwrite a branch that went elsewhere. `export <n> --patch <file>` writes the commits the repo's base lacks as a patch instead, and writes nothing to the repo.
+- `sync` brings new commits on the repo's base into the instance. It fails when both have moved; export and merge on the repo first.
+
+Everything else, `label`, `close` and `--as`, works as on a forge folder.
+
+### Several side by side
+
+Each instance has its own data dir and mirror, so run one `loop` per instance:
+
+```sh
+node bin/run.ts loop --instance ~/bothub/kit &
+node bin/run.ts loop --instance ~/bothub/clarinet &
+```
+
+The studio shows one instance at a time: `npm run dev -- --instance ~/bothub/kit` from `studio/`, with `BHM_PORT` set to a free port for a second one.
+
+A hub on GitHub works the same way with the App, see [The loop](loop.md). The engine is the same; only the forge differs.
 
 ## The studio
 
@@ -87,7 +160,7 @@ npm install
 npm run dev
 ```
 
-It starts on http://localhost:5182, or on `BHM_PORT`. Without `-- --hub <dir> --data <dir>` it shows `examples/acme-app` and `BOTHUB_DATA`, or `~/.bothub`. It only reads the hub and the data dir.
+It starts on http://localhost:5182, or on `BHM_PORT`. `-- --instance <dir>` shows an instance. Without `-- --hub <dir> --data <dir>` it shows `examples/acme-app` and `BOTHUB_DATA`, or `~/.bothub`. It only reads the hub and the data dir.
 
 ## Before you commit
 
