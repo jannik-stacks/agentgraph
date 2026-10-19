@@ -17,11 +17,11 @@ Every field a hub file may hold, with its type, its default and what it does. An
 | `trust`     | list of logins       | owners, members and collaborators | Who may steer the bot, see [The loop](loop.md#trust-and-scope)       |
 | `limits`    | map                  | the defaults below                | Caps on a run                                                        |
 
-`limits` holds four fields: <!-- code: src/hub.ts#Limits -->
+`limits` in `hub.yaml` sets these: <!-- code: src/hub.ts#Limits -->
 
 | Field         | Type    | Default | Meaning                                                                                                  |
 | ------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------- |
-| `minutes`     | number  | 30      | The longest one session, script or setup may run                                                         |
+| `minutes`     | number  | 30      | The wall-clock deadline for one session, script or setup, however much it prints                         |
 | `usd-per-run` | number  | 10      | The most a run may spend                                                                                 |
 | `parallel`    | integer | 2       | How many runs go at once                                                                                 |
 | `sessions`    | integer | 4       | How many sessions, judges included, are live at once across all runs <!-- code: src/engine.ts#gateOf --> |
@@ -80,13 +80,13 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 `checks/<name>.md`. A check names `run`, `agent` or both. The body is its description. <!-- code: src/hub.ts#Check -->
 
-| Field   | Type                          | Default  | Meaning                                               |
-| ------- | ----------------------------- | -------- | ----------------------------------------------------- |
-| `mode`  | `warn`, `block` or `stop`     | required | What a failure does, see [The loop](loop.md#checks)   |
-| `run`   | shell command                 | none     | A script; exit 0 passes                               |
-| `agent` | agent name                    | none     | An agent judges; a reply starting with `PASS` passes  |
-| `each`  | `files`, `hunks` or a command | none     | Judges each item on its own                           |
-| `max`   | positive integer              | no cap   | The most items `each` may find before the check fails |
+| Field   | Type                          | Default  | Meaning                                                                 |
+| ------- | ----------------------------- | -------- | ----------------------------------------------------------------------- |
+| `mode`  | `warn`, `block` or `stop`     | required | What a failure does, see [The loop](loop.md#checks)                     |
+| `run`   | shell command                 | none     | A script; exit 0 passes                                                 |
+| `agent` | agent name                    | none     | An agent judges; a reply starting with `PASS` passes, with `FAIL` fails |
+| `each`  | `files`, `hunks` or a command | none     | Judges each item on its own                                             |
+| `max`   | positive integer              | no cap   | The most items `each` may find before the check fails                   |
 
 ## Skills
 

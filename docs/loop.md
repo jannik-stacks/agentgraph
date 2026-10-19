@@ -131,7 +131,7 @@ After a session ends, the step's checks run against the checkout. Script checks 
 A check file holds a script, an agent, or both:
 
 - `run`: exit 0 passes, and the output is the feedback.
-- `agent`: the reply must start with `PASS`. On its own the agent judges the diff, or the item in a fan-out.
+- `agent`: the reply must start with `PASS`; `FAIL` is a finding. On its own the agent judges the diff, or the item in a fan-out. A judging session that is killed, crashes, times out or replies without `PASS` or `FAIL` is not a verdict: it is tried once more, and if it fails again the run stops with an error saying the check could not be judged, so nothing is fed back to the agent as review feedback. <!-- code: src/engine.ts#verdictOf -->
 - Both: the script runs and its output goes to the agent.
 
 `each` fans a check out over `files`, `hunks`, or the lines a command prints, and the check fails when any item fails. When there are no items, the check passes marked `empty` with the finding "Judged nothing", so a slicer that lost its input shows up. More items than `max` fail the check.
@@ -182,4 +182,4 @@ The engine keeps one status comment on the issue up to date: the step and try, a
 
 Runs sort by priority label: `priority/high` first, then no label or `priority/medium`, then `priority/low`. Within a priority the older run goes first. At most `parallel` runs go at once. <!-- code: src/engine.ts#tick -->
 
-A session that runs past `minutes` stops the run, and so does a run that spends more than `usd-per-run`. These are the `limits` in `hub.yaml`. <!-- code: src/engine.ts#drive -->
+A session that runs past `minutes` of wall-clock time stops the run, however steadily it prints, and so does a run that spends more than `usd-per-run`. These are the `limits` in `hub.yaml`. <!-- code: src/engine.ts#drive -->
