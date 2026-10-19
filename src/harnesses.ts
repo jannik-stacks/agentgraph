@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, open as openFile, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { Effect, Layer, Option, Redacted, Schema, Stream } from 'effect';
 import type { Agent } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
@@ -21,6 +21,7 @@ type Adapter = {
   command: (spec: SessionSpec, url: string) => { cmd: string; args: string[]; env: Record<string, string> };
   key: string;
   files?: (spec: SessionSpec, url: string) => Record<string, string>;
+  links?: Record<string, string>;
   parser: () => (line: unknown) => Piece[];
 };
 
@@ -137,6 +138,10 @@ const deniedByOpencode = 'prevents you from using this specific tool call';
  */
 const opencode: Adapter = {
   key: 'BOTHUB_LLM_API_KEY',
+  links: {
+    '.config/opencode/node_modules': '/opt/opencode/node_modules',
+    '.config/opencode/package-lock.json': '/opt/opencode/package-lock.json',
+  },
   command: (spec, url) => ({
     cmd: 'opencode',
     args: [
@@ -485,18 +490,31 @@ const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usa
   return { ...u, usd };
 };
 
-/** Writes `text` to `path` under `home` without following a link the sandbox may have left in the home. */
-const writeHome = async (home: string, path: string, text: string) => {
+/** Makes the directories of `path` under `home`, refusing a link the sandbox may have left in their place. */
+const homeDir = async (home: string, path: string) => {
   let dir = home;
-  for (const part of dirname(path).split('/')) {
+  for (const part of path.split('/')) {
     dir = join(dir, part);
     await mkdir(dir).catch((e: NodeJS.ErrnoException) => {
       if (e.code !== 'EEXIST') throw e;
     });
     if (!(await lstat(dir)).isDirectory()) throw new Error(`${dir} is not a directory`);
   }
+  return dir;
+};
+
+/** Links `path` under `home` to `target`, replacing what the sandbox left there. */
+const linkHome = async (home: string, path: string, target: string) => {
+  const at = join(await homeDir(home, dirname(path)), basename(path));
+  await rm(at, { recursive: true, force: true });
+  await symlink(target, at);
+};
+
+/** Writes `text` to `path` under `home` without following a link the sandbox may have left in the home. */
+const writeHome = async (home: string, path: string, text: string) => {
+  const dir = await homeDir(home, dirname(path));
   const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = constants;
-  const file = await openFile(join(home, path), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW);
+  const file = await openFile(join(dir, basename(path)), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW);
   await file.writeFile(text).finally(() => file.close());
 };
 
@@ -535,6 +553,7 @@ export const harnesses = (s: {
                 await mkdir(home, { recursive: true });
                 for (const [path, text] of Object.entries(adapter.files?.(spec, s.proxy.url) ?? {}))
                   await writeHome(home, path, text);
+                for (const [path, target] of Object.entries(adapter.links ?? {})) await linkHome(home, path, target);
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });

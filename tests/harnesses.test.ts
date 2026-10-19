@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
@@ -306,6 +306,18 @@ describe('pi', () => {
     expect(models.providers.bothub).toMatchObject({ baseUrl: 'http://litellm:4000/v1', apiKey: '$BOTHUB_LLM_API_KEY' });
     expect(readFileSync(join(command.home!, '.pi/agent/models.json'), 'utf8')).not.toContain(key);
     expect(existsSync(join(command.home!, '.pi/agent/settings.json'))).toBe(true);
+  });
+
+  it('links the opencode plugin install into the home, replacing a copy a resumed home holds', async () => {
+    const { command } = await events(spec, []);
+    const config = join(command.home!, '.config/opencode');
+    expect(readlinkSync(join(config, 'node_modules'))).toBe('/opt/opencode/node_modules');
+    expect(readlinkSync(join(config, 'package-lock.json'))).toBe('/opt/opencode/package-lock.json');
+    rmSync(join(config, 'node_modules'));
+    mkdirSync(join(config, 'node_modules'));
+    writeFileSync(join(config, 'node_modules', 'copy'), 'x');
+    await session({ ...spec, resume: { id: 's', home: command.home! } }, []);
+    expect(readlinkSync(join(config, 'node_modules'))).toBe('/opt/opencode/node_modules');
   });
 
   it('never writes through a link the agent left in a resumed home', async () => {
