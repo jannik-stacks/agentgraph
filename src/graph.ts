@@ -17,6 +17,7 @@ export type Graph = {
     each?: string;
     dispatches?: true;
     traces?: true;
+    asides?: true;
     run?: { tries: number; current: boolean; visited: boolean };
   }[];
   edges: { from: string; to: string; kind: 'next' | 'back'; until?: string; rounds?: number; taken?: number }[];
@@ -77,6 +78,7 @@ export function graphOf(
     ...(s.each !== undefined && { each: typeof s.each === 'string' ? s.each : s.each.run }),
     ...('agent' in s.does && agents[s.does.agent]?.returns.includes('run') && { dispatches: true as const }),
     ...('agent' in s.does && agents[s.does.agent]?.reads && { traces: true as const }),
+    ...('wait' in s.does && s.back && { asides: true as const }),
     ...(run && { run: { tries: k === current ? run.tries : 0, current: k === current, visited: k <= reached } }),
   }));
 

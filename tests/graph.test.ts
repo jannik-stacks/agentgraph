@@ -67,6 +67,8 @@ describe('graphOf', () => {
     });
     expect(review).toMatchObject({ doer: 'reviewer / review-hunk', each: 'hunks' });
     expect(merge!.doer).toBe('human');
+    expect(merge!.asides).toBe(true);
+    expect(implement!.asides).toBeUndefined();
     expect(graphOf(workflows.merge!, checks).nodes[0]!.doer).toBe('script');
     expect(graphOf(fixture('bothub').workflows.retro!, {}).nodes[0]!.each).toBe(
       'node "$BOTHUB_HUB/scripts/retro-items.mjs"'
