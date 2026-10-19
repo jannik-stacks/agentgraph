@@ -52,37 +52,33 @@ The engine talks to the outside through four services. Each has a test double:
 ## One run through the state machine
 
 ```
- trusted event (command or label)
+ trusted event: a mention, a command or a label
         │
         ▼
- ┌──────────────┐   pass    ┌──────────────┐   pass    ┌──────────────┐
- │ step A       │──────────→│ step B       │──────────→│ wait: human  │──→ done
- │ agent, skill │           │ reviewer     │           │              │
- └──────┬───────┘           └──────┬───────┘           └──────┬───────┘
-        │ try ends                 │ until does not hold      │ asks for changes
-        ▼                          │ (back, rounds cap)       │
- script checks, all at once        └──→ back to step A        └──→ back to step A
-        │ block failed? feedback
-        ▼                          tries cap spent, rounds cap spent, ask,
- agent checks (PASS or FAIL)       or a session over its minutes
-        │ failed? feedback                    │
-        ▼                                     ▼
- same session, next try            run waits (comment on the issue) or stops
-        │ all pass
-        ▼
- proposals applied by the engine (push, pull request, comment)
+ ┌────────────────────┐   pass    ┌────────────────────┐   pass    ┌────────────────────┐
+ │ step: implement    │──────────►│ step: review       │──────────►│ step: merge        │──► done
+ │ agent session      │           │ agent session      │           │ wait: human        │
+ └─────────┬──────────┘           └─────────┬──────────┘           └─────────┬──────────┘
+           │                                │ until does not hold            │ a person asks for changes
+           │                                └──► back to implement           └──► back to implement
+           │
+           ├──► a check or proposal failed: the next try, in the same session
+           ├──► ask, tries or rounds spent: waiting, until a human answers
+           └──► a stop check, the minutes or spend limit, a sandbox failure: stopped
 ```
+
+The three ways out under `implement` hold for every agent step. [The loop](loop.md) draws one try in detail.
 
 Which part is which:
 
-| Deterministic engine code                                              | LLM judgement                                  |
-| ---------------------------------------------------------------------- | ---------------------------------------------- |
-| Transitions between steps: `code: src/workflow.ts#transition`     | The session: what it writes and proposes       |
-| The tries cap and the rounds cap                                       | An agent-judged check: the reply is PASS or FAIL |
-| Script checks and their modes (`warn`, `block`, `stop`)                | Whether the `until` sentence holds             |
-| Which proposals are accepted and applied: `code: src/engine.ts#land` | What the agent asks a human                 |
-| Push safety: a push never forces and only the host holds the token     |                                                |
-| Triggers and trust: only a collaborator's command or label starts a run, `code: src/engine.ts#tick` |                |
+| Deterministic engine code                                                                    | LLM judgement                                    |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Transitions between steps: `code: src/workflow.ts#transition`                                | The session: what it writes and proposes         |
+| The tries cap and the rounds cap                                                             | An agent-judged check: the reply is PASS or FAIL |
+| Script checks and their modes (`warn`, `block`, `stop`)                                      | Whether the `until` sentence holds               |
+| Which proposals are accepted and applied: `code: src/engine.ts#land`                         | What the agent asks a human                      |
+| Push safety: a push never forces and only the host holds the token                           |                                                  |
+| Triggers and trust: only a trusted command or label starts a run, `code: src/engine.ts#tick` |                                                  |
 
 Judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail, and the engine reads the answers and decides where the run goes. A reply that does not parse fails the try. `transition` is pure, so every path is a plain test. The loop around it is `code: src/engine.ts#drive`.
 
