@@ -24,13 +24,16 @@ export type Command = {
 export type Exit = { code: number; output: string };
 
 /**
- * A checkout: the work tree `dir`, the commit `base` it starts from, and `git`, the repo and index host git uses for it.
+ * A checkout: the work tree `dir`, the commit `base` its change is measured from, and `git`, the repo and index host git
+ * uses for it. On an existing branch `base` is where the branch forks from the ref, and `head` is the branch commit the
+ * files start from.
  * `git` names only paths the host keeps out of the sandbox's reach. `news` is a file outside `dir` that only the host
  * writes; the sandbox reads it at the same path.
  */
 export type Checkout = {
   dir: string;
   base: string;
+  head?: string;
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
   news: string;
 };
@@ -147,9 +150,10 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
           : '';
         const remote = branch ? await run('rev-parse', '--verify', `origin/${branch}`).catch(() => '') : '';
         const from = remote || (kept ? await run('rev-parse', '--verify', `${kept}^`) : base);
+        const fork = await run('merge-base', from, base).catch(() => from);
         await run('checkout', '-q', ...(branch ? ['-B', branch] : ['--detach']), from);
         if (kept) await run('read-tree', '-u', '--reset', kept);
-        return { dir, base, run, from, kept, news };
+        return { dir, base: fork, run, from, kept, news };
       };
       return Effect.acquireRelease(
         Effect.tryPromise({
@@ -170,9 +174,10 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
             )
           )
       ).pipe(
-        Effect.map(({ dir, base, news }) => ({
+        Effect.map(({ dir, base, from, news }) => ({
           dir,
           base,
+          ...(from !== base && { head: from }),
           git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
           news: join(news, 'news.md'),
         }))

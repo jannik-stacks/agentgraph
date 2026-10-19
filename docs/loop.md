@@ -150,7 +150,7 @@ Scripts run with the checkout as their working directory and get these variables
 
 | Variable           | What it holds                                                | Given to         |
 | ------------------ | ------------------------------------------------------------ | ---------------- |
-| `BOTHUB_BASE`      | The commit the checkout started from                         | checks and steps |
+| `BOTHUB_BASE`      | Where the change starts: on a branch, where it forks from the base | checks and steps |
 | `BOTHUB_HUB`       | The hub folder, read-only                                    | checks and steps |
 | `BOTHUB_ISSUE`     | The issue number                                             | checks           |
 | `BOTHUB_PROPOSALS` | A JSON file of the proposals the try made                    | checks           |

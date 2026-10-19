@@ -249,15 +249,16 @@ describe('docker checkout', () => {
         kept = main.dir;
         return [main, feature, fresh].map(c => [
           readFileSync(join(c.dir, 'a.txt'), 'utf8').trim(),
-          c.base === git(c.dir, 'rev-parse', 'HEAD'),
+          (c.head ?? c.base) === git(c.dir, 'rev-parse', 'HEAD'),
+          c.base === git(c.dir, 'merge-base', 'HEAD', 'main'),
         ]);
       })
     );
     expect(exit).toEqual(
       Exit.succeed([
-        ['main', true],
-        ['feature', true],
-        ['main', true],
+        ['main', true, true],
+        ['feature', true, true],
+        ['main', true, true],
       ])
     );
     expect(existsSync(kept)).toBe(false);
@@ -276,7 +277,7 @@ describe('docker checkout', () => {
       Effect.map(s.checkout('main', undefined, keep), c => [
         readFileSync(join(c.dir, 'a.txt'), 'utf8').trim(),
         readFileSync(join(c.dir, 'b.txt'), 'utf8').trim(),
-        c.base === git(c.dir, 'rev-parse', 'refs/heads/feature'),
+        c.head === git(c.dir, 'rev-parse', 'refs/heads/feature'),
       ])
     );
     expect(second).toEqual(Exit.succeed(['feature', 'kept', true]));
@@ -299,7 +300,7 @@ describe('docker checkout', () => {
     const again = await use(layer, s =>
       Effect.map(s.checkout('main', 'work', keep), c => [
         readFileSync(join(c.dir, 'b.txt'), 'utf8').trim(),
-        c.base === tip,
+        c.head === tip && c.base === git(repo, 'rev-parse', 'main'),
       ])
     );
     expect(again).toEqual(Exit.succeed(['second try', true]));

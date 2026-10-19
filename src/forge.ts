@@ -242,7 +242,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           }
           case 'push': {
             if (!work) return no('a push needs a worktree');
-            const parent = pushed.get(work.dir) ?? (await tip(work, p.branch).catch(() => work.base));
+            const parent = pushed.get(work.dir) ?? (await tip(work, p.branch).catch(() => work.head ?? work.base));
             await git(work, 'add', '-A');
             const tree = await git(work, 'write-tree');
             const head =

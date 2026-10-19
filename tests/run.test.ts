@@ -97,11 +97,8 @@ const judged: SessionEvent[] = [
   { type: 'text', text: 'PASS, no claims' },
 ];
 
-/**
- * The file doubles, with every session spec and every sandbox command recorded, both also in `order`. With `docker`, a
- * checkout of a branch that exists starts from that branch's head, as the Docker sandbox's does.
- */
-const services = (where: ReturnType<typeof world>, turns: SessionEvent[][], slug?: string, docker = false) => {
+/** The file doubles, with every session spec and every sandbox command recorded, both also in `order`. */
+const services = (where: ReturnType<typeof world>, turns: SessionEvent[][], slug?: string) => {
   const specs: SessionSpec[] = [];
   const commands: Command[] = [];
   const order: (SessionSpec | Command)[] = [];
@@ -114,12 +111,6 @@ const services = (where: ReturnType<typeof world>, turns: SessionEvent[][], slug
     Effect.map(Sandbox, s => ({
       ...s,
       exec: (c: Command) => (commands.push(c), order.push(c), s.exec(c)),
-      ...(docker && {
-        checkout: (ref: string, branch?: string, keep?: string) =>
-          branch
-            ? Effect.orElse(s.checkout(branch, branch, keep), () => s.checkout(ref, branch, keep))
-            : s.checkout(ref, undefined, keep),
-      }),
     }))
   ).pipe(Layer.provide(host(where.origin)));
   const named = Layer.effect(
@@ -1903,24 +1894,20 @@ describe('a base that moved', () => {
       'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
     );
 
-  it.each([false, true])(
-    'rebases a clean branch with no model and checks it again (docker %s)',
-    async docker => {
-      const where = await moved('other.txt');
-      expect(behind(where)).toBe('1');
-      const { specs, run } = services(where, [judged], undefined, docker);
-      await run(tick(hub));
-      expect(behind(where)).toBe('0');
-      expect(git(where.origin, 'show', 'bothub/7:other.txt')).toBe('upstream');
-      expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
-      expect(specs).toHaveLength(1);
-      expect(specs[0]!.prompt).not.toContain('Brief');
-      const [stored] = await run(Effect.flatMap(Store, s => s.list()));
-      expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
-      expect(rebases(where)).toEqual([true]);
-    },
-    30_000
-  );
+  it('rebases a clean branch with no model and checks it again', async () => {
+    const where = await moved('other.txt');
+    expect(behind(where)).toBe('1');
+    const { specs, run } = services(where, [judged]);
+    await run(tick(hub));
+    expect(behind(where)).toBe('0');
+    expect(git(where.origin, 'show', 'bothub/7:other.txt')).toBe('upstream');
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).not.toContain('Brief');
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(rebases(where)).toEqual([true]);
+  }, 30_000);
 
   it('says a conflict on the issue once per base head and keeps waiting', async () => {
     const where = await moved('hello.txt');

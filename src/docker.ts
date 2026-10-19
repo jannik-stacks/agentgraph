@@ -274,13 +274,16 @@ export const docker = (o: {
           const rev =
             own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));
           if (!rev) return yield* infra(`no commit for ${ref}`);
+          const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
+          const base = onto ? yield* inMirror(['merge-base', rev, onto]).pipe(Effect.orElseSucceed(() => rev)) : rev;
           const id = randomBytes(6).toString('hex');
           const dir = join(o.data, 'work', id);
           const index = join(o.data, 'index', id);
           const news = join(o.data, 'news', id);
           const work: Checkout = {
             dir,
-            base: rev,
+            base,
+            ...(base !== rev && { head: rev }),
             git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
             news: join(news, 'news.md'),
           };

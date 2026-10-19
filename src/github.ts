@@ -530,7 +530,7 @@ export const githubForge = (
         if (!branch.startsWith(pushable.prefix)) return yield* refuse(`a push goes to a ${pushable.prefix} branch`);
         const ref = yield* refPath(branch);
         const last = pushed.get(work.dir);
-        const parent = last?.sha ?? work.base;
+        const parent = last?.sha ?? work.head ?? work.base;
         const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
         if (tip && tip !== parent) return yield* refuse(`${branch} is at ${tip}, the checkout builds on ${parent}`);
         const from = last?.tree ?? (yield* gitText(work, ['rev-parse', `${parent}^{tree}`]));
