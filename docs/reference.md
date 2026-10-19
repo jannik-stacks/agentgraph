@@ -32,13 +32,22 @@ A hub is a folder: `.bothub/` on the default branch of the repo it works on, or 
 
 `workflows/<name>.md`. The file name is the workflow's name. The body is its description, or the prompt when it has no steps. <!-- code: src/workflow.ts#Front -->
 
-| Field    | Type                           | Default                             | Meaning                                                                    |
-| -------- | ------------------------------ | ----------------------------------- | -------------------------------------------------------------------------- |
-| `on`     | event name, or map of triggers | required                            | What starts a run: `issues`, `issue_comment`, `pull_request` or `dispatch` |
-| `branch` | template                       | none, a detached checkout           | The branch a run works on; `{issue}` and `{parent}` are filled in          |
-| `base`   | template                       | `main`                              | The branch its pull requests go into                                       |
-| `agent`  | agent name                     | the hub's only agent                | The agent of a workflow without `steps`                                    |
-| `steps`  | map of step name to step       | one agent step named after the file | The steps, run in the order written                                        |
+| Field         | Type                           | Default                             | Meaning                                                                    |
+| ------------- | ------------------------------ | ----------------------------------- | -------------------------------------------------------------------------- |
+| `on`          | event name, or map of triggers | required                            | What starts a run: `issues`, `issue_comment`, `pull_request` or `dispatch` |
+| `branch`      | template                       | none, a detached checkout           | The branch a run works on; `{issue}` and `{parent}` are filled in          |
+| `base`        | template                       | `main`                              | The branch its pull requests go into                                       |
+| `concurrency` | `steer`, `queue` or `cancel`   | `steer`                             | What a trusted comment does to a working run                               |
+| `agent`       | agent name                     | the hub's only agent                | The agent of a workflow without `steps`                                    |
+| `steps`       | map of step name to step       | one agent step named after the file | The steps, run in the order written                                        |
+
+`concurrency` decides what a trusted comment on a working run does. It never starts a second run on the issue. <!-- code: src/workflow.ts#Front -->
+
+- `steer`: the session reads it in its news file and gets one more turn with it before the checks.
+- `queue`: it waits until the try ends, then applies as an answer would.
+- `cancel`: the session stops and the step starts again at once with it as feedback.
+
+Comments that come in a burst count once, and the loop waits until an issue has been quiet for 30 seconds before they start or wake a run. A reply of `cancel` or `stop` works at any time. See [Comments while it works](loop.md#comments-while-it-works).
 
 A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 
