@@ -1192,6 +1192,9 @@ describe('coworker', () => {
       drive(typed, begin(typed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small)
     );
     expect(specs).toHaveLength(2);
+    expect(specs[0]!.prompt).toContain(
+      'When you stop, the runner checks the change: types runs `! grep -q TODO hello.txt`.'
+    );
     expect(asked).toMatchObject({ status: 'waiting', tries: 1 });
     expect(asked.reason).toMatch(/^The registry is unreachable here\.\n\ntypes: /);
   }, 30_000);

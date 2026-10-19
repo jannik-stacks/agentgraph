@@ -769,6 +769,10 @@ const attempt = (
         w.branch &&
           `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,
+        step.checks.length > 0 &&
+          `When you stop, the runner checks the change: ${step.checks
+            .map(n => (hub.checks[n]?.run ? `${n} runs \`${hub.checks[n].run}\`` : n))
+            .join(', ')}.`,
         answering &&
           'A comment started this run. When it does not ask for work, answer it with comment proposals only; that ends the run.',
         reads &&
