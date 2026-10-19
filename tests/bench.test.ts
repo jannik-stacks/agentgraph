@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { stats } from '../bin/bench.ts';
+import { bootstrap, scrub, stats, verdict } from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
@@ -46,9 +46,31 @@ describe('bench helpers', () => {
       overlap: 0.333,
     });
   });
+
+  it('drops lockfiles and index lines and masks issue numbers and names', () => {
+    const out = scrub(diff, ['morgan']);
+    expect(out).not.toMatch(/package-lock|^index |#12|bothub/m);
+    expect(out).toContain('+// see #N from someone');
+  });
+
+  it('reads the last JSON block of a judge answer and needs a preference', () => {
+    expect(verdict('x\n```json\n{"prefer":"B"}\n```\nmore\n```json\n{"prefer":"A","A":{"findings":[]}}\n```')).toEqual({
+      prefer: 'A',
+      A: { findings: [] },
+    });
+    expect(verdict('```json\n{"prefer":"maybe"}\n```')).toBeUndefined();
+    expect(verdict('no block')).toBeUndefined();
+  });
+
+  it('gives a bootstrap interval around the mean', () => {
+    expect(bootstrap([1, 1, 1])).toEqual([1, 1]);
+    const [low, high] = bootstrap([0, 1, 0, 1, 1, 0, 1, 1]);
+    expect(low).toBeLessThan(0.625);
+    expect(high).toBeGreaterThan(0.625);
+  });
 });
 
-describe('bin/bench.ts score', () => {
+describe('bin/bench.ts score and report', () => {
   it('runs the merged tests on each arm, keeps scores, and skips them on a rerun', () => {
     const root = tmp('bench');
     dirs.push(root);
@@ -89,5 +111,21 @@ describe('bin/bench.ts score', () => {
     bench('score', kase, out, '--repo', repo);
     const log = readFileSync(join(out, 'log.jsonl'), 'utf8').trim().split('\n');
     expect(log.filter(l => l.includes('"event":"end"'))).toHaveLength(3);
+    const said = (order: string, judge: string, prefer: string) => {
+      mkdirSync(join(out, 'demo', 'judge', order), { recursive: true });
+      const high = { findings: [{ severity: 'high', category: 'tests', text: 'no test' }] };
+      const v = { judge, order: order.split('-'), prefer, ...(prefer === 'A' ? { B: high } : { A: high }) };
+      writeFileSync(join(out, 'demo', 'judge', order, `${judge}.json`), JSON.stringify(v));
+    };
+    said('human-v2', 'opus', 'A');
+    said('v2-human', 'opus', 'B');
+    said('human-v2', 'sonnet', 'A');
+    said('v2-human', 'sonnet', 'A');
+    const report = bench('report', out);
+    expect(report).toContain('| human vs v2 | 1 | 0.75 | 0.75 to 0.75 |');
+    expect(report).toContain('| v2 | 3 |');
+    expect(report).toContain('## kind bug, 1 cases');
+    expect(report).toContain('Judges agree, order-consistent, on 0 of 1 case pairs.');
+    expect(report).toContain('| v2 | 1 | 1 | 1 | 1 | 1 | 1 |');
   });
 });

@@ -76,3 +76,4 @@ Then, as you need them:
 - [Triage](triage.md): sizing, splitting, stacking and ordering issues.
 - [Architecture](architecture.md): where each part runs and what is code versus judgement.
 - [Patterns](patterns.md): the conventions the engine's code follows.
+- [Bench](bench.md): replaying merged pull requests and judging the results blind.

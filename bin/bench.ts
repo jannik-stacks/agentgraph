@@ -1,12 +1,14 @@
 /**
- * Replays merged pull requests on v2, on a plain single session (floor) and on v1, then scores them.
+ * Replays merged pull requests on v2, on a plain single session (floor) and on v1, then scores and judges them blind.
  * Usage: node bin/bench.ts run (v2|floor|v1) <case dir> <out> --repo <clone>
  *        node bin/bench.ts score <case dir> <out> --repo <clone>
+ *        node bin/bench.ts judge <case dir> <out>
+ *        node bin/bench.ts report <out>
  * A case dir holds case.json, issue.md and merged.diff. Each step skips outputs that exist, keeps everything under
  * <out>/<case id>/<arm>, and appends to <out>/log.jsonl. Paid steps stop past --max-codex weekly Codex points over the
  * first reading, or after --max-claude-calls judge calls. Model keys come from --keys, infra/local/.keys.env by default.
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   cpSync,
@@ -33,9 +35,12 @@ type Commands = {
   typecheck?: string;
   setup?: string;
 };
+type Finding = { severity: string; category: string; text: string };
+type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
 
 const arms = ['human', 'v2', 'floor', 'v1'];
 const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'bothub-sandbox': 'sandbox' };
+const strataKeys = ['repo', 'size', 'kind', 'hasTests', 'files', 'area'];
 const answer = '/bothub No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_test\.\w+$/;
@@ -47,6 +52,7 @@ const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
 const here = (path: string) => join(import.meta.dirname, '..', path);
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const round = (n: number) => Math.round(n * 1000) / 1000;
+const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length;
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
 const save = (path: string, v: unknown) => {
@@ -274,6 +280,193 @@ const score = async (caseDir: string, out: string, repo: string) => {
   }
 };
 
+/** A diff for a judge: no lockfiles or changelogs, no index lines, issue numbers and the given names masked. */
+export const scrub = (text: string, names: string[] = []) => {
+  const who = new RegExp(`\\b(${['bothub', ...names.filter(n => /^[\w-]+$/.test(n))].join('|')})\\b`, 'gi');
+  const kept = text.startsWith('diff --git')
+    ? files(text)
+        .filter(f => !noise.test(f.path))
+        .map(f => f.part)
+        .join('')
+    : text;
+  return kept
+    .split('\n')
+    .filter(l => !l.startsWith('index '))
+    .map(l => l.replace(/#\d+\b/g, '#N').replace(who, 'someone'))
+    .join('\n');
+};
+
+/** The last JSON block of a judge's answer, when it names a preference. */
+export const verdict = (text: string): Verdict | undefined => {
+  try {
+    const v = JSON.parse([...text.matchAll(/```json\s*([\s\S]*?)```/g)].at(-1)?.[1] ?? '') as Verdict;
+    return ['A', 'B', 'tie'].includes(v.prefer) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const claude = (model: string) => (prompt: string, cwd: string) =>
+  new Promise<string>((done, fail) => {
+    const args = ['-p', '--model', model, '--tools', '', '--no-session-persistence'];
+    const child = execFile('claude', args, { cwd, maxBuffer: 1 << 26, timeout: 1_800_000 }, (e, out) =>
+      e ? fail(e) : done(out)
+    );
+    child.stdin?.end(prompt);
+  });
+const sol = async (prompt: string) => {
+  const r = await fetch('http://127.0.0.1:4000/v1/chat/completions', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${process.env.BOTHUB_LLM_API_KEY_REVIEWER}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'smart', messages: [{ role: 'user', content: prompt }] }),
+  });
+  return ((await r.json()) as { choices?: { message: { content: string } }[] }).choices?.[0]?.message.content ?? '';
+};
+const judges: Record<string, (prompt: string, cwd: string) => Promise<string>> = {
+  opus: claude('opus'),
+  sonnet: claude('sonnet'),
+  sol,
+};
+
+const judge = async (caseDir: string, out: string) => {
+  const c = loadCase(caseDir);
+  const root = join(out, c.id);
+  const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
+  const have = arms.filter(a => read(join(root, a, 'diff.patch')).trim());
+  const block = (label: string, arm: string) =>
+    `## Candidate ${label}\n\n\`\`\`diff\n${scrub(read(join(root, arm, 'diff.patch')), names)}\n\`\`\``;
+  const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
+  for (const [i, x] of have.entries())
+    for (const y of have.slice(i + 1))
+      for (const [a, b] of [
+        [x, y],
+        [y, x],
+      ] as const) {
+        const prompt = `${read(here('bench/judge.md'))}\n## Issue\n\n${issue}\n\n${block('A', a)}\n\n${block('B', b)}\n`;
+        const dir = join(root, 'judge', `${a}-${b}`);
+        save(join(dir, 'prompt.md'), prompt);
+        await Promise.all(
+          Object.entries(judges).map(async ([name, ask]) => {
+            for (let attempt = 0; attempt < 2 && !existsSync(join(dir, `${name}.json`)); attempt++) {
+              guard(out, name !== 'sol');
+              const raw = await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
+                ask(prompt, dir)
+              );
+              save(join(dir, `${name}.${attempt}.raw.md`), raw);
+              const v = verdict(raw);
+              if (v) save(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
+            }
+          })
+        );
+      }
+};
+
+/** The 95% interval of the mean of `xs` over resampled sets of the same size. */
+export const bootstrap = (xs: number[], n = 2000): [number, number] => {
+  const means = Array.from({ length: n }, () => mean(xs.map(() => xs[Math.floor(Math.random() * xs.length)]!)));
+  means.sort((a, b) => a - b);
+  return [round(means[Math.floor(n * 0.025)]!), round(means[Math.floor(n * 0.975)]!)];
+};
+
+const metrics = (s: Record<string, unknown>): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries(s).flatMap(([k, v]): [string, number][] => {
+      if (k === 'ms' && typeof v === 'number') return [['min', round(v / 60_000)]];
+      if (typeof v === 'number') return [[k, v]];
+      if (typeof v === 'boolean') return [[k, +v]];
+      return v && typeof v === 'object' && 'ok' in v ? [[k, +Boolean(v.ok)]] : [];
+    })
+  );
+
+const table = (rows: [string, Record<string, number | string>][]) => {
+  const cols = [...new Set(rows.flatMap(([, r]) => Object.keys(r)))];
+  return [
+    `| arm | ${cols.join(' | ')} |`,
+    `|${'---|'.repeat(cols.length + 1)}`,
+    ...rows.map(([n, r]) => `| ${n} | ${cols.map(k => r[k] ?? '').join(' | ')} |`),
+  ].join('\n');
+};
+
+type Judged = Verdict & { judge: string; order: [string, string] };
+type Scored = { strata: Record<string, string>; rows: [string, Record<string, number>][]; verdicts: Judged[] };
+
+const loadScored = (out: string, id: string): Scored => {
+  const c = JSON.parse(read(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
+  const strata = Object.fromEntries(
+    strataKeys.flatMap(k => (c[k] === undefined || typeof c[k] === 'object' ? [] : [[k, String(c[k])]]))
+  );
+  const rows = ['base', ...arms].flatMap((arm): [string, Record<string, number>][] => {
+    const s = read(join(out, id, arm, 'score.json'));
+    return s ? [[arm, metrics(JSON.parse(s) as Record<string, unknown>)]] : [];
+  });
+  const judged = join(out, id, 'judge');
+  const verdicts = (existsSync(judged) ? readdirSync(judged) : []).flatMap(pair =>
+    readdirSync(join(judged, pair))
+      .filter(f => /^\w+\.json$/.test(f))
+      .map(f => JSON.parse(read(join(judged, pair, f))) as Judged)
+  );
+  return { strata, rows, verdicts };
+};
+
+const summary = (cases: Scored[]) => {
+  const perArm: Record<string, Record<string, number>[]> = {};
+  const wins: Record<string, number[]> = {};
+  const severities: Record<string, Record<string, number>> = {};
+  const agreed: boolean[] = [];
+  for (const { rows, verdicts } of cases) {
+    for (const [arm, r] of rows) (perArm[arm] ??= []).push(r);
+    const pairs: Record<string, Record<string, number[]>> = {};
+    for (const v of verdicts) {
+      const [x, y] = [...v.order].sort((p, q) => arms.indexOf(p) - arms.indexOf(q)) as [string, string];
+      const point = v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === x);
+      ((pairs[`${x} vs ${y}`] ??= {})[v.judge] ??= []).push(point);
+      for (const side of ['A', 'B'] as const)
+        for (const f of v[side]?.findings ?? []) {
+          const by = (severities[v.order[+(side === 'B')]!] ??= {});
+          by[f.severity] = (by[f.severity] ?? 0) + 1;
+        }
+    }
+    for (const [pair, byJudge] of Object.entries(pairs)) {
+      (wins[pair] ??= []).push(mean(Object.values(byJudge).flat()));
+      const calls = Object.values(byJudge).map(ps => (ps.length === 2 && ps[0] === ps[1] ? ps[0] : 0.5));
+      agreed.push(calls.length > 1 && calls.every(p => p === calls[0]));
+    }
+  }
+  const winRows: [string, Record<string, number | string>][] = Object.entries(wins).map(([pair, ws]) => [
+    pair,
+    { cases: ws.length, 'first wins': round(mean(ws)), '95% CI': bootstrap(ws).join(' to ') },
+  ]);
+  const means: [string, Record<string, number>][] = Object.entries(perArm).map(([arm, rs]) => [
+    arm,
+    Object.fromEntries(
+      [...new Set(rs.flatMap(Object.keys))].map(k => [k, round(mean(rs.flatMap(r => (k in r ? [r[k]!] : []))))])
+    ),
+  ]);
+  return [
+    ...(winRows.length ? ['Win rates', '', table(winRows), ''] : []),
+    'Mean metrics',
+    '',
+    table(means),
+    '',
+    ...(Object.keys(severities).length ? ['Findings by severity', '', table(Object.entries(severities)), ''] : []),
+    `Judges agree, order-consistent, on ${agreed.filter(Boolean).length} of ${agreed.length} case pairs.`,
+    '',
+  ];
+};
+
+const report = (out: string) => {
+  const ids = readdirSync(out).filter(id => existsSync(join(out, id, 'human')));
+  const cases = ids.map(id => loadScored(out, id));
+  const md = ['# Bench report', '', `## All ${ids.length} cases`, '', ...summary(cases)];
+  for (const key of strataKeys)
+    for (const value of [...new Set(cases.flatMap(c => c.strata[key] ?? []))].sort()) {
+      const some = cases.filter(c => c.strata[key] === value);
+      md.push(`## ${key} ${value}, ${some.length} cases`, '', ...summary(some));
+    }
+  for (const [i, id] of ids.entries()) md.push(`## ${id}`, '', table(cases[i]!.rows), '');
+  return md.join('\n');
+};
+
 if (import.meta.main) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -290,8 +483,13 @@ if (import.meta.main) {
   if (command === 'run' && a && arms.includes(a) && a !== 'human' && b && c && values.repo)
     await runArm(a, b, resolve(c), values.repo);
   else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo);
-  else {
+  else if (command === 'judge' && a && b) await judge(a, resolve(b));
+  else if (command === 'report' && a) {
+    save(join(a, 'report.md'), report(a));
+    console.log(read(join(a, 'report.md')));
+  } else {
     console.error('usage: node bin/bench.ts (run (v2|floor|v1) <case> <out> | score <case> <out>) --repo <clone>');
+    console.error('       node bin/bench.ts judge <case> <out> | report <out>');
     process.exit(2);
   }
 }
