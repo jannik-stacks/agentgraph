@@ -410,8 +410,12 @@ const RawButton = ({ open, onClick }: { open: boolean; onClick: () => void }) =>
     aria-pressed={open}
     className="shrink-0 text-zinc-400 opacity-0 group-hover/row:opacity-100 hover:text-zinc-900 focus:opacity-100 aria-pressed:opacity-100 dark:hover:text-zinc-100"
     onClick={e => {
-      if (e.currentTarget.closest('details')?.open) e.preventDefault();
-      else if (open) return;
+      e.preventDefault();
+      const details = e.currentTarget.closest('details');
+      if (details && !details.open) {
+        details.open = true;
+        if (open) return;
+      }
       onClick();
     }}
   >
