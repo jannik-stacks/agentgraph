@@ -17,7 +17,13 @@ Category:
 - simplicity: is it the smallest clear change, in the place that owns the behaviour
 - maintainability: naming, structure and comments a maintainer would keep
 
-Give a concrete input or file and line for every critical and high finding. Do not reward length.
+Decide in this order:
+1. Correctness against the issue. A candidate that does not resolve the issue, or breaks something, loses
+   to one that does, whatever else it has.
+2. Scope. Penalize every change the issue does not need: extra refactors, features, files, comments and tests.
+3. Size. More tests or more lines are not better in themselves. When both are correct, prefer the smaller change.
+
+Give a concrete input or file and line for every critical and high finding.
 Then say which candidate you would rather merge, or tie when they are as good as each other.
 
 End your answer with one JSON block and nothing after it:

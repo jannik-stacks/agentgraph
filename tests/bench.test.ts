@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootstrap, infra, invalid, plan, scrub, stats, verdict } from '../bin/bench.ts';
+import { bootstrap, infra, invalid, pad, plan, plant, scrub, stats, verdict } from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
@@ -80,6 +80,17 @@ describe('bench helpers', () => {
     expect(infra({ files: 2, status: 'running' })).toBe('run did not finish');
     expect(infra({ files: 0, infra: 'boom' })).toBe('boom');
     expect(infra({ files: 2, status: 'waiting', setup: { ok: true } })).toBeUndefined();
+  });
+
+  it('plants one flipped comparison in a source line and pads with tests', () => {
+    const src = diff.replace('if (x && y) return 1;', 'if (n >= 2) return 1;');
+    const bug = plant(src)!;
+    expect(bug).toContain('+if (n > 2) return 1;');
+    expect(bug.replace('n > 2', 'n >= 2')).toBe(src);
+    expect(plant(diff)).toBeUndefined();
+    const padded = stats(pad(diff));
+    expect(padded.testCases).toBe(stats(diff).testCases + 20);
+    expect(padded.srcAdded).toBe(stats(diff).srcAdded);
   });
 
   it('gives a bootstrap interval around the mean', () => {

@@ -35,6 +35,7 @@ type Case = {
   title: string;
   body: string;
   bucket?: string;
+  control?: 'bug' | 'padded';
 };
 type Commands = {
   author?: string;
@@ -48,7 +49,7 @@ type Finding = { severity: string; category: string; text: string };
 type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
 
 const bots = ['v2', 'floor', 'v1'];
-const arms = ['human', ...bots];
+const arms = ['human', ...bots, 'control'];
 const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'bothub-sandbox': 'sandbox' };
 const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/bothub No more information. Use your judgment.';
@@ -394,6 +395,32 @@ const score = async (caseDir: string, out: string, repo: string) => {
   if (!(await prepare(c, out, repo))) await scoreArms(c, out, repo, bots);
 };
 
+const flips: [RegExp, string][] = [
+  [/===/, '!=='],
+  [/!==/, '==='],
+  [/<=/, '<'],
+  [/>=/, '>'],
+  [/ < /, ' > '],
+  [/ > /, ' < '],
+];
+
+/** The diff with one comparison flipped in its first added source line that has one. */
+export const plant = (diff: string) => {
+  for (const { path, part } of files(diff))
+    if (!testPath.test(path) && !noise.test(path))
+      for (const line of part.split('\n'))
+        if (line.startsWith('+') && !line.startsWith('+++') && !comment.test(line.slice(1)))
+          for (const [from, to] of flips) if (from.test(line)) return diff.replace(line, () => line.replace(from, to));
+  return undefined;
+};
+
+/** The diff with a test file of trivial cases and comments appended. */
+export const pad = (diff: string) => {
+  const body = ['// Edge cases.', ...Array.from({ length: 20 }, (_, i) => `it('handles case ${i + 1}', () => {});`)];
+  const head = `diff --git a/pad.test.ts b/pad.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/pad.test.ts\n`;
+  return `${diff.trimEnd()}\n${head}@@ -0,0 +1,${body.length} @@\n${body.map(l => `+${l}`).join('\n')}\n`;
+};
+
 /** A diff for a judge: no lockfiles or changelogs, no index lines, issue numbers and the given names masked. */
 export const scrub = (text: string, names: string[] = []) => {
   const who = new RegExp(`\\b(${['bothub', ...names.filter(n => /^[\w-]+$/.test(n))].join('|')})\\b`, 'gi');
@@ -447,7 +474,15 @@ const judge = async (caseDir: string, out: string) => {
   const root = join(out, c.id);
   if ((JSON.parse(read(join(root, 'valid.json')) || '{}') as { invalid?: string }).invalid) return;
   const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
-  const have = arms.filter(a => read(join(root, a, 'diff.patch')).trim());
+  const human = read(join(root, 'human/diff.patch'));
+  if (c.control) {
+    const changed = c.control === 'bug' ? plant(human) : pad(human);
+    if (!changed) throw new Error(`${c.id}: no comparison to flip in the human diff`);
+    save(join(root, 'control/diff.patch'), changed);
+  }
+  const have = c.control
+    ? ['human', 'control']
+    : arms.filter(a => a !== 'control' && read(join(root, a, 'diff.patch')).trim());
   const block = (label: string, arm: string) =>
     `## Candidate ${label}\n\n\`\`\`diff\n${scrub(read(join(root, arm, 'diff.patch')), names)}\n\`\`\``;
   const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
@@ -596,8 +631,7 @@ if (import.meta.main) {
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
   const [command, a, b, c] = positionals;
   loadKeys(values.keys);
-  if (command === 'run' && a && arms.includes(a) && a !== 'human' && b && c && values.repo)
-    await runArm(a, b, resolve(c), values.repo);
+  if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
   else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo);
   else if (command === 'judge' && a && b) await judge(a, resolve(b));
   else if (command === 'report' && a) {
