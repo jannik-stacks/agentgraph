@@ -326,6 +326,18 @@ const RunInfo = ({ r: { run, fixture } }: { r: CoreRun }) => {
   );
 };
 
+/** A run on one line that opens it on the Runs page. */
+export const RunLine = ({ r }: { r: CoreRun }) => (
+  <Link
+    href={`/runs/${encodeURIComponent(r.run.id)}`}
+    className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
+  >
+    <Col className="w-[4ch]">#{r.run.issue}</Col>
+    <Col className="w-[8ch]">{flag(r.run.status, live(r))}</Col>
+    <Col className="text-zinc-500">{took(r.run.started, undefined)}</Col>
+  </Link>
+);
+
 /** A run as a row: where it stands, what it cost and left on the forge; open, the steps it visited. */
 export const runRow = (r: CoreRun, open = false, expand = false): Row => {
   const { run, trace } = r;

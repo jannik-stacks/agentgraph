@@ -4,7 +4,7 @@ import { graphOf } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/store.ts';
 import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
-import { lineRow, Rows, runRow } from '../runs/rows.tsx';
+import { lineRow, Rows, RunLine } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
 import { accent, cx, Disclosure, Field, Fields, Tooltip } from '../ui.tsx';
 import type { Fixture, Trail } from './scenarios.ts';
@@ -16,13 +16,10 @@ const Section = ({ title, tip, children }: { title: string; tip?: string; childr
   </section>
 );
 
-/** A prompt folded under its title, since it is long and read only now and then. */
 const Prompt = ({ title, text }: { title: string; text: string }) => (
-  <Disclosure summary={<span className="font-medium text-zinc-500">{title}</span>}>
-    <div className="mt-1.5">
-      <Markdown text={text} />
-    </div>
-  </Disclosure>
+  <Section title={title}>
+    <Markdown text={text} />
+  </Section>
 );
 
 /** A word with a dotted underline that explains itself on hover. */
@@ -200,7 +197,15 @@ const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
     r => r.fixture === fixture && r.run.step === step && ['running', 'waiting'].includes(r.run.status)
   );
   if (!here.length) return <p className="text-zinc-500">No run stands here.</p>;
-  return <Rows rows={here.slice(0, 8).map(r => runRow(r))} />;
+  return (
+    <ul>
+      {here.slice(0, 8).map(r => (
+        <li key={r.run.id}>
+          <RunLine r={r} />
+        </li>
+      ))}
+    </ul>
+  );
 };
 
 /** A step's doer, checks, tries and way back in plain words, what the picked run did there, and its prompts. */
