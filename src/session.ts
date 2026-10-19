@@ -14,6 +14,8 @@ export type SessionSpec = {
   /** Directories outside `dir` the session may read. */
   read?: string[];
   agent: string;
+  /** The check this session judges, when it judges one. */
+  check?: string;
   minutes: number;
   resume?: Run['sessions'][string];
   /** Opens a copy of `resume` in a new home, leaving the resumed session as it was. */

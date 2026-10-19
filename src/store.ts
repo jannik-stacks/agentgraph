@@ -10,12 +10,14 @@ export type Aside = { issue?: number; comment?: string; review?: true };
 
 /**
  * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
- * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed.
+ * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed. A session's prompt,
+ * event and session lines share its `key`, so sessions running at once stay apart.
  */
 export type Trace = { at: string; step: string } & (
-  | { prompt: SessionSpec; item?: string; aside?: Aside }
-  | { event: SessionEvent }
+  | { prompt: SessionSpec; key?: string; item?: string; aside?: Aside }
+  | { event: SessionEvent; key?: string }
   | {
+      key?: string;
       session: {
         id?: string;
         resumed: boolean;

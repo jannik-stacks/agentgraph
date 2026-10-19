@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
@@ -571,10 +571,12 @@ const converse = <A = never, R = never>(
       usd: 0,
     };
     let end: Ended = { ended: 'stop' };
+    const key = randomUUID().slice(0, 8);
     const ended = (how: Ended) =>
       store.trace(run, {
         at: now(),
         step,
+        key,
         session: {
           ...(seen.id !== undefined && { id: seen.id }),
           resumed: !!spec.resume,
@@ -587,6 +589,7 @@ const converse = <A = never, R = never>(
       at: now(),
       step,
       prompt: spec,
+      key,
       ...(item !== undefined && { item }),
       ...(aside && { aside }),
     });
@@ -599,7 +602,7 @@ const converse = <A = never, R = never>(
           seen.final = event.final;
           end = { ended: event.ended, exit: event.exit };
         }
-        return store.trace(run, { at: now(), step, event });
+        return store.trace(run, { at: now(), step, event, key });
       }),
       Effect.scoped,
       gateOf(hub).withPermits(1),
@@ -770,6 +773,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           {
             harness: agent.harness,
             agent: check.agent,
+            check: check.name,
             minutes: hub.limits.minutes,
             ...(agent.model !== undefined && { model: agent.model }),
             system: agent.body,
