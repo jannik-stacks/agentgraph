@@ -397,28 +397,37 @@ const RawJson = ({ value }: { value: unknown }) => (
   <Code code={JSON.stringify(value, null, 2)} lang="json" compact wrap lines={12} />
 );
 
-/** A row with nothing under it but its JSON, which a quiet button on hover shows. */
+/** A quiet button, shown on hover, that folds out a row's JSON. */
+const RawButton = ({ open, onClick }: { open: boolean; onClick: () => void }) => (
+  <button
+    type="button"
+    aria-pressed={open}
+    className="shrink-0 text-zinc-400 opacity-0 group-hover/row:opacity-100 hover:text-zinc-900 focus:opacity-100 aria-pressed:opacity-100 dark:hover:text-zinc-100"
+    onClick={e => {
+      if (e.currentTarget.closest('details')?.open) e.preventDefault();
+      else if (open) return;
+      onClick();
+    }}
+  >
+    raw
+  </button>
+);
+
+/** A row with nothing under it but its JSON. */
 const LeafView = ({ row }: { row: Row }) => {
   const [raw, setRaw] = useState(false);
   return (
-    <li className="group pl-4.5">
-      <Head row={row}>
-        {row.raw !== undefined && (
-          <button
-            type="button"
-            className="shrink-0 text-zinc-400 opacity-0 group-hover:opacity-100 hover:text-zinc-900 focus:opacity-100 dark:hover:text-zinc-100"
-            onClick={() => setRaw(!raw)}
-          >
-            raw
-          </button>
-        )}
-      </Head>
+    <li className="pl-4.5">
+      <span className="group/row block">
+        <Head row={row}>{row.raw !== undefined && <RawButton open={raw} onClick={() => setRaw(!raw)} />}</Head>
+      </span>
       {raw && <RawJson value={row.raw} />}
     </li>
   );
 };
 
 const RowView = ({ row }: { row: Row }) => {
+  const [raw, setRaw] = useState(false);
   const only = !row.body && row.raw === undefined && row.children?.length === 1 ? row.children[0] : undefined;
   if (only)
     return (
@@ -438,18 +447,24 @@ const RowView = ({ row }: { row: Row }) => {
   if (!row.body && !row.children?.length) return <LeafView row={row} />;
   return (
     <li>
-      <Disclosure summary={<Head row={row} />} open={row.open ?? false}>
+      <Disclosure
+        summary={
+          <Head row={row}>{row.raw !== undefined && <RawButton open={raw} onClick={() => setRaw(!raw)} />}</Head>
+        }
+        summaryClassName="group/row"
+        open={row.open ?? false}
+      >
+        {raw && (
+          <div className="pl-4.5">
+            <RawJson value={row.raw} />
+          </div>
+        )}
         <div
           data-scroll={row.scroll || undefined}
           className={cx('space-y-1 py-1 pl-4.5', row.scroll && 'max-h-[75vh] overflow-y-auto')}
         >
           {row.body}
           {row.children && <Rows rows={row.children} />}
-          {row.raw !== undefined && (
-            <Disclosure summary={muted('raw')}>
-              <RawJson value={row.raw} />
-            </Disclosure>
-          )}
         </div>
       </Disclosure>
     </li>

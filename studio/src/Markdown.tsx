@@ -103,7 +103,7 @@ export const Code = memo(function Code({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="absolute inset-x-0 bottom-0 flex h-8 items-end bg-(--bhm-code-bg) px-3 pb-1 text-left text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+          className="absolute inset-x-0 bottom-0 flex h-8 items-end rounded-b-[inherit] bg-(--bhm-code-bg) px-3 pb-1 text-left text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
         >
           {hidden > 0 ? `${hidden} more ${hidden === 1 ? 'line' : 'lines'}` : 'show all'}
         </button>
