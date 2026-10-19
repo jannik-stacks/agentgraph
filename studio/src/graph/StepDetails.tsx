@@ -136,9 +136,14 @@ export const StepDetails = ({
               : ', when you request changes'}
           </Field>
         )}
+        {step.follow && (
+          <Field name="base moves">
+            {step.follow === 'merge' ? 'merges the base in' : 'rebases onto the base'}, then runs the checks below
+          </Field>
+        )}
       </Fields>
       {step.checks.length > 0 && (
-        <Section title="Checks after each try">
+        <Section title={'wait' in does ? 'Checks after the base moves' : 'Checks after each try'}>
           <ul className="space-y-2">
             {step.checks.map(name => (
               <CheckItem key={name} name={name} check={checks[name]} lines={lines} />

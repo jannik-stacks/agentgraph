@@ -71,12 +71,13 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `run`    | shell command                            | none                                  | A script runs the step                             |
 | `wait`   | `human`                                  | none                                  | The step waits for a person, see [Asides](loop.md#asides) |
 | `skill`  | skill name                               | the skill named like the step, if any | The skill handed to the agent                      |
-| `checks` | list of check names                      | none                                  | What must pass before the step is done             |
+| `checks` | list of check names                      | none; on a `wait` step, the script checks of its `back` step | What must pass before the step is done; on a `wait` step, what runs again when the base moves |
 | `tries`  | positive integer                         | 3 with checks, else 1                 | Tries before the run waits, the first one included |
 | `back`   | step name                                | none                                  | This step or an earlier one the run may go back to |
 | `until`  | sentence                                 | required on an agent step with `back` | When the step is satisfied                         |
 | `rounds` | positive integer                         | 3, no cap on a `wait` step            | How many times the step may go back                |
 | `each`   | `files`, `hunks` or `{ run: <command> }` | none                                  | One fresh session per item; past 20 items, one session over them all |
+| `follow` | `merge` or `rebase`                      | `merge`, on a `wait` step only        | How the branch follows a moved base, see [When the base or the hub moves](loop.md#when-the-base-or-the-hub-moves) |
 
 ## Agents
 

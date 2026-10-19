@@ -8,7 +8,7 @@ describe('the sandbox example hub', () => {
   it('loads without problems and draws its issue workflow', async () => {
     const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));
     expect(hub.repo).toBe('acme/sandbox');
-    expect(Object.keys(hub.agents).sort()).toEqual(['implementor', 'reviewer', 'router', 'triager']);
+    expect(Object.keys(hub.agents).sort()).toEqual(['implementor', 'reviewer', 'router', 'scout', 'triager']);
     expect(graphOf(hub.workflows.router!, hub.checks, undefined, hub.agents).nodes[0]).toMatchObject({
       dispatches: true,
     });
