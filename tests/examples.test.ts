@@ -109,3 +109,13 @@ describe('shared hub scripts', () => {
     expect(new Set(copies).size).toBe(1);
   });
 });
+
+describe('sk hub', () => {
+  it('has the implementor tell a fix here from a follow-up and a hub issue, and file both kinds', async () => {
+    const hub = await Effect.runPromise(loadHub(join(examples, 'sk')));
+    const implementor = hub.agents.implementor!;
+    expect(implementor.returns).toContain('issue');
+    for (const relation of ['follow-up', 'hub']) expect(implementor.body).toContain(`"relation":"${relation}"`);
+    expect(implementor.body).toContain('Fix it here');
+  });
+});
