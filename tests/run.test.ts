@@ -714,7 +714,7 @@ describe('tick', () => {
     say(where, comment(7, 'morgan', true, '/bothub the second one', '2026-10-16T00:00:05.000Z'));
     say(where, comment(7, 'ana', true, 'and keep it short', '2026-10-16T00:00:06.000Z'));
     say(where, { issue: 7, kind: 'label', actor: 'ana', trusted: true, at: '2026-10-16T00:00:07.000Z', label: 'fix' });
-    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Thanks.' })]]);
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Short how?' })]]);
     const asked = { ...begin(triage, { id: 'triage-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }) };
     await run(Effect.flatMap(Store, s => s.put({ ...asked, status: 'waiting', reason: 'Which one?' })));
     await run(tick(all, 7));
@@ -725,7 +725,7 @@ describe('tick', () => {
 
   it('waits for an issue to settle before a burst starts work, and never starts again on what a run took in', async () => {
     const where = world();
-    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Hi.' })]]);
+    const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push, pull)]]);
     where.human('/bothub hello', new Date().toISOString());
     expect(await run(tick(small, undefined, false, settle))).toEqual([]);
     const [done] = await run(tick(small));
