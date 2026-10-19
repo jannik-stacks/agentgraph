@@ -574,6 +574,31 @@ describe('tick', () => {
     30_000
   );
 
+  it('goes on past a commanded first step that may only comment while no pull request holds the work', async () => {
+    const where = world();
+    const flow = small.workflows.issue!;
+    const triaged = {
+      ...small,
+      agents: {
+        ...small.agents,
+        triager: { ...small.agents.implementor!, name: 'triager', returns: ['comment' as const] },
+      },
+      workflows: {
+        issue: {
+          ...flow,
+          steps: [{ ...flow.steps[0]!, name: 'triage', does: { agent: 'triager' }, checks: [] }, flow.steps[0]!],
+        },
+      },
+    };
+    const { specs, run } = services(where, [
+      [start('a'), reply({ kind: 'comment', body: 'Looks like a parser bug.' })],
+      [start('b'), reply({ kind: 'ask', question: 'Which parser?' })],
+    ]);
+    const [asked] = await run(tick(triaged));
+    expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which parser?' });
+    expect(specs[0]!.prompt).not.toContain('answer it with comment proposals only');
+  }, 30_000);
+
   it('applies nothing from a reply with an invented reply kind and asks for every proposal again', async () => {
     const where = world();
     const { specs, run } = services(where, [
