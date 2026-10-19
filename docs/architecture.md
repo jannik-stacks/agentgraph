@@ -20,7 +20,7 @@ The engine means the runner's own code in `src`.
 │         ▼                                 ▼                     │
 │  ┌──────────────────────────┐  ┌─────────────────────────────┐  │
 │  │ sandbox                  │  │ data dir                    │  │
-│  │ one harness session      │  │ <run id>/run.json           │  │
+│  │ one session              │  │ <run id>/run.json           │  │
 │  │ /work: git worktree      │  │ <run id>/trace.jsonl        │  │
 │  │ no GitHub token          │  │ mirror.git, work/, homes/   │  │
 │  └────────────┬─────────────┘  │ news/<id>/news.md           │  │
@@ -38,7 +38,7 @@ The engine means the runner's own code in `src`.
 
 The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and nothing else.
 
-Harness sessions and the hub's `setup` run on an internal network whose only exits are the model proxy, an Ollama relay to the host, and an egress proxy that allows HTTPS to `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`. So `npm install` and cloning from GitHub work; other registries and the open web do not. A hub with `network: models` reaches the model proxy only. Scripts and checks get no network at all. See [The network](sandbox.md#the-network).
+Sessions and the hub's `setup` run on an internal network whose only exits are the model proxy, an Ollama relay to the host, and an egress proxy that allows HTTPS to `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`. So `npm install` and cloning from GitHub work; other registries and the open web do not. A hub with `network: models` reaches the model proxy only. Scripts and checks get no network at all. See [The network](sandbox.md#the-network).
 
 Each run works in its own git worktree of the bare mirror. The mirror is mounted read-only. See [Sandbox](sandbox.md) and [Runs](runs.md).
 
@@ -57,7 +57,7 @@ The engine talks to the outside through four services. Each has a test double:
         ▼
  ┌──────────────┐   pass    ┌──────────────┐   pass    ┌──────────────┐
  │ step A       │──────────→│ step B       │──────────→│ wait: human  │──→ done
- │ doer session │           │ reviewer     │           │              │
+ │ agent, skill │           │ reviewer     │           │              │
  └──────┬───────┘           └──────┬───────┘           └──────┬───────┘
         │ try ends                 │ until does not hold      │ asks for changes
         ▼                          │ (back, rounds cap)       │
@@ -77,7 +77,7 @@ Which part is which:
 
 | Deterministic engine code                                              | LLM judgement                                  |
 | ---------------------------------------------------------------------- | ---------------------------------------------- |
-| Transitions between steps: `code: src/workflow.ts#transition`     | The doer session: what it writes and proposes  |
+| Transitions between steps: `code: src/workflow.ts#transition`     | The session: what it writes and proposes       |
 | The tries cap and the rounds cap                                       | An agent-judged check: the reply is PASS or FAIL |
 | Script checks and their modes (`warn`, `block`, `stop`)                | Whether the `until` sentence holds             |
 | Which proposals are accepted and applied: `code: src/engine.ts#land` | What the agent asks a human                 |

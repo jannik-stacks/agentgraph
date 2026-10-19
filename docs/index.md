@@ -18,7 +18,7 @@ Agents work on their own branch. Scripts and other agents check the result. A hu
  └────────────────────┬─────────────────────┘      └──────────────────────┘
                       ▼
  ┌──────────────────────────────────────────┐      ┌──────────────────────┐
- │ sandbox: one harness session             │←────→│ model proxy          │
+ │ sandbox: one session                     │←────→│ model proxy          │
  │ on the run's branch                      │      │ then model providers │
  └────────────────────┬─────────────────────┘      └──────────────────────┘
                       ▼
@@ -64,7 +64,7 @@ hub/
 
 New here? Read the pages in this order.
 
-1. [Vocabulary](vocabulary.md) for the words the other pages use.
+1. [Vocabulary](vocabulary.md) for the terms the other pages use.
 2. [The loop](loop.md) for how a workflow file turns into steps, checks, tries and waiting.
 3. [Proposals](proposals.md) for what an agent may ask for and how it lands on GitHub.
 4. [Running it locally](local.md) to try it on a sandbox hub.

@@ -20,7 +20,7 @@ The docker socket is never mounted and no GitHub token goes inside. A session ge
 
 ## The network
 
-Harness sessions and the hub's `setup` join `bothub-sandbox`, an internal docker network. Its only ways out are:
+Sessions and the hub's `setup` join `bothub-sandbox`, an internal docker network. Its only ways out are:
 
 - the model proxy,
 - the Ollama relay to the host's Ollama, when the `sandbox` compose profile runs it,

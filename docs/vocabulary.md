@@ -1,10 +1,10 @@
 # Vocabulary
 
-The words the rest of the docs use. Landscape and GitHub words keep their usual meaning.
+The terms the rest of the docs use. Common agent and GitHub terms keep their usual meaning.
 
 ## Ours
 
-| Word         | What it is                                                                                                               |
+| Term         | What it is                                                                                                               |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | **hub**      | The folder of config in a repo: `hub.yaml`, `agents/`, `skills/`, `checks/`, `workflows/`                                |
 | **agent**    | A role: harness, model, tools and the proposals it may make. The file body is added to the harness's own system prompt   |
@@ -25,13 +25,13 @@ The words the rest of the docs use. Landscape and GitHub words keep their usual 
 "Agent" always means the file. "bothub" means the whole thing. "Bot" is only the GitHub account
 that posts comments and opens pull requests.
 
-## Landscape words
+## Agent terms
 
 Model, tool, prompt, skill and session keep their usual meanings. Two need a line:
 
 - A skill is a Markdown instruction file: `skills/<name>.md` or `skills/<name>/SKILL.md`. Agent Skills uses the folder form. Its frontmatter may hold a `description` and `uses`, the skills whose bodies follow its own. A step hands one to its agent.
 - A session is one harness conversation with its history. A try after a failed check resumes it.
 
-## GitHub words
+## GitHub terms
 
 Event, issue, comment, pull request, label, review, commit, branch and base keep their GitHub meanings. An event is a webhook event. A base is the branch a pull request goes into.
