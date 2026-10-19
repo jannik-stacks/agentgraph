@@ -62,6 +62,15 @@ export const Fields = ({ children }: { children: ReactNode }) => (
 
 export const Muted = ({ children }: { children: ReactNode }) => <p className="p-4 text-zinc-500">{children}</p>;
 
+/** Three pulsing dots that fade in only once a wait passes half a second, so quick loads never flash. */
+export const Loading = () => (
+  <p role="status" aria-label="Loading" className="bhm-loading flex gap-1 p-4">
+    {[0, 1, 2].map(i => (
+      <span key={i} className="size-1 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+    ))}
+  </p>
+);
+
 /**
  * A summary row with a turning chevron that folds its content, which renders only while open. It opens as `open` says
  * and again whenever `open` changes; `onToggle` reports the reader's clicks.

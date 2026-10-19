@@ -4,7 +4,7 @@ import { fixtures, served } from 'virtual:fixtures';
 import { storyOfRun, WorkflowGraph } from '../graph/GraphPage.tsx';
 import { trailOf } from '../graph/visits.ts';
 import { pageAtom, live, queryParam, runsAtom } from '../state.ts';
-import { Combobox, Disclosure, Muted } from '../ui.tsx';
+import { Combobox, Disclosure, Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import type { CoreRun } from './trace.ts';
 
@@ -34,7 +34,7 @@ const RunList = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
   const [issue, setIssue] = useAtom(issueParam);
   const options = useMemo(() => issuesOf(runs ?? []), [runs]);
-  if (!runs) return <Muted>{failure ?? 'Loading runs.'}</Muted>;
+  if (!runs) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!runs.length) return <Muted>No runs in this data dir.</Muted>;
   const shown = runs
     .filter(r => issue === null || String(r.run.issue) === issue)
@@ -105,7 +105,7 @@ const RunPage = ({ id }: { id: string }) => {
     for (const box of document.querySelectorAll('[data-scroll]')) box.scrollTop = box.scrollHeight;
     end.current?.scrollIntoView({ block: 'end' });
   }, [following, r]);
-  if (r === undefined) return <Muted>{failure ?? 'Loading the run.'}</Muted>;
+  if (r === undefined) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (r === null) return <Muted>No run {id} in this data dir.</Muted>;
   return (
     <>

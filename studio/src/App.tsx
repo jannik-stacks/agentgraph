@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { navigateAtom, pageAtom, routes } from './state.ts';
 import { Mark } from './icons.tsx';
-import { cx, Link, Muted, Tooltip } from './ui.tsx';
+import { cx, Link, Loading, Tooltip } from './ui.tsx';
 
 const GraphPage = lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage })));
 const RunsPage = lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage })));
@@ -89,7 +89,7 @@ export const App = () => {
       </header>
       <main className="min-h-0 flex-1">
         <Boundary key={route}>
-          <Suspense fallback={<Muted>Loading.</Muted>}>
+          <Suspense fallback={<Loading />}>
             {route === 'graph' && <GraphPage />}
             {route === 'runs' && <RunsPage />}
             {route === 'docs' && <DocsPage />}
