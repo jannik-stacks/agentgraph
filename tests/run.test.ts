@@ -254,6 +254,13 @@ describe('drive', () => {
     expect(transition(w, waiting, reenter(w, waiting, merged)!)).toMatchObject({ status: 'done' });
   }, 30_000);
 
+  it('shows how to reply under a review comment', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
+    await run(drive(w, begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), hub));
+    expect(specs[0]!.prompt).toContain('"under":"<id of the review comment you answer>"');
+  }, 30_000);
+
   it('opens one session over all items when a step fans out past 20', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);

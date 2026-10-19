@@ -30,7 +30,11 @@ const Names = Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), {
   exact: true,
 });
 const ProposalSchema = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal('comment'), body: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal('comment'),
+    body: Schema.String,
+    under: Schema.optionalWith(Schema.String, { exact: true }),
+  }),
   Schema.Struct({ kind: Schema.Literal('label'), add: Names, remove: Names }),
   Schema.Struct({
     kind: Schema.Literal('push'),
@@ -87,7 +91,10 @@ type Said = typeof ProposalSchema.Type;
 type Child = Extract<Said, { kind: 'issue' }>;
 const isPart = (p: Child): p is Extract<Child, { relation: 'part' }> => p.relation === 'part';
 const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
-  comment: '{"kind":"comment","body":"..."}',
+  comment: [
+    '{"kind":"comment","body":"..."}',
+    '{"kind":"comment","body":"...","under":"<id of the review comment you answer>"}',
+  ].join('\n'),
   label: '{"kind":"label","add":["..."],"remove":["..."]}',
   push: '{"kind":"push","branch":"...","message":"..."}',
   pull_request: '{"kind":"pull_request","branch":"...","base":"...","title":"...","body":"..."}',
