@@ -3,7 +3,7 @@ import type { Trace } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
 import { studioModule } from './studio.ts';
 
-type Row = { at?: string; children?: Row[]; raw?: unknown; open?: boolean };
+type Row = { at?: string; body?: { props: { r: CoreRun } }; children?: Row[]; raw?: unknown; open?: boolean };
 type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] };
 Object.assign(globalThis, { location: new URL('http://localhost/runs') });
 const { runRow } = await studioModule<{ runRow: (r: CoreRun, open?: boolean) => Row }>('runs/rows.tsx');
@@ -38,8 +38,9 @@ const trace = [
 describe('a run as rows', () => {
   const row = runRow({ fixture: 'sk/issue', repo: 'o/r', run, trace }, true);
 
-  it('opens to its visits, each holding its sessions and the other lines, with run.json as raw', () => {
-    expect(row.raw).toBe(run);
+  it('opens to its visits, each holding its sessions and the other lines, with the run in its body', () => {
+    expect(row.raw).toBeUndefined();
+    expect(row.body?.props.r.run).toBe(run);
     expect(row.children?.map(v => v.children?.length)).toEqual([3, 2]);
     expect(row.children?.[0]?.children?.[0]?.children?.map(c => c.raw)).toEqual(trace.slice(0, 3));
   });
