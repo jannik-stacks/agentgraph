@@ -141,6 +141,7 @@ describe('drive', () => {
     const { specs, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
       [start('i1'), write('hello.txt', 'TODO\n'), { type: 'usage', input: 10, output: 5, usd: 0.5 }, reply(push, pull)],
+      judged,
       [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
       [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
@@ -154,7 +155,7 @@ describe('drive', () => {
     ]);
 
     const asked = await run(drive(w, fresh(), hub));
-    expect(asked).toMatchObject({ step: 'review', status: 'waiting', reason: 'still not right', usd: 0.5 + 3 * 0.25 });
+    expect(asked).toMatchObject({ step: 'review', status: 'waiting', reason: 'still not right', usd: 0.5 + 4 * 0.25 });
     expect(asked.rounds).toEqual({ review: 2 });
     expect(asked.sessions.implement).toMatchObject({ id: 'i1', home: '/homes/i1', seen: { at: expect.any(String) } });
 
@@ -164,7 +165,7 @@ describe('drive', () => {
       '/bothub',
       'Waiting for an answer to the question below, at review.\n\nPull request: ' +
         join(where.forge, '8.md') +
-        `\n\n${foot(replyHint, 'Cost so far: $1.25.')}`,
+        `\n\n${foot(replyHint, 'Cost so far: $1.50.')}`,
       'Brief: add hello.txt',
       'still not right',
     ]);
@@ -179,6 +180,7 @@ describe('drive', () => {
     expect(specs.map(s => s.resume?.id)).toEqual([
       undefined,
       undefined,
+      undefined,
       'i1',
       undefined,
       undefined,
@@ -189,11 +191,12 @@ describe('drive', () => {
       undefined,
       undefined,
     ]);
-    expect(specs[2]!.prompt).toMatch(/^types: /);
-    expect(specs[5]!.prompt).toBe('the review step sent this back: say hello world');
+    expect(specs[2]!.prompt).toContain('+TODO');
+    expect(specs[3]!.prompt).toMatch(/^types: /);
+    expect(specs[6]!.prompt).toBe('the review step sent this back: say hello world');
     expect(specs[1]!.prompt).toContain('Add hello.txt.');
-    expect(specs[4]!.prompt).toContain('no hunk needs a change before it can merge');
-    expect(specs[4]!.prompt).toContain('+hello');
+    expect(specs[5]!.prompt).toContain('no hunk needs a change before it can merge');
+    expect(specs[5]!.prompt).toContain('+hello');
 
     const trace = traceOf(where.data, 'run-7');
     const prompts = trace.flatMap(t => ('prompt' in t ? [t.prompt] : []));
@@ -213,8 +216,8 @@ describe('drive', () => {
     );
     const sessions = trace.flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions[1]).toEqual({ id: 'i1', resumed: false, ended: 'stop', exit: 0, usd: 0.5 });
-    expect(sessions[2]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
-    expect(sessions[3]).toMatchObject({ id: 'j', resumed: false, ended: 'stop', exit: 0 });
+    expect(sessions[2]).toMatchObject({ id: 'j', resumed: false, ended: 'stop', exit: 0 });
+    expect(sessions[3]).toMatchObject({ id: 'i1', resumed: true, ended: 'stop', exit: 0 });
     const types = trace.flatMap(t => ('check' in t && t.check.check === 'types' ? [t] : []));
     expect(types[0]).toMatchObject({ check: { pass: false }, exit: 1 });
     expect(types[1]).toMatchObject({ check: { pass: true }, exit: 0 });
@@ -270,14 +273,15 @@ describe('drive', () => {
     const { specs, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
       [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
+      judged,
     ]);
     const stopped = await run(drive(w, fresh(), hub));
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', tries: 0 });
     expect(stopped.reason).toMatch(/^safety: /);
-    expect(specs).toHaveLength(2);
+    expect(specs).toHaveLength(3);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'bothub/7')).toThrow();
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
-    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\n${foot('Cost so far: $0.00.')}`);
+    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\n${foot('Cost so far: $0.25.')}`);
     expect(issue.labels).toEqual(['bothub:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
@@ -1347,6 +1351,45 @@ describe('gate', () => {
     expect(context).toContain('## #7 Add a greeting');
     expect(context).toContain('Asked: Keep the old regex?\n\nAnswered: yes, the old regex stays');
     expect(specs[0]!.prompt).toContain('Answered: yes, the old regex stays');
+  });
+
+  it('judges a try whose script check failed, so the findings of both come back together', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    git(dir, 'init', '-q');
+    git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+    const kit = hubOf('acme-app', {
+      types: { run: 'echo x.ts:1 error; exit 1' },
+      claims: { agent: 'claim-checker' },
+    });
+    const small = { ...kit, checks: { ...kit.checks, claims: { ...kit.checks.claims!, mode: 'block' as const } } };
+    const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['types', 'claims'], tries: 3 };
+    const judges = Layer.succeed(Session, {
+      open: () =>
+        Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final: 'FAIL a claim', ended: 'stop', exit: 0 }]),
+    });
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const { outcome } = await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    expect(outcome).toMatchObject({
+      kind: 'failed',
+      checks: [
+        { check: 'types', findings: 'x.ts:1 error' },
+        { check: 'claims', findings: 'FAIL a claim' },
+      ],
+    });
   });
 
   describe('a judge session that did not end normally', () => {

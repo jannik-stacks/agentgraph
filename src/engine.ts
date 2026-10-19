@@ -727,7 +727,7 @@ const attempt = (
     );
   });
 
-/** The step's checks over what a try left behind: scripts in one batch, agent checks only when no script failed. `usd` is what the agent checks cost. */
+/** The step's checks over what a try left behind, all at once, so every finding of a try comes back together. `usd` is what the agent checks cost. */
 export const gate = (
   step: Step,
   left: Left,
@@ -747,16 +747,9 @@ export const gate = (
         writeFile(files.BOTHUB_REPLY, left.reply),
       ])
     );
-    const holds = (c: Check) => c.mode === 'block' || c.mode === 'stop';
-    const results = (list: Doc<Check>[]) =>
-      Effect.forEach(list, c => resultOf(step, c, left, hub), { concurrency: 'unbounded' });
-    const scripts = checks.filter(c => !c.agent);
-    const judged = checks.filter(c => c.agent);
-    const first = (yield* results(scripts)).map(r => r.result);
-    const blocked = first.some((v, i) => !v.pass && holds(scripts[i]!));
-    const agents = blocked ? [] : yield* results(judged);
-    const usd = agents.reduce((sum, r) => sum + r.usd, 0);
-    const all = [...first, ...agents.map(r => r.result)];
+    const results = yield* Effect.forEach(checks, c => resultOf(step, c, left, hub), { concurrency: 'unbounded' });
+    const usd = results.reduce((sum, r) => sum + r.usd, 0);
+    const all = results.map(r => r.result);
     const failed = (mode: Check['mode']) =>
       all.filter(v => !v.pass && checks.find(c => c.name === v.check)?.mode === mode);
 

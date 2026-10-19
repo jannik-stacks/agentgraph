@@ -120,7 +120,7 @@ Each agent names its own harness and model, and the proxy gives each agent its o
 
 ## Checks
 
-After a session ends, the step's checks run against the checkout. Script checks run first, all at once. Agent checks run only when no `block` or `stop` script check failed, so a broken build skips the review. <!-- code: src/engine.ts#gate -->
+After a session ends, the step's checks run against the checkout, all at once. Agent checks judge a try even when a script check fails, so every finding of a try goes back to the agent together instead of one check per try. That spends judges on a broken build, and when a `stop` check fails it spends them on a run that is ending; both cost less than the tries they save. <!-- code: src/engine.ts#gate -->
 
 | Mode    | When the check fails                               |
 | ------- | -------------------------------------------------- |
