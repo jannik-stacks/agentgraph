@@ -339,16 +339,22 @@ describe('drive', () => {
     expect(specs).toHaveLength(1);
   }, 30_000);
 
-  it('stops the run with the reason when a session cannot run', async () => {
+  it('parks the run at its step when a session cannot run, and an answer tries that step again', async () => {
     const where = world();
     const { run } = services(where, []);
-    const stopped = await run(drive(w, fresh(), hub));
-    expect(stopped).toMatchObject({ step: 'triage', status: 'stopped' });
-    expect(stopped.reason).toBe('Stopped by a runner error (SessionStop). The details are in the trace of run run-7.');
+    const parked = await run(drive(w, fresh(), hub));
+    expect(parked).toMatchObject({ step: 'triage', status: 'waiting' });
+    expect(parked.reason).toBe(
+      'Stopped by a runner error (SessionStop). The details are in the trace of run run-7. Reply to try triage again from where it was.'
+    );
     const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
-    expect(stops).toContainEqual({ kind: 'stop', why: 'SessionStop: no scripted session left' });
+    expect(stops).toContainEqual({ kind: 'ask', question: 'SessionStop: no scripted session left' });
     const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions).toEqual([{ resumed: false, ended: 'provider', usd: 0 }]);
+    const again = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
+    const resumed = await again.run(drive(w, transition(w, parked, { kind: 'answer', text: 'go on' }), hub));
+    expect(resumed).toMatchObject({ step: 'triage', status: 'waiting', reason: 'Which file?' });
+    expect(again.specs[0]!.prompt).toContain('go on');
   }, 30_000);
 
   it('never writes a proxy key into the trace, even when the harness prints it', async () => {
@@ -408,14 +414,14 @@ describe('setup', () => {
     expect(commands.slice(1).every(c => c.network === 'none')).toBe(true);
   }, 30_000);
 
-  it('stops the run as infra with the output when setup fails, before any step', async () => {
+  it('parks the run as infra with the output when setup fails, before any step', async () => {
     const where = world();
     const { specs, run } = services(where, []);
-    const stopped = await run(drive(w, fresh(), { ...hub, setup: 'echo registry unreachable; exit 3' }));
-    expect(stopped).toMatchObject({ step: 'triage', status: 'stopped', tries: 0 });
+    const parked = await run(drive(w, fresh(), { ...hub, setup: 'echo registry unreachable; exit 3' }));
+    expect(parked).toMatchObject({ step: 'triage', status: 'waiting', tries: 0 });
     expect(specs).toHaveLength(0);
     const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
-    expect(stops).toContainEqual({ kind: 'stop', why: 'SandboxError: setup exited 3: registry unreachable' });
+    expect(stops).toContainEqual({ kind: 'ask', question: 'SandboxError: setup exited 3: registry unreachable' });
   }, 30_000);
 
   it('runs nothing with network when the hub has no setup', async () => {

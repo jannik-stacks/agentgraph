@@ -833,8 +833,8 @@ const land = (
   );
 
 /**
- * Runs the hub's setup, then tries until the run stops running. An infra failure stops the run with its reason.
- * Files are kept under `refs/bothub/runs/<run id>`.
+ * Runs the hub's setup, then tries until the run stops running. A runner error parks the run at its step, so an
+ * answer tries that step again. Files are kept under `refs/bothub/runs/<run id>`.
  */
 export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {
@@ -891,7 +891,10 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
     const halt = (e: SandboxError | SessionStop | ForgeError) => {
       const why = `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
       const said = `Stopped by a runner error (${e._tag}). The details are in the trace of run ${current.id}.`;
-      return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
+      if (e._tag === 'SessionStop' && e.reason === 'human')
+        return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
+      const question = `${said} Reply to try ${current.step} again from where it was.`;
+      return settle({ kind: 'ask', question: why }, transition(w, current, { kind: 'ask', question }));
     };
     yield* walk.pipe(Effect.scoped, Effect.catchTags({ SandboxError: halt, SessionStop: halt, ForgeError: halt }));
     return current;

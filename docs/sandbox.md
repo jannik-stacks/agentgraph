@@ -32,7 +32,7 @@ Scripts and checks run with no network at all.
 
 With `network: models` in `hub.yaml`, sessions and setup join `bothub-models` instead. Only the model proxy is on that network, so nothing else can be reached, not even the npm registry. Dependencies then come from the hub's image. The local compose stack creates the network and puts the proxy on it.
 
-`setup` in `hub.yaml` is a shell script that runs once in each new checkout, before the first step. Use it to install dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. A setup that fails stops the run.
+`setup` in `hub.yaml` is a shell script that runs once in each new checkout, before the first step. Use it to install dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. A setup that fails parks the run, and an answer runs setup and the step again.
 
 The image is built from `infra/local/sandbox`. `smoke.sh` there checks it the way a run uses it.
 
