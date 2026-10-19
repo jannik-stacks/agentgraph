@@ -21,7 +21,7 @@ BOTS=(
   "implementor   smart,writer,fast,local,luna   10  30  400000"
   "reviewer      smart,fast,local,luna           5  60  900000"
   "triager       smart,fast,local,luna            1  30  300000"
-  "checker       fast,local,luna                  1  30  200000"
+  "checker       smart,fast,local,luna            1  30  200000"
   "claim-checker fast,local,luna                  1  30  200000"
   "router        smart,fast,local,luna            1  30  200000"
   "retro         smart,fast,local,luna            2  30  400000"
