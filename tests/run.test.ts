@@ -349,19 +349,23 @@ describe('drive', () => {
   it('parks the run at its step when a session cannot run, and an answer tries that step again', async () => {
     const where = world();
     const { run } = services(where, []);
-    const parked = await run(drive(w, fresh(), hub));
-    expect(parked).toMatchObject({ step: 'triage', status: 'waiting' });
+    const first = await run(drive(w, { ...fresh(), feedback: 'fix the typo' }, hub));
+    expect(first).toMatchObject({ step: 'triage', status: 'running', retried: true, feedback: 'fix the typo' });
+    const parked = await run(drive(w, first, hub));
+    expect(parked).toMatchObject({ step: 'triage', status: 'waiting', feedback: 'fix the typo' });
     expect(parked.reason).toBe(
       'Stopped by a runner error (SessionStop). The details are in the trace of run run-7. Reply to try triage again from where it was.'
     );
     const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
     expect(stops).toContainEqual({ kind: 'ask', question: 'SessionStop: no scripted session left' });
     const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
-    expect(sessions).toEqual([{ resumed: false, ended: 'provider', usd: 0 }]);
+    expect(sessions[0]).toEqual({ resumed: false, ended: 'provider', usd: 0 });
     const again = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
     const resumed = await again.run(drive(w, transition(w, parked, { kind: 'answer', text: 'go on' }), hub));
     expect(resumed).toMatchObject({ step: 'triage', status: 'waiting', reason: 'Which file?' });
     expect(again.specs[0]!.prompt).toContain('go on');
+    expect(again.specs[0]!.prompt).toContain('fix the typo');
+    expect(resumed.retried).toBeUndefined();
   }, 30_000);
 
   it('never writes a proxy key into the trace, even when the harness prints it', async () => {
@@ -424,7 +428,8 @@ describe('setup', () => {
   it('parks the run as infra with the output when setup fails, before any step', async () => {
     const where = world();
     const { specs, run } = services(where, []);
-    const parked = await run(drive(w, fresh(), { ...hub, setup: 'echo registry unreachable; exit 3' }));
+    const failing = { ...hub, setup: 'echo registry unreachable; exit 3' };
+    const parked = await run(Effect.flatMap(drive(w, fresh(), failing), r => drive(w, r, failing)));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', tries: 0 });
     expect(specs).toHaveLength(0);
     const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));

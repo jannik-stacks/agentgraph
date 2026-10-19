@@ -64,6 +64,8 @@ export type Run = {
   /** What a human answered or said to the run, with the question each answer settled. */
   answers?: { asked: string; said: string }[];
   reason?: string;
+  /** A runner error has already been retried at this step. */
+  retried?: true;
   /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
   seen?: string;
   comment?: string;
@@ -225,7 +227,7 @@ export function load(
 export const waits = (step: Step) => 'wait' in step.does;
 const entered = (step: Step): Run['status'] => (waits(step) ? 'waiting' : 'running');
 
-const fresh = ({ feedback: _feedback, reason: _reason, ...run }: Run): Run => run;
+const fresh = ({ feedback: _feedback, reason: _reason, retried: _retried, ...run }: Run): Run => run;
 
 export const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
   [
@@ -321,7 +323,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     const outOfRounds = run.tries < step.tries && step.back?.rounds !== undefined && taken >= step.back.rounds;
     const rounds = outOfRounds ? { ...run.rounds, [step.name]: taken - 1 } : run.rounds;
     const answers = [...(run.answers ?? []), { asked: run.reason ?? '', said: o.text }];
-    return { ...fresh(run), status: entered(step), tries, rounds, feedback: o.text, answers };
+    const feedback = run.retried ? [run.feedback, o.text].filter(Boolean).join('\n\n') : o.text;
+    return { ...fresh(run), status: entered(step), tries, rounds, feedback, answers };
   }
   return run;
 }
