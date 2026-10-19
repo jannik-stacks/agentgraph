@@ -199,8 +199,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     );
   }
   const raw = read(join(hub, 'hub.yaml'));
-  if (/^setup: pnpm install/m.test(raw))
-    save(join(hub, 'hub.yaml'), raw.replace(/^setup: .*\n/m, ''));
+  if (/^setup: pnpm install/m.test(raw)) save(join(hub, 'hub.yaml'), raw.replace(/^setup: .*\n/m, ''));
   const limit = (yaml: string, key: string, value: number) =>
     new RegExp(`^ {2}${key}:`, 'm').test(yaml)
       ? yaml.replace(new RegExp(`^( {2}${key}:).*$`, 'm'), `$1 ${value}`)
