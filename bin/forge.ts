@@ -1,6 +1,6 @@
 /**
  * Plays the human on a forge folder, so `node bin/run.ts --forge <dir>` runs without GitHub.
- * Usage: node bin/forge.ts <dir> init <git repo>   (copies the repo into <dir>/origin.git)
+ * Usage: node bin/forge.ts <dir> init <git repo> [--at <sha>]   (copies the repo, or only <sha> as main, into <dir>/origin.git)
  *        node bin/forge.ts <dir> issue <title> [--body <file>] [--label <name>]...
  *        node bin/forge.ts <dir> comment <n> <text>
  *        node bin/forge.ts <dir> label <n> <name>
@@ -18,7 +18,12 @@ import { stringify } from 'yaml';
 import { fileForge, Forge, type Proposal } from '../src/forge.ts';
 
 const { values, positionals } = parseArgs({
-  options: { body: { type: 'string' }, label: { type: 'string', multiple: true }, as: { type: 'string' } },
+  options: {
+    at: { type: 'string' },
+    body: { type: 'string' },
+    label: { type: 'string', multiple: true },
+    as: { type: 'string' },
+  },
   allowPositionals: true,
 });
 const [where, command, ...rest] = positionals;
@@ -50,7 +55,10 @@ const n = Number(rest[0]);
 switch (command) {
   case 'init': {
     mkdirSync(dir, { recursive: true });
-    git('clone', '-q', '--bare', resolve(rest[0] ?? '.'), origin);
+    if (values.at) {
+      git('init', '-q', '--bare', '-b', 'main', origin);
+      git('-C', resolve(rest[0] ?? '.'), 'push', '-q', origin, `${values.at}:refs/heads/main`);
+    } else git('clone', '-q', '--bare', resolve(rest[0] ?? '.'), origin);
     console.log(`${origin} from ${rest[0] ?? '.'}`);
     break;
   }

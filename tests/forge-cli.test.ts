@@ -155,4 +155,16 @@ describe('bin/forge.ts with run --forge', () => {
     const stopped = await w.run([]);
     expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['implement', 'stopped', 'wrong issue']]);
   });
+
+  it('seeds only the given commit with --at, so a later commit is not in the origin', () => {
+    const w = world();
+    const base = git(w.seed, 'rev-parse', 'HEAD').trim();
+    writeFileSync(join(w.seed, 'fix.txt'), 'the fix\n');
+    git(w.seed, 'add', '-A');
+    git(w.seed, 'commit', '-q', '-m', 'fix');
+    const later = git(w.seed, 'rev-parse', 'HEAD').trim();
+    w.forge('init', w.seed, '--at', base);
+    expect(git(w.origin, 'rev-parse', 'main').trim()).toBe(base);
+    expect(spawnSync('git', ['--git-dir', w.origin, 'cat-file', '-e', later]).status).not.toBe(0);
+  });
 });
