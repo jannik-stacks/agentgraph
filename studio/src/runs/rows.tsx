@@ -321,16 +321,16 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
     at: run.started,
     raw: run,
     summary: (
-      <span className="flex min-w-0 items-baseline gap-x-3 font-sans text-[13px]">
-        <Col className="w-9">
+      <span className="flex min-w-0 items-baseline gap-x-2 text-xs">
+        <Col className="w-[4ch]">
           <Issue r={r} />
         </Col>
-        <Col className="w-14">
+        <Col className="w-[9ch]">
           <Link href={`/runs/${encodeURIComponent(run.id)}`} className="font-medium underline">
             {run.workflow}
           </Link>
         </Col>
-        <Col className="w-20">
+        <Col className="w-[10ch]">
           <Tooltip tip={statusTip(run)} focusable>
             {flag(run.status, run.status !== 'done')}
           </Tooltip>
@@ -340,10 +340,10 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
             </span>
           )}
         </Col>
-        <Col className="w-28 text-zinc-500">at {run.step}</Col>
-        <Col className="w-12 text-zinc-500">try {run.tries}</Col>
-        <Col className="w-14 text-right text-zinc-500">{usd(run.usd)}</Col>
-        <Col className="w-24 text-right text-zinc-500">
+        <Col className="w-[16ch] text-zinc-500">at {run.step}</Col>
+        <Col className="w-[6ch] text-zinc-500">try {run.tries}</Col>
+        <Col className="w-[6ch] text-right text-zinc-500">{usd(run.usd)}</Col>
+        <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, live(r) ? undefined : (run.ended ?? trace.at(-1)?.at))}
         </Col>
         <Link href={`/graph?run=${encodeURIComponent(`${r.fixture}:${run.id}`)}`} className="text-zinc-500 underline">
@@ -455,13 +455,13 @@ const RowView = ({ row }: { row: Row }) => {
         open={row.open ?? false}
       >
         {raw && (
-          <div className="pl-4.5">
+          <div className="pl-3">
             <RawJson value={row.raw} />
           </div>
         )}
         <div
           data-scroll={row.scroll || undefined}
-          className={cx('space-y-1 py-1 pl-4.5', row.scroll && 'max-h-[75vh] overflow-y-auto')}
+          className={cx('space-y-0.5 py-0.5 pl-3', row.scroll && 'max-h-[75vh] overflow-y-auto')}
         >
           {row.body}
           {row.children && <Rows rows={row.children} />}
@@ -473,7 +473,7 @@ const RowView = ({ row }: { row: Row }) => {
 
 /** Rows as a list where each opens to its body, its children and its raw JSON; a row with one child shows it in its own line. */
 export const Rows = ({ rows }: { rows: Row[] }) => (
-  <ol className="space-y-0.5 font-mono text-[11px]">
+  <ol className="space-y-px font-mono text-[11px]">
     {rows.map((row, i) => (
       <RowView key={row.key ?? i} row={row} />
     ))}
