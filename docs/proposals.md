@@ -22,7 +22,7 @@ An agent has no GitHub token and does not run `git` or `gh`. It ends its reply w
 | `push`         | `branch`, `message`                                            | Commits the checkout and pushes the branch                       |
 | `pull_request` | `branch`, `base`, `title`, `body`                              | Opens a pull request                                             |
 | `merge`        | `number`, `head`                                               | Merges a pull request, only while its head is still `head`       |
-| `issue`        | `title`, `body`, `size`, `priority`, `stacks_on`, `depends_on` | Files a sub-issue of the run's issue, see [Triage](triage.md)    |
+| `issue`        | `title`, `body`, `size`, `priority`, `stacks_on`, `depends_on` | Files a sub-issue of the run's issue, see [Sub-issues and stacks](stacks.md)    |
 | `ask`          | `question`                                                     | Posts the question and makes the run wait                        |
 | `back`         | `why`                                                          | Sends the run back, see [The loop](loop.md#tries-and-going-back) |
 
