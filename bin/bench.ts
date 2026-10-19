@@ -200,6 +200,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   save(join(hub, 'hub.yaml'), limit(limit(read(join(hub, 'hub.yaml')), 'parallel', 1), 'sessions', 3));
   if (arm === 'floor') {
     rmSync(join(hub, 'workflows'), { recursive: true });
+    rmSync(join(hub, 'agents'), { recursive: true, force: true });
     rmSync(join(hub, 'checks'), { recursive: true, force: true });
     cpSync(here('bench/floor'), hub, { recursive: true });
   }
