@@ -421,7 +421,7 @@ const feedback = (m: Event, command?: string) =>
     m.kind === 'changes_requested' ||
     m.kind === 'commit' ||
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
-  !/^(stop|cancel|restart)\b/i.test(afterCommand(m, command) ?? '');
+  !/^(stop|cancel|restart(\s+\S+)?)$/i.test(afterCommand(m, command) ?? '');
 
 /** When a trusted person last did something on the issue or its pull request. */
 const lastHeard = (t: Issues) =>

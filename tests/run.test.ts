@@ -2153,6 +2153,16 @@ describe('compound engineering', () => {
     expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan pushed abcdef0 Document the field');
   }, 30_000);
 
+  it('takes a stop with a reason as feedback, and a bare stop as a command', async () => {
+    const where = world();
+    say(where, comment(7, 'morgan', true, '/bothub stop', '2026-10-16T00:00:04.000Z'));
+    say(where, comment(7, 'morgan', true, '/bothub stop you rewrote the whole module', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, [[start('r'), reply()]]);
+    await run(done());
+    expect((await run(tick(looking))).map(r => r.workflow)).toEqual(['retro']);
+    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /bothub stop you rewrote the whole module\n');
+  }, 30_000);
+
   it('takes what is said on a merged pull request as feedback on the issue its branch worked on', async () => {
     const where = world();
     writeFileSync(
