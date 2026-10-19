@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fileForge, type Proposal } from '../src/forge.ts';
+import { instanceAt } from '../src/instance.ts';
 import { start as main } from '../src/main.ts';
 import { host } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
@@ -174,4 +175,82 @@ describe('bin/forge.ts with run --forge', () => {
     expect(git(w.origin, 'rev-parse', 'main').trim()).toBe(base);
     expect(spawnSync('git', ['--git-dir', w.origin, 'cat-file', '-e', later]).status).not.toBe(0);
   });
+});
+
+describe('an instance', () => {
+  it('runs an issue to a merge on its own copy, and writes to the repo only on export', async () => {
+    const w = world();
+    writeFileSync(join(w.seed, 'wip.txt'), 'unsaved\n');
+    git(w.seed, 'remote', 'add', 'origin', 'https://example.invalid/seed.git');
+    const looks = () =>
+      ['for-each-ref', 'status --porcelain', 'remote -v', 'rev-parse HEAD']
+        .map(args => git(w.seed, ...args.split(' ')))
+        .join('\n');
+    const before = looks();
+    const at = join(w.root, 'instances', 'seed');
+    const bh = (where: string, ...args: string[]) => {
+      const r = spawnSync(process.execPath, [cli, where, ...args], { encoding: 'utf8' });
+      expect(r.status, r.stderr).toBe(0);
+      return r.stdout.trim();
+    };
+    bh(at, 'init', w.seed, '--hub', sandboxHub, '--as', 'morgan');
+    const instance = instanceAt(join(at, 'hub'))!;
+    expect(instance).toMatchObject({ dir: at, repo: w.seed, base: 'main', owner: 'morgan' });
+    expect(bh(instance.hub, 'issue', 'Add a greeting', '--label', 'agent:ready')).toBe('#1');
+
+    process.env.BOTHUB_FORGE = instance.forge;
+    const run = (turns: SessionEvent[][]) =>
+      main({ hub: instance.hub, issue: 'all', data: instance.data }, s =>
+        Layer.mergeAll(
+          fileForge(s.forge as string),
+          fileStore(s.data),
+          host(join(s.forge as string, 'origin.git')),
+          scripted(turns)
+        )
+      );
+    const push = (message: string): Proposal => ({ kind: 'push', branch: 'bothub/1', message });
+    const pull: Proposal = { kind: 'pull_request', branch: 'bothub/1', base: 'main', title: 'Add hello', body: '' };
+    const first = await run([
+      [start('i'), write('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
+    const status = spawnSync(process.execPath, [join(cli, '..', 'run.ts'), 'status', '--instance', at], {
+      encoding: 'utf8',
+    });
+    expect(status.stdout).toContain(`node bin/run.ts --instance ${at} --issue 1`);
+
+    bh(at, 'comment', '2', 'say world', '--line', 'hello.txt:1');
+    bh(at, 'review', '2', 'changes', 'not quite');
+    const second = await run([
+      [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    expect(second.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
+    const traces = readdirSync(instance.data, { recursive: true, encoding: 'utf8' })
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => readFileSync(join(instance.data, f), 'utf8'))
+      .join('');
+    expect(traces).toContain('sent this back: not quite');
+    expect(traces).toContain('@morgan on hello.txt:1, id 2-2: say world');
+    expect(bh(at, 'show', '2')).toContain('morgan comment on hello.txt:1\nsay world');
+
+    bh(at, 'merge', '2');
+    expect(bh(at, 'show')).toContain('#2 merged Add hello');
+    expect(looks()).toBe(before);
+
+    const patch = join(w.root, 'hello.patch');
+    bh(at, 'export', '2', '--patch', patch);
+    expect(readFileSync(patch, 'utf8')).toContain('+hello world');
+    expect(looks()).toBe(before);
+    expect(bh(at, 'export', '2')).toMatch(/^bothub\/1 at [0-9a-f]{40} in /);
+    expect(git(w.seed, 'show', 'bothub/1:hello.txt')).toBe('hello world');
+    expect(git(w.seed, 'status', '--porcelain')).toBe('?? wip.txt');
+
+    git(w.seed, 'merge', '-q', '--ff-only', 'bothub/1');
+    writeFileSync(join(w.seed, 'later.txt'), 'later\n');
+    git(w.seed, 'add', 'later.txt');
+    git(w.seed, 'commit', '-q', '-m', 'later');
+    expect(bh(at, 'sync')).toBe(`main at ${git(w.seed, 'rev-parse', 'HEAD')}`);
+  }, 60_000);
 });

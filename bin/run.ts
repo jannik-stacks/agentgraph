@@ -3,16 +3,20 @@
  * Usage: node bin/run.ts --hub <dir> --issue <n> --data <dir>
  *        node bin/run.ts --hub <dir> --all --data <dir>   (one pass over every open issue)
  *        node bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
- *        node bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV; read-only)
+ *        node bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV, or --forge; read-only)
  *        node bin/run.ts loop --hub <dir> --data <dir>   (looks at every open issue each BOTHUB_EVERY minutes)
  *        node bin/run.ts loop --data <dir>   (the same with the repo's own .bothub/; BOTHUB_REPO names the repo)
  * With --forge <dir>, the runs act on a forge folder (see bin/forge.ts) instead of GitHub, and need no App.
+ * --instance <dir> stands for the hub, forge and data of an instance, and loads its keys.env; without --hub, --forge
+ * or --data, the instance is the one around the working directory, if any.
  */
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { appEnv, start } from '../src/main.ts';
 import { loadHub } from '../src/hub.ts';
+import { instanceAt } from '../src/instance.ts';
 import { needsYou } from '../src/status.ts';
 import { fileStore } from '../src/store.ts';
 
@@ -23,9 +27,20 @@ const { values, positionals } = parseArgs({
     all: { type: 'boolean' },
     data: { type: 'string' },
     forge: { type: 'string' },
+    instance: { type: 'string' },
   },
   allowPositionals: true,
 });
+const around = values.instance ?? (values.hub || values.forge || values.data ? undefined : '.');
+const instance = around === undefined ? undefined : instanceAt(around);
+if (values.instance && !instance) {
+  console.error(`no instance.yaml at or above ${values.instance}`);
+  process.exit(2);
+}
+if (instance) {
+  Object.assign(values, { hub: instance.hub, forge: instance.forge, data: instance.data });
+  if (existsSync(instance.keys)) for (const [k, v] of Object.entries(await appEnv(instance.keys))) process.env[k] ??= v;
+}
 if (values.forge) process.env.BOTHUB_FORGE = resolve(values.forge);
 const issue = values.all ? 'all' : Number(values.issue);
 
@@ -55,13 +70,22 @@ if (positionals[0] === 'status') {
   const env = await appEnv(process.env.BOTHUB_APP_ENV);
   const id = env.BOTHUB_APP_ID ?? process.env.BOTHUB_APP_ID;
   const key = env.BOTHUB_APP_KEY ?? process.env.BOTHUB_APP_KEY;
-  if (!id || !key) {
+  if (!values.forge && (!id || !key)) {
     console.error('set BOTHUB_APP_ENV to the App env file');
     process.exit(2);
   }
+  const forge = values.forge ? resolve(values.forge) : undefined;
+  const again = instance
+    ? `--instance ${instance.dir}`
+    : `--hub ${hub} --data ${data}${forge ? ` --forge ${forge}` : ''}`;
   const lines = await Effect.runPromise(
     loadHub(hub).pipe(
-      Effect.flatMap(h => needsYou({ repo: h.repo, id, key: Redacted.make(key) }, { hub, data })),
+      Effect.flatMap(h =>
+        needsYou(forge ? undefined : { repo: h.repo, id: id!, key: Redacted.make(key!) }, {
+          again,
+          ...(forge && { forge }),
+        })
+      ),
       Effect.provide(fileStore(data))
     )
   );
