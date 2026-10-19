@@ -759,10 +759,13 @@ const attempt = (
       const kept = step.each === undefined ? run.sessions[step.name] : undefined;
       const reads = agent.tools.includes('read');
       const kinds = [...agent.returns.filter(k => k !== 'ask' && k !== 'back'), 'ask', ...(step.back ? ['back'] : [])];
+      /** A step that judges the change, and does not fan out over it, opens on the whole of it. */
+      const diff = step.back && !step.each && !kept ? yield* diffOf(work) : '';
       const prompt = [
         ...[step.does.skill, ...(hub.skills[step.does.skill ?? '']?.uses ?? [])].map(s => s && hub.skills[s]?.body),
         w.body,
         context(t),
+        diff && `## The change on the branch\n\n\`\`\`\`diff\n${squeeze(diff, 20_000)}\n\`\`\`\``,
         w.branch &&
           `Work on the branch ${expand(w.branch, issue)}; pull requests go into ${run.base?.branch ?? issue.pull?.base ?? expand(w.base ?? 'main', issue)}.`,
         step.back?.until && `Propose back with a reason while this does not hold: ${step.back.until}`,

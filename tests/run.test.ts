@@ -1196,6 +1196,24 @@ describe('coworker', () => {
     expect(asked.reason).toMatch(/^The registry is unreachable here\.\n\ntypes: /);
   }, 30_000);
 
+  it('opens a step that can send the change back on the whole diff of the branch', async () => {
+    const where = world();
+    const reviewed = {
+      ...flow,
+      steps: [
+        { name: 'implement', does: { agent: 'implementor' }, checks: [], tries: 1 },
+        { name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1, back: { to: 'implement', until: 'done' } },
+      ],
+    };
+    const { specs, run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply(push)],
+      [start('r'), reply({ kind: 'comment', body: 'Fine.' })],
+    ]);
+    await run(drive(reviewed, begin(reviewed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small));
+    expect(specs[0]!.prompt).not.toContain('## The change on the branch');
+    expect(specs[1]!.prompt).toMatch(/## The change on the branch\n\n````diff\n[\s\S]*\+hello\n````/);
+  }, 30_000);
+
   it('tells a waiting run how to be answered in its status footer, and posts the question itself plain', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
