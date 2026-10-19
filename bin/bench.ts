@@ -210,8 +210,10 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   forge(dir, 'comment', '1', '/bothub');
   process.env.BOTHUB_FORGE = dir;
   let answers = 0;
+  let status: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
     const [run] = await start({ hub, issue: 1, data: join(at, 'data') });
+    status = run?.status;
     if (!run || run.status === 'done' || run.status === 'stopped') break;
     if (run.status !== 'waiting') continue;
     if (!run.reason || answers) break;
@@ -227,8 +229,19 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     ? (JSON.parse(read(pull)) as { head: string }).head
     : spawnSync('git', branch, { encoding: 'utf8' }).stdout.trim();
   save(join(at, 'diff.patch'), head ? sh('git', ['--git-dir', origin, 'diff', c.base, head]) : '');
-  return { answers };
+  return { answers, status };
 };
+
+/** Why an arm's run says nothing about the arm, when it does not: no diff, a failed setup or a run that never finished. */
+export const infra = (s: { infra?: string; files?: number; setup?: { ok: boolean }; status?: string | undefined }) =>
+  s.infra ??
+  (s.files === 0
+    ? 'empty diff'
+    : s.setup?.ok === false
+      ? 'setup fails'
+      : s.status === 'running'
+        ? 'run did not finish'
+        : undefined);
 
 const runArm = async (arm: string, caseDir: string, out: string, repo: string) => {
   const c = loadCase(caseDir);
@@ -236,13 +249,24 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (arm === 'v1')
     throw new Error('not yet: v1 needs its own sandbox image, env and a leak-free seed (docs/bench.md)');
   if (existsSync(join(at, 'diff.patch'))) return;
-  if (existsSync(at)) renameSync(at, `${at}.${Date.now()}`);
   if (!process.env.BOTHUB_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   if (await prepare(c, out, repo)) return;
-  guard(out, false);
-  const started = Date.now();
-  const meta = await step(out, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo)));
-  save(join(at, 'meta.json'), { ...meta, ms: Date.now() - started });
+  let reason: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (existsSync(at)) renameSync(at, `${at}.${Date.now()}`);
+    guard(out, false);
+    const started = Date.now();
+    try {
+      const meta = await step(out, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo)));
+      reason = infra({ ...stats(read(join(at, 'diff.patch'))), ...meta });
+      save(join(at, 'meta.json'), { ...meta, ms: Date.now() - started });
+    } catch (e) {
+      reason = String(e).slice(0, 200);
+    }
+    if (!reason) return;
+  }
+  if (!existsSync(join(at, 'diff.patch'))) save(join(at, 'diff.patch'), '');
+  save(join(at, 'meta.json'), { ...JSON.parse(read(join(at, 'meta.json')) || '{}'), infra: reason });
 };
 
 /** The changed files of a unified diff, each with its part of the diff. */

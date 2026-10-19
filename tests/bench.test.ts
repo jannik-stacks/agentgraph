@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootstrap, invalid, plan, scrub, stats, verdict } from '../bin/bench.ts';
+import { bootstrap, infra, invalid, plan, scrub, stats, verdict } from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
@@ -72,6 +72,14 @@ describe('bench helpers', () => {
     expect(invalid(red, { ...ok, suite: { ok: false } })).toMatch(/human fails the suite/);
     expect(invalid(red, { applied: false })).toMatch(/does not apply/);
     expect(invalid(red, { ...ok, setup: { ok: false } })).toMatch(/setup fails/);
+  });
+
+  it('calls an empty diff, a failed setup or an unfinished run infra, not a result', () => {
+    expect(infra({ files: 0 })).toBe('empty diff');
+    expect(infra({ files: 2, setup: { ok: false } })).toBe('setup fails');
+    expect(infra({ files: 2, status: 'running' })).toBe('run did not finish');
+    expect(infra({ files: 0, infra: 'boom' })).toBe('boom');
+    expect(infra({ files: 2, status: 'waiting', setup: { ok: true } })).toBeUndefined();
   });
 
   it('gives a bootstrap interval around the mean', () => {
