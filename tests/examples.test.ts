@@ -22,6 +22,16 @@ describe('example hubs', () => {
   it.each(hubDirs)('%s loads with no problems', async dir => {
     await expect(Effect.runPromise(loadHub(dir))).resolves.toMatchObject({ workflows: expect.any(Object) });
   });
+
+  it.each(hubDirs)('%s skills use no vocabulary the engine lacks', async dir => {
+    const hub = await Effect.runPromise(loadHub(dir));
+    const old = /`reply`|`close`|## Resuming|main-worktree|\/hub\/scripts|criteria table|adds the Closes/;
+    expect(
+      Object.values(hub.skills)
+        .filter(skill => old.test(skill.body))
+        .map(skill => skill.path)
+    ).toEqual([]);
+  });
 });
 
 /** Rows of the BOTS table in keys.sh: bot name and the model aliases its key may call. */

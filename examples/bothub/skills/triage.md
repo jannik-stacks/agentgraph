@@ -69,12 +69,11 @@ would fail a file the brief names. The files section names at most 8 files outsi
 size check's file cap; test files never count. For a rename, name the files that do more than the
 rename and say in the task that the rename reaches every use.
 
-When the code already does everything the issue asks for, write no brief. Return only
-`{ "kind": "close", "as": "no-op", "resolved": true, "reason": "…" }`, whose reason names the
-functions that do it with their files and the tests that cover them; it is posted on the issue,
-the issue is closed and nothing is implemented. When only part of it is built, brief the missing
-part as usual.
+When the code already does everything the issue asks for, write no brief. Return only one
+`comment` whose body names the functions that do it with their files and the tests that cover
+them; that ends the run and nothing is implemented. When only part of it is built, brief the
+missing part as usual.
 
 Apply the label `ready` when the criteria are complete, or `needs-input` when you asked. End with
-exactly one `reply` holding the brief plus the label, an `ask` when you stopped to ask, or the
-`close` when everything is already built.
+exactly one `comment` whose body is the brief, plus the label, an `ask` when you stopped to ask,
+or the lone `comment` when everything is already built.

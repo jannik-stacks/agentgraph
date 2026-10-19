@@ -19,8 +19,6 @@ Run from the repository root, one command at a time:
 - `node_modules/.bin/vitest run tests/<file>.test.ts` for the tests you touched, and
   `node_modules/.bin/vitest related --run <source files>` after changing an export
 - `node_modules/.bin/tsc --noEmit`
-- before you finish:
-  `BOTHUB_HUB=/hub BOTHUB_ISSUE=<issue> BOTHUB_BASE=$(git merge-base HEAD main-worktree/HEAD) node /hub/scripts/fast.mjs`
 
 Before pushing, reread the diff and delete anything the criteria do not need. In your reply, name
 each principle from the principles skill that changed a choice, with the file and line it changed;
@@ -33,8 +31,7 @@ Say in the reply what the premise was and what replaced it.
 
 Never `npm install`, `npm ci` or `npx`.
 
-If a check asks for something the brief rules out, propose one `ask` with your question. A
-`## Resuming` section means your earlier work is in the worktree: continue from it.
+If a check asks for something the brief rules out, propose one `ask` with your question.
 
 End with a `push` listing every file you changed, a `pull_request` whose body follows the pr-body
-skill, and a reply.
+skill, and a `comment`.

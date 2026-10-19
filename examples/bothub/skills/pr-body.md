@@ -1,8 +1,7 @@
 ---
 description: "Write the pull request body: summary, why, decisions, not done, how to review."
 ---
-The engine adds the Closes line, the criteria table, the check results and the known gaps. You
-write the rest, in plain sentences, with no heading you do not need, in this order:
+You write the whole body, in plain sentences, with no heading you do not need, in this order:
 
 - An unheaded lead of 2 to 4 sentences: the mechanism of the problem, then what the change does.
 - "Why this approach", only if you chose between options. Say what you rejected.
