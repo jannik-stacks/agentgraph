@@ -399,11 +399,11 @@ const judge = async (caseDir: string, out: string) => {
         save(join(dir, 'prompt.md'), prompt);
         await Promise.all(
           Object.entries(judges).map(async ([name, ask]) => {
-            for (let attempt = 0; attempt < 2 && !existsSync(join(dir, `${name}.json`)); attempt++) {
+            for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
               guard(out, name !== 'sol');
               const raw = await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
                 ask(prompt, dir)
-              );
+              ).catch(() => '');
               save(join(dir, `${name}.${attempt}.raw.md`), raw);
               const v = verdict(raw);
               if (v) save(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
