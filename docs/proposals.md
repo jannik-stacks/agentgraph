@@ -1,70 +1,63 @@
 # Proposals
 
-What an agent asks the engine to do, and the only write path from an agent to GitHub.
+A proposal is a change an agent asks the engine to make. It is the only way an agent writes to GitHub: the agent has no GitHub token and does not run `git` or `gh`.
 
-An agent has no GitHub token and does not run `git` or `gh`. It ends its reply with a fenced `bothub` block. The engine reads the last such block: a JSON array, one JSON object, or one JSON object per line (`code: src/engine.ts#proposalsOf`).
+The agent ends its reply with a fenced `bothub` block. The engine reads the last such block, as a JSON array, one JSON object, or one JSON object per line (`code: src/engine.ts#proposalsOf`).
 
-````md
 ```bothub
 [
   {"kind": "push", "branch": "bothub/42", "message": "Fix fee rounding"},
   {"kind": "pull_request", "branch": "bothub/42", "base": "main", "title": "Fix fee rounding", "body": "Closes #42"}
 ]
 ```
-````
 
 ## Kinds
 
-| Kind           | Fields                                                         | Effect                                                           |
-| -------------- | -------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `comment`      | `body`                                                         | Comments where a human last spoke, see below                     |
-| `label`        | `add`, `remove`                                                | Changes the issue's labels                                       |
-| `push`         | `branch`, `message`                                            | Commits the checkout and pushes the branch                       |
-| `pull_request` | `branch`, `base`, `title`, `body`                              | Opens a pull request                                             |
-| `merge`        | `number`, `head`                                               | Merges a pull request, only while its head is still `head`       |
-| `issue`        | `title`, `body`, `size`, `priority`, `stacks_on`, `depends_on` | Files a sub-issue of the run's issue, see [Sub-issues and stacks](stacks.md)    |
-| `ask`          | `question`                                                     | Posts the question and makes the run wait                        |
-| `back`         | `why`                                                          | Sends the run back, see [The loop](loop.md#tries-and-going-back) |
+| Kind           | Fields                                                         | Effect                                                                        |
+| -------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `comment`      | `body`                                                         | Comments where a human last spoke, see [Comments](proposals.md#comments)      |
+| `label`        | `add`, `remove`                                                | Changes the issue's labels                                                    |
+| `push`         | `branch`, `message`                                            | Commits the checkout and pushes the branch, see [Pushes](proposals.md#pushes) |
+| `pull_request` | `branch`, `base`, `title`, `body`                              | Opens a pull request                                                          |
+| `merge`        | `number`, `head`                                               | Merges a pull request, only while its head is still `head`                    |
+| `issue`        | `title`, `body`, `size`, `priority`, `stacks_on`, `depends_on` | Files a sub-issue, see [Sub-issues and stacks](stacks.md)                     |
+| `ask`          | `question`                                                     | Posts the question and makes the run wait                                     |
+| `back`         | `why`                                                          | Sends the run back, see [The loop](loop.md#tries-and-going-back)              |
 
-The engine also uses two kinds of its own that no agent may propose: `react` puts the eyes emoji on the comment that woke a run, and `rebase` moves a stacked branch onto its parent's new head (`code: src/forge.ts#Proposal`).
-
-## Where a comment goes
-
-A comment goes where the human who started or woke the run spoke: the issue, or its pull request. When that was a review comment on a line, the reply goes into that review thread. When no human spoke yet, it goes on the open pull request of the run's branch, else on the issue (`code: src/engine.ts#land`).
-
-## Returns
-
-`returns` in an agent file lists the kinds it may propose. The default is `comment` alone.
-
-Every agent may also `ask`, and a step with `back` lets its agent `back`.
-
-The prompt shows the agent the shape of each kind it may use.
+`returns` in the agent file lists the kinds it may propose, `comment` alone by default. Every agent may also `ask`, and a step with `back` lets its agent `back`. The prompt shows the agent the shape of each kind it may use.
 
 ```yaml
-returns: [comment, push, pull_request, ask]
+returns: [comment, push, pull_request]
 ```
-
-## Validation
-
-These fail the try:
-
-- An agent's reply without a `bothub` block.
-- A block that is not valid JSON.
-- A kind with missing or extra fields.
-- A proposal of a kind the agent may not make, with a reason.
-
-The failure goes back as feedback, with the expected shape.
 
 ## Applying
 
-An `ask` makes the run wait at once: no checks run and nothing else in the block is applied.
+```
+ the agent's reply
+   │
+   ├──► ask: the run waits at once, with no checks and nothing else applied
+   │
+   ├──► a check fails: nothing is applied and the try fails
+   │
+   ├──► back: the run goes back and nothing else is applied
+   │
+   └──► otherwise: pushes first, then the rest in order
+```
 
-Other proposals are applied only after the step's checks pass. A `back` then sends the run back, and nothing else is applied. Otherwise pushes go first, then the rest in order (`code: src/engine.ts#attempt`).
+The try also fails, with the expected shape as feedback, when the reply has no `bothub` block, the block is not in one of the forms above, a proposal has missing or extra fields, or the agent may not make that kind (`code: src/engine.ts#attempt`).
 
-Each proposal is traced with its URL, or the reason it failed. A failed proposal fails the try, with that reason as feedback. On GitHub, a second pull request for the same branch is refused that way.
+Each applied proposal is traced with its URL, or the reason it failed. A failed proposal fails the try, and the reason goes back as feedback. On GitHub, a second pull request for the same branch fails this way.
+
+## Comments
+
+A comment goes where the human who started or woke the run spoke: the issue, its pull request, or the review thread of a line comment. When no human spoke yet, it goes on the open pull request of the run's branch, else on the issue (`code: src/engine.ts#land`).
 
 ## Pushes
 
-A push never forces. It goes to a branch starting with `bothub/` and builds on the commit the checkout started from, or on its own last push. When the branch moved meanwhile, the push is refused.
+A push never forces. Its branch starts with `bothub/`, and it builds on the commit the checkout started from or on its own last push. When the branch moved meanwhile, the push is refused.
 
-Only regular files outside `.github/` and `.git/` can be pushed, at most 200 files and 1 MiB per file. GitHub signs the commits, because the engine writes them through GitHub's Git API (`code: src/github.ts#unpushable`).
+Only regular files outside `.github/` and `.git/` are pushed, at most 200 files and 1 MiB per file. The engine writes the commits through GitHub's Git API, so GitHub signs them (`code: src/github.ts#unpushable`).
+
+## Engine kinds
+
+The engine makes two kinds of its own that no agent may propose: `react` puts the eyes reaction on the comment that woke a run, and `rebase` moves a stacked branch onto its parent's new head (`code: src/forge.ts#Proposal`).
