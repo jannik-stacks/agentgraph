@@ -208,7 +208,7 @@ describe('plan', () => {
   it('turns the miner test file list into a test command per repo', () => {
     expect(plan('acme/explorer', ['src/a/[id]/x.test.ts', 'src/a/fixture.json'])).toMatchObject({
       test: expect.stringContaining("--runTestsByPath 'src/a/[id]/x.test.ts'"),
-      setup: expect.stringContaining('pnpm@10.28.2 install'),
+      setup: expect.stringContaining("'10.28.2'"),
     });
     expect(plan('acme/stacks.js', ['packages/api/tests/a.test.ts', 'packages/auth/tests/setup.js']).test).toBe(
       "(cd packages/api && npx jest --runTestsByPath 'tests/a.test.ts')"
@@ -218,5 +218,15 @@ describe('plan', () => {
     });
     expect(plan('acme/clarinet', ['components/clarinet-sdk/node/tests/a.test.ts'])).toEqual({ hasTests: false });
     expect(plan('acme/stacks.js', [])).toEqual({ hasTests: false });
+  });
+});
+
+describe('run comparison', () => {
+  const report = (rate: number) =>
+    `# Bench report\n\n3 valid cases.\n\nHidden tests passed\n\n| arm | passed | of | rate |\n|---|---|---|---|\n| v2 | 1 | 3 | ${rate} |\n\n## All\n`;
+  it('lists only the headline rows that changed', async () => {
+    const { compare } = await import('../bin/bench-run.ts');
+    expect(compare(report(0.33), report(0.33))).toEqual([]);
+    expect(compare(report(0.33), report(0.67))).toEqual(['- Hidden tests passed / v2: 1 | 3 | 0.33 -> 1 | 3 | 0.67']);
   });
 });

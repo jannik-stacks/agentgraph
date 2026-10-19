@@ -23,8 +23,10 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
-import { start } from '../src/main.ts';
+const engine = process.env.BENCH_ENGINE ?? join(import.meta.dirname, '..');
+const { start } = (await import(join(engine, 'src/main.ts'))) as typeof import('../src/main.ts');
 
 type Case = {
   id: string;
@@ -63,6 +65,15 @@ const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
 const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
 
 const here = (path: string) => join(import.meta.dirname, '..', path);
+const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 20);
+const treeText = (dir: string): string =>
+  readdirSync(dir, { withFileTypes: true })
+    .flatMap(e => (e.isDirectory() ? [treeText(join(dir, e.name))] : [e.name, readFileSync(join(dir, e.name), 'utf8')]))
+    .join('\0');
+/** Where a result is kept for reuse: nothing is reused without BENCH_CACHE or with BENCH_FRESH. */
+const slot = (kind: string, ...key: unknown[]) =>
+  process.env.BENCH_CACHE ? join(process.env.BENCH_CACHE, kind, hash(JSON.stringify(key))) : undefined;
+const reusable = (dir: string | undefined) => dir !== undefined && !process.env.BENCH_FRESH && existsSync(dir);
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const round = (n: number) => Math.round(n * 1000) / 1000;
 const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length;
@@ -185,7 +196,7 @@ const forge = (dir: string, ...args: string[]) =>
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
   const own = `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
-  cpSync(here(own), hub, { recursive: true });
+  cpSync(join(engine, own), hub, { recursive: true });
   if (own === 'examples/bench' && c.runner) {
     const mine = `set -f; files=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$'); [ -z "$files" ] || ${c.runner} $files`;
     save(join(hub, 'checks/tests.md'), read(join(hub, 'checks/tests.md')).replace('npm test', mine));
@@ -261,6 +272,20 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (existsSync(join(at, 'diff.patch'))) return;
   if (!process.env.BOTHUB_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   if (await prepare(c, out, repo)) return;
+  const treeSha = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./'], { encoding: 'utf8' }).stdout.trim();
+  const own = hubs[c.repo.split('/').pop() ?? ''] ?? 'bench';
+  const kept = slot(
+    'arm',
+    c.id,
+    c.base,
+    arm,
+    arm === 'floor' ? '' : treeSha,
+    treeText(join(engine, 'examples', own)),
+    arm === 'floor' ? treeText(here('bench/floor')) : '',
+    c.runner,
+    c.setup
+  );
+  if (reusable(kept)) return void cpSync(kept!, at, { recursive: true });
   let reason: string | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (existsSync(at)) renameSync(at, `${at}.${Date.now()}`);
@@ -273,7 +298,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     } catch (e) {
       reason = String(e).slice(0, 200);
     }
-    if (!reason) return;
+    if (!reason) return kept && cpSync(at, kept, { recursive: true, filter: p => !/\/(data|forge|hub)$/.test(p) });
   }
   if (!existsSync(join(at, 'diff.patch'))) save(join(at, 'diff.patch'), '');
   save(join(at, 'meta.json'), { ...JSON.parse(read(join(at, 'meta.json')) || '{}'), infra: reason });
@@ -398,10 +423,13 @@ export const invalid = (base: Tests, human: Tests) => {
 
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
+  const kept = slot('valid', c.id, c.base, c.merged, c.runner, c.setup, c.test);
+  if (!existsSync(file) && reusable(kept)) cpSync(kept!, join(out, c.id), { recursive: true });
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
     const tests = (arm: string) => JSON.parse(read(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
     save(file, { invalid: invalid(tests('base'), tests('human')) });
+    if (kept) cpSync(join(out, c.id), kept, { recursive: true, filter: p => !/\/(tree|v2|floor|judge)$/.test(p) });
   }
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
 };
@@ -531,14 +559,19 @@ const judge = async (caseDir: string, out: string) => {
           Object.entries(judges)
             .filter(([name]) => orders(panel[name] ?? 2, `${c.id}/${x}-${y}`).includes(at))
             .map(async ([name, ask]) => {
+              const kept = slot('judge', name, prompt);
               for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
-                guard(out, name !== 'sol');
-                const raw = await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
-                  ask(prompt, tmpdir())
-                ).catch(() => '');
+                const hit = reusable(kept);
+                if (!hit) guard(out, name !== 'sol');
+                const raw = hit
+                  ? read(kept!)
+                  : await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
+                      ask(prompt, tmpdir())
+                    ).catch(() => '');
                 save(join(dir, `${name}.${attempt}.raw.md`), raw);
                 const v = verdict(raw);
                 if (v) save(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
+                if (v && kept && !hit) save(kept, raw);
               }
             })
         );

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "bench": "node bin/bench-run.ts",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
