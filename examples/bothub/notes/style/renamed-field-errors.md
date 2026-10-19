@@ -12,11 +12,11 @@ keys in the same object are still reported, never hidden behind the rename messa
 Bad:
 
 ```text
-bots/triage.md: `can` was renamed to `returns`, for example `returns: [OWNER]`
+agents/triage.md: `can` was renamed to `returns`, for example `returns: [OWNER]`
 ```
 
 Good:
 
 ```text
-bots/triage.md: `can: [reply, label]` is now `returns: [reply, label]`
+agents/triage.md: `can: [comment, label]` is now `returns: [comment, label]`
 ```

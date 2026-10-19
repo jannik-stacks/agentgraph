@@ -11,11 +11,11 @@ of the error that field gets, which shows the user's own value rewritten.
 Bad:
 
 ```md
-`returns` replaces the old `can` field and lists what a bot may return.
+`returns` replaces the old `can` field and lists what an agent may return.
 ```
 
 Good:
 
 ```md
-`returns` lists what a bot may return.
+`returns` lists what an agent may return.
 ```

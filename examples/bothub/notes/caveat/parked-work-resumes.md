@@ -1,18 +1,14 @@
 ---
-title: A blocked job parks its work and the next run resumes it
+title: A waiting run keeps its work and the answer resumes it
 status: accepted
 human: dogfood round 2 kinks K12 and K19, reused jobs from dogfood round 5 K24
 ---
-Every run of the implementor, however it ends, has its worktree committed whole and pushed to a
-branch of its own, `bothub/<issue>-parked-<run id>`, beside the merge request branch. When it asked a
-question, stopped or its checks still fail after the last attempt, the next run of the job on that
-issue starts from the latest of these: the prompt opens a
-`## Resuming` section with the question asked, or why it stopped and what its last failing checks
-found, and the human's answer. The checks measure the change from where the branch forked, so the
-parked work counts as part of the change.
+The checkout files of a run are kept under `refs/bothub/runs/<run id>`, however a try ends. When
+the run waits on a question, a human step or an exhausted try, the next try of that run puts the
+files back and continues from them, so the change from where the branch forked still counts as the
+whole change.
 
-A resumed run continues the parked work instead of redoing it. Its `push` lists the files it
-changed on top of the parked work; the files already parked need not be listed again. The jobs it
-needs that closed done before it blocked are reused, so an answer to the implementor does not
-rerun triage. Answer a question with a `/bothub <answer>` comment on the issue, or as a comment on
-the `unsure` issue followed by `/bothub`.
+A resumed try continues the kept work instead of redoing it. Its `push` lists the files it changed
+on top of the kept work; files already kept need not be listed again. Steps that finished before
+the run waited are not run again, so an answer to the implementor does not rerun triage. A human
+answers by replying on the issue.

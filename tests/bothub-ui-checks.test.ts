@@ -347,23 +347,23 @@ describe('rules check, retired names', () => {
       {},
       {
         'src/executors/pi.ts': 'export const executor = 1;\n',
-        'examples/hub/bots/triager.md': '---\nsoul: careful\ncan: [reply]\n---\n',
+        'examples/hub/agents/triager.md': '---\nsoul: careful\ncan: [comment]\n---\n',
         'docs/loop.md': 'Each check runs for-each changed file.\n',
       }
     );
     const { ok, out } = check('rules.mjs', repo);
     expect(ok).toBe(false);
     expect(out).toContain('src/executors/pi.ts:1: executor; say harness');
-    expect(out).toContain('examples/hub/bots/triager.md:2: soul; say role');
-    expect(out).toContain('examples/hub/bots/triager.md:3: `can:`; say `returns:`');
-    expect(out).toContain('docs/loop.md:1: for-each; say `over:`');
+    expect(out).toContain('examples/hub/agents/triager.md:2: soul; say agent');
+    expect(out).toContain('examples/hub/agents/triager.md:3: `can:`; say `returns:`');
+    expect(out).toContain('docs/loop.md:1: for-each; say `each:`');
   });
 
   it('passes a hint that rejects the old name', () => {
     const repo = studioChange(
       {},
       {
-        'src/hub.ts': `issue.input === 'open-pr'\n  ? 'there is no "open-pr"; a request to merge a branch is "merge-request"'\n`,
+        'src/hub.ts': `issue.input === 'open-pr'\n  ? 'there is no "open-pr"; a request to merge a branch is "pull_request"'\n`,
         'tests/schema.test.ts': "expect(parse({ soul: 'x' })).toThrow();\n",
       }
     );

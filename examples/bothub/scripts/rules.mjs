@@ -13,7 +13,7 @@ const docs = (path, kind) => kind === 'prose' && docsPath.test(path);
 const written = (path, kind) => comments(path, kind) || docs(path, kind);
 const guarded = path =>
   /^(src|studio\/src|bin)\/.*\.(ts|tsx|mts|js|mjs)$/.test(path) ||
-  /^examples\/[^/]+\/(.*\.ya?ml|workflows\/.*\.md|bots\/.*\.md|checks\/.*\.md)$/.test(path) ||
+  /^examples\/[^/]+\/(.*\.ya?ml|workflows\/.*\.md|agents\/.*\.md|checks\/.*\.md)$/.test(path) ||
   testPath.test(path);
 const shipped = path =>
   /^(src|studio\/src|bin)\/.*\.(ts|tsx|mts|js|mjs)$/.test(path) &&
@@ -30,11 +30,11 @@ const hint = (old, replacement) => (_, text) =>
   text.includes(replacement.replaceAll('`', '')) || new RegExp(`(===\\s*)?['"]${old}s?['"]`, 'i').test(text);
 const retired = [
   [/\bexecutors?\b/i, 'executor', 'harness'],
-  [/\bsouls?\b/i, 'soul', 'role'],
-  [/\bpersonas?\b/i, 'persona', 'bot'],
+  [/\bsouls?\b/i, 'soul', 'agent'],
+  [/\bpersonas?\b/i, 'persona', 'agent'],
   [/^\s*can:/, '`can:`', '`returns:`'],
-  [/\bopen-pr\b/, 'open-pr', 'merge-request'],
-  [/\bfor-each\b|\bforEach:/, 'for-each', '`over:`'],
+  [/\bopen-pr\b/, 'open-pr', 'pull_request'],
+  [/\bfor-each\b|\bforEach:/, 'for-each', '`each:`'],
   [/\bextra[ -]prompt\b/i, 'extra prompt', 'prompt'],
   [/\bnotes\/(convention|pattern)s?\b/, 'a convention or pattern note kind', 'notes/style'],
 ];
