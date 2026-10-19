@@ -21,7 +21,7 @@ export const accent = {
 };
 
 const field =
-  'rounded-md border border-zinc-400 bg-white text-zinc-900 transition-[border-color,box-shadow] duration-150 hover:border-zinc-600 focus:border-zinc-600 focus:shadow-[0_0_0_3px_--alpha(var(--color-zinc-500)/20%)] focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-400 dark:focus:border-zinc-400';
+  'rounded-md border border-zinc-300 bg-white text-zinc-900 transition-[border-color,box-shadow] duration-150 hover:border-zinc-400 focus:border-zinc-500 focus:shadow-[0_0_0_3px_--alpha(var(--color-zinc-500)/20%)] focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-500 dark:focus:border-zinc-500';
 
 const isInternal = (href: string | undefined): href is string => !!href?.startsWith('/') && !href.startsWith('//');
 
@@ -369,7 +369,7 @@ export const Combobox = ({
           <ul
             id={id}
             role="listbox"
-            className="bhm-in absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-96 overflow-y-auto rounded-md border border-zinc-400 bg-white py-1 shadow-md dark:border-zinc-600 dark:bg-zinc-900"
+            className="bhm-in absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-96 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900"
           >
             {shown.map((o, i) => (
               <li
