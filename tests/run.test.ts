@@ -713,6 +713,11 @@ describe('tick', () => {
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Will undo.');
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
+    const marks = traceOf(where.data, 'run-7').filter(t => t.step === 'merge');
+    expect(marks.flatMap(t => ('prompt' in t && t.aside ? [t.aside] : []))).toEqual([
+      { issue: 8, comment: '2026-10-16T00:00:05.000Z' },
+    ]);
+    expect(marks.flatMap(t => ('session' in t ? [!!t.session.aside] : []))).toEqual([true]);
     expect(readFileSync(join(where.forge, '8.reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, 'run-7')).toEqual([
       [true, undefined],

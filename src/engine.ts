@@ -8,7 +8,7 @@ import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, SessionStop, type SessionSpec } from './session.ts';
-import { Store, type StoreError, type Trace } from './store.ts';
+import { type Aside, Store, type StoreError, type Trace } from './store.ts';
 import {
   begin,
   failure,
@@ -527,7 +527,8 @@ const converse = <A = never, R = never>(
   step: string,
   spec: SessionSpec,
   item?: string,
-  until?: Effect.Effect<A, never, R>
+  until?: Effect.Effect<A, never, R>,
+  aside?: Aside
 ) =>
   Effect.gen(function* () {
     const session = yield* Session;
@@ -547,6 +548,7 @@ const converse = <A = never, R = never>(
         session: {
           ...(seen.id !== undefined && { id: seen.id }),
           resumed: !!spec.resume,
+          ...(aside && { aside: true as const }),
           ...how,
           usd: seen.usd,
         },
@@ -556,6 +558,7 @@ const converse = <A = never, R = never>(
       step,
       prompt: spec,
       ...(item !== undefined && { item }),
+      ...(aside && { aside }),
     });
     const talked = session.open(spec).pipe(
       Stream.runForEach(event => {
@@ -1454,7 +1457,15 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
       dir: work.dir,
       tools: agent.tools,
       ...(kept && { resume: kept, fork: true as const }),
-    });
+      },
+      undefined,
+      undefined,
+      {
+        ...(run.eyes && { issue: run.eyes.issue }),
+        ...(run.eyes?.undo.comment !== undefined && { comment: run.eyes.undo.comment }),
+        ...(run.eyes?.undo.review && { review: true as const }),
+      }
+    );
     const { proposals } = proposalsOf(r.final, false);
     const back = proposals.find(p => p.kind === 'back');
     const landed = yield* land(

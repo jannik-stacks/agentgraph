@@ -5,17 +5,21 @@ import type { Applied } from './forge.ts';
 import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';
 
+/** The comment an aside answered, when the run noted it. */
+export type Aside = { issue?: number; comment?: string; review?: true };
+
 /**
  * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
  * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed.
  */
 export type Trace = { at: string; step: string } & (
-  | { prompt: SessionSpec; item?: string }
+  | { prompt: SessionSpec; item?: string; aside?: Aside }
   | { event: SessionEvent }
   | {
       session: {
         id?: string;
         resumed: boolean;
+        aside?: true;
         ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
         exit?: number;
         usd: number;
