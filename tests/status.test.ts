@@ -61,7 +61,7 @@ const check = async (repositories: string[]) => {
     writeFileSync(join(data, id, 'run.json'), run(id, issue, status));
   }
   const lines = await Effect.runPromise(
-    needsYou(app, { hub: 'hub', data }, fetch).pipe(Effect.provide(fileStore(data)))
+    needsYou(app, { again: `--hub hub --data ${data}` }, fetch).pipe(Effect.provide(fileStore(data)))
   );
   return { lines, calls, bodies };
 };

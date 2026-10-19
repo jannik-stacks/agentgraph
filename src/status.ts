@@ -2,11 +2,10 @@ import { Effect, Redacted } from 'effect';
 import { appToken } from './github.ts';
 import { Store } from './store.ts';
 
-/** What waits on a human: repos the installation reaches beyond `app.repo`, and waiting runs with the command to continue each. */
-export const needsYou = (
+/** A warning when the installation reaches repos beyond `app.repo`. */
+const reaches = (
   app: { repo: string; id: string; key: Redacted.Redacted },
-  where: { hub: string; data: string },
-  fetch: (url: string, init?: RequestInit) => Promise<Response> = globalThis.fetch
+  fetch: (url: string, init?: RequestInit) => Promise<Response>
 ) =>
   Effect.gen(function* () {
     const token = yield* appToken(app, fetch)('repos');
@@ -26,12 +25,29 @@ export const needsYou = (
       lines.push(`The installation reaches ${extra.length} repo(s) besides ${app.repo}: ${extra.join(', ')}`);
       lines.push('  Narrow it at https://github.com/settings/installations');
     }
+    return lines;
+  });
+
+/**
+ * What waits on a human: repos the installation reaches beyond `app.repo`, and waiting runs with the command to
+ * continue each. Without an App, the runs are on the forge folder `where.forge`. `where.again` are the run flags.
+ */
+export const needsYou = (
+  app: { repo: string; id: string; key: Redacted.Redacted } | undefined,
+  where: { again: string; forge?: string },
+  fetch: (url: string, init?: RequestInit) => Promise<Response> = globalThis.fetch
+) =>
+  Effect.gen(function* () {
+    const lines: string[] = [];
+    if (app) lines.push(...(yield* reaches(app, fetch)));
     const store = yield* Store;
     for (const run of yield* store.list({ status: 'waiting' })) {
       lines.push(`${run.id} ${run.workflow} #${run.issue} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
-      const issue = `https://github.com/${app.repo}/issues/${run.issue}`;
+      const issue = app
+        ? `https://github.com/${app.repo}/issues/${run.issue}`
+        : `#${run.issue} (node bin/forge.ts ${where.forge} show)`;
       lines.push(run.reason ? `  Answer at ${issue}, then:` : `  Review the PR linked from ${issue}, then:`);
-      lines.push(`  node bin/run.ts --hub ${where.hub} --issue ${run.issue} --data ${where.data}`);
+      lines.push(`  node bin/run.ts ${where.again} --issue ${run.issue}`);
     }
     return lines;
   });
