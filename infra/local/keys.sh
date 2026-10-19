@@ -23,6 +23,7 @@ BOTS=(
   "triager       smart,fast,local,luna            1  30  300000"
   "checker       smart,fast,local,luna            1  30  200000"
   "claim-checker fast,local,luna                  1  30  200000"
+  "scout         fast,local,luna                  1  30  200000"
   "router        smart,fast,local,luna            1  30  200000"
   "retro         smart,fast,local,luna            2  30  400000"
   "auditor       smart,fast,local,luna            1  30  400000"
