@@ -315,6 +315,9 @@ const changes = (work: Checkout, ...args: string[]) =>
 
 const diffOf = (work: Checkout) => changes(work, '--text');
 
+/** The most items a fan-out takes when its check sets no `max`; a step fans out over at most this many. */
+const most = 20;
+
 class EachFailed extends Data.TaggedError('EachFailed')<{ detail: string }> {}
 
 /** The items a fan-out runs over: changed files, diff hunks, or the lines a command prints. */
@@ -497,12 +500,13 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         usd += judged.usd;
         return { item, pass: /^\W*PASS\b/.test(judged.final), findings: judged.final, ...exit };
       });
-    const over = check.max !== undefined && items.length > check.max;
+    const max = check.max ?? most;
+    const over = items.length > max;
     const results: Item[] =
       listed instanceof EachFailed
         ? [{ item: undefined, pass: false, findings: `each failed: ${listed.detail}` }]
         : over
-          ? [{ item: undefined, pass: false, findings: `${items.length} items, more than ${check.max}` }]
+          ? [{ item: undefined, pass: false, findings: `${items.length} items, more than ${max}` }]
           : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
     const failing = results.filter(r => !r.pass);
     const empty = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
@@ -609,13 +613,14 @@ const attempt = (
       ]
         .filter(Boolean)
         .join('\n\n');
-      const items: (string | undefined)[] = step.each
+      const listed: (string | undefined)[] = step.each
         ? yield* itemsOf(step.each, hub.dir, work, minutes).pipe(
             Effect.catchTag('EachFailed', e =>
               Effect.fail(new SandboxError({ reason: 'infra', detail: `each failed: ${e.detail}` }))
             )
           )
         : [undefined];
+      const items = listed.length > most ? [listed.join('\n\n')] : listed;
       const caught = news(t, kept ? (kept.seen ?? { at: run.started }) : { at: '' });
       for (const item of items) {
         yield* refresh(w, run, work, caught.seen, t);

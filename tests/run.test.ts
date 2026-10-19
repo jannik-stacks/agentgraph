@@ -254,6 +254,20 @@ describe('drive', () => {
     expect(transition(w, waiting, reenter(w, waiting, merged)!)).toMatchObject({ status: 'done' });
   }, 30_000);
 
+  it('opens one session over all items when a step fans out past 20', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('r'), reply({ kind: 'comment', body: 'Looked.' })]]);
+    const fan = {
+      ...w,
+      steps: [{ name: 'review', does: { agent: 'reviewer' }, checks: [], tries: 1, each: { run: 'seq 21' } }],
+    };
+    const done = await run(drive(fan, begin(fan, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), hub));
+    expect(done.status).toBe('done');
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.prompt).toContain('1\n\n2\n\n');
+    expect(specs[0]!.prompt).toContain('\n\n21');
+  }, 30_000);
+
   it('shows a judging agent the diff host git sees, whatever attributes the checkout sets', async () => {
     const where = world();
     const { specs, run } = services(where, [
@@ -1219,6 +1233,34 @@ describe('gate', () => {
         ms: expect.any(Number),
       },
     ]);
+  });
+
+  it('fails a check without max as one finding past 20 items, opening no session', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    const small = hubOf('acme-app', { claims: { each: 'seq 21', agent: 'claim-checker' } });
+    const kit = { ...small, checks: { ...small.checks, claims: { ...small.checks.claims!, mode: 'block' as const } } };
+    const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
+    const { specs, run } = services(where, []);
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: where.origin, GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const { outcome } = await run(gate(step, left, kit));
+    expect(outcome).toMatchObject({
+      kind: 'failed',
+      checks: [{ check: 'claims', findings: '21 items, more than 20' }],
+    });
+    expect(specs).toHaveLength(0);
   });
 
   it('fails a check as one error carrying stderr when its each command exits nonzero', async () => {

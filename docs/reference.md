@@ -63,7 +63,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `back`   | step name                                | none                                  | This step or an earlier one the run may go back to |
 | `until`  | sentence                                 | required on an agent step with `back` | When the step is satisfied                         |
 | `rounds` | positive integer                         | 3, no cap on a `wait` step            | How many times the step may go back                |
-| `each`   | `files`, `hunks` or `{ run: <command> }` | none                                  | One fresh session per item                         |
+| `each`   | `files`, `hunks` or `{ run: <command> }` | none                                  | One fresh session per item; past 20 items, one session over them all |
 
 ## Agents
 
@@ -86,7 +86,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `run`   | shell command                 | none     | A script; exit 0 passes                                                 |
 | `agent` | agent name                    | none     | An agent judges; a reply starting with `PASS` passes, with `FAIL` fails |
 | `each`  | `files`, `hunks` or a command | none     | Judges each item on its own                                             |
-| `max`   | positive integer              | no cap   | The most items `each` may find before the check fails                   |
+| `max`   | positive integer              | 20       | The most items `each` may find before the check fails                   |
 
 ## Skills
 

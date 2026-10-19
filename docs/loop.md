@@ -52,7 +52,7 @@ Steps run in the order written. Each does one thing:
 
 A workflow without `steps` is one agent step named after the file, with the agent `agent` names.
 
-`each` on an agent step opens one fresh session per item: `files` for each changed file, `hunks` for each diff hunk, or `{ run: <command> }` for each line the command prints. Such a step never resumes a session.
+`each` on an agent step opens one fresh session per item: `files` for each changed file, `hunks` for each diff hunk, or `{ run: <command> }` for each line the command prints. Such a step never resumes a session. Past 20 items it opens one session over all of them instead. <!-- code: src/engine.ts#most -->
 
 ## Starting a run
 
@@ -134,7 +134,7 @@ A check file holds a script, an agent, or both:
 - `agent`: the reply must start with `PASS`; `FAIL` is a finding. On its own the agent judges the diff, or the item in a fan-out. A judging session that is killed, crashes, times out or replies without `PASS` or `FAIL` is not a verdict: it is tried once more, and if it fails again, a `block` check stops the run with an error saying the check could not be judged, so nothing is fed back to the agent as review feedback. A `warn` or `stop` check records that error as its finding and the run goes on. <!-- code: src/engine.ts#verdictOf -->
 - Both: the script runs and its output goes to the agent.
 
-`each` fans a check out over `files`, `hunks`, or the lines a command prints, and the check fails when any item fails. When there are no items, the check passes marked `empty` with the finding "Judged nothing", so a slicer that lost its input shows up. More items than `max` fail the check. A command that exits nonzero gives no items: the check fails once with the command's output as the finding.
+`each` fans a check out over `files`, `hunks`, or the lines a command prints, and the check fails when any item fails. When there are no items, the check passes marked `empty` with the finding "Judged nothing", so a slicer that lost its input shows up. More items than `max`, 20 unless the check sets it, fail the check as one finding, so no fan-out opens more sessions than that. A command that exits nonzero gives no items: the check fails once with the command's output as the finding.
 
 Several agent checks on one step judge the same try side by side, each in a fresh session, and the findings of those that fail go back together. A reviewer never sees its own earlier verdict. The studio marks such a step with a chip naming the reviewers. <!-- code: src/graph.ts#graphOf -->
 
