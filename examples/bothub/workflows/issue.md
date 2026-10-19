@@ -44,6 +44,6 @@ steps:
   review: { wait: human, back: implement }
 ---
 
-A maintainer comments `/bothub` on an issue about the engine, the studio or the dashboard. The
+A maintainer mentions the bot, or comments `/bothub`, on an issue about the engine, the studio or the dashboard. The
 triager replies with a brief. The implementor works on `bothub/<issue>` until every check passes. A
 human reviews and merges.
