@@ -137,15 +137,57 @@ const CheckItem = ({
   );
 };
 
-/** A workflow's trigger and description. */
+const concurrency = {
+  steer: 'A trusted comment reaches the working session, which gets one more turn with it before the checks.',
+  queue: 'A trusted comment waits until the try ends, then applies as an answer would.',
+  cancel: 'A trusted comment stops the session, and the step starts again at once with it as feedback.',
+};
+
+/** One sentence on what makes a trigger start a run. */
+const startsOn = (event: string, t: { command?: string; label?: string; branches?: string[] }) =>
+  t.command
+    ? `A comment starting with ${t.command} starts a run.`
+    : t.label
+      ? `Adding the ${t.label} label to an issue starts a run.`
+      : event === 'dispatch'
+        ? 'A run proposal from another workflow starts a run.'
+        : event === 'feedback'
+          ? 'What a trusted person says or pushes where another run worked starts a retro.'
+          : t.branches
+            ? `${event.replace('_', ' ')} on ${t.branches.join(', ')}: accepted, starts nothing yet.`
+            : `Each ${event.replace('_', ' ')} event starts a run.`;
+
+/** A workflow's trigger, branches and concurrency, each explained on hover, and its description. */
 export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
-  <div className="space-y-4 p-4 text-xs">
+  <div className="space-y-5 p-4 text-xs">
     <h2 className="text-sm font-semibold">{workflow.name}</h2>
     <Fields>
-      <Field name="steps">{workflow.steps.map(s => s.name).join(', ')}</Field>
-      {workflow.branch && <Field name="branch">{workflow.branch}</Field>}
-      {workflow.base && <Field name="base">{workflow.base}</Field>}
-      <Field name="concurrency">{workflow.concurrency}</Field>
+      <Field name={<Term tip="What starts a run of this workflow.">on</Term>}>
+        {Object.entries(workflow.on).map(([event, t], i) => (
+          <span key={event}>
+            {i > 0 && ', '}
+            <Term tip={startsOn(event, t ?? {})}>{event.replace('_', ' ')}</Term>
+          </span>
+        ))}
+      </Field>
+      <Field name={<Term tip="The steps, run in the order written.">steps</Term>}>
+        {workflow.steps.map(s => s.name).join(', ')}
+      </Field>
+      {workflow.branch && (
+        <Field name={<Term tip="The branch a run works on; {issue} and {parent} are filled in.">branch</Term>}>
+          {workflow.branch}
+        </Field>
+      )}
+      {workflow.base && (
+        <Field name={<Term tip="The branch its pull requests go into.">base</Term>}>{workflow.base}</Field>
+      )}
+      <Field
+        name={
+          <Term tip="What a trusted comment does to a working run; it never starts a second run.">concurrency</Term>
+        }
+      >
+        <Term tip={concurrency[workflow.concurrency]}>{workflow.concurrency}</Term>
+      </Field>
     </Fields>
     {workflow.body && <Markdown text={workflow.body} />}
   </div>
