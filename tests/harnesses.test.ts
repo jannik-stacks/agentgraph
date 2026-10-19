@@ -185,6 +185,18 @@ describe('opencode', () => {
     expect(harnessArgs(claude).join(' ')).toContain('--add-dir /data/news/ab --model');
   });
 
+  it('allows reading the news file the prompt names', async () => {
+    const prompt = 'People may comment while you work: /data/news/ab/news.md holds what is new.';
+    const file = /(\S+) holds what is new/.exec(prompt)![1]!;
+    const { command } = await events({ ...spec, prompt, read: ['/data/news/ab'] }, []);
+    const rules = JSON.parse(command.env.OPENCODE_PERMISSION!);
+    const allowed = Object.entries(rules.external_directory as Record<string, string>).filter(
+      ([glob, action]) => action === 'allow' && file.startsWith(glob.slice(0, -1))
+    );
+    expect(allowed).toHaveLength(1);
+    expect(rules.read).toBe('allow');
+  });
+
   it('reads a recorded run', async () => {
     const { events: got, command } = await events(spec, sample('opencode-run.jsonl'));
     expect(got).toEqual<SessionEvent[]>([
