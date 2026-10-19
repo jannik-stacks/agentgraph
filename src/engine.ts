@@ -435,13 +435,13 @@ type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'ex
 
 const gates = new Map<string, { size: number; gate: Effect.Semaphore }>();
 
-/** The one semaphore every session of a hub starts behind, so containers never exceed `limits.sessions`. */
+/** The one semaphore every session on a repo starts behind, so containers never exceed `limits.sessions`. */
 const gateOf = (hub: Hub) => {
   const size = hub.limits.sessions;
-  const kept = gates.get(hub.dir);
+  const kept = gates.get(hub.repo);
   if (kept?.size === size) return kept.gate;
   const gate = Effect.unsafeMakeSemaphore(size);
-  gates.set(hub.dir, { size, gate });
+  gates.set(hub.repo, { size, gate });
   return gate;
 };
 
