@@ -74,11 +74,59 @@ const gist = (p: Proposal) =>
                 ? `#${p.number}`
                 : '';
 
+const tips = {
+  line: {
+    session: 'One agent session: its prompt, then every event in order. Open it for the details.',
+    aside: 'A fork of an earlier session that answers a comment in its thread while the run keeps waiting.',
+    prompt: 'What the agent was given: its system file, the task and the tools it may use.',
+    text: 'Text the agent wrote during the session.',
+    thinking: 'What the agent reasoned before acting, as its harness reports it.',
+    tool: 'A tool the agent called. Open it for the input and the result.',
+    check: 'A check the engine ran on the try. A failing check that blocks sends the try back.',
+  },
+  proposal: {
+    comment: 'A comment bothub posted, under the thread a human last spoke in.',
+    label: 'Labels bothub added to or removed from the issue.',
+    push: 'Commits bothub pushed to the run branch.',
+    pull: 'A pull request bothub opened.',
+    merge: 'A pull request bothub merged.',
+    issue: 'An issue bothub filed: a part, a follow-up or a hub change.',
+    ask: 'A question bothub posted. The run waits for your answer.',
+    back: 'The agent sent the run back to an earlier step.',
+    run: 'Another workflow this run started by name.',
+    react: 'A reaction bothub left on a comment to show it saw it.',
+    rebase: 'bothub moved the branch onto its new base.',
+  },
+  outcome: {
+    pass: 'The step finished and its checks passed. The run moves on.',
+    failed: 'The try failed: a check that blocks failed or a proposal was invalid. The step tries again.',
+    back: 'The step sent the run back to an earlier step, with the reason below.',
+    ask: 'The step stopped to ask a human. The run waits for an answer.',
+    answer: 'A human answered, so the step goes on with that answer.',
+    stop: 'The run stopped here, with the reason below.',
+  },
+} as const;
+
+/** A row's kind as a pill that says on hover what it means. */
+const Pill = ({ of, kind }: { of: keyof typeof tips; kind: string }) => {
+  const tip = (tips[of] as Record<string, string>)[kind];
+  return tip ? (
+    <Tooltip tip={tip}>
+      <Badge>{kind}</Badge>
+    </Tooltip>
+  ) : (
+    <Badge>{kind}</Badge>
+  );
+};
+
 const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } = {
   tool: e => ({
     summary: (
       <>
-        <Badge>{toolName(e.name)}</Badge> {toolSummary(e.name, e.input)}
+        <Tooltip tip={tips.line.tool}>
+          <Badge>{toolName(e.name)}</Badge>
+        </Tooltip>{' '}
+        {toolSummary(e.name, e.input)}
         {e.denied && flag(' denied')}
         {e.ok === false && !e.denied && flag(' failed')}
         {e.exit !== undefined && muted(` exit ${e.exit}`)}
@@ -89,7 +137,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
   text: e => ({
     summary: (
       <>
-        <Badge>text</Badge> {short(e.text)}
+        <Pill of="line" kind="text" /> {short(e.text)}
       </>
     ),
     body: (
@@ -102,7 +150,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
   thinking: e => ({
     summary: (
       <>
-        <Badge>thinking</Badge> {muted(short(e.text))}
+        <Pill of="line" kind="thinking" /> {muted(short(e.text))}
       </>
     ),
     body: (
@@ -136,7 +184,7 @@ const lines: {
   prompt: ({ prompt: p }) => ({
     summary: (
       <>
-        <Badge>prompt</Badge> {muted(`to ${p.agent}, ${p.tools.length} tools, ${p.minutes} minutes`)}
+        <Pill of="line" kind="prompt" /> {muted(`to ${p.agent}, ${p.tools.length} tools, ${p.minutes} minutes`)}
       </>
     ),
     body: (
@@ -155,7 +203,7 @@ const lines: {
   check: line => ({
     summary: (
       <>
-        <Badge>check</Badge> {line.check.check} {flag(line.check.pass ? 'pass' : 'fail', !line.check.pass)}
+        <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? 'pass' : 'fail', !line.check.pass)}
         {muted(
           `${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
         )}
@@ -173,7 +221,7 @@ const lines: {
   applied: ({ applied: { proposal: p, ok, url, reason } }, by) => ({
     summary: (
       <>
-        <Badge>{kindName(p.kind)}</Badge> {muted(by)} {short(gist(p), 120)}
+        <Pill of="proposal" kind={kindName(p.kind)} /> {muted(by)} {short(gist(p), 120)}
         {!ok && flag(` failed: ${short(reason ?? '', 120)}`)} {url && <Url url={url} />}
       </>
     ),
@@ -189,7 +237,7 @@ const lines: {
   outcome: line => ({
     summary: (
       <>
-        <Badge>{line.outcome.kind}</Badge>
+        <Pill of="outcome" kind={line.outcome.kind} />
         {muted(` then ${line.run.step}, ${line.run.status}, try ${line.run.tries}`)}
         {detail(line.outcome) && muted(`: ${short(detail(line.outcome))}`)}
       </>
@@ -236,7 +284,7 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: 
     scroll: true,
     summary: (
       <span className="flex min-w-0 items-baseline gap-x-2">
-        <Badge>{aside ? 'aside' : 'session'}</Badge>
+        <Pill of="line" kind={aside ? 'aside' : 'session'} />
         <span className="font-medium">{spec?.agent ?? 'agent'}</span>
         {heard && <Url url={heard} text="the comment" />}
         {spec && muted(`${spec.harness}${spec.model ? `, ${spec.model}` : ''}`)}
