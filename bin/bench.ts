@@ -188,6 +188,15 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     save(join(hub, 'checks/tests.md'), read(join(hub, 'checks/tests.md')).replace('npm test', c.test));
     if (c.setup) save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${read(join(hub, 'hub.yaml'))}`);
   }
+  const yaml = read(join(hub, 'hub.yaml'));
+  save(
+    join(hub, 'hub.yaml'),
+    /^ {2}parallel:/m.test(yaml)
+      ? yaml.replace(/^( {2}parallel:).*$/m, '$1 1')
+      : /^limits:/m.test(yaml)
+        ? yaml.replace(/^limits:/m, 'limits:\n  parallel: 1')
+        : `${yaml}limits:\n  parallel: 1\n`
+  );
   if (arm === 'floor') {
     rmSync(join(hub, 'workflows'), { recursive: true });
     rmSync(join(hub, 'checks'), { recursive: true, force: true });
