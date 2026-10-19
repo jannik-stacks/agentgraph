@@ -161,11 +161,23 @@ const gone = {
 } satisfies Record<string, Record<string, string>>;
 
 const returns: Record<string, string> = {
-  'merge-request': 'returns: merge-request is now pull_request',
-  reply: 'returns: reply is now comment',
-  pull: 'returns: pull is now pull_request',
-  note: 'returns: note is gone; memory is docs in the repo, written by a push',
-  hub: 'returns: hub is gone; remove it',
+  'merge-request': 'merge-request is now pull_request',
+  reply: 'reply is now comment',
+  pull: 'pull is now pull_request',
+  note: 'note is gone; memory is docs in the repo, written by a push',
+  close: 'close is gone; a lone comment that answers the issue ends the run',
+  hub: 'hub is gone; remove it',
+};
+
+/** Reports each retired kind a body names in backticks and each `"kind"` value the engine does not know. */
+const unknownKinds = (body: string, say: (message: string) => void) => {
+  const seen = new Set<string>();
+  for (const [, word, kind] of body.matchAll(/`(\w[\w-]*)`|"kind":\s*"([\w-]+)"/g)) {
+    const name = word ?? kind!;
+    if (seen.has(name) || kinds.some(k => k === name) || (word !== undefined && !(name in returns))) continue;
+    seen.add(name);
+    say(`names the proposal kind ${name}, which the engine does not have${returns[name] ? `: ${returns[name]}` : ''}`);
+  }
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -249,7 +261,8 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   const agents = docs(groups.agents, (data, say) => {
     const kept = strip(data, gone.agent, say);
     if (isRecord(kept) && Array.isArray(kept.returns)) {
-      for (const kind of kept.returns) if (typeof kind === 'string' && kind in returns) say(returns[kind]!);
+      for (const kind of kept.returns)
+        if (typeof kind === 'string' && kind in returns) say(`returns: ${returns[kind]}`);
       kept.returns = kept.returns.filter(kind => !(kind in returns));
     }
     return decode(Agent, kept, say);
@@ -275,6 +288,9 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
     return check;
   });
 
+  for (const doc of [...Object.values(agents), ...Object.values(skills), ...Object.values(checks)])
+    unknownKinds(doc.body, sayer(doc.path));
+
   const names = { agents: Object.keys(agents), skills: Object.keys(skills), checks: Object.keys(checks) };
   const workflows: Record<string, Workflow> = {};
   for (const file of groups.workflows) {
@@ -293,12 +309,25 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   }
   for (const w of Object.values(workflows))
     for (const step of w.steps) if ('agent' in step.does && step.does.skill) used.add(step.does.skill);
-  if (Object.keys(workflows).length === groups.workflows.length)
+  if (Object.keys(workflows).length === groups.workflows.length) {
+    const steps = Object.values(workflows).flatMap(w => w.steps);
+    const usedChecks = new Set(steps.flatMap(step => step.checks));
+    const usedAgents = new Set([
+      ...steps.flatMap(step => ('agent' in step.does ? [step.does.agent] : [])),
+      ...Object.values(checks).flatMap(check => (check.agent === undefined ? [] : [check.agent])),
+    ]);
     for (const skill of Object.values(skills))
       if (!used.has(skill.name))
         sayer(skill.path)(
           `no step names ${skill.name} and no skill uses it; name it as a step's skill or in a skill's uses, or remove it`
         );
+    for (const check of Object.values(checks))
+      if (!usedChecks.has(check.name))
+        sayer(check.path)(`no step names ${check.name} in its checks; name it in a step or remove it`);
+    for (const agent of Object.values(agents))
+      if (!usedAgents.has(agent.name))
+        sayer(agent.path)(`no step or check names ${agent.name} as its agent; name it in a step or remove it`);
+  }
   return { hub, agents, skills, checks, workflows, problems };
 };
 

@@ -123,7 +123,10 @@ describe('loadHub', () => {
   });
 
   it('names session and resume on an agent', async () => {
-    const dir = hubDir({ 'agents/a.md': '---\nharness: claude\nsession: { resume: attempts }\nresume: true\n---\n' });
+    const dir = hubDir({
+      'agents/a.md': '---\nharness: claude\nsession: { resume: attempts }\nresume: true\n---\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
+    });
     expect(await problems(dir)).toEqual([
       'agents/a.md: session is gone; a step starts a fresh session and a retry resumes it',
       'agents/a.md: resume is gone; a step starts a fresh session and a retry resumes it',
@@ -173,6 +176,25 @@ describe('loadHub', () => {
     expect(await problems(dir)).toEqual([
       "skills/orphan.md: no step names orphan and no skill uses it; name it as a step's skill or in a skill's uses, or remove it",
       'notes: nothing reads notes/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $BOTHUB_HUB',
+    ]);
+  });
+
+  it('fails on a check and an agent no step names, and on a body naming a kind the engine lacks', async () => {
+    const dir = hubDir({
+      'agents/a.md': '---\nharness: opencode\n---\n',
+      'agents/idle.md': '---\nharness: opencode\n---\nEnd with a `comment`.\n',
+      'agents/judge.md': '---\nharness: opencode\n---\n',
+      'checks/used.md': '---\nmode: warn\nagent: judge\n---\n',
+      'checks/idle.md': '---\nmode: warn\nrun: "true"\n---\n',
+      'skills/s.md': 'End with one `reply`, a `close` or {"kind": "merge-request"}, never a `comment`.\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a, skill: s, checks: [used] }\n---\n',
+    });
+    expect(await problems(dir)).toEqual([
+      'skills/s.md: names the proposal kind reply, which the engine does not have: reply is now comment',
+      'skills/s.md: names the proposal kind close, which the engine does not have: close is gone; a lone comment that answers the issue ends the run',
+      'skills/s.md: names the proposal kind merge-request, which the engine does not have: merge-request is now pull_request',
+      'checks/idle.md: no step names idle in its checks; name it in a step or remove it',
+      'agents/idle.md: no step or check names idle as its agent; name it in a step or remove it',
     ]);
   });
 
