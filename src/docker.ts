@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { copyFile, mkdir, readFile, realpath, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
@@ -254,7 +254,11 @@ export const docker = (o: {
                 yield* inMirror(['fetch', '--prune', '--update-head-ok', 'origin', '+refs/*:refs/*', ours], env);
               else {
                 yield* Effect.promise(() => mkdir(dirname(mirror), { recursive: true }));
-                yield* Effect.asVoid(hostGit(env, ['clone', '--mirror', o.origin, mirror]));
+                const part = `${mirror}.${randomBytes(4).toString('hex')}`;
+                yield* Effect.asVoid(hostGit(env, ['clone', '--mirror', o.origin, part]));
+                yield* Effect.promise(() =>
+                  rename(part, mirror).catch(() => rm(part, { recursive: true, force: true }))
+                );
               }
             })
           );

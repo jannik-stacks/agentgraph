@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -242,6 +242,14 @@ describe('docker checkout', () => {
     expect(config).not.toContain(token);
     expect(config).not.toContain('extraheader');
   }, 30_000);
+
+  it('lets two processes create the mirror at the same time', async () => {
+    const data = tmp('data');
+    const from = origin();
+    const exits = await Promise.all([0, 1].map(() => use(docker({ data, origin: from }), s => s.checkout('main'))));
+    expect(exits.map(Exit.isSuccess)).toEqual([true, true]);
+    expect(readdirSync(data).filter(n => n.startsWith('mirror'))).toEqual(['mirror.git']);
+  });
 
   it('checks out a ref or the existing branch from a mirror and removes the worktree with the scope', async () => {
     const data = tmp('data');
