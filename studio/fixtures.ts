@@ -25,13 +25,25 @@ const json = (res: import('node:http').ServerResponse, value: unknown, status = 
   res.end(JSON.stringify(value));
 };
 
+/** A JSON value with every string longer than a line cut to one. */
+const cut = (value: unknown): unknown =>
+  typeof value === 'string'
+    ? value.length > 160
+      ? `${value.slice(0, 160)}...`
+      : value
+    : Array.isArray(value)
+      ? value.map(cut)
+      : value && typeof value === 'object'
+        ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, cut(v)]))
+        : value;
+
 const bodies = (docs: Record<string, { body: string }>) =>
   Object.fromEntries(Object.entries(docs).map(([name, doc]) => [name, doc.body]));
 
 /**
  * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
  * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
- * their traces, leaving out prompts and session events; `GET /core/runs/<id>` answers one run with every trace line.
+ * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line.
  * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const fixtures = (): Plugin => ({
@@ -70,7 +82,7 @@ export const fixtures = (): Plugin => ({
           const store = yield* Store;
           const entry = (run: import('../src/workflow.ts').Run, all: boolean) =>
             Stream.runCollect(
-              store.read(run.id).pipe(Stream.filter(line => all || !('event' in line || 'prompt' in line)))
+              store.read(run.id).pipe(Stream.map(line => (all ? line : (cut(line) as typeof line))))
             ).pipe(
               Effect.map(trace => ({
                 fixture: `${served.name}/${run.workflow}`,

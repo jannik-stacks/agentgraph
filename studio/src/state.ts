@@ -62,5 +62,5 @@ export const live = <T>(path: string) => {
   return value;
 };
 
-/** Every run of the served hub, with its trace short of prompts and session events. */
+/** Every run of the served hub, with its trace, every text in it cut short. */
 export const runsAtom = live<CoreRun[]>('/core/runs');
