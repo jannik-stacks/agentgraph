@@ -1629,11 +1629,12 @@ export const tick = (
         yield* start(w, only, now());
     }
 
-    /** The issue a run worked on for what was said there, or on a pull request of its branch that is no longer open. */
+    /** The issue a run worked on for what was said there, or on a pull request of its branch that is no longer open; `onRun` maps an open one. */
     const pulls = new Map<number, number | undefined>();
     const workedOn = (m: Event) =>
       Effect.gen(function* () {
         if (all.some(r => r.issue === m.issue && !retro(hub, r))) return m.issue;
+        if (issues.some(t => t.number === m.issue)) return undefined;
         if (!pulls.has(m.issue)) {
           const branch = Option.getOrUndefined(yield* Effect.option(forge.issue(m.issue)))?.pull?.branch;
           const by = all.find(r => {

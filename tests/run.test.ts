@@ -2163,6 +2163,23 @@ describe('compound engineering', () => {
     expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /bothub stop you rewrote the whole module\n');
   }, 30_000);
 
+  it('looks up no open issue a run never worked on', async () => {
+    const where = world();
+    writeFileSync(join(where.forge, '12.md'), '---\ntitle: Other\nstate: open\nauthor: morgan\n---\n\nElse.\n');
+    say(where, comment(12, 'morgan', true, 'Unrelated.', '2026-10-16T00:00:05.000Z'));
+    const asked: number[] = [];
+    const counted = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({ ...f, issue: (n: number) => (asked.push(n), f.issue(n)) }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const layer = Layer.mergeAll(counted, fileStore(where.data), host(where.origin), scripted([]));
+    const go = <A, E>(e: Effect.Effect<A, E, Forge | Store | Session | Sandbox>) =>
+      Effect.runPromise(e.pipe(Effect.provide(layer)));
+    await go(done());
+    expect(await go(tick(looking))).toEqual([]);
+    expect(asked).not.toContain(12);
+  }, 30_000);
+
   it('takes what is said on a merged pull request as feedback on the issue its branch worked on', async () => {
     const where = world();
     writeFileSync(
