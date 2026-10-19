@@ -720,6 +720,28 @@ describe('tick', () => {
     ]);
   }, 30_000);
 
+  it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
+    say(where, comment(8, 'morgan', true, '@bothub why the greeting?', '2026-10-16T00:00:05.000Z'));
+    const { specs, run } = services(where, []);
+    await run(waiting(where));
+    const stored = () => run(Effect.flatMap(Store, st => st.list({ issue: 7 }))).then(rs => rs[0]!);
+    await run(tick(merging, 7));
+    const first = await stored();
+    expect(first).toMatchObject({ step: 'merge', status: 'waiting', retried: true });
+    expect(first.seen).not.toBe('2026-10-16T00:00:05.000Z');
+    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).not.toContain('Could not answer');
+    await run(tick(merging, 7));
+    const second = await stored();
+    expect(second).toMatchObject({ step: 'merge', status: 'waiting', seen: '2026-10-16T00:00:05.000Z' });
+    expect(second.retried).toBeUndefined();
+    expect(specs).toHaveLength(2);
+    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain(
+      'Could not answer: SessionStop. Reply again to retry.'
+    );
+  }, 30_000);
+
   it('answers a waiting run started by a label on a command, without starting the command workflow', async () => {
     const where = world();
     const triage = { ...merging.workflows.issue, name: 'triage', on: { issues: { label: 'triage' } } };

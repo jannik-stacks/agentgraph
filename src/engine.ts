@@ -1600,14 +1600,28 @@ export const tick = (
       const seen = { ...(m.kind === 'comment' ? yield* eyes(run, m) : run), said: heard(m) };
       const step = w.steps.find(s => s.name === run.step);
       const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
-      const asked: { run: Run; outcome?: Outcome } | undefined =
+      const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
         outcome.kind !== 'answer' || !step || !waits(step)
           ? undefined
           : !pull
             ? { run: seen, outcome: { kind: 'back', why: outcome.text } }
             : yield* aside(w, seen, hub, outcome.text, pull).pipe(
-                Effect.catchAll(e => Effect.as(Effect.logError(`aside of run ${run.id}`, e), { run: seen }))
+                Effect.catchAll(e =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError(`aside of run ${run.id}`, e);
+                    if (!run.retried)
+                      return { run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const }, again: true };
+                    const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
+                    yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.catchAll(() => Effect.void));
+                    const { retried: _retried, ...rest } = seen;
+                    return { run: rest, again: false };
+                  })
+                )
               );
+      if (asked?.again) {
+        yield* store.put(asked.run);
+        continue;
+      }
       const moved = {
         ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
         seen: newest(...answers.map(a => a.at))!,
