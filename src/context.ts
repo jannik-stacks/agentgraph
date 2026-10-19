@@ -8,7 +8,7 @@ const cap = 20_000;
 
 const line = (m: Event): string => {
   const c = m.comment;
-  const said = c ? `${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ''}` : ''}: ${c.body}` : '';
+  const said = c ? `${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ''}, id ${c.id}` : ''}: ${c.body}` : '';
   const who = `@${m.actor}`;
   switch (m.kind) {
     case 'comment':

@@ -51,7 +51,7 @@ Each applied proposal is traced with its URL, or the reason it failed. A failed 
 
 ## Comments
 
-A comment goes where the human who started or woke the run spoke: the issue, its pull request, or the review thread of a line comment. When no human spoke yet, it goes on the open pull request of the run's branch, else on the issue. <!-- code: src/engine.ts#land -->
+A comment goes where the human who started or woke the run spoke: the issue, its pull request, or the review thread of a line comment. When no human spoke yet, it goes on the open pull request of the run's branch, else on the issue. A comment with `under` answers the review comment with that id on the run's pull request; the agent's context shows each review comment's id. <!-- code: src/engine.ts#land -->
 
 ## Pushes
 

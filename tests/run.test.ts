@@ -1391,6 +1391,21 @@ describe('coworker', () => {
     expect(issue.filter(b => b.includes(replyHint))).toHaveLength(1);
   });
 
+  it('lets an agent answer a review comment by the id its context shows, on the pull request', async () => {
+    const where = world();
+    pullRequest(where);
+    const at = '2026-10-16T00:00:03.000Z';
+    const line = { id: 'r1', author: 'morgan', body: 'why hello?', at, path: 'hello.txt', line: 1 };
+    say(where, { ...comment(8, 'morgan', true, 'why hello?', at), comment: line });
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Asked for.', under: 'r1' })]]);
+    await run(drive(flow, { ...begun(), said: { issue: 7 } }, small));
+    expect(specs[0]!.prompt).toContain('@morgan on hello.txt:1, id r1: why hello?');
+    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under, c.path])).toEqual([
+      ['Asked for.', 'r1', 'hello.txt'],
+    ]);
+  }, 30_000);
+
   it('replies where the human answered: on the pull request, and under a review comment in its issue', async () => {
     const where = world();
     pullRequest(where);

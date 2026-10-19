@@ -966,9 +966,9 @@ const attempt = (
       });
 
     const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
-    const edited = commented && (yield* hostGit(work.git, ['status', '--porcelain'])).length > 0;
+    const edited = commented && asked && (yield* hostGit(work.git, ['status', '--porcelain'])).length > 0;
     const answered = commented && answering && !edited;
-    if (commented && (edited || !held) && asked && (returns.includes('push') || returns.includes('pull_request')))
+    if (asked && commented && (edited || !held) && (returns.includes('push') || returns.includes('pull_request')))
       return done(
         {
           kind: 'failed',
@@ -1022,10 +1022,9 @@ const attempt = (
     if (gated.kind !== 'pass') return done(gated, tried);
     if (back) return done({ kind: 'back', why: back.why }, tried);
 
-    const to =
-      world.some(p => p.kind === 'comment') && !run.said
-        ? pullOf(w, run.issue, yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' })))
-        : undefined;
+    const to = world.some(p => p.kind === 'comment' && (!run.said || p.under !== undefined))
+      ? pullOf(w, run.issue, yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' })))
+      : undefined;
     const runs = world.filter(p => p.kind === 'run');
     const refused = yield* undispatchable(hub, run, runs);
     if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
@@ -1159,9 +1158,9 @@ const land = (
       [...proposals].sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push')),
       p =>
         p.kind === 'comment'
-          ? forge.apply(run.said?.issue ?? to ?? run.issue, {
+          ? forge.apply(p.under === undefined ? (run.said?.issue ?? to ?? run.issue) : (to ?? run.issue), {
               ...p,
-              ...(run.said?.under && { under: run.said.under }),
+              ...(p.under === undefined && run.said?.under && { under: run.said.under }),
             })
           : forge.apply(run.issue, p, work)
     )
