@@ -353,8 +353,7 @@ const RunInfo = ({ r: { run, fixture } }: { r: CoreRun }) => {
       </p>
       {raw && <RawJson value={run} />}
       {run.reason && (
-        <p className="max-w-3xl font-sans text-xs text-zinc-600 dark:text-zinc-400">
-          {muted(run.status === 'waiting' ? 'question ' : 'why ')}
+        <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
           {run.reason}
         </p>
       )}
