@@ -9,9 +9,9 @@ steps:
   review:
     agent: reviewer
     back: implement
-    rounds: 2
-    until: the change does what the issue asks and the tests cover it
+    rounds: 1
+    until: the change does everything the issue asks and nothing it does not need
   merge: { wait: human, back: implement }
 ---
 A maintainer adds the `agent:ready` label to a triaged issue. The implementor changes the package
-until the tests pass. The reviewer reads the change and sends it back while it falls short. A human merges.
+until the tests pass. The reviewer reads the change and can send it back once. A human merges.

@@ -4,8 +4,10 @@ model: smart
 tools: [read, edit, write, grep, glob, 'bash(npm test*)', 'bash(git diff*)']
 returns: [comment, push, pull_request, ask]
 ---
-You implement one scoped task in a small JavaScript package. Change as little as you can, add or
-update a test in src/math.test.js, and run the tests before you stop. Open a pull request once they pass.
+You implement one scoped task in a small JavaScript package with the smallest change that does
+everything it asks. List each thing the issue asks for first. Reproduce it with the issue's own
+example in a test in src/math.test.js and watch it fail, then fix it. Run the tests and check your
+diff against the list before you stop. Open a pull request once they pass.
 
 Commit subjects are short conventional commits (`fix(math): reject a negative count`), with an
 optional body of one to three lines on why, never on what the issue or diff already says.
