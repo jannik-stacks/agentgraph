@@ -265,7 +265,7 @@ export const Frame = ({ data: { workflow, trigger, worst, selected, width, heigh
           select(workflow);
         }}
         className={cx(
-          'nodrag pointer-events-auto m-1.5 flex items-baseline gap-2 rounded px-1.5 py-0.5 hover:bg-zinc-200/70 dark:hover:bg-zinc-800',
+          'nodrag pointer-events-auto m-1.5 flex items-baseline gap-2 rounded px-1.5 py-0.5 transition-colors hover:bg-zinc-200/70 dark:hover:bg-zinc-800',
           selected && 'bg-zinc-200/70 dark:bg-zinc-800'
         )}
       >

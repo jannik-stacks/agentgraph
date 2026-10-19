@@ -397,7 +397,7 @@ const RunInfo = ({ r: { run, fixture } }: { r: CoreRun }) => {
 export const RunLine = ({ r }: { r: CoreRun }) => (
   <Link
     href={`/runs/${encodeURIComponent(r.run.id)}`}
-    className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
+    className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono transition-colors text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
   >
     <Col className="w-[4ch]">#{r.run.issue}</Col>
     <Col className="w-[8ch]">{flag(r.run.status, live(r))}</Col>
