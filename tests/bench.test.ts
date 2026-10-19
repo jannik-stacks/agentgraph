@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootstrap, plan, scrub, stats, verdict } from '../bin/bench.ts';
+import { bootstrap, invalid, plan, scrub, stats, verdict } from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
@@ -62,6 +62,18 @@ describe('bench helpers', () => {
     expect(verdict('no block')).toBeUndefined();
   });
 
+  it('marks a case invalid unless the hidden tests fail on base and pass on the human', () => {
+    const ok = { applied: true, hidden: { ok: true }, suite: { ok: true } };
+    const red = { applied: true, hidden: { ok: false } };
+    expect(invalid(red, ok)).toBeUndefined();
+    expect(invalid({ applied: true }, { applied: true })).toBeUndefined();
+    expect(invalid(ok, ok)).toMatch(/base already passes/);
+    expect(invalid(red, { ...ok, hidden: { ok: false } })).toMatch(/human fails the hidden/);
+    expect(invalid(red, { ...ok, suite: { ok: false } })).toMatch(/human fails the suite/);
+    expect(invalid(red, { applied: false })).toMatch(/does not apply/);
+    expect(invalid(red, { ...ok, setup: { ok: false } })).toMatch(/setup fails/);
+  });
+
   it('gives a bootstrap interval around the mean', () => {
     expect(bootstrap([1, 1, 1])).toEqual([1, 1]);
     const [low, high] = bootstrap([0, 1, 0, 1, 1, 0, 1, 1]);
@@ -117,6 +129,7 @@ describe('bin/bench.ts score and report', () => {
     expect(score('human')).toMatchObject({ hidden: { ok: true }, testsAdded: 1, overlap: 1 });
 
     bench('score', kase, out, '--repo', repo);
+    expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({});
     const log = readFileSync(join(out, 'log.jsonl'), 'utf8').trim().split('\n');
     expect(log.filter(l => l.includes('"event":"end"'))).toHaveLength(3);
     const said = (order: string, judge: string, prefer: string) => {

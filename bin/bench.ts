@@ -47,7 +47,8 @@ type Commands = {
 type Finding = { severity: string; category: string; text: string };
 type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
 
-const arms = ['human', 'v2', 'floor', 'v1'];
+const bots = ['v2', 'floor', 'v1'];
+const arms = ['human', ...bots];
 const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'bothub-sandbox': 'sandbox' };
 const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/bothub No more information. Use your judgment.';
@@ -237,6 +238,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (existsSync(join(at, 'diff.patch'))) return;
   if (existsSync(at)) renameSync(at, `${at}.${Date.now()}`);
   if (!process.env.BOTHUB_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
+  if (await prepare(c, out, repo)) return;
   guard(out, false);
   const started = Date.now();
   const meta = await step(out, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo)));
@@ -318,8 +320,7 @@ const effort = (data: string) => {
   return { sessions: sessions.length, usd: round(sessions.reduce((a, s) => a + s.usd, 0)) };
 };
 
-const score = async (caseDir: string, out: string, repo: string) => {
-  const c = loadCase(caseDir);
+const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {
   const root = join(out, c.id);
   const merged = read(join(c.dir, 'merged.diff'));
   if (!existsSync(join(root, 'human/diff.patch'))) save(join(root, 'human/diff.patch'), merged);
@@ -329,7 +330,7 @@ const score = async (caseDir: string, out: string, repo: string) => {
   const hidden = human.filter(p => testPath.test(p) && !noise.test(p));
   const tree = join(root, 'tree');
   if (!existsSync(tree)) sh('git', ['clone', '-q', '--shared', '--no-checkout', resolve(repo), tree]);
-  for (const arm of ['base', ...arms]) {
+  for (const arm of which) {
     const at = join(root, arm);
     if (!existsSync(join(at, 'diff.patch')) || existsSync(join(at, 'score.json'))) continue;
     const diff = read(join(at, 'diff.patch'));
@@ -339,6 +340,34 @@ const score = async (caseDir: string, out: string, repo: string) => {
     );
     save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...effort(join(at, 'data')), ...meta });
   }
+};
+
+type Tests = { applied?: boolean; setup?: { ok: boolean }; suite?: { ok: boolean }; hidden?: { ok: boolean } };
+
+/** Why a case cannot tell arms apart, when it cannot: the hidden tests must fail on base and pass on the human. */
+export const invalid = (base: Tests, human: Tests) => {
+  if (human.applied === false) return 'the human diff does not apply to base';
+  if (base.setup?.ok === false || human.setup?.ok === false) return 'setup fails';
+  if (!base.hidden || !human.hidden) return undefined;
+  if (base.hidden.ok) return 'base already passes the hidden tests';
+  if (!human.hidden.ok) return 'the human fails the hidden tests';
+  if (human.suite?.ok === false) return 'the human fails the suite';
+  return undefined;
+};
+
+const prepare = async (c: Case & Commands, out: string, repo: string) => {
+  const file = join(out, c.id, 'valid.json');
+  if (!existsSync(file)) {
+    await scoreArms(c, out, repo, ['base', 'human']);
+    const tests = (arm: string) => JSON.parse(read(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
+    save(file, { invalid: invalid(tests('base'), tests('human')) });
+  }
+  return (JSON.parse(read(file)) as { invalid?: string }).invalid;
+};
+
+const score = async (caseDir: string, out: string, repo: string) => {
+  const c = loadCase(caseDir);
+  if (!(await prepare(c, out, repo))) await scoreArms(c, out, repo, bots);
 };
 
 /** A diff for a judge: no lockfiles or changelogs, no index lines, issue numbers and the given names masked. */
@@ -392,6 +421,7 @@ const judges: Record<string, (prompt: string, cwd: string) => Promise<string>> =
 const judge = async (caseDir: string, out: string) => {
   const c = loadCase(caseDir);
   const root = join(out, c.id);
+  if ((JSON.parse(read(join(root, 'valid.json')) || '{}') as { invalid?: string }).invalid) return;
   const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
   const have = arms.filter(a => read(join(root, a, 'diff.patch')).trim());
   const block = (label: string, arm: string) =>
