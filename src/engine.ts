@@ -22,7 +22,7 @@ import {
   type Step,
   type Workflow,
   waits,
-  words,
+  afterCommand,
 } from './workflow.ts';
 
 const now = () => new Date().toISOString();
@@ -1366,7 +1366,7 @@ export const tick = (
           : m.kind === 'comment'
             ? triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!))
             : undefined;
-      const [verb = '', step = ''] = words(m, w?.on.issue_comment?.command)?.split(/\s+/) ?? [];
+      const [verb = '', step = ''] = afterCommand(m, w?.on.issue_comment?.command)?.split(/\s+/) ?? [];
       const restart = /^restart$/i.test(verb) ? step : undefined;
       if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || /^stop$/i.test(verb))
         continue;

@@ -316,8 +316,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   return run;
 }
 
-/** The words of a trusted comment after `command`, or undefined when it does not start with it. */
-export const words = (m: Event, command?: string) => {
+/** What a comment says after `command`, or undefined when it does not start with it. */
+export const afterCommand = (m: Event, command?: string) => {
   const body = m.comment?.body.trim() ?? '';
   return m.kind === 'comment' && command !== undefined && body.startsWith(command)
     ? body.slice(command.length).trim()
@@ -335,7 +335,7 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
     return { kind: 'stop', why: `the ${label} label was removed` };
   const waiting = run.status === 'waiting';
   if (m.kind === 'closed' && waiting) return { kind: 'stop', why: 'closed' };
-  const said = words(m, Object.values(w.on).find(t => t?.command)?.command ?? fallback);
+  const said = afterCommand(m, Object.values(w.on).find(t => t?.command)?.command ?? fallback);
   const body = m.comment?.body.trim() ?? '';
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
   if (first.toLowerCase() === 'stop' && waiting) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
