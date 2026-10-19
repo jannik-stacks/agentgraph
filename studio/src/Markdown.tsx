@@ -90,7 +90,7 @@ export const Code = memo(function Code({
         ref={box}
         className={cx(
           'overflow-auto px-3',
-          compact ? 'py-1.5 text-[11px] leading-4' : 'py-2 text-[11.5px] leading-[1.6]',
+          compact ? 'py-1.5 text-[11px] leading-4' : 'py-2 text-[11.5px] leading-[1.25]',
           open ? 'max-h-[40rem]' : 'max-h-96',
           folded && 'overflow-y-clip',
           wrap && '[&_:is(pre,code)]:break-all [&_:is(pre,code)]:whitespace-pre-wrap'

@@ -20,6 +20,9 @@ export const accent = {
   border: 'border-sky-600 dark:border-sky-400',
 };
 
+const field =
+  'rounded-md border border-zinc-400 bg-white text-zinc-900 transition-[border-color,box-shadow] duration-150 hover:border-zinc-600 focus:border-zinc-600 focus:shadow-[0_0_0_3px_--alpha(var(--color-zinc-500)/20%)] focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-400 dark:focus:border-zinc-400';
+
 const isInternal = (href: string | undefined): href is string => !!href?.startsWith('/') && !href.startsWith('//');
 
 /** An anchor that navigates in-app for same-origin paths and leaves everything else to the browser. */
@@ -41,7 +44,7 @@ export const Link = ({ href, onClick, ...props }: ComponentProps<'a'>) => {
 };
 
 export const Badge = ({ children }: { children: ReactNode }) => (
-  <span className="inline-block rounded border border-zinc-200 px-1.5 text-[10px] leading-4 font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+  <span className="inline-block rounded border border-zinc-300 px-1.5 text-[10px] leading-4 font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
     {children}
   </span>
 );
@@ -104,22 +107,22 @@ export const Disclosure = ({
         <svg
           viewBox="0 0 24 24"
           aria-hidden="true"
-          className="size-3 shrink-0 text-zinc-400 [details[open]>summary>&]:rotate-90"
+          className="size-3 shrink-0 text-zinc-400 transition-transform duration-150 [details[open]>summary>&]:rotate-90"
         >
           <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
         {summary}
       </summary>
-      {shown && children}
+      {shown && <div className="bhm-in">{children}</div>}
     </details>
   );
 };
 
 const buttons = {
   small:
-    'rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] whitespace-nowrap text-zinc-600 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-400',
+    'rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] whitespace-nowrap text-zinc-600 transition-[border-color,transform] duration-150 hover:border-zinc-500 active:scale-95 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-400',
   quiet:
-    'inline-flex size-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:text-zinc-900 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:text-zinc-100',
+    'inline-flex size-5 items-center justify-center rounded text-zinc-400 transition-[background-color,color,transform] duration-150 active:scale-90 hover:bg-zinc-100 hover:text-zinc-700 aria-pressed:text-zinc-900 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:aria-pressed:text-zinc-100',
 };
 
 const gap = 6;
@@ -188,7 +191,7 @@ export const Tooltip = ({
         id={id}
         role="tooltip"
         popover="manual"
-        className="pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
+        className="bhm-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
       >
         {info && tip}
         {action && (
@@ -234,7 +237,7 @@ export const Select = ({
     {label}
     <span className="relative flex items-center">
       <select
-        className="max-w-96 appearance-none rounded-md border border-zinc-300 bg-white py-0.5 pr-7 pl-2 text-zinc-900 hover:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        className={cx(field, 'max-w-96 appearance-none py-0.5 pr-7 pl-2')}
         value={value}
         onChange={e => onChange(e.target.value)}
       >
@@ -317,7 +320,7 @@ export const Combobox = ({
     input.current?.blur();
   };
   return (
-    <label className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
+    <label className="flex w-fit max-w-full min-w-0 items-center gap-1.5 text-xs text-zinc-500">
       {label}
       <span className="relative flex min-w-0 items-center">
         <input
@@ -347,7 +350,7 @@ export const Combobox = ({
               if (shown[active]) pick(shown[active]);
             } else if (e.key === 'Escape') input.current?.blur();
           }}
-          className="w-64 min-w-0 rounded-md border border-zinc-300 bg-white py-0.5 pr-6 pl-2 text-zinc-900 placeholder:text-zinc-400 hover:border-zinc-500 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          className={cx(field, 'w-64 min-w-0 py-0.5 pr-6 pl-2 placeholder:text-zinc-400')}
         />
         {value !== null && (
           <button
@@ -355,7 +358,7 @@ export const Combobox = ({
             aria-label={`Clear ${label.toLowerCase()}`}
             onMouseDown={e => e.preventDefault()}
             onClick={() => pick(undefined)}
-            className="absolute right-1.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
+            className="absolute right-1.5 text-zinc-400 transition-colors duration-150 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" className="size-3">
               <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -366,7 +369,7 @@ export const Combobox = ({
           <ul
             id={id}
             role="listbox"
-            className="absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-96 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900"
+            className="bhm-in absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-96 overflow-y-auto rounded-md border border-zinc-400 bg-white py-1 shadow-md dark:border-zinc-600 dark:bg-zinc-900"
           >
             {shown.map((o, i) => (
               <li
@@ -379,7 +382,7 @@ export const Combobox = ({
                 }}
                 onMouseEnter={() => setActive(i)}
                 className={cx(
-                  'cursor-pointer truncate px-2 py-0.5 text-zinc-900 dark:text-zinc-100',
+                  'cursor-pointer truncate px-2 py-0.5 text-zinc-900 transition-colors duration-100 dark:text-zinc-100',
                   o.detail !== undefined && 'h-10',
                   i === active && 'bg-zinc-100 dark:bg-zinc-800',
                   o.value === value && 'font-medium'

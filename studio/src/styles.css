@@ -82,3 +82,40 @@ body {
 .bhm-ref {
   @apply rounded border border-zinc-200 px-1 font-mono text-[0.85em] text-zinc-600 dark:border-zinc-700 dark:text-zinc-400;
 }
+
+.bhm-in {
+  animation: bhm-in 150ms ease-out;
+}
+
+@keyframes bhm-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.bhm-tip {
+  opacity: 0;
+  transition:
+    opacity 120ms ease-out,
+    overlay 120ms allow-discrete,
+    display 120ms allow-discrete;
+
+  &:popover-open {
+    opacity: 1;
+  }
+  @starting-style {
+    &:popover-open {
+      opacity: 0;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

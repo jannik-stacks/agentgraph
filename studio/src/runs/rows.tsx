@@ -10,6 +10,7 @@ import { type CoreRun, detail, type Session, visitsOf } from './trace.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
+  key?: string;
   at?: string | undefined;
   summary: ReactNode;
   body?: ReactNode;
@@ -296,6 +297,7 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
     return row;
   };
   return {
+    key: run.id,
     open,
     at: run.started,
     raw: run,
@@ -439,7 +441,7 @@ const RowView = ({ row }: { row: Row }) => {
 export const Rows = ({ rows }: { rows: Row[] }) => (
   <ol className="space-y-0.5 font-mono text-[11px]">
     {rows.map((row, i) => (
-      <RowView key={i} row={row} />
+      <RowView key={row.key ?? i} row={row} />
     ))}
   </ol>
 );
