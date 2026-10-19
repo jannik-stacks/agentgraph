@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -1881,18 +1882,36 @@ describe('a base that moved', () => {
     30_000
   );
 
-  it('sends a conflicting branch back to implement with the files', async () => {
+  it('says a conflict on the issue once per base head and keeps waiting', async () => {
     const where = await moved('hello.txt');
     const before = git(where.origin, 'rev-parse', 'bothub/7');
-    const { specs, run } = services(where, [[start('i1'), reply({ kind: 'ask', question: 'Which side?' })]]);
+    const { specs, run } = services(where, []);
+    await run(tick(hub));
     await run(tick(hub));
     expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
-    expect(specs[0]!.prompt).toBe(
-      'the merge step sent this back: bothub/7 no longer rebases onto main: conflicts in hello.txt'
-    );
+    expect(specs).toHaveLength(0);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
-    expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which side?' });
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(rebases(where)).toEqual([false]);
+    const said = readdirSync(where.forge)
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => readFileSync(join(where.forge, f), 'utf8'))
+      .join('');
+    expect(said.split('no longer rebases onto main: conflicts in hello.txt. Rebase it by hand.')).toHaveLength(2);
+  }, 30_000);
+
+  it('keeps what a failing check after a rebase cost when it sends the run back', async () => {
+    const where = await moved('other.txt');
+    const { run } = services(where, [
+      [start('j'), { type: 'usage', input: 1, output: 1, usd: 0.25 }, { type: 'text', text: 'FAIL a claim' }],
+      [start('i2'), reply({ kind: 'ask', question: 'Which claim?' })],
+    ]);
+    const [was] = await run(Effect.flatMap(Store, s => s.list()));
+    const strict = { ...hub, checks: { ...hub.checks, claims: { ...hub.checks.claims!, mode: 'block' as const } } };
+    await run(tick(strict));
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which claim?' });
+    expect(stored!.usd).toBeCloseTo(was!.usd + 0.25);
   }, 30_000);
 
   it('does nothing when the branch is up to date', async () => {

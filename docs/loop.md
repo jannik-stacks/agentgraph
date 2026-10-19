@@ -211,7 +211,7 @@ A hub in the repo is read again at every look, always from the head of the defau
 
 A run waiting at a `wait: human` step was checked against two things that can change under it: the head of its pull request's base, and the hub. Every sweep compares both with what is current.
 
-If the branch is behind its base, for example `gh-pages` got new commits, the engine rebases it with no model, the same way it rebases a stacked branch. If the hub changed since the run was last checked, nothing is rebased. Either way, the checks of the step that `back` leads to run again, under the current hub. If they pass, the run keeps waiting. If they fail, or the rebase conflicts, the run goes back to that step as a request for changes would, and the reason names the conflicting files or the failed checks. A run that is up to date with both is left alone.
+If the branch is behind its base, for example `gh-pages` got new commits, the engine rebases it with no model, the same way it rebases a stacked branch. If the hub changed since the run was last checked, nothing is rebased. Either way, the checks of the step that `back` leads to run again, under the current hub. If they pass, the run keeps waiting. If they fail, the run goes back to that step as a request for changes would, with the failed checks as the reason. A rebase that conflicts is said once on the issue with the conflicting files, for a human to rebase by hand, since an agent cannot rewrite the branch's history; the run keeps waiting until the base moves again. A run that is up to date with both is left alone.
 
 The hub's version is a hash of `hub.yaml`, the agents, skills, checks, workflows and scripts. Each run records the version it was last checked under. <!-- code: src/engine.ts#catchUp -->
 

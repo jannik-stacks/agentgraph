@@ -1291,8 +1291,9 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
 
 /**
  * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the hub. A branch
- * behind its base is rebased with no model; after a clean rebase, or under a new hub, the run is checked again. A
- * conflict, or a failed check, sends the run back as a request for changes would. Undefined when nothing moved.
+ * behind its base is rebased with no model; after a clean rebase, or under a new hub, the run is checked again, and a
+ * failed check sends the run back as a request for changes would. A conflict is said on the issue once per base head.
+ * Undefined when nothing moved.
  */
 const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
@@ -1309,6 +1310,11 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const current = { ...run, hub: hub.sha };
     if (!moved && (run.hub ?? hub.sha) === hub.sha) return run.hub ? undefined : { run: current };
     if (moved) {
+      const failed = Chunk.some(
+        yield* Stream.runCollect(store.read(run.id)),
+        t => 'applied' in t && !t.applied.ok && t.applied.proposal.kind === 'rebase' && t.applied.proposal.onto === onto
+      );
+      if (failed) return { run: current };
       const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: pull.branch, from, onto }, work);
       yield* store.trace(run.id, { at: now(), step: run.step, applied });
       if (!applied.ok) {
@@ -1317,10 +1323,12 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
           Effect.zipRight(text('diff', '--name-only', '--diff-filter=U'))
         );
         const where = files ? `conflicts in ${files.split('\n').join(', ')}` : applied.reason;
-        const why = `${pull.branch} no longer rebases onto ${pull.base}: ${where}`;
-        return { run: current, outcome: { kind: 'back', why } as const };
+        const body = `${pull.branch} no longer rebases onto ${pull.base}: ${where}. Rebase it by hand.`;
+        const said = yield* land(run, [{ kind: 'comment', body }]);
+        yield* store.trace(run.id, ...said.map(a => ({ at: now(), step: run.step, applied: a })));
+        return { run: current };
       }
-    }
+    } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
     if (!to) return { run: current };
     const t = yield* issuesOf(w, run);
     const { outcome, usd } = yield* gate(
@@ -1569,7 +1577,9 @@ export const tick = (
       const caught = yield* catchUp(w, r, hub, pull).pipe(
         Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
       );
-      if (caught?.outcome) yield* record(caught.run, caught.outcome, transition(w, caught.run, caught.outcome));
+      const next = caught?.outcome && transition(w, caught.run, caught.outcome);
+      if (caught?.outcome && next)
+        yield* record(caught.run, caught.outcome, next.status === 'running' ? next : yield* show(w, next));
       else if (caught) yield* store.put(caught.run);
     }
 
