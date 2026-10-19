@@ -204,14 +204,30 @@ describe('triage', () => {
     expect((await runs(where)).map(r => r.issue)).toEqual([1]);
   });
 
-  it('refuses a follow-up an open issue already has the title of, and a label that starts a workflow', async () => {
+  it('adds a follow-up or hub change to the open issue of its title, which the agent sees listed', async () => {
+    const where = world([
+      [1, 'morgan'],
+      [2, 'morgan'],
+    ]);
+    where.label(1);
+    const two = join(where.forge, '2.md');
+    writeFileSync(two, readFileSync(two, 'utf8').replace('labels: []', 'labels: [hub]'));
+    const again = { ...follow('Issue 2'), relation: 'hub' };
+    await run(where, [reply({ kind: 'label', add: ['size/S'] }, again)], tick(unbounded));
+    expect((await issues(where)).map(t => t.number)).toEqual([1, 2]);
+    const said = (await issue(where, 2)).events.flatMap(m => (m.comment ? [m.comment.body] : []));
+    expect(said).toEqual(['Change Issue 2.\n\n## Done when\n\n- it is changed\n\nFound while working on #1']);
+    const [triage] = await runs(where);
+    const opened = readFileSync(join(where.data, triage!.id, 'trace.jsonl'), 'utf8');
+    expect(opened).toContain(
+      'Open follow-up and hub issues. To add to one, propose an issue with its exact title:\\n- #2 Issue 2'
+    );
+  });
+
+  it('refuses a label that starts a workflow', async () => {
     const where = world();
     where.label(1);
-    const dup = await run(where, Array(3).fill(reply(follow('Issue 1'))), tick(unbounded));
-    expect(dup.value[0]!.reason).toContain('Issue 1: an open issue has this title');
-    const where2 = world();
-    where2.label(1);
-    const marked = await run(where2, Array(3).fill(reply({ kind: 'label', add: ['size/S', 'triage'] })), tick(hub));
+    const marked = await run(where, Array(3).fill(reply({ kind: 'label', add: ['size/S', 'triage'] })), tick(hub));
     expect(marked.value[0]!.reason).toContain('label failed: only a human adds triage');
     expect((await issues(where)).map(t => t.number)).toEqual([1]);
   });

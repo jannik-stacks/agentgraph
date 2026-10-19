@@ -220,7 +220,7 @@ const depthOf = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge>
  * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size and priority labels and
  * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
  * again. A follow-up or a hub change becomes a plain issue labelled with its relation that names the run's issue and
- * starts nothing. One refusal files none.
+ * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
  */
 const file = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
@@ -228,10 +228,10 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     const forge = yield* Forge;
     const issue = yield* forge.issue(run.issue);
     const depth = yield* depthOf(run.issue);
-    const titles = new Set((yield* forge.issues({ state: 'open' })).map(t => t.title.trim().toLowerCase()));
+    const open = new Map((yield* forge.issues({ state: 'open' })).map(t => [t.title.trim().toLowerCase(), t.number]));
     const refusal = (p: Child, i: number) => {
       if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
-      if (titles.has(p.title.trim().toLowerCase())) return `${p.title}: an open issue has this title`;
+      if (isPart(p) && open.has(p.title.trim().toLowerCase())) return `${p.title}: an open issue has this title`;
       if (!/^#+\s*done when\b/im.test(p.body)) return `${p.title}: say when it is done under a "Done when" heading`;
       if (!isPart(p)) return;
       if (depth >= deepest) return `#${run.issue} sits ${depth} issues deep; split it by hand`;
@@ -254,6 +254,12 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
             ...(p.depends_on ?? []).map(k => `Depends on #${numbers[k - 1]}`),
           ]
         : [`Found while working on #${run.issue}`];
+      const same = isPart(p) ? undefined : open.get(p.title.trim().toLowerCase());
+      if (same !== undefined) {
+        applied.push(yield* forge.apply(same, { kind: 'comment', body: [p.body, ...lines].join('\n\n') }));
+        numbers.push(same);
+        continue;
+      }
       const a = yield* forge.apply(run.issue, {
         kind: 'issue',
         title: p.title,
@@ -293,6 +299,19 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     }
     return applied;
   });
+
+/** The open follow-up and hub issues, so an agent adds to one by its title instead of filing it again. */
+const filed = () =>
+  Effect.map(
+    Effect.flatMap(Forge, f => f.issues({ state: 'open' })),
+    open => {
+      const listed = open.filter(t => t.labels.some(l => l === 'follow-up' || l === 'hub'));
+      return (
+        listed.length > 0 &&
+        `Open follow-up and hub issues. To add to one, propose an issue with its exact title:\n${listed.map(t => `- #${t.number} ${t.title}`).join('\n')}`
+      );
+    }
+  );
 
 const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 
@@ -903,6 +922,7 @@ const attempt = (
         reads &&
           `People may comment while you work: ${work.news} holds what is new, refreshed every minute. Read it before you finish.`,
         agent.reads && tracesAt(work),
+        agent.returns.includes('issue') && (yield* filed()),
         run.feedback,
         [
           'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
