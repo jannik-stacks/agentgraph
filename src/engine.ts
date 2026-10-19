@@ -1097,8 +1097,8 @@ export const tick = (
   });
 
 /**
- * One pass over the open issues and the issues of live runs, one after another: each gets one look, and a new run only
- * on a trusted mark.
+ * One pass over the open issues and the issues of live runs, up to `limits.parallel` at once: each gets one look, and a
+ * new run only on a trusted mark.
  */
 export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
@@ -1107,5 +1107,5 @@ export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, S
     );
     const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(live);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
-    return (yield* Effect.forEach(issues, n => tick(hub, n, true))).flat();
+    return (yield* Effect.forEach(issues, n => tick(hub, n, true), { concurrency: hub.limits.parallel })).flat();
   });

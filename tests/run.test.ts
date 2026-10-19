@@ -900,6 +900,34 @@ describe('sweep', () => {
     expect(specs.map(s => s.prompt).join('\n')).toContain('hi');
     expect(await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)))).toHaveProperty('length', 0);
   }, 30_000);
+
+  it('looks at issues side by side, up to limits.parallel', async () => {
+    const where = world();
+    writeFileSync(
+      join(where.forge, '8.md'),
+      '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody.\n'
+    );
+    say(where, comment(8, 'morgan', true, '/bothub', '2026-10-16T00:00:00.000Z'));
+    let open = 0;
+    let most = 0;
+    const slow = Layer.succeed(Session, {
+      open: () =>
+        Stream.fromEffect(
+          Effect.acquireUseRelease(
+            Effect.sync(() => (most = Math.max(most, ++open))),
+            () => Effect.sleep('200 millis'),
+            () => Effect.sync(() => open--)
+          )
+        ).pipe(Stream.flatMap(() => Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })))),
+    });
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), slow);
+    const touched = await Effect.runPromise(sweep(small).pipe(Effect.provide(layer)));
+    expect(touched.map(r => [r.issue, r.status]).sort()).toEqual([
+      [7, 'waiting'],
+      [8, 'waiting'],
+    ]);
+    expect(most).toBe(2);
+  }, 30_000);
 });
 
 describe('coworker', () => {
