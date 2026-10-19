@@ -8,7 +8,8 @@ describe('the sandbox example hub', () => {
   it('loads without problems and draws its issue workflow', async () => {
     const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));
     expect(hub.repo).toBe('acme/sandbox');
-    expect(Object.keys(hub.agents).sort()).toEqual(['implementor', 'reviewer', 'triager']);
+    expect(Object.keys(hub.agents).sort()).toEqual(['implementor', 'reviewer', 'router', 'triager']);
+    expect(hub.workflows.issue!.on).toEqual({ issues: { label: 'agent:ready' } });
     const g = graphOf(hub.workflows.issue!, hub.checks);
     expect(g.nodes.map(n => n.step)).toEqual(['implement', 'review', 'merge']);
     expect(g.edges.filter(e => e.kind === 'back').map(e => [e.from, e.to])).toEqual([

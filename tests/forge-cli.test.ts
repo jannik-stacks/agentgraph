@@ -75,7 +75,7 @@ describe('bin/forge.ts with run --forge', () => {
     w.forge('init', w.seed);
     writeFileSync(join(w.root, 'body.md'), 'Add hello.txt.\n');
     expect(w.forge('issue', 'Add a greeting', '--body', join(w.root, 'body.md'))).toBe('#1');
-    w.forge('comment', '1', '/bothub');
+    w.forge('label', '1', 'agent:ready');
 
     const push = (message: string): Proposal => ({ kind: 'push', branch: 'bothub/1', message });
     const pull: Proposal = {
@@ -92,7 +92,9 @@ describe('bin/forge.ts with run --forge', () => {
     expect(w.seen[0]!.forge).toBe(w.dir);
     expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
     expect(readFileSync(join(w.dir, '2', 'diff.patch'), 'utf8')).toContain('+hello');
-    expect(w.forge('show')).toBe('#1 open Add a greeting [bothub:waiting]\n#2 open Add hello (bothub/1 into main)');
+    expect(w.forge('show')).toBe(
+      '#1 open Add a greeting [agent:ready, bothub:waiting]\n#2 open Add hello (bothub/1 into main)'
+    );
 
     w.forge('comment', '2', '/bothub say hello world');
     const second = await w.run([
@@ -104,10 +106,14 @@ describe('bin/forge.ts with run --forge', () => {
 
     expect(w.forge('merge', '2')).toMatch(/^main at [0-9a-f]{40}$/);
     expect(git(w.origin, 'show', 'main:hello.txt')).toBe('hello world');
-    expect(w.forge('show')).toBe('#1 closed Add a greeting [bothub:waiting]\n#2 merged Add hello (bothub/1 into main)');
+    expect(w.forge('show')).toBe(
+      '#1 closed Add a greeting [agent:ready, bothub:waiting]\n#2 merged Add hello (bothub/1 into main)'
+    );
     const last = await w.run([]);
     expect(last.map(r => [r.issue, r.step, r.status])).toEqual([[1, 'merge', 'done']]);
-    expect(w.forge('show')).toBe('#1 closed Add a greeting [bothub:done]\n#2 merged Add hello (bothub/1 into main)');
+    expect(w.forge('show')).toBe(
+      '#1 closed Add a greeting [agent:ready, bothub:done]\n#2 merged Add hello (bothub/1 into main)'
+    );
   }, 30_000);
 
   it('runs a stacked issue on the pull request of the one it stacks on', async () => {
@@ -116,8 +122,8 @@ describe('bin/forge.ts with run --forge', () => {
     w.forge('issue', 'Add a greeting');
     writeFileSync(join(w.root, 'body.md'), 'Add bye.txt.\n\nStacks on #1\n');
     w.forge('issue', 'Say bye', '--body', join(w.root, 'body.md'));
-    w.forge('comment', '1', '/bothub');
-    w.forge('comment', '2', '/bothub');
+    w.forge('label', '1', 'agent:ready');
+    w.forge('label', '2', 'agent:ready');
     const turn = (n: number, file: string): SessionEvent[][] => [
       [
         start(`i${n}`),
@@ -140,7 +146,7 @@ describe('bin/forge.ts with run --forge', () => {
     expect(existsSync(join(w.dir, '2.md'))).toBe(true);
   }, 30_000);
 
-  it('starts the default workflow on a bare mention, stops a waiting run on a mention with stop, and ignores stop with no run', async () => {
+  it('starts the router on a bare mention, stops a waiting run on a mention with stop, and ignores stop with no run', async () => {
     const w = world();
     w.forge('init', w.seed);
     w.forge('issue', 'Add a greeting');
@@ -149,11 +155,11 @@ describe('bin/forge.ts with run --forge', () => {
 
     w.forge('comment', '1', '@bothub');
     const asked = await w.run([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
-    expect(asked.map(r => [r.step, r.status])).toEqual([['implement', 'waiting']]);
+    expect(asked.map(r => [r.step, r.status])).toEqual([['router', 'waiting']]);
 
     w.forge('comment', '1', '@bothub stop wrong issue');
     const stopped = await w.run([]);
-    expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['implement', 'stopped', 'wrong issue']]);
+    expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['router', 'stopped', 'wrong issue']]);
   });
 
   it('seeds only the given commit with --at, so a later commit is not in the origin', () => {

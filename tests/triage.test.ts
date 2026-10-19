@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, Layer } from 'effect';
+import { Chunk, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { sweep, tick } from '../src/engine.ts';
 import { fileForge, Forge, type Event } from '../src/forge.ts';
@@ -278,5 +278,57 @@ describe('ordering', () => {
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(waiting)).pipe(Effect.provide(fileStore(where.data))));
     const { value } = await run(where, [], tick(hub, 2, true));
     expect(value).toEqual([]);
+  });
+});
+
+describe('dispatch', () => {
+  /** A trusted comment on #1. */
+  const mention = (where: ReturnType<typeof world>, body: string) =>
+    appendFileSync(
+      join(where.forge, '1.jsonl'),
+      `${JSON.stringify({ issue: 1, kind: 'comment', actor: 'morgan', trusted: true, at: at(1), comment: { id: 'c1', author: 'morgan', body, at: at(1) } } satisfies Event)}\n`
+    );
+
+  it('starts triage from the router, which waits on it quietly and decides once it is done', async () => {
+    const where = world();
+    mention(where, '/bothub size this');
+    const first = await run(where, [reply({ kind: 'run', workflow: 'triage', issue: 1 })], tick(hub));
+    const router = first.value[0]!;
+    const [child] = (await runs(where)).filter(r => r.workflow === 'triage');
+    expect(child).toMatchObject({ issue: 1, status: 'running', by: router.id });
+    expect(router).toMatchObject({ workflow: 'router', status: 'waiting', reason: `waiting on ${child!.id}` });
+
+    await run(where, [reply({ kind: 'label', add: ['size/S'] })], tick(hub));
+    expect((await runs(where)).find(r => r.id === child!.id)!.status).toBe('done');
+    const last = await run(where, [reply({ kind: 'comment', body: 'Sized S; agent:ready builds it.' })], tick(hub));
+    expect(last.value.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
+
+    const said = (await issue(where, 1)).events.flatMap(m => (m.comment && !m.trusted ? [m.comment.body] : []));
+    expect(said.some(b => b.includes('waiting on'))).toBe(false);
+    expect(said).toContain('Sized S; agent:ready builds it.');
+    const trace = await Effect.runPromise(
+      Effect.flatMap(Store, s => Stream.runCollect(s.read(router.id))).pipe(Effect.provide(fileStore(where.data)))
+    );
+    expect(Chunk.toArray(trace).flatMap(t => ('outcome' in t ? [t.outcome] : []))).toContainEqual({
+      kind: 'answer',
+      text: 'triage on #1 is done',
+    });
+  });
+
+  it('refuses a run of a workflow without on: dispatch, and a run from an agent that does not return run', async () => {
+    const where = world();
+    mention(where, '/bothub build this');
+    const { value } = await run(where, [reply({ kind: 'run', workflow: 'issue', issue: 1 })], tick(hub));
+    expect(value[0]!.reason).toContain('run failed: issue is not a workflow with on: dispatch');
+
+    const other = world();
+    other.label(1);
+    const tried = await run(
+      other,
+      Array(3).fill(reply({ kind: 'run', workflow: 'triage', issue: 1 })),
+      tick(unbounded)
+    );
+    expect(tried.value[0]!.reason).toContain('triage may not propose run');
+    expect((await runs(other)).map(r => r.workflow)).toEqual(['triage']);
   });
 });

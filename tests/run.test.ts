@@ -828,6 +828,15 @@ describe('start with one issue', () => {
       return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), host(where.origin), scripted(turns));
     };
     const one = { hub: sandbox, issue: 7, data: where.data };
+    writeFileSync(join(where.forge, '7.jsonl'), '');
+    say(where, {
+      issue: 7,
+      kind: 'label',
+      label: 'agent:ready',
+      actor: 'morgan',
+      trusted: true,
+      at: new Date().toISOString(),
+    });
     try {
       const parked = await main(one, doubles);
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
