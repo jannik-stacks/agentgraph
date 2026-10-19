@@ -557,7 +557,14 @@ const table = (rows: [string, Record<string, number | string>][]) => {
 };
 
 type Judged = Verdict & { judge: string; order: [string, string] };
-type Scored = { strata: Record<string, string>; rows: [string, Record<string, number>][]; verdicts: Judged[] };
+type Scored = {
+  id: string;
+  invalid?: string;
+  infra: Record<string, string>;
+  strata: Record<string, string>;
+  rows: [string, Record<string, number>][];
+  verdicts: Judged[];
+};
 
 const loadScored = (out: string, id: string): Scored => {
   const c = JSON.parse(read(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
@@ -565,17 +572,31 @@ const loadScored = (out: string, id: string): Scored => {
     strataKeys.flatMap(k => (c[k] === undefined || typeof c[k] === 'object' ? [] : [[k, String(c[k])]]))
   );
   if (c.repo) strata.issue = Array.isArray(c.flags) && c.flags.includes('no-issue-pr-body') ? 'pr-body' : 'issue';
-  const rows = ['base', ...arms].flatMap((arm): [string, Record<string, number>][] => {
-    const s = read(join(out, id, arm, 'score.json'));
-    return s ? [[arm, metrics(JSON.parse(s) as Record<string, unknown>)]] : [];
-  });
-  const judged = join(out, id, 'judge');
-  const verdicts = (existsSync(judged) ? readdirSync(judged) : []).flatMap(pair =>
-    readdirSync(join(judged, pair))
-      .filter(f => /^\w+\.json$/.test(f))
-      .map(f => JSON.parse(read(join(judged, pair, f))) as Judged)
+  const scores = Object.fromEntries(
+    ['base', ...arms].flatMap(arm => {
+      const s = read(join(out, id, arm, 'score.json'));
+      return s ? [[arm, JSON.parse(s) as Record<string, unknown>]] : [];
+    })
   );
-  return { strata, rows, verdicts };
+  const skipped = Object.fromEntries(
+    bots.flatMap(arm => {
+      const reason = scores[arm] && infra(scores[arm]);
+      return reason ? [[arm, reason]] : [];
+    })
+  );
+  const rows = Object.entries(scores)
+    .filter(([arm]) => !(arm in skipped))
+    .map(([arm, s]): [string, Record<string, number>] => [arm, metrics(s)]);
+  const judged = join(out, id, 'judge');
+  const verdicts = (existsSync(judged) ? readdirSync(judged) : [])
+    .flatMap(pair =>
+      readdirSync(join(judged, pair))
+        .filter(f => /^\w+\.json$/.test(f))
+        .map(f => JSON.parse(read(join(judged, pair, f))) as Judged)
+    )
+    .filter(v => !v.order.some(arm => arm in skipped));
+  const { invalid } = JSON.parse(read(join(out, id, 'valid.json')) || '{}') as { invalid?: string };
+  return { id, ...(invalid && { invalid }), infra: skipped, strata, rows, verdicts };
 };
 
 const summary = (cases: Scored[]) => {
@@ -624,16 +645,47 @@ const summary = (cases: Scored[]) => {
   ];
 };
 
+const headline = (cases: Scored[], valid: Scored[]) => {
+  const infras = valid.flatMap(c => Object.entries(c.infra).map(([arm, why]) => `${c.id}/${arm}: ${why}`));
+  const invalids = cases.flatMap(c => (c.invalid ? [`${c.id}: ${c.invalid}`] : []));
+  const rate = ([arm, passes]: [string, number[]]): [string, Record<string, number>] => [
+    arm,
+    { passed: passes.reduce((a, p) => a + p, 0), of: passes.length, rate: round(mean(passes)) },
+  ];
+  const hidden = ['base', ...arms].flatMap((arm): [string, number[]][] => {
+    const passes = valid.flatMap(c => c.rows.flatMap(([a, r]) => (a === arm && 'hidden' in r ? [r.hidden!] : [])));
+    return passes.length ? [[arm, passes]] : [];
+  });
+  const list = (title: string, items: string[]) => (items.length ? [title, '', ...items.map(i => `- ${i}`), ''] : []);
+  return [
+    `${valid.length} valid cases, ${invalids.length} invalid, ${infras.length} infra arm runs.`,
+    '',
+    ...(hidden.length
+      ? ['Hidden tests passed, valid cases, infra arms left out', '', table(hidden.map(rate)), '']
+      : []),
+    ...list('Invalid cases, not run or judged', invalids),
+    ...list('Infra arm runs, left out of every number below', infras),
+  ];
+};
+
 const report = (out: string) => {
   const ids = readdirSync(out).filter(id => existsSync(join(out, id, 'human')));
-  const cases = ids.map(id => loadScored(out, id));
-  const md = ['# Bench report', '', `## All ${ids.length} cases`, '', ...summary(cases)];
+  const all = ids.map(id => loadScored(out, id));
+  const cases = all.filter(c => !c.invalid);
+  const md = [
+    '# Bench report',
+    '',
+    ...headline(all, cases),
+    `## All ${cases.length} valid cases`,
+    '',
+    ...summary(cases),
+  ];
   for (const key of strataKeys)
     for (const value of [...new Set(cases.flatMap(c => c.strata[key] ?? []))].sort()) {
       const some = cases.filter(c => c.strata[key] === value);
       md.push(`## ${key} ${value}, ${some.length} cases`, '', ...summary(some));
     }
-  for (const [i, id] of ids.entries()) md.push(`## ${id}`, '', table(cases[i]!.rows), '');
+  for (const c of cases) md.push(`## ${c.id}`, '', table(c.rows), '');
   return md.join('\n');
 };
 

@@ -11,6 +11,13 @@ the merged change adds, `suite` the whole suite (it falls back to `test`), `type
 before them. A case with `hasTests: false` gets no test runs, only metrics and judges. Strata fields
 such as `size`, `kind` and `area` group the report.
 
+A case counts only when the hidden tests fail on the base and pass on the human, and the human diff
+applies, its setup works and its suite passes. Otherwise `valid.json` says why, the case's arms are not
+run or judged, and the report lists it as invalid. A case with `control: bug` or `control: padded`
+judges the human diff against a copy of itself instead of the arms: `bug` flips one comparison in an
+added source line, `padded` appends a test file of trivial cases. Judges that prefer the copy are
+wrong, which measures how well they catch bugs and how much they reward size.
+
 ## Arms
 
 - `human`: the merged change.
@@ -20,6 +27,10 @@ such as `size`, `kind` and `area` group the report.
 - `floor`: one plain session in the same hub's sandbox and budget, no checks and no review
   (`bench/floor`).
 - `v1`: not yet. It needs its own sandbox image and env, and its seed must be made leak-free first.
+
+An arm run that ends with an empty diff, a run that never finished or a crash is infra, not a result.
+It is retried once, and if it fails again `meta.json` says why and the arm is left out of every win rate
+and mean, and listed in the report. A setup failure while scoring counts the same way.
 
 Each run seeds a forge folder with `node bin/forge.ts <dir> init <repo> --at <base>`, so the fix is not
 in the origin. When a run asks a question, a scripted maintainer answers once with "No more
@@ -43,10 +54,13 @@ node bin/bench.ts report <out>
   files, overlap with the human's files, added test cases, the change in branch tokens, and sessions,
   cost and answers from the traces.
 - `judge` hands every pair of arms to three judges (Opus and Sonnet through `claude -p`, sol through
-  LiteLLM's `smart`), in both orders. The diffs are blinded: no lockfiles or changelogs, no index
-  lines, issue numbers and names masked. The prompt is `bench/judge.md`. Each verdict lists findings
+  LiteLLM's `smart`). `--judges opus:1,sonnet:2,sol:2` sets how many orders each reads; a judge with
+  one reads the order picked by the case and pair, so a pair costs three Claude calls. The diffs are blinded: no lockfiles or changelogs, no index
+  lines, issue numbers and names masked. The prompt is `bench/judge.md`: correctness against the issue
+  first, then scope, and more tests or lines are not better in themselves. Each verdict lists findings
   by severity and category, a preference, and is kept as JSON next to the raw answer.
-- `report` writes `report.md`: win rates with a bootstrap interval over cases, mean metrics per arm,
+- `report` writes `report.md`: the valid, invalid and infra counts, the hidden test pass rate per arm,
+  then win rates with a bootstrap interval over cases, mean metrics per arm,
   findings by severity, judge agreement, all of it again per stratum, and a table per case.
 
 Every step skips outputs that exist and moves an unfinished arm aside instead of deleting it. Progress

@@ -185,7 +185,16 @@ describe('bin/bench.ts score and report', () => {
     said('v2-human', 'opus', 'B');
     said('human-v2', 'sonnet', 'A');
     said('v2-human', 'sonnet', 'A');
+    mkdirSync(join(out, 'demo', 'floor'), { recursive: true });
+    writeFileSync(join(out, 'demo', 'floor', 'score.json'), JSON.stringify({ files: 0, hidden: { ok: false } }));
+    mkdirSync(join(out, 'bad', 'human'), { recursive: true });
+    writeFileSync(join(out, 'bad', 'valid.json'), JSON.stringify({ invalid: 'base already passes the hidden tests' }));
     const report = bench('report', out);
+    expect(report).toContain('1 valid cases, 1 invalid, 1 infra arm runs.');
+    expect(report).toContain('| v2 | 1 | 1 | 1 |');
+    expect(report).not.toContain('| floor |');
+    expect(report).toContain('- bad: base already passes the hidden tests');
+    expect(report).toContain('- demo/floor: empty diff');
     expect(report).toContain('| human vs v2 | 1 | 0.75 | 0.75 to 0.75 |');
     expect(report).toContain('| v2 | 3 |');
     expect(report).toContain('## kind bug, 1 cases');
