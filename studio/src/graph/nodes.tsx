@@ -47,6 +47,7 @@ const paths = {
   checks: <path d="m4 7 2 2 4-4M4 17l2 2 4-4M14 7h6M14 17h6" />,
   tick: <path d="m5 12 5 5 9-10" />,
   traces: <path d="M4 6h16M4 12h10M4 18h13" />,
+  aside: <path d="M4 5h16v11H9l-5 4z" />,
 };
 
 /** A small glyph in the current text color. */
@@ -117,6 +118,9 @@ const statusLine = (node: GraphNode, o: Overlay) =>
         : node.run && node.run.tries > 0
           ? `try ${Math.min(node.run.tries + 1, node.tries)} of ${node.tries}`
           : 'working';
+
+const asideTip =
+  "A plain comment or question here is answered by a fork of the earlier step's session, in your thread; the run keeps waiting.";
 
 /** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
 export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<StepFlowNode>) => {
@@ -226,6 +230,12 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           >
             <Glyph name="traces" />
             reads traces
+          </Chip>
+        )}
+        {node.asides && (
+          <Chip tip={asideTip}>
+            <Glyph name="aside" />
+            answers asides
           </Chip>
         )}
         {fan && (
@@ -419,6 +429,7 @@ export const Legend = () => (
       starts a dispatched run or a retro
     </LegendItem>
     <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
+    <LegendItem mark={<Glyph name="aside" className="size-3" />}>answers questions in an aside</LegendItem>
     <LegendItem mark={<span className={cx('size-2 rounded-full bg-current', accent.text)} />}>live</LegendItem>
     <li className="ml-auto">Click a step for its checks and runs.</li>
   </ul>

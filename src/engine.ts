@@ -1447,16 +1447,20 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
     ]
       .filter(Boolean)
       .join('\n\n');
-    const r = yield* converse(hub, run.id, step.name, {
-      harness: agent.harness,
-      agent: to.does.agent,
-      minutes: hub.limits.minutes,
-      ...(agent.model !== undefined && { model: agent.model }),
-      system: agent.body,
-      prompt,
-      dir: work.dir,
-      tools: agent.tools,
-      ...(kept && { resume: kept, fork: true as const }),
+    const r = yield* converse(
+      hub,
+      run.id,
+      step.name,
+      {
+        harness: agent.harness,
+        agent: to.does.agent,
+        minutes: hub.limits.minutes,
+        ...(agent.model !== undefined && { model: agent.model }),
+        system: agent.body,
+        prompt,
+        dir: work.dir,
+        tools: agent.tools,
+        ...(kept && { resume: kept, fork: true as const }),
       },
       undefined,
       undefined,

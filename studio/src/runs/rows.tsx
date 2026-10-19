@@ -231,8 +231,13 @@ export const lineRow = (line: Trace, by = 'bothub'): Row => {
 };
 
 /** A session folded to who ran, how it ended and what it cost; open, its prompt and every event in order. */
-const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: boolean): Row => {
+const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: boolean, repo?: string): Row => {
   const spec = prompt?.prompt;
+  const aside = prompt?.aside;
+  const heard =
+    repo && aside?.issue !== undefined && aside.comment !== undefined
+      ? `https://github.com/${repo}/issues/${aside.issue}#${aside.review ? 'discussion_r' : 'issuecomment-'}${aside.comment}`
+      : undefined;
   const started = events.find(e => e.event.type === 'start')?.event;
   const id = end?.session.id ?? spec?.resume?.id ?? (started?.type === 'start' ? started.session : undefined);
   const usage = events.flatMap(e => (e.event.type === 'usage' ? [e.event] : []));
@@ -243,8 +248,9 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: 
     scroll: true,
     summary: (
       <span className="flex min-w-0 items-baseline gap-x-2">
-        <Badge>session</Badge>
+        <Badge>{aside ? 'aside' : 'session'}</Badge>
         <span className="font-medium">{spec?.agent ?? 'agent'}</span>
+        {heard && <Url url={heard} text="the comment" />}
         {spec && muted(`${spec.harness}${spec.model ? `, ${spec.model}` : ''}`)}
         {id && muted(id)}
         {(spec?.resume || end?.session.resumed) && muted('resumed')}
@@ -303,7 +309,7 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
   const partRow = (part: Session | Trace) => {
     if ('events' in part) {
       by ??= part.prompt?.prompt.agent ?? 'the agent';
-      return sessionRow(part, live(r), expand);
+      return sessionRow(part, live(r), expand, r.repo);
     }
     const row = lineRow(part, by);
     if ('outcome' in part) by = undefined;
