@@ -10,7 +10,7 @@ The item is one run status value and every line the change adds or removes that 
 it, with the code around each. Follow the value through those transitions and answer three
 questions. Does the work survive: a branch, a worktree, a commit, a proposal or a result that
 reaches this value is kept or handed on, never dropped or overwritten? Does the next event move it
-forward: a run or job left in this value is picked up again by a retry, a restart, a new comment, a
+forward: a run left in this value is picked up again by a retry, a restart, a new comment, a
 label or a merge, and does not sit there forever? Is a human told: when the value needs a person, a
 reply, a label or the dashboard says so?
 
