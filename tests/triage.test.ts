@@ -273,7 +273,7 @@ describe('ordering', () => {
 
     writeFileSync(join(where.forge, '1.md'), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
     const after = await run(where, [], tick(hub, 2, true));
-    expect(after.value.map(r => [r.id, r.status])).toEqual([['issue-2', 'waiting']]);
+    expect(after.value.map(r => [r.id, r.status])).toEqual([['issue-2', 'running']]);
   });
 
   it('waits on a "Depends on" issue until it is closed, even once it has a pull request', async () => {
