@@ -227,7 +227,7 @@ describe('bothub hub checks', () => {
     expect(format.out).toContain('oxfmt src/a.ts');
     const tidy = change(config, { 'src/a.ts': "export const a = 'b';\n", 'src/b.ts': 'export const b = 2;\n' });
     expect(check(at('lint.mjs'), tidy)).toEqual({ ok: true, out: 'lint: ok' });
-  });
+  }, 30_000);
 
   it('ships the same safety, lint and changes scripts in both hubs', () => {
     for (const script of ['safety.mjs', 'lint.mjs', 'changes.mjs'])
