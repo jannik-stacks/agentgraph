@@ -242,9 +242,9 @@ describe('reenter', () => {
     expect(reenter(w, waiting, said('label', { label: 'approved' }))).toEqual({ kind: 'pass' });
   });
 
-  it('waiting: changes requested or a command comment is back', () => {
+  it('waiting at a human step: changes requested is back, a command comment is an answer for the aside', () => {
     expect(reenter(w, waiting, said('changes_requested'))).toEqual({ kind: 'back', why: 'changes requested' });
-    expect(reenter(w, waiting, comment('/bothub rename foo'))).toEqual({ kind: 'back', why: 'rename foo' });
+    expect(reenter(w, waiting, comment('/bothub rename foo'))).toEqual({ kind: 'answer', text: 'rename foo' });
   });
 
   it('waiting: closed is stop', () => {

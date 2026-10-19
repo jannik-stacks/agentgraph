@@ -1419,6 +1419,57 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
         : { run: checked, outcome };
   }).pipe(Effect.scoped);
 
+/**
+ * Answers what a human said to a run waiting at a human step: a fork of the session of the step it goes back to, in a
+ * throwaway checkout of the pull request head. Its comments land under the thread and the run keeps waiting; a `back`
+ * comes back as the outcome, with the fork as that step's session.
+ */
+const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<Issue['pull']>) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const forge = yield* Forge;
+    const step = w.steps.find(s => s.name === run.step)!;
+    const to = w.steps.find(s => s.name === step.back?.to);
+    if (!to || !('agent' in to.does)) return { run };
+    yield* store.lock(run.id);
+    const agent = hub.agents[to.does.agent]!;
+    const kept = run.sessions[to.name];
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, hub));
+    const prompt = [
+      !kept && [w.body, context(yield* issuesOf(w, run))].join('\n\n'),
+      `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,
+      'This checkout is the pull request head; anything you change here is thrown away.',
+      'Answer with a comment. When it asks for a change, or you find one is needed, also propose back with why.',
+      `End your reply with a fenced bothub block holding a JSON array of proposals:\n${shapes.comment}\n${shapes.back}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    const r = yield* converse(hub, run.id, step.name, {
+      harness: agent.harness,
+      agent: to.does.agent,
+      minutes: hub.limits.minutes,
+      ...(agent.model !== undefined && { model: agent.model }),
+      system: agent.body,
+      prompt,
+      dir: work.dir,
+      tools: agent.tools,
+      ...(kept && { resume: kept, fork: true as const }),
+    });
+    const { proposals } = proposalsOf(r.final, false);
+    const back = proposals.find(p => p.kind === 'back');
+    const landed = yield* land(
+      run,
+      proposals.filter(p => p.kind === 'comment')
+    );
+    const undone = landed.some(a => a.ok) && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
+    yield* store.trace(run.id, ...[...landed, ...undone].map(applied => ({ at: now(), step: step.name, applied })));
+    const { eyes, ...rest } = run;
+    const answered = { ...rest, ...(eyes && !undone.length && { eyes }), usd: run.usd + r.usd };
+    if (!back || r.id === undefined) return { run: answered };
+    const sessions = { ...run.sessions, [to.name]: { id: r.id, home: r.home, ...(kept?.seen && { seen: kept.seen }) } };
+    return { run: { ...answered, sessions }, outcome: { kind: 'back', why: back.why } as const };
+  }).pipe(Effect.scoped);
+
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
 export const settle = 30_000;
 
@@ -1546,8 +1597,21 @@ export const tick = (
         l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
       );
       const outcome = fold([m, ...answers.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
-      const seen = m.kind === 'comment' ? yield* eyes(run, m) : run;
-      const moved = { ...transition(w, seen, outcome), said: heard(m), seen: newest(...answers.map(a => a.at))! };
+      const seen = { ...(m.kind === 'comment' ? yield* eyes(run, m) : run), said: heard(m) };
+      const step = w.steps.find(s => s.name === run.step);
+      const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
+      const asked: { run: Run; outcome?: Outcome } | undefined =
+        outcome.kind !== 'answer' || !step || !waits(step)
+          ? undefined
+          : !pull
+            ? { run: seen, outcome: { kind: 'back', why: outcome.text } }
+            : yield* aside(w, seen, hub, outcome.text, pull).pipe(
+                Effect.catchAll(e => Effect.as(Effect.logError(`aside of run ${run.id}`, e), { run: seen }))
+              );
+      const moved = {
+        ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
+        seen: newest(...answers.map(a => a.at))!,
+      };
       const next = moved.status === 'running' ? moved : yield* show(w, moved);
       yield* record(run, outcome, next);
     }

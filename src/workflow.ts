@@ -375,7 +375,6 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
       );
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
     }
-    if (said !== undefined) return { kind: 'back', why: said };
   }
   if (said !== undefined && live) return { kind: 'answer', text: said };
   return undefined;

@@ -692,19 +692,25 @@ describe('tick', () => {
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
   }, 30_000);
 
-  it('wakes a run waiting at merge on a mention in its pull request and resumes the work session there', async () => {
+  it('sends a run waiting at merge back when the aside a mention starts proposes back, resuming its fork', async () => {
     const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
     say(where, comment(8, 'morgan', true, '@bothub please undo the greeting', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
+      [start('f'), reply({ kind: 'comment', body: 'Will undo.' }, { kind: 'back', why: 'undo the greeting' })],
+      [start('f'), write('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
     ]);
     const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
-    expect(specs).toHaveLength(1);
-    expect(specs[0]!.resume?.id).toBe('a');
-    expect(specs[0]!.prompt).toBe(
-      'the merge step sent this back: please undo the greeting\n\n## New since you last looked\n\n#8 @morgan: @bothub please undo the greeting'
+    expect(specs).toHaveLength(2);
+    expect(specs[0]).toMatchObject({ resume: { id: 'a' }, fork: true });
+    expect(specs[0]!.prompt).toContain('please undo the greeting');
+    expect(specs[1]!.resume?.id).toBe('f');
+    expect(specs[1]!.fork).toBeUndefined();
+    expect(specs[1]!.prompt).toMatch(
+      /^the merge step sent this back: undo the greeting\n\n## New since you last looked/
     );
+    expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Will undo.');
     expect(readFileSync(join(where.forge, '8.jsonl'), 'utf8')).toContain('Undone.');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Undone.');
     expect(readFileSync(join(where.forge, '8.reactions'), 'utf8')).toBe('');
@@ -766,14 +772,34 @@ describe('tick', () => {
     expect(specs).toHaveLength(1);
   }, 30_000);
 
-  it('takes a plain comment in its pull request as the answer of a run waiting at merge', async () => {
+  it('answers a question at merge from a fork of the work session, under its thread, and keeps waiting', async () => {
     const where = world();
-    say(where, comment(8, 'morgan', true, 'please undo the greeting', '2026-10-16T00:00:05.000Z'));
-    const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
+    const at = '2026-10-16T00:00:05.000Z';
+    const asked = 'so the greeting was already documented in the README?';
+    say(where, {
+      ...comment(8, 'morgan', true, asked, at),
+      comment: { id: 'r1', author: 'morgan', body: asked, at, path: 'hello.txt', line: 1 },
+    });
+    const { specs, run } = services(where, [
+      [
+        start('f'),
+        { type: 'usage', input: 4, output: 2, usd: 0.5 },
+        reply({ kind: 'comment', body: 'No, README.md only says demo.' }),
+      ],
+    ]);
     const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
-    expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
-    expect(specs[0]!.prompt).toContain('the merge step sent this back: please undo the greeting');
-  });
+    expect(touched).toMatchObject([{ id: 'run-7', step: 'merge', status: 'waiting', usd: 0.5 }]);
+    expect(touched[0]!.sessions).toEqual({ implement: { id: 'a', home: '/homes/a' } });
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({ resume: { id: 'a', home: '/homes/a' }, fork: true });
+    expect(specs[0]!.prompt).toContain(asked);
+    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under])).toEqual([
+      ['No, README.md only says demo.', 'r1'],
+    ]);
+    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(git(where.origin, 'rev-parse', 'main'));
+  }, 30_000);
 
   it('replies to a plain comment on a thread with a finished run, not to one for someone else or on another thread', async () => {
     const where = world();

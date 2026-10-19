@@ -98,6 +98,7 @@ describe('bin/forge.ts with run --forge', () => {
 
     w.forge('comment', '2', '/bothub say hello world');
     const second = await w.run([
+      [start('a'), reply({ kind: 'comment', body: 'On it.' }, { kind: 'back', why: 'say hello world' })],
       [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);

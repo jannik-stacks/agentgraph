@@ -556,7 +556,8 @@ export const harnesses = (s: {
             const home = (!spec.fork && spec.resume?.home) || join(s.data, 'homes', randomUUID());
             yield* Effect.tryPromise({
               try: async () => {
-                if (spec.fork && spec.resume) await cp(spec.resume.home, home, { recursive: true, verbatimSymlinks: true });
+                if (spec.fork && spec.resume)
+                  await cp(spec.resume.home, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
                 for (const [path, text] of Object.entries(adapter.files?.(spec, s.proxy.url) ?? {}))
                   await writeHome(home, path, text);
