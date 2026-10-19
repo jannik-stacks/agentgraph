@@ -79,10 +79,6 @@ body {
   }
 }
 
-.bhm-ref {
-  @apply rounded border border-zinc-200 px-1 font-mono text-[0.85em] text-zinc-600 dark:border-zinc-700 dark:text-zinc-400;
-}
-
 .bhm-in {
   animation: bhm-in 150ms ease-out;
 }
