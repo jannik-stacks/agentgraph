@@ -1,10 +1,8 @@
-import { execFile } from 'node:child_process';
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { Context, Data, Effect, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
-import type { Checkout } from './sandbox.ts';
+import { hostGit, type Checkout } from './sandbox.ts';
 
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
 export type Issue = {
@@ -114,7 +112,6 @@ export const matches =
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>
   `(${what} by @${author} withheld: ${why})`;
 
-const execGit = promisify(execFile);
 const me = 'bothub[bot]';
 
 /**
@@ -134,16 +131,19 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const optional = <A>(p: Promise<A>) =>
         p.catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? undefined : Promise.reject(e)));
       const who = as ?? me;
-      const git = (cwd: string, ...args: string[]) =>
-        execGit(
-          'git',
-          [
-            ...['-c', `user.name=${who}`, '-c', 'user.email=bothub@localhost', '-c', 'commit.gpgsign=false'],
-            ...['-c', 'remote.origin.mirror=false'],
-            ...args,
-          ],
-          { cwd }
-        ).then(r => r.stdout.trim());
+      const git = (work: Checkout, ...args: string[]) =>
+        Effect.runPromise(
+          Effect.mapError(
+            hostGit(work.git, [
+              ...['-c', `user.name=${who}`, '-c', 'user.email=bothub@localhost'],
+              ...['-c', 'remote.origin.mirror=false'],
+              ...args,
+            ]),
+            e => new ForgeError({ message: e.detail })
+          )
+        ).then(out => out.toString('utf8').trim());
+      /** The last commit pushed from each checkout; the next push from it builds on that commit. */
+      const pushed = new Map<string, string>();
 
       const numbers = async () =>
         ((await optional(readdir(dir))) ?? []).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
@@ -185,7 +185,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       const say = (m: Omit<Event, 'actor' | 'trusted' | 'at'>) =>
         appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: who, trusted: who !== me, at: now() })}\n`);
       /** The tip of `branch` on the checkout's remote, fetched. */
-      const tip = (work: string, branch: string) =>
+      const tip = (work: Checkout, branch: string) =>
         git(work, 'fetch', '-q', 'origin', `refs/heads/${branch}`).then(() => git(work, 'rev-parse', 'FETCH_HEAD'));
       const open = async (fields: Pick<Issue, 'title' | 'body'> & Partial<Issue>) => {
         const number = Math.max(0, ...(await numbers())) + 1;
@@ -198,22 +198,21 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         return t;
       };
 
-      /** Records the checkout's head on the open pull requests of `branch`, with their diffs. */
-      const moved = async (work: string, branch: string) => {
-        const head = await git(work, 'rev-parse', 'HEAD');
+      /** Records `head` on the open pull requests of `branch`, with their diffs. */
+      const moved = async (work: Checkout, branch: string, head: string) => {
         for (const k of await numbers()) {
           const pr = await read(k);
           if (pr?.pull?.branch !== branch || pr.state !== 'open') continue;
           await write({ ...pr, pull: { ...pr.pull, head } });
           await writeFile(
             join(dir, String(k), 'diff.patch'),
-            await git(work, 'diff', `${await tip(work, pr.pull.base)}...HEAD`)
+            await git(work, 'diff', `${await tip(work, pr.pull.base)}...${head}`)
           );
         }
         return head;
       };
 
-      const apply = async (n: number, p: Proposal, work?: string): Promise<Applied> => {
+      const apply = async (n: number, p: Proposal, work?: Checkout): Promise<Applied> => {
         const no = (reason: string): Applied => ({ proposal: p, ok: false, reason });
         const t = await must(n);
         switch (p.kind) {
@@ -242,23 +241,41 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           }
           case 'push': {
             if (!work) return no('a push needs a worktree');
+            const parent = pushed.get(work.dir) ?? (await tip(work, p.branch).catch(() => work.base));
             await git(work, 'add', '-A');
-            if (await git(work, 'status', '--porcelain')) await git(work, 'commit', '-q', '-m', p.message);
-            await git(work, 'push', '-q', 'origin', `HEAD:refs/heads/${p.branch}`);
-            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch)}` };
+            const tree = await git(work, 'write-tree');
+            const head =
+              tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
+                ? parent
+                : await git(work, 'commit-tree', tree, '-p', parent, '-m', p.message);
+            await git(work, 'push', '-q', 'origin', `${head}:refs/heads/${p.branch}`);
+            pushed.set(work.dir, head);
+            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'rebase': {
             if (!work) return no('a rebase needs a worktree');
             const was = await tip(work, p.branch);
-            await git(work, 'reset', '-q', '--hard', was);
-            const clean = await git(work, 'rebase', '-q', '--onto', p.onto, p.from).then(
-              () => true,
-              () => git(work, 'rebase', '--abort').then(() => false)
-            );
-            if (!clean) return no(`${p.branch} conflicts with ${p.onto}`);
+            let head = p.onto;
+            let tree = await git(work, 'rev-parse', `${head}^{tree}`);
+            for (const commit of (await git(work, 'rev-list', '--reverse', '--no-merges', `${p.from}..${was}`))
+              .split('\n')
+              .filter(Boolean)) {
+              const next = await git(
+                work,
+                ...['merge-tree', '--write-tree', '--no-messages', `--merge-base=${commit}~1^{tree}`, tree],
+                `${commit}^{tree}`
+              ).catch(() => undefined);
+              if (next === undefined) return no(`${p.branch} conflicts with ${p.onto}`);
+              if (next === tree) continue;
+              const message = await git(work, 'log', '-1', '--format=%B', commit);
+              head = await git(work, 'commit-tree', next, '-p', head, '-m', message);
+              tree = next;
+            }
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was}`;
-            await git(work, 'push', '-q', lease, 'origin', `HEAD:refs/heads/${p.branch}`);
-            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch)}` };
+            await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
+            await git(work, 'read-tree', '-u', '--reset', tree);
+            pushed.set(work.dir, head);
+            return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'pull_request': {
             for (const k of await numbers()) {
@@ -345,7 +362,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
                 .sort((a, b) => a.at.localeCompare(b.at))
             )
           ),
-        apply: (n, p, work) => lock.withPermits(1)(io(() => apply(n, p, work?.dir))),
+        apply: (n, p, work) => lock.withPermits(1)(io(() => apply(n, p, work))),
       };
     })
   );

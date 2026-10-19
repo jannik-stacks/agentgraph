@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
@@ -15,6 +15,39 @@ export const git = (cwd: string, ...args: string[]) =>
     cwd,
     encoding: 'utf8',
   }).trim();
+
+/**
+ * What a session could leave in its worktree to steer host git: a `.git` pointing at its own repo whose config runs a
+ * script through fsmonitor, a clean filter and hooks, and, given the admin dir, a commondir and gitdir pointing away.
+ * The script touches `marker`.
+ */
+export const plant = (dir: string, admin?: string) => {
+  const evil = tmp('evil');
+  const marker = join(evil, 'marker');
+  const script = join(evil, 'run.sh');
+  writeFileSync(script, `#!/bin/sh\ntouch ${marker}\ncat\n`);
+  chmodSync(script, 0o755);
+  git(evil, 'init', '-q', '--bare');
+  for (const [key, value] of [
+    ['core.fsmonitor', script],
+    ['core.hooksPath', join(evil, 'hooks')],
+    ['filter.evil.clean', script],
+    ['filter.evil.required', 'true'],
+  ] as const)
+    git(evil, 'config', key, value);
+  mkdirSync(join(evil, 'hooks'), { recursive: true });
+  for (const hook of ['pre-commit', 'post-commit', 'reference-transaction', 'post-checkout', 'post-index-change'])
+    writeFileSync(join(evil, 'hooks', hook), `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+  writeFileSync(join(dir, '.git'), `gitdir: ${evil}\n`);
+  writeFileSync(join(dir, '.gitattributes'), '* filter=evil\n');
+  const victim = tmp('victim');
+  writeFileSync(join(victim, 'keep.txt'), 'mine\n');
+  if (admin) {
+    writeFileSync(join(admin, 'commondir'), `${evil}\n`);
+    writeFileSync(join(admin, 'gitdir'), `${join(victim, '.git')}\n`);
+  }
+  return { marker, victim };
+};
 
 const root = join(import.meta.dirname, 'fixtures');
 

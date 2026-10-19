@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import { docker } from '../src/docker.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
-import { git, tmp } from './fixtures.ts';
+import { git, plant, tmp } from './fixtures.ts';
 
 /** A repo with one commit on `main` and a `feature` branch one commit ahead. */
 const origin = () => {
@@ -37,39 +37,6 @@ const command = (dir: string, more: Partial<Command> = {}): Command => ({
   minutes: 1,
   ...more,
 });
-
-/**
- * What a session could leave in its worktree to steer host git: a `.git` pointing at its own repo whose config runs a
- * script through fsmonitor, a clean filter and hooks, and, given the admin dir, a commondir and gitdir pointing away.
- * The script touches `marker`.
- */
-const plant = (dir: string, admin?: string) => {
-  const evil = tmp('evil');
-  const marker = join(evil, 'marker');
-  const script = join(evil, 'run.sh');
-  writeFileSync(script, `#!/bin/sh\ntouch ${marker}\ncat\n`);
-  chmodSync(script, 0o755);
-  git(evil, 'init', '-q', '--bare');
-  for (const [key, value] of [
-    ['core.fsmonitor', script],
-    ['core.hooksPath', join(evil, 'hooks')],
-    ['filter.evil.clean', script],
-    ['filter.evil.required', 'true'],
-  ] as const)
-    git(evil, 'config', key, value);
-  mkdirSync(join(evil, 'hooks'), { recursive: true });
-  for (const hook of ['pre-commit', 'post-commit', 'reference-transaction', 'post-checkout', 'post-index-change'])
-    writeFileSync(join(evil, 'hooks', hook), `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
-  writeFileSync(join(dir, '.git'), `gitdir: ${evil}\n`);
-  writeFileSync(join(dir, '.gitattributes'), '* filter=evil\n');
-  const victim = tmp('victim');
-  writeFileSync(join(victim, 'keep.txt'), 'mine\n');
-  if (admin) {
-    writeFileSync(join(admin, 'commondir'), `${evil}\n`);
-    writeFileSync(join(admin, 'gitdir'), `${join(victim, '.git')}\n`);
-  }
-  return { marker, victim };
-};
 
 describe('docker with a stand-in docker client', () => {
   const bin = tmp('bin');

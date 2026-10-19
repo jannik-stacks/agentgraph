@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
@@ -7,7 +7,7 @@ import { fileForge, Forge } from '../src/forge.ts';
 import { host, Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
-import { fixture, git } from './fixtures.ts';
+import { fixture, git, plant } from './fixtures.ts';
 
 const dirs: string[] = [];
 const temp = () => {
@@ -143,7 +143,7 @@ describe('fileForge', () => {
 });
 
 describe('fileForge push', () => {
-  it('pushes from a worktree of a mirror clone, as the docker sandbox makes them', async () => {
+  const setup = () => {
     const dir = temp();
     const origin = join(dir, 'origin.git');
     const mirror = join(dir, 'mirror.git');
@@ -156,13 +156,32 @@ describe('fileForge push', () => {
     git(dir, '--git-dir', mirror, 'worktree', 'add', '-q', '--detach', work, 'main');
     writeFileSync(join(dir, '1.md'), '---\ntitle: One\nstate: open\nauthor: a\n---\n\nFirst.\n');
     writeFileSync(join(work, 'hello.txt'), 'hello\n');
-    const checkout = { dir: work, base: '', git: { GIT_DIR: mirror, GIT_WORK_TREE: work }, news: '' };
-    const applied = await Effect.runPromise(
-      Effect.flatMap(Forge, f => f.apply(1, { kind: 'push', branch: 'bothub/1', message: 'add hello' }, checkout)).pipe(
-        Effect.provide(fileForge(dir))
-      )
-    );
-    expect(applied.ok).toBe(true);
+    const checkout = {
+      dir: work,
+      base: git(work, 'rev-parse', 'HEAD'),
+      git: { GIT_DIR: mirror, GIT_WORK_TREE: work },
+      news: '',
+    };
+    const push = () =>
+      Effect.runPromise(
+        Effect.flatMap(Forge, f =>
+          f.apply(1, { kind: 'push', branch: 'bothub/1', message: 'add hello' }, checkout)
+        ).pipe(Effect.provide(fileForge(dir)))
+      );
+    return { dir, origin, work, push };
+  };
+
+  it('pushes from a worktree of a mirror clone, as the docker sandbox makes them', async () => {
+    const { dir, origin, push } = setup();
+    expect((await push()).ok).toBe(true);
+    expect(git(dir, '--git-dir', origin, 'show', 'bothub/1:hello.txt')).toBe('hello');
+  });
+
+  it('runs no code a session planted in its worktree', async () => {
+    const { dir, work, origin, push } = setup();
+    const { marker } = plant(work);
+    expect((await push()).ok).toBe(true);
+    expect(existsSync(marker)).toBe(false);
     expect(git(dir, '--git-dir', origin, 'show', 'bothub/1:hello.txt')).toBe('hello');
   });
 });
