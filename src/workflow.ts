@@ -30,10 +30,15 @@ export type Workflow = Doc<{
   steps: Step[];
 }>;
 
+/**
+ * One step. On a `wait` step, `checks` are what runs again when the pull request's base moves and its change stays the
+ * same, and `follow` is how the branch follows the base: a merge commit, a rebase, or not at all.
+ */
 export type Step = {
   name: string;
   does: { agent: string; skill?: string } | { run: string } | { wait: 'human' };
   checks: string[];
+  follow?: 'merge' | 'rebase' | 'none';
   tries: number;
   back?: { to: string; until?: string; rounds?: number };
   each?: 'files' | 'hunks' | { run: string };
@@ -78,6 +83,11 @@ export type Run = {
   eyes?: { issue: number; undo: Extract<Proposal, { kind: 'react' }> };
   /** The open pull request the run stacks on, and the head of it the run's branch builds on. */
   base?: { pull: number; branch: string; sha: string };
+  /**
+   * The base head the next push lands on, when following it conflicted: the work tree starts there with the change
+   * applied and conflict markers left, and the push replaces the branch, or merges into it with `merge`.
+   */
+  onto?: { sha: string; merge?: true };
   /** The version of the hub the run was last checked under. */
   hub?: string;
   /** The run whose `run` proposal started this one. */
@@ -99,6 +109,7 @@ const StepFile = Schema.Struct({
   agent: exact(Schema.String),
   run: exact(Schema.String),
   wait: exact(Schema.Literal('human')),
+  follow: exact(Schema.Literal('merge', 'rebase', 'none')),
   skill: exact(Schema.String),
   checks: exact(Names),
   tries: exact(Count),
@@ -138,7 +149,7 @@ export const split = (text: string): { data: unknown; body: string } => {
 export function load(
   path: string,
   text: string,
-  names: Record<'agents' | 'skills' | 'checks', string[]>
+  names: Record<'agents' | 'skills' | 'checks', string[]> & { judged?: string[] }
 ): { workflow?: Workflow; problems: Problem[] } {
   const problems: Problem[] = [];
   const say = (key: string, message: string) => problems.push({ path, message: `${key}: ${message}` });
@@ -188,8 +199,10 @@ export function load(
     }
     if (s.back === undefined && s.until !== undefined) say(`${key}.until`, 'until needs back');
     if (s.back === undefined && s.rounds !== undefined) say(`${key}.rounds`, 'rounds needs back');
+    if (s.follow !== undefined && s.wait === undefined) say(`${key}.follow`, 'only a wait step follows its base');
 
-    const checks = s.checks ?? [];
+    const scripts = (files[s.back ?? '']?.checks ?? []).filter(c => !names.judged?.includes(c));
+    const checks = s.checks ?? (s.wait !== undefined ? scripts : []);
     const skill = s.skill ?? (names.skills.includes(stepName) ? stepName : undefined);
     const does: Step['does'] =
       s.run !== undefined
@@ -202,7 +215,7 @@ export function load(
       name: stepName,
       does,
       checks,
-      tries: s.tries ?? (checks.length > 0 ? 3 : 1),
+      tries: s.tries ?? (checks.length > 0 && s.wait === undefined ? 3 : 1),
       ...(s.back !== undefined && {
         back: {
           to: s.back,
@@ -211,6 +224,7 @@ export function load(
         },
       }),
       ...(s.each !== undefined && { each: s.each }),
+      ...(s.wait !== undefined && { follow: s.follow ?? 'merge' }),
     };
   });
   if (problems.length > 0) return { problems };

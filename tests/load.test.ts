@@ -31,7 +31,26 @@ describe('load', () => {
       back: { to: 'implement', until: 'no hunk needs a change before it can merge', rounds: 2 },
       each: 'hunks',
     });
-    expect(merge).toEqual({ name: 'merge', does: { wait: 'human' }, checks: [], tries: 1, back: { to: 'implement' } });
+    expect(merge).toEqual({
+      name: 'merge',
+      does: { wait: 'human' },
+      checks: [
+        'safety',
+        'rules',
+        'names',
+        'lint',
+        'types',
+        'tests',
+        'kit-types',
+        'early-names',
+        'api-fresh',
+        'dash-taglines',
+        'callouts',
+      ],
+      tries: 1,
+      back: { to: 'implement' },
+      follow: 'rebase',
+    });
   });
 
   it('gives a step with checks three tries and an agent way back three rounds', () => {

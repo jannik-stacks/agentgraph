@@ -321,7 +321,12 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
     unknownKinds(doc.body, sayer(doc.path));
   for (const file of Object.values(groups).flat()) retiredIn(file.text, sayer(file.path));
 
-  const names = { agents: Object.keys(agents), skills: Object.keys(skills), checks: Object.keys(checks) };
+  const names = {
+    agents: Object.keys(agents),
+    skills: Object.keys(skills),
+    checks: Object.keys(checks),
+    judged: Object.values(checks).flatMap(c => (c.agent === undefined ? [] : [c.name])),
+  };
   const workflows: Record<string, Workflow> = {};
   for (const file of groups.workflows) {
     const parsed = front(file);

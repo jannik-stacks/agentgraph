@@ -24,7 +24,7 @@ import type { Settings } from '../src/services.ts';
 import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import type { Hub } from '../src/hub.ts';
-import { begin, cancelled, reenter, transition, type Run } from '../src/workflow.ts';
+import { begin, cancelled, reenter, transition, type Run, type Step } from '../src/workflow.ts';
 import { git, hubOf } from './fixtures.ts';
 
 const foot = (...lines: string[]) =>
@@ -98,13 +98,20 @@ const judged: SessionEvent[] = [
 ];
 
 /** The file doubles, with every session spec and every sandbox command recorded, both also in `order`. */
-const services = (where: ReturnType<typeof world>, turns: SessionEvent[][], slug?: string) => {
+const services = (
+  where: ReturnType<typeof world>,
+  turns: SessionEvent[][],
+  slug?: string,
+  opened: (spec: SessionSpec) => unknown = () => undefined
+) => {
   const specs: SessionSpec[] = [];
   const commands: Command[] = [];
   const order: (SessionSpec | Command)[] = [];
   const recording = Layer.effect(
     Session,
-    Effect.map(Session, s => ({ open: (spec: SessionSpec) => (specs.push(spec), order.push(spec), s.open(spec)) }))
+    Effect.map(Session, s => ({
+      open: (spec: SessionSpec) => (specs.push(spec), order.push(spec), opened(spec), s.open(spec)),
+    }))
   ).pipe(Layer.provide(scripted(turns)));
   const sandbox = Layer.effect(
     Sandbox,
@@ -1970,12 +1977,12 @@ describe('a base that moved', () => {
     expect(await first.run(drive(w, fresh(), hub))).toMatchObject({ step: 'merge', status: 'waiting', hub: 'fixture' });
     return where;
   };
-  /** Run 7 parked, then `main` gets a commit that writes `file`. */
-  const moved = async (file: string) => {
+  /** Run 7 parked, then `main` gets one commit that writes each file. */
+  const moved = async (...files: string[]) => {
     const where = await parked();
     const mover = join(where.root, 'mover');
     git(where.root, 'clone', '-q', where.origin, mover);
-    writeFileSync(join(mover, file), 'upstream\n');
+    for (const file of files) writeFileSync(join(mover, file), 'upstream\n');
     git(mover, 'add', '-A');
     git(mover, 'commit', '-q', '-m', 'upstream');
     git(mover, 'push', '-q', 'origin', 'main');
@@ -1986,41 +1993,133 @@ describe('a base that moved', () => {
     traceOf(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
     );
+  /** The hub with the merge step's fields replaced. */
+  const merging = (fields: Partial<Step>, base = hub) => ({
+    ...base,
+    workflows: { issue: { ...w, steps: w.steps.map(s => (s.name === 'merge' ? { ...s, ...fields } : s)) } },
+  });
+  const ran = (commands: Command[], script: string) => commands.some(c => c.args.includes(script));
+  const said = (where: ReturnType<typeof world>) =>
+    readdirSync(where.forge)
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => readFileSync(join(where.forge, f), 'utf8'))
+      .join('');
 
-  it('rebases a clean branch with no model and checks it again', async () => {
+  it('rebases a clean branch with no model and runs only its script checks when the change stays the same', async () => {
     const where = await moved('other.txt');
     expect(behind(where)).toBe('1');
-    const { specs, run } = services(where, [judged]);
+    const { specs, commands, run } = services(where, []);
     await run(tick(hub));
     expect(behind(where)).toBe('0');
     expect(git(where.origin, 'show', 'bothub/7:other.txt')).toBe('upstream');
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
-    expect(specs).toHaveLength(1);
-    expect(specs[0]!.prompt).not.toContain('Brief');
+    expect(specs).toHaveLength(0);
+    expect(ran(commands, '! grep -q TODO hello.txt')).toBe(true);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
     expect(rebases(where)).toEqual([true]);
-  }, 30_000);
+  }, 60_000);
 
-  it('says a conflict on the issue once per base head and keeps waiting', async () => {
-    const where = await moved('hello.txt');
+  it('merges the base into the branch with a plain push by default', async () => {
+    const where = await moved('other.txt');
     const before = git(where.origin, 'rev-parse', 'bothub/7');
     const { specs, run } = services(where, []);
+    await run(tick(merging({ follow: 'merge' })));
+    expect(git(where.origin, 'rev-parse', 'bothub/7^1')).toBe(before);
+    expect(git(where.origin, 'rev-parse', 'bothub/7^2')).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(specs).toHaveLength(0);
+    const diff = readFileSync(join(where.forge, '8', 'diff.patch'), 'utf8');
+    expect(diff).toContain('hello.txt');
+    expect(diff).not.toContain('other.txt');
+  }, 60_000);
+
+  it('judges after the script checks pass when the step names a judged check, and only then', async () => {
+    const where = await moved('other.txt');
+    const { specs, run } = services(where, [judged]);
+    await run(tick(merging({ checks: ['types', 'claims'] })));
+    expect(specs).toHaveLength(1);
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
+
+    const red = await moved('other.txt');
+    const failing = services(red, [[start('i2'), reply({ kind: 'ask', question: 'Why red?' })]]);
+    const strict = { ...hub, checks: { ...hub.checks, types: { ...hub.checks.types!, run: 'exit 1' } } };
+    await failing.run(tick(merging({ checks: ['types', 'claims'] }, strict)));
+    expect(failing.specs.map(s => s.prompt)[0]).toMatch(/^the merge step sent this back: types/);
+  }, 60_000);
+
+  it('follows the base and checks nothing when the step lists no checks', async () => {
+    const where = await moved('other.txt');
+    const { commands, run } = services(where, []);
+    await run(tick(merging({ checks: [] })));
+    expect(behind(where)).toBe('0');
+    expect(commands).toHaveLength(0);
+  }, 60_000);
+
+  it('sends a conflict back to implement, which resolves it on the new base and lands only its change', async () => {
+    const where = await moved('hello.txt', 'other.txt');
+    const seen: string[] = [];
+    const { specs, run } = services(
+      where,
+      [
+        [start('i1'), write('hello.txt', 'hello upstream\n'), reply(push)],
+        judged,
+        [start('r2'), reply({ kind: 'comment', body: 'Fine.' })],
+      ],
+      undefined,
+      spec => existsSync(join(spec.dir, 'hello.txt')) && seen.push(readFileSync(join(spec.dir, 'hello.txt'), 'utf8'))
+    );
+    await run(tick(hub));
+    expect(specs[0]!.prompt).toMatch(
+      /^the merge step sent this back: bothub\/7 no longer rebases onto main at \w+: conflicts in hello.txt/
+    );
+    expect(seen[0]).toMatch(/^<<<<<<< [^\n]*\nupstream\n=======\nhello\n>>>>>>> /);
+    expect(git(where.origin, 'rev-parse', 'bothub/7~1')).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello upstream');
+    expect(git(where.origin, 'show', 'bothub/7:other.txt')).toBe('upstream');
+    const diff = readFileSync(join(where.forge, '8', 'diff.patch'), 'utf8');
+    expect(diff).toContain('+hello upstream');
+    expect(diff).not.toContain('other.txt');
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
+    expect(stored!.onto).toBeUndefined();
+    expect(said(where)).not.toContain('by hand');
+  }, 60_000);
+
+  it('fails a try that leaves conflict markers and pushes nothing', async () => {
+    const where = await moved('hello.txt');
+    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const { specs, run } = services(where, [
+      [start('i1'), reply(push)],
+      judged,
+      [start('i1'), reply({ kind: 'ask', question: 'Which side?' })],
+    ]);
+    await run(tick(hub));
+    expect(specs[2]!.prompt).toContain('conflict markers left in hello.txt');
+    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which side?' });
+    expect(stored!.onto).toBeDefined();
+  }, 60_000);
+
+  it('says a conflict on the issue once when the harness already had its try at that base head', async () => {
+    const where = await moved('hello.txt');
+    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const { run } = services(where, [[start('i1'), reply({ kind: 'ask', question: 'Stuck.' })]]);
+    await run(tick(hub));
+    const [asked] = await run(Effect.flatMap(Store, s => s.list()));
+    const { onto: _onto, ...back } = asked!;
+    await run(Effect.flatMap(Store, s => s.put({ ...back, step: 'merge', status: 'waiting' })));
     await run(tick(hub));
     await run(tick(hub));
     expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
-    expect(specs).toHaveLength(0);
-    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
-    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
-    expect(rebases(where)).toEqual([false]);
-    const said = readdirSync(where.forge)
-      .filter(f => f.endsWith('.jsonl'))
-      .map(f => readFileSync(join(where.forge, f), 'utf8'))
-      .join('');
-    expect(said.split('no longer rebases onto main: conflicts in hello.txt. Rebase it by hand.')).toHaveLength(2);
-  }, 30_000);
+    expect(rebases(where)).toEqual([false, false]);
+    expect(
+      said(where).split('bothub/7 no longer rebases onto main: conflicts in hello.txt. Update it by hand.')
+    ).toHaveLength(2);
+  }, 60_000);
 
-  it('keeps what a failing check after a rebase cost when it sends the run back', async () => {
+  it('keeps what a failing judged check after a rebase cost when it sends the run back', async () => {
     const where = await moved('other.txt');
     const { run } = services(where, [
       [start('j'), { type: 'usage', input: 1, output: 1, usd: 0.25 }, { type: 'text', text: 'FAIL a claim' }],
@@ -2028,11 +2127,11 @@ describe('a base that moved', () => {
     ]);
     const [was] = await run(Effect.flatMap(Store, s => s.list()));
     const strict = { ...hub, checks: { ...hub.checks, claims: { ...hub.checks.claims!, mode: 'block' as const } } };
-    await run(tick(strict));
+    await run(tick(merging({ checks: ['types', 'claims'] }, strict)));
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which claim?' });
     expect(stored!.usd).toBeCloseTo(was!.usd + 0.25);
-  }, 30_000);
+  }, 60_000);
 
   it('does nothing when the branch is up to date', async () => {
     const where = await moved('other.txt');

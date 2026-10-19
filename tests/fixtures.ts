@@ -61,7 +61,12 @@ export const fixture = (hub: string) => {
     skills: string[];
     checks: Record<string, Check['mode'] | Pick<Check, 'mode' | 'agent'>>;
   };
-  const names = { agents: file.agents, skills: file.skills, checks: Object.keys(file.checks) };
+  const names = {
+    agents: file.agents,
+    skills: file.skills,
+    checks: Object.keys(file.checks),
+    judged: Object.entries(file.checks).flatMap(([n, c]) => (typeof c === 'object' && c.agent ? [n] : [])),
+  };
   const checks = Object.fromEntries(
     Object.entries(file.checks).map(([name, check]) => [name, typeof check === 'string' ? { mode: check } : check])
   );

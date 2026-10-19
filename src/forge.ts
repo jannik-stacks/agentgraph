@@ -45,13 +45,14 @@ export type Event = {
 /**
  * What a run may change on the repo, and the three proposals that steer the run. `react` and `rebase` are the runner's
  * own; a rebase moves the commits on `branch` after `from` onto `onto`, and a react with `remove` takes back the
- * reaction of that id. An issue with a `parent` is filed as its sub-issue.
+ * reaction of that id. A push with `onto` lands the files as one commit on `onto` and replaces the branch, or with
+ * `merge` as a merge of `onto` into it; either refuses when the branch moved past the commit the checkout started from. An issue with a `parent` is filed as its sub-issue.
  */
 export type Proposal =
   | { kind: 'comment'; body: string; edit?: string; under?: string }
   | { kind: 'react'; comment?: string; review?: boolean; remove?: string }
   | { kind: 'label'; add?: string[]; remove?: string[] }
-  | { kind: 'push'; branch: string; message: string }
+  | { kind: 'push'; branch: string; message: string; onto?: string; merge?: true }
   | { kind: 'rebase'; branch: string; from: string; onto: string }
   | { kind: 'pull_request'; branch: string; base: string; title: string; body: string }
   | { kind: 'merge'; number: number; head: string }
@@ -242,14 +243,20 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           }
           case 'push': {
             if (!work) return no('a push needs a worktree');
-            const parent = pushed.get(work.dir) ?? (await tip(work, p.branch).catch(() => work.head ?? work.base));
+            const last = pushed.get(work.dir);
+            const was = await tip(work, p.branch).catch(() => undefined);
+            const onto = last === undefined ? p.onto : undefined;
+            if (onto && was !== (work.head ?? was)) return no(`${p.branch} moved to ${was}`);
+            const parent = last ?? was ?? work.head ?? work.base;
+            const parents = onto ? (p.merge ? [parent, onto] : [onto]) : [parent];
             await git(work, 'add', '-A');
             const tree = await git(work, 'write-tree');
             const head =
-              tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
+              !onto && tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
                 ? parent
-                : await git(work, 'commit-tree', tree, '-p', parent, '-m', p.message);
-            await git(work, 'push', '-q', 'origin', `${head}:refs/heads/${p.branch}`);
+                : await git(work, 'commit-tree', tree, ...parents.flatMap(c => ['-p', c]), '-m', p.message);
+            const force = onto && !p.merge ? '+' : '';
+            await git(work, 'push', '-q', 'origin', `${force}${head}:refs/heads/${p.branch}`);
             pushed.set(work.dir, head);
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }

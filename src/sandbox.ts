@@ -78,12 +78,16 @@ const hardened = [
 
 /**
  * Host git for the repo `env` names, with no user config, hooks or inherited `GIT_*` variables. Without `GIT_DIR` it
- * runs in the temp dir, for a clone.
+ * runs in the temp dir, for a clone. `input` goes to its stdin; an exit code in `codes` also succeeds.
  */
-export const hostGit = (env: Record<string, string>, args: string[]) =>
+export const hostGit = (
+  env: Record<string, string>,
+  args: string[],
+  { input, codes = [] }: { input?: string; codes?: number[] } = {}
+) =>
   Effect.async<Buffer, SandboxError>(resume => {
     const inherited = Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'));
-    execFile(
+    const child = execFile(
       'git',
       [...hardened, ...args],
       {
@@ -102,7 +106,7 @@ export const hostGit = (env: Record<string, string>, args: string[]) =>
       },
       (error, stdout, stderr) =>
         resume(
-          error
+          error && !codes.includes(Number(error.code))
             ? Effect.fail(
                 new SandboxError({
                   reason: 'infra',
@@ -112,6 +116,7 @@ export const hostGit = (env: Record<string, string>, args: string[]) =>
             : Effect.succeed(stdout)
         )
     );
+    child.stdin?.end(input ?? '');
   });
 
 const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];

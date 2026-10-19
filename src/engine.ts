@@ -466,6 +466,27 @@ const changes = (work: Checkout, ...args: string[]) =>
 
 const diffOf = (work: Checkout) => changes(work, '--text');
 
+/** The files whose lines added in `diff` are conflict markers. */
+const markedIn = (diff: string) => {
+  const files = new Set<string>();
+  let file = '';
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++ ')) file = line.replace(/^\+\+\+ (b\/)?/, '');
+    else if (/^\+(<{7}|>{7})( |$)/.test(line)) files.add(file);
+  }
+  return [...files];
+};
+
+/** `head` merged onto `onto` as a tree, conflict markers left in the files that clash, which come back in `files`. */
+const mergeOf = (work: Checkout, onto: string, head: string) =>
+  Effect.map(
+    hostGit(work.git, ['merge-tree', '--write-tree', '--name-only', '--no-messages', onto, head], { codes: [1] }),
+    out => {
+      const [tree = '', ...files] = out.toString('utf8').trim().split('\n');
+      return { tree, files: files.filter(Boolean) };
+    }
+  );
+
 /** The most items a fan-out takes when its check sets no `max`; a step fans out over at most this many. */
 const most = 20;
 
@@ -1016,12 +1037,15 @@ const attempt = (
     const parsed = replies.map(reply => proposalsOf(reply, !('run' in step.does)));
     const proposals = parsed.flatMap(p => p.proposals);
     const problems = parsed.flatMap(p => p.problems);
+    const marked = proposals.some(p => p.kind === 'push') ? markedIn(yield* diffOf(work)) : [];
+    if (marked.length > 0) problems.push(`conflict markers left in ${marked.join(', ')}`);
     const ask = proposals.find(p => p.kind === 'ask');
     if (ask) return done({ kind: 'ask', question: ask.question }, tried);
     const back = proposals.find(p => p.kind === 'back');
     const world = proposals
       .filter(p => p.kind !== 'ask' && p.kind !== 'back')
-      .map(p => {
+      .map((p): Proposal => {
+        if (p.kind === 'push' && run.onto) return { ...p, onto: run.onto.sha, ...(run.onto.merge && { merge: true }) };
         if (p.kind !== 'pull_request') return p;
         const body = p.body.replace(/^Stacks on #\d+\.?[ \t]*/gim, '').trim();
         return run.base
@@ -1111,6 +1135,10 @@ const attempt = (
         tried
       );
     const failed = landed.right.filter(a => !a.ok);
+    if (tried.onto && landed.right.some(a => a.ok && a.proposal.kind === 'push')) {
+      const { onto: _landed, ...rest } = tried;
+      tried = rest;
+    }
     const child = runs[0] && !failed.length ? yield* dispatch(hub, tried, runs[0]) : undefined;
     const applied = [...landed.right, ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : [])];
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
@@ -1292,7 +1320,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
-      const work = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/bothub/runs/${run.id}`, hub));
+      const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/bothub/runs/${run.id}`, hub));
+      const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
       if (hub.setup && !w.on.feedback) {
         const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
         if (out.code !== 0)
@@ -1337,6 +1366,14 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
     return current;
   });
 
+/** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
+const following = (work: Checkout, onto: string, first: boolean) =>
+  Effect.gen(function* () {
+    if (first && work.head)
+      yield* hostGit(work.git, ['read-tree', '-u', '--reset', (yield* mergeOf(work, onto, work.head)).tree]);
+    return { ...work, base: onto };
+  });
+
 /** Rebases a stacked run's branch onto `head`, the new head of the pull request it stacks on; a conflict is said on the issue. */
 const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: string) =>
   Effect.gen(function* () {
@@ -1361,9 +1398,11 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
 
 /**
  * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the hub. A branch
- * behind its base is rebased with no model; after a clean rebase, or under a new hub, the run is checked again, and a
- * failed check sends the run back as a request for changes would. A conflict is said on the issue once per base head.
- * Undefined when nothing moved.
+ * behind its base follows it with no model, by a merge or a rebase as the step's `follow` says. When the change stays
+ * the same, the step's own checks run again, scripts first and judged ones only once those pass; a changed change or a
+ * new hub runs every check of the step it goes back to. A failed check sends the run back as a request for changes
+ * would. A conflict sends it back too, to start on the new base with markers left; when that already happened for
+ * this base head, it is said on the issue once. Undefined when nothing moved.
  */
 const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
@@ -1372,48 +1411,91 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
     yield* store.lock(run.id);
-    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, undefined, undefined, hub));
-    const text = (...args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
+    const made = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, undefined, undefined, hub));
+    const work = { ...made, head: pull.head };
     const onto = work.base;
-    const from = yield* text('merge-base', pull.head, onto);
+    const from = yield* text(work, ['merge-base', pull.head, onto]);
     const moved = !run.base && from !== onto;
+    const renewed = (run.hub ?? hub.sha) !== hub.sha;
     const current = { ...run, hub: hub.sha };
-    if (!moved && (run.hub ?? hub.sha) === hub.sha) return run.hub ? undefined : { run: current };
+    if (!moved && !renewed) return run.hub ? undefined : { run: current };
+    let same = false;
     if (moved) {
-      const failed = Chunk.some(
-        yield* Stream.runCollect(store.read(run.id)),
-        t => 'applied' in t && !t.applied.ok && t.applied.proposal.kind === 'rebase' && t.applied.proposal.onto === onto
+      const merge = step.follow !== 'rebase';
+      const branch = pull.branch;
+      const verb = merge ? 'merges with' : 'rebases onto';
+      const proposal: Proposal = merge
+        ? { kind: 'push', branch, message: `Merge ${pull.base} into ${branch}`, onto, merge: true }
+        : { kind: 'rebase', branch, from, onto };
+      const tried = Chunk.size(
+        Chunk.filter(
+          yield* Stream.runCollect(store.read(run.id)),
+          t => 'applied' in t && !t.applied.ok && 'onto' in t.applied.proposal && t.applied.proposal.onto === onto
+        )
       );
-      if (failed) return { run: current };
-      const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: pull.branch, from, onto }, work);
+      if (tried >= (to ? 2 : 1)) return { run: current };
+      const { tree, files } = yield* mergeOf(work, onto, pull.head);
+      if (merge && files.length === 0) yield* hostGit(work.git, ['read-tree', '-u', '--reset', tree]);
+      const applied: Applied =
+        files.length > 0
+          ? { proposal, ok: false, reason: `conflicts in ${files.join(', ')}` }
+          : yield* forge.apply(run.issue, proposal, work);
       yield* store.trace(run.id, { at: now(), step: run.step, applied });
+      if (!applied.ok && tried === 0 && to) {
+        const why = [
+          `${branch} no longer ${verb} ${pull.base} at ${onto.slice(0, 7)}: ${applied.reason}.`,
+          `The work tree now starts on ${pull.base} with this change applied and conflict markers left where they clash.`,
+          'Resolve each conflict so both sides keep working, remove every marker, and push.',
+        ].join(' ');
+        const following = { ...current, onto: { sha: onto, ...(merge && { merge: true as const }) } };
+        return { run: following, outcome: { kind: 'back', why } as const };
+      }
       if (!applied.ok) {
-        const files = yield* hostGit(work.git, ['merge', '-q', '--no-commit', '--no-ff', pull.head]).pipe(
-          Effect.ignore,
-          Effect.zipRight(text('diff', '--name-only', '--diff-filter=U'))
-        );
-        const where = files ? `conflicts in ${files.split('\n').join(', ')}` : applied.reason;
-        const body = `${pull.branch} no longer rebases onto ${pull.base}: ${where}. Rebase it by hand.`;
+        const body = `${branch} no longer ${verb} ${pull.base}: ${applied.reason}. Update it by hand.`;
         const said = yield* land(run, [{ kind: 'comment', body }]);
         yield* store.trace(run.id, ...said.map(a => ({ at: now(), step: run.step, applied: a })));
         return { run: current };
       }
+      const patch = (diff: Buffer) =>
+        Effect.map(
+          hostGit(work.git, ['patch-id', '--stable'], { input: diff.toString('utf8') }),
+          out => out.toString('utf8').split(' ')[0]
+        );
+      const before = yield* patch(yield* hostGit(work.git, ['diff', from, pull.head]));
+      const after = yield* patch(yield* hostGit(work.git, ['diff', onto, yield* treeOf(work)]));
+      same = before === after;
     } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
     if (!to) return { run: current };
     const t = yield* issuesOf(w, run);
-    const { outcome, usd } = yield* gate(
-      to,
-      {
-        run: run.id,
-        ...work,
-        issue: run.issue,
-        context: context(t),
-        reply: '',
-        proposals: [],
-        answers: run.answers,
-      },
-      hub
-    );
+    const left = {
+      run: run.id,
+      ...work,
+      issue: run.issue,
+      context: context(t),
+      reply: '',
+      proposals: [],
+      answers: run.answers,
+    };
+    const own = same && !renewed;
+    const judged = (name: string) => hub.checks[name]?.agent !== undefined;
+    const scripts = step.checks.filter(c => !judged(c));
+    const later = own ? step.checks.filter(judged) : [];
+    let { outcome, usd } = yield* gate(own ? { ...step, checks: scripts } : to, left, hub);
+    if (outcome.kind === 'pass' && later.length > 0) {
+      const log = yield* text(work, ['log', '--oneline', '--no-decorate', `${from}..${onto}`]);
+      const stat = yield* text(work, ['diff', '--stat', from, onto]);
+      const reply = [
+        `The base ${pull.base} moved from ${from.slice(0, 7)} to ${onto.slice(0, 7)}; the change stays the same.`,
+        log,
+        stat,
+        scripts.length > 0 && `These checks passed on the updated branch: ${scripts.join(', ')}.`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+      const second = yield* gate({ ...step, checks: later }, { ...left, reply }, hub);
+      outcome = second.outcome;
+      usd += second.usd;
+    }
     const checked = { ...current, usd: run.usd + usd };
     return outcome.kind === 'failed'
       ? { run: checked, outcome: { kind: 'back', why: failure(outcome) } as const }

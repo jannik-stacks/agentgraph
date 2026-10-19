@@ -551,7 +551,7 @@ export const githubForge = (
      * Commits the checkout's files on top of its base, or of its last push, through the Git data API, then moves
      * `branch` forward to that commit. Only regular files outside `.github/` and `.git/` are pushed, within the limits.
      */
-    const push = (work: Checkout, branch: string, message: string) =>
+    const push = (work: Checkout, branch: string, message: string, onto?: string, merge?: true) =>
       Effect.gen(function* () {
         if (!branch.startsWith(pushable.prefix)) return yield* refuse(`a push goes to a ${pushable.prefix} branch`);
         const ref = yield* refPath(branch);
@@ -559,17 +559,20 @@ export const githubForge = (
         const parent = last?.sha ?? work.head ?? work.base;
         const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
         if (tip && tip !== parent) return yield* refuse(`${branch} is at ${tip}, the checkout builds on ${parent}`);
-        const from = last?.tree ?? (yield* gitText(work, ['rev-parse', `${parent}^{tree}`]));
+        const follow = last ? undefined : onto;
+        const parents = follow ? (merge ? [parent, follow] : [follow]) : [parent];
+        const from = last?.tree ?? (yield* gitText(work, ['rev-parse', `${parents[0]}^{tree}`]));
         yield* git(work, ['add', '-A']);
         const tree = yield* gitText(work, ['write-tree']);
         let head = parent;
-        if (tree !== from) {
-          yield* upload(work, from, tree);
-          const commit = { message, tree, parents: [parent] };
+        if (tree !== from || follow) {
+          if (tree !== from) yield* upload(work, from, tree);
+          const commit = { message, tree, parents };
           head = (yield* gh<{ sha: string }>('POST', `${repo}/git/commits`, commit, 'push')).sha;
         }
         if (head === tip) return head;
-        if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: false }, 'push');
+        const force = !!follow && !merge;
+        if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
         else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
         pushed.set(work.dir, { sha: head, tree });
         return head;
@@ -756,7 +759,7 @@ export const githubForge = (
           });
         case 'push':
           if (work === undefined) return Effect.fail(refuse('push needs a checkout'));
-          return Effect.map(push(work, p.branch, p.message), head => ({
+          return Effect.map(push(work, p.branch, p.message, p.onto, p.merge), head => ({
             url: `https://github.com/${app.repo}/commit/${head}`,
           }));
         case 'rebase':
