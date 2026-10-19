@@ -87,7 +87,8 @@ const step = async <A>(out: string, entry: Record<string, unknown>, f: () => A |
 };
 
 const quote = (p: string) => `'${p.replaceAll("'", "'\\''")}'`;
-const pnpm = (version: string) => `npx --yes pnpm@${version}`;
+const install = (version: string) =>
+  `npx --yes pnpm@${version} install --frozen-lockfile --ignore-scripts --store-dir node_modules/.pnpm-store`;
 
 /** The test command and its setup, from the repo and the test files a merged change touches. */
 export const plan = (repo: string, tests: string[]): Commands => {
@@ -96,13 +97,13 @@ export const plan = (repo: string, tests: string[]): Commands => {
   const files = js.map(quote).join(' ');
   if (name === 'billing' && js.length)
     return {
-      setup: `${pnpm('11.1.3')} install --frozen-lockfile --ignore-scripts`,
-      test: `${pnpm('11.1.3')} exec vitest run ${files}`,
+      setup: `${install('11.1.3')}`,
+      test: `node_modules/.bin/vitest run ${files}`,
     };
   if (name === 'explorer' && js.length)
     return {
-      setup: `${pnpm('10.28.2')} install --frozen-lockfile --ignore-scripts`,
-      test: `TZ=UTC ${pnpm('10.28.2')} exec jest --env=jsdom --runTestsByPath ${files}`,
+      setup: `${install('10.28.2')}`,
+      test: `TZ=UTC node_modules/.bin/jest --env=jsdom --runTestsByPath ${files}`,
     };
   if (name === 'stacks.js' && js.length) {
     const dirs = [...new Set(js.map(p => p.split('/').slice(0, 2).join('/')))];
@@ -189,6 +190,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   }
   if (arm === 'floor') {
     rmSync(join(hub, 'workflows'), { recursive: true });
+    rmSync(join(hub, 'checks'), { recursive: true, force: true });
     cpSync(here('bench/floor'), hub, { recursive: true });
   }
   const dir = join(at, 'forge');
