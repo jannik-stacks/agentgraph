@@ -386,6 +386,23 @@ describe('githubForge', () => {
           submitted_at: '2026-10-16T10:40:00Z',
         },
       ],
+      'GET /repos/o/r/pulls/8/commits?per_page=100': [
+        {
+          sha: 'c1',
+          author: { login: 'helper[bot]' },
+          commit: { message: 'Add hello', committer: { date: '2026-10-16T10:45:00Z' } },
+        },
+        {
+          sha: 'c2',
+          author: { login: 'bob' },
+          commit: { message: "Fix the bot's typo\n\nbody", committer: { date: '2026-10-16T10:50:00Z' } },
+        },
+        {
+          sha: 'c0',
+          author: { login: 'bob' },
+          commit: { message: 'Older', committer: { date: '2026-10-16T08:50:00Z' } },
+        },
+      ],
       'GET /repos/o/r/collaborators/carol/permission': { permission: 'write' },
       'GET /repos/o/r/collaborators/dave/permission': { permission: 'read' },
       'GET /repos/o/r/collaborators/alice/permission': { permission: 'write' },
@@ -396,13 +413,16 @@ describe('githubForge', () => {
       f,
       Effect.flatMap(Forge, forge => Stream.runCollect(forge.since(cursor)))
     ).then(chunk => [...chunk]);
-    expect(events.map(m => [m.issue, m.kind, m.actor, m.trusted, m.comment?.body ?? m.label])).toEqual([
+    expect(
+      events.map(m => [m.issue, m.kind, m.actor, m.trusted, m.comment?.body ?? m.label ?? m.commit?.title])
+    ).toEqual([
       [7, 'comment', 'alice', true, '/bothub fix the typo'],
       [7, 'comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
       [7, 'comment', 'bob', true, '> /bothub quoted\nplain words'],
       [7, 'comment', 'erin', false, '@helper go'],
       [8, 'changes_requested', 'bob', true, 'split it'],
       [8, 'approved', 'bob', true, ''],
+      [8, 'commit', 'bob', true, "Fix the bot's typo"],
       [7, 'label', 'carol', true, 'approved'],
       [7, 'label', 'dave', false, 'ready'],
       [8, 'merged', 'carol', true, undefined],

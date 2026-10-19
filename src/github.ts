@@ -58,7 +58,11 @@ type RestEvent = {
 type RestCommit = {
   sha: string;
   author?: User;
-  commit: { message: string; author?: { name?: string; date?: string } | null };
+  commit: {
+    message: string;
+    author?: { name?: string; date?: string } | null;
+    committer?: { date?: string } | null;
+  };
 };
 type RestCheck = {
   name: string;
@@ -494,7 +498,29 @@ export const githubForge = (
             { concurrency: 4 }
           );
 
+          const ours = open.filter(p => p.head.repo?.full_name === app.repo && p.head.ref.startsWith(pushable.prefix));
+          const commits = yield* Effect.forEach(
+            ours,
+            p =>
+              Effect.map(all<RestCommit>(`${repo}/pulls/${p.number}/commits?per_page=100`), cs =>
+                cs.map(c => ({ ...c, issue: p.number }))
+              ),
+            { concurrency: 4 }
+          );
+
           const found: Event[] = [];
+          for (const c of commits.flat()) {
+            const at = c.commit.committer?.date ?? c.commit.author?.date;
+            if (after(at) && c.author && login(c.author) !== `${self}[bot]`)
+              found.push({
+                issue: c.issue,
+                kind: 'commit',
+                actor: login(c.author),
+                trusted: true,
+                at,
+                commit: { sha: c.sha, title: visible(c.commit.message.split('\n')[0]) },
+              });
+          }
           for (const c of said) if (after(c.created_at)) found.push(heard(numberIn(c.issue_url), c, self));
           for (const c of lined) if (after(c.created_at)) found.push(heard(numberIn(c.pull_request_url), c, self));
           for (const r of reviews.flat()) {
@@ -510,7 +536,7 @@ export const githubForge = (
             if (m) found.push(m);
           }
           const may = writer();
-          for (const m of found) if (m.trusted && m.comment) m.trusted = yield* may({ login: m.actor });
+          for (const m of found) if (m.trusted && (m.comment || m.commit)) m.trusted = yield* may({ login: m.actor });
           for (const m of found)
             if (m.trusted && m.comment) m.comment = { ...m.comment, body: commanded(m.comment.body, self) };
           return found.sort((a, b) => a.at.localeCompare(b.at));
