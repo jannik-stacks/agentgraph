@@ -1,5 +1,8 @@
-import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { gunzip, gzip } from 'node:zlib';
 import { Context, Data, Effect, Layer, Stream, type Scope } from 'effect';
 import type { Applied } from './forge.ts';
 import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
@@ -27,7 +30,7 @@ export type Trace = { at: string; step: string } & (
         usd: number;
       };
     }
-  | { check: CheckResult; item?: string; exit?: number }
+  | { check: CheckResult; item?: string; exit?: number; log?: Log }
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
@@ -47,6 +50,12 @@ const changes = (before: Run | undefined, next: Run): Trace | undefined => {
   };
 };
 
+/** A check's full output in the store: its sha256 and its length in bytes. */
+export type Log = { hash: string; bytes: number };
+
+/** Which check output the store keeps: every run's, only failing ones', or none. */
+export const checkLogs = ['all', 'failed', 'off'] as const;
+
 export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {}
 
 /** Runs, traces and run files in the data dir. */
@@ -59,6 +68,8 @@ export class Store extends Context.Tag('bothub/Store')<
     trace: (id: string, ...lines: Trace[]) => Effect.Effect<void, StoreError>;
     read: (id: string, from?: number) => Stream.Stream<Trace, StoreError>;
     lock: (name: string) => Effect.Effect<void, StoreError, Scope.Scope>;
+    log: (output: string, pass: boolean) => Effect.Effect<Log | undefined, StoreError>;
+    logOf: (hash: string) => Effect.Effect<string | undefined, StoreError>;
   }
 >() {}
 
@@ -99,9 +110,10 @@ const alive = (pid: number) => {
 
 /**
  * A run is `<dir>/<id>/run.json` and its trace `<dir>/<id>/trace.jsonl`; every put that changes the run also traces
- * what changed. Locks are files whose holder is a pid.
+ * what changed. Locks are files whose holder is a pid. Check output is gzipped once per content at
+ * `<dir>/logs/<sha256>.gz`, as `logs` says.
  */
-export const fileStore = (dir: string): Layer.Layer<Store> => {
+export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
   const io = <A>(path: string, f: () => Promise<A>) =>
     Effect.tryPromise({ try: f, catch: cause => new StoreError({ path, cause }) });
   const runFile = (id: string) => join(dir, id, 'run.json');
@@ -135,6 +147,22 @@ export const fileStore = (dir: string): Layer.Layer<Store> => {
       await mkdir(join(dir, id), { recursive: true });
       await appendFile(traceFile(id), lines.map(line => `${JSON.stringify(line)}\n`).join(''));
     });
+
+  const logFile = (hash: string) => join(dir, 'logs', `${hash}.gz`);
+  const log = (output: string, pass: boolean) => {
+    if (!output || logs === 'off' || (logs === 'failed' && pass)) return Effect.succeed(undefined);
+    const hash = createHash('sha256').update(output).digest('hex');
+    const path = logFile(hash);
+    return io(path, async () => {
+      if (!(await stat(path).catch(() => undefined))) {
+        await mkdir(join(dir, 'logs'), { recursive: true });
+        const tmp = `${path}.${process.pid}.tmp`;
+        await writeFile(tmp, await promisify(gzip)(output));
+        await rename(tmp, path);
+      }
+      return { hash, bytes: Buffer.byteLength(output) };
+    });
+  };
 
   return Layer.succeed(Store, {
     get: readRun,
@@ -181,5 +209,15 @@ export const fileStore = (dir: string): Layer.Layer<Store> => {
         () => Effect.promise(() => rm(path, { force: true }))
       );
     },
+    log,
+    logOf: hash =>
+      /^[0-9a-f]{64}$/.test(hash)
+        ? io(logFile(hash), () =>
+            readFile(logFile(hash)).then(
+              async gz => (await promisify(gunzip)(gz)).toString('utf8'),
+              e => (missing(e) ? undefined : Promise.reject(e))
+            )
+          )
+        : Effect.succeed(undefined),
   });
 };

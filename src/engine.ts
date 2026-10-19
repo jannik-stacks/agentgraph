@@ -705,6 +705,7 @@ type Item = {
   pass: boolean;
   findings: string;
   exit?: number;
+  output?: string;
 };
 
 /** The judge prompts that passed per data dir, run, check and diff; the same prompt on the same diff is not judged again. */
@@ -750,6 +751,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
             pass: (out?.code ?? 0) === 0,
             findings: out?.output ?? '',
             ...exit,
+            ...(out && { output: out.output }),
           };
         const agent = hub.agents[check.agent]!;
         const input = out?.output ?? item ?? diff;
@@ -798,7 +800,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         usd += judged.usd;
         const pass = /^\W*PASS\b/.test(judged.final);
         if (pass) passed.add(key);
-        return { item, pass, findings: judged.final, ...exit };
+        return { item, pass, findings: judged.final, ...exit, output: judged.final };
       });
     const max = check.max ?? most;
     const over = items.length > max;
@@ -833,11 +835,14 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
       }),
       ms: Date.now() - started,
     };
+    const logs = yield* Effect.forEach(results, r =>
+      r.output === undefined ? Effect.succeed(undefined) : store.log(r.output, r.pass)
+    );
     const at = now();
     yield* store.trace(
       run,
       ...results
-        .filter(r => r.item !== undefined)
+        .flatMap((r, i) => (r.item === undefined ? [] : [{ ...r, log: logs[i] }]))
         .map(r => ({
           at,
           step: step.name,
@@ -849,12 +854,14 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           },
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
+          ...(r.log && { log: r.log }),
         })),
       {
         at,
         step: step.name,
         check: result,
         ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
+        ...(!check.each && logs[0] && { log: logs[0] }),
       }
     );
     return { result, usd };
@@ -923,11 +930,13 @@ const attempt = (
         ...(out.code !== 0 && { findings: squeeze(out.output) }),
         ms: Date.now() - started,
       };
+      const log = yield* store.log(out.output, result.pass);
       yield* store.trace(run.id, {
         at: now(),
         step: step.name,
         check: result,
         exit: out.code,
+        ...(log && { log }),
       });
       if (!result.pass)
         return done({

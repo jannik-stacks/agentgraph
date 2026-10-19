@@ -319,6 +319,29 @@ describe('drive', () => {
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);
 
+  it('traces a ref to the full output of every check it ran, which the store resolves', async () => {
+    const where = world();
+    const { run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
+      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      judged,
+    ]);
+    const loud = hubOf('acme-app', {
+      types: { run: 'echo types ok' },
+      safety: { run: 'echo secret.txt found; exit 1' },
+      claims: { agent: 'claim-checker' },
+    });
+    await run(drive(w, fresh(), loud));
+    const logged = traceOf(where.data, 'run-7').flatMap(t => ('check' in t && t.log ? [t] : []));
+    const texts = await run(Effect.forEach(logged, t => Effect.flatMap(Store, s => s.logOf(t.log!.hash))));
+    expect(logged.map((t, i) => [t.check.check, t.check.pass, texts[i]])).toEqual([
+      ['safety', false, 'secret.txt found\n'],
+      ['types', true, 'types ok\n'],
+      ['claims', true, 'PASS, no claims'],
+    ]);
+    expect(logged.map(t => t.log!.bytes)).toEqual(texts.map(t => Buffer.byteLength(t!)));
+  }, 30_000);
+
   it('measures a rework of its own open pull request from the pull request base, so a check sees earlier commits too', async () => {
     const where = world();
     const clone = join(where.root, 'clone');
