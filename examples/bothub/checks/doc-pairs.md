@@ -1,6 +1,6 @@
 ---
 mode: warn
-each: node bin/refs.mjs --diff "$BOTHUB_BASE"
+each: test ! -f bin/refs.mjs || node bin/refs.mjs --diff "$BOTHUB_BASE"
 agent: checker
 max: 20
 ---

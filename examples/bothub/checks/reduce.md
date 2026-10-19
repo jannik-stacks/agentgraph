@@ -9,7 +9,8 @@ Nothing the change adds is more than its Done-when rows need.
 The item is the task, the Done-when rows and every line the change adds, each with its file and line.
 Name added lines that can go without losing a row: a test no row names, a `still` test for code the
 change does not touch, a fixture or helper used once, a branch for an input no producer emits, a
-rule another module already decides.
+rule another module already decides. A test that is the only one running an added src/ line stays:
+the coverage check requires it.
 
 Under `helpers`, each new function comes with existing exports whose names share a word with it.
 Should the change call one of them instead? When one already does the new function's job, name the
