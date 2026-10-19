@@ -15,16 +15,16 @@ An agent has no GitHub token and does not run `git` or `gh`. It ends its reply w
 
 ## Kinds
 
-| Kind           | Fields                                                           | Effect                                                     |
-| -------------- | ---------------------------------------------------------------- | ---------------------------------------------------------- |
-| `comment`      | `body`                                                           | Comments where a human last spoke, see below               |
-| `label`        | `add`, `remove`                                                  | Changes the issue's labels                                 |
-| `push`         | `branch`, `message`                                              | Commits the checkout and pushes the branch                 |
-| `pull_request` | `branch`, `base`, `title`, `body`                                | Opens a pull request                                       |
-| `merge`        | `number`, `head`                                                 | Merges a pull request, only while its head is still `head` |
-| `issue`        | `title`, `body`, `size`, `priority`, `stacks_on`, `depends_on`   | Files a sub-issue of the run's issue, see [Triage](triage.md) |
-| `ask`          | `question`                                                       | Posts the question and makes the run wait                  |
-| `back`         | `why`                                                            | Sends the run back, see [The loop](loop.md#back)           |
+| Kind           | Fields                                                         | Effect                                                           |
+| -------------- | -------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `comment`      | `body`                                                         | Comments where a human last spoke, see below                     |
+| `label`        | `add`, `remove`                                                | Changes the issue's labels                                       |
+| `push`         | `branch`, `message`                                            | Commits the checkout and pushes the branch                       |
+| `pull_request` | `branch`, `base`, `title`, `body`                              | Opens a pull request                                             |
+| `merge`        | `number`, `head`                                               | Merges a pull request, only while its head is still `head`       |
+| `issue`        | `title`, `body`, `size`, `priority`, `stacks_on`, `depends_on` | Files a sub-issue of the run's issue, see [Triage](triage.md)    |
+| `ask`          | `question`                                                     | Posts the question and makes the run wait                        |
+| `back`         | `why`                                                          | Sends the run back, see [The loop](loop.md#tries-and-going-back) |
 
 The engine also uses two kinds of its own that no agent may propose: `react` puts the eyes emoji on the comment that woke a run, and `rebase` moves a stacked branch onto its parent's new head (`code: src/forge.ts#Proposal`).
 
