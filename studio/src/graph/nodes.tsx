@@ -99,7 +99,7 @@ const Chip = ({ tip, count, children }: { tip: string; count?: number | undefine
     <span className="relative flex items-center gap-1 rounded border border-zinc-200 px-1 font-mono text-[10px] leading-4 whitespace-nowrap text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
       {children}
       {count !== undefined && (
-        <span className="absolute -top-1.5 -right-1.5 min-w-3 rounded-full bg-zinc-500 px-0.5 text-center text-[8px] leading-3 font-medium text-white tabular-nums dark:bg-zinc-400 dark:text-zinc-950">
+        <span className="absolute -top-1.5 -right-1.5 z-10 min-w-3 rounded-full bg-zinc-500 px-0.5 text-center text-[8px] leading-3 font-medium text-white tabular-nums dark:bg-zinc-400 dark:text-zinc-950">
           {count}
         </span>
       )}
