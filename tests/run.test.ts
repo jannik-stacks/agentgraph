@@ -312,6 +312,34 @@ describe('drive', () => {
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);
 
+  it('measures a rework of its own open pull request from the pull request base, so a check sees earlier commits too', async () => {
+    const where = world();
+    const clone = join(where.root, 'clone');
+    git(where.root, 'clone', '-q', where.origin, clone);
+    git(clone, 'checkout', '-q', '-b', 'bothub/8');
+    writeFileSync(join(clone, 'CHAT.md'), 'early\n');
+    git(clone, 'add', '-A');
+    git(clone, 'commit', '-q', '-m', 'Touch CHAT.md');
+    git(clone, 'push', '-q', 'origin', 'bothub/8');
+    mkdirSync(join(where.forge, '8'), { recursive: true });
+    writeFileSync(
+      join(where.forge, '8.md'),
+      '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+    );
+    writeFileSync(
+      join(where.forge, '8', 'pull.json'),
+      JSON.stringify({ branch: 'bothub/8', base: 'main', head: git(clone, 'rev-parse', 'HEAD') })
+    );
+    const { run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
+      [start('i1'), write('hello.txt', 'hello\n'), reply({ ...push, branch: 'bothub/8' })],
+    ]);
+    const scoped = hubOf('acme-app', { safety: { run: '! git diff --name-only $BOTHUB_BASE | grep -qx CHAT.md' } });
+    const stopped = await run(drive(w, begin(w, { id: 'run-8', issue: 8, started: fresh().started }), scoped));
+    expect(stopped).toMatchObject({ step: 'implement', status: 'stopped' });
+    expect(stopped.reason).toMatch(/^safety: /);
+  }, 30_000);
+
   it('lets a check read the issue as the agent saw it, its number and the reply', async () => {
     const where = world();
     const { specs, run } = services(where, [
