@@ -15,7 +15,8 @@ such as `size`, `kind` and `area` group the report.
 
 - `human`: the merged change.
 - `v2`: the engine with the repo's hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), or
-  `examples/bench` for any other repo, which runs the case's `test` command as its one check.
+  `examples/bench` for any other repo: an implementor that must pass the case's `test` command, then a
+  reviewer that sends it back for up to two rounds, then a human merge.
 - `floor`: one plain session in the same hub's sandbox and budget, no checks and no review
   (`bench/floor`).
 - `v1`: not yet. It needs its own sandbox image and env, and its seed must be made leak-free first.
