@@ -6,7 +6,7 @@ import { Forge, withheld, type Applied, type ForgeError, type Event, type Propos
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
-import { Session, type SessionSpec, type SessionStop } from './session.ts';
+import { Session, SessionStop, type SessionSpec } from './session.ts';
 import { Store, type StoreError, type Trace } from './store.ts';
 import {
   begin,
@@ -390,8 +390,22 @@ const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?:
       Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void))
     );
     yield* ended(end);
-    return { id: seen.id, home: seen.home ?? spec.dir, final: seen.final || seen.text, usd: seen.usd };
+    return { id: seen.id, home: seen.home ?? spec.dir, final: seen.final || seen.text, usd: seen.usd, ...end };
   });
+
+/** A judging session that ends any way but a clean stop with a PASS or FAIL verdict is an infra error, tried once more. */
+const verdictOf = (...args: Parameters<typeof converse>) =>
+  converse(...args).pipe(
+    Effect.filterOrFail(
+      j => j.ended === 'stop' && (j.exit ?? 0) === 0 && /^\W*(PASS|FAIL)\b/.test(j.final),
+      j =>
+        new SessionStop({
+          reason: 'provider',
+          detail: `check ${args[3].agent} could not be judged: session ${j.ended === 'stop' ? 'gave no verdict' : j.ended} (exit ${j.exit ?? 0}), final: ${squeeze(j.final, 200)}`,
+        })
+    ),
+    Effect.retry({ times: 1, while: e => e._tag === 'SessionStop' })
+  );
 
 /** What checks read beside the news file, where they cannot write: the pending proposals, the issue as agents see it and the reply. */
 const checkFiles = (work: Checkout) => ({
@@ -425,7 +439,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         if (!check.agent) return { item, pass: (out?.code ?? 0) === 0, findings: out?.output ?? '', ...exit };
         const agent = hub.agents[check.agent]!;
         const input = out?.output ?? item ?? (yield* diffOf(work));
-        const judged = yield* converse(
+        const judged = yield* verdictOf(
           hub,
           run,
           step.name,

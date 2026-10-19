@@ -218,7 +218,12 @@ export const docker = (o: {
                 }),
                 proc => proc.stop()
               )
-            ).pipe(Stream.splitLines, Stream.timeoutFail(timeout(c), Duration.minutes(c.minutes)))
+            ).pipe(
+              Stream.splitLines,
+              Stream.interruptWhen(
+                Effect.zipRight(Effect.sleep(Duration.minutes(c.minutes)), Effect.failSync(timeout(c)))
+              )
+            )
           )
         );
 

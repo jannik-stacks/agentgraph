@@ -52,7 +52,7 @@ describe('docker with a stand-in docker client', () => {
         `printf '%s\\n' "$@" > ${log}`,
         `echo "secret=\${BOTHUB_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
-        `case "$*" in *exit125*) exit 125;; *sleep*) sleep 5;; *fail*) exit 3;; esac`,
+        `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *fail*) exit 3;; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -120,6 +120,13 @@ describe('docker with a stand-in docker client', () => {
 
   it('fails as a timeout when the command runs past its minutes', async () => {
     const exit = await use(layer, s => s.exec(command(tmp('work'), { args: ['-c', 'sleep'], minutes: 0.01 })));
+    expect(JSON.stringify(exit)).toContain('"reason":"timeout"');
+  });
+
+  it('ends a session that keeps printing at its minutes', async () => {
+    const exit = await use(layer, s =>
+      Stream.runCollect(s.lines(command(tmp('work'), { args: ['-c', 'chatty'], minutes: 0.01 })))
+    );
     expect(JSON.stringify(exit)).toContain('"reason":"timeout"');
   });
 

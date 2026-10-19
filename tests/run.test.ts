@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { Chunk, Effect, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
+import { Chunk, Effect, Exit, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drive, gate, sweep, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
@@ -1279,5 +1279,69 @@ describe('gate', () => {
       ['tester', 'opencode', 'smart'],
     ]);
     expect(outcome).toMatchObject({ kind: 'failed', checks: [{ check: 'correct', findings: 'FAIL off by one' }] });
+  });
+  describe('a judge session that did not end normally', () => {
+    const judged = async (ends: Extract<SessionEvent, { type: 'end' }>[]) => {
+      const where = world();
+      const dir = join(where.root, 'work');
+      mkdirSync(dir);
+      mkdirSync(join(where.root, 'news'));
+      git(dir, 'init', '-q');
+      git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+      const base = hubOf('hub');
+      const critic: Hub['agents'][string] = {
+        name: 'critic',
+        path: 'critic.md',
+        body: 'critic',
+        harness: 'claude',
+        tools: [],
+        returns: [],
+      };
+      const hub = {
+        ...base,
+        agents: { ...base.agents, critic },
+        checks: { correct: { name: 'correct', path: 'c.md', body: 'c', mode: 'block' as const, agent: 'critic' } },
+      };
+      const step = { name: 'implement', does: { agent: 'critic' }, checks: ['correct'], tries: 3 };
+      let opened = 0;
+      const judges = Layer.succeed(Session, {
+        open: (spec: SessionSpec) => Stream.fromIterable<SessionEvent>([start(spec.agent), ends[opened++]!]),
+      });
+      const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+      const left = {
+        run: 'run-7',
+        issue: 7,
+        context: '',
+        reply: '',
+        dir,
+        base: 'HEAD',
+        git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+        news: join(where.root, 'news', 'news.md'),
+        proposals: [],
+      };
+      const exit = await Effect.runPromiseExit(gate(step, left, hub).pipe(Effect.provide(layer)));
+      return { exit, opened };
+    };
+    const killed: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'Killed', ended: 'error', exit: 137 };
+    const pass: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'PASS fine', ended: 'stop', exit: 0 };
+
+    it('retries once and takes the second verdict', async () => {
+      const { exit, opened } = await judged([killed, pass]);
+      expect(opened).toBe(2);
+      expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
+    });
+
+    it('fails as an error that says it could not be judged, never as a finding', async () => {
+      const { exit, opened } = await judged([killed, killed]);
+      expect(opened).toBe(2);
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(JSON.stringify(exit)).toContain('could not be judged');
+    });
+
+    it('treats a clean stop without a verdict line the same way', async () => {
+      const mute = { ...pass, final: 'looks fine to me' };
+      const { exit } = await judged([mute, mute]);
+      expect(Exit.isFailure(exit)).toBe(true);
+    });
   });
 });
