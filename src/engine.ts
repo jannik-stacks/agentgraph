@@ -383,13 +383,18 @@ const sh = (
 
 const index = Effect.unsafeMakeSemaphore(1);
 
-/** What the checkout changed since its base, read by host git from the same index a push commits. */
+const text = (work: Checkout, args: string[]) =>
+  Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
+
+/** The checkout's files as a tree id, written by host git from the same index a push commits. */
+const treeOf = (work: Checkout) =>
+  index.withPermits(1)(Effect.zipRight(text(work, ['add', '-A']), text(work, ['write-tree'])));
+
+/** What the checkout changed since its base. */
 const changes = (work: Checkout, ...args: string[]) =>
-  Effect.gen(function* () {
-    const text = (args: string[]) => Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
-    const tree = yield* index.withPermits(1)(Effect.zipRight(text(['add', '-A']), text(['write-tree'])));
-    return yield* text(['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, tree]);
-  });
+  Effect.flatMap(treeOf(work), tree =>
+    text(work, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args, work.base, tree])
+  );
 
 const diffOf = (work: Checkout) => changes(work, '--text');
 
@@ -723,6 +728,8 @@ const attempt = (
     const replies: string[] = [];
     let tried = run;
     const t = yield* issuesOf(w, run);
+    /** On a retry, the files before it: a retry that changes none cannot pass checks that failed on them. */
+    const before = run.tries > 0 && step.checks.length > 0 ? yield* treeOf(work) : undefined;
     if ('run' in step.does) {
       const started = Date.now();
       const out = yield* sh(step.does.run, hub.dir, work.dir, { BOTHUB_BASE: work.base }, minutes);
@@ -864,6 +871,15 @@ const attempt = (
           hub
         );
     tried = { ...tried, usd: tried.usd + usd };
+    if (
+      gated.kind === 'failed' &&
+      gated.checks.length > 0 &&
+      before !== undefined &&
+      before === (yield* treeOf(work))
+    ) {
+      const said = world.flatMap(p => (p.kind === 'comment' ? [p.body] : []));
+      return done({ kind: 'ask', question: [...said, failure(gated)].join('\n\n') }, tried);
+    }
     if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
         gated.kind === 'failed'

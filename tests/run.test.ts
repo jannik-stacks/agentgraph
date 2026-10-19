@@ -1178,6 +1178,24 @@ describe('coworker', () => {
     ]);
   }, 30_000);
 
+  it('asks at once with what the session said when a retry changes no file and its check fails again', async () => {
+    const where = world();
+    const typed = {
+      ...flow,
+      steps: [{ name: 'implement', does: { agent: 'implementor' }, checks: ['types'], tries: 3 }],
+    };
+    const { specs, run } = services(where, [
+      [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
+      [start('a'), reply({ kind: 'comment', body: 'The registry is unreachable here.' })],
+    ]);
+    const asked = await run(
+      drive(typed, begin(typed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small)
+    );
+    expect(specs).toHaveLength(2);
+    expect(asked).toMatchObject({ status: 'waiting', tries: 1 });
+    expect(asked.reason).toMatch(/^The registry is unreachable here\.\n\ntypes: /);
+  }, 30_000);
+
   it('tells a waiting run how to be answered in its status footer, and posts the question itself plain', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
