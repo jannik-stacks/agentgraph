@@ -301,6 +301,31 @@ const Issue = ({ r }: { r: CoreRun }) =>
     <>#{r.run.issue}</>
   );
 
+/** An open run's first line: its try, its graph and its JSON, then why it stopped or what it asks. */
+const RunInfo = ({ r: { run, fixture } }: { r: CoreRun }) => {
+  const [raw, setRaw] = useState(false);
+  return (
+    <>
+      <p className="flex gap-x-2 text-zinc-500">
+        <span>try {run.tries}</span>
+        <Link href={`/graph?run=${encodeURIComponent(`${fixture}:${run.id}`)}`} className="underline">
+          graph
+        </Link>
+        <button type="button" aria-pressed={raw} className="underline" onClick={() => setRaw(!raw)}>
+          raw
+        </button>
+      </p>
+      {raw && <RawJson value={run} />}
+      {run.reason && (
+        <p className="max-w-3xl font-sans text-xs text-zinc-600 dark:text-zinc-400">
+          {muted(run.status === 'waiting' ? 'question ' : 'why ')}
+          {run.reason}
+        </p>
+      )}
+    </>
+  );
+};
+
 /** A run as a row: where it stands, what it cost and left on the forge; open, the steps it visited. */
 export const runRow = (r: CoreRun, open = false, expand = false): Row => {
   const { run, trace } = r;
@@ -319,7 +344,6 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
     key: run.id,
     open,
     at: run.started,
-    raw: run,
     summary: (
       <span className="flex min-w-0 items-baseline gap-x-2 text-xs">
         <Col className="w-[4ch]">
@@ -354,22 +378,7 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
         )}
       </span>
     ),
-    body: (
-      <>
-        <p className="flex gap-x-2 text-zinc-500">
-          <span>try {run.tries}</span>
-          <Link href={`/graph?run=${encodeURIComponent(`${r.fixture}:${run.id}`)}`} className="underline">
-            graph
-          </Link>
-        </p>
-        {run.reason && (
-          <p className="max-w-3xl font-sans text-xs text-zinc-600 dark:text-zinc-400">
-            {muted(run.status === 'waiting' ? 'question ' : 'why ')}
-            {run.reason}
-          </p>
-        )}
-      </>
-    ),
+    body: <RunInfo r={r} />,
     children: visits.map((visit, i) => ({
       open: true,
       summary: (
