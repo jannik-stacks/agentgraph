@@ -115,7 +115,7 @@ const shapeOf = (item: unknown) => {
   const kind = (item as { kind?: unknown } | null)?.kind;
   return typeof kind === 'string' && kind in shapes
     ? `write it as ${shapes[kind as keyof typeof shapes]}`
-    : `kind must be one of ${Object.keys(shapes).join(', ')}`;
+    : `kind must be one of ${Object.keys(shapes).join(', ')}${kind === 'reply' ? '; to answer, use comment, it is posted under the thread you are answering' : ''}`;
 };
 const block = /^(`{3,}|~{3,})[ \t]*bothub[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
 
@@ -157,6 +157,8 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; pro
       onRight: p => proposals.push(p),
     })
   );
+  if (problems.length > 0 && proposals.length > 0)
+    problems.push('nothing from this reply was applied: send every proposal again, not only the fixed ones');
   return { proposals, problems };
 };
 

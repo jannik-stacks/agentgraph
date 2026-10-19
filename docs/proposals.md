@@ -45,7 +45,7 @@ returns: [comment, push, pull_request]
    └──> otherwise: pushes first, then the rest in order
 ```
 
-The try also fails, with the expected shape as feedback, when the reply has no `bothub` block, the block is not in one of the forms above, a proposal has missing or extra fields, or the agent may not make that kind. <!-- code: src/engine.ts#attempt -->
+The try also fails, with the expected shape as feedback, when the reply has no `bothub` block, the block is not in one of the forms above, a proposal has missing or extra fields, or the agent may not make that kind. Nothing from such a reply is applied, and the feedback says to send every proposal again. <!-- code: src/engine.ts#attempt -->
 
 Each applied proposal is traced with its URL, or the reason it failed. A failed proposal fails the try, and the reason goes back as feedback. On GitHub, a second pull request for the same branch fails this way.
 

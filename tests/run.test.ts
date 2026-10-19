@@ -539,6 +539,18 @@ describe('tick', () => {
     30_000
   );
 
+  it('applies nothing from a reply with an invented reply kind and asks for every proposal again', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply(push, pull, { kind: 'reply', body: 'Done.' } as never)],
+      [start('a'), reply({ kind: 'ask', question: 'Again?' })],
+    ]);
+    await run(tick(small));
+    expect(specs[1]!.prompt).toContain('use comment, it is posted under the thread you are answering');
+    expect(specs[1]!.prompt).toContain('nothing from this reply was applied: send every proposal again');
+    expect(git(where.origin, 'branch', '--list', 'bothub/7')).toBe('');
+  }, 30_000);
+
   it('keeps the worktree files of a parked run and puts them back when it reenters', async () => {
     const where = world();
     const flow = small.workflows.issue!;
