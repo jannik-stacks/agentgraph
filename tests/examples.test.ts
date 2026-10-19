@@ -111,11 +111,14 @@ describe('shared hub scripts', () => {
 });
 
 describe('sk hub', () => {
-  it('has the implementor tell a fix here from a follow-up and a hub issue, and file both kinds', async () => {
+  it('has the implementor file follow-ups and leave hub issues to a retro that reads traces', async () => {
     const hub = await Effect.runPromise(loadHub(join(examples, 'sk')));
     const implementor = hub.agents.implementor!;
     expect(implementor.returns).toContain('issue');
-    for (const relation of ['follow-up', 'hub']) expect(implementor.body).toContain(`"relation":"${relation}"`);
+    expect(implementor.body).toContain('"relation":"follow-up"');
+    expect(implementor.body).not.toContain('"relation":"hub"');
     expect(implementor.body).toContain('Fix it here');
+    expect(hub.workflows.retro!.on).toEqual({ feedback: {} });
+    expect(hub.agents.retro).toMatchObject({ reads: 'traces', returns: ['issue'] });
   });
 });
