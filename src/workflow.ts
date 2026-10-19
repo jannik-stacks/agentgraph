@@ -228,9 +228,8 @@ export const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
     ...o.problems,
   ].join('\n');
 
-/** The run at the first step of a workflow. */
-export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>): Run {
-  const first = w.steps[0]!;
+/** The run at the first step of a workflow, or at `first`. */
+export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>, first = w.steps[0]!): Run {
   return {
     ...run,
     workflow: w.name,
@@ -317,6 +316,14 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   return run;
 }
 
+/** The words of a trusted comment after `command`, or undefined when it does not start with it. */
+export const words = (m: Event, command?: string) => {
+  const body = m.comment?.body.trim() ?? '';
+  return m.kind === 'comment' && command !== undefined && body.startsWith(command)
+    ? body.slice(command.length).trim()
+    : undefined;
+};
+
 /**
  * What a new event means for a waiting run: a review at a human step, an answer elsewhere; undefined when it is only
  * context. `lined` are the line comments that came with a review.
@@ -328,14 +335,11 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
     return { kind: 'stop', why: `the ${label} label was removed` };
   const waiting = run.status === 'waiting';
   if (m.kind === 'closed' && waiting) return { kind: 'stop', why: 'closed' };
-  const command = Object.values(w.on).find(t => t?.command)?.command ?? fallback;
+  const said = words(m, Object.values(w.on).find(t => t?.command)?.command ?? fallback);
   const body = m.comment?.body.trim() ?? '';
-  const said =
-    m.kind === 'comment' && command !== undefined && body.startsWith(command)
-      ? body.slice(command.length).trim()
-      : undefined;
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
   if (first.toLowerCase() === 'stop' && waiting) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
+  if (first.toLowerCase() === 'restart' && waiting) return { kind: 'stop', why: 'a human restarted it' };
   const step = w.steps.find(s => s.name === run.step);
   if (waiting && step && waits(step)) {
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))

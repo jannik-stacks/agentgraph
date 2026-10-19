@@ -691,6 +691,38 @@ describe('tick', () => {
     expect(specs).toHaveLength(0);
   }, 30_000);
 
+  it('restarts a finished run at the step a command names, keeping its answers', async () => {
+    const where = world();
+    const answers = [{ asked: 'Hello or hi?', said: 'hello' }];
+    const { specs, run } = services(where, [[start('i'), reply({ kind: 'ask', question: 'Which file?' })]]);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', answers })));
+    where.human('/bothub restart implement', '2026-10-16T00:01:00.000Z');
+    const touched = await run(tick(hub));
+    expect(touched.map(r => [r.id, r.step, r.status, r.answers])).toEqual([
+      ['issue-7-20261016000100000', 'implement', 'waiting', answers],
+    ]);
+    expect(specs.map(s => s.agent)).toEqual(['implementor']);
+  }, 30_000);
+
+  it('restarts a waiting run from the first step: the old run stops and a new one begins', async () => {
+    const where = world();
+    const answers = [{ asked: 'Hello or hi?', said: 'hello' }];
+    const { run } = services(where, [[start('t'), reply({ kind: 'ask', question: 'Which file?' })]]);
+    await run(
+      Effect.flatMap(Store, s =>
+        s.put({ ...fresh(), step: 'implement', status: 'waiting', reason: 'Hello or hi?', answers })
+      )
+    );
+    where.human('/bothub restart', '2026-10-16T00:01:00.000Z');
+    await run(tick(hub));
+    const stored = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored.map(r => [r.id, r.step, r.status, r.reason]).sort()).toEqual([
+      ['issue-7-20261016000100000', 'triage', 'waiting', 'Which file?'],
+      ['run-7', 'implement', 'stopped', 'a human restarted it'],
+    ]);
+    expect(stored.find(r => r.id !== 'run-7')!.answers).toEqual(answers);
+  }, 30_000);
+
   it('ends a run waiting at merge done when its pull request is merged and its issue closed with it', async () => {
     const where = world();
     const { run } = services(where, []);

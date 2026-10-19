@@ -71,6 +71,8 @@ A waiting run takes the comment as its answer. When every run there is finished,
 
 A run started by a comment can reply and stop. When the comment asks for no work, the first session is told to reply with comments only, and that reply ends the run without checks or later steps.
 
+`/bothub restart` starts the workflow again on an issue whose run is done, stopped or waiting, and `/bothub restart implement` starts it at that step. A waiting run stops first. The new run keeps the human answers of the last one, so nothing settled is asked again. A run that is working when the comment comes keeps working. <!-- code: src/engine.ts#tick -->
+
 The engine puts an eyes reaction on the comment that started or woke a run, or on the issue for a label, and takes it off once it has replied. <!-- code: src/engine.ts#tick -->
 
 The issue must be open, and one workflow runs at a time on it. Removing the label from an issue with a live run stops that run. A label added and removed before the engine looks starts nothing. <!-- code: src/workflow.ts#reenter -->

@@ -22,6 +22,7 @@ import {
   type Step,
   type Workflow,
   waits,
+  words,
 } from './workflow.ts';
 
 const now = () => new Date().toISOString();
@@ -1315,7 +1316,12 @@ export const tick = (
       yield* record(parent, outcome, transition(w, parent, outcome));
     }
 
-    const busy = new Set([...runs, ...touched].filter(live).map(r => `${r.workflow}#${r.issue}`));
+    const busy = new Set(
+      runs
+        .map(r => touched.find(t => t.id === r.id) ?? r)
+        .filter(live)
+        .map(r => `${r.workflow}#${r.issue}`)
+    );
     const open = new Set(issues.filter(t => inScope(hub, t)).map(t => t.number));
     const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label);
     /** The label workflow whose label an issue carries, when a maintainer put it there last. */
@@ -1328,15 +1334,18 @@ export const tick = (
           return last?.kind === 'label' && last.trusted;
         })
       );
-    const start = (w: Workflow, issue: number, at: string, m?: Event) =>
+    /** Begins `w` on `issue`. A restart begins at the step it names, else the first, with the answers of the last run there. */
+    const start = (w: Workflow, issue: number, at: string, m?: Event, restart?: string) =>
       Effect.gen(function* () {
+        const last = all
+          .filter(r => r.issue === issue && r.workflow === w.name)
+          .sort((a, b) => a.started.localeCompare(b.started))
+          .at(-1);
+        const step = w.steps.find(s => s.name === restart);
         const begun = {
-          ...begin(w, {
-            id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`,
-            issue,
-            started: at,
-          }),
+          ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }, step),
           ...(m?.kind === 'comment' && { said: heard(m) }),
+          ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
         const first = begun.status === 'running' ? begun : yield* show(w, begun);
         busy.add(`${w.name}#${issue}`);
@@ -1357,11 +1366,13 @@ export const tick = (
           : m.kind === 'comment'
             ? triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!))
             : undefined;
-      if (!w || used.has(m) || !m.trusted || !open.has(m.issue)) continue;
-      if (m.kind === 'comment' && /^\S+\s+stop(\s|$)/i.test(m.comment?.body.trim() ?? '')) continue;
+      const [verb = '', step = ''] = words(m, w?.on.issue_comment?.command)?.split(/\s+/) ?? [];
+      const restart = /^restart$/i.test(verb) ? step : undefined;
+      if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || /^stop$/i.test(verb))
+        continue;
       const held =
         m.kind === 'comment' ? [...busy].some(k => k.endsWith(`#${m.issue}`)) : busy.has(`${w.name}#${m.issue}`);
-      if (!held) yield* start(w, m.issue, m.at, m);
+      if (!held) yield* start(w, m.issue, m.at, m, restart);
     }
     if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {
       const w = triggered[0] ?? (yield* assigned(only));
