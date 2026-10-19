@@ -83,6 +83,8 @@ const tips = {
     thinking: 'What the agent reasoned before acting, as its harness reports it.',
     tool: 'A tool the agent called. Open it for the input and the result.',
     check: 'A check the engine ran on the try. A failing check that blocks sends the try back.',
+    saved:
+      "The engine saved the run's state to its run.json: the fields that changed, like step, status, tries or cost.",
   },
   proposal: {
     comment: 'A comment bothub posted, under the thread a human last spoke in.',
@@ -203,7 +205,7 @@ const lines: {
   check: line => ({
     summary: (
       <>
-        <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? 'pass' : 'fail', !line.check.pass)}
+        <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? '✓' : '✗', !line.check.pass)}
         {muted(
           `${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
         )}
@@ -249,13 +251,18 @@ const lines: {
     ),
   }),
   saved: line => ({
-    summary: muted(
-      `run.json ${[
-        ...Object.entries(line.saved).map(
-          ([k, v]) => `${k} ${short(typeof v === 'string' ? v : JSON.stringify(v), 60)}`
-        ),
-        ...(line.cleared ?? []).map(k => `cleared ${k}`),
-      ].join(', ')}`
+    summary: (
+      <>
+        <Pill of="line" kind="saved" />{' '}
+        {muted(
+          [
+            ...Object.entries(line.saved).map(
+              ([k, v]) => `${k} ${short(typeof v === 'string' ? v : JSON.stringify(v), 60)}`
+            ),
+            ...(line.cleared ?? []).map(k => `cleared ${k}`),
+          ].join(', ')
+        )}
+      </>
     ),
   }),
 };
@@ -435,7 +442,7 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
             'check' in part && part.item === undefined
               ? [
                   <Badge key={j}>
-                    {part.check.check} {flag(part.check.pass ? 'pass' : 'fail', !part.check.pass)}
+                    {part.check.check} {flag(part.check.pass ? '✓' : '✗', !part.check.pass)}
                   </Badge>,
                 ]
               : []
