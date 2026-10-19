@@ -191,6 +191,9 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     save(join(hub, 'checks/tests.md'), read(join(hub, 'checks/tests.md')).replace('npm test', c.test));
     if (c.setup) save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${read(join(hub, 'hub.yaml'))}`);
   }
+  const raw = read(join(hub, 'hub.yaml'));
+  if (/^setup: pnpm install/m.test(raw))
+    save(join(hub, 'hub.yaml'), raw.replace(/^setup: .*$/m, `setup: ${JSON.stringify(install('11.1.3'))}`));
   const limit = (yaml: string, key: string, value: number) =>
     new RegExp(`^ {2}${key}:`, 'm').test(yaml)
       ? yaml.replace(new RegExp(`^( {2}${key}:).*$`, 'm'), `$1 ${value}`)
@@ -200,7 +203,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   save(join(hub, 'hub.yaml'), limit(limit(read(join(hub, 'hub.yaml')), 'parallel', 1), 'sessions', 3));
   if (arm === 'floor') {
     rmSync(join(hub, 'workflows'), { recursive: true });
-    rmSync(join(hub, 'agents'), { recursive: true, force: true });
+    for (const d of ['agents', 'skills']) rmSync(join(hub, d), { recursive: true, force: true });
     rmSync(join(hub, 'checks'), { recursive: true, force: true });
     cpSync(here('bench/floor'), hub, { recursive: true });
   }
