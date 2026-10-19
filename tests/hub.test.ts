@@ -64,7 +64,7 @@ describe('loadHub', () => {
     const { dir } = fromFixture('acme-app');
     const hub = await Effect.runPromise(loadHub(dir));
     expect(hub.repo).toBe('o/r');
-    expect(hub.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2 });
+    expect(hub.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2, sessions: 4 });
     expect(hub.agents.implementor).toEqual({
       harness: 'opencode',
       tools: [],

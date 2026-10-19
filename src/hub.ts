@@ -31,6 +31,7 @@ const Limits = Schema.Struct({
   minutes: Schema.optionalWith(Schema.Number, { default: () => 30 }),
   usdPerRun: Schema.optionalWith(Schema.Number, { default: () => 10 }).pipe(Schema.fromKey('usd-per-run')),
   parallel: Schema.optionalWith(Schema.Int, { default: () => 2 }),
+  sessions: Schema.optionalWith(Schema.Int, { default: () => 4 }),
 });
 type Limits = typeof Limits.Type;
 

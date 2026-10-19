@@ -17,13 +17,14 @@ Every field a hub file may hold, with its type, its default and what it does. An
 | `trust`     | list of logins       | owners, members and collaborators | Who may steer the bot, see [The loop](loop.md#trust-and-scope)       |
 | `limits`    | map                  | the defaults below                | Caps on a run                                                        |
 
-`limits` holds three fields: <!-- code: src/hub.ts#Limits -->
+`limits` holds four fields: <!-- code: src/hub.ts#Limits -->
 
 | Field         | Type    | Default | Meaning                                          |
 | ------------- | ------- | ------- | ------------------------------------------------ |
 | `minutes`     | number  | 30      | The longest one session, script or setup may run |
 | `usd-per-run` | number  | 10      | The most a run may spend                         |
 | `parallel`    | integer | 2       | How many runs go at once                         |
+| `sessions`    | integer | 4       | How many sessions, judges included, are live at once across all runs <!-- code: src/engine.ts#gateOf --> |
 
 ## Workflows
 

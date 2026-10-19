@@ -272,8 +272,20 @@ const refresh = (w: Workflow, run: Run, work: Checkout, seen: Seen, t?: Issues) 
 
 type Ended = Pick<Extract<Trace, { session: unknown }>['session'], 'ended' | 'exit'>;
 
-/** One harness session: what it was opened with, every event and how it ended become trace lines. */
-const converse = (run: string, step: string, spec: SessionSpec, item?: string) =>
+const gates = new Map<string, { size: number; gate: Effect.Semaphore }>();
+
+/** The one semaphore every session of a hub starts behind, so containers never exceed `limits.sessions`. */
+const gateOf = (hub: Hub) => {
+  const size = hub.limits.sessions;
+  const kept = gates.get(hub.dir);
+  if (kept?.size === size) return kept.gate;
+  const gate = Effect.unsafeMakeSemaphore(size);
+  gates.set(hub.dir, { size, gate });
+  return gate;
+};
+
+/** One harness session: what it was opened with, every event and how it ended become trace lines. It holds a session permit only while the harness runs. */
+const converse = (hub: Hub, run: string, step: string, spec: SessionSpec, item?: string) =>
   Effect.gen(function* () {
     const session = yield* Session;
     const store = yield* Store;
@@ -298,6 +310,7 @@ const converse = (run: string, step: string, spec: SessionSpec, item?: string) =
         return store.trace(run, { at: now(), step, event });
       }),
       Effect.scoped,
+      gateOf(hub).withPermits(1),
       Effect.tapError(e => (e._tag === 'SessionStop' ? ended({ ended: e.reason }) : Effect.void))
     );
     yield* ended(end);
@@ -337,6 +350,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         const agent = hub.agents[check.agent]!;
         const input = out?.output ?? item ?? (yield* diffOf(work));
         const judged = yield* converse(
+          hub,
           run,
           step.name,
           {
@@ -469,6 +483,7 @@ const attempt = (
         yield* refresh(w, run, work, caught.seen, t);
         const fresher = Effect.forever(Effect.delay(refresh(w, run, work, caught.seen), '1 minute'));
         const talk = converse(
+          hub,
           run.id,
           step.name,
           {
