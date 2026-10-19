@@ -49,6 +49,9 @@ node bin/bench.ts report <out>
   findings by severity, judge agreement, all of it again per stratum, and a table per case.
 
 Every step skips outputs that exist and moves an unfinished arm aside instead of deleting it. Progress
-goes to `<out>/log.jsonl`. Model keys come from `--keys`, `infra/local/.keys.env` by default. Before a
+goes to `<out>/log.jsonl`. `BENCH_PATH` is put in front of `PATH` for the score step's commands, for a
+Node version the repo's `engines` asks for. A mined `case.json` lists its test files in `tests` and has no
+commands: the bench derives them per repo (`plan` in `bin/bench.ts`), and `bucket: no-tests` means
+metrics and judges only. Model keys come from `--keys`, `infra/local/.keys.env` by default. Before a
 paid step the bench reads the weekly Codex use and stops once it is more than `--max-codex` points (30)
 above the first reading, or after `--max-claude-calls` judge calls (60).
