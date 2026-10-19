@@ -318,6 +318,11 @@ const exec = (cmd: string, cwd: string) => {
   return { ok: r.status === 0, ms: Date.now() - started, tail: `${r.stdout}${r.stderr}`.slice(-2000) };
 };
 
+const coupled = /Cannot find module|Failed to resolve import|is not a function|is not exported|does not provide an export|No matching export|is not defined|is not a constructor|TS\d{4}|Cannot destructure|Cannot read propert/i;
+
+/** Whether a failed hidden run broke on the human's names and signatures (coupled) or on a result (behaviour). */
+export const failureClass = (tail: string) => (coupled.test(tail) ? 'coupled' : 'behaviour');
+
 const check = (c: Case & Commands, tree: string, diff: string, hidden: string[]) => {
   sh('git', ['-C', tree, 'checkout', '-q', '-f', c.base]);
   sh('git', ['-C', tree, 'clean', '-qfdx', '-e', 'node_modules', '-e', 'target']);
@@ -337,7 +342,8 @@ const check = (c: Case & Commands, tree: string, diff: string, hidden: string[])
   for (const path of hidden)
     if (spawnSync('git', ['-C', tree, 'checkout', c.merged, '--', path]).status)
       rmSync(join(tree, path), { force: true });
-  return { ...result, hidden: exec(c.test, tree) };
+  const run = exec(c.test, tree);
+  return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
 };
 const effort = (data: string) => {
   const traces = existsSync(data) ? readdirSync(data).flatMap(id => lines(join(data, id, 'trace.jsonl'))) : [];
@@ -562,6 +568,7 @@ type Scored = {
   infra: Record<string, string>;
   strata: Record<string, string>;
   rows: [string, Record<string, number>][];
+  failures: string[];
   verdicts: Judged[];
 };
 
@@ -586,6 +593,10 @@ const loadScored = (out: string, id: string): Scored => {
   const rows = Object.entries(scores)
     .filter(([arm]) => !(arm in skipped))
     .map(([arm, s]): [string, Record<string, number>] => [arm, metrics(s)]);
+  const failures = bots.flatMap(arm => {
+    const h = (scores[arm] as { hidden?: { ok: boolean; tail: string; class?: string } } | undefined)?.hidden;
+    return h && !h.ok && !(arm in skipped) ? [`${id}/${arm}: ${h.class ?? failureClass(h.tail)}`] : [];
+  });
   const judged = join(out, id, 'judge');
   const verdicts = (existsSync(judged) ? readdirSync(judged) : [])
     .flatMap(pair =>
@@ -595,7 +606,7 @@ const loadScored = (out: string, id: string): Scored => {
     )
     .filter(v => !v.order.some(arm => arm in skipped));
   const { invalid } = JSON.parse(read(join(out, id, 'valid.json')) || '{}') as { invalid?: string };
-  return { id, ...(invalid && { invalid }), infra: skipped, strata, rows, verdicts };
+  return { id, ...(invalid && { invalid }), infra: skipped, strata, rows, failures, verdicts };
 };
 
 const summary = (cases: Scored[]) => {
@@ -662,6 +673,7 @@ const headline = (cases: Scored[], valid: Scored[]) => {
     ...(hidden.length
       ? ['Hidden tests passed, valid cases, infra arms left out', '', table(hidden.map(rate)), '']
       : []),
+    ...list('Hidden test failures, coupled to the human API or behaviour', valid.flatMap(c => c.failures)),
     ...list('Invalid cases, not run or judged', invalids),
     ...list('Infra arm runs, left out of every number below', infras),
   ];
