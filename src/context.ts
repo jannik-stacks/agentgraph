@@ -1,5 +1,6 @@
 import type { Event, Proposal, Issue } from './forge.ts';
-import type { Run, Seen, Workflow } from './workflow.ts';
+import type { Trace } from './store.ts';
+import { failure, type Run, type Seen, type Workflow } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type Issues = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
@@ -124,4 +125,102 @@ export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
         ]),
     ...(now === body ? [] : [{ kind: 'comment' as const, body, ...(run.comment && { edit: run.comment }) }]),
   ];
+}
+
+/** Tokens, keys and secret assignments a transcript never shows. */
+const secrets = [
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+  /\b(?:gh[pousr]_|github_pat_)\w{20,}/g,
+  /\bsk-[\w-]{16,}/g,
+  /\bxox[abp]-[\w-]{10,}/g,
+  /\b(\w*(?:key|token|secret|password)\w*["']?\s*[=:]\s*["']?)[^\s"']{12,}/gi,
+];
+
+/** Text without secrets, on one line, at most `max` long, its middle cut out. */
+const clip = (text: string, max: number) => {
+  const one = secrets
+    .reduce((t, re) => t.replace(re, (_, keep) => `${typeof keep === 'string' ? keep : ''}[redacted]`), text)
+    .replace(/\s+/g, ' ')
+    .trim();
+  return one.length <= max ? one : `${one.slice(0, max / 2)} ... ${one.slice(-max / 2)}`;
+};
+
+/** A trace line as one transcript entry, or nothing for lines a reader does not need. */
+const entry = (t: Trace): string | undefined => {
+  if ('prompt' in t) return `prompt: ${clip(t.prompt.prompt, 1500)}`;
+  if ('session' in t) return `session ended ${t.session.ended}, $${t.session.usd.toFixed(2)}`;
+  if ('check' in t) {
+    const on = t.item ? ` on ${clip(t.item.split('\n')[0]!, 120)}` : '';
+    return `check ${t.check.check}${on}: ${t.check.pass ? 'pass' : `FAIL ${clip(t.check.findings ?? '', 400)}`}`;
+  }
+  if ('applied' in t) {
+    const { proposal: p, ok, reason } = t.applied;
+    if (p.kind === 'react') return;
+    const { kind: _kind, ...fields } = p;
+    return `applied ${p.kind} ${ok ? 'ok' : `refused: ${reason}`}: ${clip(JSON.stringify(fields), 200)}`;
+  }
+  if ('outcome' in t) {
+    const o = t.outcome;
+    const why =
+      o.kind === 'failed' ? failure(o) : 'why' in o ? o.why : 'question' in o ? o.question : 'text' in o ? o.text : '';
+    return `outcome ${o.kind}${why ? `: ${clip(why, 300)}` : ''} -> ${t.run.step} ${t.run.status}`;
+  }
+  if (!('event' in t)) return;
+  const e = t.event;
+  if (e.type === 'text' || e.type === 'thinking') return `${e.type}: ${clip(e.text, 600)}`;
+  if (e.type !== 'tool') return;
+  const how = e.denied ? 'denied' : e.exit !== undefined ? `exit ${e.exit}` : e.ok === false ? 'failed' : 'ok';
+  return `tool ${e.name} ${clip(JSON.stringify(e.input ?? {}), 200)} ${how}${e.output ? `: ${clip(e.output, 300)}` : ''}`;
+};
+
+/** Keeps the first and last entries of a long session and tallies the ones cut between them. */
+const shorten = (entries: string[], max = 8000) => {
+  if (entries.join('\n').length <= max) return entries;
+  const fit = (list: string[]) => {
+    let room = max / 2;
+    return list.findIndex(e => (room -= e.length + 1) < 0);
+  };
+  const head = fit(entries);
+  const tail = entries.length - fit([...entries].reverse());
+  const cut = entries.slice(head, tail).map(e => /^\d+ (tool \S+|\w+)/.exec(e)?.[1] ?? '');
+  const tally = [...new Set(cut)].map(k => `${k} ${cut.filter(c => c === k).length}`).join(', ');
+  return [...entries.slice(0, head), `... ${cut.length} entries cut: ${tally}`, ...entries.slice(tail)];
+};
+
+/**
+ * The runs on an issue as one markdown file for an agent that reads traces: each agent's system prompt once, then per
+ * run and session the prompt, thinking, text and tool calls, then checks, proposals and moves. Each entry starts with
+ * its line in the run's trace. Past `budget`, the oldest runs keep only how their sessions ended and their outcomes.
+ */
+export function transcript(issue: number, runs: { run: Run; lines: Trace[] }[], budget = 60_000): string {
+  const agents = new Map<string, string>();
+  const rendered = runs.map(({ run, lines }) => {
+    const sections = [{ head: '', entries: [] as string[] }];
+    lines.forEach((t, n) => {
+      if ('prompt' in t) {
+        const p = t.prompt;
+        agents.set(p.agent, `### ${p.agent} (${p.harness}${p.model ? `, ${p.model}` : ''})\n\n${clip(p.system, 2000)}`);
+        const on = t.item ? ` on ${clip(t.item.split('\n')[0]!, 120)}` : '';
+        sections.push({ head: `### ${t.step}, ${p.agent}, ${p.resume ? 'resumed' : 'fresh'}${on}`, entries: [] });
+      }
+      const said = entry(t);
+      if (said) sections.at(-1)!.entries.push(`${n + 1} ${said}`);
+    });
+    const head = `## Run ${run.id} (${run.workflow}, ${run.status}, $${run.usd.toFixed(2)})`;
+    const ends = sections.flatMap(s => s.entries.filter(e => /^\d+ (session|outcome)/.test(e)));
+    return {
+      full: [head, ...sections.flatMap(s => [s.head, shorten(s.entries).join('\n')].filter(Boolean))].join('\n\n'),
+      short: [head, 'Shortened to fit: how sessions ended and the outcomes.', ends.join('\n')].join('\n\n'),
+    };
+  });
+  const top = [
+    `# Traces of #${issue}`,
+    "Runs on this issue, oldest first. Each entry starts with its line in that run's trace.",
+    ...(agents.size > 0 ? [`## Agents\n\n${[...agents.values()].join('\n\n')}`] : []),
+  ];
+  const parts = rendered.map(r => r.full);
+  const size = () => [...top, ...parts].join('\n\n').length;
+  for (let i = 0; i < parts.length && size() > budget; i++) parts[i] = rendered[i]!.short;
+  const text = [...top, ...parts].join('\n\n');
+  return text.length <= budget ? text : `${text.slice(0, budget)}\n\n... cut at ${budget} characters`;
 }
