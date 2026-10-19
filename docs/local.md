@@ -91,7 +91,7 @@ It starts on http://localhost:5182, or on `BHM_PORT`. Without `-- --hub <dir> --
 
 ## Before you commit
 
-`npm run precommit` checks every example hub, the schema fields, the docs code refs and their coverage, unused code and formatting. Then it runs the bothub hub's fast checks over the uncommitted change, against `HEAD` or `BOTHUB_BASE`. `npx tsc --noEmit` and `npx vitest run --testTimeout=60000` cover the code.
+`npm run precommit` checks every example hub, the schema fields, the docs code refs and their coverage, the commands and flags that docs and usage headers name, unused code and formatting. Loading a hub also refuses a short list of retired words, such as answering with a command. Then it runs the bothub hub's fast checks over the uncommitted change, against `HEAD` or `BOTHUB_BASE`. `npx tsc --noEmit` and `npx vitest run --testTimeout=60000` cover the code.
 
 A docs sentence that a symbol backs is followed by an HTML comment like `<!-- code: src/engine.ts#land -->`, which readers never see. `bin/refs.mjs` pairs each docs section with the symbols it cites, so either side can be checked when the other changes.
 

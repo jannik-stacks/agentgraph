@@ -10,9 +10,10 @@
     "lint": "oxlint",
     "knip": "knip",
     "format": "oxfmt src tests bin studio",
-    "verify": "oxfmt --check src tests bin studio && oxlint && knip && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs",
+    "verify": "oxfmt --check src tests bin studio && oxlint && knip && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs && npm run verify:docs",
     "precommit": "sh bin/precommit.sh",
     "hooks": "git config core.hooksPath bothub/bin/hooks",
+    "verify:docs": "node bin/refs.mjs >/dev/null && node bin/commands.mjs && node bin/fields.mjs",
     "verify:hubs": "for hub in examples/*/; do [ -e \"${hub}hub.yaml\" ] || continue; node bin/run.ts check --hub \"$hub\" || exit 1; done"
   },
   "dependencies": {
