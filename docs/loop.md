@@ -79,6 +79,8 @@ The issue must be open, and one workflow runs at a time on it. Removing the labe
 
 Only trusted people steer the bot. By default those are the repo's owners, members and collaborators, and a label counts when its actor may write. Everyone else is an outsider: their comments and labels start nothing, and their text is withheld from agents.
 
+The bot is never trusted either. Its own comments, labels and the issues it files start nothing, so a run begins only on a trusted person's label or command. An agent may not even propose a label that some workflow starts on; that label is a person's call. The one exception is an `XL` part of a split, which the engine triages again, see [Sub-issues and stacks](stacks.md). <!-- code: src/engine.ts#gate -->
+
 `trust: [ana, bob]` in `hub.yaml` narrows that to those logins and the bot itself. A collaborator outside the list is then an outsider too. The runner reads the list when it starts, and a hub that does not load then trusts no one until a restart. <!-- code: src/github.ts#githubForge -->
 
 `milestone` in `hub.yaml` limits new runs to open issues in that milestone. Live runs keep going. Issues an agent files are not put in the milestone, so they wait until a person moves them in. <!-- code: src/engine.ts#inScope -->

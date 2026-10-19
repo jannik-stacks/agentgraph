@@ -1,10 +1,10 @@
 # Sub-issues and stacks
 
-An agent that returns `issue` can split the run's issue into sub-issues. Their bodies can say what to build on and what to wait for. The [triage example](triage.md) uses all of this.
+An agent that returns `issue` can split the run's issue into sub-issues, and file follow-ups it found along the way. Every `issue` proposal says which with its `relation`: `part` or `follow-up`. Parts can say what to build on and what to wait for. The [triage example](triage.md) uses all of this.
 
 ## Filing sub-issues
 
-The agent proposes the parts as `issue` proposals, in the order they should land. Each has a short title, a body ending with a `## Done when` section of one to three observable checks, a `size` (`XS` to `XL`) and a `priority` (`high`, `medium` or `low`).
+The agent proposes the parts as `issue` proposals with `"relation": "part"`, in the order they should land. Each has a short title, a body ending with a `## Done when` section of one to three observable checks, a `size` (`XS` to `XL`) and a `priority` (`high`, `medium` or `low`).
 
 The engine files each part as a sub-issue of the run's issue and labels it `size/<size>` and `priority/<priority>`. <!-- code: src/engine.ts#file -->
 
@@ -14,16 +14,27 @@ The run's issue gets one comment: `Split into:` followed by a task list of the p
 
 Every `XL` part still below the depth cap gets a run of the same workflow, begun by the engine. It carries the trust of the run that filed it and needs no trigger.
 
+## Follow-ups
+
+A follow-up is something the agent noticed that the run's issue does not ask for. It has only a `title` and a `body`, which ends with a `## Done when` section like a part's.
+
+```json
+{"kind": "issue", "relation": "follow-up", "title": "Reject a negative count in sum", "body": "...\n\n## Done when\n..."}
+```
+
+The engine files it as a plain issue: labelled `follow-up`, with no parent and no milestone, and a last line `Found while working on #n`. It starts no run. A maintainer reads it, and adds a trigger label when it should be worked on. Like every proposal, follow-ups land only when the try passes its checks, so a try that fails and retries files nothing twice. A try that ends in `ask` files none of them.
+
 GitHub writes for issues use their own token scope with only `issues: write`: the `issue` scope. <!-- code: src/github.ts#scopes -->
 
 ## Refusals
 
-When one part is refused, none is filed, and the try fails with the reasons as feedback. A part is refused when:
+When one issue is refused, none is filed, and the try fails with the reasons as feedback. A part or a follow-up is refused when:
 
+- an open issue already has its title,
 - its body has no `Done when` heading,
-- `stacks_on` or `depends_on` names a position that is not an earlier one in the same list,
+- for a part, `stacks_on` or `depends_on` names a position that is not an earlier one in the same list,
 - the run's issue text is withheld because its author is an outsider,
-- the run's issue already sits 3 issues deep, the cap `deepest`, so it must be split by hand. <!-- code: src/engine.ts#deepest -->
+- for a part, the run's issue already sits 3 issues deep, the cap `deepest`, so it must be split by hand. <!-- code: src/engine.ts#deepest -->
 
 ## Stacks on and Depends on
 
