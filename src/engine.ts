@@ -426,8 +426,25 @@ const checkFiles = (work: Checkout) => ({
   BOTHUB_REPLY: join(dirname(work.news), 'reply.md'),
 });
 
-/** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply and the proposals. */
-type Left = Checkout & { run: string; issue: number; context: string; reply: string; proposals: Proposal[] };
+/** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
+type Left = Checkout & {
+  run: string;
+  issue: number;
+  context: string;
+  reply: string;
+  proposals: Proposal[];
+  answers?: Run['answers'];
+};
+
+/** The human answers of a run as a section every check reads, so a judge does not raise again what an answer settled. */
+const heard = (answers: Run['answers'] = []) =>
+  answers.length === 0
+    ? ''
+    : [
+        '## What a human answered during this run',
+        'A point an answer settles is not a finding.',
+        ...answers.map(a => `Asked: ${squeeze(a.asked, 600)}\n\nAnswered: ${a.said}`),
+      ].join('\n\n');
 
 type Item = { item: string | undefined; pass: boolean; findings: string; exit?: number };
 
@@ -463,7 +480,9 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
             minutes: hub.limits.minutes,
             ...(agent.model !== undefined && { model: agent.model }),
             system: agent.body,
-            prompt: `${check.body}\n\n${input}\n\nReply PASS or FAIL first, then why.`,
+            prompt: [check.body, input, heard(work.answers), 'Reply PASS or FAIL first, then why.']
+              .filter(Boolean)
+              .join('\n\n'),
             dir: work.dir,
             tools: agent.tools,
           },
@@ -664,6 +683,7 @@ const attempt = (
             context: context(t),
             reply: replies.join('\n\n'),
             proposals: world,
+            ...(run.answers && { answers: run.answers }),
           },
           hub
         );
@@ -723,7 +743,7 @@ export const gate = (
     yield* Effect.promise(() =>
       Promise.all([
         writeFile(files.BOTHUB_PROPOSALS, JSON.stringify(left.proposals)),
-        writeFile(files.BOTHUB_CONTEXT, left.context),
+        writeFile(files.BOTHUB_CONTEXT, [left.context, heard(left.answers)].filter(Boolean).join('\n\n')),
         writeFile(files.BOTHUB_REPLY, left.reply),
       ])
     );

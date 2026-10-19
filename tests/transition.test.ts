@@ -159,6 +159,7 @@ describe('transition, waiting for an answer', () => {
     const next = transition(w, asked, { kind: 'answer', text: 'use the v2 API' });
     expect(next).toMatchObject({ step: 'implement', status: 'running', tries: 3, feedback: 'use the v2 API' });
     expect(next.reason).toBeUndefined();
+    expect(next.answers).toEqual([{ asked: asked.reason, said: 'use the v2 API' }]);
     expect(transition(w, next, failed).status).toBe('waiting');
   });
 

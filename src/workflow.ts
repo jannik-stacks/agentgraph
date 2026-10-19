@@ -59,6 +59,8 @@ export type Run = {
   rounds: Record<string, number>;
   sessions: Record<string, { id: string; home: string; seen?: Seen }>;
   feedback?: string;
+  /** What a human answered while the run waited, with the question each answer settled. */
+  answers?: { asked: string; said: string }[];
   reason?: string;
   comment?: string;
   said?: { issue: number; under?: string };
@@ -307,7 +309,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     const tries = run.tries >= step.tries ? step.tries - 1 : run.tries;
     const outOfRounds = run.tries < step.tries && step.back?.rounds !== undefined && taken >= step.back.rounds;
     const rounds = outOfRounds ? { ...run.rounds, [step.name]: taken - 1 } : run.rounds;
-    return { ...fresh(run), status: entered(step), tries, rounds, feedback: o.text };
+    const answers = [...(run.answers ?? []), { asked: run.reason ?? '', said: o.text }];
+    return { ...fresh(run), status: entered(step), tries, rounds, feedback: o.text, answers };
   }
   return run;
 }

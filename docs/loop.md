@@ -152,7 +152,7 @@ Scripts run with the checkout as their working directory and get these variables
 | `BOTHUB_HUB`       | The hub folder, read-only                                    | checks and steps |
 | `BOTHUB_ISSUE`     | The issue number                                             | checks           |
 | `BOTHUB_PROPOSALS` | A JSON file of the proposals the try made                    | checks           |
-| `BOTHUB_CONTEXT`   | A file with the issue and pull request as the agent saw them | checks           |
+| `BOTHUB_CONTEXT`   | A file with the issue and pull request as the agent saw them, then the human answers | checks           |
 | `BOTHUB_REPLY`     | A file with the try's reply                                  | checks           |
 | `BOTHUB_ITEM`      | The item, in a fan-out                                       | checks           |
 
@@ -170,7 +170,7 @@ Going forward into a step starts a fresh session. Going back resumes the session
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question as its own comment on the issue.
 
-A human answers by replying on the thread, with no mention needed, and the answer becomes feedback for the same step. A reply that says only `stop` ends a waiting run, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
+A human answers by replying on the thread, with no mention needed, and the answer becomes feedback for the same step. The run keeps every answer with its question, and every later check reads them: an agent check in its prompt, with the note that a point an answer settles is not a finding, and a script at the end of `BOTHUB_CONTEXT`. <!-- code: src/engine.ts#heard --> A reply that says only `stop` ends a waiting run, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
 
 `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
 

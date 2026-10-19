@@ -1309,6 +1309,46 @@ describe('gate', () => {
     ]);
     expect(outcome).toMatchObject({ kind: 'failed', checks: [{ check: 'correct', findings: 'FAIL off by one' }] });
   });
+  it('shows every check what a human answered during the run, judges in their prompt and scripts in BOTHUB_CONTEXT', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    git(dir, 'init', '-q');
+    git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+    const seen = join(where.root, 'seen.md');
+    const small = hubOf('acme-app', {
+      types: { run: `cp "$BOTHUB_CONTEXT" ${seen}` },
+      claims: { agent: 'claim-checker' },
+    });
+    const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['types', 'claims'], tries: 3 };
+    const specs: SessionSpec[] = [];
+    const judges = Layer.succeed(Session, {
+      open: (spec: SessionSpec) => (
+        specs.push(spec),
+        Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final: 'PASS', ended: 'stop', exit: 0 }])
+      ),
+    });
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '## #7 Add a greeting',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+      answers: [{ asked: 'Keep the old regex?', said: 'yes, the old regex stays' }],
+    };
+    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    const context = readFileSync(seen, 'utf8');
+    expect(context).toContain('## #7 Add a greeting');
+    expect(context).toContain('Asked: Keep the old regex?\n\nAnswered: yes, the old regex stays');
+    expect(specs[0]!.prompt).toContain('Answered: yes, the old regex stays');
+  });
+
   describe('a judge session that did not end normally', () => {
     const judged = async (ends: Extract<SessionEvent, { type: 'end' }>[], mode: 'block' | 'warn' = 'block') => {
       const where = world();
