@@ -68,6 +68,8 @@ node bin/run.ts --forge /tmp/forge --hub examples/sandbox --issue 1 --data /tmp/
   merged, moves pull requests stacked on it to its base, and closes the issue named at the end of
   its branch (`bothub/1` closes #1). It fails when the base has moved past the pull request.
 - `close <n>` closes an issue.
+- `init <repo> --at <sha>` puts only that commit and its history in `origin.git`, as `main`. Later
+  commits are not in it, so a replayed task cannot find its own fix.
 - The agents still run in the Docker sandbox with `BOTHUB_PROXY_KEYS`, as on GitHub. `--forge` also
   works with `loop`; `status` still needs the App.
 
