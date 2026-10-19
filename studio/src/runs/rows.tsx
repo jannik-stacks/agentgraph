@@ -341,14 +341,10 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
           )}
         </Col>
         <Col className="w-[16ch] text-zinc-500">at {run.step}</Col>
-        <Col className="w-[6ch] text-zinc-500">try {run.tries}</Col>
         <Col className="w-[6ch] text-right text-zinc-500">{usd(run.usd)}</Col>
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, live(r) ? undefined : (run.ended ?? trace.at(-1)?.at))}
         </Col>
-        <Link href={`/graph?run=${encodeURIComponent(`${r.fixture}:${run.id}`)}`} className="text-zinc-500 underline">
-          graph
-        </Link>
         {trace.flatMap((line, i) =>
           'applied' in line &&
           line.applied.url &&
@@ -358,11 +354,21 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
         )}
       </span>
     ),
-    body: run.reason && (
-      <p className="max-w-3xl font-sans text-xs text-zinc-600 dark:text-zinc-400">
-        {muted(run.status === 'waiting' ? 'question ' : 'why ')}
-        {run.reason}
-      </p>
+    body: (
+      <>
+        <p className="flex gap-x-2 text-zinc-500">
+          <span>try {run.tries}</span>
+          <Link href={`/graph?run=${encodeURIComponent(`${r.fixture}:${run.id}`)}`} className="underline">
+            graph
+          </Link>
+        </p>
+        {run.reason && (
+          <p className="max-w-3xl font-sans text-xs text-zinc-600 dark:text-zinc-400">
+            {muted(run.status === 'waiting' ? 'question ' : 'why ')}
+            {run.reason}
+          </p>
+        )}
+      </>
     ),
     children: visits.map((visit, i) => ({
       open: true,
