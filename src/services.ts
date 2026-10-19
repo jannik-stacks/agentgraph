@@ -5,7 +5,7 @@ import { fileForge, type Forge } from './forge.ts';
 import { docker } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import { harnesses } from './harnesses.ts';
-import { loadHub } from './hub.ts';
+import { hubAt } from './hub.ts';
 import type { Sandbox } from './sandbox.ts';
 import type { Session } from './session.ts';
 import { fileStore, Store } from './store.ts';
@@ -41,33 +41,35 @@ export const settings: Config.Config<Settings> = Config.all({
   ),
 });
 
-const github = (app: { repo: string; id: string; key: Redacted.Redacted }, trust?: readonly string[]) => {
+/** The forge for `trust` and the origin the sandbox mirrors, on GitHub or on a forge folder. */
+const where = (s: Settings) => {
+  if (typeof s.forge === 'string') {
+    const dir = s.forge;
+    return {
+      forge: (trust?: readonly string[]) => fileForge(dir, undefined, trust),
+      origin: { origin: join(dir, 'origin.git') },
+    };
+  }
+  const app = { repo: s.repo, ...s.forge };
   const token = appToken(app);
   return {
-    forge: githubForge(app, globalThis.fetch, token, trust),
+    forge: (trust?: readonly string[]) => githubForge(app, globalThis.fetch, token, trust),
     origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
   };
 };
 
-/** The production services, on GitHub or on a forge folder. Tests build their own from the file and host layers. */
-export const layers = (s: Settings): Layer.Layer<Services> =>
-  Layer.unwrapEffect(
-    Effect.map(
-      // a hub that does not load trusts no one; every tick reports why it does not load
-      Effect.catchAll(
-        Effect.map(loadHub(s.hub), hub => hub.trust),
-        () => Effect.succeed<string[]>([])
-      ),
-      trust => {
-        const { forge, origin } =
-          typeof s.forge === 'string'
-            ? { forge: fileForge(s.forge, undefined, trust), origin: { origin: join(s.forge, 'origin.git') } }
-            : github({ repo: s.repo, ...s.forge }, trust);
-        return Layer.mergeAll(
-          forge,
-          fileStore(s.data),
-          harnesses(s).pipe(Layer.provideMerge(docker({ data: s.data, ...origin })))
-        );
-      }
+/** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
+export const layers = (s: Settings): Layer.Layer<Services> => {
+  const { forge, origin } = where(s);
+  const sandbox = docker({ data: s.data, ...origin });
+  // a hub that does not load trusts no one; every tick reports why it does not load
+  const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
+    Effect.provide(sandbox),
+    Effect.catchAll(() => Effect.succeed<string[]>([]))
+  );
+  return Layer.unwrapEffect(
+    Effect.map(trust, trust =>
+      Layer.mergeAll(forge(trust), fileStore(s.data), harnesses(s).pipe(Layer.provideMerge(sandbox)))
     )
   );
+};

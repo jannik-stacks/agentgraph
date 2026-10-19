@@ -193,7 +193,10 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   }
   if (own === 'examples/bench' && !c.test) {
     rmSync(join(hub, 'checks'), { recursive: true });
-    save(join(hub, 'workflows/issue.md'), read(join(hub, 'workflows/issue.md')).replace(/^ {4}checks: \[tests\]\n/m, ''));
+    save(
+      join(hub, 'workflows/issue.md'),
+      read(join(hub, 'workflows/issue.md')).replace(/^ {4}checks: \[tests\]\n/m, '')
+    );
   }
   const raw = read(join(hub, 'hub.yaml'));
   if (/^setup: pnpm install/m.test(raw))

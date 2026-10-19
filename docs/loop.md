@@ -174,6 +174,12 @@ A human answers by replying on the thread, with no mention needed, and the answe
 
 `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
 
+## A hub in the repo
+
+The hub can live in the repo it works on, as `.bothub/` on the default branch. `BOTHUB_HUB` names it: a relative path, `.bothub` by default, is a folder in the repo, and an absolute path, such as the one `--hub <dir>` gives, is a folder on this machine. <!-- code: src/hub.ts#hubAt -->
+
+A hub in the repo is read again at every look, always from the head of the default branch and never from a pull request's branch. A bot can propose a change to its own workflows, agents or checks, but the change counts only once a human merges it. The trust list is read once, when the runner starts. <!-- code: src/main.ts#start -->
+
 ## When the base or the hub moves
 
 A run waiting at a `wait: human` step was checked against two things that can change under it: the head of its pull request's base, and the hub. Every sweep compares both with what is current.

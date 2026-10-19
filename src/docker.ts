@@ -15,7 +15,7 @@ const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub' };
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
 /** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
-const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*'];
+const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
 const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };

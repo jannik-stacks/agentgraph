@@ -5,6 +5,7 @@
  *        node bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
  *        node bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV; read-only)
  *        node bin/run.ts loop --hub <dir> --data <dir>   (looks at every open issue each BOTHUB_EVERY minutes)
+ *        node bin/run.ts loop --data <dir>   (the same with the repo's own .bothub/; BOTHUB_REPO names the repo)
  * With --forge <dir>, the runs act on a forge folder (see bin/forge.ts) instead of GitHub, and need no App.
  */
 import { resolve } from 'node:path';
@@ -69,16 +70,15 @@ if (positionals[0] === 'status') {
 }
 
 if (positionals[0] === 'loop') {
-  if (!values.hub || !values.data) {
-    console.error('usage: node bin/run.ts loop --hub <dir> --data <dir>');
+  if (!values.data) {
+    console.error('usage: node bin/run.ts loop [--hub <dir>] --data <dir>');
     process.exit(2);
   }
-  const hub = await Effect.runPromise(loadHub(resolve(values.hub)));
-  Object.assign(process.env, {
-    BOTHUB_HUB: resolve(values.hub),
-    BOTHUB_DATA: resolve(values.data),
-    BOTHUB_REPO: hub.repo,
-  });
+  process.env.BOTHUB_DATA = resolve(values.data);
+  if (values.hub) {
+    const hub = await Effect.runPromise(loadHub(resolve(values.hub)));
+    Object.assign(process.env, { BOTHUB_HUB: resolve(values.hub), BOTHUB_REPO: hub.repo });
+  }
   await start();
 }
 

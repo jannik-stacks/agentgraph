@@ -4,7 +4,9 @@ import { dirname, join } from 'node:path';
 import { Effect, Either } from 'effect';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
-import { loadHub } from '../src/hub.ts';
+import { hubAt, loadHub } from '../src/hub.ts';
+import { host } from '../src/sandbox.ts';
+import { git } from './fixtures.ts';
 
 /** A hub directory with `files` written into it. */
 const hubDir = (files: Record<string, string>) => {
@@ -241,4 +243,38 @@ describe('loadHub', () => {
     expect(found[0]).toMatch(/^agents\/a\.md: frontmatter: /);
     expect(found).toContain('skills/s/SKILL.md: s is defined twice');
   });
+});
+
+describe('hubAt', () => {
+  it('reads a relative hub from the head of the default branch, never from another branch', async () => {
+    const example = join(import.meta.dirname, '..', 'examples', 'sandbox');
+    const root = mkdtempSync(join(tmpdir(), 'bothub-hubat-'));
+    const seed = join(root, 'seed');
+    mkdirSync(seed);
+    git(seed, 'init', '-q', '-b', 'main');
+    cpSync(example, join(seed, '.bothub'), { recursive: true });
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'hub');
+    git(root, 'clone', '-q', '--bare', seed, 'origin.git');
+    git(seed, 'remote', 'add', 'origin', join(root, 'origin.git'));
+    const edit = (branch: string) => {
+      git(seed, 'checkout', '-q', '-B', branch, 'main');
+      writeFileSync(
+        join(seed, '.bothub', 'hub.yaml'),
+        `${readFileSync(join(example, 'hub.yaml'), 'utf8')}\n# ${branch}\n`
+      );
+      git(seed, 'commit', '-q', '-am', branch);
+      git(seed, 'push', '-q', 'origin', branch);
+    };
+    const sha = () =>
+      Effect.runPromise(
+        Effect.scoped(Effect.map(hubAt('.bothub'), h => h.sha)).pipe(Effect.provide(host(join(root, 'origin.git'))))
+      );
+    const local = (await Effect.runPromise(loadHub(example))).sha;
+    expect(await sha()).toBe(local);
+    edit('bothub/1');
+    expect(await sha()).toBe(local);
+    edit('main');
+    expect(await sha()).not.toBe(local);
+  }, 30_000);
 });

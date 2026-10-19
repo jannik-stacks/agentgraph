@@ -29,10 +29,10 @@ node bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
 - `check` loads a hub and prints every problem with its file, or `ok`.
 - `--issue <n>` looks at one issue once. It continues a waiting run a human has answered, or begins one when none is live, and drives it until it waits or ends. It prints one line per run: id, step, status and reason.
 - `--all` does the same for every open issue, up to `limits.parallel` issues at once. It begins a run only where a trusted command or label asks for one.
-- `loop` looks at the repo every `BOTHUB_EVERY` minutes until it is stopped. <!-- code: src/main.ts#start -->
+- `loop` looks at the repo every `BOTHUB_EVERY` minutes until it is stopped. Without `--hub`, it reads the hub from `.bothub/` in the repo, and `BOTHUB_REPO` names the repo, see [A hub in the repo](loop.md#a-hub-in-the-repo). <!-- code: src/main.ts#start -->
 - `status` lists what waits on a human. It also warns when the App's installation reaches repos besides the hub's, and needs the App's credentials.
 
-`--hub <dir>` names the hub, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `BOTHUB_HUB`, `BOTHUB_DATA`, `BOTHUB_FORGE` and `BOTHUB_REPO`. The runner also reads:
+`--hub <dir>` names a hub folder on this machine, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `BOTHUB_HUB`, `BOTHUB_DATA`, `BOTHUB_FORGE` and `BOTHUB_REPO`. The runner also reads:
 
 | Variable              | What it is                                                                       |
 | --------------------- | -------------------------------------------------------------------------------- |

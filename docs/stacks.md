@@ -32,7 +32,7 @@ A hub change is a follow-up about the bot itself: a workflow, agent or check tha
 {"kind": "issue", "relation": "hub", "title": "Check that new exported fields are documented", "body": "...\n\n## Done when\n..."}
 ```
 
-The engine files it like a follow-up, labelled `hub`. It starts no run.
+The engine files it like a follow-up, labelled `hub`. It starts no run. With the hub in the repo, working on it is a normal pull request that edits `.bothub/`, and the new rules count once a human merges it, see [A hub in the repo](loop.md#a-hub-in-the-repo).
 
 GitHub writes for issues use their own token scope with only `issues: write`: the `issue` scope. <!-- code: src/github.ts#scopes -->
 
