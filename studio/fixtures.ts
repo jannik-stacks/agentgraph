@@ -43,7 +43,8 @@ const bodies = (docs: Record<string, { body: string }>) =>
 /**
  * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
  * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
- * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line.
+ * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line, and
+ * `GET /core/logs/<hash>` the full output of a check.
  * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const fixtures = (): Plugin => ({
@@ -68,6 +69,18 @@ export const fixtures = (): Plugin => ({
         clearTimeout(timer);
         watcher.close();
       });
+    });
+    server.middlewares.use('/core/logs', async (req, res) => {
+      const data = process.env.VITE_BHM_DATA;
+      const { Effect } = await import('effect');
+      const { Store, fileStore }: typeof import('../src/store.ts') = await from('src/store.ts');
+      const hash = (req.url ?? '/').split('?')[0]!.slice(1);
+      const text =
+        data &&
+        (await Effect.runPromise(Effect.flatMap(Store, s => s.logOf(hash)).pipe(Effect.provide(fileStore(data)))));
+      res.statusCode = text === undefined || text === '' ? 404 : 200;
+      res.setHeader('content-type', 'text/plain; charset=utf-8');
+      res.end(text || '');
     });
     server.middlewares.use('/core/runs', async (req, res) => {
       const served = await servedHub();

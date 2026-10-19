@@ -48,6 +48,25 @@ const Url = ({ url, text }: { url: string; text?: string }) => (
   </a>
 );
 
+/** A check's full output, fetched from the data dir when asked for. */
+const FullLog = ({ log }: { log: NonNullable<Line<'check'>['log']> }) => {
+  const [text, setText] = useState<string>();
+  if (text !== undefined) return <Pre text={text} />;
+  return (
+    <button
+      type="button"
+      className="font-sans text-[10px] text-sky-600 underline"
+      onClick={() =>
+        fetch(`/core/logs/${log.hash}`)
+          .then(r => (r.ok ? r.text() : `not in the data dir (${r.status})`))
+          .then(setText, (e: Error) => setText(e.message))
+      }
+    >
+      full output, {log.bytes.toLocaleString()} bytes
+    </button>
+  );
+};
+
 /** Where the text under it came from. */
 const From = ({ children }: { children: ReactNode }) => (
   <div className="font-sans text-[10px] text-zinc-500">{children}</div>
@@ -213,12 +232,13 @@ const lines: {
         )}
       </>
     ),
-    body: (line.item || line.check.findings) && (
+    body: (line.item || line.check.findings || line.log) && (
       <>
         {line.item && <From>item</From>}
         {line.item && <Pre text={line.item} />}
         {line.check.findings && <From>check output</From>}
         {line.check.findings && <Pre text={line.check.findings} />}
+        {line.log && <FullLog log={line.log} />}
       </>
     ),
   }),
