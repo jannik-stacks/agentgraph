@@ -7,7 +7,7 @@ export type Trail = { at: Run; outcome: Outcome }[];
 /** A simulated run: what happened and where it ended. */
 type Simulated = { label: string; trail: Trail; run: Run };
 
-/** A fixture workflow with its checks and the runs simulated over it; a served hub's also carries its prompts. */
+/** A fixture workflow with its checks and the runs simulated over it; a served hub's also carries its prompts and what each agent returns. */
 export type Fixture = {
   id: string;
   workflow: Workflow;
@@ -15,6 +15,7 @@ export type Fixture = {
   runs: Simulated[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;
+  returns?: Record<string, string[]>;
 };
 
 /** Picks the next outcome at a step, or undefined to leave the run where it is. */

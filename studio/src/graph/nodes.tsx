@@ -399,6 +399,15 @@ export const Legend = () => (
     >
       a way back
     </LegendItem>
+    <LegendItem
+      mark={
+        <svg width="16" height="2" aria-hidden className="text-zinc-400">
+          <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeDasharray="2 4" />
+        </svg>
+      }
+    >
+      starts a dispatched run
+    </LegendItem>
     <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
     <LegendItem mark={<span className={cx('size-2 rounded-full bg-current', accent.text)} />}>live</LegendItem>
     <li className="ml-auto">Click a step for its checks and runs.</li>

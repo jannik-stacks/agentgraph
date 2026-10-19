@@ -32,7 +32,7 @@ type Picked = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | unde
 
 /** The picked run told in one sentence. */
 export const storyOfRun = (p: Picked) =>
-  storyOf(visitsOf(graphOf(p.fixture.workflow, p.fixture.checks, p.run), p.trail, p.run));
+  storyOf(visitsOf(graphOf(p.fixture.workflow, p.fixture.checks, p.run, p.fixture.returns), p.trail, p.run));
 
 /**
  * The workflows of `shown` as one canvas, with the picked run drawn over its workflow, and a side panel for the
@@ -99,10 +99,11 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
     () =>
       shown.map(f => {
         const run = picked?.fixture === f ? picked : undefined;
-        const graph = graphOf(f.workflow, f.checks, run?.run);
+        const graph = graphOf(f.workflow, f.checks, run?.run, f.returns);
         return {
           fixture: f.id,
           workflow: f.workflow.name,
+          dispatched: f.workflow.on.dispatch !== undefined,
           graph,
           run,
           visits: run && visitsOf(graph, run.trail, run.run).visits,
@@ -201,6 +202,16 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           markerEnd: arrow((edge.taken ?? 0) > 0 ? sky : gray),
           data: { edge },
         } satisfies BackFlowEdge);
+      const dispatched = graphs.filter(g => g.dispatched);
+      for (const node of graph.nodes.filter(n => n.dispatches))
+        for (const target of dispatched)
+          edges.push({
+            id: `${workflow}/${node.step}>${target.workflow}`,
+            source: `${workflow}/${node.step}`,
+            target: `${target.workflow}:trigger`,
+            markerEnd: arrow(gray),
+            style: { stroke: gray, strokeWidth: 1.25, strokeDasharray: '2 4' },
+          });
     });
     return { nodes, edges };
   }, [graphs, rows, selected, here]);
