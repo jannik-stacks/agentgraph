@@ -273,7 +273,7 @@ export const lineRow = (line: Trace, by = 'bothub'): Row => {
   return { at: line.at, raw: line, ...(lines[kind] as (l: Trace, by: string) => Row)(line, by) };
 };
 
-/** A session folded to who ran, how it ended and what it cost; open, its prompt and every event in order. */
+/** A session folded to who ran, on what, how it ended and what it cost, its end line as its raw; open, its prompt and every event in order. */
 const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: boolean, repo?: string): Row => {
   const spec = prompt?.prompt;
   const aside = prompt?.aside;
@@ -283,36 +283,39 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: 
       : undefined;
   const started = events.find(e => e.event.type === 'start')?.event;
   const id = end?.session.id ?? spec?.resume?.id ?? (started?.type === 'start' ? started.session : undefined);
+  const model = spec?.model ?? (started?.type === 'start' ? started.model : undefined);
   const usage = events.flatMap(e => (e.event.type === 'usage' ? [e.event] : []));
   const first = (prompt ?? events[0])?.at;
+  const how = end && `${end.session.ended}${end.session.exit === undefined ? '' : `, exit ${end.session.exit}`}`;
   return {
     at: first ?? end?.at,
     open: expand || (running && !end),
     scroll: true,
+    raw: end,
     summary: (
       <span className="flex min-w-0 items-baseline gap-x-2">
-        <Pill of="line" kind={aside ? 'aside' : 'session'} />
-        <span className="font-medium">{spec?.agent ?? 'agent'}</span>
+        <Pill of="line" kind={aside || end?.session.aside ? 'aside' : 'session'} />
+        {spec && <span className="font-medium">{spec.agent}</span>}
         {heard && <Url url={heard} text="the comment" />}
-        {spec && muted(`${spec.harness}${spec.model ? `, ${spec.model}` : ''}`)}
+        {(spec || model) && muted([spec?.harness, model].filter(Boolean).join(', '))}
+        {spec?.check && muted(`judges ${spec.check}`)}
+        {prompt?.item && muted(`on ${short(prompt.item, 60)}`)}
         {id && muted(id)}
         {(spec?.resume || end?.session.resumed) && muted('resumed')}
-        {prompt?.item && muted(`on ${short(prompt.item, 60)}`)}
         {events.length > 0 && muted(`${events.filter(e => e.event.type === 'tool').length} tool calls`)}
         {usage.length > 0 &&
           muted(
             `${tokens(usage.reduce((n, u) => n + u.input, 0))} in, ${tokens(usage.reduce((n, u) => n + u.output, 0))} out`
           )}
         {end
-          ? flag(
-              `ended ${end.session.ended}${end.session.exit === undefined ? '' : `, exit ${end.session.exit}`}, ${usd(end.session.usd)}`,
-              end.session.ended !== 'stop'
-            )
+          ? events.length
+            ? flag(`ended ${how}, ${usd(end.session.usd)}`, end.session.ended !== 'stop')
+            : flag(`ended before it started: ${how}`)
           : flag(running ? 'running' : 'no end recorded')}
         {first && muted(took(first, end?.at))}
       </span>
     ),
-    children: [...(prompt ? [prompt] : []), ...events, ...(end ? [end] : [])].map(line => lineRow(line)),
+    children: [...(prompt ? [prompt] : []), ...events].map(line => lineRow(line)),
   };
 };
 

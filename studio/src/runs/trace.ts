@@ -25,9 +25,14 @@ type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
 /** One harness session: its prompt when the trace has one, its events, and how it ended. */
 export type Session = { prompt?: Line<'prompt'>; events: Line<'event'>[]; end?: Line<'session'> };
 
-/** A run's trace as the steps it visited in order, each a list of sessions and the other lines. */
+/**
+ * A run's trace as the steps it visited in order, each a list of sessions and the other lines. Lines with a `key` join
+ * the session that key opened. Older lines without one join the session opened last, and an end joins the session
+ * that started with its id.
+ */
 export const visitsOf = (trace: Trace[]) => {
   const visits: { step: string; parts: (Session | Trace)[] }[] = [];
+  const keyed = new Map<string, Session>();
   let open: Session | undefined;
   for (const line of trace) {
     if (visits.at(-1)?.step !== line.step) {
@@ -36,18 +41,36 @@ export const visitsOf = (trace: Trace[]) => {
     }
     const parts = visits.at(-1)!.parts;
     const fresh = (): Session => {
-      open = { events: [] };
-      parts.push(open);
-      return open;
+      const made: Session = { events: [] };
+      parts.push(made);
+      return made;
     };
-    if ('prompt' in line) fresh().prompt = line;
+    if (!('prompt' in line || 'event' in line || 'session' in line)) {
+      parts.push(line);
+      continue;
+    }
+    if (line.key !== undefined) {
+      const session = keyed.get(line.key) ?? fresh();
+      keyed.set(line.key, session);
+      if ('prompt' in line) session.prompt = line;
+      else if ('event' in line) session.events.push(line);
+      else session.end = line;
+      continue;
+    }
+    if ('prompt' in line) (open = fresh()).prompt = line;
     else if ('event' in line) {
       const started = open?.events.some(e => e.event.type === 'start');
-      (!open || (line.event.type === 'start' && started) ? fresh() : open).events.push(line);
-    } else if ('session' in line) {
-      (open ?? fresh()).end = line;
-      open = undefined;
-    } else parts.push(line);
+      if (!open || (line.event.type === 'start' && started)) open = fresh();
+      open.events.push(line);
+    } else {
+      const id = line.session.id;
+      const same = parts.findLast(
+        (p): p is Session =>
+          'events' in p && !p.end && p.events.some(e => e.event.type === 'start' && e.event.session === id)
+      );
+      (same ?? open ?? fresh()).end = line;
+      if (!same || same === open) open = undefined;
+    }
   }
   return visits;
 };
