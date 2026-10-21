@@ -15,8 +15,15 @@ It checks the commit out as a git worktree under `runs/<sha>/engine`, runs every
 report. `--cases-dir`, `--repos-dir`, `--out` (default `runs`), `--parallel` (default 3) and `--judges`
 override the defaults. A set pins each case's `base`; a case whose folder has another base is skipped.
 
+`--point harness:model` (or `BENCH_POINT`) runs every agent of the hub copy on that harness and model, and `--repeat k` runs
+a case again instead of reusing it. Either puts the run in `runs/<sha>/<harness>-<model>/r<k>`, with a
+`point.json` that names the harness, model, engine, hub trees, set and repeat. When the keys file has
+`BOTHUB_LLM_API_KEY_PT_<HARNESS>_<MODEL>`, every agent uses that key. `--pairs human` judges each arm
+against the human only.
+
 Nothing unchanged is run or judged again. Results live in `runs/.cache`: validity by case, an arm by
-case, arm, hub content and the engine's `src` tree (the floor arm leaves the tree out), a judge verdict by
+case, arm, hub content and the engine's `src` tree (the floor arm leaves the tree out), and the point and
+repeat when given, a judge verdict by
 judge and prompt, which holds both diffs and their order. `--fresh` ignores the cache.
 
 ## Cases
@@ -63,16 +70,18 @@ node bin/bench.ts judge <case> <out>
 node bin/bench.ts report <out>
 ```
 
-- `run` leaves the arm's forge, data dir, hub copy, `diff.patch` and `meta.json` in
-  `<out>/<case>/<arm>`.
+- `run` leaves the arm's forge, data dir, hub copy, `diff.patch`, `meta.json` and `usage.json` (sessions,
+  reported cost and tokens by model and class) in `<out>/<case>/<arm>`. A cached arm keeps `usage.json`
+  but not its data dir. `--point` and `--repeat` work as above.
 - `score` checks each arm out at the base in one shared tree, applies its diff and runs the suite and
   typecheck. Then it puts the merged change's test files on top and runs `test`: those are the hidden
   tests. A `base` row shows whether they fail before any change. It also counts source and test lines,
   files, overlap with the human's files, added test cases, the change in branch tokens, and sessions,
-  cost and answers from the traces.
+  cost and answers from `usage.json`, else the traces.
 - `judge` hands every pair of arms to three judges (Opus and Sonnet through `claude -p`, sol through
   LiteLLM's `smart`). `--judges opus:1,sonnet:2,sol:2` sets how many orders each reads; a judge with
-  one reads the order picked by the case and pair, so a pair costs three Claude calls. The diffs are blinded: no lockfiles or changelogs, no index
+  one reads the order picked by the case and pair, so a pair costs three Claude calls. `--pairs human`
+  judges only the pairs with the human in them. The diffs are blinded: no lockfiles or changelogs, no index
   lines, issue numbers and names masked. The prompt is `bench/judge.md`: correctness against the issue
   first, then scope, and more tests or lines are not better in themselves. Each verdict lists findings
   by severity and category, a preference, and is kept as JSON next to the raw answer.
@@ -87,3 +96,18 @@ commands: the bench derives them per repo (`plan` in `bin/bench.ts`), and `bucke
 metrics and judges only. Model keys come from `--keys`, `infra/local/.keys.env` by default. Before a
 paid step the bench reads the weekly Codex use and stops once it is more than `--max-codex` points (30)
 above the first reading, or after `--max-claude-calls` judge calls (60).
+
+## Cost against quality
+
+```sh
+cd studio && npm run dev -- --bench ~/bothub-data/bench/runs-2 ~/bothub-data/bench/runs-3
+```
+
+The studio's Bench tab plots each point, a harness and model on an arm and a set, as quality against
+notional USD per task or minutes. It reads every out dir under the dirs it is given; a dir without
+`point.json` reads as opencode on `smart`, repeat 1, with the dir name as its set. Quality is 0 for nothing
+useful and 1 for the human: the hidden tests, twice the judges' preference over the human and the suite,
+weighted by the sliders, less penalties for findings above the human's and for questions. Cost is the
+tokens priced from `infra/local/prices.json`. Crosses are 95% intervals from a bootstrap over cases, then
+repeats. The staircase through the points no cheaper point beats shows once each of them has 10 valid
+cases. Click a point for its cases.

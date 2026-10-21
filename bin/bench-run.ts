@@ -1,6 +1,7 @@
 /**
  * One command for a bench run at an engine commit.
  * Usage: node bin/bench-run.ts --at <sha> [--set smoke] [--fresh] [--cases-dir <dir>] [--repos-dir <dir>] [--out runs] [--parallel 3]
+ *          [--point harness:model] [--repeat k] [--pairs all|human]
  * Checks the commit out as a git worktree, runs the set's cases (validity, v2, floor, score, judge) with that engine,
  * and writes <out>/<sha>/report.md and compare.md against the newest earlier report. Results are reused through
  * <out>/.cache unless --fresh; see docs/bench.md.
@@ -58,6 +59,9 @@ if (import.meta.main) {
       out: { type: 'string', default: 'runs' },
       parallel: { type: 'string', default: '3' },
       judges: { type: 'string' },
+      point: { type: 'string' },
+      repeat: { type: 'string' },
+      pairs: { type: 'string' },
     },
   });
   if (!values.at || !values['cases-dir'] || !values['repos-dir'])
@@ -65,10 +69,12 @@ if (import.meta.main) {
   const sha = git('rev-parse', '--short=12', values.at).stdout.trim();
   if (!sha) throw new Error(`unknown commit ${values.at}`);
   const out = resolve(values.out!);
-  const dir = join(out, sha);
-  const worktree = join(dir, 'engine');
+  const pointed = values.point || values.repeat;
+  const [harness = 'opencode', model = 'smart'] = values.point?.split(':') ?? [];
+  const dir = pointed ? join(out, sha, `${harness}-${model}`, `r${values.repeat ?? 1}`) : join(out, sha);
+  const worktree = join(out, sha, 'engine');
   if (!existsSync(worktree)) {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(join(out, sha), { recursive: true });
     const made = git('worktree', 'add', '--detach', worktree, sha);
     if (made.status) throw new Error(made.stderr);
     const modules = join(worktree, basename(root), 'node_modules');
@@ -82,6 +88,23 @@ if (import.meta.main) {
     BENCH_CACHE: join(out, '.cache'),
     ...(values.fresh && { BENCH_FRESH: '1' }),
   };
+  const hub = (path: string) => git('rev-parse', `${sha}:bothub/${path}`).stdout.trim();
+  mkdirSync(dir, { recursive: true });
+  const point = {
+    harness,
+    model,
+    engine: sha,
+    hubs: { v2: hub('examples'), floor: hub('bench/floor') },
+    set: values.set,
+    repeat: Number(values.repeat ?? 1),
+    at: new Date().toISOString(),
+  };
+  if (pointed && !existsSync(join(dir, 'point.json')))
+    writeFileSync(join(dir, 'point.json'), `${JSON.stringify(point, null, 2)}\n`);
+  const pointArgs = [
+    ...(values.point ? ['--point', values.point] : []),
+    ...(values.repeat ? ['--repeat', values.repeat] : []),
+  ];
   const queue = [...set.cases];
   const next = async () => {
     for (let c = queue.shift(); c; c = queue.shift()) {
@@ -92,9 +115,18 @@ if (import.meta.main) {
         continue;
       }
       const common = [caseDir, dir, '--repo', join(values['repos-dir']!, basename(c.repo))];
-      for (const arm of ['v2', 'floor']) await run(['run', arm, ...common], env);
+      for (const arm of ['v2', 'floor']) await run(['run', arm, ...common, ...pointArgs], env);
       await run(['score', ...common], env);
-      await run(['judge', caseDir, dir, ...(values.judges ? ['--judges', values.judges] : [])], env);
+      await run(
+        [
+          'judge',
+          caseDir,
+          dir,
+          ...(values.judges ? ['--judges', values.judges] : []),
+          ...(values.pairs ? ['--pairs', values.pairs] : []),
+        ],
+        env
+      );
     }
   };
   await Promise.all(Array.from({ length: Number(values.parallel) }, next));

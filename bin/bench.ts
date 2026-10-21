@@ -1,8 +1,8 @@
 /**
  * Replays merged pull requests on v2, on a plain single session (floor) and on v1, then scores and judges them blind.
- * Usage: node bin/bench.ts run (v2|floor|v1) <case dir> <out> --repo <clone>
+ * Usage: node bin/bench.ts run (v2|floor|v1) <case dir> <out> --repo <clone> [--point harness:model] [--repeat k]
  *        node bin/bench.ts score <case dir> <out> --repo <clone>
- *        node bin/bench.ts judge <case dir> <out>
+ *        node bin/bench.ts judge <case dir> <out> [--pairs all|human]
  *        node bin/bench.ts report <out>
  * A case dir holds case.json, issue.md and merged.diff. Each step skips outputs that exist, keeps everything under
  * <out>/<case id>/<arm>, and appends to <out>/log.jsonl. Paid steps stop past --max-codex weekly Codex points over the
@@ -26,7 +26,6 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 const engine = process.env.BENCH_ENGINE ?? join(import.meta.dirname, '..');
-const { start } = (await import(join(engine, 'src/main.ts'))) as typeof import('../src/main.ts');
 
 type Case = {
   id: string;
@@ -57,6 +56,7 @@ const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', '
 const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/bothub No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
+const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
 const panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_test\.\w+$/;
 const noise = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|CHANGELOG[^/]*)$/;
@@ -193,10 +193,26 @@ const guard = (out: string, claude: boolean) => {
 const forge = (dir: string, ...args: string[]) =>
   sh(process.execPath, [here('bin/forge.ts'), dir, ...args, '--as', 'maintainer']);
 
-/** The floor arm's harness and model, from BENCH_POINT as `harness:model`. */
-const pointOf = () => process.env.BENCH_POINT?.split(':') as [string, string] | undefined;
+/** Points every agent of a hub at `harness:model`, by the two lines of its front matter. */
+export const repoint = (hub: string, point: string) => {
+  const [harness, model] = point.split(':');
+  const dir = join(hub, 'agents');
+  for (const name of existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.md')) : [])
+    save(
+      join(dir, name),
+      read(join(dir, name)).replace(/^---\n[\s\S]*?\n---/, head =>
+        head.replace(/^harness: .*$/m, `harness: ${harness}`).replace(/^model: .*$/m, `model: ${model}`)
+      )
+    );
+  const key = process.env[`BOTHUB_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
+  if (key && existsSync(dir))
+    process.env.BOTHUB_PROXY_KEYS = readdirSync(dir)
+      .map(n => `${basename(n, '.md')}=${key}`)
+      .join(',');
+};
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
+  const { start } = (await import(join(engine, 'src/main.ts'))) as typeof import('../src/main.ts');
   const own = `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
   cpSync(join(engine, own), hub, { recursive: true });
@@ -232,17 +248,8 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     for (const d of ['agents', 'skills']) rmSync(join(hub, d), { recursive: true, force: true });
     rmSync(join(hub, 'checks'), { recursive: true, force: true });
     cpSync(here('bench/floor'), hub, { recursive: true });
-    const point = pointOf();
-    if (point) {
-      const agent = join(hub, 'agents/implementor.md');
-      save(
-        agent,
-        read(agent)
-          .replace(/^harness: .*$/m, `harness: ${point[0]}`)
-          .replace(/^model: .*$/m, `model: ${point[1]}`)
-      );
-    }
   }
+  if (options.point) repoint(hub, options.point);
   const dir = join(at, 'forge');
   forge(dir, 'init', repo, '--at', c.base);
   save(join(at, 'issue.md'), c.body);
@@ -283,6 +290,28 @@ export const infra = (s: { infra?: string; files?: number; setup?: { ok: boolean
         ? 'run did not finish'
         : undefined);
 
+/** Where an arm run is kept: by case, arm, engine, hub and commands, and the point and repeat when given. */
+export const armSlot = (
+  c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup'>,
+  arm: string,
+  { point, repeat }: Pick<typeof options, 'point' | 'repeat'> = options
+) => {
+  const treeSha = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./src'], { encoding: 'utf8' }).stdout.trim();
+  const own = hubs[c.repo.split('/').pop() ?? ''] ?? 'bench';
+  return slot(
+    'arm',
+    c.id,
+    c.base,
+    arm,
+    arm === 'floor' ? '' : treeSha,
+    treeText(join(engine, 'examples', own)),
+    arm === 'floor' ? treeText(here('bench/floor')) : '',
+    c.runner,
+    c.setup,
+    ...(point || repeat > 1 ? [point ?? '', repeat] : [])
+  );
+};
+
 const runArm = async (arm: string, caseDir: string, out: string, repo: string) => {
   const c = loadCase(caseDir);
   const at = join(out, c.id, arm);
@@ -291,19 +320,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (existsSync(join(at, 'diff.patch'))) return;
   if (!process.env.BOTHUB_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   if (await prepare(c, out, repo)) return;
-  const treeSha = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./src'], { encoding: 'utf8' }).stdout.trim();
-  const own = hubs[c.repo.split('/').pop() ?? ''] ?? 'bench';
-  const kept = slot(
-    'arm',
-    c.id,
-    c.base,
-    arm,
-    arm === 'floor' ? '' : treeSha,
-    treeText(join(engine, 'examples', own)),
-    arm === 'floor' ? treeText(here('bench/floor')) + (process.env.BENCH_POINT ?? '') : '',
-    c.runner,
-    c.setup
-  );
+  const kept = armSlot(c, arm);
   if (reusable(kept)) return void cpSync(kept!, at, { recursive: true });
   let reason: string | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -317,7 +334,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     } catch (e) {
       reason = String(e).slice(0, 200);
     }
-    if (!reason) return kept && cpSync(at, kept, { recursive: true, filter: p => !/\/(data|forge|hub)$/.test(p) });
+    if (!reason) return keep(at, kept);
   }
   if (!existsSync(join(at, 'diff.patch'))) save(join(at, 'diff.patch'), '');
   save(join(at, 'meta.json'), { ...JSON.parse(read(join(at, 'meta.json')) || '{}'), infra: reason });
@@ -399,10 +416,35 @@ const check = (c: Case & Commands, tree: string, diff: string, hidden: string[])
   const run = exec(c.test, tree);
   return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
 };
+/** Sessions, reported cost and tokens by model of an arm's traces; input counts only uncached tokens. */
 const effort = (data: string) => {
   const traces = existsSync(data) ? readdirSync(data).flatMap(id => lines(join(data, id, 'trace.jsonl'))) : [];
   const sessions = traces.flatMap(t => (t.session ? [t.session as { usd: number }] : []));
-  return { sessions: sessions.length, usd: round(sessions.reduce((a, s) => a + s.usd, 0)) };
+  const models: Record<string, string> = {};
+  const tokens: Record<string, { input: number; cacheRead: number; cacheWrite: number; output: number }> = {};
+  for (const t of traces) {
+    const e = (t.event ?? {}) as Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite', number>> & {
+      type?: string;
+      model?: string;
+    };
+    if (e.type === 'start' && e.model) models[String(t.key)] = e.model;
+    if (e.type !== 'usage') continue;
+    const [read, write] = [e.cacheRead ?? 0, e.cacheWrite ?? 0];
+    const sum = (tokens[models[String(t.key)] ?? 'unknown'] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
+    sum.input += (e.input ?? 0) - read - write;
+    sum.cacheRead += read;
+    sum.cacheWrite += write;
+    sum.output += e.output ?? 0;
+  }
+  return { sessions: sessions.length, usd: round(sessions.reduce((a, s) => a + s.usd, 0)), tokens };
+};
+const usage = (at: string) =>
+  (JSON.parse(read(join(at, 'usage.json')) || 'null') as ReturnType<typeof effort> | null) ?? effort(join(at, 'data'));
+
+/** Writes an arm's usage beside it, then copies it to `kept` without its data, forge and hub dirs. */
+export const keep = (at: string, kept: string | undefined) => {
+  save(join(at, 'usage.json'), effort(join(at, 'data')));
+  if (kept) cpSync(at, kept, { recursive: true, filter: p => !/\/(data|forge|hub)$/.test(p) });
 };
 
 const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {
@@ -423,7 +465,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
     const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
       (c.test || c.suite) && c.hasTests !== false ? check(c, tree, diff, hidden) : {}
     );
-    save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...effort(join(at, 'data')), ...meta });
+    save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...usage(at), ...meta });
   }
 };
 
@@ -564,7 +606,7 @@ const judge = async (caseDir: string, out: string) => {
     `## Candidate ${label}\n\n\`\`\`diff\n${scrub(read(join(root, arm, 'diff.patch')), names)}\n\`\`\``;
   const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
   for (const [i, x] of have.entries())
-    for (const y of have.slice(i + 1))
+    for (const y of have.slice(i + 1).filter(y => options.pairs === 'all' || x === 'human' || y === 'human'))
       for (const [at, [a, b]] of (
         [
           [x, y],
@@ -671,6 +713,65 @@ const loadScored = (out: string, id: string): Scored => {
   return { id, ...(invalid && { invalid }), infra: skipped, strata, rows, failures, verdicts };
 };
 
+/**
+ * One row per case and arm run of an out dir, keyed by its point. A dir without `point.json` reads as opencode:smart,
+ * repeat 1, engine unknown, with the dir name as its set.
+ */
+export const rowsOf = (out: string) => {
+  const p = {
+    harness: 'opencode',
+    model: 'smart',
+    engine: 'unknown',
+    set: basename(resolve(out)),
+    repeat: 1,
+    hubs: {} as Record<string, string>,
+    ...(JSON.parse(read(join(out, 'point.json')) || '{}') as object),
+  };
+  const ok = (v: unknown) => (v && typeof v === 'object' && 'ok' in v ? (+Boolean(v.ok) as 0 | 1) : undefined);
+  return readdirSync(out)
+    .filter(id => existsSync(join(out, id, 'human')))
+    .map(id => loadScored(out, id))
+    .filter(c => !c.invalid)
+    .flatMap(c =>
+      ['human', ...bots].flatMap(arm => {
+        const s = JSON.parse(read(join(out, c.id, arm, 'score.json')) || 'null') as Record<string, unknown> | null;
+        if (!s) return [];
+        const seen = c.verdicts.filter(v => v.order.includes(arm));
+        const byJudge: Record<string, number[]> = {};
+        for (const v of seen.filter(v => arm !== 'human' && v.order.includes('human')))
+          (byJudge[v.judge] ??= []).push(v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === arm));
+        const found = (severity: string) =>
+          seen.length
+            ? mean(
+                seen.map(
+                  v => (v[v.order[0] === arm ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
+                )
+              )
+            : 0;
+        const spent = usage(join(out, c.id, arm));
+        const [hidden, suite, typecheck] = [ok(s.hidden), ok(s.suite), ok(s.typecheck)];
+        return [
+          {
+            point: `${p.harness}:${p.model}/${arm}@${p.engine}/${p.hubs[arm] ?? ''}/${p.set}`,
+            case: c.id,
+            repeat: p.repeat,
+            strata: c.strata,
+            ...(c.infra[arm] && { infra: c.infra[arm] }),
+            ...(hidden !== undefined && { hidden }),
+            ...(suite !== undefined && { suite }),
+            ...(typecheck !== undefined && { typecheck }),
+            vsHuman: Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, mean(ps)])),
+            findings: { critical: found('critical'), high: found('high') },
+            answers: Number(s.answers ?? 0),
+            minutes: Number(s.ms ?? 0) / 60_000,
+            tokens: spent.tokens,
+            usd: typeof s.usd === 'number' ? s.usd : spent.usd,
+          },
+        ];
+      })
+    );
+};
+
 const summary = (cases: Scored[]) => {
   const perArm: Record<string, Record<string, number>[]> = {};
   const wins: Record<string, number[]> = {};
@@ -774,8 +875,15 @@ if (import.meta.main) {
       'max-codex': { type: 'string', default: '30' },
       'max-claude-calls': { type: 'string', default: '60' },
       judges: { type: 'string', default: 'opus:1,sonnet:2,sol:2' },
+      point: { type: 'string' },
+      repeat: { type: 'string', default: '1' },
+      pairs: { type: 'string', default: 'all' },
     },
   });
+  const point = values.point ?? options.point;
+  if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
+  if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);
+  Object.assign(options, { point, repeat: Number(values.repeat), pairs: values.pairs });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
   Object.assign(panel, parsePanel(values.judges));
   const [command, a, b, c] = positionals;

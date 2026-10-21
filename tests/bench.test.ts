@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  armSlot,
   bootstrap,
   infra,
   invalid,
@@ -11,6 +12,9 @@ import {
   parsePanel,
   plan,
   plant,
+  keep,
+  repoint,
+  rowsOf,
   scrub,
   stats,
   verdict,
@@ -159,6 +163,8 @@ describe('bin/bench.ts score and report', () => {
     const out = join(root, 'out');
     mkdirSync(join(out, 'demo', 'v2'), { recursive: true });
     writeFileSync(join(out, 'demo', 'v2', 'diff.patch'), git(repo, 'diff', base, merged, '--', 'sum.js'));
+    const tokens = { smart: { input: 10, cacheRead: 90, cacheWrite: 0, output: 5 } };
+    writeFileSync(join(out, 'demo', 'v2', 'usage.json'), JSON.stringify({ sessions: 2, usd: 0.25, tokens }));
 
     const bench = (...args: string[]) => {
       const r = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
@@ -168,7 +174,7 @@ describe('bin/bench.ts score and report', () => {
     bench('score', kase, out, '--repo', repo);
     const score = (arm: string) => JSON.parse(readFileSync(join(out, 'demo', arm, 'score.json'), 'utf8'));
     expect(score('base')).toMatchObject({ applied: true, suite: { ok: true }, hidden: { ok: false } });
-    expect(score('v2')).toMatchObject({ applied: true, hidden: { ok: true }, srcAdded: 1, overlap: 0.5 });
+    expect(score('v2')).toMatchObject({ applied: true, hidden: { ok: true }, srcAdded: 1, overlap: 0.5, usd: 0.25 });
     expect(score('human')).toMatchObject({ hidden: { ok: true }, testsAdded: 1, overlap: 1 });
 
     bench('score', kase, out, '--repo', repo);
@@ -201,6 +207,77 @@ describe('bin/bench.ts score and report', () => {
     expect(report).toContain('## issue pr-body, 1 cases');
     expect(report).toContain('Judges agree, order-consistent, on 0 of 1 case pairs.');
     expect(report).toContain('| v2 | 1 | 1 | 1 | 1 | 1 | 1 |');
+
+    const rows = rowsOf(out);
+    expect(rows.map(r => r.point)).toEqual([
+      'opencode:smart/human@unknown//out',
+      'opencode:smart/v2@unknown//out',
+      'opencode:smart/floor@unknown//out',
+    ]);
+    expect(rows[1]).toMatchObject({
+      case: 'demo',
+      repeat: 1,
+      strata: { kind: 'bug', issue: 'pr-body' },
+      hidden: 1,
+      suite: 1,
+      vsHuman: { opus: 0, sonnet: 0.5 },
+      findings: { critical: 0, high: 0.75 },
+      tokens,
+      usd: 0.25,
+    });
+    expect(rows[0]!.findings.high).toBe(0.25);
+    expect(rows[2]).toMatchObject({ infra: 'empty diff', vsHuman: {} });
+    const point = { harness: 'pi', model: 'luna', engine: 'abc', hubs: { v2: 'h2' }, set: 'core@1', repeat: 2 };
+    writeFileSync(join(out, 'point.json'), JSON.stringify(point));
+    expect(rowsOf(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
+  });
+});
+
+describe('points', () => {
+  it('rewrites only the harness and model of each agent front matter', () => {
+    const hub = tmp('hub');
+    dirs.push(hub);
+    mkdirSync(join(hub, 'agents'));
+    const agent = '---\nharness: opencode\nmodel: smart\n---\nmodel: keep this line\n';
+    writeFileSync(join(hub, 'agents', 'implementor.md'), agent);
+    repoint(hub, 'pi:luna');
+    expect(readFileSync(join(hub, 'agents', 'implementor.md'), 'utf8')).toBe(
+      '---\nharness: pi\nmodel: luna\n---\nmodel: keep this line\n'
+    );
+  });
+
+  it('keys an arm by point and repeat only when one is given', () => {
+    const cache = tmp('cache');
+    dirs.push(cache);
+    process.env.BENCH_CACHE = cache;
+    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
+    const plain = armSlot(c, 'floor');
+    expect(armSlot(c, 'floor', { point: undefined, repeat: 1 })).toBe(plain);
+    const luna = armSlot(c, 'floor', { point: 'opencode:luna', repeat: 1 });
+    const again = armSlot(c, 'floor', { point: 'opencode:luna', repeat: 2 });
+    delete process.env.BENCH_CACHE;
+    expect(new Set([plain, luna, again]).size).toBe(3);
+    expect(armSlot(c, 'floor')).toBeUndefined();
+  });
+
+  it('writes the usage of an arm before caching it without its data', () => {
+    const root = tmp('keep');
+    dirs.push(root);
+    const at = join(root, 'v2');
+    mkdirSync(join(at, 'data', 'run-1'), { recursive: true });
+    const trace = [
+      { key: 'k', event: { type: 'start', model: 'smart' } },
+      { key: 'k', event: { type: 'usage', input: 100, cacheRead: 80, cacheWrite: 5, output: 7 } },
+      { key: 'k', session: { usd: 0.5 } },
+    ];
+    writeFileSync(join(at, 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+    keep(at, join(root, 'kept'));
+    expect(existsSync(join(root, 'kept', 'data'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(root, 'kept', 'usage.json'), 'utf8'))).toEqual({
+      sessions: 1,
+      usd: 0.5,
+      tokens: { smart: { input: 15, cacheRead: 80, cacheWrite: 5, output: 7 } },
+    });
   });
 });
 
