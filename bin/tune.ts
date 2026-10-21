@@ -24,6 +24,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { presets, quality } from '../studio/src/bench/score.ts';
+import { propose as proposeWith } from '../tune/propose.ts';
 import { codexUsed, plan, rowsOf } from './bench.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
@@ -36,7 +37,7 @@ type Tune = {
   keep: { p: number; delta: number; screen: number };
   clone: string;
 };
-type Proposer = 'retro' | 'history' | 'manual' | 'skill';
+type Proposer = 'retro' | 'history' | 'manual' | 'skill' | 'structure';
 type Candidate = {
   id: string;
   iteration: number;
@@ -68,7 +69,6 @@ export type Step = Candidate & {
 type Row = ReturnType<typeof rowsOf>[number];
 type Reading = { start: number; now: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
-type Proposal = { rationale: string; raw?: string; claude?: { fiveHour: number; week: number } };
 
 const bothub = join(import.meta.dirname, '..');
 const tuneRoot = () => process.env.BOTHUB_TUNE ?? join(homedir(), 'bothub-data/tune');
@@ -228,12 +228,7 @@ const bench = {
   },
   rows: (dir: string, id: string) => (existsSync(join(dir, 'runs', id)) ? rowsOf(join(dir, 'runs', id)) : []),
   codex: () => codexUsed(),
-  propose: async (o: { dir: string; proposer: Proposer; id: string; incumbent: string }) => {
-    const file = join(bothub, 'tune/propose.ts');
-    if (!existsSync(file)) return undefined;
-    const { propose } = (await import(file)) as { propose: (x: typeof o) => Promise<Proposal | undefined> };
-    return propose(o);
-  },
+  propose: (o: Parameters<typeof proposeWith>[0]) => proposeWith(o),
 };
 type Io = typeof bench;
 
@@ -261,7 +256,7 @@ const git = (dir: string, args: string[], o: { hub?: string; index?: string } = 
   }).trim();
 
 /** Commits `cands/<id>/hub` on `parent` as `refs/cand/<id>` and records it as a pending candidate. */
-const enqueue = (dir: string, c: Omit<Candidate, 'hub' | 'diff'>, raw = '') => {
+const enqueue = (dir: string, c: Omit<Candidate, 'hub' | 'diff'>) => {
   const hub = join(dir, 'cands', c.id, 'hub');
   const index = join(dir, 'hub.git', `index.${c.id}`);
   git(dir, ['add', '-A', '.'], { hub, index });
@@ -271,7 +266,8 @@ const enqueue = (dir: string, c: Omit<Candidate, 'hub' | 'diff'>, raw = '') => {
   git(dir, ['update-ref', `refs/cand/${c.id}`, sha]);
   const cand: Candidate = { ...c, hub: sha, diff: c.parent ? git(dir, ['diff', c.parent, sha]) : '' };
   save(join(dir, 'cands', c.id, 'candidate.json'), cand);
-  save(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n${raw && `\n---\n\n${raw}\n`}`);
+  if (!existsSync(join(dir, 'cands', c.id, 'proposal.md')))
+    save(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n`);
   return cand;
 };
 
@@ -325,14 +321,14 @@ const pending = (dir: string, steps: Step[]) => {
 };
 
 /** Reads the guards, records them, and throws past a cap. */
-const guard = (dir: string, io: Pick<Io, 'codex'>, limits: Limits, claude?: Proposal['claude']) => {
+const guard = (dir: string, io: Pick<Io, 'codex'>, limits: Limits, claude?: { fiveHour: number; week: number }) => {
   const file = join(dir, 'budget.json');
   const b = JSON.parse(read(file) || '{}') as Budget;
   const mark = (r: Reading | undefined, now: number | undefined) =>
     now === undefined ? r : { start: r?.start ?? now, now };
   const codex = mark(b.codex, io.codex());
-  const fiveHour = mark(b.claude?.fiveHour, claude && claude.fiveHour * 100);
-  const week = mark(b.claude?.week, claude && claude.week * 100);
+  const fiveHour = mark(b.claude?.fiveHour, claude?.fiveHour);
+  const week = mark(b.claude?.week, claude?.week);
   const next: Budget = { ...(codex && { codex }), claude: { ...(fiveHour && { fiveHour }), ...(week && { week }) } };
   save(file, next);
   const used = (r?: Reading) => (r ? r.now - r.start : 0);
@@ -470,17 +466,20 @@ export const step = async (
   const iteration = nextIteration(steps);
   const claude: Record<string, number> = {};
   const queued = pending(dir, steps);
-  for (const proposer of (o.proposers ?? ['retro', 'history']).filter(p => p !== 'manual')) {
+  const auto = ['retro', 'history', 'structure'] as const;
+  for (const proposer of auto.filter(p => (o.proposers ?? ['retro', 'history']).includes(p))) {
     if (queued.length >= (o.k ?? 3)) break;
     const id = freeId(dir, iteration, proposer);
     const before = guard(dir, io, limits);
-    const made = await io.propose({ dir, proposer, id, incumbent: inc.id });
-    if (!made || !existsSync(join(dir, 'cands', id, 'hub'))) continue;
-    const after = guard(dir, io, limits, made.claude);
-    claude[id] = round(
-      (after.claude?.fiveHour?.now ?? 0) - (before.claude?.fiveHour?.now ?? after.claude?.fiveHour?.now ?? 0)
-    );
-    queued.push(enqueue(dir, { id, iteration, parent: inc.hub, proposer, rationale: made.rationale }, made.raw));
+    const runs = join(dir, 'runs', inc.id);
+    const made = await io
+      .propose({ tune: dir, id, proposer, from: join(dir, 'cands', inc.id, 'hub'), runs, iteration })
+      .catch((e: unknown) => void console.error(`${id}: ${String(e)}`));
+    if (!made?.hub) continue;
+    const after = guard(dir, io, limits, made.usage);
+    const was = before.claude?.fiveHour?.now ?? after.claude?.fiveHour?.now ?? 0;
+    claude[id] = round((after.claude?.fiveHour?.now ?? 0) - was);
+    queued.push(enqueue(dir, { id, iteration, parent: inc.hub, proposer, rationale: made.rationale }));
   }
   if (!queued.length) return [];
   const theirs = scores(io.rows(dir, inc.id), t.preset);

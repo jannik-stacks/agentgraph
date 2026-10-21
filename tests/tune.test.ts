@@ -68,12 +68,13 @@ const fakeBench = (ran: { id: string; case: string }[]) => ({
         usd: 0.1,
       })),
   codex: () => 10,
-  propose: async (o: { dir: string; proposer: string; id: string; incumbent: string }) => {
-    const hub = join(o.dir, 'cands', o.id, 'hub');
-    spawnSync('cp', ['-R', join(o.dir, 'cands', o.incumbent, 'hub'), hub]);
+  propose: async (o: { tune: string; proposer: string; id: string; from: string }) => {
+    const hub = join(o.tune, 'cands', o.id, 'hub');
+    mkdirSync(join(o.tune, 'cands', o.id));
+    spawnSync('cp', ['-R', o.from, hub]);
     mkdirSync(join(hub, 'skills'), { recursive: true });
     writeFileSync(join(hub, 'skills', o.proposer === 'retro' ? 'all.md' : 'none.md'), 'Run the tests.\n');
-    return { rationale: `${o.proposer} idea`, claude: { fiveHour: 0.1, week: 0.5 } };
+    return { hub, rationale: `${o.proposer} idea`, usage: { fiveHour: 10, week: 50 } };
   },
 });
 

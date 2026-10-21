@@ -40,6 +40,8 @@ const proposers: Record<Step['proposer'], string> = {
   history: 'Read merged PRs and their reviews and turned a standing rule into the hub.',
   manual: 'A patch dropped in by hand.',
   skill: 'Written by a subagent of the tune skill.',
+  structure:
+    'Made one graph edit from a fixed menu, in turn: add a reviewer, drop a step, more tries, a scout, a check to warn.',
 };
 const metrics = {
   usd: { label: 'usd', unit: 'usd per iteration' },
