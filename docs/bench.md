@@ -123,11 +123,15 @@ cases. Click a point for its cases.
 A bench or tune survives being stopped, killed, a dead harness or proxy, a sleeping laptop and a crash.
 Rerun the same command and it continues: an arm is done once its `diff.patch` exists, which is written
 last, and every result file is written whole through a rename. A unit a live process holds is skipped
-(`<arm>.lock`), one a dead process left half done goes to the attic and runs again, and sandbox
-containers no live run drives are removed. Ctrl-C or `kill` stops a run at once; the unit it was on
+(`<arm>.lock`), one a dead process left half done goes to the attic and runs again, and the sandbox
+containers that mount it are removed. Ctrl-C or `kill` stops a run at once; the unit it was on
 runs again on the next start. A tune's `run --until <iteration>` stops at that iteration whatever the
 restarts, and a tune phase whose runs stay unfinished waits for the environment and tries them again
 before it gives up without deciding anything.
+
+The first start records the `BENCH_*` settings, `--keys` and `--point` it ran with in `env.json` in the
+out dir or tune dir. A restart without them takes them from there; one that sets a different value, or
+whose recorded paths are gone, stops before it runs anything. Edit `env.json` to change one on purpose.
 
 ```sh
 node bin/bench.ts status <out>        # done of total, infra, running, retries, a wait, minutes left

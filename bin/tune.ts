@@ -16,7 +16,19 @@ import { parseArgs } from 'node:util';
 import { presets, quality } from '../studio/src/bench/score.ts';
 import { propose as proposeWith } from '../tune/propose.ts';
 import { codexUsed, plan, progress, rowsOf, statusText } from './bench.ts';
-import { append as appendLine, busy, claim, jsonl, onStop, release, settle, sleep, write } from './resume.ts';
+import {
+  append as appendLine,
+  benchEnv,
+  busy,
+  claim,
+  jsonl,
+  onStop,
+  pin,
+  release,
+  settle,
+  sleep,
+  write,
+} from './resume.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {
@@ -764,6 +776,9 @@ if (import.meta.main) {
       process.exit(1);
     }
     process.on('exit', () => release(join(dir, 'tune')));
+    const env = pin(join(dir, 'env.json'), { ...benchEnv(), ...(o.keys && { keys: o.keys }) });
+    for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
+    if (env.keys) Object.assign(o, { keys: env.keys });
     onStop(signal => {
       tuneLog(dir)({ event: 'paused', signal });
       for (const child of children) child.kill('SIGTERM');

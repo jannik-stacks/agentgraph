@@ -209,3 +209,33 @@ export const onStop = (stop: (signal: string) => void) => {
       }
     });
 };
+
+/** The `BENCH_*` settings of this process that shape a run's results; `BENCH_FRESH` is a one-off and left out. */
+export const benchEnv = () =>
+  Object.fromEntries(
+    Object.entries(process.env).flatMap(([k, v]) =>
+      k.startsWith('BENCH_') && k !== 'BENCH_FRESH' && v ? [[k, v]] : []
+    )
+  );
+
+/**
+ * The settings a run started with, kept in `file` so a restart needs none of them: a given value is recorded, a
+ * missing one comes back from the record, `defaults` fill what neither has. A value that differs from the record, or
+ * a recorded path that is gone, stops the run; edit `file` to change one on purpose.
+ */
+export const pin = (file: string, given: Record<string, string | undefined>, defaults: Record<string, string> = {}) => {
+  const was = JSON.parse(existsSync(file) ? readFileSync(file, 'utf8') : '{}') as Record<string, string>;
+  const env = { ...defaults, ...was };
+  for (const [k, v] of Object.entries(given)) {
+    if (v === undefined) continue;
+    if (was[k] !== undefined && was[k] !== v)
+      throw new Error(`${k} is ${v}, but this run started with ${was[k]}: unset it to resume, or edit ${file}`);
+    env[k] = v;
+  }
+  const gone = Object.entries(env).flatMap(([k, v]) =>
+    v.startsWith('/') ? v.split(':').flatMap(p => (existsSync(p) ? [] : [`${k} ${p}`])) : []
+  );
+  if (gone.length) throw new Error(`cannot resume, recorded in ${file} but missing: ${gone.join(', ')}`);
+  write(file, env);
+  return env;
+};

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { harnessError, progress, runnerError, statusText } from '../bin/bench.ts';
-import { append, attic, busy, claim, jsonl, probeUrl, publish, release, settle, write } from '../bin/resume.ts';
+import { append, attic, busy, claim, jsonl, pin, probeUrl, publish, release, settle, write } from '../bin/resume.ts';
 import { tuneRows } from '../bin/tune.ts';
 import { tmp } from './fixtures.ts';
 
@@ -174,5 +174,18 @@ describe('progress', () => {
       eta: 10,
     });
     expect(statusText(p)).toContain('1/5 done, 1 infra, 1 invalid, 1 running, 1 left');
+  });
+
+  it('pins the env a run started with and refuses a restart that cannot match it', () => {
+    const dir = root();
+    const file = join(dir, 'env.json');
+    expect(pin(file, { BENCH_PATH: dir, keys: undefined }, { BENCH_ENGINE: dir })).toEqual({
+      BENCH_ENGINE: dir,
+      BENCH_PATH: dir,
+    });
+    expect(pin(file, {})).toEqual({ BENCH_ENGINE: dir, BENCH_PATH: dir });
+    expect(() => pin(file, { BENCH_PATH: '/elsewhere' })).toThrow(/started with/);
+    write(file, { BENCH_PATH: `${dir}:${join(dir, 'gone')}` });
+    expect(() => pin(file, {})).toThrow(/missing: BENCH_PATH .*gone/);
   });
 });

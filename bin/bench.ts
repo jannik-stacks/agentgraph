@@ -17,12 +17,14 @@ import { parseArgs, parseEnv } from 'node:util';
 import {
   append,
   attic,
+  benchEnv,
   busy,
   claim,
   clock,
   down,
   jsonl,
   onStop,
+  pin,
   publish,
   release,
   settle,
@@ -30,7 +32,7 @@ import {
   sweep,
   write,
 } from './resume.ts';
-const engine = process.env.BENCH_ENGINE ?? join(import.meta.dirname, '..');
+let engine = process.env.BENCH_ENGINE ?? join(import.meta.dirname, '..');
 
 type Case = {
   id: string;
@@ -1065,7 +1067,7 @@ if (import.meta.main) {
     allowPositionals: true,
     options: {
       repo: { type: 'string' },
-      keys: { type: 'string', default: here('infra/local/.keys.env') },
+      keys: { type: 'string' },
       'max-codex': { type: 'string', default: '30' },
       'max-claude-calls': { type: 'string', default: '60' },
       judges: { type: 'string', default: 'opus:1,sonnet:2,sol:2' },
@@ -1074,14 +1076,24 @@ if (import.meta.main) {
       pairs: { type: 'string', default: 'all' },
     },
   });
-  const point = values.point ?? options.point;
+  const [command, a, b, c] = positionals;
+  const out = command === 'run' ? c : ['score', 'judge'].includes(command ?? '') ? b : undefined;
+  const env = out
+    ? pin(join(resolve(out), 'env.json'), {
+        ...benchEnv(),
+        ...(values.keys && { keys: resolve(values.keys) }),
+        ...(values.point && { point: values.point }),
+      })
+    : {};
+  for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
+  engine = process.env.BENCH_ENGINE ?? engine;
+  const point = env.point ?? values.point ?? process.env.BENCH_POINT;
   if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);
   Object.assign(options, { point, repeat: Number(values.repeat), pairs: values.pairs });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
   Object.assign(panel, parsePanel(values.judges));
-  const [command, a, b, c] = positionals;
-  loadKeys(values.keys);
+  loadKeys(env.keys ?? values.keys ?? here('infra/local/.keys.env'));
   if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
   else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo);
   else if (command === 'judge' && a && b) await judge(a, resolve(b));
