@@ -334,10 +334,11 @@ describe('drive', () => {
     await run(drive(w, fresh(), loud));
     const logged = traceOf(where.data, 'run-7').flatMap(t => ('check' in t && t.log ? [t] : []));
     const texts = await run(Effect.forEach(logged, t => Effect.flatMap(Store, s => s.logOf(t.log!.hash))));
-    expect(logged.map((t, i) => [t.check.check, t.check.pass, texts[i]])).toEqual([
+    const byName = logged.map((t, i) => [t.check.check, t.check.pass, texts[i]] as const);
+    expect(byName.sort(([a], [b]) => a.localeCompare(b))).toEqual([
+      ['claims', true, 'PASS, no claims'],
       ['safety', false, 'secret.txt found\n'],
       ['types', true, 'types ok\n'],
-      ['claims', true, 'PASS, no claims'],
     ]);
     expect(logged.map(t => t.log!.bytes)).toEqual(texts.map(t => Buffer.byteLength(t!)));
   }, 30_000);
