@@ -36,7 +36,9 @@ export const toolchainOf = (files: string[]) => {
 
 /** The toolchain step's script: `lines` in the files of `$BOTHUB_BASE`, archived from the mirror at `$GIT_DIR`. */
 const toolchainScript = (lines: string[]) =>
-  ['set -e', 'mkdir -p /tmp/src', 'git archive "$BOTHUB_BASE" | tar -x -C /tmp/src', 'cd /tmp/src', ...lines].join('\n');
+  ['set -e', 'mkdir -p /tmp/src', 'git archive "$BOTHUB_BASE" | tar -x -C /tmp/src', 'cd /tmp/src', ...lines].join(
+    '\n'
+  );
 
 /**
  * The admin dir git just made for the worktree `dir` of `mirror`, read before any container ran in `dir`. It must be
@@ -286,8 +288,7 @@ export const docker = (o: {
             const env = { GIT_DIR: git, BOTHUB_BASE: base };
             const args = ['-c', toolchainScript(lines)];
             const out = yield* Effect.scoped(exec({ cmd: 'sh', args, dir, env, network: 'open', minutes: 60 }));
-            if (out.code !== 0)
-              return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
+            if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
             installed.add(key);
             yield* Effect.logInfo(`toolchain ready in ${Math.round((Date.now() - started) / 1000)}s`);
           })

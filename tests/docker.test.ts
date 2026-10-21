@@ -185,7 +185,10 @@ describe('docker with a stand-in docker client', () => {
     writeFileSync(join(repo, 'Cargo.toml'), '[workspace]\n');
     git(repo, 'add', '.');
     git(repo, 'commit', '-q', '-m', 'rust');
-    const calls = () => readFileSync(`${log}.all`, 'utf8').split('\n').filter(l => l.includes('git archive')).length;
+    const calls = () =>
+      readFileSync(`${log}.all`, 'utf8')
+        .split('\n')
+        .filter(l => l.includes('git archive')).length;
     const before = existsSync(`${log}.all`) ? calls() : 0;
     const exit = await use(docker({ data: tmp('data'), origin: repo }), s =>
       Effect.gen(function* () {
