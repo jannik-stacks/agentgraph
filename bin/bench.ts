@@ -9,22 +9,27 @@
  * first reading, or after --max-claude-calls judge calls. Model keys come from --keys, infra/local/.keys.env by default.
  */
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
-import {
-  appendFileSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
+import {
+  append,
+  attic,
+  busy,
+  claim,
+  clock,
+  down,
+  jsonl,
+  onStop,
+  publish,
+  release,
+  settle,
+  sleep,
+  sweep,
+  write,
+} from './resume.ts';
 const engine = process.env.BENCH_ENGINE ?? join(import.meta.dirname, '..');
 
 type Case = {
@@ -79,17 +84,14 @@ const round = (n: number) => Math.round(n * 1000) / 1000;
 const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length;
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
-const save = (path: string, v: unknown) => {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
-};
-const lines = (path: string) =>
-  read(path)
-    .split('\n')
-    .flatMap(l => (l ? [JSON.parse(l) as Record<string, unknown>] : []));
+const save = write;
+const lines = jsonl;
+const logger =
+  (out: string, entry: Record<string, unknown> = {}) =>
+  (more: object) =>
+    append(join(out, 'log.jsonl'), { at: new Date().toISOString(), pid: process.pid, ...entry, ...more });
 const step = async <A>(out: string, entry: Record<string, unknown>, f: () => A | Promise<A>) => {
-  const log = (more: object) =>
-    appendFileSync(join(out, 'log.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), ...entry, ...more })}\n`);
+  const log = logger(out, entry);
   log({ event: 'start' });
   try {
     const result = await f();
@@ -304,9 +306,11 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   process.env.BOTHUB_FORGE = dir;
   let answers = 0;
   let status: string | undefined;
+  let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
     const [run] = await start({ hub, issue: 1, data: join(at, 'data') });
     status = run?.status;
+    reason = run?.reason;
     if (!run || run.status === 'done' || run.status === 'stopped') break;
     if (run.status !== 'waiting') continue;
     if (!run.reason || answers) break;
@@ -321,9 +325,13 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   const head = pull
     ? (JSON.parse(read(pull)) as { head: string }).head
     : spawnSync('git', branch, { encoding: 'utf8' }).stdout.trim();
-  save(join(at, 'diff.patch'), head ? sh('git', ['--git-dir', origin, 'diff', c.base, head]) : '');
-  return { answers, status };
+  const diff = head ? sh('git', ['--git-dir', origin, 'diff', c.base, head]) : '';
+  return { answers, status, ...(reason && { reason: reason.slice(0, 500) }), diff };
 };
+
+/** Why an arm attempt broke on its environment, not on the agent: the engine stopped on a runner error. */
+export const runnerError = (reason = '') =>
+  /runner error|^(SandboxError|SessionStop|ForgeError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
 
 /** Why an arm's run says nothing about the arm, when it does not: no diff, a failed setup or a run that never finished. */
 export const infra = (s: { infra?: string; files?: number; setup?: { ok: boolean }; status?: string | undefined }) =>
@@ -358,6 +366,14 @@ export const armSlot = (
   );
 };
 
+/** Environment failures an arm may have before it counts as infra, across restarts. */
+const patience = 6;
+
+/**
+ * Runs one arm of a case once. Done means `diff.patch` exists, written last. A run the agent ended with nothing is
+ * tried twice, then done as infra. A run its environment broke (proxy, docker, a runner error, the machine asleep)
+ * waits for the environment and is tried again, and stays undone until it works or fails `patience` times.
+ */
 const runArm = async (arm: string, caseDir: string, out: string, repo: string) => {
   const c = loadCase(caseDir);
   const at = join(out, c.id, arm);
@@ -365,25 +381,65 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     throw new Error('not yet: v1 needs its own sandbox image, env and a leak-free seed (docs/bench.md)');
   if (existsSync(join(at, 'diff.patch'))) return;
   if (!process.env.BOTHUB_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
-  if (await prepare(c, out, repo)) return;
-  const kept = armSlot(c, arm);
-  if (reusable(kept)) return void cpSync(kept!, at, { recursive: true });
-  let reason: string | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (existsSync(at)) renameSync(at, `${at}.${Date.now()}`);
-    guard(out, false);
-    const started = Date.now();
-    try {
-      const meta = await step(out, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo)));
-      reason = infra({ ...stats(read(join(at, 'diff.patch'))), ...meta });
-      save(join(at, 'meta.json'), { ...meta, ms: Date.now() - started });
-    } catch (e) {
-      reason = String(e).slice(0, 200);
+  const log = logger(out, { case: c.id, arm });
+  if (!claim(at)) return log({ event: 'busy' });
+  onStop(signal => {
+    log({ event: 'paused', signal });
+    sweep(process.pid);
+    release(at);
+  });
+  try {
+    sweep();
+    if (await prepare(c, out, repo)) return;
+    attic(at);
+    const kept = armSlot(c, arm);
+    if (reusable(kept)) return publish(kept!, at);
+    const failed = () =>
+      lines(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
+    for (let attempt = 0, empty = 0; ; attempt++) {
+      await settle(log);
+      attic(at);
+      guard(out, false);
+      const started = Date.now();
+      const time = clock();
+      let ran: Awaited<ReturnType<typeof engineArm>> | undefined;
+      let broke: string | undefined;
+      try {
+        ran = await step(out, { step: 'run', case: c.id, arm }, () => engineArm(c, arm, at, resolve(repo)));
+      } catch (e) {
+        broke = String(e).slice(0, 200);
+      }
+      time.stop();
+      const { diff = '', ...meta } = ran ?? {};
+      const nothing = ran && infra({ ...stats(diff), ...meta });
+      const env =
+        broke ??
+        runnerError(ran?.reason) ??
+        (nothing || ran?.status !== 'done'
+          ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined))
+          : undefined);
+      if (env) {
+        log({ event: 'infra', why: env, attempt });
+        if (failed().length < patience) {
+          await sleep(Math.min(60_000 * 2 ** attempt, 900_000));
+          continue;
+        }
+      }
+      save(join(at, 'meta.json'), {
+        ...meta,
+        ms: Date.now() - started - time.missed(),
+        ...(time.missed() && { slept: time.missed() }),
+        ...((env ?? nothing) && { infra: env ?? nothing }),
+      });
+      if (!env && nothing && ++empty < 2) continue;
+      save(join(at, 'usage.json'), effort(join(at, 'data')));
+      save(join(at, 'diff.patch'), diff);
+      if (!env && !nothing) keep(at, kept);
+      return;
     }
-    if (!reason) return keep(at, kept);
+  } finally {
+    release(at);
   }
-  if (!existsSync(join(at, 'diff.patch'))) save(join(at, 'diff.patch'), '');
-  save(join(at, 'meta.json'), { ...JSON.parse(read(join(at, 'meta.json')) || '{}'), infra: reason });
 };
 
 /** The changed files of a unified diff, each with its part of the diff. */
@@ -489,10 +545,10 @@ const effort = (data: string) => {
 const usage = (at: string) =>
   (JSON.parse(read(join(at, 'usage.json')) || 'null') as ReturnType<typeof effort> | null) ?? effort(join(at, 'data'));
 
-/** Writes an arm's usage beside it, then copies it to `kept` without its data, forge and hub dirs. */
+/** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, hub or attic dirs. */
 export const keep = (at: string, kept: string | undefined) => {
-  save(join(at, 'usage.json'), effort(join(at, 'data')));
-  if (kept) cpSync(at, kept, { recursive: true, filter: p => !/\/(data|forge|hub)$/.test(p) });
+  if (!existsSync(join(at, 'usage.json'))) save(join(at, 'usage.json'), effort(join(at, 'data')));
+  if (kept) publish(at, kept, p => !/\/(data|forge|hub|\.attic)$/.test(p));
 };
 
 const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {
@@ -513,6 +569,8 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
     const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
       (c.test || c.suite) && c.hasTests !== false ? check(c, tree, diff, hidden) : {}
     );
+    const offline = (tests as Tests).setup?.ok === false && (await down(true));
+    if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
     save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...usage(at), ...meta });
   }
 };
@@ -530,17 +588,28 @@ export const invalid = (base: Tests, human: Tests, tested = false) => {
   return undefined;
 };
 
+let tools: string | undefined;
+/** The bench's scoring code and the host toolchain the score step runs with, which a validity verdict depends on. */
+export const scorer = () =>
+  (tools ??= hash(
+    [check, invalid, exec, String(process.env.BENCH_PATH)].join('\0') +
+      exec('node --version; npm --version; cargo --version; rustc --version; true', tmpdir()).tail
+  ));
+
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
-  const kept = slot('valid', c.id, c.base, c.merged, c.runner, c.setup, c.test);
-  if (!existsSync(file) && reusable(kept)) cpSync(kept!, join(out, c.id), { recursive: true });
+  const kept = slot('valid', c.id, c.base, c.merged, c.runner, c.setup, c.test, scorer());
+  if (!existsSync(file) && reusable(kept)) {
+    cpSync(kept!, join(out, c.id), { recursive: true, filter: p => !p.endsWith('/valid.json') });
+    save(file, read(join(kept!, 'valid.json')));
+  }
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
     const tests = (arm: string) => JSON.parse(read(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
     const why = invalid(tests('base'), tests('human'), c.bucket === 'tests' || Boolean(c.test));
     save(file, { invalid: why });
     if (kept && why !== 'setup fails')
-      cpSync(join(out, c.id), kept, { recursive: true, filter: p => !/\/(tree|v2|floor|judge)$/.test(p) });
+      publish(join(out, c.id), kept, p => !/\/(tree|v2|floor|judge|\.attic)$/.test(p) && !p.endsWith('.lock'));
   }
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
 };
@@ -895,6 +964,66 @@ const headline = (cases: Scored[], valid: Scored[]) => {
   ];
 };
 
+type Unit = { out: string; case: string; arm: string };
+
+/** Where a set of arm runs stands: each unit's state, environment retries, a current wait and the time left. */
+export const progress = (units: Unit[], parallel = 1) => {
+  const json = (path: string) => JSON.parse(read(path) || '{}') as Record<string, unknown>;
+  const state = (u: Unit) => {
+    const at = join(u.out, u.case, u.arm);
+    if (existsSync(join(at, 'diff.patch'))) return json(join(at, 'meta.json')).infra ? 'infra' : 'done';
+    if (json(join(u.out, u.case, 'valid.json')).invalid) return 'invalid';
+    return busy(at) ? 'running' : 'left';
+  };
+  const states = units.map(u => ({ ...u, state: state(u) }));
+  const count = (k: string) => states.filter(u => u.state === k).length;
+  const logs = [...new Set(units.map(u => u.out))].flatMap(out => lines(join(out, 'log.jsonl')));
+  logs.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const last = logs.filter(l => ['wait', 'resume', 'start', 'end'].includes(String(l.event))).at(-1);
+  const ms = states.flatMap(u =>
+    u.state === 'done' ? [Number(json(join(u.out, u.case, u.arm, 'meta.json')).ms) || []].flat() : []
+  );
+  const minutes = ms.length ? mean(ms) / 60_000 : undefined;
+  return {
+    total: units.length,
+    done: count('done'),
+    infra: count('infra'),
+    invalid: count('invalid'),
+    left: count('left'),
+    running: states.filter(u => u.state === 'running').map(u => `${u.case}/${u.arm}`),
+    retries: logs.filter(l => l.event === 'infra').length,
+    ...(last?.event === 'wait' && { waiting: `${String(last.why)} since ${String(last.at)}` }),
+    ...(minutes !== undefined && {
+      eta: Math.round((minutes * (count('left') + count('running'))) / Math.max(1, parallel)),
+    }),
+  };
+};
+
+/** The units of an out dir: from `units.json` when a driver wrote one, else every case and arm seen. */
+const unitsOf = (out: string) => {
+  const planned = JSON.parse(read(join(out, 'units.json')) || 'null') as {
+    units: Omit<Unit, 'out'>[];
+    parallel?: number;
+  } | null;
+  const seen = readdirSync(out).flatMap(id =>
+    existsSync(join(out, id, 'human'))
+      ? bots
+          .filter(a => existsSync(join(out, id, a)) || existsSync(join(out, id, `${a}.lock`)))
+          .map(arm => ({ case: id, arm }))
+      : []
+  );
+  return { units: (planned?.units ?? seen).map(u => ({ ...u, out })), parallel: planned?.parallel ?? 1 };
+};
+
+export const statusText = (p: ReturnType<typeof progress>) =>
+  [
+    `${p.done}/${p.total} done, ${p.infra} infra, ${p.invalid} invalid, ${p.running.length} running, ${p.left} left`,
+    ...(p.running.length ? [`running: ${p.running.join(', ')}`] : []),
+    `environment retries: ${p.retries}`,
+    ...(p.waiting ? [`waiting: ${p.waiting}`] : []),
+    ...(p.eta !== undefined ? [`about ${p.eta} min left`] : []),
+  ].join('\n');
+
 const report = (out: string) => {
   const ids = readdirSync(out).filter(id => existsSync(join(out, id, 'human')));
   const all = ids.map(id => loadScored(out, id));
@@ -944,9 +1073,12 @@ if (import.meta.main) {
   else if (command === 'report' && a) {
     save(join(a, 'report.md'), report(a));
     console.log(read(join(a, 'report.md')));
+  } else if (command === 'status' && a) {
+    const { units, parallel } = unitsOf(resolve(a));
+    console.log(statusText(progress(units, parallel)));
   } else {
     console.error('usage: node bin/bench.ts (run (v2|floor|v1) <case> <out> | score <case> <out>) --repo <clone>');
-    console.error('       node bin/bench.ts judge <case> <out> | report <out>');
+    console.error('       node bin/bench.ts judge <case> <out> | report <out> | status <out>');
     process.exit(2);
   }
 }
