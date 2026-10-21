@@ -205,6 +205,7 @@ describe('docker with a stand-in docker client', () => {
     expect(args).toContain(`BOTHUB_BASE=${base}`);
     const script = args.slice(args.indexOf('-c') + 1).join('\n');
     expect(script).toContain('git archive "$BOTHUB_BASE" | tar -x -C /tmp/src');
+    expect(script.indexOf('flock 9')).toBeLessThan(script.indexOf('git archive'));
     expect(script.indexOf('cargo fetch')).toBeLessThan(script.indexOf('rustup target add'));
     expect(calls() - before).toBe(1);
   });

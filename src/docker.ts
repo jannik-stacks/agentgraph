@@ -33,11 +33,20 @@ export const toolchainOf = (files: string[]) => {
   ];
 };
 
-/** The toolchain step's script: `lines` in the files of `$BOTHUB_BASE`, archived from the mirror at `$GIT_DIR`. */
+/**
+ * The toolchain step's script: `lines` in the files of `$BOTHUB_BASE`, archived from the mirror at `$GIT_DIR`. A lock
+ * file in the cache volume keeps two runners from installing into it at once.
+ */
 const toolchainScript = (lines: string[]) =>
-  ['set -e', 'mkdir -p /tmp/src', 'git archive "$BOTHUB_BASE" | tar -x -C /tmp/src', 'cd /tmp/src', ...lines].join(
-    '\n'
-  );
+  [
+    'set -e',
+    `exec 9>${inside.cache}/.toolchain.lock`,
+    'flock 9',
+    'mkdir -p /tmp/src',
+    'git archive "$BOTHUB_BASE" | tar -x -C /tmp/src',
+    'cd /tmp/src',
+    ...lines,
+  ].join('\n');
 
 /**
  * The admin dir git just made for the worktree `dir` of `mirror`, read before any container ran in `dir`. It must be

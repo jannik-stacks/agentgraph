@@ -53,7 +53,7 @@ Then it runs the hub's `toolchain` script, for what the repo files do not name, 
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed step stops the run with its output. The step runs once per base commit and script in a runner process. On a warm volume it takes seconds, since rustup and cargo find everything installed. Checks then build offline from the fetched crates. <!-- code: src/docker.ts#toolchainOf -->
+A failed step stops the run with its output. The step runs once per base commit and script in a runner process, and a lock file in the volume lets one runner at a time install, so two runners never race inside rustup. On a warm volume it takes seconds, since rustup and cargo find everything installed. Checks then build offline from the fetched crates. <!-- code: src/docker.ts#toolchainOf -->
 
 `BOTHUB_CACHE_VOLUME` names another volume, and an empty value turns off both the volume and the step. The volume is writable by every run, so treat it like the egress network: a run could leave files there that later runs use. `docker volume rm bothub-cache` starts it over.
 
