@@ -1162,6 +1162,7 @@ const attempt = (
         tried
       );
     const failed = landed.right.filter(a => !a.ok);
+    if (landed.right.some(a => a.ok)) tried = unthreaded(tried);
     if (tried.onto && landed.right.some(a => a.ok && a.proposal.kind === 'push')) {
       const { onto: _landed, ...rest } = tried;
       tried = rest;
@@ -1271,25 +1272,37 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
     };
   }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
 
-/** Applies the accepted proposals after a pass, pushes first. Replies go where a human last spoke, else to `to`. */
+/**
+ * Applies the accepted proposals after a pass, pushes first. A comment with no thread of its own goes to every place in
+ * `run.said` that no comment here answers, else to where a human last spoke, else to `to`.
+ */
 const land = (
   run: Run,
   proposals: Proposal[],
   work?: Checkout,
   to?: number
 ): Effect.Effect<Applied[], ForgeError, Forge> =>
-  Effect.flatMap(Forge, forge =>
-    Effect.forEach(
-      [...proposals].sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push')),
-      p =>
-        p.kind === 'comment'
-          ? forge.apply(p.under === undefined ? (run.said?.issue ?? to ?? run.issue) : (to ?? run.issue), {
-              ...p,
-              ...(p.under === undefined && run.said?.under && { under: run.said.under }),
-            })
-          : forge.apply(run.issue, p, work)
-    )
-  );
+  Effect.flatMap(Forge, forge => {
+    const threads = proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : []));
+    const open = (run.said ?? []).filter(s => s.under === undefined || !threads.includes(s.under));
+    const places = open.length > 0 ? open : [{ issue: run.said?.[0]?.issue ?? to ?? run.issue }];
+    const sent = [...proposals]
+      .sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push'))
+      .flatMap((p): [number, Proposal][] =>
+        p.kind !== 'comment'
+          ? [[run.issue, p]]
+          : p.under !== undefined
+            ? [[to ?? run.issue, p]]
+            : p.edit !== undefined
+              ? [[places[0]!.issue, p]]
+              : places.map(s => [s.issue, { ...p, ...(s.under !== undefined && { under: s.under }) }])
+      );
+    return Effect.forEach(sent, ([issue, p]) => forge.apply(issue, p, work));
+  });
+
+/** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
+const unthreaded = (run: Run): Run =>
+  run.said ? { ...run, said: run.said.slice(0, 1).map(s => ({ issue: s.issue })) } : run;
 
 /**
  * Runs the hub's setup, then tries until the run stops running. A runner error is retried once on the next tick, then parks the run at its step, so an
@@ -1315,9 +1328,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         });
         const child = (yield* store.list()).some(r => r.by === next.id && next.reason === waitingOn(r));
         if (next.status === 'waiting' && next.reason && !child) {
-          const elsewhere = next.said && next.said.issue !== next.issue;
+          const elsewhere = next.said && next.said[0]?.issue !== next.issue;
           const body = elsewhere ? `${next.reason}\n\n${footer(answerWith)}` : next.reason;
-          const said = yield* Effect.either(land(next, [{ kind: 'comment', body }]));
+          const said = yield* Effect.either(land(unthreaded(next), [{ kind: 'comment', body }]));
           if (Either.isRight(said))
             yield* store.trace(
               next.id,
@@ -1369,10 +1382,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
       if (!current.retried) return settle({ kind: 'ask', question: why }, { ...current, retried: true });
       const question = `${said} Reply to try ${current.step} again from where it was.`;
-      const { said: heard, ...kept } = current;
       return settle(
         { kind: 'ask', question: why },
-        { ...kept, status: 'waiting', reason: question, retried: true, ...(heard && { said: { issue: heard.issue } }) }
+        { ...unthreaded(current), status: 'waiting', reason: question, retried: true }
       );
     };
     yield* walk.pipe(
@@ -1404,7 +1416,7 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch, `refs/bothub/runs/${run.id}`));
     const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from: base.sha, onto: head }, work);
     const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
-    const said = applied.ok ? [] : yield* land(run, [{ kind: 'comment', body }]);
+    const said = applied.ok ? [] : yield* land(unthreaded(run), [{ kind: 'comment', body }]);
     yield* store.trace(
       run.id,
       ...[applied, ...said].map(a => ({
@@ -1437,7 +1449,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const from = yield* text(work, ['merge-base', pull.head, onto]);
     const moved = !run.base && from !== onto;
     const renewed = (run.hub ?? hub.sha) !== hub.sha;
-    const current = { ...run, hub: hub.sha };
+    const current = { ...unthreaded(run), hub: hub.sha };
     if (!moved && !renewed) return run.hub ? undefined : { run: current };
     let same = false;
     if (moved) {
@@ -1472,7 +1484,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       }
       if (!applied.ok) {
         const body = `${branch} no longer ${verb} ${pull.base}: ${applied.reason}. Update it by hand.`;
-        const said = yield* land(run, [{ kind: 'comment', body }]);
+        const said = yield* land(current, [{ kind: 'comment', body }]);
         yield* store.trace(run.id, ...said.map(a => ({ at: now(), step: run.step, applied: a })));
         return { run: current };
       }
@@ -1581,7 +1593,7 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
     );
     const undone = landed.some(a => a.ok) && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* store.trace(run.id, ...[...landed, ...undone].map(applied => ({ at: now(), step: step.name, applied })));
-    const { eyes, ...rest } = run;
+    const { eyes, ...rest } = landed.some(a => a.ok) ? unthreaded(run) : run;
     const answered = { ...rest, ...(eyes && !undone.length && { eyes }), usd: run.usd + r.usd };
     if (!back || r.id === undefined) return { run: answered };
     const sessions = { ...run.sessions, [to.name]: { id: r.id, home: r.home, ...(kept?.seen && { seen: kept.seen }) } };
@@ -1638,13 +1650,13 @@ export const tick = (
       origin.set(moved, m.issue);
       return moved;
     };
-    /** Where a human spoke: the issue, and the review comment thread when it was one. */
-    const heard = (m: Event): NonNullable<Run['said']> => {
-      const c = m.kind === 'comment' ? m.comment : undefined;
-      return {
-        issue: origin.get(m) ?? m.issue,
-        ...(c?.path !== undefined && { under: c.under ?? c.id }),
-      };
+    /** Where humans spoke, each place once: the issue, and the review comment thread when it was one. */
+    const heard = (ms: Event[]): NonNullable<Run['said']> => {
+      const places = ms.map(m => {
+        const c = m.kind === 'comment' ? m.comment : undefined;
+        return { issue: origin.get(m) ?? m.issue, ...(c?.path !== undefined && { under: c.under ?? c.id }) };
+      });
+      return places.filter((s, i) => places.findIndex(t => t.issue === s.issue && t.under === s.under) === i);
     };
     /** 👀 on the comment that woke a run, or on its issue for a label; the run comes back holding it. */
     const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError> => {
@@ -1715,7 +1727,10 @@ export const tick = (
         l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
       );
       const outcome = fold([m, ...answers.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
-      const seen = { ...(m.kind === 'comment' ? yield* eyes(run, m) : run), said: heard(m) };
+      const seen = {
+        ...(m.kind === 'comment' ? yield* eyes(run, m) : run),
+        said: heard([m, ...answers.filter(a => a !== m)]),
+      };
       const step = w.steps.find(s => s.name === run.step);
       const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
       const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
@@ -1786,7 +1801,7 @@ export const tick = (
         const step = w.steps.find(s => s.name === restart);
         const begun = {
           ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }, step),
-          ...(m?.kind === 'comment' && { said: heard(m) }),
+          ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
         const first = begun.status === 'running' ? begun : yield* show(w, begun);

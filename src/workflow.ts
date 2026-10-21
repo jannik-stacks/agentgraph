@@ -78,7 +78,8 @@ export type Run = {
   /** The time of the newest event the run has taken in: its start, answers, and everything its sessions were shown. */
   seen?: string;
   comment?: string;
-  said?: { issue: number; under?: string };
+  /** Where humans last spoke to the run: the issue, and each review thread it has yet to answer. */
+  said?: { issue: number; under?: string }[];
   /** The 👀 the run gave where it was woken, as the proposal that takes it back once the run has replied. */
   eyes?: { issue: number; undo: Extract<Proposal, { kind: 'react' }> };
   /** The open pull request the run stacks on, and the head of it the run's branch builds on. */

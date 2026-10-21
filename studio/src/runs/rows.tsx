@@ -347,7 +347,7 @@ const live = (r: CoreRun) => r.run.status === 'running';
 export const statusTip = (
   run: Pick<Run, 'status' | 'step' | 'tries'> & Partial<Pick<Run, 'reason' | 'issue' | 'said'>>
 ) => {
-  const at = `issue #${run.said?.issue ?? run.issue}`;
+  const at = `issue #${run.said?.[0]?.issue ?? run.issue}`;
   if (run.status === 'running') return `Working on ${run.step}, try ${run.tries + 1}.`;
   if (run.status === 'done') return 'Finished every step.';
   if (run.status === 'stopped') return `Ended early${run.reason ? `: ${run.reason}` : ''}.`;

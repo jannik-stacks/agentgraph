@@ -883,6 +883,25 @@ describe('tick', () => {
     expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(git(where.origin, 'rev-parse', 'main'));
   }, 30_000);
 
+  it('answers every thread a burst of review comments came in, and holds none of them once answered', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
+    const line = (id: string, body: string, at: string): Event => ({
+      ...comment(8, 'morgan', true, body, at),
+      comment: { id, author: 'morgan', body, at, path: 'hello.txt', line: 1 },
+    });
+    say(where, line('r1', 'why hello?', '2026-10-16T00:00:05.000Z'));
+    say(where, line('r2', 'and CHAT.md?', '2026-10-16T00:00:06.000Z'));
+    const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Both asked for.' })]]);
+    const [answered] = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
+    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under])).toEqual([
+      ['Both asked for.', 'r1'],
+      ['Both asked for.', 'r2'],
+    ]);
+    expect(answered!.said).toEqual([{ issue: 8 }]);
+  }, 30_000);
+
   it('replies to a plain comment on a thread with a finished run, not to one for someone else or on another thread', async () => {
     const where = world();
     writeFileSync(
@@ -902,7 +921,7 @@ describe('tick', () => {
     expect(await run(tick(twice))).toEqual([]);
     where.human('where is the PR?', '2026-10-16T00:00:05.000Z');
     const touched = await run(tick(twice));
-    expect(touched.map(r => [r.id, r.status, r.said])).toEqual([['issue-7-20261016000005000', 'done', { issue: 7 }]]);
+    expect(touched.map(r => [r.id, r.status, r.said])).toEqual([['issue-7-20261016000005000', 'done', [{ issue: 7 }]]]);
     expect(specs).toHaveLength(1);
     expect(specs[0]!.prompt).toContain('@morgan: where is the PR?');
     expect(specs[0]!.prompt).toContain('When it does not ask for work, answer it with comment proposals only');
@@ -1537,7 +1556,7 @@ describe('coworker', () => {
     const line = { id: 'r1', author: 'morgan', body: 'why hello?', at, path: 'hello.txt', line: 1 };
     say(where, { ...comment(8, 'morgan', true, 'why hello?', at), comment: line });
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'Asked for.', under: 'r1' })]]);
-    await run(drive(flow, { ...begun(), said: { issue: 7 } }, small));
+    await run(drive(flow, { ...begun(), said: [{ issue: 7 }] }, small));
     expect(specs[0]!.prompt).toContain('@morgan on hello.txt:1, id r1: why hello?');
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under, c.path])).toEqual([
@@ -1566,8 +1585,8 @@ describe('coworker', () => {
         return [again, done];
       })
     );
-    expect(again).toMatchObject({ status: 'waiting', said: { issue: 8 } });
-    expect(done).toMatchObject({ status: 'done', said: { issue: 8, under: review.at } });
+    expect(again).toMatchObject({ status: 'waiting', said: [{ issue: 8 }] });
+    expect(done).toMatchObject({ status: 'done', said: [{ issue: 8 }] });
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
       ['And bye?', undefined, undefined],
@@ -2187,6 +2206,32 @@ describe('a base that moved', () => {
     expect(
       said(where).split('bothub/7 no longer rebases onto main: conflicts in hello.txt. Update it by hand.')
     ).toHaveLength(2);
+  }, 60_000);
+
+  it('says a conflict at the top of the pull request, not under a thread the run already answered', async () => {
+    const where = await parked();
+    const at = new Date().toISOString();
+    const line = { id: 'r1', author: 'morgan', body: 'why hello?', at, path: 'hello.txt', line: 1 };
+    say(where, { ...comment(8, 'morgan', true, 'why hello?', at), comment: line });
+    const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Asked for.' })]]);
+    await run(tick(hub));
+    const mover = join(where.root, 'mover');
+    git(where.root, 'clone', '-q', where.origin, mover);
+    writeFileSync(join(mover, 'hello.txt'), 'upstream\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-q', '-m', 'upstream');
+    git(mover, 'push', '-q', 'origin', 'main');
+    const steps = w.steps.map(s => {
+      const { back: _back, ...kept } = s;
+      return s.name === 'merge' ? kept : s;
+    });
+    await run(tick({ ...hub, workflows: { issue: { ...w, steps } } }));
+    const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
+    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split(':')[0], c.under])).toEqual([
+      ['Looks right.', undefined],
+      ['Asked for.', 'r1'],
+      ['bothub/7 no longer rebases onto main', undefined],
+    ]);
   }, 60_000);
 
   it('keeps what a failing judged check after a rebase cost when it sends the run back', async () => {

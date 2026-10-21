@@ -91,6 +91,7 @@ const values: Record<string, Record<string, string>> = {
 /** A run or trace line as older versions wrote it, read with today's field names and values. */
 const current = (value: unknown, key = ''): unknown => {
   if (typeof value === 'string') return values[key]?.[value] ?? value;
+  if (key === 'said' && value && !Array.isArray(value)) return [current(value)];
   if (Array.isArray(value))
     return value.map(v => (key === 'cleared' && typeof v === 'string' ? (renamed[v] ?? v) : current(v)));
   if (!value || typeof value !== 'object' || 'event' in value || key === 'rounds' || key === 'sessions') return value;

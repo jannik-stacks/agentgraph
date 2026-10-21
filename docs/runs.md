@@ -33,7 +33,7 @@ A run id is the workflow name, the issue number and a timestamp, so runs sort in
 | `feedback` | The feedback for the next try                                   |
 | `reason`   | Why the run waits or stopped                                    |
 | `comment`  | The id of its status comment on the issue                       |
-| `said`     | Where a human last spoke: the issue or pull request, and thread |
+| `said`     | Where humans spoke: the issue or PR, and threads to answer       |
 | `base`     | The pull request it stacks on and the head it builds on         |
 | `started`  | When it began                                                   |
 | `usd`      | What its sessions cost                                          |

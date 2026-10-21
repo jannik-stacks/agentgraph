@@ -78,7 +78,7 @@ describe('fileStore', () => {
         Effect.provide(fileStore(dir))
       )
     );
-    expect(read).toEqual({ ...run, issue: 3, status: 'waiting', feedback: 'fix it', said: { issue: 4 } });
+    expect(read).toEqual({ ...run, issue: 3, status: 'waiting', feedback: 'fix it', said: [{ issue: 4 }] });
     expect(Chunk.toArray(trace)).toEqual([
       { at: 'a', step: 'triage', prompt: { prompt: 'p', agent: 'triager' } },
       lines[1],
