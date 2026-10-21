@@ -6,10 +6,11 @@
  * and writes <out>/<sha>/report.md and compare.md against the newest earlier report. Results are reused through
  * <out>/.cache unless --fresh; see docs/bench.md.
  */
-import { spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { claim, onStop, release, write } from './resume.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const git = (...args: string[]) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
@@ -39,13 +40,15 @@ export const compare = (before: string, now: string) => {
     .map(k => `- ${k}: ${a[k] ?? 'none'} -> ${b[k] ?? 'none'}`);
 };
 
+const children = new Set<ChildProcess>();
 const run = (args: string[], env: Record<string, string>) =>
   new Promise<number>(done => {
     const child = spawn(process.execPath, [join(root, 'bin/bench.ts'), ...args], {
       stdio: 'inherit',
       env: { ...process.env, ...env, NODE_OPTIONS: '' },
     });
-    child.on('close', code => done(code ?? 1));
+    children.add(child);
+    child.on('close', code => (children.delete(child), done(code ?? 1)));
   });
 
 if (import.meta.main) {
@@ -99,6 +102,16 @@ if (import.meta.main) {
     repeat: Number(values.repeat ?? 1),
     at: new Date().toISOString(),
   };
+  if (!claim(join(dir, 'bench-run'))) throw new Error(`another process runs ${dir}`);
+  process.on('exit', () => release(join(dir, 'bench-run')));
+  onStop(() => {
+    for (const child of children) child.kill('SIGTERM');
+    release(join(dir, 'bench-run'));
+  });
+  write(join(dir, 'units.json'), {
+    parallel: Number(values.parallel),
+    units: set.cases.flatMap(c => ['v2', 'floor'].map(arm => ({ case: c.id, arm }))),
+  });
   if (pointed && !existsSync(join(dir, 'point.json')))
     writeFileSync(join(dir, 'point.json'), `${JSON.stringify(point, null, 2)}\n`);
   const pointArgs = [

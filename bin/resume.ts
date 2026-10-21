@@ -63,7 +63,9 @@ export const jsonl = <T = Record<string, unknown>>(path: string): T[] =>
 /** Moves `path` into `.attic/` beside it, never deleting it; answers where it went. */
 export const attic = (path: string) => {
   if (!existsSync(path)) return undefined;
-  const to = join(dirname(path), '.attic', `${basename(path)}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  const stamp = join(dirname(path), '.attic', `${basename(path)}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  let to = stamp;
+  for (let n = 2; existsSync(to); n++) to = `${stamp}-${n}`;
   mkdirSync(dirname(to), { recursive: true });
   renameSync(path, to);
   return to;

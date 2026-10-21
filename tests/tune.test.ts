@@ -240,6 +240,15 @@ describe('tune loop', () => {
     expect(await step(dir, { k: 1, proposers: ['manual'] }, io)).toEqual([]);
     expect(ran.length).toBe(before);
 
+    await run(dir, { iterations: 5, until: 3, proposers: ['retro'] }, io);
+    expect(ran.length).toBe(before);
+    const down = {
+      ...io,
+      propose: async () => Promise.reject(new Error('claude unreachable')),
+    } as unknown as typeof io;
+    await expect(step(dir, { k: 1, proposers: ['retro'] }, down)).rejects.toThrow(/every proposer failed/);
+    expect(ran.length).toBe(before);
+
     let asked = 0;
     const silent = { ...io, propose: async () => (asked++, { rationale: 'nothing' }) } as unknown as typeof io;
     await run(dir, { iterations: 5, proposers: ['retro'] }, silent);

@@ -8,24 +8,15 @@
  *        node bin/tune.ts propose <tune dir> --from <hub dir> --why <text> [--as manual|skill]
  * Tunes live in ~/bothub-data/tune/<repo>/<name> (BOTHUB_TUNE moves the root).
  */
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import {
-  appendFileSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { presets, quality } from '../studio/src/bench/score.ts';
 import { propose as proposeWith } from '../tune/propose.ts';
-import { codexUsed, plan, rowsOf } from './bench.ts';
+import { codexUsed, plan, progress, rowsOf, statusText } from './bench.ts';
+import { append as appendLine, busy, claim, jsonl, onStop, release, settle, sleep, write } from './resume.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {
@@ -77,10 +68,7 @@ type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading }
 const bothub = join(import.meta.dirname, '..');
 const tuneRoot = () => process.env.BOTHUB_TUNE ?? join(homedir(), 'bothub-data/tune');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
-const save = (path: string, v: unknown) => {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
-};
+const save = write;
 const round = (n: number) => Math.round(n * 1000) / 1000;
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : 0);
 const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
@@ -89,9 +77,7 @@ const pad = (n: number) => String(n).padStart(3, '0');
 /** The tune's settings and its steps in order, as `iterations.jsonl` holds them. */
 export const tuneRows = (dir: string) => ({
   tune: JSON.parse(read(join(dir, 'tune.json'))) as Tune,
-  steps: read(join(dir, 'iterations.jsonl'))
-    .split('\n')
-    .flatMap(l => (l ? [JSON.parse(l) as Step] : [])),
+  steps: jsonl<Step>(join(dir, 'iterations.jsonl')),
 });
 
 const subdirs = (dir: string) =>
@@ -216,14 +202,23 @@ const evalOf = (
 
 type Job = { id: string; case: string; repeat?: number };
 const outOf = (j: Job) => (j.repeat && j.repeat > 1 ? `${j.id}@${j.repeat}` : j.id);
+const unitOf = (dir: string, j: Job) => ({ out: join(dir, 'runs', outOf(j)), case: j.case, arm: 'v2' });
+/** A job is done once its v2 run is scored or its case is invalid. */
+const finished = (dir: string, j: Job) => {
+  const at = join(dir, 'runs', outOf(j), j.case);
+  return existsSync(join(at, 'v2', 'score.json')) || Boolean(JSON.parse(read(join(at, 'valid.json')) || '{}').invalid);
+};
+const tuneLog = (dir: string) => (e: object) =>
+  appendLine(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
+const children = new Set<ChildProcess>();
 
 /** The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. */
 const bench = {
   run: async (dir: string, t: Tune, jobs: Job[], o: { parallel: number; judged?: boolean; keys?: string }) => {
     const engine = engineAt(t);
     const call = (args: string[], id: string, repeat = 1) =>
-      new Promise<number>(done =>
-        spawn(
+      new Promise<number>(done => {
+        const child = spawn(
           process.execPath,
           [
             join(bothub, 'bin/bench.ts'),
@@ -242,9 +237,11 @@ const bench = {
               NODE_OPTIONS: '',
             },
           }
-        ).on('close', code => done(code ?? 1))
-      );
-    const queue = [...jobs];
+        );
+        children.add(child);
+        child.on('close', code => (children.delete(child), done(code ?? 1)));
+      });
+    let queue: Job[] = [];
     const next = async () => {
       for (let j = queue.shift(); j; j = queue.shift()) {
         const [caseDir, out] = [join(dir, 'cases', j.case), join(dir, 'runs', outOf(j))];
@@ -255,7 +252,19 @@ const bench = {
           await call(['judge', caseDir, out, '--judges', 'opus:1,sol:1', '--pairs', 'human'], j.id, j.repeat);
       }
     };
-    await Promise.all(Array.from({ length: o.parallel }, next));
+    save(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
+    const log = tuneLog(dir);
+    for (let round = 0, left = jobs; ;) {
+      queue = [...left];
+      await Promise.all(Array.from({ length: o.parallel }, next));
+      left = jobs.filter(j => !finished(dir, j));
+      if (!left.length) return;
+      const held = left.some(j => busy(join(dir, 'runs', outOf(j), j.case, 'v2')));
+      log({ event: 'unfinished', jobs: left.length, held, round });
+      if (!held && ++round >= 3) throw new Error(`${left.length} runs unfinished after 3 rounds; rerun to resume`);
+      await settle(log);
+      await sleep(held ? 30_000 : 60_000);
+    }
   },
   /** Rows of every run of a candidate, its repeats in `runs/<id>@<k>` included. */
   rows: (dir: string, id: string) =>
@@ -378,7 +387,7 @@ const guard = (dir: string, io: Pick<Io, 'codex'>, limits: Limits, claude?: { fi
 type Limits = { codex: number; claude5h: number; claudeWeek: number };
 const limitsDefault: Limits = { codex: 25, claude5h: 40, claudeWeek: 12 };
 
-const append = (dir: string, s: Step) => appendFileSync(join(dir, 'iterations.jsonl'), `${JSON.stringify(s)}\n`);
+const append = (dir: string, s: Step) => appendLine(join(dir, 'iterations.jsonl'), s);
 
 /** Writes tune.json, the cases and the minimal hub, then evaluates that hub as the first incumbent. */
 export const init = async (
@@ -455,8 +464,8 @@ export const init = async (
  */
 const minimal = (hub: string, commands: ReturnType<typeof plan>, toolchain?: string) => {
   cpSync(join(bothub, 'examples/bench'), hub, { recursive: true });
-  rmSync(join(hub, 'agents/reviewer.md'));
-  rmSync(join(hub, 'scripts/review.mjs'));
+  rmSync(join(hub, 'agents/reviewer.md'), { force: true });
+  rmSync(join(hub, 'scripts/review.mjs'), { force: true });
   save(
     join(hub, 'workflows/issue.md'),
     `---
@@ -507,6 +516,7 @@ export const step = async (
   const claude: Record<string, number> = {};
   const queued = pending(dir, steps);
   const auto = ['retro', 'history', 'structure'] as const;
+  const failed: string[] = [];
   for (const proposer of auto.filter(p => (o.proposers ?? ['retro', 'history']).includes(p))) {
     if (queued.length >= (o.k ?? 3)) break;
     const id = freeId(dir, iteration, proposer);
@@ -514,13 +524,15 @@ export const step = async (
     const runs = join(dir, 'runs', inc.id);
     const made = await io
       .propose({ tune: dir, id, proposer, from: join(dir, 'cands', inc.id, 'hub'), runs, iteration })
-      .catch((e: unknown) => void console.error(`${id}: ${String(e)}`));
+      .catch((e: unknown) => void failed.push(`${id}: ${String(e)}`));
     if (!made?.hub) continue;
     const after = guard(dir, io, limits, made.usage);
     const was = before.claude?.fiveHour?.now ?? after.claude?.fiveHour?.now ?? 0;
     claude[id] = round((after.claude?.fiveHour?.now ?? 0) - was);
     queued.push(enqueue(dir, { id, iteration, parent: inc.hub, proposer, rationale: made.rationale }));
   }
+  for (const f of failed) console.error(f);
+  if (!queued.length && failed.length) throw new Error(`every proposer failed; rerun to resume\n${failed.join('\n')}`);
   if (!queued.length) return [];
   const { runs } = keepOf(t);
   const theirs = () => scores(io.rows(dir, inc.id), t.preset);
@@ -629,23 +641,71 @@ export const checkpoint = async (dir: string, o: { parallel?: number; keys?: str
   return e;
 };
 
+/** Iterations at the end of the tune in a row that kept nothing. */
+const flatOf = (steps: Step[]) => {
+  const kept = new Set(steps.filter(s => s.verdict === 'kept').map(s => s.iteration));
+  const last = nextIteration(steps) - 1;
+  let n = 0;
+  while (last - n > 0 && !kept.has(last - n)) n++;
+  return n;
+};
+
+/** Whether the incumbent is every third keep and has no test eval yet. */
+const due = (steps: Step[]) => {
+  const kept = steps.filter(s => s.verdict === 'kept');
+  return kept.length > 1 && kept.length % 3 === 1 && !kept.at(-1)!.evals.some(e => e.split === 'test');
+};
+
 /**
- * Steps until `iterations`, three steps in a row keep nothing, a step has no candidate or only infra verdicts, or a
- * guard stops it; checkpoints every third keep.
+ * Steps until `iterations` more, the tune reaches iteration `until`, three iterations in a row keep nothing, a step has
+ * no candidate or only infra verdicts, or a guard stops it; checkpoints every third keep. All of it reads from disk, so a rerun resumes.
  */
-export const run = async (dir: string, o: Parameters<typeof step>[1] & { iterations: number }, io: Io = bench) => {
-  let flat = 0;
-  for (let i = 0; i < o.iterations && flat < 3; i++) {
+export const run = async (
+  dir: string,
+  o: Parameters<typeof step>[1] & { iterations: number; until?: number },
+  io: Io = bench
+) => {
+  for (let i = 0; i < o.iterations; i++) {
+    if (due(tuneRows(dir).steps)) await checkpoint(dir, o, io);
+    const { steps } = tuneRows(dir);
+    if (flatOf(steps) >= 3 || nextIteration(steps) > (o.until ?? Infinity)) break;
     const made = await step(dir, o, io);
     if (!made.length) break;
     if (made.every(s => s.verdict === 'infra')) {
       console.error(`every candidate of step ${made[0]!.iteration} was infra: fix the bench before the next step`);
       break;
     }
-    const kept = made.some(s => s.verdict === 'kept');
-    flat = kept ? 0 : flat + 1;
-    if (kept && tuneRows(dir).steps.filter(s => s.verdict === 'kept').length % 3 === 1) await checkpoint(dir, o, io);
   }
+  if (due(tuneRows(dir).steps)) await checkpoint(dir, o, io);
+};
+
+/** One screen on a tune: its steps, whether a process runs it, and where the current phase of runs stands. */
+export const status = (dir: string) => {
+  const { tune: t, steps } = tuneRows(dir);
+  const pid = Number(read(join(dir, 'tune.lock')) || 0);
+  const phase = JSON.parse(read(join(dir, 'phase.json')) || 'null') as {
+    at: string;
+    parallel: number;
+    jobs: Job[];
+  } | null;
+  const last = jsonl(join(dir, 'log.jsonl')).at(-1);
+  return [
+    `${t.repo} on ${t.point}: ${steps.length} steps over ${nextIteration(steps) - 1} iterations, incumbent ${incumbentOf(steps)?.id}`,
+    ...steps.slice(-5).map(s => `  ${s.id} ${s.verdict}: ${s.why}`),
+    pid && busy(join(dir, 'tune')) ? `running as pid ${pid}` : 'not running',
+    ...(last ? [`last event: ${JSON.stringify(last)}`] : []),
+    ...(phase
+      ? [
+          `phase since ${phase.at}:`,
+          statusText(
+            progress(
+              phase.jobs.map(j => unitOf(dir, j)),
+              phase.parallel
+            )
+          ),
+        ]
+      : []),
+  ].join('\n');
 };
 
 if (import.meta.main) {
@@ -661,6 +721,7 @@ if (import.meta.main) {
       proposers: { type: 'string', default: 'retro,history,manual' },
       parallel: { type: 'string', default: '6' },
       iterations: { type: 'string', default: '8' },
+      until: { type: 'string' },
       'max-codex': { type: 'string', default: '25' },
       'max-claude-5h': { type: 'string', default: '40' },
       'max-claude-week': { type: 'string', default: '12' },
@@ -683,6 +744,24 @@ if (import.meta.main) {
     ...(values.keys && { keys: resolve(values.keys) }),
   };
   const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
+  const dir =
+    target && resolve(command === 'init' ? join(tuneRoot(), target.split('/').pop()!, values.name ?? 't1') : target);
+  if (command === 'status' && dir) {
+    console.log(status(dir));
+    process.exit(0);
+  }
+  if (dir && ['init', 'step', 'run', 'checkpoint'].includes(command ?? '')) {
+    if (!claim(join(dir, 'tune'))) {
+      console.error(`another process runs ${dir}: ${read(join(dir, 'tune.lock'))}`);
+      process.exit(1);
+    }
+    process.on('exit', () => release(join(dir, 'tune')));
+    onStop(signal => {
+      tuneLog(dir)({ event: 'paused', signal });
+      for (const child of children) child.kill('SIGTERM');
+      release(join(dir, 'tune'));
+    });
+  }
   if (command === 'init' && target && values.cases && values.splits && values.repos)
     console.log(
       await init(target, {
@@ -695,13 +774,18 @@ if (import.meta.main) {
       })
     );
   else if (command === 'step' && target) print((await step(resolve(target), o)).map(s => [s.id, s.verdict, s.why]));
-  else if (command === 'run' && target) await run(resolve(target), { ...o, iterations: Number(values.iterations) });
+  else if (command === 'run' && target)
+    await run(resolve(target), {
+      ...o,
+      iterations: Number(values.iterations),
+      ...(values.until && { until: Number(values.until) }),
+    });
   else if (command === 'checkpoint' && target) print(await checkpoint(resolve(target), o));
   else if (command === 'propose' && target && values.from && values.why)
     console.log(propose(resolve(target), values.from, values.why, values.as as Proposer).id);
   else {
     console.error(
-      'usage: node bin/tune.ts (init <repo> --cases --splits --repos --point | step | run | checkpoint | propose --from --why) <tune dir>'
+      'usage: node bin/tune.ts (init <repo> --cases --splits --repos --point | step | run [--until n] | checkpoint | status | propose --from --why) <tune dir>'
     );
     process.exit(2);
   }
