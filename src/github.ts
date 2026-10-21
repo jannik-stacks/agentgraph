@@ -545,11 +545,14 @@ export const githubForge = (
 
     /** The last commit pushed from each checkout and its tree; the next push from it builds on that commit. */
     const pushed = new Map<string, { sha: string; tree: string }>();
+    /** The `.github/` files each branch's pushes left out, for its pull request to name. */
+    const held = new Map<string, Set<string>>();
     const refuse = (message: string) => new ForgeError({ status: 422, message });
 
     /**
      * Commits the checkout's files on top of its base, or of its last push, through the Git data API, then moves
-     * `branch` forward to that commit. Only regular files outside `.github/` and `.git/` are pushed, within the limits.
+     * `branch` forward to that commit. Only regular files outside `.github/` and `.git/` are pushed, within the limits;
+     * changes under `.github/` are left out and held for the pull request to name.
      */
     const push = (work: Checkout, branch: string, message: string, onto?: string, merge?: true) =>
       Effect.gen(function* () {
@@ -563,7 +566,24 @@ export const githubForge = (
         const parents = follow ? (merge ? [parent, follow] : [follow]) : [parent];
         const from = last?.tree ?? (yield* gitText(work, ['rev-parse', `${parents[0]}^{tree}`]));
         yield* git(work, ['add', '-A']);
-        const tree = yield* gitText(work, ['write-tree']);
+        let tree = yield* gitText(work, ['write-tree']);
+        const left = (yield* gitText(work, [
+          'diff-tree',
+          '-r',
+          '--name-only',
+          '--no-renames',
+          from,
+          tree,
+          '--',
+          '.github',
+        ]))
+          .split('\n')
+          .filter(Boolean);
+        if (left.length) {
+          yield* git(work, ['reset', '-q', from, '--', '.github']);
+          tree = yield* gitText(work, ['write-tree']);
+          held.set(branch, new Set([...(held.get(branch) ?? []), ...left]));
+        }
         let head = parent;
         if (tree !== from || follow) {
           if (tree !== from) yield* upload(work, from, tree);
@@ -770,7 +790,11 @@ export const githubForge = (
         case 'pull_request':
           return Effect.gen(function* () {
             type Made = { number: number; html_url: string };
-            const body = { title: p.title, head: p.branch, base: p.base, body: p.body };
+            const left = [...(held.get(p.branch) ?? [])];
+            const note = left.length
+              ? `\n\nNot pushed: ${left.map(f => `\`${f}\``).join(', ')}. bothub does not push files under \`.github/\` (GitHub needs the app's Workflows permission for workflow files, and they run with the repo's secrets), so a maintainer pushes them to \`${p.branch}\`.`
+              : '';
+            const body = { title: p.title, head: p.branch, base: p.base, body: p.body + note };
             const owner = app.repo.split('/')[0];
             const made = yield* gh<Made>('POST', `${repo}/pulls`, body, 'pull_request').pipe(
               Effect.catchIf(
@@ -781,7 +805,7 @@ export const githubForge = (
                       ? gh<Made>(
                           'PATCH',
                           `${repo}/pulls/${open.number}`,
-                          { title: p.title, body: p.body },
+                          { title: p.title, body: body.body },
                           'pull_request'
                         )
                       : Effect.fail(e)

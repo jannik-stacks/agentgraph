@@ -57,7 +57,7 @@ A comment goes where the human who started or woke the run spoke: the issue, its
 
 A push never forces. Its branch starts with `bothub/`, and it builds on the commit the checkout started from or on its own last push. When the branch moved meanwhile, the push is refused.
 
-Only regular files outside `.github/` and `.git/` are pushed, at most 200 files and 1 MiB per file. The engine writes the commits through GitHub's Git API, so GitHub signs them. <!-- code: src/github.ts#unpushable -->
+Only regular files outside `.github/` and `.git/` are pushed, at most 200 files and 1 MiB per file. A change under `.github/`, such as a workflow, is left out of the push and the rest goes on; the pull request names the files left out, for a maintainer to push. The engine writes the commits through GitHub's Git API, so GitHub signs them. <!-- code: src/github.ts#unpushable -->
 
 ## Engine kinds
 

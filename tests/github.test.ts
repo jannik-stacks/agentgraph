@@ -854,10 +854,28 @@ describe('githubForge', () => {
     const many = (dir: string) => {
       for (let i = 0; i < 201; i++) writeFileSync(join(dir, `f${i}`), `${i}\n`);
     };
+    it('pushes the rest without a workflow file and names it in the pull request', async () => {
+      const { dir, git, work } = repo();
+      workflow(dir);
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
+      const f = dataApi(work, { 'POST /repos/o/r/pulls': () => ({ status: 201, body: { number: 9, html_url: 'u' } }) });
+      const pr = { kind: 'pull_request', branch: 'bothub/7', base: 'main', title: 'Fix', body: 'Closes #7' } as const;
+      const [pushed, opened] = await run(
+        f,
+        Effect.flatMap(Forge, forge =>
+          Effect.all([forge.apply(7, { kind: 'push', branch: 'bothub/7', message: 'Fix' }, work), forge.apply(7, pr)])
+        )
+      );
+      expect([pushed.ok, opened.ok]).toEqual([true, true]);
+      const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body;
+      expect(git('ls-tree', '-r', '--name-only', commit.tree)).toBe('a.txt');
+      const body = f.calls.find(c => c.path === '/repos/o/r/pulls')!.body.body;
+      expect(body).toMatch(/^Closes #7\n\nNot pushed: `\.github\/workflows\/x\.yml`\..*Workflows permission/);
+    });
+
     it.each([
       ['a symlink', (dir: string) => symlinkSync('/etc/passwd', join(dir, 'link')), /link has mode 000000 to 120000/],
       ['a submodule', submodule, /sub has mode 000000 to 160000/],
-      ['a workflow', workflow, /\.github\/workflows\/x\.yml is under \.github\//],
       [
         'a file over 1 MB',
         (dir: string) => writeFileSync(join(dir, 'big'), Buffer.alloc((1 << 20) + 1)),
