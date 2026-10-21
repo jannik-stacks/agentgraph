@@ -443,9 +443,13 @@ export const init = async (
       keep: { runs: 3, drops: 2 },
       clone: resolve(o.repos, short),
     };
+    const first = meta(train[0] ?? gated[0] ?? '');
+    const mined = Object.fromEntries(
+      (['setup', 'runner'] as const).flatMap(k => (typeof first[k] === 'string' ? [[k, first[k]]] : []))
+    );
     minimal(
       join(dir, 'cands', 'i000-init', 'hub'),
-      plan(t.repo, (meta(train[0] ?? gated[0] ?? '').tests as string[]) ?? []),
+      { ...plan(t.repo, (first.tests as string[]) ?? []), ...mined },
       read(join(bothub, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
