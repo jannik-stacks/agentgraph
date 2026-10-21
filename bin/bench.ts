@@ -385,20 +385,24 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (!claim(at)) return log({ event: 'busy' });
   onStop(signal => {
     log({ event: 'paused', signal });
-    sweep(process.pid);
+    sweep(at);
     release(at);
   });
   try {
-    sweep();
+    sweep(at);
     if (await prepare(c, out, repo)) return;
-    attic(at);
+    const aside = () => {
+      const to = attic(at);
+      if (to) log({ event: 'attic', to });
+    };
+    aside();
     const kept = armSlot(c, arm);
     if (reusable(kept)) return publish(kept!, at);
     const failed = () =>
       lines(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
     for (let attempt = 0, empty = 0; ; attempt++) {
       await settle(log);
-      attic(at);
+      aside();
       guard(out, false);
       const started = Date.now();
       const time = clock();
@@ -977,7 +981,7 @@ export const progress = (units: Unit[], parallel = 1) => {
   const count = (k: string) => states.filter(u => u.state === k).length;
   const logs = [...new Set(units.map(u => u.out))].flatMap(out => lines(join(out, 'log.jsonl')));
   logs.sort((a, b) => String(a.at).localeCompare(String(b.at)));
-  const last = logs.filter(l => ['wait', 'resume', 'start', 'end'].includes(String(l.event))).at(-1);
+  const last = logs.filter(l => ['wait', 'resume', 'start', 'end', 'paused'].includes(String(l.event))).at(-1);
   const ms = states.flatMap(u =>
     u.state === 'done' ? [Number(json(join(u.out, u.case, u.arm, 'meta.json')).ms) || []].flat() : []
   );

@@ -14,6 +14,7 @@ import {
   openSync,
   readFileSync,
   readSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -119,32 +120,30 @@ export const release = (path: string) => {
 };
 
 /**
- * Sandbox containers nobody drives: a `docker run` client of a `bothub-<12 hex>` container whose parent is gone (or
- * is `parent`), and such a container with no client at all. Both are stopped; other runs' containers are left alone.
+ * Removes the sandbox containers (`bothub-<12 hex>`) that mount anything under `dir`, the unit this process holds, so
+ * a killed run's containers never outlive it; every other container is left alone. Answers the names removed.
  */
-export const sweep = (parent = 1) => {
-  const ps = spawnSync('ps', ['-Ao', 'pid=,ppid=,command='], { encoding: 'utf8' }).stdout ?? '';
-  const clients = ps.split('\n').flatMap(l => {
-    const m = /^\s*(\d+)\s+(\d+)\s+docker run .*--name (bothub-[0-9a-f]{12})\b/.exec(l);
-    return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), name: m[3]! }] : [];
-  });
-  const listed = spawnSync('docker', ['ps', '--filter', 'name=bothub-', '--format', '{{.Names}}'], {
+export const sweep = (dir: string) => {
+  const roots = [dir, ...(existsSync(dir) ? [realpathSync(dir)] : [])];
+  const names = (
+    spawnSync('docker', ['ps', '--filter', 'name=bothub-', '--format', '{{.Names}}'], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    }).stdout ?? ''
+  )
+    .split('\n')
+    .filter(n => /^bothub-[0-9a-f]{12}$/.test(n));
+  if (!names.length) return [];
+  const mounts = spawnSync('docker', ['inspect', '-f', '{{.Name}}{{range .Mounts}}\t{{.Source}}{{end}}', ...names], {
     encoding: 'utf8',
     timeout: 30_000,
   });
-  const running = (listed.stdout ?? '').split('\n').filter(n => /^bothub-[0-9a-f]{12}$/.test(n));
-  const stray = [
-    ...clients.filter(c => c.ppid === 1 || c.ppid === parent).map(c => (stop(c.pid), c.name)),
-    ...running.filter(n => !clients.some(c => c.name === n)),
-  ];
-  for (const name of new Set(stray)) spawnSync('docker', ['rm', '-f', name], { timeout: 60_000 });
-  return [...new Set(stray)];
-};
-
-const stop = (pid: number) => {
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {}
+  const stray = (mounts.stdout ?? '').split('\n').flatMap(line => {
+    const [name = '', ...sources] = line.split('\t');
+    return sources.some(s => roots.some(r => s === r || s.startsWith(`${r}/`))) ? [name.replace(/^\//, '')] : [];
+  });
+  for (const name of stray) spawnSync('docker', ['rm', '-f', name], { timeout: 60_000 });
+  return stray;
 };
 
 /** The host URL of the model proxy's liveness check, from `BOTHUB_PROXY_URL`. */
