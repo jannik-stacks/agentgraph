@@ -419,7 +419,8 @@ export const init = async (
     };
     minimal(
       join(dir, 'cands', 'i000-init', 'hub'),
-      plan(t.repo, (meta(train[0] ?? gated[0] ?? '').tests as string[]) ?? [])
+      plan(t.repo, (meta(train[0] ?? gated[0] ?? '').tests as string[]) ?? []),
+      read(join(bothub, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
     save(join(dir, 'tune.json'), t);
@@ -449,7 +450,7 @@ export const init = async (
 };
 
 /** The bench hub with no reviewer: implement with two tries against a tests check, then a human merge. */
-const minimal = (hub: string, commands: ReturnType<typeof plan>) => {
+const minimal = (hub: string, commands: ReturnType<typeof plan>, toolchain?: string) => {
   cpSync(join(bothub, 'examples/bench'), hub, { recursive: true });
   rmSync(join(hub, 'agents/reviewer.md'));
   rmSync(join(hub, 'scripts/review.mjs'));
@@ -486,6 +487,7 @@ done`;
   );
   if (commands.setup)
     save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
+  if (toolchain) save(join(hub, 'hub.yaml'), `${toolchain}\n${read(join(hub, 'hub.yaml'))}`);
 };
 
 /** One iteration: proposals, a screen on a few fit cases, the survivors on the rest of select, at most one kept. */
