@@ -75,6 +75,8 @@ A run started by a comment can reply and stop. When the comment asks for no work
 
 The engine puts an eyes reaction on the comment that started or woke a run, or on the issue for a label, and takes it off once it has replied. <!-- code: src/engine.ts#tick -->
 
+A workflow can start on both, as `on: { issue_comment: { command: /bothub }, issues: { label: agent:ready } }` in `examples/sk`. Then triage and the loop build nothing by themselves: work begins when a maintainer adds `agent:ready` or mentions the bot. A label starts a workflow once per issue: once a run of it there is done, adding the label again starts nothing, and `/bothub restart` runs it again. <!-- code: src/engine.ts#tick -->
+
 The issue must be open, and one run at a time holds it, whatever started it. A label added while another workflow's run is live there starts nothing; add it again once that run ends. Removing the label from an issue with a live run stops that run. A label added and removed before the engine looks starts nothing. <!-- code: src/workflow.ts#reenter -->
 
 ## Dispatch
