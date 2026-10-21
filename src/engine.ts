@@ -1682,7 +1682,11 @@ export const tick = (
     const past = (asked: Run, moved: Run): Effect.Effect<Run, StoreError> => {
       if (!asked.comment) return Effect.succeed(moved);
       const { comment: _old, ...rest } = moved;
-      const note: Proposal = { kind: 'comment', body: `Asked the question below at ${asked.step}.`, edit: asked.comment };
+      const note: Proposal = {
+        kind: 'comment',
+        body: `Asked the question below at ${asked.step}.`,
+        edit: asked.comment,
+      };
       return forge.apply(asked.issue, note).pipe(
         Effect.tap(applied => store.trace(asked.id, { at: now(), step: asked.step, applied })),
         Effect.map(a => (a.ok ? rest : moved)),
@@ -1775,7 +1779,8 @@ export const tick = (
         ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
         seen: newest(...answers.map(a => a.at))!,
       };
-      const kept = run.status === 'waiting' && run.reason && moved.status !== 'waiting' ? yield* past(run, moved) : moved;
+      const kept =
+        run.status === 'waiting' && run.reason && moved.status !== 'waiting' ? yield* past(run, moved) : moved;
       const next = kept.status === 'running' ? kept : yield* show(w, kept);
       yield* record(run, outcome, next);
     }

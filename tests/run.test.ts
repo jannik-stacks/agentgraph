@@ -895,9 +895,7 @@ describe('tick', () => {
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Both asked for.' })]]);
     const [answered] = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
-    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under])).toEqual([
-      ['Both asked for.', 'r2'],
-    ]);
+    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under])).toEqual([['Both asked for.', 'r2']]);
     expect(answered!.said).toEqual([{ issue: 8 }]);
   }, 30_000);
 
