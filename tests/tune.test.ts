@@ -243,6 +243,19 @@ describe('tune loop', () => {
     const silent = { ...io, propose: async () => (asked++, { rationale: 'nothing' }) } as unknown as typeof io;
     await run(dir, { iterations: 5, proposers: ['retro'] }, silent);
     expect(asked).toBe(1);
+
+    propose(dir, fromHub, 'f1 needs care, on a broken bench');
+    const broken = {
+      ...silent,
+      rows: (d: string, id: string) =>
+        fakeBench(ran)
+          .rows(d, id)
+          .map(r => ({ ...r, infra: 'setup fails' })),
+    } as unknown as typeof io;
+    asked = 0;
+    await run(dir, { iterations: 5, proposers: ['retro'] }, broken);
+    expect(tuneRows(dir).steps.at(-1)!.verdict).toBe('infra');
+    expect(asked).toBe(1);
   });
 });
 
