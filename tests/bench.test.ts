@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   armSlot,
@@ -22,6 +22,24 @@ import {
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
+
+/** A stand-in docker client that runs a score container's `sh -c` on the host, in the dir bound at `/work`. */
+const hostDocker = (image = true) => {
+  const bin = tmp('bin');
+  writeFileSync(
+    join(bin, 'docker'),
+    [
+      '#!/bin/sh',
+      ...(image ? [] : ['[ "$1" = image ] && exit 1']),
+      '[ "$1" = run ] || exit 0',
+      'for a; do case "$a" in type=bind,src=*,dst=/work) dir=${a#type=bind,src=}; dir=${dir%,dst=/work};; esac; done',
+      'while [ $# -gt 1 ] && [ "$1" != -c ]; do shift; done',
+      'cd "$dir" && exec sh "$@"',
+    ].join('\n')
+  );
+  chmodSync(join(bin, 'docker'), 0o755);
+  return { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, BOTHUB_CACHE_VOLUME: '' };
+};
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -131,7 +149,7 @@ describe('bench helpers', () => {
 });
 
 describe('bin/bench.ts score and report', () => {
-  it('runs the merged tests on each arm, keeps scores, and skips them on a rerun', () => {
+  it('runs the merged tests on each arm, keeps scores, and skips them on a rerun', { timeout: 30_000 }, () => {
     const root = tmp('bench');
     dirs.push(root);
     const repo = join(root, 'repo');
@@ -167,8 +185,17 @@ describe('bin/bench.ts score and report', () => {
     const tokens = { smart: { input: 10, cacheRead: 90, cacheWrite: 0, output: 5 } };
     writeFileSync(join(out, 'demo', 'v2', 'usage.json'), JSON.stringify({ sessions: 2, usd: 0.25, tokens }));
 
+    const missing = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
+      encoding: 'utf8',
+      env: hostDocker(false),
+    });
+    expect(missing.status).not.toBe(0);
+    expect(missing.stderr).toContain('score needs docker');
+    expect(existsSync(join(out, 'demo', 'base', 'score.json'))).toBe(false);
+
+    const env = hostDocker();
     const bench = (...args: string[]) => {
-      const r = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
+      const r = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', env });
       expect(r.status, r.stderr).toBe(0);
       return r.stdout;
     };

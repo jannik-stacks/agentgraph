@@ -12,8 +12,10 @@ import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
+import { dockerArgs, type Made } from '../src/docker.ts';
+import { drop, envOf, manifest, ownerId, seed } from '../src/env.ts';
 import {
   append,
   attic,
@@ -52,6 +54,8 @@ type Commands = {
   suite?: string;
   typecheck?: string;
   setup?: string;
+  /** The part of setup that builds from the repo's files, run again on every scored diff. */
+  build?: string;
   runner?: string;
 };
 type Finding = { severity: string; category: string; text: string };
@@ -115,12 +119,14 @@ const install = (fallback: string) =>
 const clarinetSdk = (files: string[]): Commands => {
   const node = 'components/clarinet-sdk/node';
   const wasm = 'npm exec --yes --package=wasm-pack@0.15.0 -- node components/clarinet-sdk-wasm/build.mjs';
+  const tsc = `(cd ${node} && npx tsc -b ./tsconfig.json ./tsconfig.cjs.json && node ./scripts/prepare-esm-package.js)`;
   return {
+    build: [`(${wasm} || ${wasm})`, tsc].join(' && '),
     setup: [
       'rustup target add wasm32-unknown-unknown',
       `(${wasm} || ${wasm})`,
       `if [ -f pnpm-lock.yaml ]; then ${install('11.1.3')}; else npm ci --no-audit --no-fund --ignore-scripts; fi`,
-      `(cd ${node} && npx tsc -b ./tsconfig.json ./tsconfig.cjs.json && node ./scripts/prepare-esm-package.js)`,
+      tsc,
     ].join(' && '),
     test: `(cd ${node} && npx vitest run ${files.map(p => quote(p.slice(node.length + 1))).join(' ')})`,
   };
@@ -499,11 +505,25 @@ export const stats = (diff: string, human: string[] = []) => {
     overlap: union.size ? round(mine.filter(p => human.includes(p)).length / union.size) : 1,
   };
 };
-const exec = (cmd: string, cwd: string) => {
+const image = process.env.BOTHUB_IMAGE || 'bothub-sandbox:local';
+const cache = process.env.BOTHUB_CACHE_VOLUME ?? 'bothub-cache';
+const scoreSize = { memory: '8g', cpus: '4', pids: '2048' };
+
+/** One score command in its own container on the tree at `/work`, with no network unless `open`. */
+const exec = (cmd: string, tree: string, box: Made, from: string, network: 'none' | 'open' = 'none') => {
   const started = Date.now();
-  const PATH = [process.env.BENCH_PATH, process.env.PATH].filter(Boolean).join(':');
-  const env = { ...process.env, PATH, NODE_OPTIONS: '' };
-  const r = spawnSync('sh', ['-c', cmd], { cwd, env, encoding: 'utf8', timeout: 3_600_000, maxBuffer: 1 << 28 });
+  const name = `bothub-score-${randomBytes(6).toString('hex')}`;
+  const c = { cmd: 'sh', args: ['-c', cmd], dir: tree, env: { NODE_OPTIONS: '' }, network, minutes: 60 };
+  const r = spawnSync('docker', dockerArgs(c, from, name, box, cache, scoreSize), {
+    encoding: 'utf8',
+    timeout: 3_600_000,
+    maxBuffer: 1 << 28,
+  });
+  if (r.error) spawnSync('docker', ['rm', '-f', name]);
+  if (r.error && (r.error as NodeJS.ErrnoException).code !== 'ETIMEDOUT')
+    throw new Error(`docker could not run a score container: ${r.error.message}`);
+  if (r.status === 125 || /Cannot connect to the Docker daemon/.test(r.stderr ?? ''))
+    throw new Error(`docker could not start a score container: ${r.stderr.slice(-2000)}`);
   return { ok: r.status === 0, ms: Date.now() - started, tail: `${r.stdout}${r.stderr}`.slice(-8000) };
 };
 
@@ -513,9 +533,13 @@ const coupled =
 /** Whether a failed hidden run broke on the human's names and signatures (coupled) or on a result (behaviour). */
 export const failureClass = (tail: string) => (coupled.test(tail) ? 'coupled' : 'behaviour');
 
-const check = (c: Case & Commands, tree: string, diff: string, hidden: string[]) => {
+/**
+ * Scores a diff in the case's Env: setup runs again only when the diff touches a manifest or the Env could not hold
+ * everything setup made, else only `build`. Hidden tests reach the tree after the Env exists.
+ */
+const check = async (c: Case & Commands, tree: string, diff: string, hidden: string[], repo: string) => {
   sh('git', ['-C', tree, 'checkout', '-q', '-f', c.base]);
-  sh('git', ['-C', tree, 'clean', '-qfdx', '-e', 'node_modules', '-e', 'target']);
+  sh('git', ['-C', tree, 'clean', '-qfdx', '-e', 'target']);
   if (
     diff &&
     spawnSync('git', ['-C', tree, 'apply', '--whitespace=nowarn', '-'], {
@@ -523,19 +547,35 @@ const check = (c: Case & Commands, tree: string, diff: string, hidden: string[])
     }).status
   )
     return { applied: false };
-  const suite = c.suite ?? c.test;
-  const result = {
-    applied: true,
-    ...(c.setup && { setup: exec(c.setup, tree) }),
-    ...(suite && { suite: exec(suite, tree) }),
-    ...(c.typecheck && { typecheck: exec(c.typecheck, tree) }),
-  };
-  if (!c.test || !hidden.length) return result;
-  for (const path of hidden)
-    if (spawnSync('git', ['-C', tree, 'checkout', c.merged, '--', path]).status)
-      rmSync(join(tree, path), { force: true });
-  const run = exec(c.test, tree);
-  return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
+  const git = existsSync(join(repo, '.git')) ? join(repo, '.git') : repo;
+  const found = spawnSync('docker', ['image', 'inspect', image], { encoding: 'utf8' });
+  if (found.status !== 0)
+    throw new Error(`score needs docker and the ${image} image: ${found.error?.message ?? found.stderr.trim()}`);
+  const env = cache
+    ? await envOf({ repo: c.repo, image, git, base: c.base, cache, ...(c.setup && { setup: c.setup }) })
+    : undefined;
+  const seeds = env ? await seed(env, ownerId(), tree) : [];
+  const box = { mounts: [{ src: git, dst: git, readonly: true }], seeds };
+  const from = env?.image ?? image;
+  try {
+    const again = !env?.complete || files(diff).some(f => manifest.test(f.path));
+    const prep = again ? c.setup : c.build;
+    const suite = c.suite ?? c.test;
+    const result = {
+      applied: true,
+      ...(prep && { setup: exec(prep, tree, box, from, 'open') }),
+      ...(suite && { suite: exec(suite, tree, box, from) }),
+      ...(c.typecheck && { typecheck: exec(c.typecheck, tree, box, from) }),
+    };
+    if (!c.test || !hidden.length) return result;
+    for (const path of hidden)
+      if (spawnSync('git', ['-C', tree, 'checkout', c.merged, '--', path]).status)
+        rmSync(join(tree, path), { force: true });
+    const run = exec(c.test, tree, box, from);
+    return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
+  } finally {
+    await drop(seeds);
+  }
 };
 /** Sessions, reported cost and tokens by model of an arm's traces; input counts only uncached tokens. */
 const effort = (data: string) => {
@@ -584,7 +624,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
     const diff = read(join(at, 'diff.patch'));
     const meta = JSON.parse(read(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
     const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
-      (c.test || c.suite) && c.hasTests !== false ? check(c, tree, diff, hidden) : {}
+      (c.test || c.suite) && c.hasTests !== false ? check(c, tree, diff, hidden, resolve(repo)) : {}
     );
     const offline = (tests as Tests).setup?.ok === false && (await down(true));
     if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
@@ -606,11 +646,11 @@ export const invalid = (base: Tests, human: Tests, tested = false) => {
 };
 
 let tools: string | undefined;
-/** The bench's scoring code and the host toolchain the score step runs with, which a validity verdict depends on. */
+/** The bench's scoring code and the image the score step starts from, which a validity verdict depends on. */
 export const scorer = () =>
   (tools ??= hash(
-    [check, invalid, exec, String(process.env.BENCH_PATH)].join('\0') +
-      exec('node --version; npm --version; cargo --version; rustc --version; true', tmpdir()).tail
+    [check, invalid, exec, image].join('\0') +
+      spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', image], { encoding: 'utf8' }).stdout
   ));
 
 const prepare = async (c: Case & Commands, out: string, repo: string) => {

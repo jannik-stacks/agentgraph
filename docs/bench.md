@@ -23,7 +23,7 @@ against the human only. `BENCH_HUB=<dir>` runs the v2 arm on that hub as it is, 
 content joins the arm's cache key.
 
 Nothing unchanged is run or judged again. Results live in `runs/.cache`: validity by case, the scoring
-code and the host toolchain (`node`, `npm`, `cargo` versions and `BENCH_PATH`), an arm by
+code and the sandbox image the score step starts from, an arm by
 case, arm, hub content and the engine's `src` tree (the floor arm leaves the tree out), and the point and
 repeat when given, a judge verdict by
 judge and prompt, which holds both diffs and their order. `--fresh` ignores the cache.
@@ -96,9 +96,12 @@ node bin/bench.ts report <out>
   findings by severity, judge agreement, all of it again per stratum, and a table per case.
 
 Every step skips outputs that exist and moves an unfinished arm into `<case>/.attic/` instead of
-deleting it. Progress appends to `<out>/log.jsonl`. `BENCH_PATH` is put in front of `PATH` for the score step's commands, for a
-Node version the repo's `engines` asks for. A mined `case.json` lists its test files in `tests` and has no
-commands: the bench derives them per repo (`plan` in `bin/bench.ts`), and `bucket: no-tests` means
+deleting it. Progress appends to `<out>/log.jsonl`. The score step runs each command in a container of the
+case's [environment](sandbox.md#environments), with no network except for setup. Nothing of a case runs on the
+host: without docker or the sandbox image the step fails and writes no score. Setup runs again only when the diff
+touches a manifest such as a lockfile, and a case's `build` (the clarinet SDK) runs on every diff. A mined
+`case.json` lists its test files in `tests` and has no commands: the bench derives them per repo (`plan` in
+`bin/bench.ts`), and `bucket: no-tests` means
 metrics and judges only. Model keys come from `--keys`, `infra/local/.keys.env` by default. Before a
 paid step the bench reads the weekly Codex use and stops once it is more than `--max-codex` points (30)
 above the first reading, or after `--max-claude-calls` judge calls (60).
@@ -144,4 +147,3 @@ The queue file holds one shell command per line (`#` comments). A line that exit
 `<queue>.done` and is skipped on every rerun; a failing one is tried 3 times with backoff, then left for
 the next rerun. Output appends to `<queue>.log`. Keep queues and out dirs under `~/bothub-data`, never
 `/tmp`, which macOS empties.
-
