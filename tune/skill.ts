@@ -240,19 +240,19 @@ const overOf = (dir: string, o: Options) => (u: Usage) => {
 
 /** One round: the skill session in a fresh workspace, its hubs checked and queued as `skill` candidates. */
 const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise<Round> => {
-  const w = join(dir, 'skill', `r${pad(iteration)}`);
-  if (existsSync(w)) renameSync(w, `${w}.${Date.now()}`);
-  workspace(dir, w, o.k);
-  const { tune: t } = tuneRows(dir);
-  const hidden = idsOf(t.cases, 'validate', 'test');
   const budget = guard(dir, { codex: io?.codex ?? codexUsed }, o.limits);
   const before =
     budget.claude?.fiveHour && budget.claude.week
       ? { fiveHour: budget.claude.fiveHour.now, week: budget.claude.week.now }
       : undefined;
-  const live: Live = {};
   const over = overOf(dir, o);
   const pre = before && over(before);
+  if (pre) throw new Error(pre);
+  const w = join(dir, 'skill', `r${pad(iteration)}`);
+  if (existsSync(w)) renameSync(w, `${w}.${Date.now()}`);
+  workspace(dir, w, o.k);
+  const hidden = idsOf(tuneRows(dir).tune.cases, 'validate', 'test');
+  const live: Live = {};
   const r: Round = {
     iteration,
     version: o.version,
@@ -263,7 +263,6 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
     slots: [],
     leaks: [],
   };
-  if (pre) throw new Error(pre);
   const args = [
     '-p',
     '--output-format',
