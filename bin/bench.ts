@@ -230,11 +230,15 @@ const guard = (out: string, claude: boolean) => {
 const forge = (dir: string, ...args: string[]) =>
   sh(process.execPath, [here('bin/forge.ts'), dir, ...args, '--as', 'maintainer']);
 
-/** Points every agent of a hub at `harness:model`, by the two lines of its front matter. */
+/**
+ * Points every agent of a hub at `harness:model`, by the two lines of its front matter. Every agent gets the point's
+ * key, else its own, else the implementor's, so an agent a tune adds still has one.
+ */
 export const repoint = (hub: string, point: string) => {
   const [harness, model] = point.split(':');
   const dir = join(hub, 'agents');
-  for (const name of existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.md')) : [])
+  const names = existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.md')) : [];
+  for (const name of names)
     save(
       join(dir, name),
       read(join(dir, name)).replace(/^---\n[\s\S]*?\n---/, head =>
@@ -242,10 +246,15 @@ export const repoint = (hub: string, point: string) => {
       )
     );
   const key = process.env[`BOTHUB_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
-  if (key && existsSync(dir))
-    process.env.BOTHUB_PROXY_KEYS = readdirSync(dir)
-      .map(n => `${basename(n, '.md')}=${key}`)
-      .join(',');
+  const own = new Map(
+    (process.env.BOTHUB_PROXY_KEYS ?? '').split(',').flatMap(kv => {
+      const at = kv.indexOf('=');
+      return at > 0 ? [[kv.slice(0, at), kv.slice(at + 1)] as const] : [];
+    })
+  );
+  const spare = key ?? own.get('implementor') ?? [...own.values()][0];
+  for (const name of names.map(n => basename(n, '.md'))) if (spare && (key || !own.has(name))) own.set(name, spare);
+  if (own.size) process.env.BOTHUB_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
 };
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {

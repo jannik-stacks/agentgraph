@@ -247,6 +247,20 @@ describe('points', () => {
     );
   });
 
+  it('gives an agent with no key of its own the implementor key', () => {
+    const hub = tmp('hub');
+    dirs.push(hub);
+    mkdirSync(join(hub, 'agents'));
+    for (const name of ['implementor', 'scout']) writeFileSync(join(hub, 'agents', `${name}.md`), '---\n---\n');
+    const before = process.env.BOTHUB_PROXY_KEYS;
+    process.env.BOTHUB_PROXY_KEYS = 'implementor=ki,reviewer=kr';
+    repoint(hub, 'opencode:none');
+    const keys = process.env.BOTHUB_PROXY_KEYS;
+    if (before === undefined) delete process.env.BOTHUB_PROXY_KEYS;
+    else process.env.BOTHUB_PROXY_KEYS = before;
+    expect(keys).toBe('implementor=ki,reviewer=kr,scout=ki');
+  });
+
   it('keys an arm by point and repeat only when one is given', () => {
     const cache = tmp('cache');
     dirs.push(cache);
