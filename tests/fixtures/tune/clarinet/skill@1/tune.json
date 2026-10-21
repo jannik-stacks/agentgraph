@@ -1,0 +1,27 @@
+{
+  "repo": "acme/clarinet",
+  "engine": "4610c92e0000000000000000000000000000beef",
+  "point": "opencode:luna",
+  "cases": {
+    "clarinet-100": "mine",
+    "clarinet-101": "mine",
+    "clarinet-102": "mine",
+    "clarinet-103": "mine",
+    "clarinet-104": "mine",
+    "clarinet-1620": "fit",
+    "clarinet-1775": "fit",
+    "clarinet-1874": "fit",
+    "clarinet-1920": "fit",
+    "clarinet-1973": "fit",
+    "clarinet-2136": "validate",
+    "clarinet-2231": "validate",
+    "clarinet-2374": "test"
+  },
+  "preset": "hidden",
+  "keep": {
+    "p": 0.8,
+    "delta": 0.03,
+    "screen": 0.2
+  },
+  "clone": "/data/repos/clarinet"
+}
