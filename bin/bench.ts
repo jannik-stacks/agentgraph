@@ -110,10 +110,11 @@ const install = (fallback: string) =>
 /** Builds the wasm SDK and the node package, then runs the clarinet SDK test files. */
 const clarinetSdk = (files: string[]): Commands => {
   const node = 'components/clarinet-sdk/node';
+  const wasm = 'npm exec --yes --package=wasm-pack@0.15.0 -- node components/clarinet-sdk-wasm/build.mjs';
   return {
     setup: [
       'rustup target add wasm32-unknown-unknown',
-      'npm exec --yes --package=wasm-pack@0.15.0 -- node components/clarinet-sdk-wasm/build.mjs',
+      `(${wasm} || ${wasm})`,
       `if [ -f pnpm-lock.yaml ]; then ${install('11.1.3')}; else npm ci --no-audit --no-fund --ignore-scripts; fi`,
       `(cd ${node} && npx tsc -b ./tsconfig.json ./tsconfig.cjs.json && node ./scripts/prepare-esm-package.js)`,
     ].join(' && '),
