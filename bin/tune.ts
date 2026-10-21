@@ -575,7 +575,8 @@ export const step = async (
       return cases.length ? [evalOf(r.c.id, s, cases, mine, usage(r.c, codex / 2), after, runs)] : [];
     });
     const all = evalOf(r.c.id, 'fit', select, mine, usage(r.c, 0), after, runs);
-    return { ...r, evals: [r.screen, ...splits], all, verdict: decide(t, r.screen, all) };
+    const screen = evalOf(r.c.id, 'fit', screened, mine, usage(r.c, screenCodex), after, runs);
+    return { ...r, evals: [screen, ...splits], all, verdict: decide(t, r.screen, all) };
   });
   const net = (e: Eval) => count(e, 'win') - count(e, 'loss');
   const best = full

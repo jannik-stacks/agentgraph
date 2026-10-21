@@ -196,6 +196,7 @@ describe('tune loop', () => {
       ['i001-manual', 'kept'],
     ]);
     expect(tuneRows(dir).steps[1]!.why).toMatch(/won f1, lost none/);
+    expect(tuneRows(dir).steps[1]!.evals[0]!.flips).toEqual({ f1: 'win' });
     expect(ran.filter(j => j.repeat).map(j => [j.id, j.case, j.repeat])).toEqual([
       ['i000-init', 'f1', 2],
       ['i000-init', 'f1', 3],
