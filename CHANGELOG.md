@@ -22,6 +22,7 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
   toolchain with clippy and rustfmt, then `cargo fetch`) into the `bothub-cache` volume, then runs
   the hub's new `toolchain` script. Later runs and checks reuse it and build offline.
 - `BOTHUB_CACHE_VOLUME` names another volume, and an empty value turns the step off.
+- A file lock in the cache volume stops two runners installing toolchains at once.
 
 ### Starting and sweeping
 
@@ -29,6 +30,17 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
   per issue. Adding it again after a done run starts nothing, and `/bothub restart` runs it again.
 - `loop` first looks at every open issue once, so it catches up on what happened while it was
   down, then looks again every `BOTHUB_EVERY` minutes.
+- GitHub calls that are safe to repeat are retried with backoff on network errors and 502 to 504.
+- A warning at start when the data dir or its mirror is under a temp dir, which the OS may clear.
+
+### Comments and pushes
+
+- Once a question is answered, the status comment moves below the answer, so a finished run no
+  longer reads as asking.
+- A reply with no thread target is posted once, at the top level or under the newest thread, not
+  into every open thread.
+- Changes under `.github/` are left out of a push instead of refusing it, and the pull request
+  names the files a maintainer must push.
 
 ### Check logs
 
