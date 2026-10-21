@@ -34,9 +34,11 @@ type Tune = {
   point: string;
   cases: Record<string, Split>;
   preset: 'hidden' | 'composite';
-  keep: { p: number; delta: number; screen: number };
+  keep: Partial<{ runs: number; drops: number }>;
   clone: string;
 };
+/** A case where the candidate scores half a point off an incumbent whose runs agree; a win or loss once it held. */
+export type Flip = 'up' | 'down' | 'win' | 'loss';
 type Proposer = 'retro' | 'history' | 'manual' | 'skill' | 'structure';
 type Candidate = {
   id: string;
@@ -55,6 +57,7 @@ type Eval = {
   ci: [number, number];
   delta?: number;
   pUp?: number;
+  flips?: Record<string, Flip>;
   usd: number;
   minutes: number;
   codex: number;
@@ -127,11 +130,33 @@ export const paired = (a: number[], b: number[], n = 2000) => {
   };
 };
 
-/** Out on a clear screen loss; kept only when the full run gains enough, with enough confidence. */
+const keepOf = (t: Pick<Tune, 'keep'>) => ({ runs: 3, drops: 2, ...t.keep });
+
+/**
+ * Per case, how the candidate's runs compare with the incumbent's. A case whose incumbent runs disagree is noise and
+ * never flips; a flip is a win or loss once both sides have `runs` runs and none of them overlap.
+ */
+export const flipsOf = (inc: Record<string, number[]>, cand: Record<string, number[]>, runs: number) => {
+  const out: Record<string, Flip> = {};
+  for (const [c, x] of Object.entries(cand)) {
+    const b = inc[c] ?? [];
+    if (!b.length || !x.length || Math.max(...b) - Math.min(...b) >= 0.5) continue;
+    const d = mean(x) - mean(b);
+    if (Math.abs(d) < 0.5) continue;
+    const apart = d > 0 ? Math.min(...x) - Math.max(...b) : Math.min(...b) - Math.max(...x);
+    const held = b.length >= runs && x.length >= runs && apart >= 0.5;
+    out[c] = d > 0 ? (held ? 'win' : 'up') : held ? 'loss' : 'down';
+  }
+  return out;
+};
+
+const count = (e: Eval | undefined, ...of: Flip[]) => Object.values(e?.flips ?? {}).filter(f => of.includes(f)).length;
+
+/** Out when the screen drops `drops` cases and lifts none; kept when more select cases win than lose. */
 export const decide = (t: Pick<Tune, 'keep'>, screen: Eval, full?: Eval): Step['verdict'] =>
-  (screen.delta ?? 0) < -t.keep.screen
+  count(screen, 'down', 'loss') >= keepOf(t).drops && !count(screen, 'up', 'win')
     ? 'screened-out'
-    : full && (full.delta ?? 0) >= t.keep.delta && (full.pUp ?? 0) >= t.keep.p
+    : full && count(full, 'win') > count(full, 'loss')
       ? 'kept'
       : 'discarded';
 
@@ -140,25 +165,20 @@ const ids = (t: Tune, ...splits: Split[]) =>
     .filter(id => splits.includes(t.cases[id]!))
     .sort();
 
-/** Per case quality, cost and minutes of the v2 rows; an infra row scores 0. */
+/** Per case the quality of every v2 run that was not infra, the count of runs, their cost and minutes. */
 const scores = (rows: Row[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
   const human = new Map(rows.filter(r => r.point.includes('/human@')).map(r => [r.case, r]));
-  return new Map(
-    rows
-      .filter(r => r.point.includes('/v2@'))
-      .map(r => [
-        r.case,
-        {
-          q: r.infra ? 0 : quality(r, w, undefined, human.get(r.case)),
-          usd: r.usd ?? 0,
-          min: r.minutes,
-          infra: !!r.infra,
-        },
-      ])
-  );
+  const out = new Map<string, { qs: number[]; runs: number; usd: number; min: number; infra: boolean }>();
+  for (const r of rows.filter(r => r.point.includes('/v2@'))) {
+    const s = out.get(r.case) ?? { qs: [], runs: 0, usd: 0, min: 0, infra: true };
+    if (!r.infra) s.qs.push(quality(r, w, undefined, human.get(r.case)));
+    out.set(r.case, { ...s, runs: s.runs + 1, usd: s.usd + (r.usd ?? 0), min: s.min + r.minutes, infra: !s.qs.length });
+  }
+  return out;
 };
 type Scores = ReturnType<typeof scores>;
+const qsOf = (s: Scores, cases: string[]) => Object.fromEntries(cases.map(c => [c, s.get(c)?.qs ?? []]));
 
 const evalOf = (
   candidate: string,
@@ -166,15 +186,17 @@ const evalOf = (
   cases: string[],
   mine: Scores,
   usage: Pick<Eval, 'codex' | 'claude5h'>,
-  incumbent?: Scores
+  incumbent?: Scores,
+  runs = 3
 ): Eval => {
-  const qs = cases.map(c => mine.get(c)?.q ?? 0);
-  const p =
-    incumbent &&
-    paired(
-      cases.map(c => incumbent.get(c)?.q ?? 0),
+  const qs = cases.map(c => mean(mine.get(c)?.qs ?? []));
+  const p = incumbent && {
+    ...paired(
+      cases.map(c => mean(incumbent.get(c)?.qs ?? [])),
       qs
-    );
+    ),
+    flips: flipsOf(qsOf(incumbent, cases), qsOf(mine, cases), runs),
+  };
   return {
     candidate,
     split,
@@ -184,49 +206,61 @@ const evalOf = (
       qs.map(() => 0),
       qs
     ).ci,
-    ...(p && { delta: p.delta, pUp: p.pUp }),
+    ...(p && { delta: p.delta, pUp: p.pUp, flips: p.flips }),
     usd: round(sum(cases.map(c => mine.get(c)?.usd ?? 0))),
     minutes: round(sum(cases.map(c => mine.get(c)?.min ?? 0))),
     ...usage,
   };
 };
 
+type Job = { id: string; case: string; repeat?: number };
+const outOf = (j: Job) => (j.repeat && j.repeat > 1 ? `${j.id}@${j.repeat}` : j.id);
+
 /** The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. */
 const bench = {
-  run: async (
-    dir: string,
-    t: Tune,
-    jobs: { id: string; case: string }[],
-    o: { parallel: number; judged?: boolean; keys?: string }
-  ) => {
+  run: async (dir: string, t: Tune, jobs: Job[], o: { parallel: number; judged?: boolean; keys?: string }) => {
     const engine = engineAt(t);
-    const call = (args: string[], id: string) =>
+    const call = (args: string[], id: string, repeat = 1) =>
       new Promise<number>(done =>
-        spawn(process.execPath, [join(bothub, 'bin/bench.ts'), ...args, ...(o.keys ? ['--keys', o.keys] : [])], {
-          stdio: ['ignore', 'inherit', 'inherit'],
-          env: {
-            ...process.env,
-            BENCH_HUB: join(dir, 'cands', id, 'hub'),
-            BENCH_CACHE: join(tuneRoot(), '.cache'),
-            BENCH_ENGINE: engine,
-            BENCH_POINT: t.point,
-            NODE_OPTIONS: '',
-          },
-        }).on('close', code => done(code ?? 1))
+        spawn(
+          process.execPath,
+          [
+            join(bothub, 'bin/bench.ts'),
+            ...args,
+            ...(o.keys ? ['--keys', o.keys] : []),
+            ...(repeat > 1 ? ['--repeat', String(repeat)] : []),
+          ],
+          {
+            stdio: ['ignore', 'inherit', 'inherit'],
+            env: {
+              ...process.env,
+              BENCH_HUB: join(dir, 'cands', id, 'hub'),
+              BENCH_CACHE: join(tuneRoot(), '.cache'),
+              BENCH_ENGINE: engine,
+              BENCH_POINT: t.point,
+              NODE_OPTIONS: '',
+            },
+          }
+        ).on('close', code => done(code ?? 1))
       );
     const queue = [...jobs];
     const next = async () => {
       for (let j = queue.shift(); j; j = queue.shift()) {
-        const [caseDir, out] = [join(dir, 'cases', j.case), join(dir, 'runs', j.id)];
+        const [caseDir, out] = [join(dir, 'cases', j.case), join(dir, 'runs', outOf(j))];
         mkdirSync(out, { recursive: true });
-        await call(['run', 'v2', caseDir, out, '--repo', t.clone], j.id);
-        await call(['score', caseDir, out, '--repo', t.clone], j.id);
-        if (o.judged) await call(['judge', caseDir, out, '--judges', 'opus:1,sol:1', '--pairs', 'human'], j.id);
+        await call(['run', 'v2', caseDir, out, '--repo', t.clone], j.id, j.repeat);
+        await call(['score', caseDir, out, '--repo', t.clone], j.id, j.repeat);
+        if (o.judged)
+          await call(['judge', caseDir, out, '--judges', 'opus:1,sol:1', '--pairs', 'human'], j.id, j.repeat);
       }
     };
     await Promise.all(Array.from({ length: o.parallel }, next));
   },
-  rows: (dir: string, id: string) => (existsSync(join(dir, 'runs', id)) ? rowsOf(join(dir, 'runs', id)) : []),
+  /** Rows of every run of a candidate, its repeats in `runs/<id>@<k>` included. */
+  rows: (dir: string, id: string) =>
+    subdirs(join(dir, 'runs'))
+      .filter(n => n === id || n.startsWith(`${id}@`))
+      .flatMap(n => rowsOf(join(dir, 'runs', n))),
   codex: () => codexUsed(),
   propose: (o: Parameters<typeof proposeWith>[0]) => proposeWith(o),
 };
@@ -379,7 +413,7 @@ export const init = async (
       point: o.point,
       cases,
       preset: 'hidden',
-      keep: { p: 0.8, delta: 0.03, screen: 0.2 },
+      keep: { runs: 3, drops: 2 },
       clone: resolve(o.repos, short),
     };
     minimal(
@@ -482,54 +516,82 @@ export const step = async (
     queued.push(enqueue(dir, { id, iteration, parent: inc.hub, proposer, rationale: made.rationale }));
   }
   if (!queued.length) return [];
-  const theirs = scores(io.rows(dir, inc.id), t.preset);
+  const { runs } = keepOf(t);
+  const theirs = () => scores(io.rows(dir, inc.id), t.preset);
   const fit = ids(t, 'fit');
   const offset = ((iteration - 1) * 4) % Math.max(1, fit.length);
   const screened = [...fit.slice(offset), ...fit.slice(0, offset)].slice(0, 4);
   const rest = ids(t, 'fit', 'validate').filter(c => !screened.includes(c));
-  const phase = async (cands: Candidate[], cases: string[]) => {
+  const select = [...screened, ...rest];
+  const phase = async (jobs: Job[], per: number) => {
+    if (!jobs.length) return 0;
     const before = guard(dir, io, limits);
-    const jobs = cands.flatMap(c => cases.map(k => ({ id: c.id, case: k })));
     await io.run(dir, t, jobs, { parallel: o.parallel ?? 6, ...(o.keys && { keys: o.keys }) });
     const after = guard(dir, io, limits);
-    return round(((after.codex?.now ?? 0) - (before.codex?.now ?? 0)) / Math.max(1, cands.length));
+    return round(((after.codex?.now ?? 0) - (before.codex?.now ?? 0)) / Math.max(1, per));
   };
+  const cross = (cands: Candidate[], cases: string[]) => cands.flatMap(c => cases.map(k => ({ id: c.id, case: k })));
   const usage = (c: Candidate, codex: number) => ({ codex, claude5h: claude[c.id] ?? 0 });
-  const screenCodex = await phase(queued, screened);
+  const screenCodex = await phase(cross(queued, screened), queued.length);
+  const before = theirs();
   const results = queued.map(c => {
     const mine = scores(io.rows(dir, c.id), t.preset);
-    const screen = evalOf(c.id, 'fit', screened, mine, usage(c, screenCodex), theirs);
+    const screen = evalOf(c.id, 'fit', screened, mine, usage(c, screenCodex), before, runs);
     const infra = screened.filter(k => mine.get(k)?.infra !== false).length > screened.length / 2;
     return { c, screen, evals: [screen], verdict: infra ? ('infra' as const) : decide(t, screen) };
   });
   const survivors = results.filter(r => r.verdict === 'discarded');
-  const fullCodex =
-    rest.length && survivors.length
-      ? await phase(
-          survivors.map(r => r.c),
-          rest
-        )
-      : 0;
-  const select = [...screened, ...rest];
+  const fullCodex = await phase(
+    cross(
+      survivors.map(r => r.c),
+      rest
+    ),
+    survivors.length
+  );
+  const repeats = (id: string, s: Scores, cases: string[]) =>
+    cases.flatMap(k => {
+      const { qs = [], runs: n = 0 } = s.get(k) ?? {};
+      return Array.from({ length: Math.max(0, runs - qs.length) }, (_, i) => ({ id, case: k, repeat: n + i + 1 }));
+    });
+  const now = theirs();
+  const flipped = survivors.flatMap(r => {
+    const mine = scores(io.rows(dir, r.c.id), t.preset);
+    const f = flipsOf(qsOf(now, select), qsOf(mine, select), runs);
+    const open = Object.keys(f).filter(k => f[k] === 'up' || f[k] === 'down');
+    return Object.values(f).includes('up') && open.length ? [{ id: r.c.id, mine, open }] : [];
+  });
+  const shared = [...new Set(flipped.flatMap(f => f.open))];
+  const confirmCodex = await phase(
+    [...repeats(inc.id, now, shared), ...flipped.flatMap(f => repeats(f.id, f.mine, f.open))],
+    flipped.length
+  );
+  const after = theirs();
   const full = survivors.map(r => {
     const mine = scores(io.rows(dir, r.c.id), t.preset);
+    const codex = fullCodex + (flipped.some(f => f.id === r.c.id) ? confirmCodex : 0);
     const splits = (['fit', 'validate'] as const).flatMap(s => {
       const cases = rest.filter(k => t.cases[k] === s);
-      return cases.length ? [evalOf(r.c.id, s, cases, mine, usage(r.c, fullCodex / 2), theirs)] : [];
+      return cases.length ? [evalOf(r.c.id, s, cases, mine, usage(r.c, codex / 2), after, runs)] : [];
     });
-    const all = evalOf(r.c.id, 'fit', select, mine, usage(r.c, 0), theirs);
+    const all = evalOf(r.c.id, 'fit', select, mine, usage(r.c, 0), after, runs);
     return { ...r, evals: [r.screen, ...splits], all, verdict: decide(t, r.screen, all) };
   });
-  const best = full.filter(r => r.verdict === 'kept').sort((a, b) => (b.all.delta ?? 0) - (a.all.delta ?? 0))[0];
+  const net = (e: Eval) => count(e, 'win') - count(e, 'loss');
+  const best = full
+    .filter(r => r.verdict === 'kept')
+    .sort((a, b) => net(b.all) - net(a.all) || (b.all.delta ?? 0) - (a.all.delta ?? 0))[0];
   const why = (r: (typeof results)[number] & { all?: Eval }) => {
-    const on = (e: Eval) => `${e.delta} over ${e.cases.length} cases, P(gain) ${e.pUp}`;
+    const named = (e: Eval, ...of: Flip[]) =>
+      Object.keys(e.flips ?? {})
+        .filter(k => of.includes(e.flips![k]!))
+        .join(', ') || 'none';
+    const on = (e: Eval) =>
+      `won ${named(e, 'win')}, lost ${named(e, 'loss')}, delta ${e.delta} over ${e.cases.length} cases`;
     if (r.verdict === 'infra') return 'most screen runs said nothing (infra)';
-    if (r.verdict === 'screened-out') return `screen loss ${on(r.screen)}`;
+    if (r.verdict === 'screened-out') return `screen dropped ${named(r.screen, 'down', 'loss')}`;
     if (!r.all) return 'no select cases beyond the screen';
-    if (r === best) return `select gain ${on(r.all)}`;
-    return r.verdict === 'kept'
-      ? `select gain ${on(r.all)}, beaten by ${best!.c.id}`
-      : `select gain ${on(r.all)}, below the bar`;
+    if (r === best) return `select ${on(r.all)}`;
+    return r.verdict === 'kept' ? `select ${on(r.all)}, beaten by ${best!.c.id}` : `select ${on(r.all)}, below the bar`;
   };
   const out: Step[] = [...results.filter(r => r.verdict !== 'discarded'), ...full].map(r => ({
     ...r.c,

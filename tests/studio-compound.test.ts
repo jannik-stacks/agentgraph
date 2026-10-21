@@ -49,7 +49,7 @@ const tune = (repo: string, name: string, steps: Step[]): TuneRows => ({
     point: 'p',
     cases: {},
     preset: 'hidden',
-    keep: { p: 0.8, delta: 0.03, screen: 4 },
+    keep: { runs: 3, drops: 2 },
     clone: '',
   },
   steps,

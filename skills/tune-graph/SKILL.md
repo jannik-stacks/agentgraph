@@ -98,16 +98,18 @@ A subagent that finds no change worth trying says so and proposes nothing. Then 
 node bin/tune.ts step T --k <proposals> --proposers manual --parallel 6
 ```
 
-`step` screens each candidate on 4 cases, runs the survivors on the rest of fit plus validate, and
-keeps the best one only when it beats the incumbent by at least 0.03 with P(gain) at least 0.8.
+`step` screens each candidate on 4 cases (two drops off a steady incumbent and no lift screen it out),
+runs the survivors on the rest of fit plus validate, reruns both hubs on every case that flipped until
+each side has 3 runs, and keeps the best one when more cases flip up and hold than flip down and hold.
+A case where the incumbent's own runs disagree never counts.
 
 ## 5. Read and choose
 
 Run `S/scripts/status.sh T` with the caps from step 1, and read the new lines of `T/iterations.jsonl`:
-verdict, why, delta and pUp. Use them for the next round:
+verdict, why (the cases won and lost) and delta. Use them for the next round:
 
 - Kept: the next round builds on it. A neighbour of the winning direction is a good next try.
-- Close but not kept (delta above 0, pUp under 0.8): try a sharper version once.
+- Close but not kept (a case flipped up but did not hold): try a sharper version once.
 - Screened out or `infra`: do not retry the same change. Look at one trace to learn why before moving on.
 
 After every third kept change, run `node bin/tune.ts checkpoint T` (test split plus judges).

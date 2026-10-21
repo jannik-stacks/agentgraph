@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { decide, init, paired, propose, run, step, tuneRows, type tunesOf } from '../bin/tune.ts';
+import { decide, type Flip, flipsOf, init, paired, propose, run, step, tuneRows, type tunesOf } from '../bin/tune.ts';
 import { fixtures } from '../studio/fixtures.ts';
 import { tmp } from './fixtures.ts';
 
@@ -13,21 +13,20 @@ afterEach(() => {
   delete process.env.VITE_BHM_TUNE;
 });
 
-const evalOf = (delta: number, pUp = 0): Parameters<typeof decide>[1] => ({
+const evalOf = (flips: Record<string, Flip> = {}): Parameters<typeof decide>[1] => ({
   candidate: 'c',
   split: 'fit',
   cases: [],
   quality: 0,
   ci: [0, 0],
-  delta,
-  pUp,
+  flips,
   usd: 0,
   minutes: 0,
   codex: 0,
   claude5h: 0,
 });
 
-describe('paired and decide', () => {
+describe('paired, flips and decide', () => {
   it('measures the gain of b over a case by case', () => {
     expect(paired([0, 0, 0, 0], [1, 1, 1, 1])).toEqual({ delta: 1, pUp: 1, ci: [1, 1] });
     expect(paired([1, 0, 1, 0], [1, 0, 1, 0])).toEqual({ delta: 0, pUp: 0, ci: [0, 0] });
@@ -38,26 +37,79 @@ describe('paired and decide', () => {
     expect(paired([], [])).toEqual({ delta: 0, pUp: 0, ci: [0, 0] });
   });
 
-  it('screens out clear losers and keeps only a confident gain', () => {
-    const t = { keep: { p: 0.8, delta: 0.03, screen: 0.2 } };
-    expect(decide(t, evalOf(-0.25))).toBe('screened-out');
-    expect(decide(t, evalOf(-0.1))).toBe('discarded');
-    expect(decide(t, evalOf(0), evalOf(0.05, 0.9))).toBe('kept');
-    expect(decide(t, evalOf(0), evalOf(0.05, 0.7))).toBe('discarded');
-    expect(decide(t, evalOf(0), evalOf(0.02, 0.95))).toBe('discarded');
+  it('flips a case only off an incumbent whose runs agree, and calls it held after enough runs', () => {
+    const inc = { a: [0.13], b: [1, 1, 1], c: [1, 0.13], d: [0.13, 0.13, 0.13], e: [1], f: [0.87] };
+    const cand = { a: [1], b: [0.13, 0.13, 0.13], c: [0.13], d: [1, 1, 0.13], e: [1], f: [1] };
+    expect(flipsOf(inc, cand, 3)).toEqual({ a: 'up', b: 'loss', d: 'up' });
+    expect(flipsOf({ a: [0.13, 0.13, 0.13] }, { a: [1, 1, 1] }, 3)).toEqual({ a: 'win' });
+    expect(flipsOf({ a: [0.13] }, { a: [] }, 3)).toEqual({});
+  });
+
+  it('screens out two drops and keeps more wins than losses', () => {
+    const t = { keep: { runs: 3, drops: 2 } };
+    expect(decide(t, evalOf({ a: 'down', b: 'down' }))).toBe('screened-out');
+    expect(decide(t, evalOf({ a: 'down', b: 'down', c: 'up' }))).toBe('discarded');
+    expect(decide(t, evalOf({ a: 'down' }))).toBe('discarded');
+    expect(decide(t, evalOf({ a: 'down' }), evalOf({ a: 'win' }))).toBe('kept');
+    expect(decide(t, evalOf(), evalOf({ a: 'win', b: 'loss' }))).toBe('discarded');
+    expect(decide(t, evalOf(), evalOf({ a: 'up' }))).toBe('discarded');
+    expect(decide({ keep: {} }, evalOf({ a: 'down', b: 'loss' }))).toBe('screened-out');
+  });
+
+  /**
+   * Replays the step on simulated cases: a stable case passes 97% or 3% of runs, a flaky one 30% or 70%. A
+   * candidate equal to the incumbent must almost never be kept; one that fixes one stable failing case usually is.
+   */
+  it('rarely keeps a candidate equal to the incumbent and usually keeps one clean fix', () => {
+    let seed = 11;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+    const t = { keep: { runs: 3, drops: 2 } };
+    const trial = (n: number, flaky: number, fix: boolean) => {
+      const ps = Array.from({ length: n }, (_, i) =>
+        i === n - 1 ? 0.03 : rnd() < flaky ? (rnd() < 0.5 ? 0.3 : 0.7) : rnd() < 0.5 ? 0.03 : 0.97
+      );
+      const run = (p: number) => (rnd() < p ? 1 : 0.13);
+      const mine = (i: number) => (fix && i === n - 1 ? 0.97 : ps[i]!);
+      const inc: Record<string, number[]> = Object.fromEntries(ps.map((p, i) => [i, [run(p)]]));
+      const cand: Record<string, number[]> = {};
+      const on = (cases: number[]) => Object.fromEntries(cases.map(i => [i, cand[i]!]));
+      const screen = [0, 1, 2, 3];
+      for (const i of screen) cand[i] = [run(mine(i))];
+      const s = evalOf(flipsOf(inc, on(screen), 3));
+      if (decide(t, s) === 'screened-out') return false;
+      for (let i = 4; i < n; i++) cand[i] = [run(mine(i))];
+      const all = ps.map((_, i) => i);
+      const f = flipsOf(inc, on(all), 3);
+      if (Object.values(f).includes('up'))
+        for (const k of Object.keys(f).filter(k => f[k] === 'up' || f[k] === 'down')) {
+          while (cand[k]!.length < 3) cand[k]!.push(run(mine(+k)));
+          while (inc[k]!.length < 3) inc[k]!.push(run(ps[+k]!));
+        }
+      return decide(t, s, evalOf(flipsOf(inc, on(all), 3))) === 'kept';
+    };
+    const rate = (n: number, flaky: number, fix: boolean) => {
+      let kept = 0;
+      for (let i = 0; i < 4000; i++) kept += +trial(n, flaky, fix);
+      return kept / 4000;
+    };
+    for (const n of [6, 14]) {
+      expect(rate(n, 0.25, false)).toBeLessThan(0.04);
+      expect(rate(n, 0.5, false)).toBeLessThan(0.07);
+      expect(rate(n, 0.25, true)).toBeGreaterThan(0.7);
+    }
   });
 });
 
 /** A bench stand-in: a case passes when the candidate hub has `skills/<case>.md` or `skills/all.md`. */
-const fakeBench = (ran: { id: string; case: string }[]) => ({
-  run: async (_dir: string, _t: unknown, jobs: { id: string; case: string }[]) => void ran.push(...jobs),
+const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
+  run: async (_dir: string, _t: unknown, jobs: typeof ran) => void ran.push(...jobs),
   rows: (dir: string, id: string) =>
     ran
       .filter(j => j.id === id)
       .map(j => ({
         point: 'opencode:luna/v2@e/h/s',
         case: j.case,
-        repeat: 1,
+        repeat: j.repeat ?? 1,
         strata: {},
         hidden: +['all', j.case].some(n => existsSync(join(dir, 'cands', id, 'hub/skills', `${n}.md`))) as 0 | 1,
         vsHuman: {},
@@ -109,7 +161,7 @@ const setup = () => {
 
 describe('tune loop', () => {
   it('starts from the minimal hub, keeps a gain, drops a loss and resumes', async () => {
-    const ran: { id: string; case: string }[] = [];
+    const ran: Parameters<typeof fakeBench>[0] = [];
     const io = fakeBench(ran) as unknown as Parameters<typeof step>[2];
     const dir = await init('demo', setup(), io);
     const check = spawnSync(process.execPath, ['bin/run.ts', 'check', '--hub', join(dir, 'cands/i000-init/hub')], {
@@ -141,9 +193,15 @@ describe('tune loop', () => {
     await step(dir, { k: 1, proposers: ['manual'] }, io);
     expect(tuneRows(dir).steps.map(s => [s.id, s.verdict])).toEqual([
       ['i000-init', 'kept'],
-      ['i001-manual', 'discarded'],
+      ['i001-manual', 'kept'],
     ]);
-    expect(tuneRows(dir).steps[1]!.why).toMatch(/below the bar/);
+    expect(tuneRows(dir).steps[1]!.why).toMatch(/won f1, lost none/);
+    expect(ran.filter(j => j.repeat).map(j => [j.id, j.case, j.repeat])).toEqual([
+      ['i000-init', 'f1', 2],
+      ['i000-init', 'f1', 3],
+      ['i001-manual', 'f1', 2],
+      ['i001-manual', 'f1', 3],
+    ]);
 
     const made = await step(dir, { k: 3, proposers: ['retro', 'history'] }, io);
     expect(made.map(s => [s.id, s.verdict])).toEqual([
@@ -152,11 +210,12 @@ describe('tune loop', () => {
     ]);
     const retro = made.find(s => s.id === 'i002-retro')!;
     expect(retro.evals.map(e => [e.split, e.cases.length, e.delta])).toEqual([
-      ['fit', 4, 1],
+      ['fit', 4, 0.75],
       ['validate', 2, 1],
     ]);
     expect(retro.diff).toContain('skills/all.md');
-    expect(retro.why).toMatch(/select gain 1 over 6 cases/);
+    expect(retro.why).toMatch(/won f2, f3, f4, v1, v2, lost none, delta 0.833 over 6 cases/);
+    expect(made[1]!.why).toMatch(/won none, lost none, delta 0 over 6 cases, below the bar/);
     expect(JSON.parse(readFileSync(join(dir, 'budget.json'), 'utf8')).claude.week).toEqual({ start: 50, now: 50 });
 
     mkdirSync(join(dir, 'manual'));
