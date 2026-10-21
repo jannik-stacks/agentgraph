@@ -87,6 +87,9 @@ const head = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max)}\n... ${text.length - max} more characters`;
 const tail = (text: string, max: number) => (text.length <= max ? text : `...\n${text.slice(-max)}`);
 const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+/** Compiler warning blocks and build progress lines, which crowd out the failure in a test output tail. */
+const noise =
+  /^warning[:[][\s\S]*?(?:\n[ \t]*\n|(?![\s\S]))|^ *(Compiling|Finished|Running|Downloaded|Downloading) .*\n/gm;
 const fence = (text: string, lang = '') => `\`\`\`${lang}\n${text.replaceAll('```', "'''")}\n\`\`\``;
 const save = (path: string, text: string) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -142,7 +145,7 @@ const failures = (cases: string, runs: string, ids: string[], small: boolean): M
       const issue = read(join(cases, id, 'issue.md'));
       const human = read(join(cases, id, 'merged.diff'));
       const bot = read(join(at, 'diff.patch'));
-      const out = hidden.tail.replace(ansi, '');
+      const out = hidden.tail.replace(ansi, '').replace(noise, '');
       const full = traces(at, 60_000);
       const text = [
         `### ${id}: ${titleOf(join(cases, id))}`,

@@ -17,7 +17,9 @@ prevented it in each. If no class repeats, propose nothing.
    ask? Then find in the transcript why. Typical answers: it never ran the tests it wrote; it ran a test
    target that does not cover the code; it read the issue's example differently from the human; it
    stopped after a failing command; its test asserted its own output instead of the issue's example; a
-   check passed wrong work or held right work.
+   check passed wrong work or held right work. A hidden test that fails to compile because it calls a
+   name or signature only the human's diff introduced says little about the bot: count that case only
+   if the issue asked for that API.
 2. Group cases by that line. A class is shared when one fix changes the outcome of every case in it.
    "Did not understand the code" is not a class. "Changed formatter output without running the golden
    file tests that pin it" is.
