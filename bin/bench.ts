@@ -385,7 +385,7 @@ const exec = (cmd: string, cwd: string) => {
   const PATH = [process.env.BENCH_PATH, process.env.PATH].filter(Boolean).join(':');
   const env = { ...process.env, PATH, NODE_OPTIONS: '' };
   const r = spawnSync('sh', ['-c', cmd], { cwd, env, encoding: 'utf8', timeout: 3_600_000, maxBuffer: 1 << 28 });
-  return { ok: r.status === 0, ms: Date.now() - started, tail: `${r.stdout}${r.stderr}`.slice(-2000) };
+  return { ok: r.status === 0, ms: Date.now() - started, tail: `${r.stdout}${r.stderr}`.slice(-8000) };
 };
 
 const coupled =
