@@ -22,7 +22,7 @@ steps=$dir/iterations.jsonl
 budget=$dir/budget.json
 [ -f "$budget" ] || budget=/dev/null
 
-jq -r '"\(.repo)  point \(.point)  engine \(.engine[0:10])",
+jq -r '"\(.repo)  point \(.point)  engine \(if (.engine | test("^[0-9a-f]{40}$")) then .engine[0:10] else .engine end)",
   "cases  " + ([.cases[]] | group_by(.) | map("\(.[0]) \(length)") | join("  "))' "$dir/tune.json"
 
 jq -rs '

@@ -30,6 +30,7 @@ import { codexUsed, plan, rowsOf } from './bench.ts';
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {
   repo: string;
+  /** The release tag at init, like `bothub-v0.2.0`, else the commit; every run needs its `src` tree. */
   engine: string;
   point: string;
   cases: Record<string, Split>;
@@ -404,12 +405,12 @@ export const init = async (
     for (const [i, id] of train.entries()) cases[id] = i < Math.floor(train.length / 2) ? 'mine' : 'fit';
     for (const id of gated) if (splits[id] === 'validate' || splits[id] === 'test') cases[id] = splits[id];
     for (const id of Object.keys(cases)) cpSync(join(o.cases, id), join(dir, 'cases', id), { recursive: true });
-    const engine = spawnSync('git', ['-C', process.env.BENCH_ENGINE ?? bothub, 'rev-parse', 'HEAD'], {
-      encoding: 'utf8',
-    });
+    const engine = (...args: string[]) =>
+      spawnSync('git', ['-C', process.env.BENCH_ENGINE ?? bothub, ...args], { encoding: 'utf8' }).stdout.trim();
     const t: Tune = {
       repo: String(meta(gated[0] ?? '').repo ?? repo),
-      engine: engine.stdout.trim(),
+      engine:
+        engine('describe', '--tags', '--exact-match', '--match', 'bothub-v*', 'HEAD') || engine('rev-parse', 'HEAD'),
       point: o.point,
       cases,
       preset: 'hidden',
