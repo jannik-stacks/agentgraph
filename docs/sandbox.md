@@ -11,6 +11,7 @@ Each container has:
 - a read-only root filesystem and `/tmp` as a tmpfs,
 - the operator's own non-root user, all capabilities dropped and `no-new-privileges`,
 - 4g memory, 1.5 CPUs and 512 pids,
+- the toolchain volume at `/cache`, see [Toolchains](#toolchains),
 - no image pulls,
 - a watchdog that kills it at the timeout.
 
@@ -35,6 +36,26 @@ With `network: models` in `hub.yaml`, sessions and setup join `bothub-models` in
 `setup` in `hub.yaml` is a shell script that runs once in each new checkout, before the first step. Use it to install dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. A setup that fails parks the run, and an answer runs setup and the step again.
 
 The image is built from `infra/local/sandbox`. `smoke.sh` there checks it the way a run uses it.
+
+## Toolchains
+
+The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `bothub-cache` at `/cache`, and rustup and cargo keep their homes there, so a toolchain installed once serves every later run, check and data dir.
+
+When a run's checkout is made, a toolchain step installs what the repo names. It is one container on docker's default network, so it reaches any host, and it runs on the files of the checkout's base commit, never on files a run wrote. It reads the repo's root files:
+
+| Files                                                   | Installs                                                                     |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `Cargo.toml`, `rust-toolchain` or `rust-toolchain.toml` | The pinned toolchain, or stable, with clippy and rustfmt, then `cargo fetch` |
+
+Then it runs the hub's `toolchain` script, for what the repo files do not name, such as a target or a cargo subcommand:
+
+```yaml
+toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
+```
+
+A failed step stops the run with its output. The step runs once per base commit and script in a runner process. On a warm volume it takes seconds, since rustup and cargo find everything installed. Checks then build offline from the fetched crates. <!-- code: src/docker.ts#toolchainOf -->
+
+`BOTHUB_CACHE_VOLUME` names another volume, and an empty value turns off both the volume and the step. The volume is writable by every run, so treat it like the egress network: a run could leave files there that later runs use. `docker volume rm bothub-cache` starts it over.
 
 ## A hub's own image
 
