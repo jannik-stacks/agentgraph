@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.2.0
+
+The baseline for tuning. From here on a repo gets better through its hub, and the engine changes
+rarely. [The hub contract](docs/contract.md) lists the hub fields and commands that stay stable.
+
+### Tuning
+
+- `bin/tune.ts` climbs one hub per repo. Proposers write candidate hubs, each is scored on fit and
+  validate cases against the current best, and a candidate is kept only when its gains hold on a
+  rerun. Every candidate stays as a commit in the tune's hub repo.
+- `tune init` records the engine as the release tag the checkout sits on, or as the commit, and
+  every later run refuses an engine whose `src/` tree differs.
+- The studio's Compound tab draws each tune's climb, its cost and the diff of each step.
+- The `tune-graph` skill runs the same loop by hand, and `scripts/status.sh` sums a tune up on one
+  screen.
+
+### Toolchains
+
+- When a checkout is made, a toolchain step installs what the repo names (the pinned Rust
+  toolchain with clippy and rustfmt, then `cargo fetch`) into the `bothub-cache` volume, then runs
+  the hub's new `toolchain` script. Later runs and checks reuse it and build offline.
+- `BOTHUB_CACHE_VOLUME` names another volume, and an empty value turns the step off.
+
+### Starting and sweeping
+
+- A workflow with `issues: { label: agent:ready }` starts when a maintainer adds the label, once
+  per issue. Adding it again after a done run starts nothing, and `/bothub restart` runs it again.
+- `loop` first looks at every open issue once, so it catches up on what happened while it was
+  down, then looks again every `BOTHUB_EVERY` minutes.
+
+### Check logs
+
+- Every check's full output is kept gzipped by content hash, and a check row in the studio opens
+  it on demand.
+- `BOTHUB_CHECK_LOGS`, `--logs` or `logs` in `instance.yaml` keeps `all`, `failed` or `off`.
+  `node bin/run.ts prune-logs --data <dir>` counts the logs no trace names, and `--apply` deletes
+  them.
+
+### Bench
+
+- `node bin/bench-run.ts --at <sha>` runs a case set on one engine commit. Arms are keyed by the
+  engine's `src/` tree, so validity, arm and judge results are reused when only docs or hubs
+  changed.
+- `--point` (or `BENCH_POINT`) picks a harness and model, `--repeat` runs it several times,
+  `usage.json` records what each run used, and the studio's Bench tab plots cost against quality.
+- `BENCH_HUB` runs a case on a given hub, which is how a tune scores its candidates.
+
 ## 0.1.0
 
 The first versioned release.
