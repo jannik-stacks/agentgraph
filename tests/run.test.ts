@@ -883,7 +883,7 @@ describe('tick', () => {
     expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(git(where.origin, 'rev-parse', 'main'));
   }, 30_000);
 
-  it('answers every thread a burst of review comments came in, and holds none of them once answered', async () => {
+  it('answers a burst of review comments once, under the newest thread, and holds none of them once answered', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
     const line = (id: string, body: string, at: string): Event => ({
@@ -896,7 +896,6 @@ describe('tick', () => {
     const [answered] = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
     expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under])).toEqual([
-      ['Both asked for.', 'r1'],
       ['Both asked for.', 'r2'],
     ]);
     expect(answered!.said).toEqual([{ issue: 8 }]);

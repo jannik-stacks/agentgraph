@@ -1273,8 +1273,9 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
   }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
 
 /**
- * Applies the accepted proposals after a pass, pushes first. A comment with no thread of its own goes to every place in
- * `run.said` that no comment here answers, else to where a human last spoke, else to `to`.
+ * Applies the accepted proposals after a pass, pushes first. A comment with no thread of its own goes once to a place in
+ * `run.said` that no comment here answers, the top level before the newest thread, else to where a human last spoke,
+ * else to `to`.
  */
 const land = (
   run: Run,
@@ -1286,6 +1287,7 @@ const land = (
     const threads = proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : []));
     const open = (run.said ?? []).filter(s => s.under === undefined || !threads.includes(s.under));
     const places = open.length > 0 ? open : [{ issue: run.said?.[0]?.issue ?? to ?? run.issue }];
+    const place = places.find(s => s.under === undefined) ?? places.at(-1)!;
     const sent = [...proposals]
       .sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push'))
       .flatMap((p): [number, Proposal][] =>
@@ -1295,7 +1297,7 @@ const land = (
             ? [[to ?? run.issue, p]]
             : p.edit !== undefined
               ? [[places[0]!.issue, p]]
-              : places.map(s => [s.issue, { ...p, ...(s.under !== undefined && { under: s.under }) }])
+              : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
       );
     return Effect.forEach(sent, ([issue, p]) => forge.apply(issue, p, work));
   });
