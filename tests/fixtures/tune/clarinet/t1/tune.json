@@ -1,0 +1,38 @@
+{
+  "repo": "acme/clarinet",
+  "engine": "b41c9e07d2a35f18c6e0a9d4f27b8135e6c0d942",
+  "point": "opencode:luna",
+  "cases": {
+    "pr-4000": "mine",
+    "pr-4001": "mine",
+    "pr-4002": "mine",
+    "pr-4003": "mine",
+    "pr-4004": "mine",
+    "pr-4005": "mine",
+    "pr-4200": "fit",
+    "pr-4201": "fit",
+    "pr-4202": "fit",
+    "pr-4203": "fit",
+    "pr-4204": "fit",
+    "pr-4205": "fit",
+    "pr-4206": "fit",
+    "pr-4207": "fit",
+    "pr-4208": "fit",
+    "pr-4209": "fit",
+    "pr-4300": "validate",
+    "pr-4301": "validate",
+    "pr-4302": "validate",
+    "pr-4303": "validate",
+    "pr-4400": "test",
+    "pr-4401": "test",
+    "pr-4402": "test",
+    "pr-4403": "test",
+    "pr-4404": "test"
+  },
+  "preset": "hidden",
+  "keep": {
+    "p": 0.8,
+    "delta": 0.03,
+    "screen": 4
+  }
+}
