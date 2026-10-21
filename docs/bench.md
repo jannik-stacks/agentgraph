@@ -19,7 +19,8 @@ override the defaults. A set pins each case's `base`; a case whose folder has an
 a case again instead of reusing it. Either puts the run in `runs/<sha>/<harness>-<model>/r<k>`, with a
 `point.json` that names the harness, model, engine, hub trees, set and repeat. When the keys file has
 `BOTHUB_LLM_API_KEY_PT_<HARNESS>_<MODEL>`, every agent uses that key. `--pairs human` judges each arm
-against the human only.
+against the human only. `BENCH_HUB=<dir>` runs the v2 arm on that hub as it is, in place of the repo's, and its
+content joins the arm's cache key.
 
 Nothing unchanged is run or judged again. Results live in `runs/.cache`: validity by case, an arm by
 case, arm, hub content and the engine's `src` tree (the floor arm leaves the tree out), and the point and

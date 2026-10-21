@@ -260,6 +260,25 @@ describe('points', () => {
     expect(armSlot(c, 'floor')).toBeUndefined();
   });
 
+  it('keys an arm by the BENCH_HUB content, so an unchanged hub hits the cache', () => {
+    const [cache, hub] = [tmp('cache'), tmp('hub')];
+    dirs.push(cache, hub);
+    writeFileSync(join(hub, 'hub.yaml'), 'repo: me/demo\n');
+    process.env.BENCH_CACHE = cache;
+    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
+    const plain = armSlot(c, 'v2');
+    process.env.BENCH_HUB = hub;
+    const tuned = armSlot(c, 'v2');
+    const again = armSlot(c, 'v2');
+    writeFileSync(join(hub, 'hub.yaml'), 'repo: me/demo\nlimits: { minutes: 5 }\n');
+    const changed = armSlot(c, 'v2');
+    delete process.env.BENCH_HUB;
+    delete process.env.BENCH_CACHE;
+    expect(tuned).not.toBe(plain);
+    expect(again).toBe(tuned);
+    expect(changed).not.toBe(tuned);
+  });
+
   it('writes the usage of an arm before caching it without its data', () => {
     const root = tmp('keep');
     dirs.push(root);

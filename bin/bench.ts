@@ -161,7 +161,7 @@ const loadKeys = (file: string) => {
     .join(',');
 };
 
-const codexUsed = () => {
+export const codexUsed = () => {
   spawnSync('codex', ['exec', '-m', 'gpt-6-luna', '--skip-git-repo-check', '-C', tmpdir(), 'Reply with exactly: ok'], {
     timeout: 120_000,
     env: { ...process.env, NODE_OPTIONS: '' },
@@ -213,9 +213,9 @@ export const repoint = (hub: string, point: string) => {
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
   const { start } = (await import(join(engine, 'src/main.ts'))) as typeof import('../src/main.ts');
-  const own = `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
+  const own = process.env.BENCH_HUB ?? `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
-  cpSync(join(engine, own), hub, { recursive: true });
+  cpSync(resolve(engine, own), hub, { recursive: true });
   if (own === 'examples/bench' && c.runner) {
     save(
       join(hub, 'scripts/tests.sh'),
@@ -290,7 +290,7 @@ export const infra = (s: { infra?: string; files?: number; setup?: { ok: boolean
         ? 'run did not finish'
         : undefined);
 
-/** Where an arm run is kept: by case, arm, engine, hub and commands, and the point and repeat when given. */
+/** Where an arm run is kept: by case, arm, engine, hub (`BENCH_HUB` when set) and commands, and the point and repeat when given. */
 export const armSlot = (
   c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup'>,
   arm: string,
@@ -304,7 +304,7 @@ export const armSlot = (
     c.base,
     arm,
     arm === 'floor' ? '' : treeSha,
-    treeText(join(engine, 'examples', own)),
+    treeText(process.env.BENCH_HUB ?? join(engine, 'examples', own)),
     arm === 'floor' ? treeText(here('bench/floor')) : '',
     c.runner,
     c.setup,
