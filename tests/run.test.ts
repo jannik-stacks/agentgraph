@@ -1499,6 +1499,44 @@ describe('coworker', () => {
     expect((await run(tick(assigned, 7, true))).map(r => r.status)).toEqual(['waiting']);
   }, 30_000);
 
+  const ready = {
+    ...small,
+    workflows: { issue: { ...flow, on: { issue_comment: { command: '/bothub' }, issues: { label: 'agent:ready' } } } },
+  };
+  const marked = (actor: string, trusted: boolean, at: string): Event => ({
+    issue: 7,
+    kind: 'label',
+    actor,
+    trusted,
+    at,
+    label: 'agent:ready',
+  });
+
+  it("starts a mention workflow on a maintainer's agent:ready, never on a bot's or an outsider's, and once per issue", async () => {
+    const where = world();
+    writeFileSync(join(where.forge, '7.jsonl'), '');
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
+    expect(await run(sweep(ready))).toEqual([]);
+    say(where, marked('stx-bothub[bot]', false, '2026-10-16T00:00:01.000Z'));
+    say(where, marked('mallory', false, '2026-10-16T00:00:02.000Z'));
+    expect(await run(sweep(ready))).toEqual([]);
+    say(where, marked('morgan', true, '2026-10-16T00:00:03.000Z'));
+    const [asked] = await run(sweep(ready));
+    expect(asked).toMatchObject({ issue: 7, workflow: 'issue', status: 'waiting' });
+    expect(specs).toHaveLength(1);
+    await run(Effect.flatMap(Store, s => s.put({ ...asked!, status: 'done' })));
+    say(where, { ...marked('morgan', true, later(1)), kind: 'unlabel' });
+    say(where, marked('morgan', true, later(2)));
+    expect(await run(sweep(ready))).toEqual([]);
+    expect(specs).toHaveLength(1);
+  }, 30_000);
+
+  it('still starts a mention workflow on /bothub when it also starts on a label', async () => {
+    const where = world();
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
+    expect((await run(sweep(ready))).map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
+  }, 30_000);
+
   it('keeps one status comment through two tries and an ask, with the question in its own comment', async () => {
     const where = world();
     const { run } = services(where, [

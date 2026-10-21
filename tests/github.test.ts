@@ -269,6 +269,12 @@ describe('githubForge', () => {
       'GET /repos/o/r/issues/8/events': [
         { event: 'labeled', actor: { login: 'carol' }, created_at: '2026-10-16T11:00:01Z', label: { name: 'bothub' } },
         { event: 'labeled', actor: { login: 'bob' }, created_at: '2026-10-16T11:00:02Z', label: { name: 'bothub' } },
+        {
+          event: 'labeled',
+          actor: { login: 'stx-bothub[bot]', type: 'Bot' },
+          created_at: '2026-10-16T11:00:03Z',
+          label: { name: 'bothub' },
+        },
       ],
       'GET /repos/o/r/collaborators/carol/permission': { permission: 'admin' },
       'GET /repos/o/r/collaborators/bob/permission': { permission: 'write' },
@@ -276,7 +282,7 @@ describe('githubForge', () => {
     const t = await Effect.runPromise(
       Effect.provide(
         Effect.flatMap(Forge, forge => forge.issue(8)),
-        githubForge(app, f.fetch, undefined, ['bob'])
+        githubForge(app, f.fetch, undefined, ['bob', 'stx-bothub[bot]'])
       )
     );
     expect(t.title).toBe('Issue 8');
@@ -285,6 +291,7 @@ describe('githubForge', () => {
       ['comment', 'bob', true, 'hi'],
       ['label', 'carol', false, undefined],
       ['label', 'bob', true, undefined],
+      ['label', 'stx-bothub[bot]', false, undefined],
     ]);
   });
 

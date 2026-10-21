@@ -1827,7 +1827,13 @@ export const tick = (
       const restart = /^restart$/i.test(verb) ? step : undefined;
       if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || young(m.issue)) continue;
       if (/^(stop|cancel)$/i.test(verb)) continue;
-      const old = restart === undefined && runs.some(r => r.issue === m.issue && m.at <= (r.seen ?? r.started));
+      const old =
+        restart === undefined &&
+        runs.some(
+          r =>
+            r.issue === m.issue &&
+            (m.at <= (r.seen ?? r.started) || (m.kind === 'label' && r.workflow === w.name && r.status === 'done'))
+        );
       const held = [...busy].some(k => k.endsWith(`#${m.issue}`));
       if (!held && !old) yield* start(w, m.issue, m.at, m, restart);
     }
