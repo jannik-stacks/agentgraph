@@ -560,11 +560,12 @@ export const checkpoint = async (dir: string, o: { parallel?: number; keys?: str
   return e;
 };
 
-/** Steps until `iterations`, three steps in a row keep nothing, or a guard stops it; checkpoints every third keep. */
+/** Steps until `iterations`, three steps in a row keep nothing, a step has no candidate, or a guard stops it; checkpoints every third keep. */
 export const run = async (dir: string, o: Parameters<typeof step>[1] & { iterations: number }, io: Io = bench) => {
   let flat = 0;
   for (let i = 0; i < o.iterations && flat < 3; i++) {
     const made = await step(dir, o, io);
+    if (!made.length) break;
     const kept = made.some(s => s.verdict === 'kept');
     flat = kept ? 0 : flat + 1;
     if (kept && tuneRows(dir).steps.filter(s => s.verdict === 'kept').length % 3 === 1) await checkpoint(dir, o, io);

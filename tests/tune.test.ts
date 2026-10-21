@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { decide, init, paired, propose, step, tuneRows, type tunesOf } from '../bin/tune.ts';
+import { decide, init, paired, propose, run, step, tuneRows, type tunesOf } from '../bin/tune.ts';
 import { fixtures } from '../studio/fixtures.ts';
 import { tmp } from './fixtures.ts';
 
@@ -179,6 +179,11 @@ describe('tune loop', () => {
     const before = ran.length;
     expect(await step(dir, { k: 1, proposers: ['manual'] }, io)).toEqual([]);
     expect(ran.length).toBe(before);
+
+    let asked = 0;
+    const silent = { ...io, propose: async () => (asked++, { rationale: 'nothing' }) } as unknown as typeof io;
+    await run(dir, { iterations: 5, proposers: ['retro'] }, silent);
+    expect(asked).toBe(1);
   });
 });
 
