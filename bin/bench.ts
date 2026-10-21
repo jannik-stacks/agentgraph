@@ -528,8 +528,9 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
     const tests = (arm: string) => JSON.parse(read(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
-    save(file, { invalid: invalid(tests('base'), tests('human'), c.bucket === 'tests' || Boolean(c.test)) });
-    if (kept) cpSync(join(out, c.id), kept, { recursive: true, filter: p => !/\/(tree|v2|floor|judge)$/.test(p) });
+    const why = invalid(tests('base'), tests('human'), c.bucket === 'tests' || Boolean(c.test));
+    save(file, { invalid: why });
+    if (kept && why !== 'setup fails') cpSync(join(out, c.id), kept, { recursive: true, filter: p => !/\/(tree|v2|floor|judge)$/.test(p) });
   }
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
 };
