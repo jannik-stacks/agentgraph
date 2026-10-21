@@ -449,7 +449,10 @@ export const init = async (
   return dir;
 };
 
-/** The bench hub with no reviewer: implement with two tries against a tests check, then a human merge. */
+/**
+ * The bench hub with no reviewer: implement with two tries against a tests check, then a human merge. A repo with a
+ * toolchain line builds through the toolchain step, so the case plan's host setup is left out.
+ */
 const minimal = (hub: string, commands: ReturnType<typeof plan>, toolchain?: string) => {
   cpSync(join(bothub, 'examples/bench'), hub, { recursive: true });
   rmSync(join(hub, 'agents/reviewer.md'));
@@ -485,9 +488,9 @@ done`;
     join(hub, 'scripts/tests.sh'),
     `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n${each}\n`
   );
-  if (commands.setup)
-    save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
   if (toolchain) save(join(hub, 'hub.yaml'), `${toolchain}\n${read(join(hub, 'hub.yaml'))}`);
+  else if (commands.setup)
+    save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
 };
 
 /** One iteration: proposals, a screen on a few fit cases, the survivors on the rest of select, at most one kept. */
