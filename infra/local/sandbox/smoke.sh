@@ -10,7 +10,7 @@ trap 'rm -rf "$work"' EXIT
 docker run --rm --pull never --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g --user "$(id -u):$(id -g)" \
   --cap-drop=ALL --security-opt no-new-privileges=true --network none -e HOME=/tmp -v "$work:/work" --workdir /work \
   "$image" sh -c '
-    for tool in ps rg git oxlint oxfmt opencode; do
+    for tool in ps rg git cc oxlint oxfmt opencode rustup-init; do
       command -v "$tool" >/dev/null || { echo "missing tool: $tool"; exit 1; }
     done
     for file in node_modules/@opencode-ai/plugin package-lock.json; do
