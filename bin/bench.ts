@@ -366,6 +366,18 @@ export const armSlot = (
   );
 };
 
+/** The harness's last words when the run's last session ended in an error, as when it cannot reach the proxy. */
+export const harnessError = (data: string) => {
+  const ends = (existsSync(data) ? readdirSync(data) : [])
+    .flatMap(id => lines(join(data, id, 'trace.jsonl')))
+    .flatMap(t => {
+      const e = t.event as { type?: string; ended?: string; final?: string } | undefined;
+      return e?.type === 'end' ? [e] : [];
+    });
+  const last = ends.at(-1);
+  return last?.ended === 'error' ? `harness error: ${String(last.final ?? '').slice(0, 160)}` : undefined;
+};
+
 /** Environment failures an arm may have before it counts as infra, across restarts. */
 const patience = 6;
 
@@ -419,6 +431,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
       const env =
         broke ??
         runnerError(ran?.reason) ??
+        harnessError(join(at, 'data')) ??
         (nothing ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
       if (env) {
         log({ event: 'infra', why: env, attempt });

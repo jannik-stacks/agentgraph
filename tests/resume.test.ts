@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { progress, runnerError, statusText } from '../bin/bench.ts';
+import { harnessError, progress, runnerError, statusText } from '../bin/bench.ts';
 import { append, attic, busy, claim, jsonl, probeUrl, publish, release, settle, write } from '../bin/resume.ts';
 import { tuneRows } from '../bin/tune.ts';
 import { tmp } from './fixtures.ts';
@@ -109,6 +109,20 @@ describe('environment', () => {
   it('probes the proxy from the host', () => {
     expect(probeUrl('http://litellm:4000/v1')).toBe('http://127.0.0.1:4000/health/liveliness');
     expect(probeUrl('http://litellm:4999/v1')).toBe('http://127.0.0.1:4999/health/liveliness');
+  });
+
+  it('calls a run whose last session ended in a harness error infra', () => {
+    const data = root();
+    mkdirSync(join(data, 'issue-1'));
+    const end = (ended: string, final: string) => JSON.stringify({ event: { type: 'end', ended, final, exit: 1 } });
+    writeFileSync(
+      join(data, 'issue-1/trace.jsonl'),
+      `${end('stop', 'done')}\n${end('error', 'Cannot connect to API')}\n`
+    );
+    expect(harnessError(data)).toBe('harness error: Cannot connect to API');
+    writeFileSync(join(data, 'issue-1/trace.jsonl'), `${end('error', 'x')}\n${end('stop', 'done')}\n`);
+    expect(harnessError(data)).toBeUndefined();
+    expect(harnessError(join(data, 'none'))).toBeUndefined();
   });
 
   it('calls a stop on a runner error infra, and an agent outcome not', () => {
