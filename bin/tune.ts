@@ -377,7 +377,12 @@ const pending = (dir: string, steps: Step[]) => {
 };
 
 /** Reads the guards, records them, and throws past a cap. */
-const guard = (dir: string, io: Pick<Io, 'codex'>, limits: Limits, claude?: { fiveHour: number; week: number }) => {
+export const guard = (
+  dir: string,
+  io: Pick<Io, 'codex'>,
+  limits: Limits,
+  claude?: { fiveHour: number; week: number }
+) => {
   const file = join(dir, 'budget.json');
   const b = JSON.parse(read(file) || '{}') as Budget;
   const mark = (r: Reading | undefined, now: number | undefined) =>
@@ -517,7 +522,14 @@ done`;
 /** One iteration: proposals, a screen on a few fit cases, the survivors on the rest of select, at most one kept. */
 export const step = async (
   dir: string,
-  o: { k?: number; proposers?: Proposer[]; parallel?: number; limits?: Limits; keys?: string } = {},
+  o: {
+    k?: number;
+    proposers?: Proposer[];
+    parallel?: number;
+    limits?: Limits;
+    keys?: string;
+    claude?: Record<string, number>;
+  } = {},
   io: Io = bench
 ) => {
   const { tune: t, steps } = tuneRows(dir);
@@ -525,7 +537,7 @@ export const step = async (
   if (!inc) throw new Error(`no incumbent in ${dir}: run init`);
   const limits = o.limits ?? limitsDefault;
   const iteration = nextIteration(steps);
-  const claude: Record<string, number> = {};
+  const claude: Record<string, number> = { ...o.claude };
   const queued = pending(dir, steps);
   const auto = ['retro', 'history', 'structure'] as const;
   const failed: string[] = [];
@@ -601,7 +613,7 @@ export const step = async (
     const codex = fullCodex + (flipped.some(f => f.id === r.c.id) ? confirmCodex : 0);
     const splits = (['fit', 'validate'] as const).flatMap(s => {
       const cases = rest.filter(k => t.cases[k] === s);
-      return cases.length ? [evalOf(r.c.id, s, cases, mine, usage(r.c, codex / 2), after, runs)] : [];
+      return cases.length ? [evalOf(r.c.id, s, cases, mine, { codex: codex / 2, claude5h: 0 }, after, runs)] : [];
     });
     const all = evalOf(r.c.id, 'fit', select, mine, usage(r.c, 0), after, runs);
     const screen = evalOf(r.c.id, 'fit', screened, mine, usage(r.c, screenCodex), after, runs);

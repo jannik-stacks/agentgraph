@@ -137,3 +137,22 @@ Tell the user, in plain short sentences:
 
 Ask whether to adopt it. If yes, write `T/adopt.patch` against the user's current `.bothub/` and tell
 them the command to apply it on a branch of their own. Do not apply it yourself.
+
+## Benchmark mode
+
+When the prompt says benchmark mode, a harness has done steps 1 to 3, runs `tune step` after you and
+decides when to stop. You do one round's proposing, step 4 without its commands, inside the working
+folder. Nothing outside it is readable, and there is no shell. The folder holds:
+
+- `hub/`: the incumbent hub. Leave it as it is.
+- `cases.json` and `cases/<id>/`: the fit and mine cases, with `issue.md`, `merged.diff` and `reviews.md`.
+- `runs/<id>/`: the incumbent's runs on the fit cases: `v2/score.json` (`hidden.ok`, `hidden.tail`),
+  `v2/diff.patch`, and the run trace under `v2/data/`.
+- `tried.md`: every earlier candidate of this tune with its verdict, why and diff.
+- `out/d1/hub` up to `out/d<k>/hub`: copies of the incumbent, one slot per proposal.
+
+Read `tried.md` first and use step 5's rules on it. Then launch the subagents of step 4 in one message,
+one slot and one direction each. A subagent edits only its `out/d<n>/hub` and writes
+`out/d<n>/why.md`, the plain paragraph it would pass as `--why`. A slot left without `why.md` or
+without a change is dropped. The harness checks each hub; when it reports problems, fix them in
+place. End with one line per slot: the slot, its direction and what changed.

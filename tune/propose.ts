@@ -264,8 +264,10 @@ type Event = {
   structured_output?: unknown;
   result?: string;
   rate_limit_info?: { unifiedWindows?: Record<string, { utilization?: number } | undefined> };
+  message?: { content?: unknown };
 };
-const events = (stream: string) =>
+/** The events of a stream-json session, lines that are not JSON left out. */
+export const events = (stream: string) =>
   stream.split('\n').flatMap(line => {
     try {
       return [JSON.parse(line) as Event];
@@ -364,7 +366,8 @@ const apply = (hub: string, changes: Change[]) => {
   return problems;
 };
 
-const hubProblems = (hub: string) =>
+/** The hub check's problems, empty when the hub loads. */
+export const hubProblems = (hub: string) =>
   Effect.runPromise(
     loadHub(hub).pipe(
       Effect.map(() => [] as string[]),
