@@ -56,6 +56,7 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line, and
  * `GET /core/logs/<hash>` the full output of a check.
  * `GET /core/bench` answers the rows of every bench out dir under the dirs `VITE_BHM_BENCH` names, and the price table.
+ * `GET /core/compound` answers every tune under `VITE_BHM_TUNE` (default ~/bothub-data/tune) with its steps.
  * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const fixtures = (): Plugin => ({
@@ -88,6 +89,10 @@ export const fixtures = (): Plugin => ({
         rows: dirs.flatMap(dir => outsOf(dir)).flatMap(rowsOf),
         prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
+    });
+    server.middlewares.use('/core/compound', async (_req, res) => {
+      const { tunesOf }: typeof import('../bin/tune.ts') = await from('bin/tune.ts');
+      json(res, { tunes: tunesOf(process.env.VITE_BHM_TUNE) });
     });
     server.middlewares.use('/core/logs', async (req, res) => {
       const data = process.env.VITE_BHM_DATA;

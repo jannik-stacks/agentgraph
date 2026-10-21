@@ -14,6 +14,7 @@ const { values, positionals } = parseArgs({
     data: { type: 'string' },
     instance: { type: 'string' },
     bench: { type: 'string', multiple: true },
+    tune: { type: 'string' },
   },
 });
 const instance = values.instance === undefined ? undefined : instanceAt(values.instance);
@@ -32,6 +33,7 @@ if (Either.isLeft(loaded))
 process.env.VITE_BHM_HUB = hubDir;
 process.env.VITE_BHM_DATA = dataDir;
 if (values.bench) process.env.VITE_BHM_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
+if (values.tune) process.env.VITE_BHM_TUNE = resolve(values.tune);
 const vite = await createServer({ root: import.meta.dirname });
 await vite.listen().catch((e: Error) => {
   console.error(`bhm: ${e.message}; pick another port with BHM_PORT`);

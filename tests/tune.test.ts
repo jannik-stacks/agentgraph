@@ -3,12 +3,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decide, init, paired, propose, step, tuneRows } from '../bin/tune.ts';
+import { fixtures } from '../studio/fixtures.ts';
 import { tmp } from './fixtures.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   delete process.env.BOTHUB_TUNE;
+  delete process.env.VITE_BHM_TUNE;
 });
 
 const evalOf = (delta: number, pUp = 0): Parameters<typeof decide>[1] => ({
@@ -180,3 +182,28 @@ describe('tune loop', () => {
 });
 
 const tuneRoot = (dir: string) => join(dir, '..', '..');
+
+describe('/core/compound', () => {
+  it('answers every tune under VITE_BHM_TUNE with its steps', async () => {
+    const routes: Record<string, (req: unknown, res: unknown) => Promise<void>> = {};
+    const plugin = fixtures().configureServer as (server: unknown) => void;
+    plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
+    process.env.VITE_BHM_TUNE = join(import.meta.dirname, 'fixtures/tune');
+    let body = '';
+    await routes['/core/compound']!({}, { setHeader: () => {}, end: (b: string) => (body = b) });
+    const { tunes } = JSON.parse(body) as { tunes: (ReturnType<typeof tuneRows> & { key: string })[] };
+    expect(tunes.map(t => [t.key, t.tune.repo, t.steps.length])).toEqual([
+      ['clarinet/skill@1', 'acme/clarinet', 3],
+      ['stacks.js/t1', 'acme/stacks.js', 7],
+    ]);
+    expect(tunes[1]!.steps.map(s => s.verdict)).toEqual([
+      'kept',
+      'kept',
+      'screened-out',
+      'discarded',
+      'infra',
+      'kept',
+      'discarded',
+    ]);
+  });
+});
