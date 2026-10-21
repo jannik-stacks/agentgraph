@@ -1209,6 +1209,30 @@ describe('sweep', () => {
     expect(await run(Effect.flatMap(Store, s => s.read('run-9').pipe(Stream.runCollect)))).toHaveProperty('length', 0);
   }, 30_000);
 
+  it('resumes a finished run on a comment that the repo-wide look has already passed', async () => {
+    const where = world();
+    writeFileSync(
+      join(where.forge, '9.md'),
+      '---\ntitle: Issue 9\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody 9.\n'
+    );
+    const done = (issue: number, started: string): Run => ({
+      ...begin(small.workflows.issue!, { id: `run-${issue}`, issue, started }),
+      status: 'done',
+    });
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'comment', body: 'gh-pages it is.' })]]);
+    await run(
+      Effect.flatMap(Store, s =>
+        Effect.forEach([done(7, '2026-10-16T00:00:00.000Z'), done(9, '2026-10-19T00:00:00.000Z')], s.put)
+      )
+    );
+    where.human('use gh-pages', '2026-10-17T00:00:00.000Z');
+    expect(await run(tick(small))).toEqual([]);
+    const touched = await run(sweep(small));
+    expect(touched.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
+    expect(specs[0]!.prompt).toContain('use gh-pages');
+    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('gh-pages it is.');
+  }, 30_000);
+
   it('looks at issues side by side, up to limits.parallel', async () => {
     const where = world();
     writeFileSync(

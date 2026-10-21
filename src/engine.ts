@@ -1927,16 +1927,17 @@ export const tick = (
 
 /**
  * One pass over the open issues and the issues of live runs, up to `limits.parallel` at once: each gets one look, and a
- * new run only on a trusted mark.
+ * new run only on a trusted mark. Each issue is read from its own last run on, so it catches up on what a repo-wide
+ * look has passed. `quiet` is as for `tick`.
  */
-export const sweep = (hub: Hub): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+export const sweep = (hub: Hub, quiet = 0): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(
       t => !t.pull && inScope(hub, t)
     );
     const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(live);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
-    return (yield* Effect.forEach(issues, n => tick(hub, n, true), {
+    return (yield* Effect.forEach(issues, n => tick(hub, n, true, quiet), {
       concurrency: hub.limits.parallel,
     })).flat();
   });

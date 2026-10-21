@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { ConfigProvider, Effect, Layer, Schedule } from 'effect';
+import { ConfigProvider, Effect, Layer } from 'effect';
 import { settle, sweep, tick } from './engine.ts';
-import { hubAt, loadHub } from './hub.ts';
+import { hubAt, loadHub, type Hub } from './hub.ts';
 import { layers, settings, type Services, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
@@ -29,8 +29,8 @@ const configured = (extra: Record<string, string>) =>
   );
 
 /**
- * Reads the settings, the App env file named by `BOTHUB_APP_ENV` and the environment, builds the services and ticks
- * every `every` minutes. With `one`, it looks at that issue once, or at every open issue once when `issue` is
+ * Reads the settings, the App env file named by `BOTHUB_APP_ENV` and the environment, builds the services, catches up
+ * with one sweep and then ticks every `every` minutes. With `one`, it looks at that issue once, or at every open issue once when `issue` is
  * `'all'`, and resolves with the runs it touched. The only place that leaves Effect.
  */
 export const start = (
@@ -51,12 +51,19 @@ export const start = (
         const provider = yield* configured({});
         const loop = Effect.gen(function* () {
           const s = yield* settings;
-          const once = hubAt(s.hub).pipe(
-            Effect.flatMap(hub => tick(hub, undefined, false, settle)),
-            Effect.scoped,
-            Effect.catchAll(e => Effect.logError(e))
+          const look = (pass: (hub: Hub) => Effect.Effect<Run[], unknown, Services>) =>
+            hubAt(s.hub).pipe(
+              Effect.flatMap(pass),
+              Effect.scoped,
+              Effect.catchAll(e => Effect.logError(e))
+            );
+          yield* look(hub => sweep(hub, settle));
+          return yield* Effect.forever(
+            Effect.zipRight(
+              Effect.sleep(`${s.every} minutes`),
+              look(hub => tick(hub, undefined, false, settle))
+            )
           );
-          return yield* Effect.repeat(once, Schedule.spaced(`${s.every} minutes`));
         });
         yield* provided(loop).pipe(Effect.withConfigProvider(provider));
         return [];
