@@ -73,6 +73,11 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
   if (!existsSync(join(dir, 'tune.json'))) {
     cpSync(join(like, 'cases'), join(dir, 'cases'), { recursive: true });
     cpSync(join(like, 'cands', first.id, 'hub'), join(dir, 'cands/i000-init/hub'), { recursive: true });
+    for (const id of idsOf(t.cases, 'fit', 'validate').filter(id => existsSync(join(like, 'runs', first.id, id))))
+      cpSync(join(like, 'runs', first.id, id), join(dir, 'runs/i000-init', id), {
+        recursive: true,
+        filter: src => !skipped.has(basename(src)),
+      });
     spawnSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
     save(join(dir, 'tune.json'), t);
   }

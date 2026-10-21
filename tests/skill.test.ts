@@ -102,12 +102,18 @@ describe('skill benchmark', () => {
     const ran: Parameters<typeof fakeBench>[0] = [];
     const io = fakeBench(ran);
     const like = await init('demo', s, io);
+    for (const id of ['f1', 'v1']) {
+      mkdirSync(join(like, 'runs/i000-init', id, 'v2/data/issue-1'), { recursive: true });
+      writeFileSync(join(like, 'runs/i000-init', id, 'v2/data/issue-1/trace.jsonl'), '{}\n');
+    }
     const dir = await skill(like, options(1), io);
 
     expect(dir).toBe(join(s.root, 'tune', 'demo', 'skill@t'));
     expect(tuneRows(dir).tune).toEqual(tuneRows(like).tune);
     const w = join(dir, 'skill', 'r001');
     expect(readdirSync(join(w, 'cases')).sort()).toEqual(['f1', 'f2', 'f3', 'f4', 'm1', 'm2', 'm3', 'm4']);
+    expect(existsSync(join(w, 'runs/f1/v2/data/issue-1/trace.jsonl'))).toBe(true);
+    expect(existsSync(join(w, 'runs/v1'))).toBe(false);
     expect(Object.keys(JSON.parse(readFileSync(join(w, 'cases.json'), 'utf8')))).not.toContain('v1');
     const calls = readFileSync(s.root + '/calls.jsonl', 'utf8')
       .trim()
