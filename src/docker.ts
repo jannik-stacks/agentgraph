@@ -27,9 +27,8 @@ export const toolchainOf = (files: string[]) => {
   if (!pinned && !has('Cargo.toml')) return [];
   return [
     'command -v rustup >/dev/null || rustup-init -y -q --no-modify-path --default-toolchain none --profile minimal',
-    pinned
-      ? 'rustup toolchain install -c clippy -c rustfmt'
-      : 'rustup toolchain install stable -c clippy -c rustfmt && rustup default stable',
+    pinned ? 'rustup toolchain install' : 'rustup default stable',
+    'rustup component add clippy rustfmt',
     ...(has('Cargo.toml') ? [has('Cargo.lock') ? 'cargo fetch --locked' : 'cargo fetch'] : []),
   ];
 };

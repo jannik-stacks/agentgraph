@@ -226,16 +226,17 @@ describe('toolchainOf', () => {
   it('installs the pinned Rust toolchain with clippy and rustfmt and fetches the locked crates', () => {
     expect(toolchainOf(['Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'README.md'])).toEqual([
       'command -v rustup >/dev/null || rustup-init -y -q --no-modify-path --default-toolchain none --profile minimal',
-      'rustup toolchain install -c clippy -c rustfmt',
+      'rustup toolchain install',
+      'rustup component add clippy rustfmt',
       'cargo fetch --locked',
     ]);
   });
 
   it('falls back to stable without a toolchain file and fetches without a lockfile', () => {
     const lines = toolchainOf(['Cargo.toml']);
-    expect(lines[1]).toBe('rustup toolchain install stable -c clippy -c rustfmt && rustup default stable');
-    expect(lines[2]).toBe('cargo fetch');
-    expect(toolchainOf(['rust-toolchain.toml'])).toHaveLength(2);
+    expect(lines[1]).toBe('rustup default stable');
+    expect(lines[3]).toBe('cargo fetch');
+    expect(toolchainOf(['rust-toolchain.toml'])).toHaveLength(3);
   });
 
   it('installs nothing for a repo without a toolchain it knows', () => {
