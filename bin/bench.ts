@@ -535,7 +535,7 @@ export const failureClass = (tail: string) => (coupled.test(tail) ? 'coupled' : 
 
 /**
  * Scores a diff in the case's Env: setup runs again only when the diff touches a manifest or the Env could not hold
- * everything setup made, else only `build`. Hidden tests reach the tree after the Env exists.
+ * everything setup made, else only `build`, and nothing for an empty diff. Hidden tests reach the tree after the Env exists.
  */
 const check = async (c: Case & Commands, tree: string, diff: string, hidden: string[], repo: string) => {
   sh('git', ['-C', tree, 'checkout', '-q', '-f', c.base]);
@@ -559,7 +559,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const from = env?.image ?? image;
   try {
     const again = !env?.complete || files(diff).some(f => manifest.test(f.path));
-    const prep = again ? c.setup : c.build;
+    const prep = again ? c.setup : diff.trim() ? c.build : undefined;
     const suite = c.suite ?? c.test;
     const result = {
       applied: true,
