@@ -399,7 +399,9 @@ const check = (c: Case & Commands, tree: string, diff: string, hidden: string[])
   sh('git', ['-C', tree, 'clean', '-qfdx', '-e', 'node_modules', '-e', 'target']);
   if (
     diff &&
-    spawnSync('git', ['-C', tree, 'apply', '--whitespace=nowarn', '-'], { input: `${diff.trimEnd()}\n` }).status
+    spawnSync('git', ['-C', tree, 'apply', '--whitespace=nowarn', '-'], {
+      input: diff.endsWith('\n') ? diff : `${diff}\n`,
+    }).status
   )
     return { applied: false };
   const suite = c.suite ?? c.test;
