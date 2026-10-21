@@ -193,6 +193,9 @@ const guard = (out: string, claude: boolean) => {
 const forge = (dir: string, ...args: string[]) =>
   sh(process.execPath, [here('bin/forge.ts'), dir, ...args, '--as', 'maintainer']);
 
+/** The floor arm's harness and model, from BENCH_POINT as `harness:model`. */
+const pointOf = () => process.env.BENCH_POINT?.split(':') as [string, string] | undefined;
+
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
   const own = `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
@@ -229,6 +232,16 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     for (const d of ['agents', 'skills']) rmSync(join(hub, d), { recursive: true, force: true });
     rmSync(join(hub, 'checks'), { recursive: true, force: true });
     cpSync(here('bench/floor'), hub, { recursive: true });
+    const point = pointOf();
+    if (point) {
+      const agent = join(hub, 'agents/implementor.md');
+      save(
+        agent,
+        read(agent)
+          .replace(/^harness: .*$/m, `harness: ${point[0]}`)
+          .replace(/^model: .*$/m, `model: ${point[1]}`)
+      );
+    }
   }
   const dir = join(at, 'forge');
   forge(dir, 'init', repo, '--at', c.base);
@@ -287,7 +300,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     arm,
     arm === 'floor' ? '' : treeSha,
     treeText(join(engine, 'examples', own)),
-    arm === 'floor' ? treeText(here('bench/floor')) : '',
+    arm === 'floor' ? treeText(here('bench/floor')) + (process.env.BENCH_POINT ?? '') : '',
     c.runner,
     c.setup
   );
