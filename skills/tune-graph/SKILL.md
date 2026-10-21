@@ -71,7 +71,7 @@ the starting score.
 
 Read the incumbent hub at `T/cands/<id>/hub` (the last `kept` line of `T/iterations.jsonl`), the traces
 and diffs of its fit cases that scored below 1 under `T/runs/<id>/`, and the merged diffs and
-`reviews.md` of the mine cases. Then launch 3 to 5 subagents (sonnet) in one message. Each owns one
+`reviews.md` of the mine cases. Then launch 3 to 5 subagents (opus) in one message. Each owns one
 direction, and no two share one:
 
 - **Structure**: add a reviewer step, drop a step, `tries` 2 to 3, a scout step before implement, a
