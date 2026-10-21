@@ -1676,6 +1676,17 @@ export const tick = (
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`react for run ${run.id}`, e), run))
       );
     };
+    /** An answered question: its status comment, posted above it, says so, and the run's next status goes below the answer. */
+    const past = (asked: Run, moved: Run): Effect.Effect<Run, StoreError> => {
+      if (!asked.comment) return Effect.succeed(moved);
+      const { comment: _old, ...rest } = moved;
+      const note: Proposal = { kind: 'comment', body: `Asked the question below at ${asked.step}.`, edit: asked.comment };
+      return forge.apply(asked.issue, note).pipe(
+        Effect.tap(applied => store.trace(asked.id, { at: now(), step: asked.step, applied })),
+        Effect.map(a => (a.ok ? rest : moved)),
+        Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${asked.id}`, e), moved))
+      );
+    };
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
     const command = commandOf(hub);
     /** A trusted comment on a thread the bot has a run on speaks to the bot, unless it mentions someone else. */
@@ -1762,7 +1773,8 @@ export const tick = (
         ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
         seen: newest(...answers.map(a => a.at))!,
       };
-      const next = moved.status === 'running' ? moved : yield* show(w, moved);
+      const kept = run.status === 'waiting' && run.reason && moved.status !== 'waiting' ? yield* past(run, moved) : moved;
+      const next = kept.status === 'running' ? kept : yield* show(w, kept);
       yield* record(run, outcome, next);
     }
     for (const parent of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id))) {

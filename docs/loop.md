@@ -232,7 +232,7 @@ The hub's version is a hash of `hub.yaml`, the agents, skills, checks, workflows
 
 ## Status on the issue
 
-The engine keeps one status comment on the issue up to date: the step and try, a link to the open question, why the run stopped, the cost so far, the pull request and any failing GitHub checks on it. It also keeps one status label: `bothub:working`, `bothub:waiting`, `bothub:done` or `bothub:stopped`. <!-- code: src/context.ts#shown -->
+The engine keeps one status comment on the issue up to date: the step and try, a link to the open question, why the run stopped, the cost so far, the pull request and any failing GitHub checks on it. It also keeps one status label: `bothub:working`, `bothub:waiting`, `bothub:done` or `bothub:stopped`. <!-- code: src/context.ts#shown --> Once a question is answered, the status comment above it says it asked the question below, and the next status is a new comment under the answer, so a finished run never reads as asking. <!-- code: src/engine.ts#tick -->
 
 ## Order and limits
 

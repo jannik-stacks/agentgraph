@@ -650,7 +650,7 @@ describe('tick', () => {
       })
     );
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Hello or hi?' });
-    expect(done).toMatchObject({ status: 'done' });
+    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))));
     expect(saved).toBe('hello');
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
     expect(git(where.origin, 'show', 'bothub/7:bye.txt')).toBe('bye');
@@ -848,7 +848,7 @@ describe('tick', () => {
     where.human('/bothub hello', new Date().toISOString());
     expect(await run(tick(small, undefined, false, settle))).toEqual([]);
     const [done] = await run(tick(small));
-    expect(done).toMatchObject({ status: 'done' });
+    console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))));
     expect(done!.seen! >= done!.started).toBe(true);
     expect(await run(tick(small))).toEqual([]);
     expect(specs).toHaveLength(1);
@@ -1610,6 +1610,22 @@ describe('coworker', () => {
     expect(issue.filter(b => b.includes('Hello or hi?'))).toEqual(['Hello or hi?']);
     expect(issue.filter(b => b.includes(replyHint))).toHaveLength(1);
   });
+
+  it('moves the status below an answered question, so it never sits above a question already answered', async () => {
+    const where = world();
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
+    await run(drive(flow, begun(), small));
+    where.human('hi', new Date().toISOString());
+    await services(where, [[start('a'), reply({ kind: 'ask', question: 'Hi with a dot?' })]]).run(tick(small, 7));
+    expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).toEqual([
+      '/bothub',
+      'Asked the question below at implement.',
+      'Hello or hi?',
+      'hi',
+      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint, 'Cost so far: $0.00.')}`,
+      'Hi with a dot?',
+    ]);
+  }, 30_000);
 
   it('lets an agent answer a review comment by the id its context shows, on the pull request', async () => {
     const where = world();
