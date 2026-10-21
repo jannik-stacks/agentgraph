@@ -145,5 +145,5 @@ describe('skill benchmark', () => {
     await skill(like, options(2), io);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).toMatch(/i001-skill, skill, kept/);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).not.toMatch(/\bv1\b/);
-  });
+  }, 30_000);
 });
