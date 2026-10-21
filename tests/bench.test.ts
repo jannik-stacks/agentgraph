@@ -312,7 +312,19 @@ describe('plan', () => {
     expect(plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])).toEqual({
       test: 'cargo test -p clarinet-deployments --test remap',
     });
-    expect(plan('acme/clarinet', ['components/clarinet-sdk/node/tests/a.test.ts'])).toEqual({ hasTests: false });
+    expect(plan('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar'])).toEqual({
+      test: 'cargo test -p clarinet-format --tests',
+    });
+    expect(plan('acme/clarinet', ['components/clarity-repl/src/analysis/coverage_tests.rs']).test).toBe(
+      'cargo test -p clarity-repl --lib analysis::coverage_tests'
+    );
+    expect(plan('acme/clarinet', ['components/clarinet-sdk/node/tests/a.test.ts'])).toMatchObject({
+      setup: expect.stringContaining('build.mjs'),
+      test: "(cd components/clarinet-sdk/node && npx vitest run 'tests/a.test.ts')",
+    });
+    expect(plan('acme/explorer', ['src/a/__tests__/__snapshots__/B.test.tsx.snap']).test).toContain(
+      "'src/a/__tests__/B.test.tsx'"
+    );
     expect(plan('acme/stacks.js', [])).toEqual({ hasTests: false });
   });
 });

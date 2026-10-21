@@ -58,7 +58,7 @@ const answer = '/bothub No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
 const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
 const panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
-const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_test\.\w+$/;
+const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_tests?\.\w+$/;
 const noise = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|CHANGELOG[^/]*)$/;
 const caseStart = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|#\[(?:tokio::)?test\]|def test_|func Test)/;
 const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
@@ -102,13 +102,50 @@ const step = async <A>(out: string, entry: Record<string, unknown>, f: () => A |
 };
 
 const quote = (p: string) => `'${p.replaceAll("'", "'\\''")}'`;
+/** The pnpm version from packageManager, else the major that writes the lockfile's version, else `fallback`. */
+const pnpmVersion = (fallback: string) =>
+  `node -p "const m = require('./package.json').packageManager ?? ''; const v = /lockfileVersion: '?(\\d+)/.exec(require('fs').readFileSync('pnpm-lock.yaml', 'utf8'))?.[1]; m.startsWith('pnpm@') ? m.slice(5).split('+')[0] : ({ 5: '7', 6: '8' })[v] ?? '${fallback}'"`;
 const install = (fallback: string) =>
-  `npx --yes pnpm@$(node -p "((require('./package.json').packageManager ?? '').split('@')[1] ?? '${fallback}').split('+')[0]") install --frozen-lockfile --ignore-scripts --store-dir node_modules/.pnpm-store`;
+  `npx --yes pnpm@$(${pnpmVersion(fallback)}) install --frozen-lockfile --ignore-scripts --store-dir node_modules/.pnpm-store`;
+/** Builds the wasm SDK and the node package, then runs the clarinet SDK test files. */
+const clarinetSdk = (files: string[]): Commands => {
+  const node = 'components/clarinet-sdk/node';
+  return {
+    setup: [
+      'rustup target add wasm32-unknown-unknown',
+      'npm exec --yes --package=wasm-pack@0.13.1 -- node components/clarinet-sdk-wasm/build.mjs',
+      `if [ -f pnpm-lock.yaml ]; then ${install('11.1.3')}; else npm ci --no-audit --no-fund --ignore-scripts; fi`,
+      `(cd ${node} && npx tsc -b ./tsconfig.json ./tsconfig.cjs.json && node ./scripts/prepare-esm-package.js)`,
+    ].join(' && '),
+    test: `(cd ${node} && npx vitest run ${files.map(p => quote(p.slice(node.length + 1))).join(' ')})`,
+  };
+};
+/** Cargo commands for test targets, fixtures under a crate's tests/ and `*_tests.rs` modules in src. */
+const cargoTests = (tests: string[]) => {
+  const at = (re: RegExp) =>
+    tests.flatMap(p => {
+      const m = re.exec(p);
+      return m ? [[m[1]!, m[2]!] as const] : [];
+    });
+  const targets = at(/^components\/([^/]+)\/tests\/([^/]+)\.rs$/);
+  const fixtures = at(/^components\/([^/]+)\/tests\/(.+\.(?!rs$)\w+)$/)
+    .map(([crate]) => crate)
+    .filter(crate => !targets.some(([named]) => named === crate));
+  return [
+    ...targets.map(([crate, test]) => `cargo test -p ${crate} --test ${test}`),
+    ...[...new Set(fixtures)].map(crate => `cargo test -p ${crate} --tests`),
+    ...at(/^components\/([^/]+)\/src\/(.+_tests)\.rs$/).map(
+      ([crate, mod]) => `cargo test -p ${crate} --lib ${mod.replaceAll('/', '::')}`
+    ),
+  ];
+};
 
 /** The test command and its setup, from the repo and the test files a merged change touches. */
 export const plan = (repo: string, tests: string[]): Commands => {
   const name = repo.split('/').pop();
-  const js = tests.filter(p => /\.(test|spec)\.[jt]sx?$/.test(p));
+  const js = [...new Set(tests.map(p => p.replace(/^(.*\/)__snapshots__\/(.+)\.snap$/, '$1$2')))].filter(p =>
+    /\.(test|spec)\.[jt]sx?$/.test(p)
+  );
   const files = js.map(quote).join(' ');
   if (name === 'billing' && js.length) {
     const runner = 'node_modules/.bin/vitest run';
@@ -127,12 +164,11 @@ export const plan = (repo: string, tests: string[]): Commands => {
         .join(' ')})`;
     return { setup: 'npm ci --no-audit --no-fund --ignore-scripts', test: dirs.map(run).join(' && ') };
   }
-  const rust = tests.flatMap(p => {
-    const m = /^components\/([^/]+)\/tests\/([^/]+)\.rs$/.exec(p);
-    return m ? [`cargo test -p ${m[1]} --test ${m[2]}`] : [];
-  });
-  if (name === 'clarinet' && rust.length) return { test: rust.join(' && ') };
-  return { hasTests: false };
+  if (name !== 'clarinet') return { hasTests: false };
+  const sdk = js.filter(p => p.startsWith('components/clarinet-sdk/node/tests/'));
+  const run = sdk.length ? clarinetSdk(sdk) : {};
+  const test = [...cargoTests(tests), ...(run.test ? [run.test] : [])];
+  return test.length ? { ...run, test: test.join(' && ') } : { hasTests: false };
 };
 
 const loadCase = (dir: string): Case & Commands => {
