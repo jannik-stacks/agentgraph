@@ -50,6 +50,8 @@ export type Hub = {
   limits: Limits;
   /** A shell script each checkout runs once, with network, before the first step. */
   setup?: string;
+  /** A shell script the toolchain step runs after the installs it detects, on the base commit's files, with network. */
+  toolchain?: string;
   /** The local image every command of a run starts in, instead of the default sandbox image. */
   image?: string;
   /** What the network of sessions and setup reaches: the egress allowlist and the model proxy, or the model proxy only. */
@@ -73,6 +75,7 @@ const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(sc
 const HubFile = Schema.Struct({
   repo: exact(Schema.String),
   setup: exact(Schema.String),
+  toolchain: exact(Schema.String),
   image: exact(Schema.String.pipe(Schema.pattern(/^[a-z0-9][\w./:@-]*$/))),
   network: exact(Schema.Literal('egress', 'models')),
   stacks: exact(Schema.Boolean),
@@ -415,6 +418,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       sha: sha.digest('hex'),
       limits: hub.limits,
       ...(hub.setup !== undefined && { setup: hub.setup }),
+      ...(hub.toolchain !== undefined && { toolchain: hub.toolchain }),
       ...(hub.image !== undefined && { image: hub.image }),
       ...(hub.network !== undefined && { network: hub.network }),
       ...(hub.stacks !== undefined && { stacks: hub.stacks }),

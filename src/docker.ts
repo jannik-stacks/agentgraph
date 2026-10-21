@@ -11,7 +11,7 @@ import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout 
 const networks = { egress: 'bothub-sandbox', models: 'bothub-models' } as const;
 const egress = 'http://egress:8888';
 const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
-const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub' };
+const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub', cache: '/cache' };
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
 /** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
@@ -19,6 +19,24 @@ const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEA
 const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
+
+/** Shell lines that install the toolchain a repo's root `files` name, run from the repo root with network. */
+export const toolchainOf = (files: string[]) => {
+  const has = (...names: string[]) => names.some(name => files.includes(name));
+  const pinned = has('rust-toolchain', 'rust-toolchain.toml');
+  if (!pinned && !has('Cargo.toml')) return [];
+  return [
+    'command -v rustup >/dev/null || rustup-init -y -q --no-modify-path --default-toolchain none --profile minimal',
+    pinned
+      ? 'rustup toolchain install -c clippy -c rustfmt'
+      : 'rustup toolchain install stable -c clippy -c rustfmt && rustup default stable',
+    ...(has('Cargo.toml') ? [has('Cargo.lock') ? 'cargo fetch --locked' : 'cargo fetch'] : []),
+  ];
+};
+
+/** The toolchain step's script: `lines` in the files of `$BOTHUB_BASE`, archived from the mirror at `$GIT_DIR`. */
+const toolchainScript = (lines: string[]) =>
+  ['set -e', 'mkdir -p /tmp/src', 'git archive "$BOTHUB_BASE" | tar -x -C /tmp/src', 'cd /tmp/src', ...lines].join('\n');
 
 /**
  * The admin dir git just made for the worktree `dir` of `mirror`, read before any container ran in `dir`. It must be
@@ -49,12 +67,17 @@ const user = () => {
 /** What the host recorded for a checkout: its git mounts and the hub's container settings. */
 type Made = { mounts: Mount[] } & Pick<Hub, 'image' | 'network'>;
 
+const volume = (name: string) => {
+  if (!/^\w[\w.-]*$/.test(name)) throw infra(`volume name not allowed: ${name}`);
+  return ['--mount', `type=volume,src=${name},dst=${inside.cache}`];
+};
+
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
  * the only routes out are the model proxy and, unless the hub's network is `models`, the egress allowlist; with
- * `none` there is no network.
+ * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`.
  */
-const dockerArgs = (c: Command, image: string, name: string, { mounts, network = 'egress' }: Made) => [
+const dockerArgs = (c: Command, image: string, name: string, { mounts, network = 'egress' }: Made, cache = '') => [
   'run',
   '--rm',
   '--init',
@@ -63,7 +86,7 @@ const dockerArgs = (c: Command, image: string, name: string, { mounts, network =
   '--name',
   name,
   '--network',
-  c.network === 'proxy' ? networks[network] : 'none',
+  c.network === 'proxy' ? networks[network] : c.network === 'open' ? 'bridge' : 'none',
   '--read-only',
   '--tmpfs',
   `${inside.tmp}:rw,exec,nosuid,nodev,size=1g`,
@@ -84,6 +107,7 @@ const dockerArgs = (c: Command, image: string, name: string, { mounts, network =
   ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
   ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
   ...mounts.flatMap(bind),
+  ...(cache ? volume(cache) : []),
   '--workdir',
   inside.work,
   ...Object.entries({
@@ -165,20 +189,26 @@ const timeout = (c: Command) => () =>
 
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
- * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it.
+ * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
+ * the volume `cache`, `bothub-cache` by default, where the toolchain step installs what a hub's repo needs; an empty
+ * name turns both off.
  */
 export const docker = (o: {
   data: string;
   origin: string;
   image?: string;
+  cache?: string;
   token?: Effect.Effect<string, ForgeError>;
 }): Layer.Layer<Sandbox> =>
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
       const image = o.image ?? 'bothub-sandbox:local';
+      const cache = o.cache ?? 'bothub-cache';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
+      const tools = yield* Effect.makeSemaphore(1);
+      const installed = new Set<string>();
       /** Each live checkout as the host made it. */
       const made = new Map<string, Made>();
       const inMirror = (args: string[], env: Record<string, string> = {}) =>
@@ -198,7 +228,7 @@ export const docker = (o: {
           if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
           const name = `bothub-${randomBytes(6).toString('hex')}`;
           const args = yield* Effect.try({
-            try: () => dockerArgs(c, box.image ?? image, name, box),
+            try: () => dockerArgs(c, box.image ?? image, name, box, cache),
             catch: e => e as SandboxError,
           });
           return { name, args };
@@ -244,7 +274,31 @@ export const docker = (o: {
           return { code, output } satisfies Exit;
         });
 
-      const checkout = (ref: string, branch?: string, keep?: string, hub: Pick<Hub, 'image' | 'network'> = {}) =>
+      /** Installs the toolchain of `base` into the cache, once per base and script, from the checkout `dir`. */
+      const toolchain = (dir: string, git: string, base: string, extra?: string) =>
+        tools.withPermits(1)(
+          Effect.gen(function* () {
+            const files = (yield* inMirror(['ls-tree', '--name-only', base])).split('\n');
+            const lines = [...toolchainOf(files), ...(extra ? [extra] : [])];
+            const key = `${base}\0${lines.join('\n')}`;
+            if (!lines.length || installed.has(key)) return;
+            const started = Date.now();
+            const env = { GIT_DIR: git, BOTHUB_BASE: base };
+            const args = ['-c', toolchainScript(lines)];
+            const out = yield* Effect.scoped(exec({ cmd: 'sh', args, dir, env, network: 'open', minutes: 60 }));
+            if (out.code !== 0)
+              return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
+            installed.add(key);
+            yield* Effect.logInfo(`toolchain ready in ${Math.round((Date.now() - started) / 1000)}s`);
+          })
+        );
+
+      const checkout = (
+        ref: string,
+        branch?: string,
+        keep?: string,
+        hub?: Pick<Hub, 'image' | 'network' | 'toolchain'>
+      ) =>
         Effect.gen(function* () {
           yield* lock.withPermits(1)(
             Effect.gen(function* () {
@@ -311,8 +365,8 @@ export const docker = (o: {
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
             made.set(dir, {
-              ...(hub.image !== undefined && { image: hub.image }),
-              ...(hub.network !== undefined && { network: hub.network }),
+              ...(hub?.image !== undefined && { image: hub.image }),
+              ...(hub?.network !== undefined && { network: hub.network }),
               mounts: [
                 { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
                 { src: admin, dst: admin },
@@ -327,6 +381,7 @@ export const docker = (o: {
             );
           });
           yield* Effect.acquireRelease(add, () => Effect.zipRight(keep ? save(keep) : Effect.void, remove));
+          if (hub && cache) yield* toolchain(dir, dirname(dirname(admin)), base, hub.toolchain);
           return work;
         });
 

@@ -3,7 +3,7 @@ import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { docker } from '../src/docker.ts';
+import { docker, toolchainOf } from '../src/docker.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -50,6 +50,7 @@ describe('docker with a stand-in docker client', () => {
         `[ "$1" = network ] && { echo true; exit 0; }`,
         `[ "$1" = rm ] && exit 0`,
         `printf '%s\\n' "$@" > ${log}`,
+        `echo "$*" >> ${log}.all`,
         `echo "secret=\${BOTHUB_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
         `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *fail*) exit 3;; esac`,
@@ -168,9 +169,74 @@ describe('docker with a stand-in docker client', () => {
     expect(args.slice(-6, -4)).toEqual(['acme-rust:1', 'sh']);
   });
 
+  it('mounts the cache volume in every container, and none with an empty name', async () => {
+    await use(layer, s => s.exec(command(tmp('work'))));
+    expect(logged()).toContain('type=volume,src=bothub-cache,dst=/cache');
+    await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '' }), s => s.exec(command(tmp('work'))));
+    expect(logged().join('\n')).not.toContain('type=volume');
+    const exit = await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '--x' }), s =>
+      s.exec(command(tmp('work')))
+    );
+    expect(JSON.stringify(exit)).toContain('volume name not allowed');
+  });
+
+  it("installs a hub's toolchain on the base's files with open network, once per base and script", async () => {
+    const repo = origin();
+    writeFileSync(join(repo, 'Cargo.toml'), '[workspace]\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-q', '-m', 'rust');
+    const calls = () => readFileSync(`${log}.all`, 'utf8').split('\n').filter(l => l.includes('git archive')).length;
+    const before = existsSync(`${log}.all`) ? calls() : 0;
+    const exit = await use(docker({ data: tmp('data'), origin: repo }), s =>
+      Effect.gen(function* () {
+        const hub = { toolchain: 'rustup target add wasm32-unknown-unknown' };
+        const work = yield* s.checkout('main', undefined, undefined, hub);
+        const args = logged();
+        yield* s.checkout('main', undefined, undefined, hub);
+        yield* s.checkout('main');
+        return { args, base: work.base };
+      })
+    );
+    const { args, base } = Exit.isSuccess(exit) ? exit.value : { args: [], base: '' };
+    expect(args[args.indexOf('--network') + 1]).toBe('bridge');
+    expect(args).toContain(`BOTHUB_BASE=${base}`);
+    const script = args.slice(args.indexOf('-c') + 1).join('\n');
+    expect(script).toContain('git archive "$BOTHUB_BASE" | tar -x -C /tmp/src');
+    expect(script.indexOf('cargo fetch')).toBeLessThan(script.indexOf('rustup target add'));
+    expect(calls() - before).toBe(1);
+  });
+
+  it('fails the checkout when the toolchain step fails', async () => {
+    const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+      s.checkout('main', undefined, undefined, { toolchain: 'fail' })
+    );
+    expect(JSON.stringify(exit)).toContain('toolchain exited 3');
+  });
+
   it('refuses to mount a docker socket', async () => {
     const exit = await use(layer, s => s.exec(command('/var/run/docker.sock')));
     expect(JSON.stringify(exit)).toContain('mount not allowed');
+  });
+});
+
+describe('toolchainOf', () => {
+  it('installs the pinned Rust toolchain with clippy and rustfmt and fetches the locked crates', () => {
+    expect(toolchainOf(['Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'README.md'])).toEqual([
+      'command -v rustup >/dev/null || rustup-init -y -q --no-modify-path --default-toolchain none --profile minimal',
+      'rustup toolchain install -c clippy -c rustfmt',
+      'cargo fetch --locked',
+    ]);
+  });
+
+  it('falls back to stable without a toolchain file and fetches without a lockfile', () => {
+    const lines = toolchainOf(['Cargo.toml']);
+    expect(lines[1]).toBe('rustup toolchain install stable -c clippy -c rustfmt && rustup default stable');
+    expect(lines[2]).toBe('cargo fetch');
+    expect(toolchainOf(['rust-toolchain.toml'])).toHaveLength(2);
+  });
+
+  it('installs nothing for a repo without a toolchain it knows', () => {
+    expect(toolchainOf(['package.json', 'package-lock.json', '.nvmrc'])).toEqual([]);
   });
 });
 

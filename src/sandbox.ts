@@ -17,7 +17,8 @@ export type Command = {
   home?: string;
   env: Record<string, string>;
   secrets?: Record<string, Redacted.Redacted>;
-  network: 'none' | 'proxy';
+  /** `open` reaches any host; only the toolchain step uses it. */
+  network: 'none' | 'proxy' | 'open';
   minutes: number;
 };
 
@@ -47,7 +48,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
  * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
  * checkout starts from the files last kept under that ref, on the run branch when it exists, else on their base.
  * It keeps its own files there as one local commit when its scope closes. Every command in a checkout runs in the
- * `image` and on the `network` of the `hub` it was made for.
+ * `image` and on the `network` of the `hub` it was made for, after that hub's toolchain is installed.
  */
 export class Sandbox extends Context.Tag('bothub/Sandbox')<
   Sandbox,
@@ -56,7 +57,7 @@ export class Sandbox extends Context.Tag('bothub/Sandbox')<
       ref: string,
       branch?: string,
       keep?: string,
-      hub?: Pick<Hub, 'image' | 'network'>
+      hub?: Pick<Hub, 'image' | 'network' | 'toolchain'>
     ) => Effect.Effect<Checkout, SandboxError, Scope.Scope>;
     exec: (command: Command) => Effect.Effect<Exit, SandboxError, Scope.Scope>;
     lines: (command: Command) => Stream.Stream<string, SandboxError, Scope.Scope>;
