@@ -10,13 +10,13 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drive, gate, settle, sweep, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
-import { start as main } from '../src/main.ts';
+import { start as main, temporary } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { fileForge, Forge, ForgeError, type Event, type Proposal } from '../src/forge.ts';
 import { host, Sandbox, type Command } from '../src/sandbox.ts';
@@ -1163,6 +1163,18 @@ describe('start with one issue', () => {
       for (const name of Object.keys(env)) delete process.env[name];
     }
   }, 30_000);
+});
+
+describe('temporary', () => {
+  it('names a data dir under a temp dir, by its own path or through a link, and its mirror', () => {
+    const home = mkdtempSync(join(homedir(), '.bothub-test-'));
+    dirs.push(home);
+    const linked = join(home, 'data');
+    symlinkSync('/tmp', linked);
+    expect(temporary('/tmp/bothub-data')).toEqual(['/tmp/bothub-data', '/tmp/bothub-data/mirror.git']);
+    expect(temporary(linked)).toEqual([linked, join(linked, 'mirror.git')]);
+    expect(temporary(join(homedir(), 'bothub-data'))).toEqual([]);
+  });
 });
 
 describe('sweep', () => {

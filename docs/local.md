@@ -22,16 +22,17 @@ The first run on a Rust repo spends a few minutes filling the `bothub-cache` vol
 
 ```sh
 node bin/run.ts check --hub examples/sandbox
-node bin/run.ts --hub examples/sandbox --issue 3 --data /tmp/bothub-data
-node bin/run.ts --hub examples/sandbox --all --data /tmp/bothub-data
-node bin/run.ts loop --hub examples/sandbox --data /tmp/bothub-data
-node bin/run.ts status --hub examples/sandbox --data /tmp/bothub-data
+node bin/run.ts --hub examples/sandbox --issue 3 --data ~/bothub-data
+node bin/run.ts --hub examples/sandbox --all --data ~/bothub-data
+node bin/run.ts loop --hub examples/sandbox --data ~/bothub-data
+node bin/run.ts status --hub examples/sandbox --data ~/bothub-data
 ```
 
 - `check` loads a hub and prints every problem with its file, or `ok`.
 - `--issue <n>` looks at one issue once. It continues a waiting run a human has answered, or begins one when none is live, and drives it until it waits or ends. It prints one line per run: id, step, status and reason.
 - `--all` does the same for every open issue, up to `limits.parallel` issues at once. It begins a run only where a trusted command or label asks for one.
 - `loop` first looks at every open issue as `--all` does, so it catches up on what was said while it was down, then looks at the repo every `BOTHUB_EVERY` minutes until it is stopped. Without `--hub`, it reads the hub from `.bothub/` in the repo, and `BOTHUB_REPO` names the repo, see [A hub in the repo](loop.md#a-hub-in-the-repo). <!-- code: src/main.ts#start -->
+- Keep `--data` out of `/tmp` and the system temp dir: macOS deletes files there that went untouched for 3 days, runs and mirror included. The runner warns at start when the data dir or its mirror is there. <!-- code: src/main.ts#temporary -->
 - `status` lists what waits on a human. It also warns when the App's installation reaches repos besides the hub's, and needs the App's credentials.
 
 `--hub <dir>` names a hub folder on this machine, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. `--instance <dir>` stands for all three, see [Instances](#instances). The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `BOTHUB_HUB`, `BOTHUB_DATA`, `BOTHUB_FORGE` and `BOTHUB_REPO`. The runner also reads:
@@ -65,13 +66,13 @@ A forge folder stands in for the GitHub repo, and `bin/forge.ts` plays the maint
 node bin/forge.ts /tmp/forge init ../path/to/repo         # copies the repo into /tmp/forge/origin.git
 node bin/forge.ts /tmp/forge issue "Reject a negative count" --body issue.md
 node bin/forge.ts /tmp/forge comment 1 /bothub
-node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data /tmp/bothub-data
+node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/bothub-data
 node bin/forge.ts /tmp/forge show                         # every issue and pull request
 node bin/forge.ts /tmp/forge show 2                       # one, with its timeline and diff
 node bin/forge.ts /tmp/forge comment 2 "/bothub also cover zero"
-node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data /tmp/bothub-data
+node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/bothub-data
 node bin/forge.ts /tmp/forge merge 2
-node bin/run.ts --forge /tmp/forge --hub examples/sandbox --issue 1 --data /tmp/bothub-data
+node bin/run.ts --forge /tmp/forge --hub examples/sandbox --issue 1 --data ~/bothub-data
 ```
 
 - Comments, labels and issues are by `git config user.name`, or by `--as <name>`, and count as a maintainer's.

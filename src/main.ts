@@ -1,5 +1,7 @@
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { ConfigProvider, Effect, Layer } from 'effect';
 import { settle, sweep, tick } from './engine.ts';
 import { hubAt, loadHub, type Hub } from './hub.ts';
@@ -18,6 +20,29 @@ export const appEnv = async (file: string | undefined): Promise<Record<string, s
   const keyFile = vars.BOTHUB_APP_KEY_FILE?.replace(/^~(?=\/|$)/, homedir());
   return { ...vars, ...(keyFile && { BOTHUB_APP_KEY: await readFile(keyFile, 'utf8') }) };
 };
+
+/** The real path of `path`, through its nearest existing parent when it does not exist yet. */
+const real = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    const parent = dirname(resolve(path));
+    return parent === resolve(path) ? parent : join(real(parent), basename(path));
+  }
+};
+
+/** The data dir and its mirror, where they sit under a temp dir the OS may empty. */
+export const temporary = (data: string): string[] => {
+  const temps = [...new Set(['/tmp', tmpdir()].flatMap(d => [resolve(d), real(d)]))];
+  return [data, join(data, 'mirror.git')].filter(p =>
+    [resolve(p), real(p)].some(at => temps.some(t => at === t || at.startsWith(t + sep)))
+  );
+};
+
+const warnTemporary = (data: string) =>
+  Effect.forEach(temporary(data), p =>
+    Effect.logWarning(`${p} is under a temp dir, which the OS may empty (macOS deletes files untouched for 3 days)`)
+  );
 
 const configured = (extra: Record<string, string>) =>
   Effect.map(
@@ -43,6 +68,7 @@ export const start = (
     ? Effect.gen(function* () {
         const hub = yield* loadHub(one.hub);
         const provider = yield* configured({ BOTHUB_REPO: hub.repo, BOTHUB_HUB: one.hub, BOTHUB_DATA: one.data });
+        yield* warnTemporary(one.data);
         return yield* provided(one.issue === 'all' ? sweep(hub) : tick(hub, one.issue)).pipe(
           Effect.withConfigProvider(provider)
         );
@@ -51,6 +77,7 @@ export const start = (
         const provider = yield* configured({});
         const loop = Effect.gen(function* () {
           const s = yield* settings;
+          yield* warnTemporary(s.data);
           const look = (pass: (hub: Hub) => Effect.Effect<Run[], unknown, Services>) =>
             hubAt(s.hub).pipe(
               Effect.flatMap(pass),
