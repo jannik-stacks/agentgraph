@@ -72,6 +72,7 @@ New here? Read these in order.
 ## Reference
 
 - [Hub files](reference.md): every field of every hub file.
+- [The hub contract](contract.md): what stays stable across releases, so tuning stays in the hub.
 - [Sub-issues and stacks](stacks.md): splitting an issue and building on another's pull request.
 - [Runs](runs.md): what a run records in the data dir.
 - [Sandbox and models](sandbox.md): the container, its network, harnesses and models.
