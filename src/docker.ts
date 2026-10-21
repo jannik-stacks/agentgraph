@@ -50,9 +50,9 @@ const user = () => {
 /** What the host recorded for a checkout: its git mounts, its seeds and the container settings of its hub and Env. */
 export type Made = { mounts: Mount[]; seeds?: Seed[] } & Pick<Hub, 'image' | 'network'>;
 
-const volume = (name: string, dst: string) => {
+const volume = (name: string, dst: string, nocopy = false) => {
   if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
-  return ['--mount', `type=volume,src=${name},dst=${dst}`];
+  return ['--mount', `type=volume,src=${name},dst=${dst}${nocopy ? ',volume-nocopy' : ''}`];
 };
 
 /** Where npm and pnpm keep what they download, shared by every container through the cache; both lock their own writes. */
@@ -105,7 +105,7 @@ export const dockerArgs = (
   ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
   ...mounts.flatMap(bind),
   ...(cache ? volume(cache, inside.cache) : []),
-  ...seeds.flatMap(s => volume(s.name, s.dst)),
+  ...seeds.flatMap(s => volume(s.name, s.dst, true)),
   '--workdir',
   inside.work,
   ...Object.entries({
@@ -363,7 +363,10 @@ export const docker = (o: {
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
             if (env)
-              seeds = yield* Effect.tryPromise({ try: () => seed(env, id), catch: e => infra((e as Error).message) });
+              seeds = yield* Effect.tryPromise({
+                try: () => seed(env, id, dir),
+                catch: e => infra((e as Error).message),
+              });
             const own = env?.image ?? hub?.image;
             made.set(dir, {
               ...(own !== undefined && { image: own }),

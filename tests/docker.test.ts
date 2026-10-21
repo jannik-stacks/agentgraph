@@ -233,10 +233,11 @@ describe('docker with a stand-in docker client', () => {
     const { ready, args } = Exit.isSuccess(exit) ? exit.value : { ready: false, args: [] };
     expect(ready).toBe(true);
     const seed = args.find(a => a.includes('dst=/work/node_modules')) ?? '';
-    expect(seed).toMatch(/^type=volume,src=bothub-seed-\w+-0,dst=\/work\/node_modules$/);
+    expect(seed).toMatch(/^type=volume,src=bothub-seed-\w+-0,dst=\/work\/node_modules,volume-nocopy$/);
     const name = /src=([\w-]+)/.exec(seed)?.[1];
     const all = readFileSync(`${log}.all`, 'utf8');
     expect(all).toContain(`volume create --label bothub.seed=${process.pid}`);
+    expect(all).toContain(`cp -a '/work/node_modules/.' /seed/0/`);
     expect(all).toMatch(new RegExp(`volume rm -f ${name}`));
   });
 

@@ -188,7 +188,9 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
         })
       );
       if (/Conflict\. The container name/.test(out.output)) {
-        await new Promise(r => setTimeout(r, 5000));
+        const running = await docker(['container', 'inspect', '--format', '{{.State.Running}}', name]).catch(() => '');
+        if (running === 'true') await new Promise(r => setTimeout(r, 5000));
+        else await docker(['rm', '-f', name]).catch(() => '');
         continue;
       }
       try {
@@ -219,12 +221,25 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   return made;
 };
 
-/** A seed: a named volume that starts as a copy of the Env's output at `dst`. */
+/** A seed: a named volume that holds a copy of the Env's output at `dst`. */
 export type Seed = { name: string; dst: string };
 
-/** Fresh volumes for `owner`, labelled with this process so a sweep finds the ones a dead process left. */
-export const seed = async (env: Env, owner: string): Promise<Seed[]> => {
-  const seeds = env.outputs.map((dst, i) => ({ name: `bothub-seed-${owner}-${i}`, dst: `/work/${dst}` }));
+/** Dependency directories, which setup fills and rarely deletes, so a volume can sit at their path. */
+const deps = /(^|\/)(node_modules|target)$/;
+
+const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Copies the Env's outputs for the checkout at `dir`: dependency directories into fresh volumes for `owner`,
+ * labelled with this process so a sweep finds the ones a dead process left, and the rest into `dir`, where a build
+ * may delete and remake them.
+ */
+export const seed = async (env: Env, owner: string, dir: string): Promise<Seed[]> => {
+  const seeds = env.outputs
+    .filter(o => deps.test(o))
+    .map((o, i) => ({ name: `bothub-seed-${owner}-${i}`, dst: `/work/${o}` }));
+  const rest = env.outputs.filter(o => !deps.test(o));
+  if (!env.outputs.length) return seeds;
   for (const s of seeds)
     await docker([
       'volume',
@@ -235,6 +250,46 @@ export const seed = async (env: Env, owner: string): Promise<Seed[]> => {
       `bothub.owner=${owner}`,
       s.name,
     ]);
+  const [uid, gid] = user();
+  const script = [
+    'set -e',
+    ...seeds.map((s, i) => `cp -a ${quote(`${s.dst}/.`)} /seed/${i}/ && chown ${uid}:${gid} /seed/${i}`),
+    ...rest.map(o => {
+      const parent = quote(`/dst/${o.split('/').slice(0, -1).join('/')}`);
+      return `mkdir -p ${parent} && cp -a ${quote(`/work/${o}`)} ${parent}/`;
+    }),
+  ].join('\n');
+  try {
+    await docker(
+      [
+        'run',
+        '--rm',
+        '--pull',
+        'never',
+        '--network',
+        'none',
+        '--user',
+        '0:0',
+        '--cap-drop=ALL',
+        '--cap-add=CHOWN',
+        '--cap-add=DAC_OVERRIDE',
+        '--cap-add=FOWNER',
+        '--security-opt',
+        'no-new-privileges=true',
+        '--mount',
+        `type=bind,src=${dir},dst=/dst`,
+        ...seeds.flatMap((s, i) => ['--mount', `type=volume,src=${s.name},dst=/seed/${i},volume-nocopy`]),
+        env.image,
+        'sh',
+        '-c',
+        script,
+      ],
+      3_600_000
+    );
+  } catch (e) {
+    await drop(seeds);
+    throw e;
+  }
   return seeds;
 };
 
