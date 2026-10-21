@@ -415,9 +415,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
       const env =
         broke ??
         runnerError(ran?.reason) ??
-        (nothing || ran?.status !== 'done'
-          ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined))
-          : undefined);
+        (nothing ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
       if (env) {
         log({ event: 'infra', why: env, attempt });
         if (failed().length < patience) {
