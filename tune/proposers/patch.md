@@ -44,6 +44,11 @@ Return the structured output:
   replace one exact, unique snippet of an existing file, or `{ path, delete: true }`. Prefer `old`/`new`.
   Paths are relative to the hub. Keep the whole change under 60 added lines.
 
+Under "Held-out cases" you may find how the hub did on cases you never see, as counts per failure class
+(coupled: the hidden tests call names or types only the human's change adds; behaviour: they run and
+fail). Use it to judge whether a class repeats. Under "Tried before" are this tune's earlier candidates
+with their verdicts: never propose one again; give a discarded idea a different mechanism or leave it.
+
 Quote evidence exactly; an id you did not get or a quote that is not in the material voids the proposal.
 With `nothing`, leave `changes` empty and use `rationale` to say what each case missed and why no fix is
 shared.

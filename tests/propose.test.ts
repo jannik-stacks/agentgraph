@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { Effect, Either } from 'effect';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadHub } from '../src/hub.ts';
-import { claudeUsed, propose, type Proposer } from '../tune/propose.ts';
+import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
 import { tmp } from './fixtures.ts';
 
 const root = join(import.meta.dirname, '..');
@@ -41,6 +41,14 @@ const answers = {
     ],
     changes: [{ path: 'skills/implement.md', content: 'Add a line to CHANGELOG.md for every user-facing change.\n' }],
   },
+  nothing: { verdict: 'nothing', rationale: 'The misses differ.', cases: [], changes: [] },
+  one: {
+    verdict: 'change',
+    missClass: 'tests written but never run',
+    rationale: 'The run wrote a test and never ran it.',
+    cases: [{ id: 'a-1', evidence: '3 tool write {"path":"a.test.ts"} ok' }],
+    changes: [{ path: 'skills/implement.md', content: 'Run every test you write before you finish.\n' }],
+  },
   structure: {
     verdict: 'change',
     rationale: 'a-1 ended its last try one check short.',
@@ -57,7 +65,9 @@ process.stdin.on('end', () => {
   const answers = ${JSON.stringify(answers)};
   const name = /^# (\\w+) proposer/.exec(prompt)?.[1]?.toLowerCase();
   const resumed = args.includes('--resume');
-  const answer = resumed
+  const answer = process.env.STUB_ANSWER
+    ? answers[process.env.STUB_ANSWER]
+    : resumed
     ? answers[process.env.STUB_FIRST]
     : process.env.STUB_FIRST
       ? { ...answers[process.env.STUB_FIRST], cases: [{ id: 'v-1', evidence: 'x' }] }
@@ -125,6 +135,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.BOTHUB_CLAUDE;
   delete process.env.STUB_FIRST;
+  delete process.env.STUB_ANSWER;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -173,6 +184,46 @@ describe('propose', () => {
     expect(p.usd).toBe(0.5);
     expect(p.usage).toEqual({ fiveHour: 5, week: 54 });
     expect(existsSync(join(tune, 'cands', p.id, 'stream-2.jsonl'))).toBe(true);
+  });
+
+  it('lets retro learn from one failing case and shows held-out cases only as counts', async () => {
+    save(join(tune, 'runs', 'inc', 'a-2', 'v2', 'score.json'), JSON.stringify({ files: 1, hidden: { ok: true } }));
+    process.env.STUB_ANSWER = 'one';
+    const p = await run('retro');
+    expect(p.problems).toEqual([]);
+    expect(p.hub).toBeDefined();
+    const prompt = readFileSync(join(tune, 'cands', p.id, 'input', 'prompt.md'), 'utf8');
+    expect(prompt).toContain('## Held-out cases\n\nOn the held-out cases this hub is scored on, 1 of 1 fail');
+    expect(prompt).not.toContain('v-1');
+  });
+
+  it('skips the call with no failing case or a question already answered with nothing', async () => {
+    process.env.STUB_ANSWER = 'nothing';
+    expect((await run('retro', 'i1-a')).verdict).toBe('nothing');
+    expect(existsSync(join(tune, 'cands', 'i1-a', 'stream-1.jsonl'))).toBe(true);
+    const again = await run('retro', 'i1-b');
+    expect([again.rationale, again.usd]).toEqual(['the same question was answered with nothing before', 0]);
+    expect(existsSync(join(tune, 'cands', 'i1-b'))).toBe(false);
+    for (const id of ['a-1', 'a-2'])
+      save(join(tune, 'runs', 'inc', id, 'v2', 'score.json'), JSON.stringify({ files: 1, hidden: { ok: true } }));
+    expect((await run('history', 'i1-c')).usd).toBe(0.25);
+    expect((await run('structure', 'i1-d')).rationale).toBe('no cases to learn from');
+  });
+
+  it('lists earlier candidates with their verdicts', async () => {
+    save(
+      join(tune, 'cands', 'i1-retro', 'candidate.json'),
+      JSON.stringify({ proposer: 'retro', rationale: 'Run it. More.' })
+    );
+    save(join(tune, 'iterations.jsonl'), `${JSON.stringify({ id: 'i1-retro', verdict: 'discarded' })}\n`);
+    const p = await run('history', 'i2-history');
+    const prompt = readFileSync(join(tune, 'cands', p.id, 'input', 'prompt.md'), 'utf8');
+    expect(prompt).toContain('## Tried before\n\n- i1-retro, retro, discarded: Run it.');
+  });
+
+  it('offers only the structure edits that can change the hub', async () => {
+    const hub = await Effect.runPromise(loadHub(join(dir, 'hub')));
+    expect(fitting(hub)).toEqual(['drop', 'tries', 'scout']);
   });
 
   it('refuses a candidate id that already has a proposal', async () => {

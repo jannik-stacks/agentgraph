@@ -20,7 +20,7 @@ import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { failureClass, infra } from '../bin/bench.ts';
 import { transcript } from '../src/context.ts';
-import { loadHub } from '../src/hub.ts';
+import { type Hub, loadHub } from '../src/hub.ts';
 import type { Trace } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
 
@@ -47,6 +47,24 @@ export type Proposal = Answer & {
 
 /** The structure proposer's menu, taken round-robin by iteration. */
 export const edits = ['reviewer', 'drop', 'tries', 'scout', 'warn'] as const;
+
+/** The edits of the menu that can change this hub: nothing added twice, nothing dropped or softened that is not there. */
+export const fitting = (hub: Hub) => {
+  const steps = Object.values(hub.workflows).flatMap(w => w.steps);
+  const work = steps.filter(s => !('wait' in s.does));
+  const has = (name: string) => steps.some(s => s.name === name);
+  const extra = Object.keys(hub.checks).some(c => c !== 'tests') || Object.keys(hub.skills).length > 0;
+  const fits = {
+    reviewer: !has('review'),
+    drop: work.length > 1 || extra,
+    tries: work.some(s => s.checks.length > 0 && s.tries < 4),
+    scout: !has('scout'),
+    warn: Object.values(hub.checks).some(
+      c => c.name !== 'tests' && c.mode === 'block' && steps.some(s => s.checks.includes(c.name))
+    ),
+  };
+  return edits.filter(e => fits[e]);
+};
 
 const schema = {
   type: 'object',
@@ -172,6 +190,41 @@ const shuffle = <T>(xs: T[], seed: number) => {
     [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
+};
+
+/** How the hub did on cases the proposer never sees: counts per failure class, no ids or content. */
+const unseen = (runs: string, ids: string[]) => {
+  const ran = ids.filter(id => existsSync(join(runs, id)));
+  const classes = ids.flatMap(id => failing(runs, id).map(f => f.hidden.class ?? failureClass(f.hidden.tail)));
+  if (!ran.length) return '';
+  const by = [...new Set(classes)].map(c => `${classes.filter(x => x === c).length} ${c}`).join(', ');
+  return `${classes.length} of ${ran.length} fail the hidden tests${by ? `: ${by}` : ''}.`;
+};
+
+/** What earlier candidates of this tune tried and how each ended, one line each. */
+const tried = (tune: string) => {
+  const verdicts = new Map(
+    read(join(tune, 'iterations.jsonl'))
+      .split('\n')
+      .filter(Boolean)
+      .map(l => JSON.parse(l) as { id: string; verdict: string })
+      .map(s => [s.id, s.verdict])
+  );
+  const cands = join(tune, 'cands');
+  return (existsSync(cands) ? readdirSync(cands) : [])
+    .filter(id => verdicts.has(id) && !id.endsWith('-init'))
+    .sort()
+    .map(id => {
+      const c = JSON.parse(read(join(cands, id, 'candidate.json')) || '{}') as {
+        proposer?: string;
+        rationale?: string;
+      };
+      const first = (c.rationale ?? '')
+        .replace(/^#.*\n+/, '')
+        .split(/(?<=\.)\s/)[0]!
+        .trim();
+      return `- ${id}, ${c.proposer ?? '?'}, ${verdicts.get(id)}: ${head(first, 300)}`;
+    });
 };
 
 /** Eight mine cases, those with review comments that ask for something first. */
@@ -348,21 +401,51 @@ export const propose = async (o: {
     o.proposer === 'history'
       ? history(cases, split('mine'), iteration)
       : failures(cases, o.runs!, split('fit'), o.proposer === 'structure');
+  const ids = material.map(m => m.id);
+  const menu = await Effect.runPromise(loadHub(o.from).pipe(Effect.map(fitting))).catch(() => [...edits]);
+  const turn = iteration % edits.length;
+  const edit = [...edits.slice(turn), ...edits.slice(0, turn)].find(e => menu.includes(e));
+  const before = tried(o.tune);
+  const key = JSON.stringify({ proposer: o.proposer, from: relative(o.tune, o.from), ids, edit, tried: before.length });
+  const cands = join(o.tune, 'cands');
+  const again = (existsSync(cands) ? readdirSync(cands) : []).some(id => read(join(cands, id, 'asked.json')) === key);
+  const skip = !ids.length
+    ? 'no cases to learn from'
+    : o.proposer === 'structure' && !edit
+      ? 'no edit of the menu fits the hub'
+      : again
+        ? 'the same question was answered with nothing before'
+        : undefined;
+  if (skip) {
+    console.error(`${o.id}: skipped, ${skip}`);
+    return {
+      verdict: 'nothing',
+      rationale: skip,
+      cases: [],
+      changes: [],
+      id: o.id,
+      proposer: o.proposer,
+      usd: 0,
+      problems: [],
+    };
+  }
   const input = join(dir, 'input');
   cpSync(o.from, join(input, 'hub'), { recursive: true });
   for (const m of material)
     for (const [name, text] of Object.entries(m.files)) save(join(input, 'cases', m.id, name), text);
-  const instructions = read(here(`proposers/${o.proposer}.md`)).replace('{{edit}}', edits[iteration % edits.length]!);
+  const instructions = read(here(`proposers/${o.proposer}.md`)).replace('{{edit}}', edit ?? '');
   const heading = o.proposer === 'history' ? 'Merged pull requests' : 'Failing cases';
+  const others = o.proposer === 'history' ? '' : unseen(o.runs!, split('validate'));
   const prompt = [
     instructions,
     read(here('proposers/patch.md')),
     `## The hub\n\n${hubText(o.from)}`,
     `## ${heading}\n\n${material.map(m => m.text).join('\n\n') || '(none)'}`,
+    ...(others ? [`## Held-out cases\n\nOn the held-out cases this hub is scored on, ${others}`] : []),
+    ...(before.length ? [`## Tried before\n\n${before.join('\n')}`] : []),
   ].join('\n\n');
   save(join(input, 'prompt.md'), prompt);
 
-  const ids = material.map(m => m.id);
   const hub = join(dir, 'hub');
   const base = [
     '-p',
@@ -401,7 +484,7 @@ export const propose = async (o: {
     session = result?.session_id ?? session;
     const got = answerOf(result);
     problems = got
-      ? problemsOf(got, ids, minCases[o.proposer])
+      ? problemsOf(got, ids, Math.min(minCases[o.proposer], ids.length))
       : ['the answer was not the structured output asked for'];
     if (got) answer = { ...got, cases: got.cases ?? [], changes: got.changes ?? [] };
     if (!problems.length && answer.verdict === 'change') {
@@ -416,6 +499,7 @@ export const propose = async (o: {
   }
 
   const valid = !problems.length && answer.verdict === 'change';
+  if (answer.verdict === 'nothing') save(join(dir, 'asked.json'), key);
   const proposal: Proposal = {
     ...answer,
     id: o.id,

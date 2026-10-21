@@ -6,8 +6,10 @@ you get the issue, the bot's final diff, the human's merged diff, the hidden tes
 of the run: prompts, tool calls with their exits, checks and outcomes, each line numbered. The full files
 are under `cases/<id>/` and the hub under `hub/` if you need more than the excerpt.
 
-Find one miss class that at least two cases share and propose the smallest hub change that would have
-prevented it in each. If no class repeats, propose nothing.
+Find one miss class the cases share and propose the smallest hub change that would have prevented it in
+each. With a single failing case, the class must be one this repo will meet again: argue that from the
+held-out counts, the hub or the code, never from that one issue alone. If no such class exists, propose
+nothing.
 
 ## Steps
 
@@ -19,7 +21,10 @@ prevented it in each. If no class repeats, propose nothing.
    stopped after a failing command; its test asserted its own output instead of the issue's example; a
    check passed wrong work or held right work. A hidden test that fails to compile because it calls a
    name or signature only the human's diff introduced says little about the bot: count that case only
-   if the issue asked for that API.
+   if the issue asked for that API. When the held-out counts show mostly coupled misses, the shared class
+   may be exactly that: new functions, types or exports that do not follow how this repo names and places
+   them. A fix there tells the agent where to look for the repo's naming and export pattern before it adds
+   API, without naming any one API.
 2. Group cases by that line. A class is shared when one fix changes the outcome of every case in it.
    "Did not understand the code" is not a class. "Changed formatter output without running the golden
    file tests that pin it" is.
@@ -33,7 +38,7 @@ prevented it in each. If no class repeats, propose nothing.
    - a new step, only when the miss needs a separate pass with its own question.
 5. Replay the fix on each cited case: would the check have failed on the bot's diff and passed on the
    human's? Would the line have changed the tool call you quoted? Drop every case where the answer is
-   not a clear yes. Fewer than two left means nothing.
+   not a clear yes. Given two or more cases, fewer than two left means nothing; given one, it must stay.
 
 ## Rules
 
