@@ -10,6 +10,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   delete process.env.BOTHUB_TUNE;
   delete process.env.BOTHUB_CLAUDE;
+  delete process.env.STUB_HOT;
 });
 
 /** A bench stand-in: a case passes when the candidate's implementor prompt says `Mind <case>.` */
@@ -55,7 +56,7 @@ process.stdin.on('end', () => {
   const window = u => ({ utilization: u, resetsAt: 0 });
   for (const e of [
     { type: 'system', subtype: 'init', session_id: 's1' },
-    { type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: window(resumed ? 0.3 : 0.2), seven_day: window(0.5) } } },
+    { type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: window(process.env.STUB_HOT ? 0.9 : resumed ? 0.3 : 0.2), seven_day: window(0.5) } } },
     { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'cases/v1/issue.md' } }] } },
     { type: 'result', session_id: 's1', total_cost_usd: 0.5, result: 'd1 skill line' },
   ])
@@ -145,5 +146,23 @@ describe('skill benchmark', () => {
     await skill(like, options(2), io);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).toMatch(/i001-skill, skill, kept/);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).not.toMatch(/\bv1\b/);
+  }, 30_000);
+
+  it('stops a session past a cap and asks the round again on resume', async () => {
+    const s = setup();
+    const ran: Parameters<typeof fakeBench>[0] = [];
+    const io = fakeBench(ran);
+    const like = await init('demo', s, io);
+    process.env.STUB_HOT = '1';
+    await expect(skill(like, { ...options(1), stop: { fiveHour: 75, week: 100 } }, io)).rejects.toThrow(
+      /round 1 stopped: Claude 5h at 90%/
+    );
+    const dir = join(s.root, 'tune', 'demo', 'skill@t');
+    expect(existsSync(join(dir, 'skill/r001/stopped.json'))).toBe(true);
+    expect(tuneRows(dir).steps).toHaveLength(1);
+    delete process.env.STUB_HOT;
+    await skill(like, options(1), io);
+    expect(tuneRows(dir).steps.map(x => x.id)).toEqual(['i000-init', 'i001-skill', 'i001-skill-2']);
+    expect(readdirSync(join(dir, 'skill')).filter(n => n.startsWith('r001.'))).toHaveLength(1);
   }, 30_000);
 });

@@ -306,11 +306,14 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
   const after = live.usage;
   const first = before ?? live.first;
   r.claude = { ...(first && { before: first }), ...(after && { after }) };
-  if (live.stopped) r.stopped = live.stopped;
+  if (live.stopped) {
+    save(join(w, 'stopped.json'), { ...r, stopped: live.stopped });
+    throw new Error(`round ${iteration} stopped: ${live.stopped}`);
+  }
   if (r.leaks.length) console.error(`round ${iteration}: tool calls outside the workspace\n${r.leaks.join('\n')}`);
   for (const s of slots.filter(s => !s.empty)) {
-    if (s.problems.length || r.stopped) {
-      r.slots.push({ slot: s.slot, problems: s.problems.length ? s.problems : ['the session was stopped'] });
+    if (s.problems.length) {
+      r.slots.push({ slot: s.slot, problems: s.problems });
       continue;
     }
     const c = propose(dir, s.hub, s.why, 'skill');
@@ -354,7 +357,6 @@ export const skill = async (like: string, o: Options, io?: Io) => {
     if (iteration > o.rounds || flatSince(steps) >= 3) break;
     const done = rounds(dir).find(r => r.iteration === iteration);
     const r = done ?? (await ask(dir, iteration, o, io));
-    if (r.stopped && !r.slots.some(s => s.id)) throw new Error(`round ${iteration} stopped: ${r.stopped}`);
     const made = await step(
       dir,
       {
@@ -370,7 +372,6 @@ export const skill = async (like: string, o: Options, io?: Io) => {
     if (!made.length) break;
     const kept = tuneRows(dir).steps.filter(s => s.verdict === 'kept').length;
     if (made.some(s => s.verdict === 'kept') && kept % 3 === 1) await checkpoint(dir, o, io);
-    if (r.stopped) throw new Error(`round ${iteration} stopped: ${r.stopped}`);
   }
   return dir;
 };
