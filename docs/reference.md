@@ -11,7 +11,7 @@ A hub is a folder: `.bothub/` on the default branch of the repo it works on, or 
 | Field       | Type                 | Default                           | Meaning                                                              |
 | ----------- | -------------------- | --------------------------------- | -------------------------------------------------------------------- |
 | `repo`      | `owner/name`         | none                              | The GitHub repo the hub works on                                     |
-| `setup`     | shell script         | none                              | Runs once in each new checkout, with network, before the first step  |
+| `setup`     | shell script         | none                              | Installs dependencies once per base, see [Environments](sandbox.md#environments) |
 | `toolchain` | shell script         | none                              | Installs more tools, see [Toolchains](sandbox.md#toolchains)         |
 | `image`     | local image name     | `bothub-sandbox:local`            | The image every command of a run starts in                           |
 | `network`   | `egress` or `models` | `egress`                          | What sessions and setup reach, see [Sandbox](sandbox.md#the-network) |

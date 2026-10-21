@@ -3,7 +3,8 @@ import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { docker, toolchainOf } from '../src/docker.ts';
+import { docker } from '../src/docker.ts';
+import { toolchainOf } from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -49,11 +50,13 @@ describe('docker with a stand-in docker client', () => {
         '#!/bin/sh',
         `[ "$1" = network ] && { echo true; exit 0; }`,
         `[ "$1" = rm ] && exit 0`,
+        `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
+        `case "$1" in commit|volume) echo "$*" >> ${log}.all; exit 0;; esac`,
         `printf '%s\\n' "$@" > ${log}`,
         `echo "$*" >> ${log}.all`,
         `echo "secret=\${BOTHUB_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
-        `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *fail*) exit 3;; esac`,
+        `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n';; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -158,7 +161,11 @@ describe('docker with a stand-in docker client', () => {
   it('runs every command of a checkout in its hub image and, with network models, on the proxy-only network', async () => {
     const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
       Effect.gen(function* () {
-        const work = yield* s.checkout('main', undefined, undefined, { image: 'acme-rust:1', network: 'models' });
+        const work = yield* s.checkout('main', undefined, undefined, {
+          image: 'acme-rust:1',
+          network: 'models',
+          setup: 'withdeps',
+        });
         yield* s.exec(command(work.dir, { network: 'proxy' }));
         return logged();
       })
@@ -166,7 +173,11 @@ describe('docker with a stand-in docker client', () => {
     const args = Exit.isSuccess(exit) ? exit.value : [];
     expect(args[args.indexOf('--network') + 1]).toBe('bothub-models');
     expect(args.join('\n')).not.toContain('HTTPS_PROXY');
-    expect(args.slice(-6, -4)).toEqual(['acme-rust:1', 'sh']);
+    expect(args.slice(-6, -4)).toEqual([expect.stringMatching(/^bothub-env\/repo:\w+$/), 'sh']);
+    const build = readFileSync(`${log}.all`, 'utf8')
+      .split('\n')
+      .findLast(l => l.includes('bothub.envbuild'));
+    expect(build).toContain(' acme-rust:1 sh -c ');
   });
 
   it('mounts the cache volume in every container, and none with an empty name', async () => {
@@ -180,16 +191,16 @@ describe('docker with a stand-in docker client', () => {
     expect(JSON.stringify(exit)).toContain('volume name not allowed');
   });
 
-  it("installs a hub's toolchain on the base's files with open network, once per base and script", async () => {
+  it("builds a hub's Env once on the base's files with open network and starts every checkout from it", async () => {
     const repo = origin();
     writeFileSync(join(repo, 'Cargo.toml'), '[workspace]\n');
     git(repo, 'add', '.');
     git(repo, 'commit', '-q', '-m', 'rust');
-    const calls = () =>
+    const builds = () =>
       readFileSync(`${log}.all`, 'utf8')
         .split('\n')
-        .filter(l => l.includes('git archive')).length;
-    const before = existsSync(`${log}.all`) ? calls() : 0;
+        .filter(l => l.includes('bothub.envbuild')).length;
+    const before = existsSync(`${log}.all`) ? builds() : 0;
     const exit = await use(docker({ data: tmp('data'), origin: repo }), s =>
       Effect.gen(function* () {
         const hub = { toolchain: 'rustup target add wasm32-unknown-unknown' };
@@ -202,19 +213,38 @@ describe('docker with a stand-in docker client', () => {
     );
     const { args, base } = Exit.isSuccess(exit) ? exit.value : { args: [], base: '' };
     expect(args[args.indexOf('--network') + 1]).toBe('bridge');
-    expect(args).toContain(`BOTHUB_BASE=${base}`);
-    const script = args.slice(args.indexOf('-c') + 1).join('\n');
-    expect(script).toContain('git archive "$BOTHUB_BASE" | tar -x -C /tmp/src');
-    expect(script.indexOf('flock 9')).toBeLessThan(script.indexOf('git archive'));
-    expect(script.indexOf('cargo fetch')).toBeLessThan(script.indexOf('rustup target add'));
-    expect(calls() - before).toBe(1);
+    const text = args.join('\n');
+    expect(args).toContain(base);
+    expect(text).toContain('archive "$2" | tar -x -C /work');
+    expect(text.indexOf('flock 9')).toBeLessThan(text.indexOf('sh -ec "$3"'));
+    expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
+    expect(builds() - before).toBe(1);
+    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/commit --change LABEL bothub\.env=\w+ bothub\.complete=true/);
   });
 
-  it('fails the checkout when the toolchain step fails', async () => {
+  it('seeds a checkout with fresh volumes of what setup made, skips setup on base files and drops them after', async () => {
     const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
-      s.checkout('main', undefined, undefined, { toolchain: 'fail' })
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { setup: 'withdeps' });
+        yield* s.exec(command(work.dir));
+        return { ready: work.ready, args: logged() };
+      })
     );
-    expect(JSON.stringify(exit)).toContain('toolchain exited 3');
+    const { ready, args } = Exit.isSuccess(exit) ? exit.value : { ready: false, args: [] };
+    expect(ready).toBe(true);
+    const seed = args.find(a => a.includes('dst=/work/node_modules')) ?? '';
+    expect(seed).toMatch(/^type=volume,src=bothub-seed-\w+-0,dst=\/work\/node_modules$/);
+    const name = /src=([\w-]+)/.exec(seed)?.[1];
+    const all = readFileSync(`${log}.all`, 'utf8');
+    expect(all).toContain(`volume create --label bothub.seed=${process.pid}`);
+    expect(all).toMatch(new RegExp(`volume rm -f ${name}`));
+  });
+
+  it('fails the checkout when the toolchain fails', async () => {
+    const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+      s.checkout('main', undefined, undefined, { toolchain: 'toolfail' })
+    );
+    expect(JSON.stringify(exit)).toContain('toolchain exited');
   });
 
   it('refuses to mount a docker socket', async () => {

@@ -33,15 +33,34 @@ Scripts and checks run with no network at all.
 
 With `network: models` in `hub.yaml`, sessions and setup join `bothub-models` instead. Only the model proxy is on that network, so nothing else can be reached, not even the npm registry. Dependencies then come from the hub's image. The local compose stack creates the network and puts the proxy on it.
 
-`setup` in `hub.yaml` is a shell script that runs once in each new checkout, before the first step. Use it to install dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. A setup that fails parks the run, and an answer runs setup and the step again.
+`setup` in `hub.yaml` is a shell script that installs dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. It runs once per base commit in the hub's [environment](#environments), and again in a checkout whose files differ from the base. A setup that fails parks the run, and an answer runs setup and the step again.
 
 The image is built from `infra/local/sandbox`. `smoke.sh` there checks it the way a run uses it.
 
-## Toolchains
+## Environments
 
-The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `bothub-cache` at `/cache`, and rustup and cargo keep their homes there, so a toolchain installed once serves every later run, check and data dir.
+A run should not install its dependencies again for every checkout. bothub builds a repo's environment once per base commit and starts every checkout and score from it, the way a Docker build caches layers and CI caches dependencies.
 
-When a run's checkout is made, a toolchain step installs what the repo names. It is one container on docker's default network, so it reaches any host, and it runs on the files of the checkout's base commit, never on files a run wrote. It reads the repo's root files:
+The environment is a local image, `bothub-env/<repo>:<key>`. One build container makes it:
+
+1. It unpacks the files of the base commit into `/work`, from the read-only mirror. Nothing a run wrote is there.
+2. It runs the [toolchain step](#toolchains).
+3. It runs the hub's `setup`.
+4. It lists the ignored directories setup made, such as `node_modules` or `target`, and commits the container as the image.
+
+The build has docker's default network, so it reaches any host. The key covers the base image, the base commit's files, the toolchain lines and `setup`, so an image with the same key is never built again. A setup that reads `$BOTHUB_HUB` is left out of the build and runs in each checkout. <!-- code: src/env.ts#envOf -->
+
+Each checkout gets a new docker volume for every directory setup made, mounted at the same path under `/work`. Docker fills a new volume from the image, so the checkout starts with its dependencies installed. These copies live on docker's disk, not in the checkout folder on the host. What a run writes to them stays in that checkout, and the volumes are removed with it. A checkout of the base's own files skips setup. Setup runs again on a checkout with other files, such as a resumed run, and on one whose setup also left files outside those directories.
+
+The volumes carry the process that made them, and a runner that starts removes the ones whose process is gone. Images pile up, one per base. To remove the ones unused for 14 days, run `node bin/env.ts prune --days 14`. `list` shows them with their last use and `--dry` only names them. Docker keeps an image that a container still uses.
+
+`BOTHUB_IMAGE` names the image a build starts from when a hub sets no `image`. The default is `bothub-sandbox:local`.
+
+### Toolchains
+
+The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `bothub-cache` at `/cache`. rustup and cargo keep their homes there, and npm and pnpm keep their downloads there, so what one run fetched serves every later run, check and data dir. Each of these tools locks its own writes, so parallel runs do not corrupt the volume.
+
+The toolchain step installs what the repo's root files name:
 
 | Files                                                   | Installs                                                                     |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -53,13 +72,13 @@ Then it runs the hub's `toolchain` script, for what the repo files do not name, 
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed step stops the run with its output. The step runs once per base commit and script in a runner process, and a lock file in the volume lets one runner at a time install, so two runners never race inside rustup. On a warm volume it takes seconds, since rustup and cargo find everything installed. Checks then build offline from the fetched crates. <!-- code: src/docker.ts#toolchainOf -->
+A failed toolchain step stops the run with its output. A lock file in the volume lets one build at a time install, so two runners never race inside rustup. On a warm volume the step takes seconds, because rustup and cargo find everything already installed. Checks then build offline from the fetched crates. <!-- code: src/env.ts#toolchainOf -->
 
-`BOTHUB_CACHE_VOLUME` names another volume, and an empty value turns off both the volume and the step. The volume is writable by every run, so treat it like the egress network: a run could leave files there that later runs use. `docker volume rm bothub-cache` starts it over.
+`BOTHUB_CACHE_VOLUME` names another volume. An empty value turns off the volume and the environments. Every run can write to the volume, so treat it like the egress network: a run could leave files there that later runs use. `docker volume rm bothub-cache` empties it.
 
 ## A hub's own image
 
-`image` in `hub.yaml` names a local image that every command of a run starts in: sessions, setup, scripts and checks. bothub never builds or pulls it. Build it beforehand from the sandbox image, so the harnesses are already in it, and add what the repo needs, such as a toolchain or installed dependencies:
+`image` in `hub.yaml` names a local image that every command of a run starts in: sessions, setup, scripts and checks. The [environment](#environments) builds on top of it. bothub never builds or pulls it. Build it beforehand from the sandbox image, so the harnesses are already in it, and add what the repo needs, such as a toolchain or installed dependencies:
 
 ```dockerfile
 FROM bothub-sandbox:local

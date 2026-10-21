@@ -452,7 +452,7 @@ const sh = (
 /** Runs the hub's setup in a checkout, so its checks find what it installs. */
 const setUp = (hub: Hub, work: Checkout) =>
   Effect.gen(function* () {
-    if (!hub.setup) return;
+    if (!hub.setup || work.ready) return;
     const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
     if (out.code !== 0)
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });

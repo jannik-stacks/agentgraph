@@ -5,6 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
 import type { Hub } from './hub.ts';
+import { drop, envOf, type Seed, seed, sweep } from './env.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
@@ -19,34 +20,6 @@ const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEA
 const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
-
-/** Shell lines that install the toolchain a repo's root `files` name, run from the repo root with network. */
-export const toolchainOf = (files: string[]) => {
-  const has = (...names: string[]) => names.some(name => files.includes(name));
-  const pinned = has('rust-toolchain', 'rust-toolchain.toml');
-  if (!pinned && !has('Cargo.toml')) return [];
-  return [
-    'command -v rustup >/dev/null || rustup-init -y -q --no-modify-path --default-toolchain none --profile minimal',
-    pinned ? 'rustup toolchain install' : 'rustup default stable',
-    'rustup component add clippy rustfmt',
-    ...(has('Cargo.toml') ? [has('Cargo.lock') ? 'cargo fetch --locked' : 'cargo fetch'] : []),
-  ];
-};
-
-/**
- * The toolchain step's script: `lines` in the files of `$BOTHUB_BASE`, archived from the mirror at `$GIT_DIR`. A lock
- * file in the cache volume keeps two runners from installing into it at once.
- */
-const toolchainScript = (lines: string[]) =>
-  [
-    'set -e',
-    `exec 9>${inside.cache}/.toolchain.lock`,
-    'flock 9',
-    'mkdir -p /tmp/src',
-    'git archive "$BOTHUB_BASE" | tar -x -C /tmp/src',
-    'cd /tmp/src',
-    ...lines,
-  ].join('\n');
 
 /**
  * The admin dir git just made for the worktree `dir` of `mirror`, read before any container ran in `dir`. It must be
@@ -74,20 +47,34 @@ const user = () => {
   return id;
 };
 
-/** What the host recorded for a checkout: its git mounts and the hub's container settings. */
-type Made = { mounts: Mount[] } & Pick<Hub, 'image' | 'network'>;
+/** What the host recorded for a checkout: its git mounts, its seeds and the container settings of its hub and Env. */
+export type Made = { mounts: Mount[]; seeds?: Seed[] } & Pick<Hub, 'image' | 'network'>;
 
-const volume = (name: string) => {
-  if (!/^\w[\w.-]*$/.test(name)) throw infra(`volume name not allowed: ${name}`);
-  return ['--mount', `type=volume,src=${name},dst=${inside.cache}`];
+const volume = (name: string, dst: string) => {
+  if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
+  return ['--mount', `type=volume,src=${name},dst=${dst}`];
+};
+
+/** Where npm and pnpm keep what they download, shared by every container through the cache; both lock their own writes. */
+const caches = {
+  npm_config_cache: `${inside.cache}/npm`,
+  npm_config_store_dir: `${inside.cache}/pnpm`,
 };
 
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
  * the only routes out are the model proxy and, unless the hub's network is `models`, the egress allowlist; with
- * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`.
+ * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`; each seed is a volume
+ * at its path.
  */
-const dockerArgs = (c: Command, image: string, name: string, { mounts, network = 'egress' }: Made, cache = '') => [
+export const dockerArgs = (
+  c: Command,
+  image: string,
+  name: string,
+  { mounts, seeds = [], network = 'egress' }: Made,
+  cache = '',
+  size = limits
+) => [
   'run',
   '--rm',
   '--init',
@@ -106,18 +93,19 @@ const dockerArgs = (c: Command, image: string, name: string, { mounts, network =
   '--security-opt',
   'no-new-privileges=true',
   '--memory',
-  limits.memory,
+  size.memory,
   '--memory-swap',
-  limits.memory,
+  size.memory,
   '--cpus',
-  limits.cpus,
+  size.cpus,
   '--pids-limit',
-  limits.pids,
+  size.pids,
   ...bind({ src: c.dir, dst: inside.work }),
   ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
   ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
   ...mounts.flatMap(bind),
-  ...(cache ? volume(cache) : []),
+  ...(cache ? volume(cache, inside.cache) : []),
+  ...seeds.flatMap(s => volume(s.name, s.dst)),
   '--workdir',
   inside.work,
   ...Object.entries({
@@ -126,6 +114,7 @@ const dockerArgs = (c: Command, image: string, name: string, { mounts, network =
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'safe.directory',
     GIT_CONFIG_VALUE_0: '*',
+    ...(cache && caches),
     ...(c.network === 'proxy' &&
       network === 'egress' && {
         HTTPS_PROXY: egress,
@@ -200,8 +189,8 @@ const timeout = (c: Command) => () =>
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
  * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
- * the volume `cache`, `bothub-cache` by default, where the toolchain step installs what a hub's repo needs; an empty
- * name turns both off.
+ * the volume `cache`, `bothub-cache` by default. A checkout for a hub starts from the hub's Env at its base, built once
+ * with the toolchain and setup; an empty cache name turns the volume and Envs off.
  */
 export const docker = (o: {
   data: string;
@@ -217,8 +206,7 @@ export const docker = (o: {
       const cache = o.cache ?? 'bothub-cache';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
-      const tools = yield* Effect.makeSemaphore(1);
-      const installed = new Set<string>();
+      if (cache) yield* Effect.promise(() => sweep().catch(() => 0));
       /** Each live checkout as the host made it. */
       const made = new Map<string, Made>();
       const inMirror = (args: string[], env: Record<string, string> = {}) =>
@@ -284,29 +272,11 @@ export const docker = (o: {
           return { code, output } satisfies Exit;
         });
 
-      /** Installs the toolchain of `base` into the cache, once per base and script, from the checkout `dir`. */
-      const toolchain = (dir: string, git: string, base: string, extra?: string) =>
-        tools.withPermits(1)(
-          Effect.gen(function* () {
-            const files = (yield* inMirror(['ls-tree', '--name-only', base])).split('\n');
-            const lines = [...toolchainOf(files), ...(extra ? [extra] : [])];
-            const key = `${base}\0${lines.join('\n')}`;
-            if (!lines.length || installed.has(key)) return;
-            const started = Date.now();
-            const env = { GIT_DIR: git, BOTHUB_BASE: base };
-            const args = ['-c', toolchainScript(lines)];
-            const out = yield* Effect.scoped(exec({ cmd: 'sh', args, dir, env, network: 'open', minutes: 60 }));
-            if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
-            installed.add(key);
-            yield* Effect.logInfo(`toolchain ready in ${Math.round((Date.now() - started) / 1000)}s`);
-          })
-        );
-
       const checkout = (
         ref: string,
         branch?: string,
         keep?: string,
-        hub?: Pick<Hub, 'image' | 'network' | 'toolchain'>
+        hub?: Pick<Hub, 'image' | 'network' | 'toolchain' | 'setup'> & Partial<Pick<Hub, 'repo'>>
       ) =>
         Effect.gen(function* () {
           yield* lock.withPermits(1)(
@@ -339,6 +309,23 @@ export const docker = (o: {
           if (!rev) return yield* infra(`no commit for ${ref}`);
           const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           const base = onto ? yield* inMirror(['merge-base', rev, onto]).pipe(Effect.orElseSucceed(() => rev)) : rev;
+          const setup = hub?.setup?.includes('BOTHUB_HUB') ? undefined : hub?.setup;
+          const env =
+            hub && cache
+              ? yield* Effect.tryPromise({
+                  try: () =>
+                    envOf({
+                      repo: hub.repo ?? 'repo',
+                      image: hub.image ?? image,
+                      git: mirror,
+                      base,
+                      cache,
+                      ...(setup && { setup }),
+                      ...(hub.toolchain && { toolchain: hub.toolchain }),
+                    }),
+                  catch: e => infra((e as Error).message),
+                })
+              : undefined;
           const id = randomBytes(6).toString('hex');
           const dir = join(o.data, 'work', id);
           const index = join(o.data, 'index', id);
@@ -347,6 +334,7 @@ export const docker = (o: {
             dir,
             base,
             ...(base !== rev && { head: rev }),
+            ...(env?.complete && setup && !saved && base === rev && { ready: true }),
             git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
             news: join(news, 'news.md'),
           };
@@ -360,6 +348,7 @@ export const docker = (o: {
               yield* inWork(['update-ref', name, commit]);
             }).pipe(Effect.ignoreLogged);
           let admin = '';
+          let seeds: Seed[] = [];
           const add = Effect.gen(function* () {
             yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
             admin = yield* Effect.tryPromise({
@@ -373,9 +362,13 @@ export const docker = (o: {
               catch: e => infra((e as Error).message),
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
+            if (env)
+              seeds = yield* Effect.tryPromise({ try: () => seed(env, id), catch: e => infra((e as Error).message) });
+            const own = env?.image ?? hub?.image;
             made.set(dir, {
-              ...(hub?.image !== undefined && { image: hub.image }),
+              ...(own !== undefined && { image: own }),
               ...(hub?.network !== undefined && { network: hub.network }),
+              seeds,
               mounts: [
                 { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
                 { src: admin, dst: admin },
@@ -385,12 +378,12 @@ export const docker = (o: {
           });
           const remove = Effect.promise(() => {
             made.delete(dir);
-            return Promise.all(
-              [dir, index, news, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true }))
-            );
+            return Promise.all([
+              ...[dir, index, news, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true })),
+              drop(seeds),
+            ]);
           });
           yield* Effect.acquireRelease(add, () => Effect.zipRight(keep ? save(keep) : Effect.void, remove));
-          if (hub && cache) yield* toolchain(dir, dirname(dirname(admin)), base, hub.toolchain);
           return work;
         });
 

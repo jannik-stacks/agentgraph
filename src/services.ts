@@ -22,6 +22,8 @@ export type Settings = {
   prices: string;
   /** The docker volume toolchains and package caches live in; empty for none. */
   cache: string;
+  /** The image commands start in when a hub names none. */
+  image: string;
   checkLogs: (typeof checkLogs)[number];
   /** A forge folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
   forge: string | { id: string; key: Redacted.Redacted };
@@ -40,6 +42,7 @@ export const settings: Config.Config<Settings> = Config.all({
   }),
   prices: Config.string('BOTHUB_PRICES').pipe(Config.withDefault(prices)),
   cache: Config.string('BOTHUB_CACHE_VOLUME').pipe(Config.withDefault('bothub-cache')),
+  image: Config.string('BOTHUB_IMAGE').pipe(Config.withDefault('bothub-sandbox:local')),
   checkLogs: Config.literal(...checkLogs)('BOTHUB_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   forge: Config.string('BOTHUB_FORGE').pipe(
     Config.orElse(() => Config.all({ id: Config.string('BOTHUB_APP_ID'), key: Config.redacted('BOTHUB_APP_KEY') }))
@@ -66,7 +69,7 @@ const where = (s: Settings) => {
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
 export const layers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
-  const sandbox = docker({ data: s.data, cache: s.cache, ...origin });
+  const sandbox = docker({ data: s.data, cache: s.cache, image: s.image, ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
   const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
     Effect.provide(sandbox),

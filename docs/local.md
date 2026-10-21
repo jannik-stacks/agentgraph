@@ -47,6 +47,7 @@ node bin/run.ts status --hub examples/sandbox --data ~/bothub-data
 | `BOTHUB_PRICES`       | The list prices file, `infra/local/prices.json` by default                                           |
 | `BOTHUB_CHECK_LOGS`   | Which check output the data dir keeps: `all` by default, `failed` or `off`                           |
 | `BOTHUB_CACHE_VOLUME` | The docker volume for [toolchains](sandbox.md#toolchains), `bothub-cache` by default; empty for none |
+| `BOTHUB_IMAGE`        | The image [environments](sandbox.md#environments) start from, `bothub-sandbox:local` by default      |
 
 The App's variables can also be set in the environment directly. `--logs` on the CLI, or `logs` in `instance.yaml`, sets `BOTHUB_CHECK_LOGS`. <!-- code: src/services.ts#settings -->
 
