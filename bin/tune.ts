@@ -9,7 +9,7 @@
  * Tunes live in ~/bothub-data/tune/<repo>/<name> (BOTHUB_TUNE moves the root).
  */
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -689,10 +689,18 @@ export const status = (dir: string) => {
     jobs: Job[];
   } | null;
   const last = jsonl(join(dir, 'log.jsonl')).at(-1);
+  const written = Math.max(
+    0,
+    ...[dir, ...subdirs(join(dir, 'runs')).map(n => join(dir, 'runs', n))]
+      .map(d => join(d, 'log.jsonl'))
+      .filter(existsSync)
+      .map(f => statSync(f).mtimeMs)
+  );
   return [
     `${t.repo} on ${t.point}: ${steps.length} steps over ${nextIteration(steps) - 1} iterations, incumbent ${incumbentOf(steps)?.id}`,
     ...steps.slice(-5).map(s => `  ${s.id} ${s.verdict}: ${s.why}`),
-    pid && busy(join(dir, 'tune')) ? `running as pid ${pid}` : 'not running',
+    pid && busy(join(dir, 'tune')) ? `running as pid ${pid}` : 'no live lock',
+    `last log write ${Math.round((Date.now() - written) / 60_000)} min ago`,
     ...(last ? [`last event: ${JSON.stringify(last)}`] : []),
     ...(phase
       ? [
