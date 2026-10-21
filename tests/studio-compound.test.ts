@@ -43,7 +43,15 @@ const step = (iteration: number, verdict: Step['verdict'], q: number, at = `${it
 });
 const tune = (repo: string, name: string, steps: Step[]): TuneRows => ({
   name,
-  tune: { repo, engine: 'e', point: 'p', cases: {}, preset: 'hidden', keep: { p: 0.8, delta: 0.03, screen: 4 } },
+  tune: {
+    repo,
+    engine: 'e',
+    point: 'p',
+    cases: {},
+    preset: 'hidden',
+    keep: { p: 0.8, delta: 0.03, screen: 4 },
+    clone: '',
+  },
   steps,
 });
 

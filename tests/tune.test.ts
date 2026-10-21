@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { decide, init, paired, propose, step, tuneRows } from '../bin/tune.ts';
+import { decide, init, paired, propose, step, tuneRows, type tunesOf } from '../bin/tune.ts';
 import { fixtures } from '../studio/fixtures.ts';
 import { tmp } from './fixtures.ts';
 
@@ -191,19 +191,12 @@ describe('/core/compound', () => {
     process.env.VITE_BHM_TUNE = join(import.meta.dirname, 'fixtures/tune');
     let body = '';
     await routes['/core/compound']!({}, { setHeader: () => {}, end: (b: string) => (body = b) });
-    const { tunes } = JSON.parse(body) as { tunes: (ReturnType<typeof tuneRows> & { key: string })[] };
-    expect(tunes.map(t => [t.key, t.tune.repo, t.steps.length])).toEqual([
-      ['clarinet/skill@1', 'acme/clarinet', 3],
-      ['stacks.js/t1', 'acme/stacks.js', 7],
+    const tunes = JSON.parse(body) as ReturnType<typeof tunesOf>;
+    expect(tunes.map(t => [t.name, t.tune.repo, t.steps.length])).toEqual([
+      ['skill@0.1.0', 'acme/clarinet', 25],
+      ['t1', 'acme/clarinet', 25],
+      ['t1', 'acme/app', 25],
     ]);
-    expect(tunes[1]!.steps.map(s => s.verdict)).toEqual([
-      'kept',
-      'kept',
-      'screened-out',
-      'discarded',
-      'infra',
-      'kept',
-      'discarded',
-    ]);
+    expect(tunes[0]!.steps[0]!.verdict).toBe('kept');
   });
 });

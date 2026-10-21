@@ -26,7 +26,7 @@ import { parseArgs } from 'node:util';
 import { presets, quality } from '../studio/src/bench/score.ts';
 import { codexUsed, plan, rowsOf } from './bench.ts';
 
-type Split = 'mine' | 'fit' | 'validate' | 'test';
+export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {
   repo: string;
   engine: string;
@@ -36,7 +36,7 @@ type Tune = {
   keep: { p: number; delta: number; screen: number };
   clone: string;
 };
-type Proposer = 'retro' | 'history' | 'manual' | 'skill' | 'structure';
+type Proposer = 'retro' | 'history' | 'manual' | 'skill';
 type Candidate = {
   id: string;
   iteration: number;
@@ -59,7 +59,7 @@ type Eval = {
   codex: number;
   claude5h: number;
 };
-type Step = Candidate & {
+export type Step = Candidate & {
   evals: Eval[];
   verdict: 'kept' | 'discarded' | 'screened-out' | 'infra';
   why: string;
@@ -97,12 +97,12 @@ const subdirs = (dir: string) =>
       )
     : [];
 
-/** Every tune under `root`, keyed `<repo>/<name>`. */
+/** Every tune under `root`, each with its folder name. */
 export const tunesOf = (root = tuneRoot()) =>
   subdirs(root).flatMap(repo =>
     subdirs(join(root, repo))
       .filter(name => existsSync(join(root, repo, name, 'tune.json')))
-      .map(name => ({ key: `${repo}/${name}`, ...tuneRows(join(root, repo, name)) }))
+      .map(name => ({ name, ...tuneRows(join(root, repo, name)) }))
   );
 
 const random = (seed: number) => () => {

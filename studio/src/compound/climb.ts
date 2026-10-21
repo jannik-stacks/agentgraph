@@ -1,40 +1,8 @@
-export type Split = 'mine' | 'fit' | 'validate' | 'test';
-type Tune = {
-  repo: string;
-  engine: string;
-  point: string;
-  cases: Record<string, Split>;
-  preset: 'hidden' | 'composite';
-  keep: { p: number; delta: number; screen: number };
-};
-type Eval = {
-  candidate: string;
-  split: Split;
-  cases: string[];
-  quality: number;
-  ci: [number, number];
-  delta?: number;
-  pUp?: number;
-  usd: number;
-  minutes: number;
-  codex: number;
-  claude5h: number;
-};
-export type Step = {
-  id: string;
-  iteration: number;
-  parent: string;
-  proposer: 'retro' | 'history' | 'manual' | 'skill';
-  hub: string;
-  rationale: string;
-  diff: string;
-  evals: Eval[];
-  verdict: 'kept' | 'discarded' | 'screened-out' | 'infra';
-  why: string;
-  at: string;
-};
+import type { Split, Step, tunesOf } from '../../../bin/tune.ts';
+
+export type { Split, Step };
 /** One tune as `/core/compound` answers it; `name` is its folder. */
-export type TuneRows = { name: string; tune: Tune; steps: Step[] };
+export type TuneRows = ReturnType<typeof tunesOf>[number];
 
 const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
 const mean = (xs: number[]) => (xs.length ? sum(xs) / xs.length : 0);
