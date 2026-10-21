@@ -83,6 +83,7 @@ describe('bench helpers', () => {
     const red = { applied: true, hidden: { ok: false } };
     expect(invalid(red, ok)).toBeUndefined();
     expect(invalid({ applied: true }, { applied: true })).toBeUndefined();
+    expect(invalid({ applied: true }, ok, true)).toMatch(/no hidden tests run/);
     expect(invalid(ok, ok)).toMatch(/base already passes/);
     expect(invalid(red, { ...ok, hidden: { ok: false } })).toMatch(/human fails the hidden/);
     expect(invalid(red, { ...ok, suite: { ok: false } })).toMatch(/human fails the suite/);

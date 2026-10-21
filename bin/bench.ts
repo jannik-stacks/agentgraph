@@ -510,10 +510,10 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
 type Tests = { applied?: boolean; setup?: { ok: boolean }; suite?: { ok: boolean }; hidden?: { ok: boolean } };
 
 /** Why a case cannot tell arms apart, when it cannot: the hidden tests must fail on base and pass on the human. */
-export const invalid = (base: Tests, human: Tests) => {
+export const invalid = (base: Tests, human: Tests, tested = false) => {
   if (human.applied === false) return 'the human diff does not apply to base';
   if (base.setup?.ok === false || human.setup?.ok === false) return 'setup fails';
-  if (!base.hidden || !human.hidden) return undefined;
+  if (!base.hidden || !human.hidden) return tested ? 'no hidden tests run' : undefined;
   if (base.hidden.ok) return 'base already passes the hidden tests';
   if (!human.hidden.ok) return 'the human fails the hidden tests';
   if (human.suite?.ok === false) return 'the human fails the suite';
@@ -527,7 +527,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
     const tests = (arm: string) => JSON.parse(read(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
-    save(file, { invalid: invalid(tests('base'), tests('human')) });
+    save(file, { invalid: invalid(tests('base'), tests('human'), c.bucket === 'tests' || Boolean(c.test)) });
     if (kept) cpSync(join(out, c.id), kept, { recursive: true, filter: p => !/\/(tree|v2|floor|judge)$/.test(p) });
   }
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
