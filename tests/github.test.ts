@@ -646,6 +646,25 @@ describe('githubForge', () => {
     expect(failed.status).toBe(502);
   });
 
+  it('retries minting a token after a network failure, and never a comment GitHub failed', async () => {
+    const f = fake({ 'POST /repos/o/r/issues/7/comments': () => ({ status: 503, body: {} }) });
+    let down = 1;
+    const flaky = (url: string, init?: RequestInit) =>
+      down-- > 0 ? Promise.reject(new TypeError('fetch failed')) : f.fetch(url, init);
+    const failed = await Effect.runPromise(
+      Effect.provide(
+        Effect.flatMap(Forge, forge => Effect.flip(forge.apply(7, { kind: 'comment', body: 'x' }))),
+        githubForge(app, flaky)
+      )
+    );
+    expect(failed.status).toBe(503);
+    expect(f.calls.map(c => `${c.method} ${c.path}`)).toEqual([
+      'GET /repos/o/r/installation',
+      'POST /app/installations/9/access_tokens',
+      'POST /repos/o/r/issues/7/comments',
+    ]);
+  });
+
   describe('push', () => {
     const sh = (args: string[], env: Record<string, string> = {}, input?: string) =>
       execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {

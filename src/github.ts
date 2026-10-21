@@ -1,5 +1,5 @@
 import { createPrivateKey, sign } from 'node:crypto';
-import { Effect, Layer, Redacted, Stream } from 'effect';
+import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import {
   commanded,
   Forge,
@@ -128,13 +128,18 @@ const refPath = (branch: string) =>
     ? Effect.fail(new ForgeError({ status: 422, message: `invalid branch "${branch}"` }))
     : Effect.succeed(`heads/${branch.split('/').map(encodeURIComponent).join('/')}`);
 
-/** A GitHub REST call with `auth` as the bearer; GETs are polled with ETags, so an unchanged answer is a free 304. */
+/**
+ * A GitHub REST call with `auth` as the bearer; GETs are polled with ETags, so an unchanged answer is a free 304. A call
+ * that may be sent twice, any but a POST or a token to mint, is retried with backoff when the network fails or GitHub
+ * answers 502 to 504.
+ */
 const requester = (fetch: Fetch) => {
   const etags = new Map<string, { etag: string; data: unknown; next?: string }>();
   return <T>(method: string, path: string, auth: string, body?: unknown, version = '2022-11-28') =>
     Effect.gen(function* () {
       const url = path.startsWith('https://') ? path : api + path;
       const cached = method === 'GET' ? etags.get(url) : undefined;
+      const again = method !== 'POST' || path.endsWith('/access_tokens');
       const res = yield* Effect.tryPromise({
         try: async () => {
           const res = await fetch(url, {
@@ -149,10 +154,11 @@ const requester = (fetch: Fetch) => {
             },
             ...(body !== undefined && { body: JSON.stringify(body) }),
           });
+          if (again && res.status >= 502 && res.status <= 504) throw new Error(`status ${res.status}`);
           return { status: res.status, ok: res.ok, headers: res.headers, text: await res.text() };
         },
         catch: e => new ForgeError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
-      });
+      }).pipe(Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 }));
       if (res.status === 304 && cached) return cached as { data: T; next?: string };
       if (!res.ok) {
         const message = `GitHub ${method} ${path} failed with ${res.status}: ${res.text.slice(0, 200)}`;
