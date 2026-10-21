@@ -26,7 +26,9 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 
 const DocsPage = lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage })));
 
-const labels = { graph: 'Graph', runs: 'Runs', docs: 'Docs' };
+const BenchPage = lazy(() => import('./bench/BenchPage.tsx').then(m => ({ default: m.BenchPage })));
+
+const labels = { graph: 'Graph', runs: 'Runs', docs: 'Docs', bench: 'Bench' };
 
 const base = (dir: string | undefined, parts = 1) => dir?.split('/').filter(Boolean).slice(-parts).join('/');
 
@@ -93,6 +95,7 @@ export const App = () => {
             {route === 'graph' && <GraphPage />}
             {route === 'runs' && <RunsPage />}
             {route === 'docs' && <DocsPage />}
+            {route === 'bench' && <BenchPage />}
           </Suspense>
         </Boundary>
       </main>

@@ -1,5 +1,5 @@
-import { existsSync, watch } from 'node:fs';
-import { basename } from 'node:path';
+import { existsSync, readdirSync, readFileSync, watch } from 'node:fs';
+import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 
@@ -25,6 +25,16 @@ const json = (res: import('node:http').ServerResponse, value: unknown, status = 
   res.end(JSON.stringify(value));
 };
 
+/** The bench out dirs at or under `dir`: those with a `log.jsonl`, never looking into case dirs. */
+const outsOf = (dir: string, depth = 3): string[] => [
+  ...(existsSync(join(dir, 'log.jsonl')) ? [dir] : []),
+  ...(depth && existsSync(dir)
+    ? readdirSync(dir, { withFileTypes: true })
+        .filter(e => e.isDirectory() && !/^(\.|engine$)/.test(e.name) && !existsSync(join(dir, e.name, 'human')))
+        .flatMap(e => outsOf(join(dir, e.name), depth - 1))
+    : []),
+];
+
 /** A JSON value with every string longer than a line cut to one. */
 const cut = (value: unknown): unknown =>
   typeof value === 'string'
@@ -45,6 +55,7 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
  * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line, and
  * `GET /core/logs/<hash>` the full output of a check.
+ * `GET /core/bench` answers the rows of every bench out dir under the dirs `VITE_BHM_BENCH` names, and the price table.
  * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const fixtures = (): Plugin => ({
@@ -68,6 +79,14 @@ export const fixtures = (): Plugin => ({
       req.on('close', () => {
         clearTimeout(timer);
         watcher.close();
+      });
+    });
+    server.middlewares.use('/core/bench', async (_req, res) => {
+      const { rowsOf }: typeof import('../bin/bench.ts') = await from('bin/bench.ts');
+      const dirs = (process.env.VITE_BHM_BENCH ?? '').split(':').filter(Boolean);
+      json(res, {
+        rows: dirs.flatMap(dir => outsOf(dir)).flatMap(rowsOf),
+        prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
     });
     server.middlewares.use('/core/logs', async (req, res) => {

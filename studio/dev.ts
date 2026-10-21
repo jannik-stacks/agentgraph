@@ -7,8 +7,14 @@ import { createServer } from 'vite';
 import { loadHub } from '../src/hub.ts';
 import { instanceAt } from '../src/instance.ts';
 
-const { values } = parseArgs({
-  options: { hub: { type: 'string' }, data: { type: 'string' }, instance: { type: 'string' } },
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    hub: { type: 'string' },
+    data: { type: 'string' },
+    instance: { type: 'string' },
+    bench: { type: 'string', multiple: true },
+  },
 });
 const instance = values.instance === undefined ? undefined : instanceAt(values.instance);
 if (values.instance && !instance) {
@@ -25,6 +31,7 @@ if (Either.isLeft(loaded))
 
 process.env.VITE_BHM_HUB = hubDir;
 process.env.VITE_BHM_DATA = dataDir;
+if (values.bench) process.env.VITE_BHM_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
 const vite = await createServer({ root: import.meta.dirname });
 await vite.listen().catch((e: Error) => {
   console.error(`bhm: ${e.message}; pick another port with BHM_PORT`);
