@@ -221,3 +221,22 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         : Effect.succeed(undefined),
   });
 };
+
+/** The check logs in `<dir>/logs` that no run's trace names; they are deleted only when `apply` is set. */
+export const pruneLogs = async (dir: string, apply = false) => {
+  const named = new Set<string>();
+  for (const id of await readdir(dir).catch(() => [])) {
+    const text = await readFile(join(dir, id, 'trace.jsonl'), 'utf8').catch(() => '');
+    for (const [hash] of text.matchAll(/[0-9a-f]{64}/g)) named.add(hash);
+  }
+  const unused = { files: 0, bytes: 0 };
+  for (const name of await readdir(join(dir, 'logs')).catch(() => [])) {
+    const hash = /^([0-9a-f]{64})\.gz$/.exec(name)?.[1];
+    if (!hash || named.has(hash)) continue;
+    const path = join(dir, 'logs', name);
+    unused.files++;
+    unused.bytes += (await stat(path)).size;
+    if (apply) await rm(path);
+  }
+  return unused;
+};

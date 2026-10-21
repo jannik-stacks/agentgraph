@@ -58,7 +58,7 @@ The studio reads only these files. `status` reads them too, and asks GitHub whic
 
 ## Check logs
 
-Every script check and every judged check's final reply is kept whole in `logs/`, gzipped and named by its sha256. Output that repeats, such as a passing lint over many runs and tries, is stored once, which is why the folder is shared and not per run. The trace and the forge only see the short findings; the studio opens the full output from a check row. `BOTHUB_CHECK_LOGS` set to `failed` keeps only failing output, and `off` keeps none. It is a runner setting, not a hub one, since what a machine keeps on disk is the runner's choice. <!-- code: src/store.ts#checkLogs --> <!-- code: src/store.ts#Log -->
+Every script check and every judged check's final reply is kept whole in `logs/`, gzipped and named by its sha256. Output that repeats, such as a passing lint over many runs and tries, is stored once, which is why the folder is shared and not per run. The trace and the forge only see the short findings; the studio opens the full output from a check row. `BOTHUB_CHECK_LOGS` set to `failed` keeps only failing output, and `off` keeps none. It is a runner setting, not a hub one, since what a machine keeps on disk is the runner's choice. `node bin/run.ts prune-logs --data <dir>` counts the logs that no run's trace names any more, and `--apply` deletes them; run it while no run is being driven. <!-- code: src/store.ts#checkLogs --> <!-- code: src/store.ts#Log --> <!-- code: src/store.ts#pruneLogs -->
 
 ## Checkout
 

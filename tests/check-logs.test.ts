@@ -1,9 +1,9 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type checkLogs, fileStore, Store } from '../src/store.ts';
+import { type checkLogs, fileStore, pruneLogs, Store } from '../src/store.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -62,5 +62,30 @@ describe('check logs', () => {
       Effect.runPromise(Effect.flatMap(Store, s => s.logOf(hash)).pipe(Effect.provide(fileStore(dir))));
     expect(await read('0'.repeat(64))).toBeUndefined();
     expect(await read('../run.json')).toBeUndefined();
+  });
+});
+
+describe('prune logs', () => {
+  it('counts logs no trace names, and deletes them only when asked', async () => {
+    const dir = data();
+    const [kept, dropped] = await Effect.runPromise(
+      Effect.gen(function* () {
+        const store = yield* Store;
+        return [yield* store.log('kept', false), yield* store.log('dropped', false)] as const;
+      }).pipe(Effect.provide(fileStore(dir)))
+    );
+    mkdirSync(join(dir, 'run-1'));
+    writeFileSync(join(dir, 'run-1', 'trace.jsonl'), `${JSON.stringify({ check: { log: kept } })}\n`);
+    const left = () => readdirSync(join(dir, 'logs')).sort();
+
+    const dry = await pruneLogs(dir);
+    expect(dry.files).toBe(1);
+    expect(dry.bytes).toBeGreaterThan(0);
+    expect(left()).toHaveLength(2);
+
+    expect(await pruneLogs(dir, true)).toEqual(dry);
+    expect(left()).toEqual([`${kept!.hash}.gz`]);
+    expect(dropped!.hash).not.toBe(kept!.hash);
+    expect(await pruneLogs(dir, true)).toEqual({ files: 0, bytes: 0 });
   });
 });

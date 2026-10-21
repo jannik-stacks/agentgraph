@@ -6,6 +6,7 @@
  *        node bin/run.ts status --hub <dir> --data <dir>   (needs BOTHUB_APP_ENV, or --forge; read-only)
  *        node bin/run.ts loop --hub <dir> --data <dir>   (looks at every open issue each BOTHUB_EVERY minutes)
  *        node bin/run.ts loop --data <dir>   (the same with the repo's own .bothub/; BOTHUB_REPO names the repo)
+ *        node bin/run.ts prune-logs --data <dir> [--apply]   (counts the check logs no trace names; --apply deletes them)
  * With --forge <dir>, the runs act on a forge folder (see bin/forge.ts) instead of GitHub, and need no App.
  * --instance <dir> stands for the hub, forge and data of an instance, and loads its keys.env; without --hub, --forge
  * or --data, the instance is the one around the working directory, if any.
@@ -19,7 +20,7 @@ import { appEnv, start } from '../src/main.ts';
 import { loadHub } from '../src/hub.ts';
 import { instanceAt } from '../src/instance.ts';
 import { needsYou } from '../src/status.ts';
-import { fileStore } from '../src/store.ts';
+import { fileStore, pruneLogs } from '../src/store.ts';
 
 const { values, positionals } = parseArgs({
   options: {
@@ -30,6 +31,7 @@ const { values, positionals } = parseArgs({
     forge: { type: 'string' },
     instance: { type: 'string' },
     logs: { type: 'string' },
+    apply: { type: 'boolean' },
   },
   allowPositionals: true,
 });
@@ -62,6 +64,16 @@ if (positionals[0] === 'check') {
   for (const p of problems) console.error(`${p.path}: ${p.message}`);
   console.log(problems.length ? `${problems.length} problem(s)` : 'ok');
   process.exit(problems.length ? 1 : 0);
+}
+
+if (positionals[0] === 'prune-logs') {
+  if (!values.data) {
+    console.error('usage: node bin/run.ts prune-logs --data <dir> [--apply]');
+    process.exit(2);
+  }
+  const { files, bytes } = await pruneLogs(resolve(values.data), values.apply);
+  console.log(`${values.apply ? 'deleted' : 'would delete'} ${files} unreferenced log(s), ${bytes} bytes`);
+  process.exit(0);
 }
 
 if (positionals[0] === 'status') {
