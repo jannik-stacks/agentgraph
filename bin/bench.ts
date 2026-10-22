@@ -190,7 +190,7 @@ const tokenEnv = [
   ...['PG', 'BLOCKCHAIN_API_PG'].map(
     p => `${p}HOST=127.0.0.1 ${p}PORT=5432 ${p}USER=postgres ${p}PASSWORD=postgres ${p}DATABASE=postgres`
   ),
-  'STACKS_NODE_RPC_HOST=127.0.0.1 STACKS_NODE_RPC_PORT=24440',
+  'STACKS_NODE_RPC_HOST=127.0.0.1 STACKS_NODE_RPC_PORT=24440 SNP_REDIS_URL=redis://127.0.0.1:6379',
 ].join(' ');
 /** Rust 1.79 for a lockfile without time 0.3.35 or later, whose older time releases fail to build on newer Rust. */
 const oldRust =
