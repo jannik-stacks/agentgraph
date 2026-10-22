@@ -267,9 +267,9 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 
 /**
  * The Env for `spec`: the tagged image when one exists, else one container with open network, committed. Setup first
- * sees only the skeleton; when it fails there, the build runs again on every file, and later bases of the same
- * toolchain and setup go there first. Throws when the toolchain fails; undefined when setup fails on every file, so
- * setup runs in each checkout as before.
+ * sees only the skeleton; when the toolchain or setup fails there, the build runs again on every file, and later bases
+ * of the same toolchain and setup go there first. Throws when the toolchain fails on every file; undefined when setup
+ * fails on every file, so setup runs in each checkout as before.
  */
 export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   const [tree, files, from, skeleton] = await Promise.all([
@@ -386,8 +386,8 @@ const buildOf = async (
     }
     if (out.code !== 0) await docker(['volume', 'rm', '-f', lowerOf(key)]).catch(() => '');
     try {
-      if (out.code === 97) throw new Error(`toolchain exited: ${out.output.trim().slice(-2000)}`);
-      if (out.code === 98) return mode === 'deps' ? undefined : 'setup';
+      if (out.code === 97 && mode === 'tree') throw new Error(`toolchain exited: ${out.output.trim().slice(-2000)}`);
+      if (out.code === 97 || out.code === 98) return mode === 'deps' ? undefined : 'setup';
       if (out.code !== 0) throw new Error(`env build exited ${out.code}: ${out.output.trim().slice(-2000)}`);
       const ignored = section(out.output, 'ignored');
       const outputs = ignored.filter(p => p.endsWith('/')).map(p => p.slice(0, -1));

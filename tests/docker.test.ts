@@ -69,7 +69,7 @@ describe('docker with a stand-in docker client', () => {
         `echo "$*" >> ${log}.all`,
         `echo "secret=\${AGENTGRAPH_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
-        `case "$*" in *"skelfail deps"*) exit 98;; *"skelfail tree"*) ;; *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
+        `case "$*" in *"skelfail deps"*) exit 98;; *"skeltool x deps"*) exit 97;; *"skelfail tree"*) ;; *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -321,6 +321,20 @@ describe('docker with a stand-in docker client', () => {
         { key: expect.any(String), mode: 'tree', match: true },
         { key: expect.any(String), mode: 'tree', match: true },
       ]);
+    } finally {
+      if (saved === undefined) delete process.env.AGENTGRAPH_STATE;
+      else process.env.AGENTGRAPH_STATE = saved;
+    }
+  });
+
+  it('builds on every file when the toolchain fails on the skeleton', async () => {
+    const saved = process.env.AGENTGRAPH_STATE;
+    process.env.AGENTGRAPH_STATE = tmp('state');
+    try {
+      const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+        s.checkout('main', undefined, undefined, { toolchain: 'skeltool', setup: 'x' })
+      );
+      expect(Exit.isSuccess(exit) && exit.value.env).toEqual({ key: expect.any(String), mode: 'tree', match: true });
     } finally {
       if (saved === undefined) delete process.env.AGENTGRAPH_STATE;
       else process.env.AGENTGRAPH_STATE = saved;
