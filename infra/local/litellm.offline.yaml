@@ -11,6 +11,20 @@ model_list:
   - { model_name: smart, litellm_params: *local }
   - { model_name: writer, litellm_params: *local }
   - { model_name: luna, litellm_params: *local }
+  - { model_name: glm, litellm_params: *local }
+  - { model_name: glm-flash, litellm_params: *local }
+  - { model_name: deepseek, litellm_params: *local }
+  - { model_name: deepseek-flash, litellm_params: *local }
+  - { model_name: minimax, litellm_params: *local }
+  - { model_name: gemini, litellm_params: *local }
+  - { model_name: gemini-flash, litellm_params: *local }
+  - { model_name: grok, litellm_params: *local }
+  - { model_name: grok-build, litellm_params: *local }
+  - { model_name: qwen, litellm_params: *local }
+  - { model_name: qwen-flash, litellm_params: *local }
+  - { model_name: kimi, litellm_params: *local }
+  - { model_name: muse, litellm_params: *local }
+  - { model_name: muse-flash, litellm_params: *local }
 
 litellm_settings:
   drop_params: true
