@@ -107,7 +107,9 @@ node bin/bench.ts report <out>
   findings by severity, judge agreement, all of it again per stratum, and a table per case.
 
 Every step skips outputs that exist and moves an unfinished arm into `<case>/.attic/` instead of
-deleting it. Progress appends to `<out>/log.jsonl`. The score step runs each command in a container of the
+deleting it, without its checkouts. A finished run keeps only its records (traces, diff, score, meta,
+usage and validity files); the score tree is removed after scoring, dependencies live in docker volumes
+and never in a checkout, and a run waits while the disk is low (see [environments](sandbox.md#environments)). Progress appends to `<out>/log.jsonl`. The score step runs each command in a container of the
 case's [environment](sandbox.md#environments), with no network except for setup. Nothing of a case runs on the
 host: without docker or the sandbox image the step fails and writes no score. Setup runs again only when the diff
 touches a manifest such as a lockfile, and a case's `build` (the clarinet SDK) runs on every diff. A mined

@@ -80,6 +80,9 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
   progress, and `bin/overnight.sh` runs a queue of commands that resumes the same way.
 - `tune/skill.ts` benchmarks the `tune-graph` skill as its own tune on the loop's cases, without
   the held-out ones.
+- A finished run keeps only its records: dependencies live in docker volumes, never in a checkout,
+  score trees go after scoring, Envs past `BOTHUB_ENV_CAP` are evicted, and runs wait below
+  `BOTHUB_MIN_FREE_GB` free.
 
 ## 0.1.0
 
