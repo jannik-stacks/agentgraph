@@ -87,7 +87,7 @@ export const fixtures = (): Plugin => ({
       const { rowsOf }: typeof import('../bin/bench.ts') = await from('bin/bench.ts');
       const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
-        rows: dirs.flatMap(dir => outsOf(dir)).flatMap(rowsOf),
+        rows: dirs.flatMap(dir => outsOf(dir)).flatMap(out => rowsOf(out)),
         prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
     });

@@ -336,6 +336,13 @@ describe('bin/bench.ts score and report', () => {
     expect(rowsOf(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
     writeFileSync(join(out, 'demo', 'base', 'score.json'), JSON.stringify({ ...score('base'), suite: { ok: false } }));
     expect(rowsOf(out)[1]).not.toHaveProperty('suite');
+    mkdirSync(join(out, 'btc', 'human'), { recursive: true });
+    writeFileSync(join(out, 'btc', 'case.json'), JSON.stringify({ repo: 'acme/billing' }));
+    writeFileSync(join(out, 'btc', 'human', 'score.json'), '{}');
+    expect(rowsOf(out).map(r => r.case)).toEqual(['demo', 'demo', 'demo']);
+    expect(rowsOf(out, ['me/other'])).toEqual([]);
+    expect(rowsOf(out, ['me/demo'])).toHaveLength(3);
+    expect(bench('report', out)).not.toContain('btc');
   });
 });
 

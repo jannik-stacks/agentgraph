@@ -75,6 +75,9 @@ type Finding = { severity: string; category: string; text: string };
 type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
 
 const bots = ['v2', 'floor', 'v1'];
+/** Repos a bench never runs or reports. */
+const excluded = new Set(['billing']);
+const benched = (repo = '') => !excluded.has(repo.split('/').pop() ?? '');
 const arms = ['human', ...bots, 'control'];
 const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'agentgraph-sandbox': 'sandbox' };
 const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
@@ -428,6 +431,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   const at = join(out, c.id, arm);
   if (arm === 'v1')
     throw new Error('not yet: v1 needs its own sandbox image, env and a leak-free seed (docs/bench.md)');
+  if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
   if (existsSync(join(at, 'diff.patch'))) return;
   const missing = unpriced(arm, hubOf(c));
   if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to prices.json with its source`);
@@ -1203,7 +1207,7 @@ const loadScored = (out: string, id: string): Scored => {
  * One row per case and arm run of an out dir, keyed by its point. A dir without `point.json` reads as opencode:smart,
  * repeat 1, engine unknown, with the dir name as its set.
  */
-export const rowsOf = (out: string) => {
+export const rowsOf = (out: string, repos?: string[]) => {
   const p = {
     harness: 'opencode',
     model: 'smart',
@@ -1217,7 +1221,7 @@ export const rowsOf = (out: string) => {
   return readdirSync(out)
     .filter(id => existsSync(join(out, id, 'human')))
     .map(id => loadScored(out, id))
-    .filter(c => !c.invalid)
+    .filter(c => !c.invalid && benched(c.strata.repo) && (!repos || repos.includes(c.strata.repo ?? '')))
     .flatMap(c => {
       const base = JSON.parse(read(join(out, c.id, 'base', 'score.json')) || '{}') as Record<string, unknown>;
       return ['human', ...bots].flatMap(arm => {
@@ -1396,7 +1400,7 @@ export const statusText = (p: ReturnType<typeof progress>) =>
 
 const report = (out: string) => {
   const ids = readdirSync(out).filter(id => existsSync(join(out, id, 'human')));
-  const all = ids.map(id => loadScored(out, id));
+  const all = ids.map(id => loadScored(out, id)).filter(c => benched(c.strata.repo));
   const cases = all.filter(c => !c.invalid);
   const md = [
     '# Bench report',
