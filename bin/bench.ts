@@ -645,6 +645,114 @@ export const invalid = (base: Tests, human: Tests, tested = false) => {
   return undefined;
 };
 
+/** The base commit's file list, a file's text, and whether a word occurs anywhere in it. */
+export type Base = { files: string[]; text: (path: string) => string; has: (word: string) => boolean };
+
+const baseOf = (repo: string, base: string): Base => {
+  const at = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer: 1 << 28 });
+  return {
+    files: at('ls-tree', '-r', '--name-only', base).stdout.split('\n').filter(Boolean),
+    text: path => at('show', `${base}:${path}`).stdout ?? '',
+    has: word => at('grep', '-q', '-w', '-F', word, base).status === 0,
+  };
+};
+
+const flat = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '/index.ts', '/index.tsx', '/index.js'];
+const specifiers =
+  /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(?\s*['"]([^'"]+)['"]|\brequire\(\s*['"]([^'"]+)['"]|\b(?:jest|vi)\.mock\(\s*['"]([^'"]+)['"]/g;
+const named = /\bimport\s+(?:type\s+)?(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+const used = /^\s*(?:pub\s+)?use\s+([\w:]+?)(?:::\{([^}]*)\}|::(\w+))?\s*;/gm;
+const word = (name: string) => new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\b`);
+
+/** Which repo paths a module specifier names: exactly when relative, a package's index when scoped, else by suffix. */
+const target = (from: string, spec: string) => {
+  const bare = spec.replace(/\.js$/, '');
+  if (spec.startsWith('.')) {
+    const path = join('/', from.split('/').slice(0, -1).join('/'), bare).slice(1);
+    return (p: string) => extensions.some(e => p === path + e);
+  }
+  if (!/^[@~#]/.test(spec) || !spec.includes('/')) return undefined;
+  const tail = bare.split('/').slice(1).join('/');
+  if (/^@[\w-]+\/[\w.-]+$/.test(spec)) {
+    const index = new RegExp(`(^|/)${tail.replace(/\./g, '\\.')}(/src)?/index\\.[jt]sx?$`);
+    return (p: string) => index.test(p);
+  }
+  return (p: string) => extensions.some(e => p.endsWith(`/${tail}${e}`) || p === tail + e);
+};
+
+/**
+ * What ties a case's hidden tests to the human's exact interface rather than its behaviour: an import of a path the
+ * human's diff added, or of a name only its source lines add, that the base lacks and the issue never mentions, and a
+ * hidden snapshot.
+ */
+export const couplings = (diff: string, issue: string, base: Base) => {
+  const said = flat(issue);
+  const mentioned = (name: string) => said.includes(flat(name));
+  const parts = files(diff).filter(f => !noise.test(f.path));
+  const added = (part: string) =>
+    part
+      .split('\n')
+      .filter(l => l.startsWith('+') && !l.startsWith('+++'))
+      .map(l => l.slice(1))
+      .join('\n');
+  const src = parts.filter(f => !testPath.test(f.path));
+  const made = src.filter(f => /^(new file mode|--- \/dev\/null)/m.test(f.part));
+  const source = src.map(f => added(f.part)).join('\n');
+  const created = (name: string) => word(name).test(source);
+  const found: string[] = [];
+  for (const { path, part } of parts.filter(f => testPath.test(f.path))) {
+    const text = added(part);
+    const matchers = text.match(/\.to[A-Z]\w*\s*\(/g) ?? [];
+    if (/(^|\/)__snapshots__\/|\.snap$/.test(path) || (matchers.length && matchers.every(m => /Snapshot/.test(m)))) {
+      found.push(`${path}: snapshot`);
+      continue;
+    }
+    for (const m of text.matchAll(specifiers)) {
+      const spec = m.slice(1).find(Boolean)!;
+      const is = target(path, spec);
+      const name = spec
+        .replace(/(\/index)?(\.\w+)?$/, '')
+        .split('/')
+        .pop()!;
+      if (is && !base.files.some(is) && made.some(f => is(f.path)) && !mentioned(name))
+        found.push(`${path}: imports ${spec}, which only the human adds`);
+    }
+    for (const m of text.matchAll(named)) {
+      const is = target(path, m[2]!);
+      const texts = (is ? base.files.filter(is) : []).map(base.text);
+      if (!texts.length || texts.some(t => /^export \*/m.test(t))) continue;
+      for (const name of m[1]!.split(',').map(
+        n =>
+          n
+            .trim()
+            .replace(/^type\s+/, '')
+            .split(/\s+as\s+/)[0]!
+      ))
+        if (name && created(name) && !texts.some(t => word(name).test(t)) && !mentioned(name))
+          found.push(`${path}: imports ${name} from ${m[2]}, which only the human exports`);
+    }
+    if (!path.endsWith('.rs')) continue;
+    for (const m of text.matchAll(used))
+      for (const name of (m[2] ? m[2].split(',') : [m[3] ?? m[1]!]).map(n =>
+        n
+          .trim()
+          .split(/\s+as\s+/)[0]!
+          .split('::')
+          .pop()!
+      ))
+        if (
+          /^\w+$/.test(name) &&
+          !['self', 'super', 'crate'].includes(name) &&
+          created(name) &&
+          !base.has(name) &&
+          !mentioned(name)
+        )
+          found.push(`${path}: uses ${name}, which only the human defines`);
+  }
+  return found;
+};
+
 let tools: string | undefined;
 /** The bench's scoring code and the image the score step starts from, which a validity verdict depends on. */
 export const scorer = () =>
@@ -655,6 +763,10 @@ export const scorer = () =>
 
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
+  if (!existsSync(file)) {
+    const coupled = couplings(read(join(c.dir, 'merged.diff')), `${c.title}\n${c.body}`, baseOf(repo, c.base));
+    if (coupled.length) save(file, { invalid: 'coupled', coupled });
+  }
   const kept = slot('valid', c.id, c.base, c.merged, c.runner, c.setup, c.test, scorer());
   if (!existsSync(file) && reusable(kept)) {
     cpSync(kept!, join(out, c.id), { recursive: true, filter: p => !p.endsWith('/valid.json') });

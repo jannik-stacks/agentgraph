@@ -39,9 +39,13 @@ such as `size`, `kind` and `area` group the report.
 
 A case counts only when the hidden tests fail on the base and pass on the human, and the human diff
 applies, its setup works and its suite passes. Otherwise `valid.json` says why, the case's arms are not
-run or judged, and the report lists it as invalid. A case with `control: bug` or `control: padded`
-judges the human diff against a copy of itself instead of the arms: `bug` flips one comparison in an
-added source line, `padded` appends a test file of trivial cases. Judges that prefer the copy are
+run or judged, and the report lists it as invalid. A case is also invalid as `coupled` when a hidden test
+imports a path or a name that only the human's diff adds and the issue never mentions, or checks a snapshot:
+such a test checks the human's exact interface, not the behaviour the issue asks for. That check reads only
+the diff, the base tree and the issue, and runs before any container.
+
+A case with `control: bug` or `control: padded` judges the human diff against a copy of itself instead of
+the arms: `bug` flips one comparison in an added source line, `padded` appends a test file of trivial cases. Judges that prefer the copy are
 wrong, which measures how well they catch bugs and how much they reward size.
 
 ## Arms

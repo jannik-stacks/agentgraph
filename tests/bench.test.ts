@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   armSlot,
   bootstrap,
+  couplings,
   family,
   infra,
   invalid,
@@ -109,6 +110,51 @@ describe('bench helpers', () => {
     expect(invalid(red, { ...ok, suite: { ok: false } })).toMatch(/human fails the suite/);
     expect(invalid(red, { applied: false })).toMatch(/does not apply/);
     expect(invalid(red, { ...ok, setup: { ok: false } })).toMatch(/setup fails/);
+  });
+
+  it('calls hidden tests coupled when they import what only the human adds, or check a snapshot', () => {
+    const file = (path: string, lines: string[], fresh = false) =>
+      `diff --git a/${path} b/${path}\n${fresh ? 'new file mode 100644\n--- /dev/null\n' : `--- a/${path}\n`}+++ b/${path}\n@@ -0,0 +1 @@\n${lines.map(l => `+${l}`).join('\n')}\n`;
+    const texts: Record<string, string> = {
+      'src/utils.ts': 'export const old = 1;\n',
+      'src/index.ts': 'export * from "./utils";\n',
+      'packages/common/src/index.ts': 'export const other = 1;\n',
+      'src/lib.rs': '',
+    };
+    const base = { files: Object.keys(texts), text: (p: string) => texts[p] ?? '', has: (w: string) => w === 'old' };
+    const test = (lines: string[], path = 'src/__tests__/a.test.ts') => file(path, lines, true);
+
+    const added = file('src/display-name.ts', ['export const displayName = 1;'], true);
+    const imports = test(["import { displayName } from '../display-name';", 'expect(displayName).toBe(1);']);
+    expect(couplings(added + imports, 'Show the name', base)).toEqual([
+      'src/__tests__/a.test.ts: imports ../display-name, which only the human adds',
+    ]);
+    expect(couplings(added + imports, 'Add a display-name helper', base)).toEqual([]);
+
+    const exported = file('src/utils.ts', ['export const fresh = 2;']);
+    const names = test(["import { old, fresh as f } from '../utils';", 'expect(f).toBe(2);']);
+    expect(couplings(exported + names, 'Add a value', base)).toEqual([
+      'src/__tests__/a.test.ts: imports fresh from ../utils, which only the human exports',
+    ]);
+    expect(couplings(exported + names, 'Add `fresh`', base)).toEqual([]);
+    expect(couplings(exported + test(["import { fresh } from '@/index';"]), 'x', base)).toEqual([]);
+    expect(couplings(exported + test(["import { fresh } from '@scope/common';"]), 'x', base)).toEqual([
+      'src/__tests__/a.test.ts: imports fresh from @scope/common, which only the human exports',
+    ]);
+    expect(couplings(test(["import { old } from '../utils';", 'expect(old).toBe(1);']), 'x', base)).toEqual([]);
+
+    expect(couplings(test(['expect(render(<Nav />)).toMatchSnapshot();']), 'x', base)).toEqual([
+      'src/__tests__/a.test.ts: snapshot',
+    ]);
+    expect(couplings(test(['expect(a).toBe(1);', 'expect(b).toMatchSnapshot();']), 'x', base)).toEqual([]);
+    const snap = file('src/__tests__/__snapshots__/a.test.ts.snap', ['exports[`a`] = `<div />`;']);
+    expect(couplings(snap, 'x', base)).toEqual(['src/__tests__/__snapshots__/a.test.ts.snap: snapshot']);
+
+    const rust =
+      file('src/lib.rs', ['pub fn fresh_fn() {}']) + test(['use crate::lib::{old, fresh_fn};'], 'tests/cli.rs');
+    expect(couplings(rust, 'Fix the deploy', base)).toEqual([
+      'tests/cli.rs: uses fresh_fn, which only the human defines',
+    ]);
   });
 
   it('calls an empty diff, a failed setup or an unfinished run infra, not a result', () => {
