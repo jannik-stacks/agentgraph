@@ -645,27 +645,39 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     await discard(layers);
   }
 };
-/** Sessions, reported cost and tokens by model of an arm's traces; input counts only uncached tokens. */
+/**
+ * Sessions, reported cost and tokens by model of an arm's traces; input counts only uncached tokens. `split` is session,
+ * tool, hub setup and check time in ms; sessions running at once each count.
+ */
 const effort = (data: string) => {
   const traces = existsSync(data) ? readdirSync(data).flatMap(id => lines(join(data, id, 'trace.jsonl'))) : [];
   const sessions = traces.flatMap(t => (t.session ? [t.session as { usd: number }] : []));
   const models: Record<string, string> = {};
   const tokens: Record<string, { input: number; cacheRead: number; cacheWrite: number; output: number }> = {};
+  const split = { agent: 0, tools: 0, setup: 0, checks: 0 };
+  const opened: Record<string, number> = {};
   for (const t of traces) {
-    const e = (t.event ?? {}) as Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite', number>> & {
+    const e = (t.event ?? {}) as Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'ms', number>> & {
       type?: string;
       model?: string;
     };
-    if (e.type === 'start' && e.model) models[String(t.key)] = e.model;
+    const key = String(t.key);
+    split.setup += (t.setup as { ms?: number } | undefined)?.ms ?? 0;
+    split.checks += (t.check as { ms?: number } | undefined)?.ms ?? 0;
+    if (e.type === 'tool') split.tools += e.ms ?? 0;
+    const when = Date.parse(String(t.at));
+    if (e.type === 'start') opened[key] = when;
+    if (t.session && Number.isFinite(when - opened[key]!)) split.agent += when - opened[key]!;
+    if (e.type === 'start' && e.model) models[key] = e.model;
     if (e.type !== 'usage') continue;
     const [read, write] = [e.cacheRead ?? 0, e.cacheWrite ?? 0];
-    const sum = (tokens[models[String(t.key)] ?? 'unknown'] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
+    const sum = (tokens[models[key] ?? 'unknown'] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
     sum.input += (e.input ?? 0) - read - write;
     sum.cacheRead += read;
     sum.cacheWrite += write;
     sum.output += e.output ?? 0;
   }
-  return { sessions: sessions.length, usd: round(sessions.reduce((a, s) => a + s.usd, 0)), tokens };
+  return { sessions: sessions.length, usd: round(sessions.reduce((a, s) => a + s.usd, 0)), tokens, split };
 };
 
 /** The earlier attempts of the arm at `at`: older `<arm>.<ms>` dirs beside it and `.attic/<arm>-<time>` dirs. */
@@ -702,7 +714,15 @@ export const spent = (at: string) => {
       for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
     }
   const total = (k: 'sessions' | 'usd' | 'ms') => round(attempts.reduce((n, a) => n + a[k], 0));
-  return { sessions: total('sessions'), usd: total('usd'), ms: total('ms'), tokens, attempts };
+  const part = (k: keyof ReturnType<typeof effort>['split']) => attempts.reduce((n, a) => n + a.split[k], 0);
+  const split = {
+    agent: part('agent'),
+    tools: part('tools'),
+    setup: part('setup'),
+    checks: part('checks'),
+    infra: attempts.reduce((n, a) => n + (a.infra ? a.ms : 0), 0),
+  };
+  return { sessions: total('sessions'), usd: total('usd'), ms: total('ms'), tokens, split, attempts };
 };
 
 /** An arm's usage over all its attempts: recounted from its records when they are here, else its `usage.json`. */
@@ -1289,6 +1309,7 @@ export const rowsOf = (out: string, repos?: string[]) => {
             answers: Number(s.answers ?? 0),
             minutes: Number(spent.ms ?? 0) / 60_000,
             tokens: spent.tokens ?? {},
+            ...(spent.split && { split: spent.split }),
             ...costOf(spent, p.harness),
           },
         ];

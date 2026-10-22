@@ -493,7 +493,10 @@ describe('points', () => {
       usd: 0.5,
       ms: 0,
       tokens,
-      attempts: [{ dir: 'v2', ms: 0, sessions: 1, usd: 0.5, tokens }],
+      split: { agent: 0, tools: 0, setup: 0, checks: 0, infra: 0 },
+      attempts: [
+        { dir: 'v2', ms: 0, sessions: 1, usd: 0.5, tokens, split: { agent: 0, tools: 0, setup: 0, checks: 0 } },
+      ],
     });
   });
 
@@ -505,7 +508,10 @@ describe('points', () => {
       const trace = [
         { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', model: 'luna' } },
         { at: '2026-10-22T10:00:30.000Z', key: 'k', event: { type: 'usage', input: 10, output: 2 } },
+        { at: '2026-10-22T10:00:40.000Z', key: 'k', event: { type: 'tool', name: 'bash', ms: 2000 } },
         { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd } },
+        { at: '2026-10-22T10:01:05.000Z', setup: { ms: 5000, exit: 0 } },
+        { at: '2026-10-22T10:01:06.000Z', check: { check: 'test', pass: true, ms: 1000 } },
       ];
       writeFileSync(join(root, dir, 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
       if (meta) writeFileSync(join(root, dir, 'meta.json'), JSON.stringify(meta));
@@ -515,10 +521,11 @@ describe('points', () => {
     attempt('v2.1792493424355', 0.125);
     attempt('.attic/floor-2026-10-22T09-00-00-000Z', 9, { ms: 9 });
     const all = spent(join(root, 'v2'));
-    expect(all).toMatchObject({ sessions: 3, usd: 0.875, ms: 63_000 });
+    expect(all).toMatchObject({ sessions: 3, usd: 0.875, ms: 69_000 });
     expect(all.tokens).toEqual({ luna: { input: 30, cacheRead: 0, cacheWrite: 0, output: 6 } });
+    expect(all.split).toEqual({ agent: 180_000, tools: 6000, setup: 15_000, checks: 3000, infra: 2000 });
     expect(all.attempts.map(a => [a.dir, a.ms, a.usd, a.infra])).toEqual([
-      ['v2.1792493424355', 60_000, 0.125, undefined],
+      ['v2.1792493424355', 66_000, 0.125, undefined],
       ['.attic/v2-2026-10-22T09-00-00-000Z', 2000, 0.25, 'SandboxError: no image'],
       ['v2', 1000, 0.5, undefined],
     ]);
