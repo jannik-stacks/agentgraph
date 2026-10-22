@@ -17,8 +17,25 @@ export const detail = (o: Outcome) =>
           ? o.text
           : '';
 
-/** A run as the dev server answers it: the run, its trace, and where it lives. */
-export type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] };
+/**
+ * The pull request a run opened, else the one its status comment names, and the branch it last wrote; read from the
+ * whole trace, since the run list cuts long texts short.
+ */
+export const linksOf = (trace: Trace[]): { pull?: string; branch?: string } => {
+  let pull: string | undefined;
+  let branch: string | undefined;
+  for (const line of trace) {
+    if (!('applied' in line) || !line.applied.ok) continue;
+    const p = line.applied.proposal;
+    if ('branch' in p) branch = p.branch;
+    if (p.kind === 'pull_request') pull = line.applied.url ?? pull;
+    else if (p.kind === 'comment') pull = /^Pull request: (\S+)$/m.exec(p.body)?.[1] ?? pull;
+  }
+  return { ...(pull && { pull }), ...(branch && { branch }) };
+};
+
+/** A run as the dev server answers it: the run, its trace, where it lives, and its pull request and branch. */
+export type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] } & ReturnType<typeof linksOf>;
 
 export type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
 

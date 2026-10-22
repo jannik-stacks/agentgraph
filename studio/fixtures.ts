@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, watch } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
+import { linksOf } from './src/runs/trace.ts';
 
 const id = 'virtual:fixtures';
 const root = new URL('../', import.meta.url);
@@ -128,14 +129,14 @@ export const fixtures = (): Plugin => ({
         Effect.gen(function* () {
           const store = yield* Store;
           const entry = (run: import('../src/workflow.ts').Run, all: boolean) =>
-            Stream.runCollect(
-              store.read(run.id).pipe(Stream.map(line => (all ? line : (cut(line) as typeof line))))
-            ).pipe(
+            Stream.runCollect(store.read(run.id)).pipe(
+              Effect.map(Chunk.toArray),
               Effect.map(trace => ({
                 fixture: `${served.name}/${run.workflow}`,
                 repo: served.hub?.repo ?? '',
                 run,
-                trace: Chunk.toArray(trace),
+                trace: all ? trace : trace.map(line => cut(line) as typeof line),
+                ...linksOf(trace),
               }))
             );
           if (!one) return yield* Effect.forEach(yield* store.list(), run => entry(run, false));

@@ -17,12 +17,12 @@ type Row = {
   open?: boolean;
   target?: boolean;
 };
-type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] };
+type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[]; pull?: string; branch?: string };
 Object.assign(globalThis, { location: new URL('http://localhost/runs') });
 const { runRow } = await studioModule<{
   runRow: (r: CoreRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
 }>('runs/rows.tsx');
-const { lineAt, locatedLink, isGitHubRef } =
+const { lineAt, linksOf, locatedLink, isGitHubRef } =
   await studioModule<typeof import('../studio/src/runs/trace.ts')>('runs/trace.ts');
 const dependency = <T>(name: string) =>
   import(
@@ -75,6 +75,34 @@ describe('a run as rows', () => {
     const [, review] = row.children!;
     expect(review?.children?.[1]?.open).toBe(true);
     expect(row.children?.[0]?.children?.slice(1).map(c => c.raw)).toEqual(trace.slice(3, 5));
+  });
+});
+
+describe("a run's pull request and branch", () => {
+  const pr = 'https://github.com/o/r/pull/8';
+  const wrote = (proposal: object, url?: string) =>
+    ({ at, step: 'implement', applied: { proposal, ok: true, ...(url && { url }) } }) as Trace;
+
+  it('is the pull request the run opened, else the one its status comment names, and the branch it last wrote', () => {
+    const opened = wrote({ kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 't', body: 'b' }, pr);
+    expect(linksOf([...trace, opened])).toEqual({ pull: pr, branch: 'agentgraph/1' });
+    const status = wrote({ kind: 'comment', body: `Waiting for a human at merge.\n\nPull request: ${pr}` });
+    const pushed = wrote({ kind: 'push', branch: 'agentgraph/2', message: 'm' }, 'https://github.com/o/r/commit/1');
+    expect(linksOf([status, pushed])).toEqual({ pull: pr, branch: 'agentgraph/2' });
+    expect(
+      linksOf([{ ...pushed, applied: { ...(pushed as { applied: object }).applied, ok: false } } as Trace])
+    ).toEqual({});
+    expect(linksOf(trace)).toEqual({});
+  });
+
+  it('links both from the run line, on the list and the run page', () => {
+    const row = runRow({ fixture: 'sk/issue', repo: 'o/r', run, trace, pull: pr, branch: 'agentgraph/1' });
+    const head = renderToStaticMarkup(row.summary as never);
+    expect(head).toContain(`href="${pr}"`);
+    expect(head).toContain('href="https://github.com/o/r/tree/agentgraph/1"');
+    expect(renderToStaticMarkup(runRow({ fixture: 'sk/issue', repo: 'o/r', run, trace }).summary as never)).not.toMatch(
+      /pull\/|tree\//
+    );
   });
 });
 

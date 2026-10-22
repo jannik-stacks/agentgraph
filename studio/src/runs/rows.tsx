@@ -505,10 +505,15 @@ export const runRow = (r: CoreRun, open = false, expand = false, target?: Trace)
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, live(r) ? undefined : (run.ended ?? trace.at(-1)?.at))}
         </Col>
+        {r.pull && <Url url={r.pull} />}
+        {r.branch &&
+          (r.repo ? (
+            <Url url={`https://github.com/${r.repo}/tree/${r.branch}`} text={r.branch} />
+          ) : (
+            <span className="text-zinc-500">{r.branch}</span>
+          ))}
         {trace.flatMap((line, i) =>
-          'applied' in line &&
-          line.applied.url &&
-          ['pull_request', 'issue', 'merge'].includes(line.applied.proposal.kind)
+          'applied' in line && line.applied.url && ['issue', 'merge'].includes(line.applied.proposal.kind)
             ? [<Url key={i} url={line.applied.url} />]
             : []
         )}
