@@ -672,7 +672,7 @@ describe('plan', () => {
         /^export RUSTUP_TOOLCHAIN=.* && \(for f in "" \$\(sed .*test-clarity-v.* clar2wasm\/Cargo.toml\); do cargo test --no-run \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: \|\| exit 1; done\) && cargo test --no-run --manifest-path tests\/Cargo.toml --test lib_tests$/
       ),
       test: expect.stringMatching(
-        /^export RUSTUP_TOOLCHAIN=.* && \(for f in .*; do cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: \|\| exit 1; done\) && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/
+        /^export RUSTUP_TOOLCHAIN=.* && export PROPTEST_CASES=100 && \(for f in .*; do cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: \|\| exit 1; done\) && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/
       ),
     });
     expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toMatch(

@@ -201,7 +201,10 @@ const npmCi = 'npm ci --no-audit --no-fund --ignore-scripts';
  * needs a stacks node and bitcoind, which the sandbox lacks. Newer bases test against a client package with its own
  * lockfile.
  */
-/** Runs `cmd` once plain and once per `test-clarity-v<n>` feature clar2wasm declares, as its CI matrix does. */
+/**
+ * Runs `cmd` once plain and once per `test-clarity-v<n>` feature clar2wasm declares, as its CI matrix does. Tests run
+ * 100 proptest cases, as its scheduled CI does, so a property test finds the bug on base every time.
+ */
 const clarityVersions = (cmd: string) =>
   `(for f in "" $(sed -n 's/^\\(test-clarity-v[0-9]*\\) *=.*/\\1/p' clar2wasm/Cargo.toml); do ${cmd.replace('cargo test', 'cargo test ${f:+--features $f}')} || exit 1; done)`;
 const blockchainApi = (tests: string[]): Commands => {
@@ -281,7 +284,7 @@ const tested = (repo: string, tests: string[]): Commands => {
           image: services,
           toolchain: `${oldRust} && rustup toolchain install $RUSTUP_TOOLCHAIN --profile minimal`,
           setup: [oldRust, ...build].join(' && '),
-          test: [oldRust, ...test].join(' && '),
+          test: [oldRust, ...(name === 'clarity-wasm' ? ['export PROPTEST_CASES=100'] : []), ...test].join(' && '),
         }
       : { hasTests: false };
   }
