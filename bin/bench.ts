@@ -1021,11 +1021,56 @@ export const verdict = (text: string): Verdict | undefined => {
   }
 };
 
+type Tokens = ReturnType<typeof effort>['tokens'][string];
+type Answer = { text: string; tokens?: Tokens; usd?: number };
+
+/** A judge's reply with its tokens and cost when reported, from `claude -p --output-format json` or a completion. */
+export const answerOf = (raw: unknown): Answer => {
+  let r = raw as {
+    result?: string;
+    total_cost_usd?: number;
+    usage?: Partial<Record<string, number>> & { prompt_tokens_details?: { cached_tokens?: number } };
+    choices?: { message: { content: string } }[];
+  };
+  if (typeof raw === 'string')
+    try {
+      r = JSON.parse(raw) as typeof r;
+    } catch {
+      return { text: raw };
+    }
+  const u = r.usage;
+  if (typeof r.result === 'string')
+    return {
+      text: r.result,
+      ...(u && {
+        tokens: {
+          input: u.input_tokens ?? 0,
+          cacheRead: u.cache_read_input_tokens ?? 0,
+          cacheWrite: u.cache_creation_input_tokens ?? 0,
+          output: u.output_tokens ?? 0,
+        },
+      }),
+      ...(r.total_cost_usd !== undefined && { usd: r.total_cost_usd }),
+    };
+  const cached = u?.prompt_tokens_details?.cached_tokens ?? 0;
+  return {
+    text: r.choices?.[0]?.message.content ?? '',
+    ...(u && {
+      tokens: {
+        input: (u.prompt_tokens ?? 0) - cached,
+        cacheRead: cached,
+        cacheWrite: 0,
+        output: u.completion_tokens ?? 0,
+      },
+    }),
+  };
+};
+
 const claude = (model: string) => (prompt: string, cwd: string) =>
-  new Promise<string>((done, fail) => {
-    const args = ['-p', '--model', model, '--tools', '', '--no-session-persistence'];
+  new Promise<Answer>((done, fail) => {
+    const args = ['-p', '--model', model, '--tools', '', '--no-session-persistence', '--output-format', 'json'];
     const child = execFile('claude', args, { cwd, maxBuffer: 1 << 26, timeout: 1_800_000 }, (e, out) =>
-      e ? fail(e) : done(out)
+      e ? fail(e) : done(answerOf(out))
     );
     child.stdin?.end(prompt);
   });
@@ -1038,9 +1083,9 @@ const proxied = (model: string) => async (prompt: string) => {
     },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
   });
-  return ((await r.json()) as { choices?: { message: { content: string } }[] }).choices?.[0]?.message.content ?? '';
+  return answerOf(await r.json());
 };
-const judges: Record<string, (prompt: string, cwd: string) => Promise<string>> = {
+const judges: Record<string, (prompt: string, cwd: string) => Promise<Answer>> = {
   opus: claude('opus'),
   sonnet: claude('sonnet'),
   sol: proxied('smart'),
@@ -1167,12 +1212,25 @@ const judge = async (caseDir: string, out: string) => {
               for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
                 const hit = reusable(kept);
                 if (!hit) guard(out, family(judgeModels[name]!) === 'anthropic');
-                const raw = hit
-                  ? read(kept!)
+                const started = Date.now();
+                const got: Answer = hit
+                  ? { text: read(kept!) }
                   : await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
                       ask(prompt, tmpdir())
-                    ).catch(() => '');
+                    ).catch(() => ({ text: '' }));
+                const raw = got.text;
                 save(join(dir, `${name}.${attempt}.raw.md`), raw);
+                if (!hit) {
+                  const tokens = got.tokens && { [judgeModels[name]!]: got.tokens };
+                  const cost = { ms: Date.now() - started, ...(tokens && { tokens }) };
+                  save(join(dir, `${name}.${attempt}.cost.json`), {
+                    ...cost,
+                    ...costOf(
+                      { ...cost, ...(got.usd !== undefined && { usd: got.usd }) },
+                      family(judgeModels[name]!) === 'anthropic' ? 'claude-sub' : ''
+                    ),
+                  });
+                }
                 const v = verdict(raw);
                 if (v) save(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
                 if (v && kept && !hit) save(kept, raw);
@@ -1371,6 +1429,22 @@ const summary = (cases: Scored[]) => {
   ];
 };
 
+/** Calls, cost and minutes of every judge call under `out`, cached ones left out. */
+const judging = (out: string, ids: string[]) => {
+  const calls = ids.flatMap(id => {
+    const dir = join(out, id, 'judge');
+    return (existsSync(dir) ? readdirSync(dir) : []).flatMap(pair =>
+      readdirSync(join(dir, pair))
+        .filter(f => f.endsWith('.cost.json'))
+        .map(f => JSON.parse(read(join(dir, pair, f))) as { ms: number; usd: number })
+    );
+  });
+  const sum = (k: 'ms' | 'usd') => calls.reduce((n, c) => n + (c[k] ?? 0), 0);
+  return calls.length
+    ? [`Judges: ${calls.length} calls, $${round(sum('usd'))}, ${Math.round(sum('ms') / 60_000)} min.`, '']
+    : [];
+};
+
 const headline = (cases: Scored[], valid: Scored[]) => {
   const infras = valid.flatMap(c => Object.entries(c.infra).map(([arm, why]) => `${c.id}/${arm}: ${why}`));
   const invalids = cases.flatMap(c => (c.invalid ? [`${c.id}: ${c.invalid}`] : []));
@@ -1466,6 +1540,10 @@ const report = (out: string) => {
     '# Bench report',
     '',
     ...headline(all, cases),
+    ...judging(
+      out,
+      cases.map(c => c.id)
+    ),
     `## All ${cases.length} valid cases`,
     '',
     ...summary(cases),

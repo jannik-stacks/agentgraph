@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  answerOf,
   armSlot,
   bootstrap,
   costOf,
@@ -119,6 +120,25 @@ describe('bench helpers', () => {
     expect(out).not.toMatch(/tsbuildinfo|husky|changeset|pnpm-lock|bun\.lock/);
     expect(out).toContain('src/a.test.ts');
     expect(out).toContain('+// see #N from someone');
+  });
+
+  it('reads a judge reply with its tokens and cost from claude -p or an OpenAI-style completion', () => {
+    const claude = {
+      result: 'A is better',
+      total_cost_usd: 0.25,
+      usage: { input_tokens: 10, cache_read_input_tokens: 90, cache_creation_input_tokens: 5, output_tokens: 7 },
+    };
+    expect(answerOf(JSON.stringify(claude))).toEqual({
+      text: 'A is better',
+      tokens: { input: 10, cacheRead: 90, cacheWrite: 5, output: 7 },
+      usd: 0.25,
+    });
+    const openai = {
+      choices: [{ message: { content: 'tie' } }],
+      usage: { prompt_tokens: 100, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 60 } },
+    };
+    expect(answerOf(openai)).toEqual({ text: 'tie', tokens: { input: 40, cacheRead: 60, cacheWrite: 0, output: 3 } });
+    expect(answerOf('plain text')).toEqual({ text: 'plain text' });
   });
 
   it('reads the last JSON block of a judge answer and needs a preference', () => {
@@ -320,12 +340,18 @@ describe('bin/bench.ts score and report', () => {
     said('v2-human', 'opus', 'B');
     said('human-v2', 'sonnet', 'A');
     said('v2-human', 'sonnet', 'A');
+    writeFileSync(join(out, 'demo', 'judge', 'human-v2', 'opus.0.cost.json'), JSON.stringify({ ms: 90_000, usd: 0.5 }));
+    writeFileSync(
+      join(out, 'demo', 'judge', 'v2-human', 'opus.0.cost.json'),
+      JSON.stringify({ ms: 30_000, usd: 0.25 })
+    );
     mkdirSync(join(out, 'demo', 'floor'), { recursive: true });
     writeFileSync(join(out, 'demo', 'floor', 'score.json'), JSON.stringify({ files: 0, hidden: { ok: false } }));
     mkdirSync(join(out, 'bad', 'human'), { recursive: true });
     writeFileSync(join(out, 'bad', 'valid.json'), JSON.stringify({ invalid: 'base already passes the hidden tests' }));
     const report = bench('report', out);
     expect(report).toContain('1 valid cases, 1 invalid, 0 infra arm runs.');
+    expect(report).toContain('Judges: 2 calls, $0.75, 2 min.');
     expect(report).toContain('| v2 | 1 | 1 | 1 |');
     expect(report).toContain('| floor | 0 | 1 | 0 |');
     expect(report).toContain('- bad: base already passes the hidden tests');
