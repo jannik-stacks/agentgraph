@@ -15,7 +15,17 @@ import { basename, join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
-import { dependencyDirs, discard, envOf, evict, layer, manifest, ownerId, room, sweep as sweepLayers } from '../src/env.ts';
+import {
+  dependencyDirs,
+  discard,
+  envOf,
+  evict,
+  layer,
+  manifest,
+  ownerId,
+  room,
+  sweep as sweepLayers,
+} from '../src/env.ts';
 import {
   append,
   attic,
