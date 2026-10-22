@@ -24,6 +24,25 @@ export const runningBest = (points: { x: number; y?: number | undefined; kept: b
   return corners.length && end > corners.at(-1)!.x ? [...corners, { x: end, y: best }] : corners;
 };
 
+/**
+ * A step's usd and minutes per run, case-weighted over its select evals. An eval without `perRun` counts its total
+ * spread over its cases.
+ */
+export const perRun = (step: Step) => {
+  const evals = step.evals.filter(e => e.split !== 'test');
+  const n = sum(evals.map(e => e.cases.length));
+  const of = (k: 'usd' | 'minutes') =>
+    n ? sum(evals.map(e => (e.perRun?.[k] ?? e[k] / Math.max(1, e.cases.length)) * e.cases.length)) / n : undefined;
+  return { usd: of('usd'), minutes: of('minutes') };
+};
+
+/** The incumbent's value as a staircase: one corner per kept point that has one, running on to the last `x`. */
+export const incumbent = (points: { x: number; y?: number | undefined; kept: boolean }[]) => {
+  const corners = points.flatMap(p => (p.kept && p.y !== undefined ? [{ x: p.x, y: p.y }] : []));
+  const end = Math.max(...points.map(p => p.x));
+  return corners.length && end > corners.at(-1)!.x ? [...corners, { x: end, y: corners.at(-1)!.y }] : corners;
+};
+
 export type Point = ReturnType<typeof seriesOf>[number]['points'][number];
 
 /** One series per tune, steps in order, each with its select score, usage and cumulative usd. */
@@ -31,14 +50,18 @@ export const seriesOf = (tunes: TuneRows[]) =>
   tunes
     .map(({ name, tune, steps }) => {
       let cum = 0;
+      const start = Math.min(...steps.map(s => Date.parse(s.at)).filter(Number.isFinite));
       const points = steps
         .toSorted((a, b) => a.iteration - b.iteration || a.at.localeCompare(b.at))
         .map(step => {
           const usage = (k: 'usd' | 'minutes' | 'codex' | 'claude5h') => sum(step.evals.map(e => e[k]));
           cum += usage('usd');
+          const at = Date.parse(step.at);
           return {
             step,
             y: score(step),
+            hours: Number.isFinite(at) ? (at - start) / 3_600_000 : 0,
+            run: perRun(step),
             usd: usage('usd'),
             minutes: usage('minutes'),
             codex: usage('codex'),

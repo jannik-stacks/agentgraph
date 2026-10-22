@@ -5,6 +5,7 @@ import { Badge, Button, cx, Field, Fields, IconButton, Loading, Muted, Select, T
 import {
   average,
   byIteration,
+  incumbent,
   type Point,
   runningBest,
   type Series,
@@ -180,6 +181,82 @@ const Detail = ({ series, point, onClose }: { series: Series; point: Point; onCl
   );
 };
 
+const axes = [
+  { key: 'quality', label: 'quality on select, human = 1', of: (p: Point) => p.y },
+  { key: 'usd', label: 'usd per run, mean over cases', of: (p: Point) => p.run.usd },
+  { key: 'minutes', label: 'minutes per run, mean over cases', of: (p: Point) => p.run.minutes },
+] as const;
+
+/** Quality, usd and minutes per run over hours since the starting hub, one line per tune: the incumbent's value. */
+const TimeCharts = ({
+  series,
+  picked,
+  onPick,
+}: {
+  series: Series[];
+  picked: string | undefined;
+  onPick: (key: string) => void;
+}) => {
+  const tone = (s: Series) => palette[series.indexOf(s) % palette.length]!;
+  return (
+    <>
+      <div className="flex flex-wrap gap-3 text-[11px] text-zinc-500">
+        {series.map(s => (
+          <span key={s.key} className="inline-flex items-center gap-1.5 font-mono">
+            <Swatch tone={tone(s)} />
+            {s.key}
+          </span>
+        ))}
+      </div>
+      {axes.map(a => (
+        <section key={a.key} className="max-w-3xl">
+          <Climb
+            height={a.key === 'quality' ? 260 : 180}
+            dots={series.flatMap(s =>
+              s.points.flatMap(p => {
+                const y = a.of(p);
+                return y === undefined
+                  ? []
+                  : [
+                      {
+                        key: `${s.key}#${p.step.id}`,
+                        x: p.hours,
+                        y,
+                        tone: tone(s),
+                        shape:
+                          p.step.verdict === 'kept' ? 'kept' : p.step.verdict === 'discarded' ? 'discarded' : 'small',
+                        tip: [
+                          `${s.key} ${p.step.id}, ${p.step.verdict}, ${fmt(p.hours, 1)} h in`,
+                          `quality ${fmt(p.y)}, ${p.run.usd === undefined ? '' : usd(p.run.usd)} and ${fmt(p.run.minutes, 0)} min per run`,
+                          p.step.why,
+                        ].join('\n'),
+                      } satisfies Dot,
+                    ];
+              })
+            )}
+            lines={series.map(s => ({
+              key: s.key,
+              tone: tone(s),
+              points: incumbent(s.points.map(p => ({ x: p.hours, y: a.of(p), kept: p.step.verdict === 'kept' }))),
+            }))}
+            levels={a.key === 'quality' ? [{ y: 1, label: 'human' }] : []}
+            xTick={t => `${t}h`}
+            xLabel="hours since the starting hub"
+            yLabel={a.label}
+            picked={picked}
+            onPick={onPick}
+          />
+        </section>
+      ))}
+      <p className="max-w-3xl text-[11px] text-zinc-500">
+        Each line is the kept hub of one tune; it steps when a candidate is kept, for better quality or for the same
+        quality at less usd or fewer minutes. Filled points were kept, hollow ones discarded. Cost is the mean over the
+        select cases of one run that was not infra.
+      </p>
+    </>
+  );
+};
+
 const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) => {
   const [repoParam, setRepo] = useAtom(params.repo);
   const [xParam, setX] = useAtom(params.x);
@@ -193,9 +270,10 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
   const hidden = hideParam?.split(',').filter(Boolean) ?? [];
   const repo = repoParam && repos.includes(repoParam) ? repoParam : repos.length > 1 ? 'average' : repos[0]!;
   const spend = xParam === 'usd';
+  const time = !spend && xParam !== 'iteration';
   const bar = (barParam ?? 'usd') as keyof typeof metrics;
   const shown = all.filter(s => !hidden.includes(s.name) && (repo === 'average' || s.repo === repo));
-  const avg = useMemo(() => (repo === 'average' ? average(shown) : []), [repo, shown]);
+  const avg = useMemo(() => (repo === 'average' && !time ? average(shown) : []), [repo, shown, time]);
   const picked = all.flatMap(s => s.points.map(p => ({ s, p }))).find(({ s, p }) => `${s.key}#${p.step.id}` === pick);
 
   const dots: Dot[] = [];
@@ -309,19 +387,20 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
             label="repo"
             value={repo}
             options={[
-              ...(repos.length > 1 ? [{ value: 'average', label: 'average over repos' }] : []),
+              ...(repos.length > 1 ? [{ value: 'average', label: time ? 'every repo' : 'average over repos' }] : []),
               ...repos.map(r => ({ value: r, label: r.split('/').pop()! })),
             ]}
             onChange={v => setRepo(v === 'average' && repos.length > 1 ? null : v)}
           />
           <Select
             label="x"
-            value={spend ? 'usd' : 'iteration'}
+            value={spend ? 'usd' : time ? 'time' : 'iteration'}
             options={[
+              { value: 'time', label: 'hours' },
               { value: 'iteration', label: 'iteration' },
               { value: 'usd', label: 'cumulative usd' },
             ]}
-            onChange={v => setX(v === 'usd' ? 'usd' : null)}
+            onChange={v => setX(v === 'time' ? null : v)}
           />
         </Control>
         <Control label="Series">
@@ -346,38 +425,46 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
         <Button onClick={onReload}>Reload</Button>
       </aside>
       <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto p-4">
-        <section className="max-w-3xl">
-          <Climb
-            dots={dots}
-            lines={lines}
-            bands={bands}
-            levels={[
-              { y: 1, label: 'human' },
-              ...(init === undefined ? [] : [{ y: init, label: 'init', dashed: true }]),
-            ]}
-            integerX={!spend}
-            xTick={spend ? t => `$${t}` : undefined}
-            xLabel={spend ? 'cumulative usd' : 'iteration'}
-            yLabel="quality on select, human = 1"
-            picked={pick ?? undefined}
-            onPick={repo === 'average' ? undefined : key => setPick(key === pick ? null : key.replace(/\/test$/, ''))}
-          />
-          <p className="mt-1 text-[11px] text-zinc-500">
-            {repo === 'average'
-              ? 'Each line is the mean over repos of the running best; the band runs from the lowest repo to the highest. Pick a repo to see its candidates.'
-              : 'Filled points were kept, hollow ones discarded, small grey ones screened out. The line is the running best, the dotted line the kept hubs on validate alone. Diamonds are test checkpoints with judges, the only score that can pass the human. Click a point for its diff.'}
-          </p>
-        </section>
-        <section className="max-w-3xl space-y-1">
-          <div className="flex gap-1">
-            {(Object.keys(metrics) as (keyof typeof metrics)[]).map(m => (
-              <Chip key={m} on={bar === m} tip={metrics[m].unit} onClick={() => setBar(m === 'usd' ? null : m)}>
-                {metrics[m].label}
-              </Chip>
-            ))}
-          </div>
-          <Bars bars={bars} xLabel="iteration" yLabel={metrics[bar].unit} />
-        </section>
+        {time ? (
+          <TimeCharts series={shown} picked={pick ?? undefined} onPick={key => setPick(key === pick ? null : key)} />
+        ) : (
+          <>
+            <section className="max-w-3xl">
+              <Climb
+                dots={dots}
+                lines={lines}
+                bands={bands}
+                levels={[
+                  { y: 1, label: 'human' },
+                  ...(init === undefined ? [] : [{ y: init, label: 'init', dashed: true }]),
+                ]}
+                integerX={!spend}
+                xTick={spend ? t => `$${t}` : undefined}
+                xLabel={spend ? 'cumulative usd' : 'iteration'}
+                yLabel="quality on select, human = 1"
+                picked={pick ?? undefined}
+                onPick={
+                  repo === 'average' ? undefined : key => setPick(key === pick ? null : key.replace(/\/test$/, ''))
+                }
+              />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                {repo === 'average'
+                  ? 'Each line is the mean over repos of the running best; the band runs from the lowest repo to the highest. Pick a repo to see its candidates.'
+                  : 'Filled points were kept, hollow ones discarded, small grey ones screened out. The line is the running best, the dotted line the kept hubs on validate alone. Diamonds are test checkpoints with judges, the only score that can pass the human. Click a point for its diff.'}
+              </p>
+            </section>
+            <section className="max-w-3xl space-y-1">
+              <div className="flex gap-1">
+                {(Object.keys(metrics) as (keyof typeof metrics)[]).map(m => (
+                  <Chip key={m} on={bar === m} tip={metrics[m].unit} onClick={() => setBar(m === 'usd' ? null : m)}>
+                    {metrics[m].label}
+                  </Chip>
+                ))}
+              </div>
+              <Bars bars={bars} xLabel="iteration" yLabel={metrics[bar].unit} />
+            </section>
+          </>
+        )}
       </div>
       {picked && <Detail series={picked.s} point={picked.p} onClose={() => setPick(null)} />}
     </div>

@@ -131,6 +131,31 @@ describe('compound climb', () => {
     ]);
   });
 
+  it('puts steps on hours since the first and holds the kept value per run as a staircase', () => {
+    const at = (h: number) => new Date(Date.UTC(2026, 9, 1, h)).toISOString();
+    const priced = (iteration: number, verdict: Step['verdict'], h: number, usd: number): Step => ({
+      ...step(iteration, verdict, 0.5, at(h)),
+      evals: [{ ...evalOf('fit', 4, 0.5, 4 * usd), perRun: { usd, minutes: 10 } }, evalOf('validate', 2, 0.5, 2)],
+    });
+    const [s] = c.seriesOf([
+      tune('me/a', 't2', [priced(0, 'kept', 0, 0.3), priced(1, 'discarded', 3, 0.1), priced(2, 'kept', 5, 0.2)]),
+    ]);
+    expect(s!.points.map(p => p.hours)).toEqual([0, 3, 5]);
+    expect(s!.points[0]!.run.usd).toBeCloseTo((4 * 0.3 + 2 * 1) / 6);
+    expect(s!.points[0]!.run.minutes).toBeCloseTo((4 * 10 + 2 * 0.5) / 6);
+    const line = c.incumbent([
+      { x: 0, y: 0.3, kept: true },
+      { x: 3, y: 0.1, kept: false },
+      { x: 5, y: 0.35, kept: true },
+      { x: 7, y: 0.2, kept: false },
+    ]);
+    expect(line).toEqual([
+      { x: 0, y: 0.3 },
+      { x: 5, y: 0.35 },
+      { x: 7, y: 0.35 },
+    ]);
+  });
+
   it('reads the fixture: two repos, a skill series, and a climb on each', () => {
     const series = c.seriesOf(fixture());
     expect(new Set(series.map(s => s.repo)).size).toBe(2);
