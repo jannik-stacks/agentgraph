@@ -247,6 +247,12 @@ const entered = (step: Step): Run['status'] => (waits(step) ? 'waiting' : 'runni
 
 const fresh = ({ feedback: _feedback, reason: _reason, retried: _retried, ...run }: Run): Run => run;
 
+/** Why a try that leaves its checkout at base fails: its agent returns code and no pull request or finished run holds work. */
+export const unchanged = (returns: readonly string[], held: boolean) =>
+  !held && returns.includes('push')
+    ? 'no change was made: change the files the issue needs and push them, or ask'
+    : undefined;
+
 export const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
   [
     ...o.checks.map(c => `${c.check}: ${c.findings ?? 'failed'}`),

@@ -84,7 +84,7 @@ export const fixture = (hub: string) => {
 const kinds = ['comment', 'label', 'push', 'pull_request', 'merge', 'issue', 'ask', 'back'] as const;
 const doc = <T>(name: string, fields: T) => ({ ...fields, name, path: `${name}.md`, body: `You are ${name}.` });
 
-/** A fixture as a whole hub: every agent on opencode may propose anything, and `checks` fills in commands and agents. */
+/** A fixture as a whole hub: every agent on opencode may propose anything, only an implementor code, and `checks` fills in commands and agents. */
 export const hubOf = (hub: string, checks: Record<string, Omit<Check, 'mode'>> = {}): Hub => {
   const f = fixture(hub);
   return {
@@ -92,7 +92,14 @@ export const hubOf = (hub: string, checks: Record<string, Omit<Check, 'mode'>> =
     repo: `local/${hub}`,
     sha: 'fixture',
     agents: Object.fromEntries(
-      f.names.agents.map(b => [b, doc(b, { harness: 'opencode' as const, tools: [], returns: [...kinds] })])
+      f.names.agents.map(b => [
+        b,
+        doc(b, {
+          harness: 'opencode' as const,
+          tools: [],
+          returns: b === 'implementor' ? [...kinds] : kinds.filter(k => k !== 'push' && k !== 'pull_request'),
+        }),
+      ])
     ),
     skills: Object.fromEntries(f.names.skills.map(s => [s, doc(s, {})])),
     checks: Object.fromEntries(Object.entries(f.checks).map(([n, { mode }]) => [n, doc(n, { mode, ...checks[n] })])),

@@ -433,6 +433,22 @@ describe('drive', () => {
     expect(specs[0]!.prompt).toContain('You are triage.\n\nKeep it small.\n\nYou are implement.');
   });
 
+  it('fails an implementing try that changed nothing, with feedback, instead of passing it on', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
+      [start('i1'), reply({ kind: 'comment', body: 'This already appears to be implemented.' })],
+      [start('i1'), reply({ kind: 'ask', question: 'Is it done already?' })],
+    ]);
+    const asked = await run(drive(w, fresh(), hub));
+    expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Is it done already?' });
+    expect(specs[2]!.prompt).toContain('no change was made');
+    const outcomes = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
+    expect(outcomes).toContainEqual(
+      expect.objectContaining({ kind: 'failed', problems: [expect.stringMatching(/^no change was made/)] })
+    );
+  }, 30_000);
+
   it('stops the run once its summed session cost passes usd-per-run', async () => {
     const where = world();
     const { specs, run } = services(where, [
@@ -2647,10 +2663,11 @@ describe('compound engineering', () => {
   });
 
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const { branch: _branch, ...unbranched } = small.workflows.issue!;
   const looking = {
     ...small,
     setup: 'touch setup-ran',
-    workflows: { ...small.workflows, retro: { ...small.workflows.issue!, name: 'retro', on: { feedback: {} } } },
+    workflows: { ...small.workflows, retro: { ...unbranched, name: 'retro', on: { feedback: {} } } },
   };
   const pushed = (issue: number, at: string): Event => ({
     issue,

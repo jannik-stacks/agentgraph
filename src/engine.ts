@@ -31,6 +31,7 @@ import {
   type Seen,
   type Step,
   type Workflow,
+  unchanged,
   waits,
   toBot,
 } from './workflow.ts';
@@ -1210,6 +1211,9 @@ const attempt = (
         },
         tried
       );
+    const idle = back ? undefined : unchanged(returns, held);
+    if (idle && !(yield* diffOf(work)).trim())
+      return done({ kind: 'failed', checks: [], proposals: [], problems: [idle] }, tried);
     const checked = answered
       ? { outcome: { kind: 'pass' } as const, usd: 0 }
       : yield* Effect.raceFirst(
