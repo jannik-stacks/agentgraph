@@ -1141,6 +1141,11 @@ const attempt = (
                 sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, seen } },
               }),
           };
+          if (!r.cut && (r.ended !== 'stop' || (r.exit ?? 0) !== 0))
+            return yield* new SessionStop({
+              reason: 'provider',
+              detail: `session ended ${r.ended} (exit ${r.exit ?? 0})`,
+            });
           return r;
         });
       for (const item of items) {

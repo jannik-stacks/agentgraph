@@ -874,6 +874,29 @@ describe('a run branch that moved', () => {
     30_000
   );
 
+  it.each(['error', 'cap', 'nonzero'])(
+    'does not publish a proposal from an unsuccessful session: %s',
+    async kind => {
+      const where = world();
+      const complete = reply(push);
+      const ended: SessionEvent = {
+        type: 'end',
+        final: complete.type === 'end' ? complete.final : '',
+        ended: kind === 'error' ? 'error' : kind === 'cap' ? 'cap' : 'stop',
+        exit: kind === 'nonzero' ? 2 : 0,
+      };
+      const { specs, run } = services(where, [
+        [start('a'), write('hello.txt', 'hello\n'), ended],
+        [start('a'), reply({ kind: 'ask', question: 'Try later?' })],
+      ]);
+      const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+      expect(git(where.origin, 'for-each-ref', '--format=%(refname)', 'refs/heads/agentgraph/7')).toBe('');
+      expect(done).toMatchObject({ status: 'waiting', reason: 'Try later?', tries: 0 });
+      expect(specs).toHaveLength(2);
+    },
+    30_000
+  );
+
   it('reopens a moved branch before retrying without spending a step try', async () => {
     const where = world();
     const seed = join(where.root, 'seed');
