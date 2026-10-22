@@ -389,21 +389,29 @@ const hubOf = (c: Pick<Case, 'repo'>) =>
 export const armSlot = (
   c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup'>,
   arm: string,
-  { point, repeat }: Pick<typeof options, 'point' | 'repeat'> = options
-) => {
-  const treeSha = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./src'], { encoding: 'utf8' }).stdout.trim();
-  return slot(
+  {
+    point,
+    repeat,
+    tree = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./src'], { encoding: 'utf8' }).stdout.trim(),
+  }: Pick<typeof options, 'point' | 'repeat'> & { tree?: string } = options
+) =>
+  slot(
     'arm',
     c.id,
     c.base,
     arm,
-    arm === 'floor' ? '' : treeSha,
+    tree,
     treeText(hubOf(c)),
     arm === 'floor' ? treeText(here('bench/floor')) : '',
     c.runner,
     c.setup,
     ...(point || repeat > 1 ? [point ?? '', repeat] : [])
   );
+
+/** Publishes a cached arm at `at` and notes in its `meta.json` which slot it came from. */
+export const reuse = (kept: string, at: string) => {
+  publish(kept, at);
+  save(join(at, 'meta.json'), { ...JSON.parse(read(join(at, 'meta.json')) || '{}'), reusedFrom: kept });
 };
 
 /** The harness's last words when the run's last session ended in an error, as when it cannot reach the proxy. */
@@ -453,7 +461,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     };
     aside();
     const kept = armSlot(c, arm);
-    if (reusable(kept)) return publish(kept!, at);
+    if (reusable(kept)) return reuse(kept!, at);
     const failed = () =>
       lines(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
     for (let attempt = 0, empty = 0; ; attempt++) {

@@ -18,6 +18,7 @@ import {
   plant,
   keep,
   repoint,
+  reuse,
   rowsOf,
   scrub,
   spent,
@@ -453,6 +454,21 @@ describe('points', () => {
     delete process.env.BENCH_CACHE;
     expect(new Set([plain, luna, again]).size).toBe(3);
     expect(armSlot(c, 'floor')).toBeUndefined();
+  });
+
+  it('keys the floor by the engine tree too, and stamps where a reused arm came from', () => {
+    const cache = tmp('cache');
+    dirs.push(cache);
+    process.env.BENCH_CACHE = cache;
+    const c = { id: 'demo', base: 'abc', repo: 'me/demo' };
+    const [a, b] = ['a', 'b'].map(tree => armSlot(c, 'floor', { point: undefined, repeat: 1, tree }));
+    delete process.env.BENCH_CACHE;
+    expect(a).not.toBe(b);
+    mkdirSync(a!, { recursive: true });
+    writeFileSync(join(a!, 'meta.json'), JSON.stringify({ ms: 5 }));
+    const at = join(cache, 'out', 'floor');
+    reuse(a!, at);
+    expect(JSON.parse(readFileSync(join(at, 'meta.json'), 'utf8'))).toEqual({ ms: 5, reusedFrom: a });
   });
 
   it('keys an arm by the BENCH_HUB content, so an unchanged hub hits the cache', () => {
