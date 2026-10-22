@@ -3,11 +3,11 @@
 A run walks a workflow on one issue. Each agent step works in a session, checks judge the result, and the engine applies its [proposals](proposals.md).
 
 ```
- agent session ends with proposals <─────────────────┐
-   │                                                 │
+ agent session ends with proposals <──────────────────┐
+   │                                                  │
    ├──> ask: wait for an answer                       │
-   v                                                 │
- checks run in parallel                              │
+   v                                                  │
+ checks run in parallel                               │
    ├──> block fails: feedback, next try ──────────────┘
    ├──> stop fails: stop the run
    v
