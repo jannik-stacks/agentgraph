@@ -132,9 +132,7 @@ const requester = (fetch: Fetch) => {
     Effect.gen(function* () {
       const url = path.startsWith('https://') ? path : api + path;
       const cached = method === 'GET' ? etags.get(url) : undefined;
-      const again =
-        (method !== 'POST' || path.endsWith('/access_tokens')) &&
-        !(method === 'PATCH' && (body as { force?: boolean })?.force);
+      const again = method !== 'POST' || path.endsWith('/access_tokens');
       const res = yield* Effect.tryPromise({
         try: async signal => {
           const res = await fetch(url, {
@@ -556,6 +554,33 @@ export const githubForge = (
     /** The `.github/` files each branch's pushes left out, for its pull request to name. */
     const held = new Map<string, Set<string>>();
     const refuse = (message: string) => new ForgeError({ status: 422, message });
+    let repositoryId: string | undefined;
+    const rewrite = (branch: string, before: string, after: string) =>
+      Effect.gen(function* () {
+        repositoryId ??= (yield* gh<{ node_id: string }>('GET', repo)).node_id;
+        const result = yield* gh<{ data?: { updateRefs: unknown }; errors?: { message: string }[] }>(
+          'POST',
+          '/graphql',
+          {
+            query: 'mutation($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }',
+            variables: {
+              input: {
+                repositoryId,
+                refUpdates: [{ name: `refs/heads/${branch}`, beforeOid: before, afterOid: after, force: true }],
+              },
+            },
+          },
+          'push'
+        );
+        if (result.errors?.length || !result.data?.updateRefs) {
+          const ref = yield* refPath(branch);
+          const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
+          if (tip !== before) return yield* refuse(`${branch} moved while its ref was updated`);
+          return yield* new ForgeError({
+            message: `GitHub updateRefs ${branch}: ${result.errors?.map(e => e.message).join('; ') ?? 'no update returned'}`,
+          });
+        }
+      });
 
     /**
      * Commits the checkout's files on top of its base, or of its last push, through the Git data API, then moves
@@ -605,8 +630,10 @@ export const githubForge = (
           (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha !== tip
         )
           return yield* refuse(`${branch} moved while the commit was built`);
-        if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
-        else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
+        if (tip) {
+          if (force) yield* rewrite(branch, tip, head);
+          else yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
+        } else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
         yield* published(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
         return head;
@@ -674,7 +701,7 @@ export const githubForge = (
           return onto;
         }
         if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`);
-        yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: true }, 'push');
+        yield* rewrite(branch, tip, head);
         yield* git(work, ['read-tree', '-u', '--reset', tree]);
         yield* published(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });

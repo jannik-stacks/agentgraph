@@ -25,6 +25,7 @@ const fake = (routes: Record<string, Route>) => {
   const calls: Call[] = [];
   const all: Record<string, Route> = {
     'GET /repos/o/r/installation': { id: 9 },
+    'GET /repos/o/r': { node_id: 'R_test' },
     'POST /app/installations/9/access_tokens': { token: 'tok', expires_at: '2999-01-01T00:00:00Z' },
     'GET /app': { slug: 'helper' },
     ...routes,
@@ -827,7 +828,7 @@ describe('githubForge', () => {
       const remote = (args: string[], env: Record<string, string> = {}, input?: string) =>
         sh(['--git-dir', bare, ...args], { ...committer, ...env }, input);
       const tip = (ref: string) => remote(['for-each-ref', '--format=%(objectname)', `refs/${ref}`]);
-      return fake({
+      const api = fake({
         'GET *': (_: unknown, __: Headers, path: string) => {
           const sha = tip(/\/git\/ref\/(.+)$/.exec(path)?.[1] ?? 'none');
           return sha ? { body: { object: { sha } } } : { status: 404 };
@@ -849,11 +850,22 @@ describe('githubForge', () => {
           return { body: { sha: remote(['write-tree'], env) } };
         },
         'POST /repos/o/r/git/commits': (body: { message: string; tree: string; parents: string[] }) => ({
-          body: { sha: remote(['commit-tree', body.tree, ...body.parents.flatMap(p => ['-p', p])], {}, body.message) },
+          body: {
+            sha: remote(['commit-tree', body.tree, ...body.parents.flatMap(p => ['-p', p])], {}, body.message),
+          },
         }),
         'POST /repos/o/r/git/refs': (body: { ref: string; sha: string }) => {
           remote(['update-ref', body.ref, body.sha]);
           return { status: 201, body: {} };
+        },
+        'POST /graphql': (body: any) => {
+          const update = body.variables.input.refUpdates[0];
+          try {
+            remote(['update-ref', update.name, update.afterOid, update.beforeOid]);
+          } catch {
+            return { body: { errors: [{ message: 'reference changed' }] } };
+          }
+          return { body: { data: { updateRefs: { clientMutationId: null } } } };
         },
         'PATCH *': (body: { sha: string }, _: Headers, path: string) => {
           const ref = `refs/${/\/git\/refs\/(.+)$/.exec(path)![1]}`;
@@ -864,13 +876,15 @@ describe('githubForge', () => {
         },
         ...more,
       });
+      return { ...api, remote };
     };
     const pushTo = (f: ReturnType<typeof fake>, work: Checkout, branch = 'agentgraph/7', message = 'Fix the typo') =>
       run(
         f,
         Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'push', branch, message }, work))
       );
-    const writes = (f: ReturnType<typeof fake>) => f.calls.filter(c => c.method !== 'GET' && c.path.includes('/git/'));
+    const writes = (f: ReturnType<typeof fake>) =>
+      f.calls.filter(c => c.method !== 'GET' && (c.path.includes('/git/') || c.path === '/graphql'));
 
     it('commits the checkout on its base through the Git data API onto a new branch', async () => {
       const { dir, git, base, work } = repo();
@@ -907,6 +921,58 @@ describe('githubForge', () => {
       expect(two.parents).toEqual([first.url!.split('/').at(-1)]);
       const patch = f.calls.find(c => c.method === 'PATCH')!.body;
       expect(patch).toEqual({ sha: second.url!.split('/').at(-1), force: false });
+    });
+
+    it.each(['push', 'rebase'])('atomically refuses a late human push during a forced %s', async kind => {
+      const { dir, git, base, work } = repo();
+      writeFileSync(join(dir, 'child.txt'), 'child\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Child');
+      const tip = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', base);
+      writeFileSync(join(dir, 'base.txt'), 'base\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Base');
+      const onto = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', tip);
+      writeFileSync(join(dir, 'human.txt'), 'human\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Human');
+      const human = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', tip);
+      writeFileSync(join(dir, 'base.txt'), 'base\n');
+      writeFileSync(join(dir, 'pending.txt'), 'pending\n');
+      work.head = tip;
+      const raced = (body: any, _: Headers, path: string): Reply => {
+        f.remote(['update-ref', 'refs/heads/agentgraph/7', human]);
+        if (path === '/graphql') {
+          const update = body.variables.input.refUpdates[0];
+          try {
+            f.remote(['update-ref', update.name, update.afterOid, update.beforeOid]);
+          } catch {
+            return { body: { errors: [{ message: 'reference changed' }] } };
+          }
+          return { body: { data: { updateRefs: { clientMutationId: null } } } };
+        }
+        f.remote(['update-ref', 'refs/heads/agentgraph/7', body.sha]);
+        return { body: {} };
+      };
+      const f: ReturnType<typeof dataApi> = dataApi(work, {
+        'PATCH /repos/o/r/git/refs/heads/agentgraph/7': raced,
+        'POST /graphql': raced,
+      });
+      f.remote(['update-ref', 'refs/heads/agentgraph/7', tip]);
+      const proposal: Proposal =
+        kind === 'push'
+          ? { kind: 'push', branch: 'agentgraph/7', onto, message: 'Rewrite' }
+          : { kind: 'rebase', branch: 'agentgraph/7', from: base, onto };
+      const applied = await run(
+        f,
+        Effect.flatMap(Forge, forge => forge.apply(7, proposal, work))
+      );
+      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/moved/) });
+      expect(f.remote(['rev-parse', 'refs/heads/agentgraph/7'])).toBe(human);
+      expect(f.calls.filter(c => c.method === 'PATCH' && c.body?.force)).toEqual([]);
     });
 
     it('refuses a rewrite when a human pushes during commit creation', async () => {
@@ -952,10 +1018,8 @@ describe('githubForge', () => {
       git('commit', '-qm', 'Parent');
       const onto = git('rev-parse', 'HEAD');
       git('reset', '-q', '--hard', base);
-      const f = dataApi(work, {
-        'GET /repos/o/r/git/ref/heads/agentgraph/9': { object: { sha: tip } },
-        'PATCH /repos/o/r/git/refs/heads/agentgraph/9': {},
-      });
+      const f = dataApi(work);
+      f.remote(['update-ref', 'refs/heads/agentgraph/9', tip]);
       const applied = await run(
         f,
         Effect.flatMap(Forge, forge =>
@@ -967,7 +1031,12 @@ describe('githubForge', () => {
       expect(commit).toMatchObject({ message: 'Child', parents: [onto] });
       expect(git('ls-tree', '--name-only', commit.tree)).toBe('a.txt\nb.txt\nc.txt');
       const head = applied.url!.split('/').at(-1);
-      expect(f.calls.find(c => c.method === 'PATCH')!.body).toEqual({ sha: head, force: true });
+      expect(f.calls.find(c => c.path === '/graphql')!.body.variables.input.refUpdates[0]).toEqual({
+        name: 'refs/heads/agentgraph/9',
+        beforeOid: tip,
+        afterOid: head,
+        force: true,
+      });
       expect([existsSync(join(dir, 'b.txt')), existsSync(join(dir, 'c.txt'))]).toEqual([true, true]);
     });
 

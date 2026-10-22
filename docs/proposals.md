@@ -49,7 +49,7 @@ Comments answer the issue, pull request or review thread where the human started
 
 Agent pushes never force. Branches must start with `agentgraph/` and descend from the checkout's starting commit or last push. A branch moved meanwhile causes refusal.
 
-Only regular files outside `.github/` and `.git/` are pushed, at most 200 files and 1 MiB per file. A change under `.github/`, such as a workflow, is left out of the push and the rest goes on; the pull request names the files left out, for a maintainer to push. The engine writes the commits through GitHub's Git API, so GitHub signs them. <!-- code: src/forge.ts#unpushable -->
+Pushes allow regular files outside `.github/` and `.git/`, at most 200 files and 1 MiB each. `.github/` changes are omitted and listed in the pull request for a maintainer to push. GitHub's Git API writes and signs commits. <!-- code: src/forge.ts#unpushable -->
 
 ## Engine kinds
 
