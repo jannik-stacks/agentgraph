@@ -32,7 +32,7 @@ The refresh token is single-use: never run two LiteLLM instances against the sam
 
 `litellm.config.yaml` routes a flagship and a cheap model per family through OpenRouter: `glm`,
 `glm-flash`, `deepseek`, `deepseek-flash`, `minimax`, `gemini`, `gemini-flash`, `grok`, `grok-build`,
-`qwen`, `qwen-flash` and `kimi`. The OpenRouter key stays in the proxy; bots reach these aliases with
+`qwen`, `qwen-flash`, `kimi`, `muse` and `muse-flash` (Meta). The OpenRouter key stays in the proxy; bots reach these aliases with
 their own virtual keys, and the per-key dollar budget applies to them. Without the key the proxy starts
 and only these aliases fail.
 

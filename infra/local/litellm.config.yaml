@@ -75,6 +75,12 @@ model_list:
   - model_name: kimi
     litellm_params: { model: openrouter/moonshotai/kimi-k3, api_key: os.environ/OPENROUTER_API_KEY }
     model_info: { input_cost_per_token: 2.39e-7, output_cost_per_token: 1.1936e-5, cache_read_input_token_cost: 2.1e-7 }
+  - model_name: muse
+    litellm_params: { model: openrouter/meta/muse-spark-1.3, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 1.25e-6, output_cost_per_token: 4.25e-6, cache_read_input_token_cost: 1.5e-7 }
+  - model_name: muse-flash
+    litellm_params: { model: openrouter/meta/muse-glimmer-30b, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 3.0e-7, output_cost_per_token: 1.2e-6, cache_read_input_token_cost: 4.0e-8 }
 
 # Timeouts are shortest here: a stream silent for stream_timeout seconds fails and is retried once, before the
 # harness's own wait (src/harnesses/timeouts.ts) runs out. Each alias has one deployment, so there is no fallback.

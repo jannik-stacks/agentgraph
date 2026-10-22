@@ -18,7 +18,7 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 # Subscription models report $0 spend, so for smart, writer and luna the rpm/tpm limits and
 # bothub's runs-per-day budget are what actually bite; the dollar budget covers API-key models.
 # Every bot may use the OpenRouter aliases, since a bench point moves every agent of a hub to one model.
-OPENROUTER=glm,glm-flash,deepseek,deepseek-flash,minimax,gemini,gemini-flash,grok,grok-build,qwen,qwen-flash,kimi
+OPENROUTER=glm,glm-flash,deepseek,deepseek-flash,minimax,gemini,gemini-flash,grok,grok-build,qwen,qwen-flash,kimi,muse,muse-flash
 BOTS=(
   "implementor   smart,writer,fast,local,luna,$OPENROUTER   10  30  400000"
   "reviewer      smart,fast,local,luna,$OPENROUTER           5  60  900000"
