@@ -11,7 +11,7 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
@@ -453,6 +453,12 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
         runnerError(ran?.reason) ??
         harnessError(join(at, 'data')) ??
         (nothing ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
+      save(join(at, 'meta.json'), {
+        ...meta,
+        ms: Date.now() - started - time.missed(),
+        ...(time.missed() && { slept: time.missed() }),
+        ...((env ?? nothing) && { infra: env ?? nothing }),
+      });
       if (env) {
         log({ event: 'infra', why: env, attempt });
         if (failed().length < patience) {
@@ -460,14 +466,8 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
           continue;
         }
       }
-      save(join(at, 'meta.json'), {
-        ...meta,
-        ms: Date.now() - started - time.missed(),
-        ...(time.missed() && { slept: time.missed() }),
-        ...((env ?? nothing) && { infra: env ?? nothing }),
-      });
       if (!env && nothing && ++empty < 2) continue;
-      save(join(at, 'usage.json'), effort(join(at, 'data')));
+      save(join(at, 'usage.json'), spent(at));
       save(join(at, 'diff.patch'), diff);
       if (!env && !nothing) keep(at, kept);
       return;
@@ -616,12 +616,53 @@ const effort = (data: string) => {
   }
   return { sessions: sessions.length, usd: round(sessions.reduce((a, s) => a + s.usd, 0)), tokens };
 };
-const usage = (at: string) =>
-  (JSON.parse(read(join(at, 'usage.json')) || 'null') as ReturnType<typeof effort> | null) ?? effort(join(at, 'data'));
+
+/** The earlier attempts of the arm at `at`: older `<arm>.<ms>` dirs beside it and `.attic/<arm>-<time>` dirs. */
+const earlier = (at: string) => {
+  const within = (dir: string, name: RegExp) =>
+    existsSync(dir) ? readdirSync(dir).flatMap(n => (name.test(n) ? [join(dir, n)] : [])) : [];
+  return [
+    ...within(dirname(at), new RegExp(`^${basename(at)}\\.\\d+$`)),
+    ...within(join(dirname(at), '.attic'), new RegExp(`^${basename(at)}-\\d{4}-`)),
+  ];
+};
+
+/** Wall time of one attempt: its `meta.json` ms, else the span of its traces. */
+const took = (dir: string) => {
+  const ms = (JSON.parse(read(join(dir, 'meta.json')) || '{}') as { ms?: number }).ms;
+  if (typeof ms === 'number') return ms;
+  const data = join(dir, 'data');
+  const at = (existsSync(data) ? readdirSync(data) : [])
+    .flatMap(id => lines(join(data, id, 'trace.jsonl')))
+    .flatMap(t => (typeof t.at === 'string' ? [Date.parse(t.at)] : []));
+  return at.length ? Math.max(...at) - Math.min(...at) : 0;
+};
+
+/** Sessions, cost, tokens and wall time summed over every attempt of an arm, with each attempt's own numbers. */
+export const spent = (at: string) => {
+  const attempts = [...earlier(at), ...(existsSync(at) ? [at] : [])].map(dir => {
+    const { infra } = JSON.parse(read(join(dir, 'meta.json')) || '{}') as { infra?: string };
+    return { dir: relative(dirname(at), dir), ms: took(dir), ...(infra && { infra }), ...effort(join(dir, 'data')) };
+  });
+  const tokens: ReturnType<typeof effort>['tokens'] = {};
+  for (const a of attempts)
+    for (const [model, t] of Object.entries(a.tokens)) {
+      const sum = (tokens[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
+      for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
+    }
+  const total = (k: 'sessions' | 'usd' | 'ms') => round(attempts.reduce((n, a) => n + a[k], 0));
+  return { sessions: total('sessions'), usd: total('usd'), ms: total('ms'), tokens, attempts };
+};
+
+/** An arm's usage over all its attempts: recounted from its records when they are here, else its `usage.json`. */
+const usage = (at: string): Partial<ReturnType<typeof spent>> =>
+  existsSync(join(at, 'data')) || earlier(at).length
+    ? spent(at)
+    : (JSON.parse(read(join(at, 'usage.json')) || '{}') as Partial<ReturnType<typeof spent>>);
 
 /** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, hub or attic dirs. */
 export const keep = (at: string, kept: string | undefined) => {
-  if (!existsSync(join(at, 'usage.json'))) save(join(at, 'usage.json'), effort(join(at, 'data')));
+  if (!existsSync(join(at, 'usage.json'))) save(join(at, 'usage.json'), spent(at));
   if (kept) publish(at, kept, p => !/\/(data|forge|hub|\.attic)$/.test(p));
 };
 
@@ -647,7 +688,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
       );
       const offline = (tests as Tests).setup?.ok === false && (await down(true));
       if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
-      save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...usage(at), ...meta });
+      save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...meta, ...usage(at) });
     }
   } finally {
     rmSync(tree, { recursive: true, force: true });
@@ -1069,7 +1110,7 @@ const loadScored = (out: string, id: string): Scored => {
   );
   const rows = Object.entries(scores)
     .filter(([arm]) => !(arm in skipped))
-    .map(([arm, s]): [string, Record<string, number>] => [arm, metrics(s)]);
+    .map(([arm, s]): [string, Record<string, number>] => [arm, metrics({ ...s, ...usage(join(out, id, arm)) })]);
   const failures = bots.flatMap(arm => {
     const h = (scores[arm] as { hidden?: { ok: boolean; tail: string; class?: string } } | undefined)?.hidden;
     return h && !h.ok && !(arm in skipped) ? [`${id}/${arm}: ${h.class ?? failureClass(h.tail)}`] : [];
@@ -1121,7 +1162,7 @@ export const rowsOf = (out: string) => {
                 )
               )
             : 0;
-        const spent = usage(join(out, c.id, arm));
+        const spent = { ...s, ...usage(join(out, c.id, arm)) };
         const [hidden, suite, typecheck] = [ok(s.hidden), ok(s.suite), ok(s.typecheck)];
         return [
           {
@@ -1136,9 +1177,9 @@ export const rowsOf = (out: string) => {
             vsHuman: Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, mean(ps)])),
             findings: { critical: found('critical'), high: found('high') },
             answers: Number(s.answers ?? 0),
-            minutes: Number(s.ms ?? 0) / 60_000,
-            tokens: spent.tokens,
-            usd: typeof s.usd === 'number' ? s.usd : spent.usd,
+            minutes: Number(spent.ms ?? 0) / 60_000,
+            tokens: spent.tokens ?? {},
+            usd: Number(spent.usd ?? 0),
           },
         ];
       })

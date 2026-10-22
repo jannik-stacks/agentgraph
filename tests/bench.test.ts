@@ -18,6 +18,7 @@ import {
   repoint,
   rowsOf,
   scrub,
+  spent,
   stats,
   unbiased,
   verdict,
@@ -398,11 +399,41 @@ describe('points', () => {
     writeFileSync(join(at, 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
     keep(at, join(root, 'kept'));
     expect(existsSync(join(root, 'kept', 'data'))).toBe(false);
+    const tokens = { smart: { input: 15, cacheRead: 80, cacheWrite: 5, output: 7 } };
     expect(JSON.parse(readFileSync(join(root, 'kept', 'usage.json'), 'utf8'))).toEqual({
       sessions: 1,
       usd: 0.5,
-      tokens: { smart: { input: 15, cacheRead: 80, cacheWrite: 5, output: 7 } },
+      ms: 0,
+      tokens,
+      attempts: [{ dir: 'v2', ms: 0, sessions: 1, usd: 0.5, tokens }],
     });
+  });
+
+  it('sums usage and time over every attempt of an arm, set-aside ones included', () => {
+    const root = tmp('attempts');
+    dirs.push(root);
+    const attempt = (dir: string, usd: number, meta?: object) => {
+      mkdirSync(join(root, dir, 'data', 'run-1'), { recursive: true });
+      const trace = [
+        { at: '2026-10-22T10:00:00.000Z', key: 'k', event: { type: 'start', model: 'luna' } },
+        { at: '2026-10-22T10:00:30.000Z', key: 'k', event: { type: 'usage', input: 10, output: 2 } },
+        { at: '2026-10-22T10:01:00.000Z', key: 'k', session: { usd } },
+      ];
+      writeFileSync(join(root, dir, 'data', 'run-1', 'trace.jsonl'), trace.map(t => JSON.stringify(t)).join('\n'));
+      if (meta) writeFileSync(join(root, dir, 'meta.json'), JSON.stringify(meta));
+    };
+    attempt('v2', 0.5, { ms: 1000 });
+    attempt('.attic/v2-2026-10-22T09-00-00-000Z', 0.25, { ms: 2000, infra: 'SandboxError: no image' });
+    attempt('v2.1792493424355', 0.125);
+    attempt('.attic/floor-2026-10-22T09-00-00-000Z', 9, { ms: 9 });
+    const all = spent(join(root, 'v2'));
+    expect(all).toMatchObject({ sessions: 3, usd: 0.875, ms: 63_000 });
+    expect(all.tokens).toEqual({ luna: { input: 30, cacheRead: 0, cacheWrite: 0, output: 6 } });
+    expect(all.attempts.map(a => [a.dir, a.ms, a.usd, a.infra])).toEqual([
+      ['v2.1792493424355', 60_000, 0.125, undefined],
+      ['.attic/v2-2026-10-22T09-00-00-000Z', 2000, 0.25, 'SandboxError: no image'],
+      ['v2', 1000, 0.5, undefined],
+    ]);
   });
 });
 
