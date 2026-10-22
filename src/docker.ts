@@ -206,7 +206,7 @@ export const docker = (o: {
       const cache = o.cache ?? 'bothub-cache';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
-      if (cache) yield* Effect.promise(() => sweep().catch(() => 0));
+      if (cache) yield* Effect.promise(() => sweep(30_000).catch(() => 0));
       /** Each live checkout as the host made it. */
       const made = new Map<string, Made>();
       const inMirror = (args: string[], env: Record<string, string> = {}) =>

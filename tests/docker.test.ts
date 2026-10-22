@@ -4,7 +4,7 @@ import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
-import { toolchainOf } from '../src/env.ts';
+import { sweep, toolchainOf } from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -529,4 +529,21 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
     expect(second.at(-1)).toMatchObject({ type: 'end', ended: 'stop', exit: 0 });
     if (process.env.BOTHUB_LIVE_OUT) writeFileSync(`${process.env.BOTHUB_LIVE_OUT}.2`, JSON.stringify(second, null, 1));
   }, 600_000);
+});
+
+describe('sweep', () => {
+  it('sweeps nothing when docker does not answer in time', async () => {
+    const bin = tmp('bin');
+    writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexec sleep 5\n');
+    chmodSync(join(bin, 'docker'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path}`;
+    try {
+      const started = Date.now();
+      expect(await sweep(200)).toBe(0);
+      expect(Date.now() - started).toBeLessThan(3000);
+    } finally {
+      process.env.PATH = path;
+    }
+  });
 });

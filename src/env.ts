@@ -293,9 +293,9 @@ export const seed = async (env: Env, owner: string, dir: string): Promise<Seed[]
   return seeds;
 };
 
-export const drop = (seeds: Seed[]) =>
+export const drop = (seeds: Seed[], timeout?: number) =>
   seeds.length
-    ? docker(['volume', 'rm', '-f', ...seeds.map(s => s.name)]).then(
+    ? docker(['volume', 'rm', '-f', ...seeds.map(s => s.name)], timeout).then(
         () => undefined,
         () => undefined
       )
@@ -310,22 +310,18 @@ const alive = (pid: number) => {
   }
 };
 
-/** Removes seeds whose process is gone. Docker refuses volumes a container still uses. */
-export const sweep = async () => {
-  const out = await docker([
-    'volume',
-    'ls',
-    '--filter',
-    'label=bothub.seed',
-    '--format',
-    '{{.Name}} {{.Label "bothub.seed"}}',
-  ]).catch(() => '');
+/** Removes seeds whose process is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
+export const sweep = async (timeout = 600_000) => {
+  const out = await docker(
+    ['volume', 'ls', '--filter', 'label=bothub.seed', '--format', '{{.Name}} {{.Label "bothub.seed"}}'],
+    timeout
+  ).catch(() => '');
   const dead = out
     .split('\n')
     .map(l => l.split(' '))
     .filter(([name, pid]) => name && Number(pid) && !alive(Number(pid)))
     .map(([name]) => ({ name: name!, dst: '' }));
-  await drop(dead);
+  await drop(dead, timeout);
   return dead.length;
 };
 
