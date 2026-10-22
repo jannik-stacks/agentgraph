@@ -126,6 +126,8 @@ const tips = {
     check: 'A check the engine ran on the try. A failing check that blocks sends the try back.',
     saved:
       "The engine saved the run's state to its run.json: the fields that changed, like step, status, tries or cost.",
+    spoken: 'What a person said that started this run, from a comment or the command line.',
+    told: 'A message the router passed on to this run. The run reads it on its next look.',
   },
   proposal: {
     comment: 'A comment agentgraph posted, under the thread a human last spoke in.',
@@ -222,7 +224,10 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
 
 /** How each kind of trace line reads as a row. */
 const lines: {
-  [K in 'prompt' | 'event' | 'session' | 'check' | 'applied' | 'outcome' | 'saved']: (l: Line<K>, by: string) => Row;
+  [K in 'prompt' | 'event' | 'session' | 'check' | 'applied' | 'outcome' | 'saved' | 'spoken' | 'told']: (
+    l: Line<K>,
+    by: string
+  ) => Row;
 } = {
   prompt: ({ prompt: p }) => ({
     summary: (
@@ -304,6 +309,20 @@ const lines: {
             ...(line.cleared ?? []).map(k => `cleared ${k}`),
           ].join(', ')
         )}
+      </>
+    ),
+  }),
+  spoken: ({ spoken: s }) => ({
+    summary: (
+      <>
+        <Pill of="line" kind="spoken" /> {muted(`${s.actor}: ${short(s.comment?.body ?? s.kind, 120)}`)}
+      </>
+    ),
+  }),
+  told: ({ told: t }) => ({
+    summary: (
+      <>
+        <Pill of="line" kind="told" /> {muted(`from ${t.by}: ${short(t.text, 120)}`)}
       </>
     ),
   }),
