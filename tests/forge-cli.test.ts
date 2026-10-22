@@ -5,7 +5,8 @@ import { Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fileForge, type Proposal } from '../src/forge.ts';
 import { instanceAt } from '../src/instance.ts';
-import { type Instruction } from '../src/engine.ts';
+import { sweep, tick, type Instruction } from '../src/engine.ts';
+import { loadHub } from '../src/hub.ts';
 import { Effect } from 'effect';
 import { Store } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
@@ -322,6 +323,58 @@ describe('bin/forge.ts with run --forge', () => {
     );
     expect(stored!.status).toBe('running');
   });
+
+  it('recovers a PR review command passed by the repo cursor with a per-issue sweep', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'Add a greeting');
+    w.forge('label', '1', 'agent:ready');
+    const [waiting] = await w.run([
+      [
+        start('i'),
+        write('hello.txt', 'hello\n'),
+        reply(
+          { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
+          { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
+        ),
+      ],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    w.forge('comment', '2', '/agent explain this line', '--line', 'hello.txt:1');
+    const hub = await Effect.runPromise(loadHub(sandboxHub));
+    const run = <A, E>(effect: Effect.Effect<A, E, import('../src/services.ts').Services>) =>
+      Effect.runPromise(
+        effect.pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              fileForge(w.dir),
+              fileStore(join(w.root, 'data')),
+              host(w.origin),
+              scripted([[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]])
+            )
+          )
+        )
+      );
+    w.forge('issue', 'Newer work');
+    const [newer] = await w.run([], 3, { kind: 'dispatch', issue: 3, workflow: 'triage' });
+    await run(
+      Effect.flatMap(Store, store =>
+        Effect.zipRight(
+          store.put({ ...newer!, status: 'done' }),
+          store.trace(waiting!.id, {
+            at: newer!.started,
+            step: waiting!.step,
+            outcome: { kind: 'ask', question: 'Waiting at merge' },
+            run: { step: waiting!.step, status: 'waiting', tries: waiting!.tries, rounds: waiting!.rounds },
+          })
+        )
+      )
+    );
+    expect(await run(tick(hub, undefined, false, 30_000))).toEqual([]);
+    const recovered = await run(sweep(hub));
+    expect(recovered.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
+    expect(w.forge('show', '2')).toContain('Here is why.');
+  }, 30_000);
 
   it('seeds only the given commit with --at, so a later commit is not in the origin', () => {
     const w = world();

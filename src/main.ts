@@ -92,7 +92,7 @@ export const start = (
           return yield* Effect.forever(
             Effect.zipRight(
               Effect.sleep(`${s.every} minutes`),
-              look(hub => tick(hub, undefined, false, settle))
+              look(hub => sweep(hub, settle))
             )
           );
         });
