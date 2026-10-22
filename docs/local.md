@@ -1,6 +1,6 @@
 # Running it locally
 
-You need Node 22.18 or later, and Docker for the sandbox. Commands run from the `agentgraph` directory unless a section says otherwise.
+Requires Node 22.18 or later and Docker. Commands run from `agentgraph/` unless stated otherwise.
 
 ## The model stack
 
@@ -8,15 +8,21 @@ From `infra/local`:
 
 ```sh
 cp .env.example .env              # set LITELLM_MASTER_KEY and provider keys
-docker compose up -d              # LiteLLM and Postgres
+docker compose up -d
 docker compose --profile sandbox up -d
 docker build -t agentgraph-sandbox:local sandbox
-./keys.sh                         # one virtual key per agent, written to .keys.env
+./keys.sh                         # virtual keys in .keys.env
 ```
 
-`infra/local/README.md` covers the rest, including the ChatGPT login for `smart`.
+[Local infrastructure](../infra/local/README.md) covers provider setup, including the ChatGPT login for `smart`. Rust toolchains warm a shared cache on first use; see [Toolchains](sandbox.md#toolchains).
 
-The first run on a Rust repo spends a few minutes filling the `agentgraph-cache` volume with its toolchain and crates. Later runs reuse it, see [Toolchains](sandbox.md#toolchains).
+For GitHub, create an App with `node bin/setup-app.ts` ([App setup](../infra/github/README.md)). Set `AGENTGRAPH_APP_ENV` to its `app.env`. From `infra/local`, prepare a persistent data directory:
+
+```sh
+./e2e.sh ~/bothub-data ../../examples/sandbox
+```
+
+The script converts agent keys to `AGENTGRAPH_PROXY_KEYS` in the data directory's `.env` and prints commands. Source that file as instructed; the runner does not load it automatically. Instances load their own `keys.env` instead.
 
 ## The CLI
 
@@ -28,80 +34,82 @@ node bin/run.ts loop --hub examples/sandbox --data ~/bothub-data
 node bin/run.ts status --hub examples/sandbox --data ~/bothub-data
 ```
 
-- `check` loads a hub and prints every problem with its file, or `ok`.
-- `--issue <n>` looks at one issue once. It continues a waiting run a human has answered, or begins one when none is live, and drives it until it waits or ends. It prints one line per run: id, step, status and reason.
-- `--all` does the same for every open issue, up to `limits.parallel` issues at once. It begins a run only where a trusted command or label asks for one.
-- `loop` first looks at every open issue as `--all` does, so it catches up on what was said while it was down, then looks at the repo every `AGENTGRAPH_EVERY` minutes until it is stopped. Without `--hub`, it reads the hub from `.agentgraph/` in the repo, and `AGENTGRAPH_REPO` names the repo, see [A hub in the repo](loop.md#a-hub-in-the-repo). <!-- code: src/main.ts#start -->
-- Keep `--data` out of `/tmp` and the system temp dir: macOS deletes files there that went untouched for 3 days, runs and mirror included. The runner warns at start when the data dir or its mirror is there. <!-- code: src/main.ts#temporary -->
-- `status` lists what waits on a human. It also warns when the App's installation reaches repos besides the hub's, and needs the App's credentials.
+| Command | Behavior |
+| --- | --- |
+| `check` | Validate a hub; print file-specific problems or `ok`. No model or container needed. |
+| `--issue <n>` | Start or resume one issue's run and drive until waiting or finished. Print id, step, status and reason. |
+| `--all` | Sweep open issues, starting only on trusted commands or labels, up to `limits.parallel` at once. |
+| `loop` | Sweep at startup, then every `AGENTGRAPH_EVERY` minutes. Without `--hub`, use the repo's [own hub](loop.md#a-hub-in-the-repo) and `AGENTGRAPH_REPO`. |
+| `status` | List human waits and continuation commands. With GitHub, require App credentials and warn about installations reaching other repos. |
 
-`--hub <dir>` names a hub folder on this machine, `--data <dir>` the data dir, and `--forge <dir>` a forge folder to use instead of GitHub. `--instance <dir>` stands for all three, see [Instances](#instances). The repo comes from `repo` in `hub.yaml`. The CLI hands these to the runner as `AGENTGRAPH_HUB`, `AGENTGRAPH_DATA`, `AGENTGRAPH_FORGE` and `AGENTGRAPH_REPO`. The runner also reads:
+`--hub`, `--data` and `--forge` select local folders; `--forge` replaces GitHub. `--instance` supplies all three. The CLI sets `AGENTGRAPH_HUB`, `AGENTGRAPH_DATA`, `AGENTGRAPH_FORGE` and the hub's `repo` as `AGENTGRAPH_REPO`.
 
-| Variable              | What it is                                                                                           |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
-| `AGENTGRAPH_APP_ENV`      | An env file with the GitHub App's `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY`                               |
-| `AGENTGRAPH_APP_KEY_FILE` | In that file, a path to the App's private key, read in as `AGENTGRAPH_APP_KEY`                           |
-| `AGENTGRAPH_EVERY`        | Minutes between looks in `loop`, 5 by default                                                        |
-| `AGENTGRAPH_PROXY_URL`    | The model proxy, `http://litellm:4000/v1` by default                                                 |
-| `AGENTGRAPH_PROXY_KEYS`   | The agents' model keys, see [Models](sandbox.md#models)                                              |
-| `AGENTGRAPH_PRICES`       | The list prices file, `infra/local/prices.json` by default                                           |
-| `AGENTGRAPH_CHECK_LOGS`   | Which check output the data dir keeps: `all` by default, `failed` or `off`                           |
-| `AGENTGRAPH_CACHE_VOLUME` | The docker volume for [toolchains](sandbox.md#toolchains), `agentgraph-cache` by default; empty for none |
-| `AGENTGRAPH_IMAGE`        | The image [environments](sandbox.md#environments) start from, `agentgraph-sandbox:local` by default      |
-| `AGENTGRAPH_STUDIO_URL`   | The studio's URL; posted bodies end in a `⁂` linking to their run there. None by default             |
+Keep data outside temporary directories: macOS can delete untouched files after three days. Startup warns when data or its mirror is temporary. <!-- code: src/main.ts#start src/main.ts#temporary -->
 
-The App's variables can also be set in the environment directly. `--logs` on the CLI, or `logs` in `instance.yaml`, sets `AGENTGRAPH_CHECK_LOGS`. <!-- code: src/services.ts#settings -->
+The runner reads these settings: <!-- code: src/services.ts#settings -->
+
+| Variable | Meaning or default |
+| --- | --- |
+| `AGENTGRAPH_APP_ENV` | Env file holding `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY` |
+| `AGENTGRAPH_APP_KEY_FILE` | Private-key path in that file; loaded as `AGENTGRAPH_APP_KEY` |
+| `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
+| `AGENTGRAPH_PROXY_URL` | Model proxy, `http://litellm:4000/v1` |
+| `AGENTGRAPH_PROXY_KEYS` | Per-agent keys; see [Models](sandbox.md#models) |
+| `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json` |
+| `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`; see [Check logs](runs.md#check-logs) |
+| `AGENTGRAPH_CACHE_VOLUME` | Shared [toolchain cache](sandbox.md#toolchains) |
+| `AGENTGRAPH_IMAGE` | Default [environment image](sandbox.md#environments) |
+| `AGENTGRAPH_STUDIO_URL` | Optional [provenance links](runs.md#provenance) |
+
+App credentials also work directly in the environment. `--logs` or instance `logs` sets `AGENTGRAPH_CHECK_LOGS`. The CLI requires `--data` outside an instance. The underlying runner setting defaults to `.bothub-data`; `~/.agentgraph` is the studio's default.
+
+Routing commands use the same engine rules as [router proposals](loop.md#routing):
+
+```sh
+node bin/run.ts say --hub <dir> --data <dir> --issue <n> [--comment <review comment id>] "<text>"
+node bin/run.ts tell --data <dir> --issue <n> "<text>"
+node bin/run.ts dispatch --hub <dir> --data <dir> --workflow <name> --issue <n> [--step <step>]
+```
+
+`say` runs the router immediately and replies at the source location. `tell` queues text for a live run's next look, refusing if none exists. `dispatch` starts an eligible workflow. These also accept `--forge` and `--instance`.
 
 ## Without GitHub
 
-A forge folder stands in for the GitHub repo, and `bin/forge.ts` plays the maintainer on it. No GitHub App is needed. <!-- code: src/forge.ts#fileForge -->
-
-```
-/tmp/forge/
-  <n>.md          an issue
-  <n>.jsonl       its timeline
-  <n>/            a pull request: pull.json and diff.patch
-  origin.git      the bare repo that holds the branches
-```
+A forge folder replaces GitHub; no App is needed. It contains `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. <!-- code: src/forge.ts#fileForge -->
 
 ```sh
-node bin/forge.ts /tmp/forge init ../path/to/repo         # copies the repo into /tmp/forge/origin.git
+node bin/forge.ts /tmp/forge init ../path/to/repo
 node bin/forge.ts /tmp/forge issue "Reject a negative count" --body issue.md
 node bin/forge.ts /tmp/forge comment 1 /agent
 node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/bothub-data
-node bin/forge.ts /tmp/forge show                         # every issue and pull request
-node bin/forge.ts /tmp/forge show 2                       # one, with its timeline and diff
-node bin/forge.ts /tmp/forge comment 2 "/agent also cover zero"
-node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/bothub-data
-node bin/forge.ts /tmp/forge merge 2
-node bin/run.ts --forge /tmp/forge --hub examples/sandbox --issue 1 --data ~/bothub-data
 ```
 
-- Comments, labels and issues are by `git config user.name`, or by `--as <name>`, and count as a maintainer's.
-- `issue --label <name>` labels a new issue, and `label <n> <name>` labels one later, so a labelled workflow like triage starts.
-- `merge <n>` fast-forwards the base branch to the pull request's head and marks it merged. Pull requests stacked on it move to its base, and the issue named at the end of its branch closes (`agentgraph/1` closes #1). It fails when the base has moved past the pull request.
-- `close <n>` closes an issue.
-- `init <repo> --at <sha>` puts only that commit and its history in `origin.git`, as `main`, so a replayed task cannot find its own fix.
+`--forge` also works with `loop` and `status`; sessions still use Docker and proxy keys. Use a persistent forge folder for lasting work. <!-- code: src/status.ts#needsYou -->
 
-Agents still run in the Docker sandbox with `AGENTGRAPH_PROXY_KEYS`. `--forge` works with `loop` and `status` too, and `status` then needs no App. <!-- code: src/status.ts#needsYou -->
+| Forge command | Effect |
+| --- | --- |
+| `show [n]` | All issues and pull requests, or one timeline and diff |
+| `comment <n> <text> [--line <path>:<line>]` | Comment on an issue, pull request or line |
+| `issue ... --label <name>` or `label <n> <name>` | Add a label that can trigger a workflow |
+| `review <n> changes <text>` or `review <n> approve [text]` | Request changes or approve; preceding line comments accompany the review |
+| `merge <n>` | Fast-forward the base, retarget stacked pull requests, close the issue named by the branch suffix; fail if the base has diverged |
+| `close <n>` | Close an issue |
+| `init <repo> --at <sha>` | Copy only that commit and its history as `main`, hiding later fixes |
+
+Actions use `--as <name>`, the instance owner, or `git config user.name`, and count as a maintainer's.
 
 ## Instances
 
-An instance lets you work on a repo through agentgraph without touching it. It is one folder that holds the hub, a forge folder over a copy of the repo, the data dir and the model keys. Keep as many as you like under one root, one folder per repo. <!-- code: src/instance.ts#instanceAt -->
+An instance bundles a hub, forge copy, data and optional keys for one repo. The original repo is read only until `export`. <!-- code: src/instance.ts#instanceAt -->
 
 ```
-~/agentgraph/
-  kit/
-    instance.yaml   repo: /path/to/repo, base: main, owner: <you>
-    hub/            the hub, as .agentgraph/ would hold it
-    forge/          the forge folder, with origin.git
-    data/           runs, traces and the sandbox mirror
-    keys.env        optional KEY=value lines, such as AGENTGRAPH_PROXY_KEYS
-  clarinet/
-    ...
+~/agentgraph/kit/
+  instance.yaml   repo: /path/to/repo, base: main, owner: <you>
+  hub/            editable hub copy
+  forge/          issues, timelines, origin.git
+  data/           runs, traces, mirror
+  keys.env        optional KEY=value settings
 ```
-
-The repo is only read. `init` copies it into `forge/origin.git`, and every branch, push and merge lands there. Nothing reaches the repo until you run `export`.
 
 ### Set one up
 
@@ -109,9 +117,7 @@ The repo is only read. `init` copies it into `forge/origin.git`, and every branc
 node bin/forge.ts ~/agentgraph/kit init ~/code/acme-app --hub examples/sandbox --base main
 ```
 
-`--hub` copies a hub into `hub/`, where you edit it in place. `--base` names the branch pull requests go into, `main` by default; a workflow on another base sets `base:` too. The owner is `git config user.name`, or `--as <name>`, and everything you do as the owner counts as a maintainer's.
-
-For the model keys, put the agents' keys in `keys.env`. `run.ts` loads it when the variables are not set already:
+`--base` defaults to `main`; workflows targeting another base also set `base`. Convert the generated model keys into `keys.env`, loaded only for variables not already set:
 
 ```sh
 sed -n 's/^AGENTGRAPH_LLM_API_KEY_\([A-Z_]*\)=\(.*\)$/\1=\2/p' infra/local/.keys.env |
@@ -121,42 +127,33 @@ sed -n 's/^AGENTGRAPH_LLM_API_KEY_\([A-Z_]*\)=\(.*\)$/\1=\2/p' infra/local/.keys
 
 ### A loop by hand
 
-`bin/forge.ts` and `bin/run.ts` take the instance folder, or any folder inside it. `run.ts` also finds it from the working directory when you pass no `--hub`, `--forge` or `--data`.
+Both CLIs find an instance from any folder inside it. `run.ts` also searches its working directory when no hub, forge or data flags are given.
 
 ```sh
 node bin/forge.ts ~/agentgraph/kit issue "Reject a negative count" --body issue.md --label agent:ready
 node bin/run.ts --instance ~/agentgraph/kit --all
-node bin/forge.ts ~/agentgraph/kit show                  # issues and pull requests
-node bin/forge.ts ~/agentgraph/kit show 2                # one thread, with the diff
-node bin/forge.ts ~/agentgraph/kit comment 2 "count zero as valid" --line src/math.js:12
+node bin/forge.ts ~/agentgraph/kit show 2
 node bin/forge.ts ~/agentgraph/kit review 2 changes "also cover zero"
 node bin/run.ts --instance ~/agentgraph/kit --all
-node bin/forge.ts ~/agentgraph/kit comment 1 "zero is valid"   # answers a question the run asked
-node bin/run.ts --instance ~/agentgraph/kit --issue 1
 node bin/forge.ts ~/agentgraph/kit review 2 approve
 node bin/forge.ts ~/agentgraph/kit merge 2
 node bin/forge.ts ~/agentgraph/kit export 2
 ```
 
-- `review <n> changes <text>` requests changes on a pull request, and `review <n> approve [text]` approves it. Line comments made with `comment <n> <text> --line <path>:<line>` reach the run with the review.
-- `run.ts status --instance <dir>` lists what waits on you, with the command to go on.
-- `export <n>` fetches the pull request's branch into the repo as a branch of the same name. It never moves the checked-out branch and fails rather than overwrite a branch that went elsewhere. `export <n> --patch <file>` writes the commits the repo's base lacks as a patch instead, and writes nothing to the repo.
-- `sync` brings new commits on the repo's base into the instance. It fails when both have moved; export and merge on the repo first.
+Answer questions with `/agent` comments as [Waiting](loop.md#waiting) describes.
 
-Everything else, `label`, `close` and `--as`, works as on a forge folder.
+`export <n>` fetches the branch into the original repo without moving its checked-out branch or overwriting divergent work. `export <n> --patch <file>` writes missing commits as a patch without changing the repo. `sync` fast-forwards the instance base from the repo; if both diverged, export and merge in the repo first.
 
 ### Several side by side
 
-Each instance has its own data dir and mirror, so run one `loop` per instance:
+Each instance has its own mirror and data:
 
 ```sh
 node bin/run.ts loop --instance ~/agentgraph/kit &
 node bin/run.ts loop --instance ~/agentgraph/clarinet &
 ```
 
-The studio shows one instance at a time: `npm run dev -- --instance ~/agentgraph/kit` from `studio/`, with `AGI_PORT` set to a free port for a second one.
-
-A hub on GitHub works the same way with the App, see [The loop](loop.md). The engine is the same; only the forge differs.
+Open one studio per instance, using a different `AGI_PORT` for each.
 
 ## The studio
 
@@ -164,24 +161,22 @@ From `studio/`:
 
 ```sh
 npm install
-npm run dev
+npm run dev -- --instance ~/agentgraph/kit
 ```
 
-It starts on http://localhost:5182, or on `AGI_PORT`. `-- --instance <dir>` shows an instance. Without `-- --hub <dir> --data <dir>` it shows `examples/acme-app` and `AGENTGRAPH_DATA`, or `~/.agentgraph`. It only reads the hub and the data dir.
+The default port is 5182, overridden by `AGI_PORT`. Without an instance, `-- --hub <dir> --data <dir>` selects inputs. Otherwise the studio reads `examples/acme-app` and `AGENTGRAPH_DATA`, falling back to `~/.agentgraph`. It only reads hub and run data.
 
 ## Before you commit
 
-`npm run precommit` checks every example hub, the schema fields, the docs code refs and their coverage, the commands and flags that docs and usage headers name, unused code and formatting. Loading a hub also refuses a short list of retired words, such as answering with a command. Then it runs the agentgraph hub's fast checks over the uncommitted change, against `HEAD` or `AGENTGRAPH_BASE`. `npx tsc --noEmit` and `npx vitest run --testTimeout=60000` cover the code.
+`npm run precommit` validates example hubs, schema usage, docs refs and name coverage, documented commands, unused code and formatting. It also runs the agentgraph hub's fast checks over uncommitted changes against `HEAD` or `AGENTGRAPH_BASE`. Hub loading rejects retired terms. `npm run verify` runs the full checks, including types, coverage and studio build.
 
-A docs sentence that a symbol backs is followed by an HTML comment like `<!-- code: src/engine.ts#land -->`, which readers never see. `bin/refs.mjs` pairs each docs section with the symbols it cites, so either side can be checked when the other changes.
+Docs bind claims to code with hidden comments such as `<!-- code: src/engine.ts#land -->`:
 
 ```sh
-node bin/refs.mjs                    # every ref names a file and a top-level symbol in it
-node bin/refs.mjs --pairs            # every docs section with the symbols it cites
-node bin/refs.mjs --diff main        # the other side of each pair to re-check after the change
-node bin/refs.mjs --coverage         # what no docs page names
+node bin/refs.mjs                    # validate file and symbol references
+node bin/refs.mjs --pairs            # list section-symbol pairs
+node bin/refs.mjs --diff main        # show the other side needing review
+node bin/refs.mjs --coverage         # find undocumented names and uncited exports
 ```
 
-`--diff` prints `code changed: <symbol> is cited by <section>` when a change touches a cited symbol, and `docs changed: <section> cites <symbol>` when it touches a section with refs, plus every other section that cites the same symbol. A pair that changed on both sides is left out. `--diff HEAD --staged` reads the staged change, and `npm run precommit` prints it as a warning.
-
-`--coverage` fails when a user-facing name appears in no docs page as code: hub file fields and values, proposal kinds and fields, run statuses and status labels, CLI commands and flags, and `AGENTGRAPH_` variables. It only lists exports in `src` without a ref.
+`--diff HEAD --staged` checks staged changes; precommit prints these warnings. Pairs changed on both sides are omitted; unchanged sections citing the same symbol are included. Coverage requires user-facing fields, values, statuses, labels, proposal kinds, CLI names and `AGENTGRAPH_` variables in docs code spans. Uncited exports are listed only.
