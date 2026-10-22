@@ -59,15 +59,24 @@ export function context(t: Issues): string {
   return [...heads, lines.length > 0 && `## Timeline\n\n${lines.join('\n\n')}`].filter(Boolean).join('\n\n');
 }
 
-/** Only what came after `seen`: what people said and pushed, checks, and the base moving. Empty when nothing did. */
+const bot = (m: Event) => m.actor.endsWith('[bot]');
+const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined ? m.comment.id : undefined);
+
+/**
+ * Only what came after `seen`: what people said and pushed, checks, and the base moving. Empty when nothing did. A
+ * review comment a bot already answered in its thread is left out.
+ */
 export function news(t: Issues, seen: Seen): { text: string; seen: Seen } {
   const pull = (t.pull ?? t.issue).pull;
   const moved = pull?.baseSha !== undefined && seen.base !== undefined && pull.baseSha !== seen.base;
+  const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
+  const answered = (m: Event) =>
+    thread(m) !== undefined && events.some(b => bot(b) && b.at > m.at && thread(b) === thread(m));
   const lines = [
     moved && `The base ${pull.base} moved to ${pull.baseSha!.slice(0, 7)}.`,
-    ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || !m.actor.endsWith('[bot]'))),
+    ...timeline(t, m => m.at > seen.at && (m.kind === 'check' || (!bot(m) && !answered(m)))),
   ].filter(Boolean);
-  const at = [t.issue, t.pull].flatMap(x => x?.events ?? []).reduce((at, m) => (m.at > at ? m.at : at), seen.at);
+  const at = events.reduce((at, m) => (m.at > at ? m.at : at), seen.at);
   return {
     text: lines.length > 0 ? `## New since you last looked\n\n${lines.join('\n\n')}` : '',
     seen: { at, ...(pull?.baseSha !== undefined && { base: pull.baseSha }) },
