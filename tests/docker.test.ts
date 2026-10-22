@@ -70,7 +70,7 @@ describe('docker with a stand-in docker client', () => {
         `echo "$*" >> ${log}.all`,
         `echo "secret=\${AGENTGRAPH_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
-        `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n';; esac`,
+        `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -235,7 +235,7 @@ describe('docker with a stand-in docker client', () => {
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
     expect(builds() - before).toBe(1);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(
-      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.lowerkb=\d+ agentgraph\.complete=true/
+      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.lowerkb=5 agentgraph\.complete=true/
     );
   });
 

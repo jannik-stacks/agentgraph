@@ -88,7 +88,7 @@ const build = [
 ].join('\n');
 
 const section = (out: string, name: string) =>
-  (out.split(`@@${name}\n`)[1] ?? '').split(/\n@@/)[0]!.split('\n').filter(Boolean);
+  (out.split(`@@${name}\n`)[1] ?? '').split(/^@@/m)[0]!.split('\n').filter(Boolean);
 
 /** Where runners keep what must outlive them: Env last-use stamps and owner heartbeats. */
 const state = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
