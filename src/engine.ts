@@ -1802,14 +1802,16 @@ export const tick = (
           : [];
       const m = answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
       if (!w || !m) continue;
-      for (const a of answers) used.add(a);
+      /** A stop, pass or merge takes only itself, so what else people asked stays for the comment workflow. */
+      const took = taken(m)!.kind === 'answer' ? answers : [m];
+      for (const a of took) used.add(a);
       const lined = events.filter(
         l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
       );
-      const outcome = fold([m, ...answers.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
+      const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
       const seen = {
         ...(m.kind === 'comment' && m.comment?.id ? yield* eyes(run, m) : run),
-        said: heard([m, ...answers.filter(a => a !== m)]),
+        said: heard([m, ...took.filter(a => a !== m)]),
       };
       const step = w.steps.find(s => s.name === run.step);
       const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
@@ -1840,7 +1842,7 @@ export const tick = (
       }
       const moved = {
         ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
-        seen: newest(...answers.map(a => a.at))!,
+        seen: newest(...took.map(a => a.at))!,
       };
       const kept =
         run.status === 'waiting' && run.reason && moved.status !== 'waiting' ? yield* past(run, moved) : moved;

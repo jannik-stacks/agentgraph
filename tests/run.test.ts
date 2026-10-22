@@ -742,6 +742,17 @@ describe('tick', () => {
     expect(touched.map(r => [r.id, r.status])).toEqual([['run-7', 'done']]);
   }, 30_000);
 
+  it('passes on an approval without taking the follow-up asks that came with it', async () => {
+    const where = world();
+    say(where, comment(8, 'morgan', true, '@agent please file a follow-up for the docs', '2026-10-16T00:00:05.000Z'));
+    say(where, { issue: 8, kind: 'approved', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:06.000Z' });
+    const { specs, run } = services(where, [[start('b'), reply({ kind: 'comment', body: 'Filed.' })]]);
+    await run(waiting(where));
+    const touched = await run(tick(merging, 7));
+    expect(touched.find(r => r.id === 'run-7')).toMatchObject({ status: 'done', said: [{ issue: 8 }] });
+    expect(specs.map(s => s.prompt).join()).toContain('please file a follow-up for the docs');
+  }, 30_000);
+
   it('asks instead of waiting for a merge when no pull request is open on the branch', async () => {
     const where = world();
     const flow = merging.workflows.issue;
