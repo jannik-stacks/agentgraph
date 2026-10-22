@@ -32,7 +32,12 @@ const asked = said('morgan', '2026-10-19T16:54:25Z', {
 
 describe('news', () => {
   it('leaves out a review comment a bot already answered in its thread, so a resumed session does not answer twice', () => {
-    const reply = said('bot[bot]', '2026-10-19T17:17:20Z', { id: '2', body: 'Yes.', path: 'kit/src/client.ts', under: '1' });
+    const reply = said('bot[bot]', '2026-10-19T17:17:20Z', {
+      id: '2',
+      body: 'Yes.',
+      path: 'kit/src/client.ts',
+      under: '1',
+    });
     const other = said('morgan', '2026-10-19T17:20:00Z', { id: '3', body: 'and this?', path: 'kit/src/a.ts' });
     const { text } = news(pull([asked, reply, other]), { at: '2026-10-16T00:00:00Z' });
     expect(text).not.toContain('convention');
@@ -40,8 +45,18 @@ describe('news', () => {
   });
 
   it('keeps a review comment no bot answered, and one asked again after the answer', () => {
-    const reply = said('bot[bot]', '2026-10-19T17:17:20Z', { id: '2', body: 'Yes.', path: 'kit/src/client.ts', under: '1' });
-    const again = said('morgan', '2026-10-19T17:20:00Z', { id: '4', body: 'why though?', path: 'kit/src/client.ts', under: '1' });
+    const reply = said('bot[bot]', '2026-10-19T17:17:20Z', {
+      id: '2',
+      body: 'Yes.',
+      path: 'kit/src/client.ts',
+      under: '1',
+    });
+    const again = said('morgan', '2026-10-19T17:20:00Z', {
+      id: '4',
+      body: 'why though?',
+      path: 'kit/src/client.ts',
+      under: '1',
+    });
     expect(news(pull([asked]), { at: '2026-10-16T00:00:00Z' }).text).toContain('convention');
     expect(news(pull([asked, reply, again]), { at: '2026-10-16T00:00:00Z' }).text).toContain('why though?');
   });

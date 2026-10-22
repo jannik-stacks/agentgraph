@@ -15,7 +15,9 @@ const ps = (args: string[]) =>
 const parse = (out: string): Proc[] =>
   out.split('\n').flatMap(line => {
     const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.*)$/.exec(line);
-    return m && !m[3]!.startsWith('Z') ? [{ pid: Number(m[1]), pgid: Number(m[2]), started: m[4]!, command: m[5]! }] : [];
+    return m && !m[3]!.startsWith('Z')
+      ? [{ pid: Number(m[1]), pgid: Number(m[2]), started: m[4]!, command: m[5]! }]
+      : [];
   });
 
 /** Start time of a running process, so a later process that reuses its pid is not mistaken for it. */
