@@ -673,7 +673,7 @@ describe('githubForge', () => {
         yield* forge.issue(7);
         yield* forge.apply(7, { kind: 'comment', body: 'a' });
         yield* forge.apply(7, { kind: 'comment', body: 'b' });
-        yield* forge.apply(7, { kind: 'pull_request', branch: 'x', base: 'main', title: 't', body: 'b' });
+        yield* forge.apply(7, { kind: 'pull_request', branch: 'agentgraph/7', base: 'main', title: 't', body: 'b' });
         yield* forge.apply(8, { kind: 'merge', number: 8, head: 'h' });
       })
     );

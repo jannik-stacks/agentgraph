@@ -2,6 +2,9 @@ import { createPrivateKey, sign } from 'node:crypto';
 import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import {
   addressed,
+  allowed,
+  pushable,
+  unpushable,
   Forge,
   ForgeError,
   type Applied,
@@ -112,18 +115,6 @@ const appJwt = (id: string, pem: string, now: number) => {
 const git = (work: Checkout, args: string[]) =>
   Effect.mapError(hostGit(work.git, args), e => new ForgeError({ message: e.detail }));
 const gitText = (work: Checkout, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
-
-/** The branches a push may move, the files it may change at most, and the largest file it may write. */
-const pushable = { prefix: 'agentgraph/', old: 'bothub/', files: 200, bytes: 1 << 20 };
-const allowed = (branch: string) => branch.startsWith(pushable.prefix) || branch.startsWith(pushable.old);
-
-/** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
-const unpushable = (path: string, modes: string[]) =>
-  modes.some(mode => !['100644', '100755', '000000'].includes(mode))
-    ? `${path} has mode ${modes.join(' to ')}; only regular files can be pushed`
-    : /^\.github\//i.test(path) || /(^|\/)\.git(\/|$)/i.test(path)
-      ? `${path} is under .github/ or .git/`
-      : undefined;
 
 const refPath = (branch: string) =>
   branch.split('/').some(part => !part || part === '.' || part === '..')
@@ -815,6 +806,7 @@ export const githubForge = (
           }));
         case 'pull_request':
           return Effect.gen(function* () {
+            if (!allowed(p.branch)) return yield* refuse(`a pull request goes from a ${pushable.prefix} branch`);
             type Made = { number: number; html_url: string };
             const left = [...(held.get(p.branch) ?? [])];
             const note = left.length

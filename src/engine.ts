@@ -986,7 +986,8 @@ const attempt = (
   w: Workflow,
   run: Run,
   hub: Hub,
-  work: Checkout
+  work: Checkout,
+  own?: string
 ): Effect.Effect<{ outcome: Outcome; run: Run }, SandboxError | SessionStop | ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -1177,6 +1178,9 @@ const attempt = (
     const parsed = replies.map(reply => proposalsOf(reply, !('run' in step.does)));
     const proposals = parsed.flatMap(p => p.proposals);
     const problems = parsed.flatMap(p => p.problems);
+    for (const p of proposals)
+      if ((p.kind === 'push' || p.kind === 'pull_request') && p.branch !== own)
+        problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);
     const marked = proposals.some(p => p.kind === 'push') ? markedIn(yield* diffOf(work)) : [];
     if (marked.length > 0) problems.push(`conflict markers left in ${marked.join(', ')}`);
     const ask = proposals.find(p => p.kind === 'ask');
@@ -1547,7 +1551,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 
       if (!w.on.feedback) yield* setUp(hub, work, current);
       while (current.status === 'running') {
-        const tried = yield* attempt(w, current, hub, work);
+        const tried = yield* attempt(w, current, hub, work, own);
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
         if (current.status === 'running' && current.usd > hub.limits.usdPerRun) {
           const why = `Spent $${current.usd.toFixed(2)}, over the hub's usd-per-run of ${hub.limits.usdPerRun}.`;

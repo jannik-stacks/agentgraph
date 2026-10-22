@@ -705,6 +705,56 @@ describe('a run branch that moved', () => {
     30_000
   );
 
+  it.each(['main', 'agentgraph/8'])(
+    'refuses proposals for another branch: %s',
+    async branch => {
+      const where = world();
+      git(join(where.root, 'seed'), 'push', '-q', where.origin, `main:${branch}`);
+      const before = git(where.origin, 'rev-parse', branch);
+      const { run } = services(where, [
+        [start('a'), write('hello.txt', 'hello\n'), reply({ ...push, branch }, { ...pull, branch })],
+        [start('a'), reply({ kind: 'ask', question: 'Use my own branch?' })],
+      ]);
+      await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+      expect(git(where.origin, 'rev-parse', branch)).toBe(before);
+      expect(
+        traceOf(where.data, 'run-7').flatMap(t =>
+          'applied' in t && ['push', 'pull_request'].includes(t.applied.proposal.kind) && t.applied.ok
+            ? [t.applied]
+            : []
+        )
+      ).toEqual([]);
+    },
+    30_000
+  );
+
+  it.each(['workflow', 'symlink', 'oversize'])(
+    'file forge refuses unsafe push content: %s',
+    async kind => {
+      const where = world();
+      const { run } = services(
+        where,
+        [
+          [start('a'), write('hello.txt', 'hello\n'), reply(push)],
+          [start('a'), reply({ kind: 'ask', question: 'Cannot publish?' })],
+        ],
+        undefined,
+        spec => {
+          if (kind === 'workflow') {
+            mkdirSync(join(spec.dir, '.github', 'workflows'), { recursive: true });
+            writeFileSync(join(spec.dir, '.github', 'workflows', 'x.yml'), 'run: bad\n');
+          } else if (kind === 'symlink') {
+            rmSync(join(spec.dir, 'link.txt'), { force: true });
+            symlinkSync('README.md', join(spec.dir, 'link.txt'));
+          } else writeFileSync(join(spec.dir, 'big.txt'), 'x'.repeat((1 << 20) + 1));
+        }
+      );
+      await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+      expect(git(where.origin, 'for-each-ref', '--format=%(refname)', 'refs/heads/agentgraph/7')).toBe('');
+    },
+    30_000
+  );
+
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();
     const attempted: Proposal[] = [];

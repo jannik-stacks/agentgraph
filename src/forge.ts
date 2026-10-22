@@ -165,6 +165,18 @@ export const matches =
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>
   `(${what} by @${author} withheld: ${why})`;
 
+/** The branches a push may move, the files it may change at most, and the largest file it may write. */
+export const pushable = { prefix: 'agentgraph/', old: 'bothub/', files: 200, bytes: 1 << 20 };
+export const allowed = (branch: string) => branch.startsWith(pushable.prefix) || branch.startsWith(pushable.old);
+
+/** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
+export const unpushable = (path: string, modes: string[]) =>
+  modes.some(mode => !['100644', '100755', '000000'].includes(mode))
+    ? `${path} has mode ${modes.join(' to ')}; only regular files can be pushed`
+    : /^\.github\//i.test(path) || /(^|\/)\.git(\/|$)/i.test(path)
+      ? `${path} is under .github/ or .git/`
+      : undefined;
+
 const me = 'agentgraph[bot]';
 
 /**
@@ -294,6 +306,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             return { proposal: p, ok: true };
           }
           case 'push': {
+            if (!allowed(p.branch)) return no(`a push goes to a ${pushable.prefix} branch`);
             if (!work) return no('a push needs a worktree');
             const last = pushed.get(work.dir);
             const was = await tip(work, p.branch).catch(() => undefined);
@@ -304,6 +317,18 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const parents = onto ? (p.merge ? [parent, onto] : [onto]) : [parent];
             await git(work, 'add', '-A');
             const tree = await git(work, 'write-tree');
+            const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', `${parent}^{tree}`, tree)).split(
+              '\0'
+            );
+            if ((fields.length - 1) / 2 > pushable.files) return no(`at most ${pushable.files} files can be pushed`);
+            for (let i = 0; i + 1 < fields.length; i += 2) {
+              const [oldMode, newMode, , sha] = fields[i]!.slice(1).split(' ');
+              const problem = unpushable(fields[i + 1]!, [oldMode!, newMode!]);
+              if (problem) return no(problem);
+              if (newMode !== '000000' && Number(await git(work, 'cat-file', '-s', sha!)) > pushable.bytes)
+                return no(`${fields[i + 1]} is over ${pushable.bytes} bytes`);
+            }
+
             const head =
               !onto && tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
                 ? parent
@@ -314,6 +339,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'rebase': {
+            if (!allowed(p.branch)) return no(`a rebase goes to a ${pushable.prefix} branch`);
             if (!work) return no('a rebase needs a worktree');
             const was = await tip(work, p.branch);
             if (p.head && was !== p.onto) return no(`${p.branch} moved to ${was}`);
@@ -355,6 +381,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'pull_request': {
+            if (!allowed(p.branch)) return no(`a pull request goes from a ${pushable.prefix} branch`);
             for (const k of await numbers()) {
               const pr = await read(k);
               if (pr?.pull?.branch === p.branch && pr.state === 'open') return { proposal: p, ok: true, url: pr.url };
