@@ -311,7 +311,9 @@ export const docker = (o: {
           );
           const verify = (name: string) =>
             inMirror(['rev-parse', '--verify', '--quiet', `${name}^{commit}`]).pipe(Effect.orElseSucceed(() => ''));
-          const saved = keep ? yield* verify(keep) : '';
+          const saved = keep
+            ? (yield* verify(keep)) || (yield* verify(keep.replace('refs/agentgraph/', 'refs/bothub/')))
+            : '';
           const own = branch ? yield* verify(`refs/heads/${branch}`) : '';
           const rev =
             own || (saved ? yield* verify(`${saved}^`) : (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`)));

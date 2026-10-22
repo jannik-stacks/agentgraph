@@ -190,8 +190,11 @@ const inScope = (hub: Hub, issue?: Issue) => hub.milestone === undefined || issu
 const pullOf = (w: Workflow, issue: number, open: Issue[]) =>
   w.branch === undefined
     ? undefined
-    : open.find(t => t.pull?.branch === expand(w.branch!, open.find(t => t.number === issue) ?? { number: issue }))
-        ?.number;
+    : open.find(
+        t =>
+          t.pull?.branch.replace(/^bothub\//, 'agentgraph/') ===
+          expand(w.branch!, open.find(t => t.number === issue) ?? { number: issue })
+      )?.number;
 
 /** The open pull request a run on `issue` stacks on, from a "Stacks on #n" line naming it or its issue. */
 const stackOf = (w: Workflow, issue: Issue, open: Issue[]): Run['base'] => {

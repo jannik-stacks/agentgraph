@@ -114,6 +114,8 @@ networks:
     internal: true
 
 volumes:
-  pgdata: {}
-  chatgpt-auth: {}
+  pgdata:
+    name: bothub_pgdata
+  chatgpt-auth:
+    name: bothub_chatgpt-auth
   ollama-models: {}

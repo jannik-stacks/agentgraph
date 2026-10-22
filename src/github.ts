@@ -114,7 +114,8 @@ const git = (work: Checkout, args: string[]) =>
 const gitText = (work: Checkout, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
 
 /** The branches a push may move, the files it may change at most, and the largest file it may write. */
-const pushable = { prefix: 'agentgraph/', files: 200, bytes: 1 << 20 };
+const pushable = { prefix: 'agentgraph/', old: 'bothub/', files: 200, bytes: 1 << 20 };
+const allowed = (branch: string) => branch.startsWith(pushable.prefix) || branch.startsWith(pushable.old);
 
 /** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
 const unpushable = (path: string, modes: string[]) =>
@@ -507,7 +508,7 @@ export const githubForge = (
             { concurrency: 4 }
           );
 
-          const ours = open.filter(p => p.head.repo?.full_name === app.repo && p.head.ref.startsWith(pushable.prefix));
+          const ours = open.filter(p => p.head.repo?.full_name === app.repo && allowed(p.head.ref));
           const commits = yield* Effect.forEach(
             ours,
             p =>
@@ -563,7 +564,7 @@ export const githubForge = (
      */
     const push = (work: Checkout, branch: string, message: string, onto?: string, merge?: true) =>
       Effect.gen(function* () {
-        if (!branch.startsWith(pushable.prefix)) return yield* refuse(`a push goes to a ${pushable.prefix} branch`);
+        if (!allowed(branch)) return yield* refuse(`a push goes to a ${pushable.prefix} branch`);
         const ref = yield* refPath(branch);
         const last = pushed.get(work.dir);
         const parent = last?.sha ?? work.head ?? work.base;
@@ -619,7 +620,7 @@ export const githubForge = (
      */
     const rebase = (work: Checkout, branch: string, from: string, onto: string) =>
       Effect.gen(function* () {
-        if (!branch.startsWith(pushable.prefix)) return yield* refuse(`a rebase goes to a ${pushable.prefix} branch`);
+        if (!allowed(branch)) return yield* refuse(`a rebase goes to a ${pushable.prefix} branch`);
         const ref = yield* refPath(branch);
         const tipOf = Effect.map(
           missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)),

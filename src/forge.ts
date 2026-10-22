@@ -83,7 +83,8 @@ const runLink = (studio: string, run: string, at: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}?at=${at}`;
 
 /** The body without any provenance marker or ⁂ link in it. */
-const unstamped = (body: string) => body.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
+const unstamped = (body: string) =>
+  body.replace(/<!--\s*(?:agentgraph|bothub)\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
 
 /**
  * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any
