@@ -204,10 +204,13 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
   if (repo === 'average')
     for (const a of avg) {
       const at = (r: (typeof a.rows)[number]) => (spend ? r.cum : r.iteration);
-      lines.push({ key: a.name, tone: tone(a.name), points: a.rows.map(r => ({ x: at(r), y: r.best })) });
+      const scored = a.rows.flatMap(({ best, lo, hi, ...r }) =>
+        best === undefined ? [] : [{ ...r, best, lo: lo ?? best, hi: hi ?? best }]
+      );
+      lines.push({ key: a.name, tone: tone(a.name), points: scored.map(r => ({ x: at(r), y: r.best })) });
       if (a.repos > 1)
-        bands.push({ key: a.name, tone: tone(a.name), points: a.rows.map(r => ({ x: at(r), lo: r.lo, hi: r.hi })) });
-      for (const r of a.rows)
+        bands.push({ key: a.name, tone: tone(a.name), points: scored.map(r => ({ x: at(r), lo: r.lo, hi: r.hi })) });
+      for (const r of scored)
         dots.push({
           key: `${a.name}#${r.iteration}`,
           x: at(r),

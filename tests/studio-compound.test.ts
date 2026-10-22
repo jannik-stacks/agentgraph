@@ -109,13 +109,26 @@ describe('compound climb', () => {
     const [loop, skill] = c.average(series);
     expect(loop!.name).toBe('t1');
     expect(loop!.repos).toBe(2);
-    expect(loop!.rows.map(r => [r.best, r.lo, r.hi].map(v => Math.round(v * 100) / 100))).toEqual([
+    expect(loop!.rows.map(r => [r.best, r.lo, r.hi].map(v => Math.round(v! * 100) / 100))).toEqual([
       [0.5, 0.4, 0.6],
       [0.6, 0.6, 0.6],
       [0.7, 0.6, 0.8],
     ]);
     expect(loop!.rows[2]!.usd).toBe(1);
     expect(skill!.rows.map(r => r.best)).toEqual([0.4]);
+  });
+
+  it('leaves the best out until a repo keeps a score, so no point is drawn from nothing', () => {
+    const series = c.seriesOf([
+      tune('me/a', 't1', [step(0, 'discarded', 0.4), step(1, 'kept', 0.6)]),
+      tune('me/b', 't1', [step(0, 'discarded', 0.5), step(1, 'discarded', 0.7)]),
+    ]);
+    expect(c.byIteration(series[0]!).map(r => r.best)).toEqual([undefined, 0.6]);
+    const [loop] = c.average(series);
+    expect(loop!.rows.map(r => [r.best, r.lo, r.hi])).toEqual([
+      [undefined, undefined, undefined],
+      [0.6, 0.6, 0.6],
+    ]);
   });
 
   it('reads the fixture: two repos, a skill series, and a climb on each', () => {
