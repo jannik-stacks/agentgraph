@@ -96,3 +96,10 @@ sh bin/overnight.sh status <queue>
 ```
 
 Status shows progress, infra, running work, retries, waits and estimates; tune status includes its phase. Queues contain shell commands, one per line, with `#` comments. Success appends to `<queue>.done` and is skipped thereafter. Failures retry three times with backoff, then wait for rerun. Output appends to `<queue>.log`; macOS uses `caffeinate`. Keep queues and outputs under `~/bothub-data`, outside `/tmp`.
+
+`bench/drive.ts` runs a whole set at one point with repeats, the way the luna and OpenRouter benches ran: `OUT` holds `set.json`, `cases/` and the engine checked out at `<OUT>/<SHA>/engine/agentgraph` (or `ENGINE`). It scores, runs v2 and floor, scores again and judges each job as it finishes (`JUDGES`, default `opus:1,sonnet:2` on human pairs; `none` skips). It spawns the node on `PATH` for every job, so a toolchain upgrade does not break later jobs, and a log write or spawn error fails that job, not the driver. `parallel` and `PAUSE` in `OUT` steer it live; `jobs.jsonl` records each job's start and end with the active count and host load.
+
+```sh
+OUT=~/bothub-data/bench/<name> SHA=<sha> POINT=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> \
+  node bench/drive.ts
+```
