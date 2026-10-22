@@ -1302,7 +1302,7 @@ const attempt = (
         },
         tried
       );
-    const idle = back ? undefined : unchanged(returns, held);
+    const idle = back || world.some(p => p.kind === 'issue') ? undefined : unchanged(returns, held);
     if (idle && !(yield* diffOf(work)).trim())
       return done({ kind: 'failed', checks: [], proposals: [], problems: [idle] }, tried);
     const checked = answered

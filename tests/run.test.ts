@@ -1251,7 +1251,7 @@ describe('a run branch that moved', () => {
       fileForge(where.forge),
       fileStore(where.data),
       sandbox,
-      scripted([[start('a'), reply({ kind: 'comment', body: 'Checked.' })]])
+      scripted([[start('a'), write('hello.txt', 'hi'), reply({ kind: 'comment', body: 'Checked.' })]])
     );
     const done = await Effect.runPromise(
       drive(checked, begin(checked, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
