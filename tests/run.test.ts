@@ -1283,6 +1283,25 @@ describe('a run branch that moved', () => {
     await expect(run(drive(flow, current, small))).rejects.toThrow();
   }, 30_000);
 
+  it('keeps the human answer in a fresh session after a failed try', async () => {
+    const where = world();
+    const { specs, run } = services(where, [
+      [write('hello.txt', 'TODO\n'), reply(push)],
+      [write('hello.txt', 'hello\n'), reply(push)],
+    ]);
+    const current = {
+      ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }),
+      feedback: 'Use blue',
+      answers: [{ asked: 'Which color?', said: 'Use blue' }],
+    };
+    const done = await run(drive(flow, current, small));
+    expect(done.status).toBe('done');
+    expect(specs).toHaveLength(2);
+    expect(specs[1]!.resume).toBeUndefined();
+    expect(specs[1]!.prompt).toContain('Use blue');
+    expect(specs[1]!.prompt).toContain('types');
+  }, 30_000);
+
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();
     const attempted: Proposal[] = [];

@@ -339,9 +339,8 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
                 'How should I proceed?',
               ].join('\n\n')
             : text;
-        return tries < step.tries
-          ? { ...fresh(run), tries, feedback: text }
-          : { ...ask(question), tries, feedback: text };
+        const feedback = [...(run.answers ?? []).map(answer => answer.said), text].join('\n\n');
+        return tries < step.tries ? { ...fresh(run), tries, feedback } : { ...ask(question), tries, feedback };
       }
       case 'back':
         if (step.back) return back(o.why);
