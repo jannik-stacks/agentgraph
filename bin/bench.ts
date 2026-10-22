@@ -206,6 +206,8 @@ const npmCi = 'npm ci --no-audit --no-fund --ignore-scripts';
  * Runs `cmd` once plain and once per `test-clarity-v<n>` feature clar2wasm declares, as its CI matrix does. Tests run
  * 100 proptest cases, as its scheduled CI does, so a property test finds the bug on base every time.
  */
+/** Fetches every crate, then builds what compiles, so a test that cannot build fails at score, not in setup. */
+const warm = 'cargo fetch && (cargo test --no-run || true)';
 const clarityVersions = (cmd: string) =>
   `(for f in "" $(sed -n 's/^\\(test-clarity-v[0-9]*\\) *=.*/\\1/p' clar2wasm/Cargo.toml); do ${cmd.replace('cargo test', 'cargo test ${f:+--features $f}')} || exit 1; done)`;
 const blockchainApi = (tests: string[]): Commands => {
@@ -280,12 +282,14 @@ const tested = (repo: string, tests: string[]): Commands => {
       name === 'clarity-wasm' && t.includes('clar2wasm/Cargo.toml') ? clarityVersions(t) : t
     );
     const matrix =
-      name === 'clarity-wasm' ? [clarityVersions('cargo test --no-run --manifest-path clar2wasm/Cargo.toml')] : [];
+      name === 'clarity-wasm'
+        ? [`(${clarityVersions('cargo test --no-run --manifest-path clar2wasm/Cargo.toml')} || true)`]
+        : [];
     return test.length
       ? {
           image: services,
           toolchain: pinRust,
-          setup: [oldRust, 'cargo test --no-run', ...matrix].join(' && '),
+          setup: [oldRust, warm, ...matrix].join(' && '),
           test: [oldRust, ...(name === 'clarity-wasm' ? ['export PROPTEST_CASES=100'] : []), ...test].join(' && '),
         }
       : { hasTests: false };
@@ -300,9 +304,7 @@ const tested = (repo: string, tests: string[]): Commands => {
       : older;
   const cargo = cargoTests(tests, dir => `-p ${dir.split('/').pop()}`);
   const test = [...(cargo.length ? [oldRust, ...cargo] : []), ...(run.test ? [run.test] : [])];
-  const setup = [...(run.setup ? [run.setup] : []), ...(cargo.length ? [oldRust, 'cargo test --no-run'] : [])].join(
-    ' && '
-  );
+  const setup = [...(run.setup ? [run.setup] : []), ...(cargo.length ? [oldRust, warm] : [])].join(' && ');
   return test.length
     ? { ...run, ...(cargo.length && { toolchain: pinRust }), ...(setup && { setup }), test: test.join(' && ') }
     : { hasTests: false };

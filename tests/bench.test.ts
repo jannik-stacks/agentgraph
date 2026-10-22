@@ -631,7 +631,7 @@ describe('plan', () => {
     );
     expect(plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])).toEqual({
       toolchain: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install /),
-      setup: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && cargo test --no-run$/),
+      setup: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && cargo fetch && \(cargo test --no-run \|\| true\)$/),
       test: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && cargo test -p clarinet-deployments --test remap$/),
       typecheck: 'cargo check --tests',
     });
@@ -673,7 +673,7 @@ describe('plan', () => {
       image: 'agentgraph-sandbox:services',
       toolchain: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install \$RUSTUP_TOOLCHAIN /),
       setup: expect.stringMatching(
-        /^export RUSTUP_TOOLCHAIN=.* && cargo test --no-run && \(for f in "" \$\(sed .*test-clarity-v.* clar2wasm\/Cargo.toml\); do cargo test \$\{f:\+--features \$f\} --no-run --manifest-path clar2wasm\/Cargo.toml \|\| exit 1; done\)$/
+        /^export RUSTUP_TOOLCHAIN=.* && cargo fetch && \(cargo test --no-run \|\| true\) && \(\(for f in "" \$\(sed .*test-clarity-v.* clar2wasm\/Cargo.toml\); do cargo test \$\{f:\+--features \$f\} --no-run --manifest-path clar2wasm\/Cargo.toml \|\| exit 1; done\) \|\| true\)$/
       ),
       test: expect.stringMatching(
         /^export RUSTUP_TOOLCHAIN=.* && export PROPTEST_CASES=100 && \(for f in .*; do cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: \|\| exit 1; done\) && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/
@@ -682,7 +682,9 @@ describe('plan', () => {
     expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).setup).toBe(
       plan('acme/clarity-wasm', ['tests/tests/lib_tests.rs']).setup
     );
-    expect(plan('stacks-network/stacks-core', ['src/vm/tests/mod.rs']).setup).toMatch(/ && cargo test --no-run$/);
+    expect(plan('stacks-network/stacks-core', ['src/vm/tests/mod.rs']).setup).toMatch(
+      / && cargo fetch && \(cargo test --no-run \|\| true\)$/
+    );
     expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toMatch(
       /cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test oom-checker \|\| exit 1; done\)$/
     );
