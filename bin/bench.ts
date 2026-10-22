@@ -15,7 +15,7 @@ import { basename, join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
-import { dependencyDirs, discard, envOf, evict, layer, manifest, ownerId, room } from '../src/env.ts';
+import { dependencyDirs, discard, envOf, evict, layer, manifest, ownerId, room, sweep as sweepLayers } from '../src/env.ts';
 import {
   append,
   attic,
@@ -1316,6 +1316,7 @@ if (import.meta.main) {
   for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
   engine = process.env.BENCH_ENGINE ?? engine;
   if (out && command !== 'judge') reapTrees(resolve(out));
+  if (cache && command !== 'judge') await sweepLayers();
   const point = env.point ?? values.point ?? process.env.BENCH_POINT;
   if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);
