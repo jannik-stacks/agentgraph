@@ -1,86 +1,74 @@
 # Sandbox and models
 
-How a run is isolated and which models it can reach.
-
 ## The sandbox
 
-Every session, script step, check script and setup is one `docker run --rm`. Nothing runs on the host. When docker or the `agentgraph-sandbox` network is not usable, the run stops with the reason.
+Sessions, script steps, checks and checkout setup run in disposable Docker containers. Missing Docker or an unusable internal network causes a [runner error](loop.md#order-and-limits).
 
-Each container has:
+Containers have a read-only root, tmpfs `/tmp`, the operator's non-root uid, no capabilities, `no-new-privileges`, 4g memory, 1.5 CPUs, 512 pids and a timeout watchdog. Images are never pulled.
 
-- a read-only root filesystem and `/tmp` as a tmpfs,
-- the operator's own non-root user, all capabilities dropped and `no-new-privileges`,
-- 4g memory, 1.5 CPUs and 512 pids,
-- the toolchain volume at `/cache`, see [Toolchains](#toolchains),
-- no image pulls,
-- a watchdog that kills it at the timeout.
-
-The checkout is at `/work` and the session's home at `/home/agent`, both writable. The hub is at `/hub`, read-only, and named by `AGENTGRAPH_HUB`. The bare mirror is mounted read-only, so refs and objects cannot be touched. <!-- code: src/docker.ts#dockerArgs -->
-
-The docker socket is never mounted and no GitHub token goes inside. A session gets the proxy URL and its own agent's key. Pushes and pull requests happen on the host, after the checks pass.
+`/work` and the session home `/home/agent` are writable. `/hub` (`AGENTGRAPH_HUB`) and the bare mirror are read only. The shared cache mounts at `/cache`. No Docker socket or GitHub token enters a session; it receives only its agent's model key. The host applies [proposals](proposals.md) after checks. <!-- code: src/docker.ts#dockerArgs -->
 
 ## The network
 
-Sessions and the hub's `setup` join `agentgraph-sandbox`, an internal docker network. Its only ways out are:
+Sessions and checkout setup use the hub's network:
 
-- the model proxy,
-- the Ollama relay to the host's Ollama, when the `sandbox` compose profile runs it,
-- the egress proxy, which allows HTTPS to the hosts in `infra/local/egress/allowlist` and nothing else: `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`.
+| `network` | Docker network | Reachable services |
+| --- | --- | --- |
+| `egress` (default) | `agentgraph-sandbox` | Model proxy, optional Ollama relay, HTTPS allowlist |
+| `models` | `agentgraph-models` | Model proxy only |
 
-That allows `npm install` from the npm registry and cloning or downloading from GitHub over HTTPS. It does not allow other package registries (PyPI, crates.io, Docker Hub), SSH, general web browsing or web search.
+The local compose stack creates these internal networks. The `sandbox` profile adds the relay to host Ollama. The egress allowlist in `infra/local/egress/allowlist` permits `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`: GitHub downloads and npm installs, but no PyPI, crates.io, Docker Hub, SSH, browsing or search. Scripts and checks have no network.
 
-Scripts and checks run with no network at all.
+Environment builds use unrestricted Docker networking; see [Environments](#environments). With `models`, dependencies must already be in the image or environment.
 
-With `network: models` in `hub.yaml`, sessions and setup join `agentgraph-models` instead. Only the model proxy is on that network, so nothing else can be reached, not even the npm registry. Dependencies then come from the hub's image. The local compose stack creates the network and puts the proxy on it.
+Hub `setup` installs dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. Failed checkout setup retries, then parks the run; answering retries setup and the step. <!-- code: src/engine.ts#setUp -->
 
-`setup` in `hub.yaml` is a shell script that installs dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. It runs once per base commit in the hub's [environment](#environments), and again in a checkout whose files differ from the base. A setup that fails parks the run, and an answer runs setup and the step again.
-
-The image is built from `infra/local/sandbox`. `smoke.sh` there checks it the way a run uses it.
+Build the sandbox from `infra/local/sandbox`; its `smoke.sh` checks container behavior.
 
 ## Environments
 
-A run should not install its dependencies again for every checkout. agentgraph builds a repo's environment once per base commit and starts every checkout and score from it, the way a Docker build caches layers and CI caches dependencies.
+An environment caches a repo's dependencies by base files. Its image is `agentgraph-env/<repo>:<key>`. A build container:
 
-The environment is a local image, `agentgraph-env/<repo>:<key>`. One build container makes it:
+1. Unpacks the base from the read-only mirror into `/work`.
+2. Installs [toolchains](#toolchains) and runs hub `setup`.
+3. Moves ignored `node_modules` and `target` directories into `agentgraph-lower-<key>` and commits the image.
 
-1. It unpacks the files of the base commit into `/work`, from the read-only mirror. Nothing a run wrote is there.
-2. It runs the [toolchain step](#toolchains).
-3. It runs the hub's `setup`.
-4. It lists the ignored directories setup made, such as `node_modules` or `target`, moves the dependency directories among them into one volume, `agentgraph-lower-<key>`, and commits the container as the image.
+The build uses Docker's default network, reaching any host. Its key covers the base image, base files, toolchain commands and setup. Matching environments are reused. Setup referencing `$AGENTGRAPH_HUB` runs per checkout instead. Failed build setup falls back to checkout setup. <!-- code: src/env.ts#envOf -->
 
-The build has docker's default network, so it reaches any host. The key covers the base image, the base commit's files, the toolchain lines and `setup`, so an image with the same key is never built again. A setup that reads `$AGENTGRAPH_HUB` is left out of the build and runs in each checkout. <!-- code: src/env.ts#envOf -->
+Each checkout mounts private overlay volumes over cached dependency directories, or copies where overlays are unsupported. Writes stay local; relative workspace links still resolve against checkout files. Other possible dependency directories get empty volumes: `node_modules` beside each `package.json`, and `target` beside each outermost `Cargo.toml`. Dependencies stay outside checkout folders even without an environment or after failed setup.
 
-Each checkout gets an overlay volume for every `node_modules` or `target` directory setup made, mounted at the same path under `/work`. It shows the environment's copy from `agentgraph-lower-<key>` and keeps the checkout's own writes in a small volume of its own, so the checkout starts with its dependencies installed, every checkout of a base shares one copy of them, and a write in one checkout is invisible to the others. Paths and relative links stay as setup made them, so workspace packages resolve to the checkout's own files. Where docker cannot mount overlays, the volume holds a copy instead. Every other dependency directory the checkout could get, `node_modules` beside each `package.json` and `target` beside the outermost `Cargo.toml`, gets an empty volume, so setup never writes dependencies into the checkout folder, also when there is no environment or setup failed in it. Smaller outputs, such as a `dist` or a wasm `pkg`, are copied into the checkout folder itself, because a build may delete and remake them and a mount point cannot be deleted. What a run writes to them stays in that checkout, and the volumes are removed with it. A checkout of the base's own files skips setup. Setup runs again on a checkout with other files, such as a resumed run, and on one whose setup also left files outside those directories.
+Smaller outputs such as `dist` and wasm `pkg` are copied into the checkout so builds can delete and recreate them. Closing the checkout removes its volumes. Base checkouts skip setup when the environment captured all outputs; changed or resumed checkouts, or incomplete environments, run setup again. <!-- code: src/env.ts#layer src/docker.ts#docker -->
 
-The volumes and checkout folders carry the runner that made them, and a runner that starts removes the ones whose runner is gone. A runner is known by a random id and a heartbeat file under `AGENTGRAPH_STATE` (`~/.cache/agentgraph` by default), next to the last-use stamps of the images, so a runner in a container that always runs as pid 1 is still told apart. Runners on one docker share `AGENTGRAPH_STATE`; in a container, put it on the persistent data volume.
+Runner ids and heartbeat files identify abandoned checkouts and volumes, removed on startup. `AGENTGRAPH_STATE` defaults to `~/.cache/agentgraph` and also holds image last-use stamps. Runners sharing Docker must share this directory; containerized runners need it on persistent storage.
 
-Images pile up, one per base, each with its dependency volume. Past `AGENTGRAPH_ENV_CAP` (`60g`, both counted) the least recently used go first with their volume, never one a running container or a live checkout uses; `node bin/env.ts prune [--cap 60g] [--dry]` does the same by hand, and `list` shows them with their last use. Before a checkout, an environment build and each command, the runner checks the free space of its data dir and of docker's disk, measured from inside a container on the cache volume. Below `AGENTGRAPH_MIN_FREE_GB` (40) it sweeps and evicts, and if that is not enough it fails as infra with `disk low`, which holds a bench run until there is room.
+`AGENTGRAPH_ENV_CAP` defaults to `60g`, counting images and dependency volumes. Eviction removes least recently used pairs, excluding live containers and checkouts:
 
-`AGENTGRAPH_IMAGE` names the image a build starts from when a hub sets no `image`. The default is `agentgraph-sandbox:local`.
+```sh
+node bin/env.ts list
+node bin/env.ts prune --cap 60g --dry
+```
+
+Omit `--dry` to prune. Before checkouts, builds and commands, free space is checked in both the data directory and Docker disk. Below `AGENTGRAPH_MIN_FREE_GB` (40), cleanup runs; insufficient space then raises `disk low`, holding bench work until space returns. <!-- code: src/env.ts#evict src/env.ts#room -->
+
+`AGENTGRAPH_IMAGE` supplies the base image when hub `image` is absent; default `agentgraph-sandbox:local`.
 
 ### Toolchains
 
-The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `agentgraph-cache` at `/cache`. rustup and cargo keep their homes there, and npm, pnpm and yarn keep their downloads there, so what one run fetched serves every later run, check and data dir. Each of these tools but yarn 1 locks its own writes, so parallel runs do not corrupt the volume.
+The sandbox carries toolchain managers and a C compiler. `agentgraph-cache` at `/cache` shares rustup, cargo and npm/pnpm/yarn downloads across runs and data directories. These tools lock writes except yarn 1.
 
-The toolchain step installs what the repo's root files name:
-
-| Files                                                   | Installs                                                                     |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `Cargo.toml`, `rust-toolchain` or `rust-toolchain.toml` | The pinned toolchain, or stable, with clippy and rustfmt, then `cargo fetch` |
-
-Then it runs the hub's `toolchain` script, for what the repo files do not name, such as a target or a cargo subcommand:
+Root `rust-toolchain` or `rust-toolchain.toml` selects pinned Rust; `Cargo.toml` alone selects stable. The step adds clippy and rustfmt and fetches crates when a Cargo manifest exists. Then hub `toolchain` adds anything else:
 
 ```yaml
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed toolchain step stops the run with its output. A lock file in the volume lets one build at a time install, so two runners never race inside rustup. On a warm volume the step takes seconds, because rustup and cargo find everything already installed. Checks then build offline from the fetched crates. <!-- code: src/env.ts#toolchainOf -->
+A volume lock serializes toolchain installs. Warm caches avoid downloads; checks build offline. Toolchain failure raises a runner error with output. <!-- code: src/env.ts#toolchainOf -->
 
-`AGENTGRAPH_CACHE_VOLUME` names another volume. An empty value turns off the volume and the environments. Every run can write to the volume, so treat it like the egress network: a run could leave files there that later runs use. `docker volume rm agentgraph-cache` empties it.
+`AGENTGRAPH_CACHE_VOLUME` changes the volume; an empty value disables it and environments. Runs can write shared cache content that later runs consume. `docker volume rm agentgraph-cache` clears it.
 
 ## A hub's own image
 
-`image` in `hub.yaml` names a local image that every command of a run starts in: sessions, setup, scripts and checks. The [environment](#environments) builds on top of it. agentgraph never builds or pulls it. Build it beforehand from the sandbox image, so the harnesses are already in it, and add what the repo needs, such as a toolchain or installed dependencies:
+Hub `image` selects a local image for every run command and environment build. Build it beforehand with harnesses and required dependencies; agentgraph never builds or pulls the supplied image.
 
 ```dockerfile
 FROM agentgraph-sandbox:local
@@ -91,41 +79,31 @@ ENV PATH=/node_modules/.bin:$PATH
 USER node
 ```
 
-Node looks for packages in every parent folder, so `/node_modules` from the image serves the checkout at `/work` with no install. The dependencies are the ones locked when the image was built, and a pull request that changes them does not change the image.
+Node resolves `/node_modules` from `/work`. Those dependencies stay as built even when a pull request changes the lockfile.
 
 ```yaml
 image: acme-node:agentgraph
 network: models
 ```
 
-Tests use a host sandbox that runs commands directly in a clone, with no network rules. <!-- code: src/sandbox.ts#host -->
+Tests use a host sandbox that runs directly in a clone without network rules. <!-- code: src/sandbox.ts#host -->
 
 ## Harnesses
 
-An agent's `harness` picks the program that runs its session.
+Agent `harness` selects the session program:
 
-| Harness    | Notes                                                                                |
-| ---------- | ------------------------------------------------------------------------------------ |
-| `opencode` | Real tool allowlists, including patterned bash like `bash(git diff*)`                |
-| `pi`       | Plain tool names only; patterned entries are dropped, so use it for read-only agents |
-| `claude`   | Claude Code on the model proxy's Anthropic endpoint, with patterned tools            |
+| Harness | Tool permissions | Aside fork |
+| --- | --- | --- |
+| `opencode` | Allowlists, including `bash(git diff*)` | `--session <id> --fork` |
+| `pi` | Plain tool names; drops patterns, so use for read-only agents | `--fork <id>` |
+| `claude` | Claude Code through the proxy's Anthropic endpoint; patterned tools | `--resume <id> --fork-session` |
 
-`tools` in the agent file lists the tools a session may use. It defaults to none. A bash pattern also allows the same command behind `NODE_OPTIONS= command `, the prefix some repos ask for.
-
-Each harness is a small adapter. It builds the command and turns the harness's output into the same session events. Each session gets its own home under `homes/` in the data dir, reused when it resumes. An [aside](loop.md#asides) forks a session in a copy of its home: opencode with `--session <id> --fork`, Claude Code with `--resume <id> --fork-session`, pi with `--fork <id>`. The session it forks stays as it was. <!-- code: src/harnesses.ts#harnesses -->
+Agent `tools` defaults to none. Bash patterns also permit the `NODE_OPTIONS= command ` prefix. Adapters normalize session events. Private homes under data `homes/` persist on resume; [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnesses -->
 
 ## Models
 
-An agent names a model alias with `model`, never a vendor model. Without one, opencode and pi use the alias `default` and Claude Code uses its own default.
+Agent `model` names a proxy alias. Without it, opencode and pi use `default`; Claude Code uses its own default. LiteLLM maps aliases to upstreams in `infra/local/litellm.config.yaml` and logs spend by agent key. Changing an alias's provider or subscription requires no agent edit.
 
-LiteLLM sits in front of every model and maps aliases to upstreams. It gives each agent its own virtual key, so the logs show which agent spent what.
+`AGENTGRAPH_PROXY_KEYS` holds `name=key` pairs separated by commas or spaces. Missing agent keys prevent sessions. `AGENTGRAPH_PROXY_URL` selects the proxy. Inside containers, keys use `AGENTGRAPH_LLM_API_KEY` for opencode/pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code; opencode uses `AGENTGRAPH_LLM_BASE_URL`. Secrets pass by environment name, never argv, and harness output masks them. <!-- code: src/harnesses.ts#keysOf -->
 
-`AGENTGRAPH_PROXY_URL` points at the proxy. `AGENTGRAPH_PROXY_KEYS` lists `name=key` pairs, one per agent, separated by commas or spaces. An agent without a key cannot start a session. <!-- code: src/harnesses.ts#keysOf -->
-
-Inside the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi, and `ANTHROPIC_AUTH_TOKEN` for Claude Code. opencode finds the proxy at `AGENTGRAPH_LLM_BASE_URL`. The key is passed by name, never on a command line, and masked in the harness output.
-
-Usage a harness does not price, as with a subscription behind the proxy, is priced from the list prices in `infra/local/prices.json`, or the file `AGENTGRAPH_PRICES` names. <!-- code: src/harnesses.ts#priced -->
-
-Moving an alias from an API key to a subscription is a proxy config change. No agent file changes.
-
-Aliases and routes are in `infra/local/litellm.config.yaml`.
+Unpriced usage, including subscriptions, uses list prices from `AGENTGRAPH_PRICES` or `infra/local/prices.json`. <!-- code: src/harnesses.ts#priced -->
