@@ -1493,7 +1493,12 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       yield* store.put(current);
       const stacked = hub.stacks && !current.base && stackOf(w, issue, yield* forge.issues({ state: 'open' }));
       if (stacked) yield* store.put((current = { ...current, base: stacked }));
-      const own = w.branch && expand(w.branch, issue);
+      const named = w.branch && expand(w.branch, issue);
+      const old = named && named.replace(/^agentgraph\//, 'bothub/');
+      const own =
+        old && old !== named && (yield* forge.issues({ state: 'open' })).some(t => t.pull?.branch === old)
+          ? old
+          : named;
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
