@@ -1,7 +1,7 @@
 import { createPrivateKey, sign } from 'node:crypto';
 import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import {
-  commanded,
+  addressed,
   Forge,
   ForgeError,
   type Applied,
@@ -309,7 +309,7 @@ export const githubForge = (
     const toComment = (c: RestComment, self: string): Comment => {
       const author = login(c.user);
       const shown = listed(c.user, c.author_association) || author === `${self}[bot]`;
-      return {
+      const comment: Comment = {
         id: String(c.id),
         author,
         body: shown ? visible(c.body) : withheld(author),
@@ -318,6 +318,7 @@ export const githubForge = (
         ...(typeof c.line === 'number' && { line: c.line }),
         ...(c.in_reply_to_id !== undefined && { under: String(c.in_reply_to_id) }),
       };
+      return shown ? addressed(comment) : comment;
     };
 
     const heard = (issue: number, c: RestComment, self: string, kind: Event['kind'] = 'comment'): Event => {
@@ -545,8 +546,6 @@ export const githubForge = (
           }
           const may = writer();
           for (const m of found) if (m.trusted && (m.comment || m.commit)) m.trusted = yield* may({ login: m.actor });
-          for (const m of found)
-            if (m.trusted && m.comment) m.comment = { ...m.comment, body: commanded(m.comment.body, self) };
           return found.sort((a, b) => a.at.localeCompare(b.at));
         })
       );

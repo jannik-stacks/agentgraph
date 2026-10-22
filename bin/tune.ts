@@ -530,7 +530,7 @@ const minimal = (hub: string, commands: ReturnType<typeof plan>, toolchain?: str
   save(
     join(hub, 'workflows/issue.md'),
     `---
-on: { issue_comment: { command: /bothub } }
+on: issue_comment
 branch: bothub/{issue}
 steps:
   implement:

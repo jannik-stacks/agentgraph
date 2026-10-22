@@ -16,9 +16,9 @@ describe('load', () => {
   it('fills the defaults of the acme-app issue workflow', () => {
     const w = fixture('acme-app').workflows.issue!;
     expect(w.name).toBe('issue');
-    expect(w.on).toEqual({ issue_comment: { command: '/bothub' } });
+    expect(w.on).toEqual({ issue_comment: {} });
     expect(w.branch).toBe('bothub/{issue}');
-    expect(w.body).toMatch(/^A maintainer comments/);
+    expect(w.body).toMatch(/^A maintainer mentions the bot/);
     expect(w.steps.map(s => s.name)).toEqual(['triage', 'implement', 'review', 'merge']);
     const [triage, implement, review, merge] = w.steps;
     expect(triage).toEqual({ name: 'triage', does: { agent: 'triager', skill: 'triage' }, checks: [], tries: 1 });

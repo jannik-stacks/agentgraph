@@ -24,7 +24,7 @@ hub or the docs its agents read. Nothing changes until a person merges it.
 
 A workflow with `on: feedback` starts on what a trusted person says or pushes where another run
 worked: a comment, a review that requests changes or approves with a comment, or a commit pushed to the
-run's branch. A comment that is only a command, such as `/bothub stop`, is not feedback. Comments on a
+run's branch. A comment that only says `/agent stop`, `/agent cancel` or `/agent restart` is not feedback. Comments on a
 pull request count for the issue its branch worked on, also once it is merged or closed. <!-- code: src/engine.ts#feedback -->
 
 What came in since the last retro on the issue starts one retro, once the issue has been quiet for 30

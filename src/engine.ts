@@ -32,7 +32,7 @@ import {
   type Step,
   type Workflow,
   waits,
-  afterCommand,
+  toBot,
 } from './workflow.ts';
 
 const now = () => new Date().toISOString();
@@ -408,27 +408,14 @@ const newest = (...times: (string | undefined)[]) =>
     .sort()
     .at(-1);
 
-/** The command a comment starts with to speak to the bot. */
-const commandOf = (hub: Hub) =>
-  Object.values(hub.workflows).find(w => w.on.issue_comment?.command)?.on.issue_comment?.command;
-
-/** A trusted comment that mentions no one else speaks to the bot, read as the command followed by the comment. */
-const addressed = (m: Event, command?: string): Event => {
-  const body = m.comment?.body.trim() ?? '';
-  if (m.kind !== 'comment' || !m.trusted || !m.comment || command === undefined || body.startsWith(command)) return m;
-  if (/(^|\s)@[\w-]/.test(body)) return m;
-  return { ...m, comment: { ...m.comment, body: `${command} ${body}` } };
-};
-
 /** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
-const told = (w: Workflow, run: Run, t: Issues, command?: string) => {
+const told = (w: Workflow, run: Run, t: Issues) => {
   if (w.on.feedback) return undefined;
   const since = run.seen ?? run.started;
   const said = [...t.issue.events, ...(t.pull?.events ?? [])]
     .filter(m => m.at > since)
-    .map(m => addressed({ ...m, issue: run.issue }, command))
     .flatMap(m => {
-      const o = reenter(w, run, m, command);
+      const o = reenter(w, run, { ...m, issue: run.issue });
       return o ? [{ o, at: m.at }] : [];
     });
   const outcome = fold(said.map(s => s.o));
@@ -436,13 +423,13 @@ const told = (w: Workflow, run: Run, t: Issues, command?: string) => {
 };
 
 /** A trusted person's comment, review or pushed commit; a bare stop, cancel or restart is a command, not feedback. */
-const feedback = (m: Event, command?: string) =>
+const feedback = (m: Event) =>
   m.trusted &&
   (m.kind === 'comment' ||
     m.kind === 'changes_requested' ||
     m.kind === 'commit' ||
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
-  !/^(stop|cancel|restart(\s+\S+)?)$/i.test(afterCommand(m, command) ?? '');
+  !/^(stop|cancel|restart(\s+\S+)?)$/i.test(toBot(m) ?? '');
 
 /** When a trusted person last did something on the issue or its pull request. */
 const lastHeard = (t: Issues) =>
@@ -917,7 +904,6 @@ const attempt = (
     const replies: string[] = [];
     let tried = run;
     let spoke: string | undefined;
-    const command = commandOf(hub);
     /** Refreshes the news file every minute and ends with what a human said that cuts the try short. */
     const watch = (by: Run, seen: Seen) =>
       Effect.gen(function* () {
@@ -929,7 +915,7 @@ const attempt = (
             continue;
           }
           yield* refresh(run, work, seen, now.right);
-          const cut = told(w, by, now.right, command);
+          const cut = told(w, by, now.right);
           if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
         }
       });
@@ -1069,7 +1055,7 @@ const attempt = (
       }
       const session = step.each === undefined ? tried.sessions[step.name] : undefined;
       const now = session && Option.getOrUndefined(yield* Effect.option(issuesOf(w, run)));
-      const late = now && told(w, tried, now, command);
+      const late = now && told(w, tried, now);
       if (late && late.outcome.kind !== 'answer') return done(late.outcome, { ...tried, seen: late.at });
       if (now && late && w.concurrency === 'steer') {
         const since = news(now, caught.seen);
@@ -1401,7 +1387,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
         const t = live(current) ? yield* Effect.option(issuesOf(w, current)) : Option.none();
-        const queued = Option.isSome(t) ? told(w, current, t.value, commandOf(hub)) : undefined;
+        const queued = Option.isSome(t) ? told(w, current, t.value) : undefined;
         if (queued) yield* settle(queued.outcome, { ...transition(w, current, queued.outcome), seen: queued.at });
       }
     });
@@ -1722,19 +1708,11 @@ export const tick = (
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${asked.id}`, e), moved))
       );
     };
-    const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment?.command);
-    const command = commandOf(hub);
-    /** A trusted comment on a thread the bot has a run on speaks to the bot, unless it mentions someone else. */
-    const spoken = (m: Event): Event => {
-      if (!runs.some(r => r.issue === m.issue)) return m;
-      const said = addressed(m, command);
-      if (origin.has(m)) origin.set(said, origin.get(m)!);
-      return said;
-    };
+    const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment);
     /** Whether a trusted event on the issue is younger than `quiet`, so a burst still coming starts nothing yet. */
     const young = (issue: number) =>
       quiet > 0 && latest.some(m => m.issue === issue && m.trusted && Date.now() - Date.parse(m.at) < quiet);
-    const events = latest.map(onRun).map(spoken).filter(mine);
+    const events = latest.map(onRun).filter(mine);
     const used = new Set<Event>();
     const touched: Run[] = [];
     /** Moves a live run outside a session: traces the outcome and saves where it led. */
@@ -1759,7 +1737,7 @@ export const tick = (
       const w = hub.workflows[run.workflow];
       /** A working run takes only a stop here; what else people say reaches it where it works. */
       const taken = (m: Event, lined: Event[] = []) => {
-        const o = w && reenter(w, run, m, command, lined);
+        const o = w && reenter(w, run, m, lined);
         return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
       };
       const answers =
@@ -1860,6 +1838,8 @@ export const tick = (
         touched.push(run);
       });
     for (const m of events) {
+      const words = toBot(m)?.split(/\s+/) ?? [];
+      const named = triggered.find(w => w.name === words[0]);
       const relabelled = events.some(
         n => n.issue === m.issue && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
       );
@@ -1868,10 +1848,10 @@ export const tick = (
           ? relabelled
             ? undefined
             : labelled.find(w => w.on.issues!.label === m.label)
-          : m.kind === 'comment'
-            ? triggered.find(w => m.comment?.body.trim().startsWith(w.on.issue_comment!.command!))
+          : toBot(m) !== undefined
+            ? (named ?? triggered[0])
             : undefined;
-      const [verb = '', step = ''] = afterCommand(m, w?.on.issue_comment?.command)?.split(/\s+/) ?? [];
+      const [verb = '', step = ''] = named ? words.slice(1) : words;
       const restart = /^restart$/i.test(verb) ? step : undefined;
       if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || young(m.issue)) continue;
       if (/^(stop|cancel)$/i.test(verb)) continue;
@@ -1915,7 +1895,7 @@ export const tick = (
       });
     for (const w of Object.values(hub.workflows).filter(w => w.on.feedback)) {
       const heardOn = new Map<number, Event[]>();
-      for (const m of latest.map(onRun).filter(m => feedback(m, command))) {
+      for (const m of latest.map(onRun).filter(feedback)) {
         const issue = yield* workedOn(m);
         if (issue !== undefined && mine({ issue })) heardOn.set(issue, [...(heardOn.get(issue) ?? []), m]);
       }

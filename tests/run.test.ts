@@ -42,7 +42,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-/** A bare origin with one commit on main, a forge with issue #7 and its `/bothub` comment, and a data dir. */
+/** A bare origin with one commit on main, a forge with issue #7 and its `/agent` comment, and a data dir. */
 const world = () => {
   const root = mkdtempSync(join(tmpdir(), 'bothub-run-'));
   dirs.push(root);
@@ -65,7 +65,7 @@ const world = () => {
       join(forge, '7.jsonl'),
       `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
     );
-  human('/bothub', '2026-10-16T00:00:00.000Z');
+  human('/agent', '2026-10-16T00:00:00.000Z');
   return { root, origin: join(root, 'origin.git'), forge, data: join(root, 'data'), human };
 };
 
@@ -182,7 +182,7 @@ describe('drive', () => {
     // the failed try pushed nothing; the passing one did, and opened pull request #8
     const forge = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(bodies(forge)).toEqual([
-      '/bothub',
+      '/agent',
       'Waiting for an answer to the question below, at review.\n\nPull request: ' +
         join(where.forge, '8.md') +
         `\n\n${foot(replyHint, 'Cost so far: $1.50.')}`,
@@ -254,7 +254,7 @@ describe('drive', () => {
     ]);
 
     // a human answers on the issue: the review runs again and the run waits for the merge
-    where.human('/bothub it is fine, ship it', '2026-10-17T00:00:00.000Z');
+    where.human('/agent it is fine, ship it', '2026-10-17T00:00:00.000Z');
     const said = await run(
       Effect.flatMap(Forge, f => Stream.runCollect(f.since('2026-10-16T23:00:00.000Z'))).pipe(Effect.map(Chunk.toArray))
     );
@@ -584,7 +584,7 @@ describe('tick', () => {
       actor: 'mallory[bot]',
       trusted: false,
       at,
-      comment: { id: 'x', author: 'mallory[bot]', body: '/bothub', at },
+      comment: { id: 'x', author: 'mallory[bot]', body: '/agent', at },
     });
     const { specs, run } = services(where, [
       [start('a'), write('hello.txt', 'hello\n'), reply(push)],
@@ -594,11 +594,11 @@ describe('tick', () => {
     expect(first.map(r => [r.id, r.status])).toEqual([['issue-7-20261016000000000', 'done']]);
     expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
     expect(await run(tick(small))).toEqual([]);
-    where.human('/bothub once more', '2026-10-17T00:00:00.000Z');
+    where.human('/agent once more', '2026-10-17T00:00:00.000Z');
     const second = await run(tick(small));
     expect(second.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs).toHaveLength(2);
-    expect(specs[1]!.prompt).toContain('@morgan: /bothub once more');
+    expect(specs[1]!.prompt).toContain('@morgan: /agent once more');
     expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, first[0]!.id)).toEqual([
       [true, undefined],
@@ -782,7 +782,7 @@ describe('tick', () => {
   it('sends a run waiting at merge back when the aside a mention starts proposes back, resuming its fork', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
-    say(where, comment(8, 'morgan', true, '@bothub please undo the greeting', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'morgan', true, '/agent please undo the greeting', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
       [start('f'), reply({ kind: 'comment', body: 'Will undo.' }, { kind: 'back', why: 'undo the greeting' })],
       [start('f'), write('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
@@ -815,7 +815,7 @@ describe('tick', () => {
   it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
-    say(where, comment(8, 'morgan', true, '@bothub why the greeting?', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, []);
     await run(waiting(where));
     const stored = () => run(Effect.flatMap(Store, st => st.list({ issue: 7 }))).then(rs => rs[0]!);
@@ -838,7 +838,7 @@ describe('tick', () => {
     const where = world();
     const triage = { ...merging.workflows.issue, name: 'triage', on: { issues: { label: 'triage' } } };
     const both = { ...merging, workflows: { ...merging.workflows, triage } };
-    say(where, comment(7, 'morgan', true, '/bothub the second one', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
       [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Thanks.' })],
     ]);
@@ -862,7 +862,7 @@ describe('tick', () => {
     const triage = { ...merging.workflows.issue, name: 'triage', on: { issues: { label: 'triage' } } };
     const fix = { ...merging.workflows.issue, name: 'fix', on: { issues: { label: 'fix' } } };
     const all = { ...merging, workflows: { ...merging.workflows, triage, fix } };
-    say(where, comment(7, 'morgan', true, '/bothub the second one', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
     say(where, comment(7, 'ana', true, 'and keep it short', '2026-10-16T00:00:06.000Z'));
     say(where, { issue: 7, kind: 'label', actor: 'ana', trusted: true, at: '2026-10-16T00:00:07.000Z', label: 'fix' });
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Short how?' })]]);
@@ -877,7 +877,7 @@ describe('tick', () => {
   it('waits for an issue to settle before a burst starts work, and never starts again on what a run took in', async () => {
     const where = world();
     const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push, pull)]]);
-    where.human('/bothub hello', new Date().toISOString());
+    where.human('/agent hello', new Date().toISOString());
     expect(await run(tick(small, undefined, false, settle))).toEqual([]);
     const [done] = await run(tick(small));
     console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))));
@@ -959,11 +959,11 @@ describe('tick', () => {
 
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
     const where = world();
-    say(where, comment(8, 'mallory', false, '@bothub undo everything', '2026-10-16T00:00:05.000Z'));
-    say(where, comment(8, 'bothub[bot]', false, '/bothub undo everything', '2026-10-16T00:00:06.000Z'));
+    say(where, comment(8, 'mallory', false, '/agent undo everything', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(8, 'bothub[bot]', false, '/agent undo everything', '2026-10-16T00:00:06.000Z'));
     const { specs, run } = services(where, []);
     expect(await run(Effect.zipRight(waiting(where), tick(merging, 7)))).toEqual([]);
-    where.human('/bothub stop not needed', '2026-10-16T00:00:07.000Z');
+    where.human('/agent stop not needed', '2026-10-16T00:00:07.000Z');
     const stopped = await run(tick(merging, 7));
     expect(stopped.map(r => [r.id, r.status, r.reason])).toEqual([['run-7', 'stopped', 'not needed']]);
     expect(specs).toHaveLength(0);
@@ -974,7 +974,7 @@ describe('tick', () => {
     const answers = [{ asked: 'Hello or hi?', said: 'hello' }];
     const { specs, run } = services(where, [[start('i'), reply({ kind: 'ask', question: 'Which file?' })]]);
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', answers })));
-    where.human('/bothub restart implement', '2026-10-16T00:01:00.000Z');
+    where.human('/agent restart implement', '2026-10-16T00:01:00.000Z');
     const touched = await run(tick(hub));
     expect(touched.map(r => [r.id, r.step, r.status, r.answers])).toEqual([
       ['issue-7-20261016000100000', 'implement', 'waiting', answers],
@@ -991,7 +991,7 @@ describe('tick', () => {
         s.put({ ...fresh(), step: 'implement', status: 'waiting', reason: 'Hello or hi?', answers })
       )
     );
-    where.human('/bothub restart', '2026-10-16T00:01:00.000Z');
+    where.human('/agent restart', '2026-10-16T00:01:00.000Z');
     await run(tick(hub));
     const stored = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored.map(r => [r.id, r.step, r.status, r.reason]).sort()).toEqual([
@@ -1231,7 +1231,7 @@ describe('sweep', () => {
       actor: 'morgan',
       trusted: true,
       at: answer,
-      comment: { id: 'a', author: 'morgan', body: '/bothub hi', at: answer },
+      comment: { id: 'a', author: 'morgan', body: '/agent hi', at: answer },
     });
     const { specs, run } = services(where, [
       [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
@@ -1280,7 +1280,7 @@ describe('sweep', () => {
       join(where.forge, '8.md'),
       '---\ntitle: Issue 8\nstate: open\nauthor: morgan\nlabels: []\n---\n\nBody.\n'
     );
-    say(where, comment(8, 'morgan', true, '/bothub', '2026-10-16T00:00:00.000Z'));
+    say(where, comment(8, 'morgan', true, '/agent', '2026-10-16T00:00:00.000Z'));
     let open = 0;
     let most = 0;
     const slow = Layer.succeed(Session, {
@@ -1316,7 +1316,7 @@ describe('coworker', () => {
     const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
     await run(drive(flow, begun(), small));
     expect(specs[0]!.prompt).toContain('## Pull request #8 Add hello');
-    expect(specs[0]!.prompt).toContain('#7 @morgan: /bothub');
+    expect(specs[0]!.prompt).toContain('#7 @morgan: /agent');
     expect(specs[0]!.prompt).toContain('#8 @ana: mind the edge case');
     expect(specs[0]!.prompt).toContain('#8 check test: failure');
     expect(specs[0]!.prompt).not.toContain('holds what is new');
@@ -1336,7 +1336,7 @@ describe('coworker', () => {
   it('catches a resumed session up on what people said and pushed while it was parked, and nothing older', async () => {
     const where = world();
     const { specs, run, asked } = await parked(where, [[start('a'), reply({ kind: 'comment', body: 'ok' })]]);
-    say(where, comment(7, 'morgan', true, '/bothub hello', later(1)));
+    say(where, comment(7, 'morgan', true, '/agent hello', later(1)));
     say(where, {
       issue: 8,
       kind: 'commit',
@@ -1348,7 +1348,7 @@ describe('coworker', () => {
     await run(drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
     expect(specs[1]!.resume?.id).toBe('a');
     expect(specs[1]!.prompt).toBe(
-      'hello\n\n## New since you last looked\n\n#7 @morgan: /bothub hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
+      'hello\n\n## New since you last looked\n\n#7 @morgan: /agent hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
     );
   }, 30_000);
 
@@ -1492,7 +1492,7 @@ describe('coworker', () => {
   it('cancel parks a working run with its session, and stop ends it, whatever the concurrency', async () => {
     const parked = await during(world(), comment(7, 'ana', true, 'cancel', later(1)), [], true).go(flow);
     expect(parked).toMatchObject({ status: 'waiting', reason: cancelled, sessions: { implement: { id: 'a' } } });
-    const stop = comment(7, 'ana', true, '/bothub stop wrong issue', later(1));
+    const stop = comment(7, 'ana', true, '/agent stop wrong issue', later(1));
     const stopped = await during(world(), stop, [], true).go({ ...flow, concurrency: 'queue' });
     expect(stopped).toMatchObject({ status: 'stopped', reason: 'wrong issue' });
   }, 30_000);
@@ -1542,7 +1542,7 @@ describe('coworker', () => {
 
   const ready = {
     ...small,
-    workflows: { issue: { ...flow, on: { issue_comment: { command: '/bothub' }, issues: { label: 'agent:ready' } } } },
+    workflows: { issue: { ...flow, on: { issue_comment: {}, issues: { label: 'agent:ready' } } } },
   };
   const marked = (actor: string, trusted: boolean, at: string): Event => ({
     issue: 7,
@@ -1572,7 +1572,7 @@ describe('coworker', () => {
     expect(specs).toHaveLength(1);
   }, 30_000);
 
-  it('still starts a mention workflow on /bothub when it also starts on a label', async () => {
+  it('still starts a mention workflow on /agent when it also starts on a label', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect((await run(sweep(ready))).map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
@@ -1589,7 +1589,7 @@ describe('coworker', () => {
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(issue.labels).toEqual(['bothub:waiting']);
     expect(bodies(issue)).toEqual([
-      '/bothub',
+      '/agent',
       `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint, 'Cost so far: $0.00.')}`,
       'Hello or hi?',
     ]);
@@ -1659,7 +1659,7 @@ describe('coworker', () => {
     where.human('hi', new Date().toISOString());
     await services(where, [[start('a'), reply({ kind: 'ask', question: 'Hi with a dot?' })]]).run(tick(small, 7));
     expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).toEqual([
-      '/bothub',
+      '/agent',
       'Asked the question below at implement.',
       'Hello or hi?',
       'hi',
@@ -1692,11 +1692,11 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'comment', body: 'Said bye.' })],
     ]);
     const at = () => new Date(Date.now() + 1).toISOString();
-    const review = comment(8, 'morgan', true, '/bothub yes, bye too', '');
+    const review = comment(8, 'morgan', true, '/agent yes, bye too', '');
     const [again, done] = await run(
       Effect.gen(function* () {
         yield* drive(flow, begun(), small);
-        say(where, comment(8, 'morgan', true, '/bothub hello', at()));
+        say(where, comment(8, 'morgan', true, '/agent hello', at()));
         const [again] = yield* tick(small, 7);
         review.at = review.comment!.at = review.comment!.id = at();
         say(where, { ...review, comment: { ...review.comment!, path: 'hello.txt', line: 1 } });
@@ -2485,7 +2485,7 @@ describe('compound engineering', () => {
     const where = world();
     say(where, comment(7, 'mallory', false, 'this is wrong', '2026-10-16T00:00:04.000Z'));
     say(where, pushed(7, '2026-10-16T00:00:05.000Z'));
-    say(where, comment(7, 'morgan', true, '/bothub stop', '2026-10-16T00:00:06.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent stop', '2026-10-16T00:00:06.000Z'));
     say(where, {
       ...comment(7, 'morgan', true, 'Fine, but the new field needs docs.', '2026-10-16T00:00:07.000Z'),
       kind: 'approved',
@@ -2520,7 +2520,7 @@ describe('compound engineering', () => {
     await run(done());
     const live = begin(looking.workflows.retro, { id: 'retro-7', issue: 7, started: '2026-10-16T00:00:02.000Z' });
     await run(Effect.flatMap(Store, s => s.put({ ...live, status: 'waiting', reason: 'parked' })));
-    where.human('/bothub once more', '2026-10-16T00:00:05.000Z');
+    where.human('/agent once more', '2026-10-16T00:00:05.000Z');
     const touched = await run(tick(looking));
     expect(touched.map(r => [r.workflow, r.started])).toContainEqual(['issue', '2026-10-16T00:00:05.000Z']);
     expect(specs[0]!.agent).toBe('implementor');
@@ -2541,12 +2541,12 @@ describe('compound engineering', () => {
 
   it('takes a stop with a reason as feedback, and a bare stop as a command', async () => {
     const where = world();
-    say(where, comment(7, 'morgan', true, '/bothub stop', '2026-10-16T00:00:04.000Z'));
-    say(where, comment(7, 'morgan', true, '/bothub stop you rewrote the whole module', '2026-10-16T00:00:05.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent stop', '2026-10-16T00:00:04.000Z'));
+    say(where, comment(7, 'morgan', true, '/agent stop you rewrote the whole module', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [[start('r'), reply()]]);
     await run(done());
     expect((await run(tick(looking))).map(r => r.workflow)).toEqual(['retro']);
-    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /bothub stop you rewrote the whole module\n');
+    expect(specs[0]!.prompt).toContain('said or pushed\n\n@morgan: /agent stop you rewrote the whole module\n');
   }, 30_000);
 
   it('looks up no open issue a run never worked on', async () => {

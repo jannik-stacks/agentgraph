@@ -21,7 +21,7 @@ Everything in a hub folder is tunable. The fields are described in [Hub files](r
 | `hub.yaml`              | `repo`, `setup`, `toolchain`, `image`, `network`, `stacks`, `milestone`, `trust`, `limits`        |
 | `limits` in `hub.yaml`  | `minutes`, `usd-per-run`, `parallel`, `sessions`                                                 |
 | `workflows/<name>.md`   | `on`, `branch`, `base`, `concurrency`, `agent`, `steps`                                          |
-| a trigger under `on`    | `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback`; `command`, `label`, `branches` |
+| a trigger under `on`    | `issues`, `issue_comment`, `pull_request`, `dispatch`, `feedback`; `label`, `branches`            |
 | a step                  | `agent`, `run`, `wait`, `skill`, `checks`, `tries`, `back`, `until`, `rounds`, `each`, `follow`  |
 | `agents/<name>.md`      | `harness`, `model`, `tools`, `returns`, `reads`                                                  |
 | `checks/<name>.md`      | `mode`, `run`, `agent`, `each`, `max`                                                            |

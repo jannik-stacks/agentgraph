@@ -48,13 +48,12 @@ A hub is a folder: `.bothub/` on the default branch of the repo it works on, or 
 - `queue`: it waits until the try ends, then applies as an answer would.
 - `cancel`: the session stops and the step starts again at once with it as feedback.
 
-Comments that come in a burst count once, and the loop waits until an issue has been quiet for 30 seconds before they start or wake a run. A reply of `cancel` or `stop` works at any time. See [Comments while it works](loop.md#comments-while-it-works).
+Comments that come in a burst count once, and the loop waits until an issue has been quiet for 30 seconds before they start or wake a run. `/agent cancel` or `/agent stop` works at any time. See [Comments while it works](loop.md#comments-while-it-works).
 
 A trigger under `on` holds: <!-- code: src/workflow.ts#Trigger -->
 
 | Field      | Type          | Meaning                                 |
 | ---------- | ------------- | --------------------------------------- |
-| `command`  | text          | A comment starting with it starts a run; with `restart [step]` after it, starts one again, see [Starting a run](loop.md#starting-a-run) |
 | `label`    | label name    | Adding it to an issue starts a run      |
 | `branches` | list of names | Accepted, starts nothing yet            |
 

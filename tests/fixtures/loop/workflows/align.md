@@ -1,5 +1,5 @@
 ---
-on: { issue_comment: { command: /bothub } }
+on: { issue_comment: {} }
 steps:
   plan: { agent: planner }
   write: { agent: implementor, checks: [types, tests] }

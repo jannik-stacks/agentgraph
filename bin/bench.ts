@@ -65,7 +65,7 @@ const bots = ['v2', 'floor', 'v1'];
 const arms = ['human', ...bots, 'control'];
 const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'bothub-sandbox': 'sandbox' };
 const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
-const answer = '/bothub No more information. Use your judgment.';
+const answer = '/agent No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
 const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
 let panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
@@ -310,7 +310,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   forge(dir, 'init', repo, '--at', c.base);
   save(join(at, 'issue.md'), c.body);
   forge(dir, 'issue', c.title, '--body', join(at, 'issue.md'));
-  forge(dir, 'comment', '1', '/bothub');
+  forge(dir, 'comment', '1', '/agent');
   process.env.BOTHUB_FORGE = dir;
   let answers = 0;
   let status: string | undefined;

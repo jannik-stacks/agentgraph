@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Event } from '../src/forge.ts';
+import { addressed, type Event } from '../src/forge.ts';
 import { begin, cancelled, fold, reenter, transition, type Outcome, type Run } from '../src/workflow.ts';
 import { fixture } from './fixtures.ts';
 
@@ -130,7 +130,7 @@ describe('transition, waiting', () => {
     expect(transition(w, waiting, { kind: 'pass' })).toMatchObject({ step: 'merge', status: 'done' });
   });
 
-  it('back (changes requested, a command comment): back.to, its session resumed with the comment', () => {
+  it('back (changes requested, a mention): back.to, its session resumed with the comment', () => {
     const next = transition(w, { ...waiting, rounds: { merge: 5 } }, { kind: 'back', why: 'rename foo' });
     expect(next).toMatchObject({
       step: 'implement',
@@ -221,7 +221,7 @@ describe('reenter', () => {
     ...more,
   });
   const comment = (body: string) =>
-    said('comment', { comment: { id: 'c1', author: 'morgan', body, at: '2026-10-16T01:00:00Z' } });
+    said('comment', { comment: addressed({ id: 'c1', author: 'morgan', body, at: '2026-10-16T01:00:00Z' }) });
   const waiting = at('merge', { status: 'waiting' });
   const asked = at('implement', { status: 'waiting', reason: 'which API?' });
 
@@ -230,7 +230,7 @@ describe('reenter', () => {
       said('comment', { comment: { id: 'l', author: 'morgan', body, at: '', path, line } });
     const review = said('changes_requested', { comment: { id: 'r', author: 'morgan', body: 'fix these', at: '' } });
     const lined = [line('a.ts', 3, 'rename'), line('b.ts', 9, 'drop')];
-    expect(reenter(w, waiting, review, undefined, lined)).toEqual({
+    expect(reenter(w, waiting, review, lined)).toEqual({
       kind: 'back',
       why: 'fix these\na.ts:3: rename\nb.ts:9: drop',
     });
@@ -242,9 +242,9 @@ describe('reenter', () => {
     expect(reenter(w, waiting, said('label', { label: 'approved' }))).toEqual({ kind: 'pass' });
   });
 
-  it('waiting at a human step: changes requested is back, a command comment is an answer for the aside', () => {
+  it('waiting at a human step: changes requested is back, a mention is an answer for the aside', () => {
     expect(reenter(w, waiting, said('changes_requested'))).toEqual({ kind: 'back', why: 'changes requested' });
-    expect(reenter(w, waiting, comment('/bothub rename foo'))).toEqual({ kind: 'answer', text: 'rename foo' });
+    expect(reenter(w, waiting, comment('/agent rename foo'))).toEqual({ kind: 'answer', text: 'rename foo' });
   });
 
   it('waiting: closed is stop', () => {
@@ -252,26 +252,26 @@ describe('reenter', () => {
     expect(reenter(w, asked, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
   });
 
-  it('waiting at an agent step: a command comment is the answer, unless its first word is stop', () => {
-    expect(reenter(w, asked, comment('/bothub use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
-    expect(reenter(w, asked, comment('/bothub stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
+  it('waiting at an agent step: a mention is the answer, unless its first word is stop', () => {
+    expect(reenter(w, asked, comment('/agent use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
+    expect(reenter(w, asked, comment('/agent stop wrong issue'))).toEqual({ kind: 'stop', why: 'wrong issue' });
   });
 
   it('ignores comments without the command, untrusted authors, other issues and finished runs', () => {
     expect(reenter(w, asked, comment('looks good'))).toBeUndefined();
-    expect(reenter(w, asked, { ...comment('/bothub v2'), trusted: false })).toBeUndefined();
-    expect(reenter(w, asked, { ...comment('/bothub v2'), issue: 8 })).toBeUndefined();
-    expect(reenter(w, at('implement', { status: 'done' }), comment('/bothub v2'))).toBeUndefined();
+    expect(reenter(w, asked, { ...comment('/agent v2'), trusted: false })).toBeUndefined();
+    expect(reenter(w, asked, { ...comment('/agent v2'), issue: 8 })).toBeUndefined();
+    expect(reenter(w, at('implement', { status: 'done' }), comment('/agent v2'))).toBeUndefined();
   });
 
   it('running: a comment is an answer, cancel parks the run, stop, restart and closing end it', () => {
     const running = at('implement');
-    expect(reenter(w, running, comment('/bothub use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
-    expect(reenter(w, running, comment('/bothub cancel'))).toEqual({ kind: 'ask', question: cancelled });
-    expect(reenter(w, running, comment('/bothub stop'))).toEqual({ kind: 'stop', why: 'a human said stop' });
+    expect(reenter(w, running, comment('/agent use v2'))).toEqual({ kind: 'answer', text: 'use v2' });
+    expect(reenter(w, running, comment('/agent cancel'))).toEqual({ kind: 'ask', question: cancelled });
+    expect(reenter(w, running, comment('/agent stop'))).toEqual({ kind: 'stop', why: 'a human said stop' });
     expect(reenter(w, running, said('closed'))).toEqual({ kind: 'stop', why: 'closed' });
-    expect(reenter(w, running, comment('/bothub restart'))).toEqual({ kind: 'stop', why: 'a human restarted it' });
-    expect(reenter(w, asked, comment('/bothub cancel'))).toBeUndefined();
+    expect(reenter(w, running, comment('/agent restart'))).toEqual({ kind: 'stop', why: 'a human restarted it' });
+    expect(reenter(w, asked, comment('/agent cancel'))).toBeUndefined();
   });
 
   it('folds a burst into one outcome: the first that is not an answer, else every answer', () => {

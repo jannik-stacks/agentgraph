@@ -984,7 +984,7 @@ const contextWith = (text: string) => {
         author: 'morgan',
         url: '',
         events: [
-          said('morgan', '/bothub', '2026-10-13T09:00:00.000Z'),
+          said('morgan', '/agent', '2026-10-13T09:00:00.000Z'),
           said('bothub[bot]', text, '2026-10-13T09:01:00.000Z'),
           said('morgan', 'Looks right.', '2026-10-13T09:02:00.000Z'),
         ],
@@ -1016,7 +1016,7 @@ const hubWith = (text: string) => {
       '',
       '## @morgan at 2026-10-13T09:00:00.000Z',
       '',
-      '/bothub',
+      '/agent',
       '',
       '## @bothub[bot] at 2026-10-13T09:01:00.000Z',
       '',

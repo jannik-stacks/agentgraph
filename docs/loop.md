@@ -29,7 +29,7 @@ When tries or rounds run out, the run waits for a human instead of going on.
 A workflow is a Markdown file in the hub's `workflows/` folder, such as `workflows/issue.md`. Its frontmatter says when it starts and what its steps are. Its body is the description, or the prompt when it has no steps. [Hub files](reference.md) lists every field with its default.
 
 ```yaml
-on: { issue_comment: { command: /bothub } }
+on: issue_comment
 branch: bothub/{issue}
 steps:
   implement:
@@ -58,24 +58,26 @@ A workflow without `steps` is one agent step named after the file, with the agen
 
 Two triggers start runs today:
 
-- `issue_comment` with `command`: a comment starting with that text, such as `/bothub`.
+- `issue_comment`: a comment that says `/agent`.
 - `issues` with `label`: a label added to an issue, such as `triage`.
 
 `pull_request` and `branches` are accepted but start nothing yet. A third way in, `dispatch`, is for runs that other runs start, see [Dispatch](#dispatch).
 
-On GitHub, the main way in is to mention the bot. A comment counts when it has `@stx-bothub` as a word outside quoted lines and fenced code. `/bothub` works the same. The engine reads either as `/bothub` followed by the rest of the comment, so a bare mention starts the workflow too. On an issue with no live run, a mention that only says `stop` or `cancel` starts nothing. <!-- code: src/forge.ts#commanded -->
+A trusted comment speaks to the bot only when it has `/agent` in it as a word, outside quoted lines and fenced code. No `/agent`, no bot. The bot reads the comment without the `/agent`, so a bare `/agent` starts the workflow too. On an issue with no live run, `/agent stop` or `/agent cancel` starts nothing. <!-- code: src/forge.ts#called -->
 
-Once the bot has a run on an issue, a trusted comment there speaks to it without a mention, unless it mentions someone else. Comments on the run's pull request count for its issue, and the bot's own comments never count.
+The same holds on an issue with a live run: a comment without `/agent` is context the agent may read, never an answer. Comments and review comments on the run's pull request count for its issue, and the bot's own comments never count.
+
+With several `issue_comment` workflows, `/agent` starts the first one, or the one whose name is the first word after it, as `/agent plan`. <!-- code: src/engine.ts#tick -->
 
 A waiting run takes the comment as its answer, and a working run takes it as its workflow's `concurrency` says, see [Comments while it works](#comments-while-it-works). When every run there is finished, the comment starts the comment workflow, so a question like "where is the PR?" gets a reply.
 
 A run started by a comment can reply and stop. When the comment asks for no work, the first session is told to reply with comments only, and that reply ends the run without checks or later steps. That holds only where the work the comment asks about exists: a workflow without a branch, an open pull request, or a finished run of the workflow on the issue. Elsewhere, and whenever the reply leaves files changed but not pushed, a first session that may push and replies with comments only fails the try.
 
-`/bothub restart` starts the workflow again on an issue whose run is done, stopped or waiting, and `/bothub restart implement` starts it at that step. A waiting or working run stops first. The new run keeps the human answers of the last one, so nothing settled is asked again. <!-- code: src/engine.ts#tick -->
+`/agent restart` starts the workflow again on an issue whose run is done, stopped or waiting, and `restart implement` starts it at that step. A waiting or working run stops first. The new run keeps the human answers of the last one, so nothing settled is asked again. <!-- code: src/engine.ts#tick -->
 
 The engine puts an eyes reaction on the comment that started or woke a run, or on the issue for a label, and takes it off once it has replied. <!-- code: src/engine.ts#tick -->
 
-A workflow can start on both, as `on: { issue_comment: { command: /bothub }, issues: { label: agent:ready } }` in `examples/sk`. Then triage and the loop build nothing by themselves: work begins when a maintainer adds `agent:ready` or mentions the bot. A label starts a workflow once per issue: once a run of it there is done, adding the label again starts nothing, and `/bothub restart` runs it again. <!-- code: src/engine.ts#tick -->
+A workflow can start on both, as `on: { issue_comment: {}, issues: { label: agent:ready } }` in `examples/sk`. Then triage and the loop build nothing by themselves: work begins when a maintainer adds `agent:ready` or says `/agent`. A label starts a workflow once per issue: once a run of it there is done, adding the label again starts nothing, and `/agent restart` runs it again. <!-- code: src/engine.ts#tick -->
 
 The issue must be open, and one run at a time holds it, whatever started it. A label added while another workflow's run is live there starts nothing; add it again once that run ends. Removing the label from an issue with a live run stops that run. A label added and removed before the engine looks starts nothing. <!-- code: src/workflow.ts#reenter -->
 
@@ -100,7 +102,7 @@ Once the try's other proposals land, the engine begins the child run with `by` s
 
 The parent hears of it as an answer, such as `triage on #12 is done` or `triage on #12 asks: ...`, in its kept session. It decides with the proposals it has: a comment, another `run`, or nothing. A child's question still goes on the child's issue, and a person answers it there. <!-- code: src/engine.ts#settled -->
 
-A router is a workflow whose agent returns `run`, so what a router may do is just its `returns`. In `examples/sandbox`, a mention starts the router; it starts triage, files a follow-up, or replies. Building waits for a person to add `agent:ready`.
+A router is a workflow whose agent returns `run`, so what a router may do is just its `returns`. In `examples/sandbox`, `/agent` starts the router; it starts triage, files a follow-up, or replies. Building waits for a person to add `agent:ready`.
 
 ## Trust and scope
 
@@ -167,7 +169,7 @@ A failed try starts another in the same session, with each failing check's outpu
 
 `back: implement` lets a step send the run to an earlier step. An agent step with `back` also needs `until`, a sentence saying when the step is satisfied. While it does not hold, the agent proposes `back` with a reason, and the reason becomes feedback for the earlier step. `rounds` caps how often that happens. When rounds run out, the run waits.
 
-A `wait: human` step with `back` goes back when a human requests changes in a review. The line comments that came with or just before the review join its reason. An approving review, an `approved` label or a merge passes it. Anything else a human says there, a comment, a line comment or a mention, goes to an [aside](#asides). <!-- code: src/workflow.ts#reenter -->
+A `wait: human` step with `back` goes back when a human requests changes in a review. The line comments that came with or just before the review join its reason. An approving review, an `approved` label or a merge passes it. Anything else a human says to the bot there, in a comment or a line comment with `/agent`, goes to an [aside](#asides). <!-- code: src/workflow.ts#reenter -->
 
 Going forward into a step starts a fresh session. Going back resumes the session that step had. <!-- code: src/workflow.ts#transition -->
 
@@ -175,7 +177,7 @@ Going forward into a step starts a fresh session. Going back resumes the session
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question as its own comment on the issue.
 
-A human answers by replying on the thread, with no mention needed, and the answer becomes feedback for the same step. The run keeps every answer with its question, and every later check reads them: an agent check in its prompt, with the note that a point an answer settles is not a finding, and a script at the end of `BOTHUB_CONTEXT`. <!-- code: src/engine.ts#heard --> A reply that says only `stop` ends the run, waiting or working, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
+A human answers with a comment that says `/agent` on the thread, and the comment becomes feedback for the same step. The run keeps every answer with its question, and every later check reads them: an agent check in its prompt, with the note that a point an answer settles is not a finding, and a script at the end of `BOTHUB_CONTEXT`. <!-- code: src/engine.ts#heard --> `/agent stop` ends the run, waiting or working, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
 
 `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
 
@@ -189,21 +191,21 @@ The fork answers with a comment, posted under the thread the human wrote in, and
 
 ## Comments while it works
 
-A trusted comment on the issue or pull request of a working run goes to that run. It never starts a second run there. The workflow's `concurrency` decides when the run takes it in: <!-- code: src/engine.ts#attempt -->
+A trusted comment that says `/agent` on the issue or pull request of a working run goes to that run. It never starts a second run there. The workflow's `concurrency` decides when the run takes it in: <!-- code: src/engine.ts#attempt -->
 
 - `steer`, the default: the session goes on and finds the comment in its news file. When the session ends, the engine resumes it for one more turn with every comment it has not seen, before the checks run.
 - `queue`: the try ends as if nothing was said. Then the comment applies as an answer would.
 - `cancel`: the engine stops the session and starts the step again at once, in the same session, with the comment as feedback. The cut try does not count.
 
-Say the bot implements #12, and two minutes in a maintainer writes "use the v2 API".
+Say the bot implements #12, and two minutes in a maintainer writes "/agent use the v2 API".
 
 - With `steer`, the agent can read it in the news file and switch at once. When it finishes, it gets one more turn that holds the comment, and its reply from that turn is the one the checks judge.
 - With `queue`, the agent finishes on its old plan and the checks run. If the try fails, the next try gets the check findings and the comment. If it passes, the review step gets the comment as feedback. If the agent asked a question, the comment is the answer. If the run is done by then, the comment starts the comment workflow, as on any finished run.
 - With `cancel`, the engine sees the comment within a minute, stops the session and resumes it with "use the v2 API" as feedback.
 
-Two replies work at any time, as a plain reply or a mention:
+Two words after `/agent` work at any time:
 
-- `cancel` stops the current session or checks now and parks the run at its step. The engine asks how to go on, and a reply resumes the same session with its tries kept.
+- `cancel` stops the current session or checks now and parks the run at its step. The engine asks how to go on, and an `/agent` comment resumes the same session with its tries kept.
 - `stop` ends the run, working or waiting.
 
 Both free the session's slot at once. While a session or its checks run, the engine looks for them once a minute. <!-- code: src/workflow.ts#reenter -->

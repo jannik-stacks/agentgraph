@@ -1,5 +1,5 @@
 ---
-on: { issue_comment: { command: /bothub } }
+on: { issue_comment: {} }
 branch: bothub/{issue}
 steps:
   triage: { agent: triager, tries: 2 }
@@ -44,6 +44,6 @@ steps:
   review: { wait: human, back: implement }
 ---
 
-A maintainer mentions the bot, or comments `/bothub`, on an issue about the engine, the studio or the dashboard. The
+A maintainer says `/agent` on an issue about the engine, the studio or the dashboard. The
 triager replies with a brief. The implementor works on `bothub/<issue>` until every check passes. A
 human reviews and merges.

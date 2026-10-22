@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- A trusted comment speaks to the bot only when it says `/agent`, both to start a run and on the
+  issue or pull request of a live run, review comments included. The `/bothub` command,
+  `on.issue_comment.command` and plain replies are gone; write `issue_comment: {}`, and with several
+  comment workflows name one as the first word after `/agent`.
+
 ## 0.2.0
 
 The baseline for tuning. From here on a repo gets better through its hub, and the engine changes

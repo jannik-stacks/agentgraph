@@ -72,7 +72,7 @@ describe('graphOf', () => {
   it('names the trigger, the doer, the checks with their modes and kinds, the tries and the fan-out', () => {
     const { workflows, checks } = fixture('acme-app');
     const g = graphOf(workflows.issue!, checks);
-    expect(g.trigger).toBe('a mention or a reply');
+    expect(g.trigger).toBe('a /agent comment');
     const [triage, implement, review, merge] = g.nodes;
     expect(triage).toEqual({ step: 'triage', doer: 'triager / triage', checks: [], tries: 1 });
     expect(implement!.checks[0]).toEqual({ name: 'safety', mode: 'stop' });

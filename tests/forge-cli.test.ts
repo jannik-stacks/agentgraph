@@ -97,7 +97,7 @@ describe('bin/forge.ts with run --forge', () => {
       '#1 open Add a greeting [agent:ready, bothub:waiting]\n#2 open Add hello (bothub/1 into main)'
     );
 
-    w.forge('comment', '2', '/bothub say hello world');
+    w.forge('comment', '2', '/agent say hello world');
     const second = await w.run([
       [start('a'), reply({ kind: 'comment', body: 'On it.' }, { kind: 'back', why: 'say hello world' })],
       [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
@@ -183,14 +183,14 @@ describe('bin/forge.ts with run --forge', () => {
     const w = world();
     w.forge('init', w.seed);
     w.forge('issue', 'Add a greeting');
-    w.forge('comment', '1', '@bothub stop');
+    w.forge('comment', '1', '/agent stop');
     expect(await w.run([])).toEqual([]);
 
-    w.forge('comment', '1', '@bothub');
+    w.forge('comment', '1', '/agent');
     const asked = await w.run([[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(asked.map(r => [r.step, r.status])).toEqual([['router', 'waiting']]);
 
-    w.forge('comment', '1', '@bothub stop wrong issue');
+    w.forge('comment', '1', '/agent stop wrong issue');
     const stopped = await w.run([]);
     expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['router', 'stopped', 'wrong issue']]);
   });

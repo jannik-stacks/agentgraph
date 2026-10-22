@@ -67,11 +67,11 @@ A forge folder stands in for the GitHub repo, and `bin/forge.ts` plays the maint
 ```sh
 node bin/forge.ts /tmp/forge init ../path/to/repo         # copies the repo into /tmp/forge/origin.git
 node bin/forge.ts /tmp/forge issue "Reject a negative count" --body issue.md
-node bin/forge.ts /tmp/forge comment 1 /bothub
+node bin/forge.ts /tmp/forge comment 1 /agent
 node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/bothub-data
 node bin/forge.ts /tmp/forge show                         # every issue and pull request
 node bin/forge.ts /tmp/forge show 2                       # one, with its timeline and diff
-node bin/forge.ts /tmp/forge comment 2 "/bothub also cover zero"
+node bin/forge.ts /tmp/forge comment 2 "/agent also cover zero"
 node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/bothub-data
 node bin/forge.ts /tmp/forge merge 2
 node bin/run.ts --forge /tmp/forge --hub examples/sandbox --issue 1 --data ~/bothub-data

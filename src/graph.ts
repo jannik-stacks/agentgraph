@@ -34,8 +34,8 @@ const doer = ({ does }: Step) =>
 const triggerOf = (w: Workflow) =>
   Object.entries(w.on)
     .map(([event, t]) =>
-      t?.command
-        ? 'a mention or a reply'
+      event === 'issue_comment'
+        ? 'a /agent comment'
         : event === 'dispatch'
           ? 'dispatched'
           : event === 'feedback'

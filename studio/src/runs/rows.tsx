@@ -380,8 +380,8 @@ export const statusTip = (run: Run) => {
   if (run.status === 'done') return 'Finished every step.';
   if (run.status === 'stopped') return `Ended early${run.reason ? `: ${run.reason}` : ''}.`;
   if (run.reason !== undefined)
-    return `Asked on ${at}: ${short(run.reason, 300)}\nWaits for an answer: reply there or mention the bot. Saying stop ends the run.`;
-  return `Waits at ${run.step} for a human, not the bot.\nMerge or approve the pull request to move on; reply, mention the bot or request changes to send it back; saying stop ends the run.`;
+    return `Asked on ${at}: ${short(run.reason, 300)}\nWaits for an answer: say /agent and the answer there. /agent stop ends the run.`;
+  return `Waits at ${run.step} for a human, not the bot.\nMerge or approve the pull request to move on; say /agent or request changes to send it back; /agent stop ends the run.`;
 };
 
 /** A fixed-width cell of a run row, so numbers line up down the list. */

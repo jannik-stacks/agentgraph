@@ -1,5 +1,5 @@
 ---
-on: { issue_comment: { command: /retro } }
+on: { issue_comment: {} }
 steps:
   retro: { agent: retro, each: { run: node "$BOTHUB_HUB/scripts/retro-items.mjs" } }
 ---

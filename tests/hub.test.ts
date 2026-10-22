@@ -91,7 +91,7 @@ describe('loadHub', () => {
         'checks/tests.md': '---\ntype: script\nrun: npm test\nmode: block\n---\n',
         'checks/docs-tone.md': '---\ntype: bot\nbot: implementor\nmode: warn\n---\n',
         'workflows/issue.md':
-          '---\non: { issue_comment: { command: /bothub, guard: { associations: [OWNER] } } }\nsteps:\n  a: { agent: implementor }\n---\n',
+          '---\non: { issue_comment: { command: /fix, guard: { associations: [OWNER] } } }\nsteps:\n  a: { agent: implementor }\n---\n',
       })
     );
     expect(found).toEqual(
@@ -104,6 +104,7 @@ describe('loadHub', () => {
         'bots: bots/ is now agents/; rename the folder',
         'checks/tests.md: type is gone; name run for a script check and agent for a judged one',
         'checks/docs-tone.md: bot is gone; name it as agent',
+        'workflows/issue.md: on.issue_comment.command is gone; a trusted comment with /agent in it starts the run',
         'workflows/issue.md: on.issue_comment.guard is gone; only owners, members and collaborators reach agents',
       ])
     );
@@ -218,7 +219,7 @@ describe('loadHub', () => {
     });
     expect(await problems(dir)).toEqual([
       'agents/a.md: says "merge request", which is retired; say pull request',
-      'skills/s.md: says "/bothub <", which is retired; say a plain reply answers and a reply of stop ends the run, with no command',
+      'skills/s.md: says "/bothub", which is retired; say /agent followed by what you want',
       'checks/c.md: says "bots/", which is retired; say agents/',
       'workflows/w.md: says "persona", which is retired; say agent, or harness for the program that runs a session',
       'workflows/w.md: says "for-each", which is retired; say returns: and each:',

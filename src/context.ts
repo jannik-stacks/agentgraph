@@ -86,7 +86,7 @@ const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required'
 export const footer = (...lines: string[]): string =>
   `<details><summary><sub>bothub</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
 
-export const answerWith = 'Reply here to answer, or reply <code>stop</code> to end the run.';
+export const answerWith = 'Answer with <code>/agent</code> and your reply, or <code>/agent stop</code> to end the run.';
 
 /** The labels and status comment for a run, as proposals; only what differs from the issue now. */
 export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {

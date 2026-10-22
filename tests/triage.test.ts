@@ -181,7 +181,7 @@ describe('triage', () => {
     const bot = Layer.mergeAll(fileForge(where.forge), fileStore(where.data));
     await Effect.runPromise(
       Effect.flatMap(Forge, f =>
-        Effect.all([f.apply(2, { kind: 'label', add: ['triage'] }), f.apply(2, { kind: 'comment', body: '/bothub' })])
+        Effect.all([f.apply(2, { kind: 'label', add: ['triage'] }), f.apply(2, { kind: 'comment', body: '/agent' })])
       ).pipe(Effect.provide(bot))
     );
     expect((await run(where, [], tick(hub))).value).toEqual([]);
@@ -322,7 +322,7 @@ describe('dispatch', () => {
 
   it('starts triage from the router, which waits on it quietly and decides once it is done', async () => {
     const where = world();
-    mention(where, '/bothub size this');
+    mention(where, '/agent size this');
     const first = await run(where, [reply({ kind: 'run', workflow: 'triage', issue: 1 })], tick(hub));
     const router = first.value[0]!;
     const [child] = (await runs(where)).filter(r => r.workflow === 'triage');
@@ -348,7 +348,7 @@ describe('dispatch', () => {
 
   it('refuses a run of a workflow without on: dispatch, and a run from an agent that does not return run', async () => {
     const where = world();
-    mention(where, '/bothub build this');
+    mention(where, '/agent build this');
     const { value } = await run(where, [reply({ kind: 'run', workflow: 'issue', issue: 1 })], tick(hub));
     expect(value[0]!.reason).toContain('run failed: issue is not a workflow with on: dispatch');
 

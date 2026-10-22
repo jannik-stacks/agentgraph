@@ -11,4 +11,4 @@ whole change.
 A resumed try continues the kept work instead of redoing it. Its `push` lists the files it changed
 on top of the kept work; files already kept need not be listed again. Steps that finished before
 the run waited are not run again, so an answer to the implementor does not rerun triage. A human
-answers by replying on the issue.
+answers by saying `/agent` on the issue.

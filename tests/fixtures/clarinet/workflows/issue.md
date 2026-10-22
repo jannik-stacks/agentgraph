@@ -1,5 +1,5 @@
 ---
-on: { issue_comment: { command: /bothub } }
+on: { issue_comment: {} }
 branch: bothub/{issue}
 steps:
   triage: { agent: triager, checks: [triage-brief] }
@@ -27,6 +27,6 @@ steps:
 # optional: implement gains back: triage, until: "the brief names every entry point the change needs"
 ---
 
-A maintainer comments `/bothub` on an issue. The triager replies with a brief that names every
+A maintainer says `/agent` on an issue. The triager replies with a brief that names every
 entry point the change reaches. The implementor works on `bothub/<issue>` until the gating checks
 pass. A human reviews and merges.

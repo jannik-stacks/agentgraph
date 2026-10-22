@@ -18,12 +18,16 @@ export type Issue = {
   url: string;
 };
 
-/** A comment; `path` and `line` place a review comment, `under` is the review comment it answers. */
+/**
+ * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `said` is what it
+ * says to the bot: its text without the `/agent` that calls the bot, when it has one.
+ */
 export type Comment = {
   id: string;
   author: string;
   body: string;
   at: string;
+  said?: string;
   path?: string;
   line?: number;
   under?: string;
@@ -116,9 +120,8 @@ export class Forge extends Context.Tag('bothub/Forge')<
   }
 >() {}
 
-/** A body that says `/bothub` or `@<slug>` as a word outside quoted lines and fenced code, as `/bothub <the rest>`. */
-export const commanded = (body: string, slug: string): string => {
-  const word = new RegExp(`(^|\\s)(?:/bothub|@${slug.replace(/[^\w-]/g, '')})(?=$|[\\s,:])`, 'i');
+/** The body without its first `/agent` outside quoted lines and fenced code, or undefined when it has none. */
+const called = (body: string): string | undefined => {
   let fenced = false;
   let offset = 0;
   for (const line of body.split('\n')) {
@@ -126,14 +129,20 @@ export const commanded = (body: string, slug: string): string => {
     offset += line.length + 1;
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
     if (fenced || /^\s*>/.test(line)) continue;
-    const found = word.exec(line);
+    const found = /(?<![\w./-])\/agent(?![\w/-])/i.exec(line);
     if (found)
-      return `/bothub ${body
+      return `${body.slice(0, start + found.index).trimEnd()} ${body
         .slice(start + found.index + found[0].length)
         .replace(/^[,:]/, '')
-        .trim()}`.trim();
+        .trimStart()}`.trim();
   }
-  return body;
+  return undefined;
+};
+
+/** The comment with what it says to the bot, when it calls it with `/agent`. */
+export const addressed = (c: Comment): Comment => {
+  const said = called(c.body);
+  return said === undefined ? c : { ...c, said };
 };
 
 /** Whether an issue passes the `issues` filter. */
@@ -216,6 +225,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           .split('\n')
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event)
+          .map(m => (m.comment ? { ...m, comment: addressed(m.comment) } : m))
           .map(m => (trust && !trust.includes(m.actor) ? { ...m, trusted: false } : m));
       const now = () => new Date().toISOString();
       const say = (m: Omit<Event, 'actor' | 'trusted' | 'at'>) =>
@@ -402,11 +412,6 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               (await Promise.all((await numbers()).map(eventsOf)))
                 .flat()
                 .filter(m => m.at > cursor)
-                .map(m =>
-                  m.trusted && m.comment
-                    ? { ...m, comment: { ...m.comment, body: commanded(m.comment.body, 'bothub') } }
-                    : m
-                )
                 .sort((a, b) => a.at.localeCompare(b.at))
             )
           ),

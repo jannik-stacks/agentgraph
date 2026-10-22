@@ -54,7 +54,7 @@ The engine talks to the outside through four services. Each has a test double:
 ## One run through the state machine
 
 ```
- trusted event: a mention, a command or a label
+ trusted event: /agent or a label
         │
         v
  ┌────────────────────┐   pass    ┌────────────────────┐   pass    ┌────────────────────┐

@@ -159,6 +159,7 @@ const gone = {
     human: '',
   },
   trigger: {
+    command: 'a trusted comment with /agent in it starts the run',
     types: '',
     guard: 'only owners, members and collaborators reach agents',
     labels: '',
@@ -189,10 +190,7 @@ const unknownKinds = (body: string, say: (message: string) => void) => {
 
 /** Words and phrases that described bothub once and no longer do, each with what to say now. */
 const retiredWords: [RegExp, string][] = [
-  [
-    /\/bothub\s*<|\/bothub\s+(?:answer|stop)\b/i,
-    'a plain reply answers and a reply of stop ends the run, with no command',
-  ],
+  [/(?<![\w./-])\/bothub\b(?![/-])/i, '/agent followed by what you want'],
   [/\bmerge requests?\b/i, 'pull request'],
   [/\bopen-pr\b/, 'pull_request'],
   [/\b(?:souls?|personas?|executors?)\b/i, 'agent, or harness for the program that runs a session'],

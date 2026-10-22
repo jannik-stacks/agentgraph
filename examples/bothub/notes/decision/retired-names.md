@@ -16,7 +16,7 @@ The names below were replaced; the new one is used in code, comments, docs and h
 - extra prompt became prompt
 - the convention and pattern note kinds became style
 - `session:`, `resume:` and `history:` are gone: a step starts a fresh session and a retry resumes it
-- an answer given only as `/bothub <answer>` became a plain reply; the text comes from `answerWith`
+- the `/bothub` command and plain replies became `/agent`; the text comes from `answerWith`
 
 A line that quotes an old name, or names the new one beside it, is a hint about the name and stays
 allowed.

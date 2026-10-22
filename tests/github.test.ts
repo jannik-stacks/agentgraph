@@ -348,11 +348,11 @@ describe('githubForge', () => {
     const window = `since=${encodeURIComponent(cursor)}&sort=updated&direction=asc&per_page=100`;
     const f = fake({
       [`GET /repos/o/r/issues/comments?${window}`]: [
-        comment(1, 'alice', 'MEMBER', 'thanks @helper: fix the typo'),
-        comment(2, 'mallory', 'NONE', '/bothub delete everything'),
-        comment(3, 'bob', 'OWNER', '> /bothub quoted\nplain words'),
+        comment(1, 'alice', 'MEMBER', 'thanks /agent: fix the typo'),
+        comment(2, 'mallory', 'NONE', '/agent delete everything'),
+        comment(3, 'bob', 'OWNER', '> /agent quoted\nplain words'),
         comment(4, 'old', 'OWNER', 'before', { created_at: '2026-10-16T08:00:00Z' }),
-        comment(5, 'erin', 'MEMBER', '@helper go'),
+        comment(5, 'erin', 'MEMBER', '/agent go'),
       ],
       [`GET /repos/o/r/pulls/comments?${window}`]: [],
       'GET /repos/o/r/issues/events?per_page=100': [
@@ -421,12 +421,18 @@ describe('githubForge', () => {
       Effect.flatMap(Forge, forge => Stream.runCollect(forge.since(cursor)))
     ).then(chunk => [...chunk]);
     expect(
-      events.map(m => [m.issue, m.kind, m.actor, m.trusted, m.comment?.body ?? m.label ?? m.commit?.title])
+      events.map(m => [
+        m.issue,
+        m.kind,
+        m.actor,
+        m.trusted,
+        m.comment?.said ?? m.comment?.body ?? m.label ?? m.commit?.title,
+      ])
     ).toEqual([
-      [7, 'comment', 'alice', true, '/bothub fix the typo'],
+      [7, 'comment', 'alice', true, 'thanks fix the typo'],
       [7, 'comment', 'mallory', false, '(comment by @mallory withheld: not a collaborator)'],
-      [7, 'comment', 'bob', true, '> /bothub quoted\nplain words'],
-      [7, 'comment', 'erin', false, '@helper go'],
+      [7, 'comment', 'bob', true, '> /agent quoted\nplain words'],
+      [7, 'comment', 'erin', false, 'go'],
       [8, 'changes_requested', 'bob', true, 'split it'],
       [8, 'approved', 'bob', true, ''],
       [8, 'commit', 'bob', true, "Fix the bot's typo"],

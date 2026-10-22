@@ -1,5 +1,5 @@
 ---
-on: { issue_comment: { command: /bothub } }
+on: { issue_comment: {} }
 branch: bothub/{issue}
 steps:
   implement:

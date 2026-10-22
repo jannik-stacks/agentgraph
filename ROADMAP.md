@@ -16,7 +16,7 @@ backends, never by forking code. Each milestone ends with something you can run.
 
 ## Milestones
 
-1. **Real local run.** `node bin/run.ts` on a local hub, a `/bothub` comment in an issue file, triage
+1. **Real local run.** `node bin/run.ts` on a local hub, an `/agent` comment in an issue file, triage
    on local qwen, implement with opencode on the subscription inside the sandbox, checks, review,
    result on a branch in a throwaway origin, live in the dashboard.
 2. **Hardened core.** Enforced or warned config, explicit job closure, fail-closed checks, branch

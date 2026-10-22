@@ -20,7 +20,7 @@ export type Workflow = Doc<{
   on: Partial<
     Record<
       'issues' | 'issue_comment' | 'pull_request' | 'dispatch' | 'feedback',
-      { command?: string; label?: string; branches?: string[] }
+      { label?: string; branches?: string[] }
     >
   >;
   branch?: string;
@@ -101,9 +101,7 @@ export type Run = {
 const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 const Count = Schema.Int.pipe(Schema.positive());
 const Names = Schema.mutable(Schema.Array(Schema.String));
-const Trigger = Schema.NullOr(
-  Schema.Struct({ command: exact(Schema.String), label: exact(Schema.String), branches: exact(Names) })
-);
+const Trigger = Schema.NullOr(Schema.Struct({ label: exact(Schema.String), branches: exact(Names) }));
 const EventName = Schema.Literal('issues', 'issue_comment', 'pull_request', 'dispatch', 'feedback');
 
 const StepFile = Schema.Struct({
@@ -350,22 +348,17 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   return run;
 }
 
-/** What a comment says after `command`, or undefined when it does not start with it. */
-export const afterCommand = (m: Event, command?: string) => {
-  const body = m.comment?.body.trim() ?? '';
-  return m.kind === 'comment' && command !== undefined && body.startsWith(command)
-    ? body.slice(command.length).trim()
-    : undefined;
-};
+/** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
+export const toBot = (m: Event) => (m.kind === 'comment' ? m.comment?.said : undefined);
 
 /** The question a run parks with when a human cancels the try it is on. */
-export const cancelled = 'Cancelled. Reply to go on from here, or reply stop to end the run.';
+export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /agent stop to end the run.';
 
 /**
  * What a new event means for a live run: a review at a human step, an answer elsewhere, `cancel` parks a working run;
  * undefined when it is only context. `lined` are the line comments that came with a review.
  */
-export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, lined: Event[] = []): Outcome | undefined {
+export function reenter(w: Workflow, run: Run, m: Event, lined: Event[] = []): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
@@ -373,8 +366,7 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
   const waiting = run.status === 'waiting';
   const live = waiting || run.status === 'running';
   if (m.kind === 'closed' && live) return { kind: 'stop', why: 'closed' };
-  const command = Object.values(w.on).find(t => t?.command)?.command ?? fallback;
-  const said = afterCommand(m, command);
+  const said = toBot(m);
   const body = m.comment?.body.trim() ?? '';
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
   if (first.toLowerCase() === 'stop' && live) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
@@ -388,7 +380,7 @@ export function reenter(w: Workflow, run: Run, m: Event, fallback?: string, line
     if (m.kind === 'changes_requested') {
       const notes = lined.flatMap(l =>
         l.comment?.path
-          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}: ${afterCommand(l, command) ?? l.comment.body}`
+          ? `${l.comment.path}${l.comment.line ? `:${l.comment.line}` : ''}: ${l.comment.said ?? l.comment.body}`
           : []
       );
       return { kind: 'back', why: [body || 'changes requested', ...notes].join('\n') };
