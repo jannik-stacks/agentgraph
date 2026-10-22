@@ -655,7 +655,10 @@ const exec = (cmd: string, tree: string, box: Made, from: string, network: 'none
   if (r.error) spawnSync('docker', ['rm', '-f', name]);
   if (r.error && (r.error as NodeJS.ErrnoException).code !== 'ETIMEDOUT')
     throw new Error(`docker could not run a score container: ${r.error.message}`);
-  if (r.status === 125 || /Cannot connect to the Docker daemon/.test(r.stderr ?? ''))
+  if (
+    r.status === 125 ||
+    /Cannot connect to the Docker daemon|^docker: Error response from daemon/m.test(r.stderr ?? '')
+  )
     throw new Error(`docker could not start a score container: ${r.stderr.slice(-2000)}`);
   return { ok: r.status === 0, ms: Date.now() - started, tail: `${r.stdout}${r.stderr}`.slice(-8000) };
 };

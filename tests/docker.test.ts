@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, delimiter, join } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker, dockerArgs } from '../src/docker.ts';
@@ -829,6 +829,23 @@ describe('disk lifecycle', () => {
       expect(readdirSync(join(data, 'work')).sort()).toEqual(['mine', 'mine.owner']);
       expect(live(beat())).toBe(true);
     });
+  });
+
+  it('counts an owner whose heartbeat went stale as live while its pid runs', () => {
+    const saved = process.env.AGENTGRAPH_STATE;
+    process.env.AGENTGRAPH_STATE = tmp('state');
+    try {
+      const owner = 'fedcba987654';
+      const heartbeat = join(process.env.AGENTGRAPH_STATE, 'owners', owner);
+      mkdirSync(dirname(heartbeat), { recursive: true });
+      writeFileSync(heartbeat, '');
+      utimesSync(heartbeat, new Date(0), new Date(0));
+      expect(live(`${process.pid}:${owner}`)).toBe(true);
+      expect(live(`${spawnSync('true').pid}:${owner}`)).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.AGENTGRAPH_STATE;
+      else process.env.AGENTGRAPH_STATE = saved;
+    }
   });
 });
 

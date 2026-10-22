@@ -231,17 +231,16 @@ export const alive = (pid: number) => {
 };
 
 /**
- * Whether the `pid:owner` label's process still runs: its heartbeat is under two minutes old, or, when this runner
- * cannot see that heartbeat, its pid lives.
+ * Whether the `pid:owner` label's process still runs: its heartbeat is under two minutes old, or its pid lives. A
+ * process blocked in a long synchronous call cannot beat, so a stale heartbeat alone does not make it dead.
  */
 export const live = (label: string) => {
   const [pid, owner = ''] = label.split(':');
   if (owner === self) return true;
   try {
-    return Date.now() - statSync(join(owners(), owner || '-')).mtimeMs < 120_000;
-  } catch {
-    return Boolean(Number(pid)) && alive(Number(pid));
-  }
+    if (Date.now() - statSync(join(owners(), owner || '-')).mtimeMs < 120_000) return true;
+  } catch {}
+  return Boolean(Number(pid)) && alive(Number(pid));
 };
 
 const tagOf = (repo: string, key: string) =>
