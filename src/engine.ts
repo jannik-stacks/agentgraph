@@ -1738,7 +1738,8 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
     const forge = yield* Forge;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
-    if (!to || !('agent' in to.does)) return { run };
+    if (!to || !('agent' in to.does))
+      return yield* new SessionStop({ reason: 'provider', detail: 'this wait step has no answering session' });
     yield* store.lock(run.id);
     const agent = hub.agents[to.does.agent]!;
     const kept = run.sessions[to.name];
@@ -1775,12 +1776,15 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
         ...(run.eyes?.undo.review && { review: true as const }),
       }
     );
+    if (r.ended !== 'stop' || (r.exit ?? 0) !== 0)
+      return yield* new SessionStop({ reason: 'provider', detail: `aside ended ${r.ended} (exit ${r.exit ?? 0})` });
     const { proposals } = proposalsOf(r.final, false);
     const back = proposals.find(p => p.kind === 'back');
     const landed = yield* land(
       run,
       proposals.filter(p => p.kind === 'comment')
     ).pipe(writing(run, r.id));
+    if (!landed.some(a => a.ok)) return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
     const undone = landed.some(a => a.ok) && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* store.trace(run.id, ...[...landed, ...undone].map(applied => ({ at: now(), step: step.name, applied })));
     const { eyes, ...rest } = landed.some(a => a.ok) ? unthreaded(run) : run;
@@ -1941,24 +1945,33 @@ export const tick = (
       const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
         outcome.kind !== 'answer' || !step || !waits(step)
           ? undefined
-          : !pull
-            ? { run: seen, outcome: { kind: 'back', why: outcome.text } }
-            : yield* aside(w, seen, hub, outcome.text, pull).pipe(
-                Effect.catchAll(e =>
-                  Effect.gen(function* () {
-                    yield* Effect.logError(`aside of run ${run.id}`, e);
-                    if (!run.retried)
-                      return {
-                        run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const },
-                        again: true,
-                      };
-                    const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
-                    yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.catchAll(() => Effect.void));
-                    const { retried: _retried, ...rest } = seen;
-                    return { run: rest, again: false };
-                  })
-                )
-              );
+          : yield* (
+              pull
+                ? aside(w, seen, hub, outcome.text, pull)
+                : step.back
+                  ? Effect.succeed({ run: seen, outcome: { kind: 'back', why: outcome.text } as const })
+                  : Effect.fail(
+                      new SessionStop({ reason: 'provider', detail: 'this wait step has no pull request or way back' })
+                    )
+            ).pipe(
+              Effect.catchAll(e =>
+                Effect.gen(function* () {
+                  yield* Effect.logError(`aside of run ${run.id}`, e);
+                  if (!run.retried)
+                    return {
+                      run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const },
+                      again: true,
+                    };
+                  const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
+                  const landed = yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.orElseSucceed(() => []));
+                  yield* store.trace(run.id, ...landed.map(applied => ({ at: now(), step: run.step, applied })));
+                  if (!landed.some(a => a.ok)) return { run: { ...seen, retried: true as const }, again: true };
+                  if (seen.eyes) yield* forge.apply(seen.eyes.issue, seen.eyes.undo).pipe(Effect.ignore);
+                  const { retried: _retried, eyes: _eyes, ...rest } = seen;
+                  return { run: rest, again: false };
+                })
+              )
+            );
       if (asked?.again) {
         yield* store.put(asked.run);
         continue;

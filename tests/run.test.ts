@@ -1096,6 +1096,51 @@ describe('tick', () => {
     expect(stored).toMatchObject({ status: 'done', seen: '2026-10-16T00:00:06.000Z' });
   }, 30_000);
 
+  it.each(['error', 'cap', 'missing', 'refused', 'no-back', 'no-pull'])(
+    'does not consume an unanswered aside: %s',
+    async kind => {
+      const where = world();
+      git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+      const at = '2026-10-16T00:00:05.000Z';
+      const failed: SessionEvent =
+        kind === 'error' || kind === 'cap'
+          ? { type: 'end', final: '', ended: kind, exit: 1 }
+          : kind === 'missing'
+            ? { type: 'end', final: 'No proposal.', ended: 'stop', exit: 0 }
+            : reply({ kind: 'comment', body: 'Answer.', under: 'missing-thread' });
+      const { run } = services(where, [
+        [start('f'), failed],
+        [start('f'), failed],
+      ]);
+      await run(waiting(where));
+      const noBack = kind === 'no-back' || kind === 'no-pull';
+      const flow = noBack
+        ? {
+            ...merging.workflows.issue,
+            steps: merging.workflows.issue.steps.map(step => {
+              if (step.name !== 'merge') return step;
+              const { back: _back, ...rest } = step;
+              return rest;
+            }),
+          }
+        : merging.workflows.issue;
+      const kit = { ...merging, workflows: { issue: flow } };
+      if (kind === 'no-pull') {
+        rmSync(join(where.forge, '8.md'));
+        rmSync(join(where.forge, '8'), { recursive: true });
+      }
+      say(where, comment(kind === 'no-pull' ? 7 : 8, 'morgan', true, '/agent why?', at));
+      await run(tick(kit, 7));
+      expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).not.toBe(at);
+      await run(tick(kit, 7));
+      expect((await run(Effect.flatMap(Store, s => s.get('run-7'))))?.seen).toBe(at);
+      expect(readFileSync(join(where.forge, `${kind === 'no-pull' ? 7 : 8}.jsonl`), 'utf8')).toContain(
+        'Could not answer'
+      );
+    },
+    30_000
+  );
+
   it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
