@@ -32,6 +32,22 @@ describe('graphOf', () => {
     expect(implement!.checks.find(c => c.name === 'safety')!.traces).toBeUndefined();
   });
 
+  it("lists what each agent step may write to GitHub from its agent's returns, and nothing on other steps", () => {
+    const { workflows, checks } = fixture('acme-app');
+    const agents = {
+      triager: { returns: ['label' as const, 'back' as const, 'run' as const] },
+      implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const, 'ask' as const] },
+    };
+    const g = graphOf(workflows.issue!, checks, undefined, agents);
+    const by = Object.fromEntries(g.nodes.map(n => [n.step, n.writes]));
+    expect(by).toEqual({
+      triage: ['label'],
+      implement: ['comment', 'push', 'pull_request', 'ask'],
+      review: undefined,
+      merge: undefined,
+    });
+  });
+
   it('counts the worst case of the user loop as 29 sessions', () => {
     const { workflows, checks } = fixture('loop');
     const g = graphOf(workflows.align!, checks);

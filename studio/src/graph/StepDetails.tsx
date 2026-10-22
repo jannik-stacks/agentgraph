@@ -221,7 +221,9 @@ export const StepDetails = ({
   const { workflow, checks } = fixture;
   const { does } = step;
   const lines = run && (run.trace ?? traceOf(run.trail, run.run)).filter(line => line.step === step.name);
-  const trigger = graphOf(workflow, checks).trigger;
+  const graph = graphOf(workflow, checks, undefined, fixture.roles);
+  const { trigger } = graph;
+  const writes = graph.nodes.find(n => n.step === step.name)?.writes;
   const waits = 'wait' in does;
   return (
     <div className="space-y-5 p-4 text-xs">
@@ -245,6 +247,18 @@ export const StepDetails = ({
             {doing(does)}
           </Term>
         </Field>
+        {'agent' in does && writes && (
+          <Field
+            name={
+              <Term tip="What this step's agent may write to GitHub; the engine refuses any other kind.">
+                github writes
+              </Term>
+            }
+          >
+            {writes.length ? writes.join(', ') : 'none'}, set by <span className="font-mono">returns</span> in{' '}
+            <span className="font-mono">agents/{does.agent}.md</span>
+          </Field>
+        )}
         {!waits && (
           <Field name={<Term tip="Tries before the run waits, the first one included.">tries</Term>}>
             {step.tries},{' '}

@@ -49,6 +49,7 @@ const paths = {
   tick: <path d="m5 12 5 5 9-10" />,
   traces: <path d="M4 6h16M4 12h10M4 18h13" />,
   aside: <path d="M4 5h16v11H9l-5 4z" />,
+  writes: <path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4" />,
 };
 
 /** A small glyph in the current text color. */
@@ -399,6 +400,7 @@ export const Legend = () => (
     >
       not the main path
     </LegendItem>
+    <LegendItem mark={<Glyph name="writes" className="size-3" />}>writes to GitHub</LegendItem>
     <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
     <LegendItem mark={<Glyph name="aside" className="size-3" />}>answers questions in an aside</LegendItem>
     <LegendItem mark={<span className={cx('size-2 rounded-full bg-current', accent.text)} />}>live</LegendItem>

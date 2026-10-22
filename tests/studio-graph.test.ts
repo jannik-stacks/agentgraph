@@ -17,8 +17,10 @@ type Row = {
 const { layout } = await studioModule<{
   layout: (graphs: { workflow: string; graph: Graph }[], starts: []) => { rows: Row[] };
 }>('graph/layout.ts');
-const { linesOf } = await studioModule<{
-  linesOf: (chips: { label: string; tip: string }[], width: number) => { label: string; tip: string }[][];
+type Chip = { glyph?: string; label: string; tip: string };
+const { chipsOf, linesOf } = await studioModule<{
+  chipsOf: (node: Graph['nodes'][number]) => Chip[];
+  linesOf: (chips: Chip[], width: number) => Chip[][];
 }>('graph/chips.ts');
 
 const SHOWN = fixtureHubs.map(hub => {
@@ -83,5 +85,23 @@ describe('studio graph', () => {
         .flat()
         .map(c => c.label)
     ).toEqual(['chip number 0', 'chip number 1']);
+  });
+
+  it('shows one chip with the GitHub writes of an agent step, naming the agent file that sets them', () => {
+    const { workflows, checks } = fixture('acme-app');
+    const agents = {
+      triager: { returns: ['back' as const] },
+      implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const] },
+    };
+    const nodes = graphOf(workflows.issue!, checks, undefined, agents).nodes;
+    const writes = (step: string) => chipsOf(nodes.find(n => n.step === step)!).filter(c => c.glyph === 'writes');
+    expect(writes('implement')).toEqual([
+      {
+        glyph: 'writes',
+        label: 'comment push pr',
+        tip: 'implementor can write to GitHub: comment, push, pull_request. The engine refuses anything else. Set by returns in agents/implementor.md.',
+      },
+    ]);
+    expect([...writes('triage'), ...writes('review'), ...writes('merge')]).toEqual([]);
   });
 });

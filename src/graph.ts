@@ -5,7 +5,7 @@ import type { Run, Step, Workflow } from './workflow.ts';
  * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
  * can take before it asks. A check names the agent that judges it; a check without one is only a script. A step
  * `dispatches` when its agent may start a workflow with `on: dispatch`, and `traces` when its agent reads the traces of
- * the runs on the issue; a check the same when its judge does.
+ * the runs on the issue; a check the same when its judge does. `writes` lists what its agent may write to GitHub.
  */
 export type Graph = {
   trigger: string;
@@ -16,6 +16,7 @@ export type Graph = {
     tries: number;
     each?: string;
     dispatches?: true;
+    writes?: Agent['returns'];
     traces?: true;
     asides?: true;
     run?: { tries: number; current: boolean; visited: boolean };
@@ -23,6 +24,8 @@ export type Graph = {
   edges: { from: string; to: string; kind: 'next' | 'back'; until?: string; rounds?: number; taken?: number }[];
   worst: number;
 };
+
+const github = new Set<Agent['returns'][number]>(['comment', 'push', 'pull_request', 'label', 'issue', 'merge', 'ask']);
 
 const doer = ({ does }: Step) =>
   'agent' in does ? (does.skill ? `${does.agent} / ${does.skill}` : does.agent) : 'run' in does ? 'script' : 'human';
@@ -77,6 +80,8 @@ export function graphOf(
     tries: s.tries,
     ...(s.each !== undefined && { each: typeof s.each === 'string' ? s.each : s.each.run }),
     ...('agent' in s.does && agents[s.does.agent]?.returns.includes('run') && { dispatches: true as const }),
+    ...('agent' in s.does &&
+      agents[s.does.agent] && { writes: agents[s.does.agent]!.returns.filter(k => github.has(k)) }),
     ...('agent' in s.does && agents[s.does.agent]?.reads && { traces: true as const }),
     ...('wait' in s.does && s.back && { asides: true as const }),
     ...(run && { run: { tries: k === current ? run.tries : 0, current: k === current, visited: k <= reached } }),

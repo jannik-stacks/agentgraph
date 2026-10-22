@@ -1,7 +1,7 @@
 import type { Graph } from '../../../src/graph.ts';
 
 export type Chip = {
-  glyph?: 'hand' | 'stop' | 'checks' | 'agent' | 'traces' | 'aside' | 'each';
+  glyph?: 'hand' | 'stop' | 'checks' | 'agent' | 'writes' | 'traces' | 'aside' | 'each';
   label: string;
   count?: number;
   tip: string;
@@ -37,6 +37,14 @@ export const chipsOf = (node: Graph['nodes'][number]): Chip[] => {
       count: judges.length,
       tip: `${judges.join(' and ')} review each try side by side, each in its own session. Their findings go back together.`,
     });
+  if (node.writes?.length) {
+    const agent = node.doer.split(' / ')[0]!;
+    chips.push({
+      glyph: 'writes',
+      label: node.writes.map(k => (k === 'pull_request' ? 'pr' : k)).join(' '),
+      tip: `${agent} can write to GitHub: ${node.writes.join(', ')}. The engine refuses anything else. Set by returns in agents/${agent}.md.`,
+    });
+  }
   if (readers.length > 0)
     chips.push({
       glyph: 'traces',
