@@ -1513,14 +1513,15 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       if (own && made.saved && !current.onto) {
         const from = yield* text(work, ['rev-parse', `${made.saved}^`]);
         const onto = work.head ?? work.base;
-        if (from !== onto) {
+        const tree = yield* treeOf(work);
+        if (from !== onto && tree !== (yield* text(work, ['rev-parse', `${onto}^{tree}`]))) {
           const head = yield* text(work, [
             '-c',
             'user.name=agentgraph',
             '-c',
             'user.email=agentgraph@localhost',
             'commit-tree',
-            yield* treeOf(work),
+            tree,
             '-p',
             from,
             '-m',
