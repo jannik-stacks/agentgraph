@@ -639,6 +639,8 @@ export const githubForge = (
           pushed.delete(work.dir);
           work.head = onto;
         }
+        if (yield* gitText(work, ['rev-list', '--merges', `${from}..${local ?? tip}`]))
+          return yield* refuse(`${branch} contains merge commits; rebase it by hand`);
         const commits = (yield* gitText(work, ['rev-list', '--reverse', '--no-merges', `${from}..${local ?? tip}`]))
           .split('\n')
           .filter(Boolean);

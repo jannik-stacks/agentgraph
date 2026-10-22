@@ -971,6 +971,40 @@ describe('githubForge', () => {
       expect([existsSync(join(dir, 'b.txt')), existsSync(join(dir, 'c.txt'))]).toEqual([true, true]);
     });
 
+    it('refuses a rebase that would drop merge-only edits', async () => {
+      const { dir, git, base, work } = repo();
+      writeFileSync(join(dir, 'left.txt'), 'left\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Left');
+      const left = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', base);
+      writeFileSync(join(dir, 'right.txt'), 'right\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Right');
+      git('merge', '--no-ff', '--no-commit', left);
+      writeFileSync(join(dir, 'resolution.txt'), 'merge-only\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Merge');
+      const tip = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', base);
+      writeFileSync(join(dir, 'upstream.txt'), 'upstream\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Upstream');
+      const onto = git('rev-parse', 'HEAD');
+      const f = dataApi(work, {
+        'GET /repos/o/r/git/ref/heads/agentgraph/7': { object: { sha: tip } },
+        'PATCH /repos/o/r/git/refs/heads/agentgraph/7': {},
+      });
+      const applied = await run(
+        f,
+        Effect.flatMap(Forge, forge =>
+          forge.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from: base, onto }, work)
+        )
+      );
+      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/merge commit/) });
+      expect(writes(f)).toEqual([]);
+    });
+
     it.each([false, true])('rebases checkout edits without publishing before a push (conflict: %s)', async conflict => {
       const { dir, git, base, work } = repo();
       writeFileSync(join(dir, conflict ? 'a.txt' : 'b.txt'), 'pending\n');

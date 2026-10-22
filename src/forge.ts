@@ -348,6 +348,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               pushed.delete(work.dir);
               work.head = p.onto;
             }
+            if (await git(work, 'rev-list', '--merges', `${p.from}..${p.head ?? was}`))
+              return no(`${p.branch} contains merge commits; rebase it by hand`);
             let head = p.onto;
             let tree = await git(work, 'rev-parse', `${head}^{tree}`);
             for (const commit of (

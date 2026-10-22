@@ -2782,6 +2782,34 @@ describe('a base that moved', () => {
       .map(f => readFileSync(join(where.forge, f), 'utf8'))
       .join('');
 
+  it('keeps merge-only edits when file-forge cannot rebase their history', async () => {
+    const where = await parked();
+    const mover = join(where.root, 'mover');
+    git(where.root, 'clone', '-q', where.origin, mover);
+    const left = git(where.origin, 'rev-parse', 'agentgraph/7');
+    writeFileSync(join(mover, 'right.txt'), 'right\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-qm', 'Right');
+    git(mover, 'merge', '--no-ff', '--no-commit', left);
+    writeFileSync(join(mover, 'resolution.txt'), 'merge-only\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-qm', 'Merge');
+    const tip = git(mover, 'rev-parse', 'HEAD');
+    git(mover, 'push', '-q', 'origin', 'HEAD:agentgraph/7');
+    const pr = JSON.parse(readFileSync(join(where.forge, '8', 'pull.json'), 'utf8'));
+    writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ ...pr, head: tip }));
+    git(mover, 'reset', '-q', '--hard', 'origin/main');
+    writeFileSync(join(mover, 'upstream.txt'), 'upstream\n');
+    git(mover, 'add', '-A');
+    git(mover, 'commit', '-qm', 'Upstream');
+    git(mover, 'push', '-q', 'origin', 'HEAD:main');
+    const { run } = services(where, []);
+    await run(tick(hub, 7));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(tip);
+    expect(git(where.origin, 'show', 'agentgraph/7:resolution.txt')).toBe('merge-only');
+    expect(rebases(where)).toContain(false);
+  }, 30_000);
+
   it('rebases a clean branch with no model and runs only its script checks when the change stays the same', async () => {
     const where = await moved('other.txt');
     expect(behind(where)).toBe('1');
