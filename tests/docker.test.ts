@@ -725,7 +725,17 @@ describe('disk lifecycle', () => {
       'src/index.ts',
       'src/main.rs',
     ];
-    const crate = ['crates/a/Cargo.toml', 'crates/a/src/lib.rs', 'crates/a/build.rs', 'crates/a/src/util.rs'];
+    const crate = [
+      'crates/a/Cargo.toml',
+      'crates/a/src/lib.rs',
+      'crates/a/build.rs',
+      'crates/a/src/util.rs',
+      'crates/a/src/bin/x.rs',
+      'crates/a/benches/b.rs',
+      'crates/a/tests/t.rs',
+      'crates/a/tests/d/main.rs',
+      'crates/a/tests/d/util.rs',
+    ];
     for (const f of [...files, ...crate, 'vendor/node_modules/y/package.json']) put(dir, f, f);
     git(dir, 'init', '-q', '-b', 'main');
     const commit = () => (
@@ -742,7 +752,14 @@ describe('disk lifecycle', () => {
       'patches/x.patch',
       'pnpm-lock.yaml',
     ]);
-    expect(one.stubs.sort()).toEqual(['crates/a/build.rs', 'crates/a/src/lib.rs']);
+    expect(one.stubs.sort()).toEqual([
+      'crates/a/benches/b.rs',
+      'crates/a/build.rs',
+      'crates/a/src/bin/x.rs',
+      'crates/a/src/lib.rs',
+      'crates/a/tests/d/main.rs',
+      'crates/a/tests/t.rs',
+    ]);
     put(dir, 'src/index.ts', 'changed');
     put(dir, 'crates/a/src/lib.rs', 'changed');
     expect((await commit()).digest).toBe(one.digest);

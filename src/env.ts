@@ -60,7 +60,8 @@ const git = (dir: string, ...args: string[]) =>
 
 /**
  * The skeleton of `rev`: its `manifest` files and ignore rules outside `node_modules`, and the Cargo target files beside
- * a `Cargo.toml` that setup gets as stubs, so a fetch or dependency build works without the source.
+ * a `Cargo.toml` (lib, bins, build script, benches, examples and tests) that setup gets as stubs, so a fetch or
+ * dependency build works without the source.
  */
 export const skeletonOf = async (dir: string, rev: string): Promise<Skeleton> => {
   const entries = (await git(dir, 'ls-tree', '-r', rev))
@@ -76,7 +77,10 @@ export const skeletonOf = async (dir: string, rev: string): Promise<Skeleton> =>
   const stubs = entries
     .map(e => e.path)
     .filter(p => {
-      const m = /^(.*?)(src\/lib\.rs|src\/main\.rs|build\.rs)$/.exec(p);
+      const m =
+        /^(.*?)(src\/lib\.rs|src\/main\.rs|build\.rs|(src\/bin|benches|examples|tests)\/[^/]+\.rs|(src\/bin|benches|examples|tests)\/[^/]+\/main\.rs)$/.exec(
+          p
+        );
       return Boolean(m && crates.has(m[1]!));
     });
   const digest = createHash('sha256')
