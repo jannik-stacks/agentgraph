@@ -45,12 +45,14 @@ const presetHelp: Record<string, string> = {
   'hidden tests only': 'Only hidden tests count.',
   'judges only': 'Only judges count.',
 };
+const arm =
+  'How the change gets made, like the arms of a trial. v2 runs the engine with the repo’s hub: the change must pass the hub’s checks, like the repo’s own tests, and a reviewer can send it back once. floor is one plain agent session in the same sandbox and budget, with no checks and no review. human is the merged pull request, the baseline both are scored against.';
+const set =
+  'A pinned list of cases that every point is run on, so points on the same set are comparable. core is the main set of real merged pull requests from the org’s repos. smoke is three small, fast cases from core for quick checks.';
 const terms: [string, string][] = [
   ['point', 'One harness and model on one arm, with an engine commit, hub tree and case set. Each dot is a point.'],
-  [
-    'arm',
-    'Who made the change. human is the merged pull request. v2 is the engine with the repo’s hub, where the change must pass the hub’s checks, like the repo’s own tests, and a reviewer can send it back once. floor is one plain session in the same sandbox and budget, without checks or review.',
-  ],
+  ['arm', arm],
+  ['case set', set],
   ['base', 'The repo at the pull request’s parent commit, before any change.'],
   ['tree', 'The git tree hash of the hub’s files, part of a point’s key. Changing the hub creates a new point.'],
   [
@@ -302,10 +304,10 @@ export const BenchPage = () => {
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
         <section className="max-w-3xl">
           <p className="mb-2 text-xs text-pretty text-zinc-600 dark:text-zinc-400">
-            Each point is one setup: a harness and model on one arm and case set. Across is{' '}
-            {minutes ? 'minutes' : 'cost'} per task, up is quality, where the human’s merged pull request scores 1. Up
-            and to the left is better, and the line steps through the setups no cheaper setup matches in quality. This
-            chart does not show change over time, the{' '}
+            Each point is one setup: a harness and model running one arm <Help tip={arm} /> on one case set{' '}
+            <Help tip={set} />. Across is {minutes ? 'minutes' : 'cost'} per task, up is quality, where the human’s
+            merged pull request scores 1. Up and to the left is better, and the line steps through the setups no cheaper
+            setup matches in quality. This chart does not show change over time, the{' '}
             <Link
               href="/compound"
               className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
