@@ -5,10 +5,10 @@ import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
 import { answerWith, context, footer, line, news, shown, transcript, type Issues } from './context.ts';
 import {
   Forge,
+  ForgeError,
   provenance,
   withheld,
   type Applied,
-  type ForgeError,
   type Event,
   type Proposal,
   type Issue,
@@ -346,7 +346,7 @@ const live = (r: Run) => r.status !== 'done' && r.status !== 'stopped';
 const waitingOn = (child: Run) => `waiting on ${child.id}`;
 
 /** Why the run's `run` proposals may not start: one at a time, of a dispatch workflow, on an open issue in scope that no other live run holds. */
-const undispatchable = (hub: Hub, run: Run, asked: Extract<Proposal, { kind: 'run' }>[]) =>
+const undispatchable = (hub: Hub, run: Pick<Run, 'id'>, asked: Extract<Proposal, { kind: 'run' }>[]) =>
   Effect.gen(function* () {
     const [p] = asked;
     if (!p) return [];
@@ -369,7 +369,7 @@ const undispatchable = (hub: Hub, run: Run, asked: Extract<Proposal, { kind: 'ru
   });
 
 /** Begins the workflow a `run` proposal names, as a run `by` the run that proposed it. */
-const dispatch = (hub: Hub, run: Run, p: Extract<Proposal, { kind: 'run' }>) =>
+const dispatch = (hub: Hub, run: Pick<Run, 'id'>, p: Extract<Proposal, { kind: 'run' }>) =>
   Effect.gen(function* () {
     const at = now();
     const w = hub.workflows[p.workflow]!;
@@ -383,6 +383,74 @@ const dispatch = (hub: Hub, run: Run, p: Extract<Proposal, { kind: 'run' }>) =>
     };
     yield* Effect.flatMap(Store, s => s.put(child));
     return child;
+  });
+
+const recipient = (issue: number, by: string) =>
+  Effect.flatMap(Store, s => Effect.map(s.list({ issue }), rs => rs.find(r => live(r) && r.id !== by)));
+
+/** Passes trusted text to a live run, as a router proposal or CLI instruction. */
+export const tell = (issue: number, text: string, by = 'cli') =>
+  Effect.gen(function* () {
+    const to = yield* recipient(issue, by);
+    if (!to) return yield* new ForgeError({ message: `no live run on #${issue} to tell` });
+    yield* Effect.flatMap(Store, s => s.trace(to.id, { at: now(), step: to.step, told: { text, by } }));
+    return to;
+  });
+
+export type Instruction =
+  | { kind: 'say'; issue: number; text: string; comment?: string }
+  | { kind: 'dispatch'; issue: number; workflow: string; step?: string };
+
+/** CLI instructions use the event handling and dispatch checks of router proposals. */
+export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+  Effect.gen(function* () {
+    if (instruction.kind === 'dispatch') {
+      const p = { ...instruction, kind: 'run' as const };
+      const refused = yield* undispatchable(hub, { id: 'cli' }, [p]);
+      if (refused.length) return yield* new ForgeError({ message: refused[0]!.reason! });
+      return [yield* dispatch(hub, { id: 'cli' }, p)];
+    }
+    if (!router(hub)) return yield* new ForgeError({ message: 'hub has no router workflow' });
+    const forge = yield* Forge;
+    const issue = yield* forge.issue(instruction.issue);
+    const parent =
+      instruction.comment === undefined
+        ? undefined
+        : issue.events.find(m => m.comment?.id === instruction.comment)?.comment;
+    if (instruction.comment !== undefined && (!issue.pull || parent?.path === undefined))
+      return yield* new ForgeError({ message: `no review comment ${instruction.comment} on #${issue.number}` });
+    const at = now();
+    const event: Event = {
+      issue: issue.number,
+      kind: 'comment',
+      actor: 'cli',
+      trusted: true,
+      at,
+      source: 'cli',
+      comment: {
+        id: '',
+        author: 'cli',
+        body: `/agent ${instruction.text}`,
+        said: instruction.text,
+        at,
+        ...(parent && { path: parent.path!, under: parent.under ?? parent.id }),
+      },
+    };
+    const runs = yield* Effect.flatMap(Store, s => s.list());
+    const open = yield* forge.issues({ state: 'open' });
+    const owner = runs.find(
+      r => hub.workflows[r.workflow] && pullOf(hub.workflows[r.workflow]!, r.issue, open) === issue.number
+    );
+    return yield* tick(hub, owner?.issue ?? issue.number, true).pipe(
+      Effect.provideService(Forge, {
+        ...forge,
+        since: () => Stream.make(event),
+        issue: n =>
+          Effect.map(forge.issue(n), t =>
+            n === issue.number || n === owner?.issue ? { ...t, events: [...t.events, event] } : t
+          ),
+      })
+    );
   });
 
 /** What a parent hears when the run it started settles. */
@@ -1198,7 +1266,7 @@ const attempt = (
     const runs = world.filter(p => p.kind === 'run');
     const tells = yield* Effect.forEach(
       world.filter(p => p.kind === 'tell'),
-      p => Effect.map(store.list({ issue: p.issue }), rs => ({ p, to: rs.find(r => live(r) && r.id !== run.id) }))
+      p => Effect.map(recipient(p.issue, run.id), to => ({ p, to }))
     );
     const refused = [
       ...(yield* undispatchable(hub, run, runs)),
@@ -1207,8 +1275,7 @@ const attempt = (
       ),
     ];
     if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
-    for (const { p, to } of tells)
-      yield* store.trace(to!.id, { at: now(), step: to!.step, told: { text: p.text, by: run.id } });
+    for (const { p } of tells) yield* tell(p.issue, p.text, run.id);
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
     const landed = yield* Effect.either(
@@ -1733,6 +1800,7 @@ export const tick = (
     };
     /** 👀 on the comment that woke a run, or on its issue for a label; the run comes back holding it. */
     const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError> => {
+      if (m.source === 'cli') return Effect.as(store.trace(run.id, { at: m.at, step: run.step, spoken: m }), run);
       if (m.kind !== 'comment' && m.kind !== 'label') return Effect.succeed(run);
       const issue = origin.get(m) ?? m.issue;
       const react: Extract<Proposal, { kind: 'react' }> = {
@@ -1813,7 +1881,7 @@ export const tick = (
       );
       const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
       const seen = {
-        ...(m.kind === 'comment' && m.comment?.id ? yield* eyes(run, m) : run),
+        ...(m.kind === 'comment' && (m.comment?.id || m.source === 'cli') ? yield* eyes(run, m) : run),
         said: heard([m, ...took.filter(a => a !== m)]),
       };
       const step = w.steps.find(s => s.name === run.step);

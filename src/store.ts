@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
-import type { Applied } from './forge.ts';
+import type { Applied, Event } from './forge.ts';
 import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';
 
@@ -34,6 +34,7 @@ export type Trace = { at: string; step: string } & (
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
+  | { spoken: Event }
   | { told: { text: string; by: string } }
 );
 

@@ -5,6 +5,9 @@ import { Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fileForge, type Proposal } from '../src/forge.ts';
 import { instanceAt } from '../src/instance.ts';
+import { type Instruction } from '../src/engine.ts';
+import { Effect } from 'effect';
+import { Store } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
 import { host } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
@@ -56,8 +59,8 @@ const world = () => {
   };
   Object.assign(process.env, { AGENTGRAPH_FORGE: dir, AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
   const seen: Settings[] = [];
-  const run = (turns: SessionEvent[][], issue: number | 'all' = 'all') =>
-    main({ hub: sandboxHub, issue, data }, s => {
+  const run = (turns: SessionEvent[][], issue: number | 'all' = 'all', instruction?: Instruction) =>
+    main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, s => {
       seen.push(s);
       const forgeDir = s.forge as string;
       return Layer.mergeAll(
@@ -195,6 +198,129 @@ describe('bin/forge.ts with run --forge', () => {
     w.forge('comment', '1', '/agent stop wrong issue');
     const stopped = await w.run([]);
     expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['router', 'stopped', 'wrong issue']]);
+  });
+
+  it('says through the router immediately, including a review thread beside a waiting run', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'Add a greeting');
+    w.forge('label', '1', 'agent:ready');
+    const [waiting] = await w.run([
+      [
+        start('i'),
+        write('hello.txt', 'hello\n'),
+        reply(
+          { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
+          { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
+        ),
+      ],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    w.forge('comment', '2', 'This line?', '--line', 'hello.txt:1');
+    const event = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l))
+      .at(-1);
+    const routed = await w.run(
+      [
+        [
+          start('cli-router'),
+          reply({ kind: 'comment', body: 'Answer in thread.' }, { kind: 'tell', issue: 1, text: 'Please revise it' }),
+        ],
+      ],
+      2,
+      { kind: 'say', issue: 2, comment: event.comment.id, text: 'Please explain this line' }
+    );
+    const router = routed.find(r => r.workflow === 'router')!;
+    expect(router.status).toBe('done');
+    const trace = readFileSync(join(w.root, 'data', router.id, 'trace.jsonl'), 'utf8');
+    expect(trace).toContain('"source":"cli"');
+    expect(
+      trace
+        .trim()
+        .split('\n')
+        .map(l => JSON.parse(l))
+        .some(t => t.prompt?.prompt.includes('Please explain this line'))
+    ).toBe(true);
+    const timeline = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l));
+    expect(
+      timeline.some(m => m.comment?.body.includes('Answer in thread.') && m.comment.under === event.comment.id)
+    ).toBe(true);
+    expect(readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')).toContain(
+      '"text":"Please revise it"'
+    );
+  }, 30_000);
+
+  it('says on an issue, and rejects an unknown review thread', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'A question');
+    const [run] = await w.run([[start('say'), reply({ kind: 'comment', body: 'Here is the answer.' })]], 1, {
+      kind: 'say',
+      issue: 1,
+      text: 'Explain the project',
+    });
+    expect(run!.status).toBe('done');
+    expect(w.forge('show', '1')).toContain('Here is the answer.');
+    await expect(w.run([], 1, { kind: 'say', issue: 1, comment: 'missing', text: 'Explain' })).rejects.toThrow(
+      'no review comment'
+    );
+  });
+
+  it('dispatches with the router checks and tells through the CLI without a hub or App', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'A task');
+    const dispatched = spawnSync(
+      process.execPath,
+      [
+        join(cli, '..', 'run.ts'),
+        'dispatch',
+        '--hub',
+        sandboxHub,
+        '--data',
+        join(w.root, 'data'),
+        '--forge',
+        w.dir,
+        '--workflow',
+        'triage',
+        '--issue',
+        '1',
+        '--step',
+        'triage',
+      ],
+      { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+    );
+    expect(dispatched.status, dispatched.stderr).toBe(0);
+    const [run] = await Effect.runPromise(
+      Effect.flatMap(Store, store => store.list()).pipe(Effect.provide(fileStore(join(w.root, 'data'))))
+    );
+    expect(run).toMatchObject({ workflow: 'triage', status: 'running', by: 'cli' });
+    await expect(w.run([], 1, { kind: 'dispatch', issue: 1, workflow: 'triage' })).rejects.toThrow(
+      'a live run holds #1'
+    );
+    await expect(w.run([], 1, { kind: 'dispatch', issue: 1, workflow: 'router' })).rejects.toThrow(
+      'not a workflow with on: dispatch'
+    );
+    const tell = (issue: string) =>
+      spawnSync(
+        process.execPath,
+        [join(cli, '..', 'run.ts'), 'tell', '--data', join(w.root, 'data'), '--issue', issue, 'Use the new API'],
+        { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }
+      );
+    expect(tell('1').status).toBe(0);
+    expect(readFileSync(join(w.root, 'data', run!.id, 'trace.jsonl'), 'utf8')).toContain(
+      '"told":{"text":"Use the new API","by":"cli"}'
+    );
+    expect(tell('99').stderr).toContain('no live run on #99');
+    const stored = await Effect.runPromise(
+      Effect.flatMap(Store, store => store.get(run!.id)).pipe(Effect.provide(fileStore(join(w.root, 'data'))))
+    );
+    expect(stored!.status).toBe('running');
   });
 
   it('seeds only the given commit with --at, so a later commit is not in the origin', () => {

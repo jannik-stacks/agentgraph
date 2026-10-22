@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { ConfigProvider, Effect, Layer } from 'effect';
-import { settle, sweep, tick } from './engine.ts';
+import { instruct, settle, sweep, tick, type Instruction } from './engine.ts';
 import { hubAt, loadHub, type Hub } from './hub.ts';
 import { layers, settings, type Services, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
@@ -59,7 +59,7 @@ const configured = (extra: Record<string, string>) =>
  * `'all'`, and resolves with the runs it touched. The only place that leaves Effect.
  */
 export const start = (
-  one?: { hub: string; issue: number | 'all'; data: string },
+  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
   services: (s: Settings) => Layer.Layer<Services> = layers
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
@@ -73,9 +73,9 @@ export const start = (
           AGENTGRAPH_DATA: one.data,
         });
         yield* warnTemporary(one.data);
-        return yield* provided(one.issue === 'all' ? sweep(hub) : tick(hub, one.issue)).pipe(
-          Effect.withConfigProvider(provider)
-        );
+        return yield* provided(
+          one.instruction ? instruct(hub, one.instruction) : one.issue === 'all' ? sweep(hub) : tick(hub, one.issue)
+        ).pipe(Effect.withConfigProvider(provider));
       })
     : Effect.gen(function* () {
         const provider = yield* configured({});

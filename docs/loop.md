@@ -117,6 +117,10 @@ Each tell is traced twice: as an applied proposal on the router, and as a `told`
 
 In `examples/sandbox`, `/agent` starts the router; it starts triage, tells a live run what the person said, files a follow-up, or replies. Building waits for a person to add `agent:ready`.
 
+`node bin/run.ts say --hub <dir> --data <dir> --issue <n> [--comment <review comment id>] "<text>"` runs the router immediately and replies on GitHub where you spoke; its trace marks the CLI source.
+`node bin/run.ts tell --data <dir> --issue <n> "<text>"` tells a live run on its next look, refusing when none is live.
+`node bin/run.ts dispatch --hub <dir> --data <dir> --workflow <name> --issue <n> [--step <step>]` starts a dispatch run with the router's checks; these commands also support `--forge` and `--instance`.
+
 ## Trust and scope
 
 Only trusted people steer the bot. By default those are the repo's owners, members and collaborators, and a label counts when its actor may write. Everyone else is an outsider: their comments and labels start nothing, and their text is withheld from agents.

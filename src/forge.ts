@@ -35,6 +35,7 @@ export type Comment = {
 
 /** Something a person or a bot said or did on an issue. */
 export type Event = {
+  source?: 'cli';
   issue: number;
   kind: 'comment' | 'approved' | 'changes_requested' | 'merged' | 'closed' | 'label' | 'unlabel' | 'commit' | 'check';
   actor: string;
