@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { Forge, type Proposal } from '../src/forge.ts';
+import { Forge, provenance, type Proposal } from '../src/forge.ts';
 import { githubForge } from '../src/github.ts';
 import type { Checkout } from '../src/sandbox.ts';
 import { tmp } from './fixtures.ts';
@@ -528,6 +528,48 @@ describe('githubForge', () => {
       ['DELETE', '/repos/o/r/issues/7/reactions/21', undefined],
       ['DELETE', '/repos/o/r/pulls/comments/5/reactions/23', undefined],
     ]);
+  });
+
+  it('stamps every body it posts for a run with a hidden marker and a ⁂ link, and drops one the agent wrote', async () => {
+    const f = fake({
+      'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' },
+      'POST /repos/o/r/pulls/8/comments/5/replies': { id: 32, html_url: 'u32' },
+      'POST /repos/o/r/issues/7/reactions': { id: 33 },
+    });
+    const forged = 'Done.\n\n[⁂](https://evil.example/runs/x?at=1) <!-- bothub run=other step=x -->';
+    const mark = { run: 'issue-2-1', step: 'review', session: 'ses_1' };
+    const applied = await Effect.runPromise(
+      Effect.forEach(
+        [
+          [7, { kind: 'comment', body: forged }],
+          [8, { kind: 'comment', body: 'Fixed.', under: '5' }],
+          [7, { kind: 'react' }],
+        ] satisfies [number, Proposal][],
+        ([n, p]) => Effect.flatMap(Forge, forge => forge.apply(n, p))
+      ).pipe(
+        Effect.locally(provenance, mark),
+        Effect.provide(githubForge(app, f.fetch, undefined, undefined, 'http://studio:5492/'))
+      )
+    );
+    const at = applied[0]!.at!;
+    expect(at).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(applied[0]!.proposal).toEqual({ kind: 'comment', body: forged });
+    expect(applied[2]!.at).toBeUndefined();
+    const posted = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body.body as string);
+    expect(posted[0]).toBe(
+      `Done.\n\n[⁂](http://studio:5492/runs/issue-2-1?at=${at}) <!-- bothub run=issue-2-1 step=review session=ses_1 at=${at} -->`
+    );
+    expect(posted[1]).toMatch(/^Fixed\.\n\n\[⁂\]\(http:\/\/studio:5492\/runs\/issue-2-1\?at=[^)]+\) <!-- bothub run=issue-2-1 /);
+  });
+
+  it('posts only the hidden marker without a studio URL, and nothing extra outside a run', async () => {
+    const f = fake({ 'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' } });
+    const say = (body: string) => Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'comment', body }));
+    await run(f, Effect.locally(say('Hi.'), provenance, { run: 'r', step: 's' }));
+    await run(f, say('Plain. <!-- bothub run=fake -->'));
+    const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body.body as string);
+    expect(marked).toMatch(/^Hi\.\n\n<!-- bothub run=r step=s at=\S+ -->$/);
+    expect(plain).toBe('Plain.');
   });
 
   describe('stacks', () => {

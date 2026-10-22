@@ -9,6 +9,7 @@ import {
   type Event,
   type Proposal,
   type Issue,
+  marked,
   matches,
   withheld,
 } from './forge.ts';
@@ -230,13 +231,14 @@ const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
 
 /**
  * The repo of one GitHub App installation. Reads are ETag-polled, text from non-collaborators (or logins outside `trust`) is withheld, and pushes
- * go through the Git data API so GitHub signs the commits.
+ * go through the Git data API so GitHub signs the commits. Posted bodies are stamped with their run, linked into `studio` when set.
  */
 export const githubForge = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch,
   token: (scope: Scope) => Effect.Effect<string, ForgeError> = appToken(app, fetch),
-  trust?: readonly string[]
+  trust?: readonly string[],
+  studio?: string
 ): Layer.Layer<Forge> =>
   Layer.sync(Forge, () => {
     const listed = (user: User, association = '') => (trust ? trust.includes(login(user)) : members.has(association));
@@ -842,8 +844,9 @@ export const githubForge = (
     };
 
     const apply: Forge['Type']['apply'] = (number, proposal, work) =>
-      act(number, proposal, work).pipe(
-        Effect.map((done): Applied => ({ proposal, ok: true, ...done })),
+      Effect.flatMap(marked(proposal, studio), ({ posted, at }) =>
+        Effect.map(act(number, posted, work), (done): Applied => ({ proposal, ok: true, ...done, ...(at && { at }) }))
+      ).pipe(
         Effect.catchIf(
           e => e.status !== undefined && refusals.has(e.status),
           e => Effect.succeed<Applied>({ proposal, ok: false, reason: e.message })

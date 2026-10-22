@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
 import { answerWith, context, footer, line, news, shown, transcript, type Issues } from './context.ts';
-import { Forge, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
+import { Forge, provenance, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
@@ -224,6 +224,14 @@ const depthOf = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge>
  * again. A follow-up or a hub change becomes a plain issue labelled with its relation that names the run's issue and
  * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
  */
+/** Forge writes made for `run` at its step by `session`; a mark set for the same run and step outside is kept. */
+const writing =
+  (run: Run, session = run.sessions[run.step]?.id) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.locallyWith(effect, provenance, outer =>
+      outer?.run === run.id && outer.step === run.step ? outer : { run: run.id, step: run.step, ...(session && { session }) }
+    );
+
 const file = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
     if (children.length === 0) return [];
@@ -300,7 +308,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
       );
     }
     return applied;
-  });
+  }).pipe(writing(run));
 
 /** The open follow-up and hub issues, so an agent adds to one by its title instead of filing it again. */
 const filed = () =>
@@ -897,6 +905,7 @@ const attempt = (
 
     const replies: string[] = [];
     let tried = run;
+    let spoke: string | undefined;
     const command = commandOf(hub);
     /** Refreshes the news file every minute and ends with what a human said that cuts the try short. */
     const watch = (by: Run, seen: Seen) =>
@@ -1021,6 +1030,7 @@ const attempt = (
             item,
             watch(tried, seen)
           );
+          spoke = r.id ?? spoke;
           tried = {
             ...tried,
             usd: tried.usd + r.usd,
@@ -1152,7 +1162,9 @@ const attempt = (
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run');
     const landed = yield* Effect.either(
-      Effect.zipWith(land(tried, rest, work, to), file(w, tried, children), (a, b) => [...a, ...b])
+      Effect.zipWith(land(tried, rest, work, to), file(w, tried, children), (a, b) => [...a, ...b]).pipe(
+        writing(tried, spoke)
+      )
     );
     if (Either.isLeft(landed) && landed.left._tag === 'StoreError') return yield* landed.left;
     if (Either.isLeft(landed))
@@ -1272,7 +1284,10 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
       ...(eyes && !undone.length && { eyes }),
       ...(reply.ok && reply.id && { comment: reply.id }),
     };
-  }).pipe(Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run)));
+  }).pipe(
+    writing(run),
+    Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${run.id}`, e), run))
+  );
 
 /**
  * Applies the accepted proposals after a pass, pushes first. A comment with no thread of its own goes once to a place in
@@ -1302,7 +1317,7 @@ const land = (
               : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
       );
     return Effect.forEach(sent, ([issue, p]) => forge.apply(issue, p, work));
-  });
+  }).pipe(writing(run));
 
 /** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
 const unthreaded = (run: Run): Run =>
@@ -1594,7 +1609,7 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
     const landed = yield* land(
       run,
       proposals.filter(p => p.kind === 'comment')
-    );
+    ).pipe(writing(run, r.id));
     const undone = landed.some(a => a.ok) && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* store.trace(run.id, ...[...landed, ...undone].map(applied => ({ at: now(), step: step.name, applied })));
     const { eyes, ...rest } = landed.some(a => a.ok) ? unthreaded(run) : run;
@@ -1690,6 +1705,7 @@ export const tick = (
         edit: asked.comment,
       };
       return forge.apply(asked.issue, note).pipe(
+        writing(asked),
         Effect.tap(applied => store.trace(asked.id, { at: now(), step: asked.step, applied })),
         Effect.map(a => (a.ok ? rest : moved)),
         Effect.catchTag('ForgeError', e => Effect.as(Effect.logWarning(`status of run ${asked.id}`, e), moved))

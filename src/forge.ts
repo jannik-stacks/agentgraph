@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Context, Data, Effect, Layer, Stream } from 'effect';
+import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
 import { hostGit, type Checkout } from './sandbox.ts';
 
@@ -63,9 +63,44 @@ export type Proposal =
 
 /**
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
- * given.
+ * given. `at` is when its body was stamped with the run it came from.
  */
-export type Applied = { proposal: Proposal; ok: boolean; url?: string; id?: string; reason?: string };
+export type Applied = { proposal: Proposal; ok: boolean; url?: string; id?: string; reason?: string; at?: string };
+
+/** The run, step and session a write to the forge comes from. */
+export type Mark = { run: string; step: string; session?: string };
+
+/** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
+export const provenance = FiberRef.unsafeMake<Mark | undefined>(undefined);
+
+/** The studio page of a run, opened at the trace line written at or after `at`. */
+export const runLink = (studio: string, run: string, at: string) =>
+  `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}?at=${at}`;
+
+/** The body without any provenance marker or ⁂ link in it. */
+export const unstamped = (body: string) =>
+  body.replace(/<!--\s*bothub\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
+
+/**
+ * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any
+ * marker or link already in the body is dropped first.
+ */
+export const stamp = (body: string, mark: Mark, at: string, studio = '') => {
+  const fields = Object.entries({ ...mark, at })
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);
+  const link = studio ? `[⁂](${runLink(studio, mark.run, at)}) ` : '';
+  return `${unstamped(body)}\n\n${link}<!-- bothub ${fields.join(' ')} -->`;
+};
+
+/** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */
+export const marked = (p: Proposal, studio?: string) =>
+  Effect.map(FiberRef.get(provenance), (mark): { posted: Proposal; at?: string } => {
+    if (!('body' in p)) return { posted: p };
+    if (!mark) return { posted: { ...p, body: unstamped(p.body) } };
+    const at = new Date().toISOString();
+    return { posted: { ...p, body: stamp(p.body, mark, at, studio) }, at };
+  });
 
 export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string }> {}
 

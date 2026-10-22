@@ -12,13 +12,13 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { Chunk, Effect, Exit, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
+import { Chunk, Effect, Exit, FiberRef, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drive, gate, settle, sweep, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
 import { start as main, temporary } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
-import { fileForge, Forge, ForgeError, type Event, type Proposal } from '../src/forge.ts';
+import { fileForge, Forge, ForgeError, provenance, type Event, type Mark, type Proposal } from '../src/forge.ts';
 import { host, Sandbox, type Command } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
@@ -107,6 +107,7 @@ const services = (
   const specs: SessionSpec[] = [];
   const commands: Command[] = [];
   const order: (SessionSpec | Command)[] = [];
+  const marks: [Proposal['kind'], Mark | undefined][] = [];
   const recording = Layer.effect(
     Session,
     Effect.map(Session, s => ({
@@ -122,12 +123,20 @@ const services = (
   ).pipe(Layer.provide(host(where.origin)));
   const named = Layer.effect(
     Forge,
-    Effect.map(Forge, f => (slug ? { ...f, slug: Effect.succeed(slug) } : f))
+    Effect.map(Forge, f => ({
+      ...f,
+      ...(slug && { slug: Effect.succeed(slug) }),
+      apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
+        Effect.zipRight(
+          Effect.map(FiberRef.get(provenance), mark => marks.push([p.kind, mark])),
+          f.apply(n, p, work)
+        ),
+    }))
   ).pipe(Layer.provide(fileForge(where.forge)));
   const layer = Layer.mergeAll(named, fileStore(where.data), sandbox, recording);
   const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Session | Sandbox>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)));
-  return { specs, commands, order, run };
+  return { specs, commands, order, marks, run };
 };
 
 const traceOf = (data: string, id: string) =>
@@ -263,6 +272,28 @@ describe('drive', () => {
       at: '2026-10-18T00:00:00.000Z',
     } as const;
     expect(transition(w, waiting, reenter(w, waiting, merged)!)).toMatchObject({ status: 'done' });
+  }, 30_000);
+
+  it('writes to the forge under the run, its step and the session that proposed the write', async () => {
+    const where = world();
+    const { marks, run } = services(where, [
+      [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
+      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      judged,
+      [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
+    ]);
+    await run(drive(w, fresh(), hub));
+    const at = (step: string, session?: string) => ({ run: 'run-7', step, ...(session && { session }) });
+    expect(marks).toEqual([
+      ['label', at('triage')],
+      ['comment', at('triage')],
+      ['comment', at('triage', 't1')],
+      ['comment', at('implement')],
+      ['push', at('implement', 'i1')],
+      ['pull_request', at('implement', 'i1')],
+      ['comment', at('review')],
+      ['comment', at('implement', 'i1')],
+    ]);
   }, 30_000);
 
   it('shows how to reply under a review comment', async () => {
