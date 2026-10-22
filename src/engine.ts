@@ -1725,12 +1725,14 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
     run = (yield* store.get(run.id)) ?? run;
     if (!live(run)) return;
     base = run.base ?? base;
-    if (base.sha === head) return;
+    if (base.sha === head && !base.from) return;
+    const from = base.from ?? base.sha;
     const branch = expand(w.branch!, yield* forge.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
-    const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from: base.sha, onto: head }, work);
+    const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from, onto: head }, work);
     const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
-    const said = applied.ok ? [] : yield* land(unthreaded(run), [{ kind: 'comment', body }]);
+    const said =
+      applied.ok || (base.sha === head && base.from) ? [] : yield* land(unthreaded(run), [{ kind: 'comment', body }]);
     yield* store.trace(
       run.id,
       ...[applied, ...said]
@@ -1741,7 +1743,8 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
           applied: a,
         }))
     );
-    yield* store.put({ ...run, base: { ...base, sha: head } });
+    const { from: _pending, ...rest } = base;
+    yield* store.put({ ...run, base: { ...rest, sha: head, ...(!applied.ok && { from }) } });
   }).pipe(Effect.scoped);
 
 /**
@@ -2274,7 +2277,8 @@ export const tick = (
     for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(live)) {
       const w = hub.workflows[r.workflow];
       const head = r.base && issues.find(t => t.number === r.base!.pull)?.pull?.head;
-      if (!w || !r.base || !head || head === r.base.sha || pullOf(w, r.issue, issues) === undefined) continue;
+      if (!w || !r.base || !head || (head === r.base.sha && !r.base.from) || pullOf(w, r.issue, issues) === undefined)
+        continue;
       yield* follow(w, r, r.base, head).pipe(Effect.catchAll(e => Effect.logError(`follow run ${r.id}`, e)));
     }
 

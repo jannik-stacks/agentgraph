@@ -1883,6 +1883,36 @@ describe('stacks', () => {
     expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
   }, 30_000);
 
+  it('retries a refused stack follow from its last successful base', async () => {
+    const where = world();
+    const { move } = parent(where);
+    let refused = true;
+    const forge = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
+          if (p.kind === 'rebase' && !p.head && refused) {
+            refused = false;
+            return Effect.succeed({ proposal: p, ok: false, reason: 'temporary ref refusal' });
+          }
+          return f.apply(n, p, work);
+        },
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const layer = Layer.mergeAll(forge, fileStore(where.data), host(where.origin), scripted([child()]));
+    const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Sandbox | Session>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(layer)));
+    await run(drive(flow, run9(), merging));
+    const before = git(where.origin, 'rev-parse', 'agentgraph/9');
+    const moved = move('more.txt', 'more\n');
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
+    await run(tick(merging, 9));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9^')).toBe(moved);
+    expect(readFileSync(join(where.forge, '9.jsonl'), 'utf8').split('could not follow')).toHaveLength(2);
+  }, 30_000);
+
   it('says on the issue when the branch does not rebase cleanly and leaves it where it was', async () => {
     const where = world();
     const { move } = parent(where);
