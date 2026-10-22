@@ -158,7 +158,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     return io(path, async () => {
       if (!(await stat(path).catch(() => undefined))) {
         await mkdir(join(dir, 'logs'), { recursive: true });
-        const tmp = `${path}.${process.pid}.tmp`;
+        const tmp = `${path}.${randomUUID()}.tmp`;
         await writeFile(tmp, await promisify(gzip)(output));
         await rename(tmp, path);
       }

@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { Chunk, Effect, Exit, FiberRef, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
+import { Chunk, Deferred, Effect, Exit, FiberRef, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
 import { drive, gate, settle, sweep, tick } from '../src/engine.ts';
@@ -1064,6 +1064,54 @@ describe('a run branch that moved', () => {
     );
     expect(done.status).toBe('done');
     expect(issues.filter(t => t.parent === 7).map(t => t.title)).toEqual(['First part', 'Second part']);
+  }, 30_000);
+
+  it('persists identical output from concurrent checks without a temp-file collision', async () => {
+    const where = world();
+    const names = ['types', 'one', 'two', 'three'];
+    const checks = Object.fromEntries(
+      names.map(name => [name, { ...small.checks.types!, name, run: 'printf identical-output' }])
+    );
+    const checked = { ...flow, steps: flow.steps.map(step => ({ ...step, checks: names })) };
+    const kit = { ...small, checks, workflows: { issue: checked } };
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.gen(function* () {
+        const s = yield* Sandbox;
+        const ready = yield* Deferred.make<void>();
+        let completed = 0;
+        return {
+          ...s,
+          exec: (command: Command) =>
+            s.exec(command).pipe(
+              Effect.tap(() =>
+                Effect.gen(function* () {
+                  if (++completed === names.length) yield* Deferred.succeed(ready, undefined);
+                  yield* Deferred.await(ready);
+                })
+              )
+            ),
+        };
+      })
+    ).pipe(Layer.provide(host(where.origin)));
+    const layer = Layer.mergeAll(
+      fileForge(where.forge),
+      fileStore(where.data),
+      sandbox,
+      scripted([[start('a'), reply({ kind: 'comment', body: 'Checked.' })]])
+    );
+    const done = await Effect.runPromise(
+      drive(checked, begin(checked, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
+        Effect.provide(layer)
+      )
+    );
+    expect(done.status).toBe('done');
+    const logs = readdirSync(join(where.data, 'logs')).filter(name => name.endsWith('.gz'));
+    expect(logs).toHaveLength(1);
+    const output = await Effect.runPromise(
+      Effect.flatMap(Store, s => s.logOf(logs[0]!.slice(0, -3))).pipe(Effect.provide(fileStore(where.data)))
+    );
+    expect(output).toBe('identical-output');
   }, 30_000);
 
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
