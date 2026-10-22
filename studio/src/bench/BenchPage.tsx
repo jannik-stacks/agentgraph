@@ -26,9 +26,9 @@ const tones: Record<string, string> = {
   'claude-sub': 'text-orange-600 dark:text-orange-400',
 };
 const help: Record<keyof typeof defaults, string> = {
-  test: 'Hidden tests are the test files the merged pull request added. They run on top of the arm’s change after it finished: 1 when they pass, 0 when they fail.',
+  test: 'Test files added by the merged pull request, run on the arm’s finished change. Passing scores 1, failing scores 0.',
   judge:
-    'LLM judges compare the run’s diff with the human’s merged diff, blind. The human is the baseline: a tie scores 1, always preferring the run scores 2.',
+    'LLM judges compare the run’s diff with the human’s merged diff, blind. For quality, a tie scores 1, always preferring the run scores 2, always preferring the human scores 0.',
   suite: 'The repo’s own test suite and typecheck, run on the arm’s change: 1 when both pass.',
   crit: 'Penalty: a third for each critical or high finding above the human’s count on the same case, at most 1.',
   help: 'Penalty: the full weight when the run stopped to ask one or more questions.',
@@ -46,11 +46,10 @@ const presetHelp: Record<string, string> = {
   'judges only': 'Only judges count.',
 };
 const arm =
-  'How the change gets made, like the arms of a trial. v2 runs the engine with the repo’s hub: the change must pass the hub’s checks, like the repo’s own tests, and a reviewer can send it back once. floor is one plain agent session in the same sandbox and budget, with no checks and no review. human is the merged pull request, the baseline both are scored against.';
+  'How the change is made. v2 uses the engine and repo’s hub, with checks and one chance for a reviewer to send it back. floor is one plain agent session with the same sandbox and budget, without checks or review. human is the merged pull request. Circles show v2, squares show floor.';
 const set =
-  'A pinned list of cases that every point is run on, so points on the same set are comparable. core is the main set of real merged pull requests from the org’s repos. smoke is three small, fast cases from core for quick checks.';
-const terms: [string, string][] = [
-  ['point', 'One harness and model on one arm, with an engine commit, hub tree and case set. Each dot is a point.'],
+  'A pinned list of cases. Compare points on the same set. core uses real merged pull requests from the org’s repos. smoke uses three small, fast core cases for quick checks.';
+const terms: [string, ReactNode][] = [
   ['arm', arm],
   ['case set', set],
   ['base', 'The repo at the pull request’s parent commit, before any change.'],
@@ -59,27 +58,28 @@ const terms: [string, string][] = [
     'case',
     'One merged pull request. It is valid, and kept, only when the human diff applies to base, setup works, the hidden tests fail on base and pass on the human, and the human passes the suite.',
   ],
-  ['hidden tests', 'The test files the merged pull request added, placed on top of the arm’s change after it ran.'],
-  ['repeats', 'A repeat runs the same case again on the same point. cases counts distinct cases, runs every kept run.'],
+  ['repeats', 'Running the same case again on the same point.'],
   [
     'infra',
-    'The environment broke, or the run left an empty diff, failed setup or never finished. These runs say nothing about the agent and are left out unless they count as 0. Every other failure counts against the agent.',
+    'The environment broke, or the run left an empty diff, failed setup or never finished. These runs are left out by default. Every other failure counts against the agent.',
   ],
-  [
-    'waiting',
-    'A run that stopped to ask a question. The bench answers once with “No more information. Use your judgment.” and asking at all costs the full help penalty.',
-  ],
-  [
-    'quality',
-    'Per run, the weighted mean of the hidden test, judge and suite scores it has, minus penalties for extra critical or high findings and for asking. 0 is nothing useful, 1 is as good as the human.',
-  ],
+  ['waiting', 'A run stopped to ask a question. The bench answers once: “No more information. Use your judgment.”'],
   [
     'judges',
-    'opus and sonnet (Claude) and sol (a GPT model) compare the run’s diff with the human’s in one or both orders, with names, issue numbers and lockfiles removed. A vote for the run scores 1, a tie 0.5, a vote for the human 0.',
+    'opus and sonnet are Claude models. sol is a GPT model. They see the diffs in one or both orders, with names, issue numbers and lockfiles removed.',
   ],
   [
     'chart',
-    'Crosses are 95 percent intervals from a bootstrap over cases, then repeats. The line steps through the setups no cheaper setup matches in quality, and is dashed and faint while a setup on it has fewer than 10 cases. A dimmed point has a cheaper setup that matches it. A hollow point is dimmed, but its interval still reaches the line.',
+    <>
+      Higher and further left is better. The line joins setups whose quality no cheaper setup matches. It is faint and
+      dashed if any setup on it has fewer than 10 cases. Dimmed points have a cheaper match. Hollow points are dimmed
+      but their quality interval still reaches the line. Crosses show 95 percent intervals from a bootstrap over cases,
+      then repeats. This chart compares setups. The{' '}
+      <Link href="/compound" className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100">
+        Compound
+      </Link>{' '}
+      tab shows change over time.
+    </>,
   ],
 ];
 
@@ -169,7 +169,7 @@ export const BenchPage = () => {
   ][] = [
     [
       'point',
-      'The harness and model, when there are several, followed by the arm and case set.',
+      'Each dot is one harness and model on one arm, with an engine commit, hub tree and case set. Labels show the arm and case set, plus the harness and model when there are several.',
       p => label(p.key),
       p => (
         <Tooltip tip={describe(p.key)}>
@@ -180,7 +180,12 @@ export const BenchPage = () => {
     ['cases', 'Distinct cases with at least one kept run.', p => p.n, p => p.n],
     ['runs', 'All kept runs, including repeats.', p => p.repeats, p => p.repeats],
     ['completion', 'The share of runs that were not infra.', p => p.completion, p => fmt(p.completion)],
-    ['quality', 'Mean quality and its 95 percent interval.', p => p.y, p => `${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`],
+    [
+      'quality',
+      'Mean quality and its 95 percent interval. Each run uses the weighted mean of its available hidden test, judge and CI scores, minus the findings and asking penalties. 0 means nothing useful.',
+      p => p.y,
+      p => `${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`,
+    ],
     [
       minutes ? 'minutes, interval' : 'usd per task',
       minutes
@@ -193,7 +198,7 @@ export const BenchPage = () => {
     ['hidden pass', 'The share of runs that pass the hidden tests.', p => p.hidden ?? -1, p => fmt(p.hidden)],
     [
       'vs human',
-      'Average judge preference. 1 means always preferring the run, 0.5 parity with the human, 0 always preferring the human.',
+      'Average judge vote, before doubling for quality. A vote for the run scores 1, a tie 0.5, a vote for the human 0.',
       p => p.vsHuman ?? -1,
       p => fmt(p.vsHuman),
     ],
@@ -206,7 +211,7 @@ export const BenchPage = () => {
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       <aside className="shrink-0 space-y-4 overflow-y-auto border-b border-zinc-200 p-4 text-xs md:w-64 md:border-r md:border-b-0 dark:border-zinc-800">
-        <Control label="Weights" tip="Each run’s quality is the weighted mean of the parts it has, minus penalties.">
+        <Control label="Weights" tip="Choose a preset or adjust how much each score and penalty counts.">
           <div className="flex flex-wrap gap-1">
             {Object.entries(presets).map(([name, p]) => (
               <Tooltip key={name} tip={presetHelp[name]}>
@@ -245,7 +250,7 @@ export const BenchPage = () => {
         </Control>
         <Control
           label="Axis"
-          tip="Cost prices each run’s tokens at list price, with their own rates for cache reads and writes, or takes the cost the harness reported when there are no tokens. Cache off prices cache reads and writes as plain input. Minutes are wall time, with time the machine slept removed."
+          tip={`Cost prices each run’s tokens at list price, with separate rates for cache reads and writes. Without tokens, it uses the cost reported by the harness. Cache off prices cache reads and writes as plain input. Minutes are wall time with machine sleep removed.${!minutes && value.prices.asOf ? ` Prices as of ${value.prices.asOf}.` : ''}`}
         >
           <Select
             label="x"
@@ -260,7 +265,6 @@ export const BenchPage = () => {
               setCache(v === 'off' ? 'off' : null);
             }}
           />
-          {!minutes && value.prices.asOf && <p className="text-zinc-500">Prices as of {value.prices.asOf}.</p>}
         </Control>
         <Control label="Filter" tip="Show only cases from one repo, and choose how infra runs count.">
           <Select
@@ -304,29 +308,20 @@ export const BenchPage = () => {
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
         <section className="max-w-3xl">
           <p className="mb-2 text-xs text-pretty text-zinc-600 dark:text-zinc-400">
-            Each point is one setup: a harness and model running one arm <Help tip={arm} /> on one case set{' '}
-            <Help tip={set} />. Across is {minutes ? 'minutes' : 'cost'} per task, up is quality, where the human’s
-            merged pull request scores 1. Up and to the left is better, and the line steps through the setups no cheaper
-            setup matches in quality. This chart does not show change over time, the{' '}
-            <Link
-              href="/compound"
-              className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
-            >
-              Compound
-            </Link>{' '}
-            tab does.
+            Each point is a harness and model running one arm <Help tip={arm} /> on one case set <Help tip={set} />. The
+            human’s merged pull request is the baseline and scores 1.
           </p>
           <Scatter
             log={!minutes}
             xLabel={xLabel}
-            yLabel="quality, human = 1"
+            yLabel="quality"
             xTip={
               minutes
                 ? 'Minutes per task, averaged over repeats within each case, then over cases.'
                 : 'Notional USD cost per task on a log scale, averaged over repeats within each case, then over cases.'
             }
-            yTip="Quality per task, averaged over repeats within each case, then over cases. 0 means nothing useful, 1 means as good as the human."
-            hTip="The human’s quality is 1 by definition."
+            yTip="Quality per task, averaged over repeats within each case, then over cases."
+            hTip="The human baseline."
             hLine={1}
             line={onFront}
             rough={rough}
@@ -361,10 +356,7 @@ export const BenchPage = () => {
               };
             })}
           />
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Circles are v2, the engine with its checks and review. Squares are floor, one plain session without them.
-            Click a point to see its runs. The terms below explain the rest.
-          </p>
+          <p className="mt-1 text-[11px] text-zinc-500">Click a point to see its runs.</p>
           <Disclosure summary="What the terms mean" className="mt-2 text-[11px] text-zinc-500">
             <div className="mt-1 max-w-2xl">
               <Fields>
