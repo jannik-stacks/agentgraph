@@ -56,7 +56,7 @@ Omit `--dry` to prune. Before checkouts, builds and commands, free space is chec
 
 ### Toolchains
 
-The sandbox carries toolchain managers and a C compiler. `agentgraph-cache` at `/cache` shares rustup, cargo and npm/pnpm/yarn downloads across runs and data directories. These tools lock writes except yarn 1.
+The sandbox carries toolchain managers and a C compiler. `agentgraph-cache` at `/cache` shares rustup, cargo and npm/pnpm/yarn downloads across runs, environment builds and data directories. These tools lock writes except yarn 1.
 
 Root `rust-toolchain` or `rust-toolchain.toml` selects pinned Rust; `Cargo.toml` alone selects stable. The step adds clippy and rustfmt and fetches crates when a Cargo manifest exists. Then hub `toolchain` adds anything else:
 

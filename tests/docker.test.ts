@@ -251,6 +251,12 @@ describe('docker with a stand-in docker client', () => {
     const all = readFileSync(`${log}.all`, 'utf8');
     const text = all.slice(all.lastIndexOf('agentgraph.envbuild'));
     expect(text).toContain('--network bridge');
+    for (const env of [
+      'npm_config_cache=/cache/npm',
+      'npm_config_store_dir=/cache/pnpm',
+      'YARN_CACHE_FOLDER=/cache/yarn',
+    ])
+      expect(text).toContain(`-e ${env} `);
     expect(text).toContain(base);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/volume create .* agentgraph-layer-\w+-0\n/);
     expect(text).toContain('archive "$2" | tar -x -C /work');

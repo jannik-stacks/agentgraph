@@ -40,6 +40,16 @@ export const toolchainOf = (files: string[]) => {
 export const manifest =
   /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|yarn\.lock|\.npmrc|Cargo\.toml|Cargo\.lock|rust-toolchain(\.toml)?)$/;
 
+/**
+ * Where npm, pnpm and yarn keep what they download, shared by every container and Env build through the cache volume
+ * at `/cache`. npm and pnpm lock their own writes; yarn 1 does not, and without this its cache fills the small `/tmp`.
+ */
+export const caches = {
+  npm_config_cache: '/cache/npm',
+  npm_config_store_dir: '/cache/pnpm',
+  YARN_CACHE_FOLDER: '/cache/yarn',
+};
+
 /** Containers keep no log on the docker disk; the runner reads their output as they run. */
 export const unlogged = ['--log-driver', 'none'];
 
@@ -238,7 +248,13 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
         '8g',
         '--mount',
         `type=bind,src=${spec.git},dst=${spec.git},readonly`,
-        ...(spec.cache ? ['--mount', `type=volume,src=${spec.cache},dst=/cache`] : []),
+        ...(spec.cache
+          ? [
+              '--mount',
+              `type=volume,src=${spec.cache},dst=/cache`,
+              ...Object.entries(caches).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
+            ]
+          : []),
         '--mount',
         `type=volume,src=${lowerOf(key)},dst=/lower`,
         spec.image,

@@ -5,7 +5,19 @@ import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
 import type { Hub } from './hub.ts';
-import { dependencyDirs, discard, envOf, type Layer as Deps, layer, mark, reap, room, sweep, unlogged } from './env.ts';
+import {
+  dependencyDirs,
+  discard,
+  envOf,
+  type Layer as Deps,
+  layer,
+  mark,
+  reap,
+  room,
+  sweep,
+  caches,
+  unlogged,
+} from './env.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
@@ -53,16 +65,6 @@ export type Made = { mounts: Mount[]; layers?: Deps[] } & Pick<Hub, 'image' | 'n
 const volume = (name: string, dst: string, nocopy = false) => {
   if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
   return ['--mount', `type=volume,src=${name},dst=${dst}${nocopy ? ',volume-nocopy' : ''}`];
-};
-
-/**
- * Where npm, pnpm and yarn keep what they download, shared by every container through the cache. npm and pnpm lock
- * their own writes; yarn 1 does not, and without this its cache fills the small `/tmp`.
- */
-const caches = {
-  npm_config_cache: `${inside.cache}/npm`,
-  npm_config_store_dir: `${inside.cache}/pnpm`,
-  YARN_CACHE_FOLDER: `${inside.cache}/yarn`,
 };
 
 /**
