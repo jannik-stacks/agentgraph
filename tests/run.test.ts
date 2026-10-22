@@ -1805,7 +1805,9 @@ describe('coworker', () => {
       const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
       expect(issue.join('\n')).not.toContain(findings);
       if (!fixed) {
-        expect(done.reason).toBe('implement failed after 3 tries (checks: types). How should I proceed?');
+        expect(done.reason).toBe(
+          'implement failed after 3 tries (checks: types).\n\ntypes: hello.txt:1: TODO remains\n\nHow should I proceed?'
+        );
         expect(issue).toContain(done.reason);
       }
       const outcomes = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome.kind] : []));

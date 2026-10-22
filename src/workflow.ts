@@ -254,6 +254,19 @@ export const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
     ...o.problems,
   ].join('\n');
 
+const readable = (findings: string) =>
+  findings
+    .split('\n')
+    .map(line => {
+      try {
+        const finding: unknown = JSON.parse(line);
+        if (finding && typeof finding === 'object' && 'why' in finding && typeof finding.why === 'string')
+          return 'at' in finding && typeof finding.at === 'string' ? `${finding.at}: ${finding.why}` : finding.why;
+      } catch {}
+      return line;
+    })
+    .join('\n');
+
 /** The run at the first step of a workflow, or at `first`. */
 export function begin(w: Workflow, run: Pick<Run, 'id' | 'issue' | 'started'>, first = w.steps[0]!): Run {
   return {
@@ -308,7 +321,17 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
         const text = failure(o);
         const question =
           o.checks.length > 0
-            ? `${step.name} failed after ${tries} tries (checks: ${o.checks.map(c => c.check).join(', ')}). How should I proceed?`
+            ? [
+                `${step.name} failed after ${tries} tries (checks: ${o.checks.map(c => c.check).join(', ')}).`,
+                failure({
+                  ...o,
+                  checks: o.checks.map(c => ({
+                    ...c,
+                    ...(c.findings !== undefined && { findings: readable(c.findings) }),
+                  })),
+                }),
+                'How should I proceed?',
+              ].join('\n\n')
             : text;
         return tries < step.tries
           ? { ...fresh(run), tries, feedback: text }

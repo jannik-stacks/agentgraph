@@ -72,8 +72,22 @@ describe('transition, running', () => {
       step: 'implement',
       status: 'waiting',
       tries: 4,
-      reason: 'implement failed after 4 tries (checks: types). How should I proceed?',
+      reason:
+        'implement failed after 4 tries (checks: types).\n\ntypes: x.ts:1 error\nno agentgraph block\n\nHow should I proceed?',
+      feedback: 'types: x.ts:1 error\nno agentgraph block',
     });
+  });
+
+  it('makes structured check findings readable in the question and keeps the raw feedback', () => {
+    const findings = '{"at":"x.ts:1","why":"Missing return"}\nplain failure\n{"why":"No size label proposed"}';
+    const next = transition(w, at('implement', { tries: 3 }), {
+      ...failed,
+      checks: [{ check: 'types', pass: false, findings, ms: 10 }],
+    });
+    expect(next.reason).toBe(
+      'implement failed after 4 tries (checks: types).\n\ntypes: x.ts:1: Missing return\nplain failure\nNo size label proposed\nno agentgraph block\n\nHow should I proceed?'
+    );
+    expect(next.feedback).toBe(`types: ${findings}\nno agentgraph block`);
   });
 
   it('failed on a step with one try: waiting at once', () => {
