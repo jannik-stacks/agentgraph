@@ -302,3 +302,20 @@ describe('clarinet reach check', () => {
     expect(out.out.split('\n')[0]).toBe('components/a.rs (CLI) not reached: a follow-up does it');
   });
 });
+
+describe('clarinet toolchain checks', () => {
+  const scripts = resolve(import.meta.dirname, '../examples/clarinet/scripts');
+  const bare = { PATH: '/usr/bin:/bin', HOME: temp('bare-home'), TMPDIR: temp('bare-tmp') };
+
+  it('exits 127 with the spawn error when cargo cannot start, so the run stops as an environment fault', () => {
+    const r = spawnSync(process.execPath, [join(scripts, 'cargo.mjs'), 'fmt'], { encoding: 'utf8', env: bare });
+    expect(r.status).toBe(127);
+    expect(r.stdout).toMatch(/cargo could not start: .*ENOENT/);
+  });
+
+  it('exits 127 naming the missing tool before the SDK build starts', () => {
+    const r = spawnSync('sh', [join(scripts, 'sdk.sh')], { encoding: 'utf8', env: bare, cwd: temp('sdk-tree') });
+    expect(r.status).toBe(127);
+    expect(r.stdout).toMatch(/^sdk: \S+ not found$/m);
+  });
+});
