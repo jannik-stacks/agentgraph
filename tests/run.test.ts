@@ -217,6 +217,44 @@ describe('drive', () => {
     30_000
   );
 
+  it('cleans a partially acquired checkout after index setup fails', async () => {
+    const where = world();
+    const small = hubOf('hub');
+    const flow = {
+      ...small.workflows.issue!,
+      steps: small.workflows.issue!.steps.map(step => ({ ...step, checks: [] })),
+    };
+    mkdirSync(where.data, { recursive: true });
+    let preserved = false;
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        checkout: (...args: Parameters<typeof s.checkout>) =>
+          Effect.zipRight(
+            Effect.sync(() => writeFileSync(join(where.data, 'index'), 'blocked')),
+            s.checkout(...args)
+          ).pipe(
+            Effect.onError(() =>
+              Effect.sync(() => {
+                preserved = readFileSync(join(where.data, 'index'), 'utf8') === 'blocked';
+                rmSync(join(where.data, 'index'));
+              })
+            )
+          ),
+      }))
+    ).pipe(Layer.provide(docker({ data: where.data, origin: where.origin, cache: '' })));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, scripted([]));
+    const done = await Effect.runPromise(
+      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+    );
+    expect(done).toMatchObject({ status: 'waiting', retried: true });
+    expect(readdirSync(join(where.data, 'work')).filter(name => !name.endsWith('.owner'))).toEqual([]);
+    const admin = join(where.data, 'mirror.git', 'worktrees');
+    expect(existsSync(admin) ? readdirSync(admin) : []).toEqual([]);
+    expect(preserved).toBe(true);
+  }, 30_000);
+
   it.each(['initialized', 'empty'])('does not steal a live run lock: %s', async kind => {
     const where = world();
     const previous = process.env.AGENTGRAPH_STATE;

@@ -387,12 +387,14 @@ export const docker = (o: {
             yield* Effect.try({ try: () => mark(dir), catch: e => infra((e as Error).message) });
             yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
             admin = yield* Effect.tryPromise({
+              try: () => worktreeAdmin(mirror, dir),
+              catch: e => infra((e as Error).message),
+            });
+            yield* Effect.tryPromise({
               try: async () => {
-                const found = await worktreeAdmin(mirror, dir);
                 await mkdir(dirname(index), { recursive: true });
                 await mkdir(news, { recursive: true });
-                await copyFile(join(found, 'index'), index);
-                return found;
+                await copyFile(join(admin, 'index'), index);
               },
               catch: e => infra((e as Error).message),
             });
@@ -418,13 +420,17 @@ export const docker = (o: {
           const remove = Effect.promise(() => {
             made.delete(dir);
             return Promise.all([
-              ...[dir, `${dir}.owner`, index, news, admin]
-                .filter(Boolean)
-                .map(p => rm(p, { recursive: true, force: true })),
+              ...[dir, `${dir}.owner`, index, news, admin].filter(Boolean).map(p =>
+                rm(p, { recursive: true, force: true }).catch(e => {
+                  if ((e as NodeJS.ErrnoException).code !== 'ENOTDIR') throw e;
+                })
+              ),
               discard(layers),
             ]);
           });
-          yield* Effect.acquireRelease(add, () => Effect.zipRight(keep ? save(keep) : Effect.void, remove));
+          yield* Effect.acquireRelease(add.pipe(Effect.onError(() => remove)), () =>
+            Effect.zipRight(keep ? save(keep) : Effect.void, remove)
+          );
           return work;
         });
 
