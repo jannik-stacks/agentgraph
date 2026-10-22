@@ -186,7 +186,7 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   const lines = [...toolchainOf(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join('\n');
   if (!lines && !spec.setup) return undefined;
   const key = createHash('sha256')
-    .update(JSON.stringify([3, from, tree, lines, spec.setup ?? '']))
+    .update(JSON.stringify([4, from, tree, lines, spec.setup ?? '']))
     .digest('hex')
     .slice(0, 24);
   const tag = tagOf(spec.repo, key);
