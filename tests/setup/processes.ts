@@ -1,7 +1,8 @@
 import { appendFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { startTime } from './global.ts';
 
-/** Appends the pid of every process a test worker spawns to the file in BOTHUB_TEST_PROCESSES. */
+/** Appends the pid and start time of every process a test worker spawns to the file in BOTHUB_TEST_PROCESSES. */
 const childProcess = createRequire(import.meta.url)('node:child_process') as typeof import('node:child_process');
 const log = process.env.BOTHUB_TEST_PROCESSES;
 const marker = Symbol.for('bothub.recordedSpawn');
@@ -11,7 +12,8 @@ if (log && !(marker in childProcess.spawn)) {
     const original = childProcess[name] as (...args: unknown[]) => import('node:child_process').ChildProcess;
     const recorded = (...args: unknown[]) => {
       const child = original(...args);
-      if (child.pid) appendFileSync(log, `${child.pid}\n`);
+      const started = child.pid && startTime(child.pid);
+      if (started) appendFileSync(log, `${child.pid} ${started}\n`);
       return child;
     };
     Object.defineProperty(recorded, marker, { value: true });
