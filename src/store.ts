@@ -60,7 +60,7 @@ export const checkLogs = ['all', 'failed', 'off'] as const;
 export class StoreError extends Data.TaggedError('StoreError')<{ path: string; cause: unknown }> {}
 
 /** Runs, traces and run files in the data dir. */
-export class Store extends Context.Tag('bothub/Store')<
+export class Store extends Context.Tag('agentgraph/Store')<
   Store,
   {
     get: (id: string) => Effect.Effect<Run | undefined, StoreError>;

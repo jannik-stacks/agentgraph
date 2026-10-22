@@ -19,7 +19,7 @@ override the defaults. A set pins each case's `base`; a case whose folder has an
 a case again instead of reusing it. The model is any alias of the model proxy, such as `--point opencode:glm` for an
 OpenRouter model ([local stack](../infra/local/README.md#openrouter-models)). Either puts the run in `runs/<sha>/<harness>-<model>/r<k>`, with a
 `point.json` that names the harness, model, engine, hub trees, set and repeat. When the keys file has
-`BOTHUB_LLM_API_KEY_PT_<HARNESS>_<MODEL>`, every agent uses that key. `--pairs human` judges each arm
+`AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>`, every agent uses that key. `--pairs human` judges each arm
 against the human only. `BENCH_HUB=<dir>` runs the v2 arm on that hub as it is, in place of the repo's, and its
 content joins the arm's cache key.
 
@@ -35,7 +35,7 @@ A case is a folder with `case.json`, `issue.md` and `merged.diff`. `case.json` n
 `base` (the parent commit) and the `merged` commit. The commands are optional: `test` runs the tests
 the merged change adds, `suite` the whole suite (it falls back to `test`), `typecheck`, and `setup`
 before them. `image` names a local image the score step starts from in place of the sandbox image, such as
-`bothub-sandbox:node20` from `infra/local/sandbox/node20` for a repo that needs Node 20. A case with `hasTests: false` gets no test runs, only metrics and judges.
+`agentgraph-sandbox:node20` from `infra/local/sandbox/node20` for a repo that needs Node 20. A case with `hasTests: false` gets no test runs, only metrics and judges.
 Strata fields such as `size`, `kind` and `area` group the report.
 
 A case counts only when the hidden tests fail on the base and pass on the human, and the human diff

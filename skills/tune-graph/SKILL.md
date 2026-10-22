@@ -1,11 +1,11 @@
 ---
 name: tune-graph
-description: Tune a bothub hub on your own repo. Replays your merged pull requests, tries hub variants in parallel (graph structure, checks, skill lines) and keeps the ones that score higher, then shows you the result against the human and on held-out cases. Use when someone wants to improve or tune their bothub hub, graph or workflow for a repo.
+description: Tune a agentgraph hub on your own repo. Replays your merged pull requests, tries hub variants in parallel (graph structure, checks, skill lines) and keeps the ones that score higher, then shows you the result against the human and on held-out cases. Use when someone wants to improve or tune their agentgraph hub, graph or workflow for a repo.
 ---
 
 # Tune a hub on your repo
 
-A hub is the graph bothub runs on your issues: steps, checks, agents and skills. This skill finds a
+A hub is the graph agentgraph runs on your issues: steps, checks, agents and skills. This skill finds a
 better one for your repo. It replays issues your team already solved, runs a hub on each, and scores
 the result against what the human merged. A score of 1 means as good as the human on the hidden tests.
 
@@ -20,12 +20,12 @@ runs out or nothing wins three rounds in a row. Then you explain the final hub t
   checkout and say so if anything changed.
 - Mining is read-only: GitHub GET calls and fresh clones under `~/bothub-data/`. No GitHub writes.
 - The user approves the plan (repo, model point, budget) before the first run, and approves the final
-  hub before it goes anywhere. You hand over a folder and a diff; the user puts it in `.bothub/`.
+  hub before it goes anywhere. You hand over a folder and a diff; the user puts it in `.agentgraph/`.
 - Never change the engine. Only hub files: agents, skills, checks, scripts, workflows, `hub.yaml` limits.
 - Subagents never read validate or test cases, their traces or their scores. Only fit and mine cases.
 - Keep everything. Drafts, candidates and runs stay on disk.
 
-Run every command from a bothub checkout. `S` is this skill's folder and `T` is the tune dir,
+Run every command from a agentgraph checkout. `S` is this skill's folder and `T` is the tune dir,
 `~/bothub-data/tune/<repo>/<name>`.
 
 ## 1. Plan with the user
@@ -135,7 +135,7 @@ Tell the user, in plain short sentences:
 - Where to look: the Compound tab (`npm --prefix studio run dev -- --tune ~/bothub-data/tune`, then
   `/compound`).
 
-Ask whether to adopt it. If yes, write `T/adopt.patch` against the user's current `.bothub/` and tell
+Ask whether to adopt it. If yes, write `T/adopt.patch` against the user's current `.agentgraph/` and tell
 them the command to apply it on a branch of their own. Do not apply it yourself.
 
 ## Benchmark mode

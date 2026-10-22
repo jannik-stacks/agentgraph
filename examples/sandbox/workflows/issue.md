@@ -1,6 +1,6 @@
 ---
 on: { issues: { label: agent:ready } }
-branch: bothub/{issue}
+branch: agentgraph/{issue}
 concurrency: steer
 steps:
   implement:

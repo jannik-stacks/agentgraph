@@ -1,6 +1,6 @@
 ---
 mode: block
-run: cat "$BOTHUB_REPLY"
+run: cat "$AGENTGRAPH_REPLY"
 agent: scout
 ---
 The base of this pull request moved under it. The change itself stayed the same and the tests pass.

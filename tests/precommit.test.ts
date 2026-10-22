@@ -6,10 +6,10 @@ import { commit, git, temp, write } from './kit.ts';
 
 const root = resolve(import.meta.dirname, '..');
 
-/** A repository holding the precommit script and the bothub hub, with `files` committed and `after` written on top. */
+/** A repository holding the precommit script and the agentgraph hub, with `files` committed and `after` written on top. */
 const repo = (files: Record<string, string>, after: Record<string, string>) => {
   const dir = temp('precommit');
-  for (const path of ['bin/precommit.sh', 'examples/bothub/checks', 'examples/bothub/scripts'])
+  for (const path of ['bin/precommit.sh', 'examples/agentgraph/checks', 'examples/agentgraph/scripts'])
     cpSync(join(root, path), join(dir, path), { recursive: true });
   git(dir, 'init', '-q', '-b', 'main');
   commit(dir, files);
@@ -19,7 +19,7 @@ const repo = (files: Record<string, string>, after: Record<string, string>) => {
 const precommit = (dir: string) =>
   spawnSync('sh', [join(dir, 'bin/precommit.sh'), 'rules', 'propagation'], {
     encoding: 'utf8',
-    env: { ...process.env, BOTHUB_BASE: '' },
+    env: { ...process.env, AGENTGRAPH_BASE: '' },
   });
 
 describe('precommit', () => {

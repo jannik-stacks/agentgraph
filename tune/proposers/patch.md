@@ -24,9 +24,9 @@ on the one in front of you.
 - `checks/<name>.md`: front matter `mode` (block fails the try, warn reports, stop ends the run), and `run`
   (a shell command run at the repo root in the sandbox; exit 0 passes, its output is shown to the
   implementor on the next try) and/or `agent` (a reply starting PASS or FAIL). Body: what it checks.
-  `$BOTHUB_HUB` is the hub dir, `$BOTHUB_BASE` the base commit, so `git diff "$BOTHUB_BASE"` is the change.
+  `$AGENTGRAPH_HUB` is the hub dir, `$AGENTGRAPH_BASE` the base commit, so `git diff "$AGENTGRAPH_BASE"` is the change.
   A check only runs when a step lists it under `checks`.
-- `scripts/<name>.mjs` or `.sh`: what a check or `each` runs, as `node "$BOTHUB_HUB/scripts/<name>.mjs"`.
+- `scripts/<name>.mjs` or `.sh`: what a check or `each` runs, as `node "$AGENTGRAPH_HUB/scripts/<name>.mjs"`.
   Node 22, no dependencies. Print one actionable line per finding and exit 1 when there is one.
 - `hub.yaml`: `setup` (shell, runs once per checkout with network) and `limits`.
 

@@ -11,7 +11,7 @@ import { fixture, git, plant } from './fixtures.ts';
 
 const dirs: string[] = [];
 const temp = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'bothub-doubles-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-doubles-'));
   dirs.push(dir);
   return dir;
 };
@@ -165,7 +165,7 @@ describe('fileForge push', () => {
     const push = () =>
       Effect.runPromise(
         Effect.flatMap(Forge, f =>
-          f.apply(1, { kind: 'push', branch: 'bothub/1', message: 'add hello' }, checkout)
+          f.apply(1, { kind: 'push', branch: 'agentgraph/1', message: 'add hello' }, checkout)
         ).pipe(Effect.provide(fileForge(dir)))
       );
     return { dir, origin, work, push };
@@ -174,7 +174,7 @@ describe('fileForge push', () => {
   it('pushes from a worktree of a mirror clone, as the docker sandbox makes them', async () => {
     const { dir, origin, push } = setup();
     expect((await push()).ok).toBe(true);
-    expect(git(dir, '--git-dir', origin, 'show', 'bothub/1:hello.txt')).toBe('hello');
+    expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
   });
 
   it('runs no code a session planted in its worktree', async () => {
@@ -182,7 +182,7 @@ describe('fileForge push', () => {
     const { marker } = plant(work);
     expect((await push()).ok).toBe(true);
     expect(existsSync(marker)).toBe(false);
-    expect(git(dir, '--git-dir', origin, 'show', 'bothub/1:hello.txt')).toBe('hello');
+    expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
   });
 });
 

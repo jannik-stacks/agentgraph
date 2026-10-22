@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 const data = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'bothub-logs-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-logs-'));
   dirs.push(dir);
   return dir;
 };

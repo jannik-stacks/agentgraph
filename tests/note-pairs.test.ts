@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, runScript, temp, write } from './kit.ts';
 
-const script = resolve(import.meta.dirname, '../examples/bothub/scripts/note-pairs.mjs');
+const script = resolve(import.meta.dirname, '../examples/agentgraph/scripts/note-pairs.mjs');
 
 const note = (title: string, body: string, status = 'accepted') =>
   `---\ntitle: ${title}\nstatus: ${status}\n---\n${body}\n`;
@@ -22,7 +22,7 @@ describe('note-pairs', () => {
           'export const stepOf = (issue: { body: string }) => /step marker: (\\S+)/.exec(issue.body)?.[1];\n',
       }
     );
-    const { ok, out } = runScript(script, repo, ['src/'], { BOTHUB_HUB: hub });
+    const { ok, out } = runScript(script, repo, ['src/'], { AGENTGRAPH_HUB: hub });
     expect(ok).toBe(true);
     const items = out.split('\n').map(line => JSON.parse(line));
     expect(items.map(item => item.path)).toEqual(['src/apply.ts:1 caveat/ids']);

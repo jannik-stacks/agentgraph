@@ -91,7 +91,7 @@ if (import.meta.main) {
     BENCH_CACHE: join(out, '.cache'),
     ...(values.fresh && { BENCH_FRESH: '1' }),
   };
-  const hub = (path: string) => git('rev-parse', `${sha}:bothub/${path}`).stdout.trim();
+  const hub = (path: string) => git('rev-parse', `${sha}:agentgraph/${path}`).stdout.trim();
   mkdirSync(dir, { recursive: true });
   const point = {
     harness,

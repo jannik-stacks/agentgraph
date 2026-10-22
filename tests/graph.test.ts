@@ -94,8 +94,8 @@ describe('graphOf', () => {
     expect(merge!.asides).toBe(true);
     expect(implement!.asides).toBeUndefined();
     expect(graphOf(workflows.merge!, checks).nodes[0]!.doer).toBe('script');
-    expect(graphOf(fixture('bothub').workflows.retro!, {}).nodes[0]!.each).toBe(
-      'node "$BOTHUB_HUB/scripts/retro-items.mjs"'
+    expect(graphOf(fixture('agentgraph').workflows.retro!, {}).nodes[0]!.each).toBe(
+      'node "$AGENTGRAPH_HUB/scripts/retro-items.mjs"'
     );
   });
 

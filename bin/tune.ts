@@ -6,7 +6,7 @@
  *        node bin/tune.ts run <tune dir> --iterations 8 [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  *        node bin/tune.ts checkpoint <tune dir>
  *        node bin/tune.ts propose <tune dir> --from <hub dir> --why <text> [--as manual|skill]
- * Tunes live in ~/bothub-data/tune/<repo>/<name> (BOTHUB_TUNE moves the root).
+ * Tunes live in ~/bothub-data/tune/<repo>/<name> (AGENTGRAPH_TUNE moves the root).
  */
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -33,7 +33,7 @@ import {
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {
   repo: string;
-  /** The release tag at init, like `bothub-v0.2.0`, else the commit; every run needs its `src` tree. */
+  /** The release tag at init, like `agentgraph-v0.2.0`, else the commit; every run needs its `src` tree. */
   engine: string;
   point: string;
   cases: Record<string, Split>;
@@ -81,8 +81,8 @@ type Row = ReturnType<typeof rowsOf>[number];
 type Reading = { start: number; now: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
 
-const bothub = join(import.meta.dirname, '..');
-const tuneRoot = () => process.env.BOTHUB_TUNE ?? join(homedir(), 'bothub-data/tune');
+const agentgraph = join(import.meta.dirname, '..');
+const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), 'bothub-data/tune');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const save = write;
 const round = (n: number) => Math.round(n * 1000) / 1000;
@@ -273,7 +273,7 @@ const bench = {
         const child = spawn(
           process.execPath,
           [
-            join(bothub, 'bin/bench.ts'),
+            join(agentgraph, 'bin/bench.ts'),
             ...args,
             ...(o.keys ? ['--keys', o.keys] : []),
             ...(repeat > 1 ? ['--repeat', String(repeat)] : []),
@@ -330,7 +330,7 @@ type Io = typeof bench;
 
 /** The engine dir to run, after checking its `src` tree is the pinned engine's. */
 const engineAt = (t: Tune) => {
-  const dir = process.env.BENCH_ENGINE ?? bothub;
+  const dir = process.env.BENCH_ENGINE ?? agentgraph;
   const tree = (rev: string) =>
     spawnSync('git', ['-C', dir, 'rev-parse', `${rev}:./src`], { encoding: 'utf8' }).stdout.trim();
   if (tree('HEAD') !== tree(t.engine)) throw new Error(`the engine at ${dir} is not the tune's ${t.engine}`);
@@ -345,9 +345,9 @@ const git = (dir: string, args: string[], o: { hub?: string; index?: string } = 
       ...process.env,
       ...(o.index && { GIT_INDEX_FILE: o.index }),
       GIT_AUTHOR_NAME: 'tune',
-      GIT_AUTHOR_EMAIL: 'tune@bothub.invalid',
+      GIT_AUTHOR_EMAIL: 'tune@agentgraph.invalid',
       GIT_COMMITTER_NAME: 'tune',
-      GIT_COMMITTER_EMAIL: 'tune@bothub.invalid',
+      GIT_COMMITTER_EMAIL: 'tune@agentgraph.invalid',
     },
   }).trim();
 
@@ -472,11 +472,12 @@ export const init = async (
     for (const id of gated) if (splits[id] === 'validate' || splits[id] === 'test') cases[id] = splits[id];
     for (const id of Object.keys(cases)) cpSync(join(o.cases, id), join(dir, 'cases', id), { recursive: true });
     const engine = (...args: string[]) =>
-      spawnSync('git', ['-C', process.env.BENCH_ENGINE ?? bothub, ...args], { encoding: 'utf8' }).stdout.trim();
+      spawnSync('git', ['-C', process.env.BENCH_ENGINE ?? agentgraph, ...args], { encoding: 'utf8' }).stdout.trim();
     const t: Tune = {
       repo: String(meta(gated[0] ?? '').repo ?? repo),
       engine:
-        engine('describe', '--tags', '--exact-match', '--match', 'bothub-v*', 'HEAD') || engine('rev-parse', 'HEAD'),
+        engine('describe', '--tags', '--exact-match', '--match', 'agentgraph-v*', 'HEAD') ||
+        engine('rev-parse', 'HEAD'),
       point: o.point,
       cases,
       preset: 'hidden',
@@ -490,7 +491,7 @@ export const init = async (
     minimal(
       join(dir, 'cands', 'i000-init', 'hub'),
       { ...plan(t.repo, (first.tests as string[]) ?? []), ...mined },
-      read(join(bothub, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
+      read(join(agentgraph, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
     save(join(dir, 'tune.json'), t);
@@ -524,14 +525,14 @@ export const init = async (
  * toolchain line builds through the toolchain step, so the case plan's host setup is left out.
  */
 const minimal = (hub: string, commands: ReturnType<typeof plan>, toolchain?: string) => {
-  cpSync(join(bothub, 'examples/bench'), hub, { recursive: true });
+  cpSync(join(agentgraph, 'examples/bench'), hub, { recursive: true });
   rmSync(join(hub, 'agents/reviewer.md'), { force: true });
   rmSync(join(hub, 'scripts/review.mjs'), { force: true });
   save(
     join(hub, 'workflows/issue.md'),
     `---
 on: issue_comment
-branch: bothub/{issue}
+branch: agentgraph/{issue}
 steps:
   implement:
     agent: implementor
@@ -544,7 +545,7 @@ One issue becomes one pull request. The implementor changes the repo until the t
   );
   save(
     join(hub, 'checks/tests.md'),
-    read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$BOTHUB_HUB/scripts/tests.sh"')
+    read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
   );
   const each = commands.runner
     ? `[ -z "$files" ] || ${commands.runner} $files`

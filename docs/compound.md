@@ -60,7 +60,7 @@ Long text is cut in the middle, keys and tokens are redacted, a long session kee
 entries with a tally of the ones between, and past about 60,000 characters the oldest runs keep only
 how their sessions ended and their outcomes.
 
-Checks get the same file as `BOTHUB_TRACES`, so a script can grep it with no model, for example to see
+Checks get the same file as `AGENTGRAPH_TRACES`, so a script can grep it with no model, for example to see
 whether a session ran the tests after its last edit. <!-- code: src/engine.ts#traced -->
 
 ## Super review

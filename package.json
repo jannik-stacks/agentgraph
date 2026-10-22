@@ -1,5 +1,5 @@
 {
-  "name": "bothub",
+  "name": "agentgraph",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "format": "oxfmt src tests bin studio tune",
     "verify": "oxfmt --check src tests bin studio tune && oxlint && knip && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run build && npm run verify:hubs && npm run verify:docs",
     "precommit": "sh bin/precommit.sh",
-    "hooks": "git config core.hooksPath bothub/bin/hooks",
+    "hooks": "git config core.hooksPath agentgraph/bin/hooks",
     "verify:docs": "node bin/refs.mjs >/dev/null && node bin/commands.mjs && node bin/fields.mjs",
     "verify:hubs": "for hub in examples/*/; do [ -e \"${hub}hub.yaml\" ] || continue; node bin/run.ts check --hub \"$hub\" || exit 1; done"
   },

@@ -291,7 +291,7 @@ export const claudeUsed = (stream: string): Usage | undefined => {
 
 const claude = (args: string[], prompt: string, cwd: string, log: string) =>
   new Promise<string>((done, fail) => {
-    const child = spawn(process.env.BOTHUB_CLAUDE ?? 'claude', args, {
+    const child = spawn(process.env.AGENTGRAPH_CLAUDE ?? 'claude', args, {
       cwd,
       env: { ...process.env, NODE_OPTIONS: '' },
     });

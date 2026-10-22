@@ -41,7 +41,7 @@ const hostDocker = (image = true) => {
     ].join('\n')
   );
   chmodSync(join(bin, 'docker'), 0o755);
-  return { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, BOTHUB_CACHE_VOLUME: '' };
+  return { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, AGENTGRAPH_CACHE_VOLUME: '' };
 };
 const dirs: string[] = [];
 afterEach(() => {
@@ -54,7 +54,7 @@ index 1..2 100644
 +++ b/src/a.ts
 @@ -1,2 +1,3 @@
 -const a = 1;
-+// see #12 from bothub
++// see #12 from agentgraph
 +if (x && y) return 1;
  keep();
 diff --git a/src/a.test.ts b/src/a.test.ts
@@ -86,7 +86,7 @@ describe('bench helpers', () => {
 
   it('drops lockfiles and index lines and masks issue numbers and names', () => {
     const out = scrub(diff, ['morgan']);
-    expect(out).not.toMatch(/package-lock|^index |#12|bothub/m);
+    expect(out).not.toMatch(/package-lock|^index |#12|agentgraph/m);
     expect(out).toContain('+// see #N from someone');
   });
 
@@ -343,12 +343,12 @@ describe('points', () => {
     dirs.push(hub);
     mkdirSync(join(hub, 'agents'));
     for (const name of ['implementor', 'scout']) writeFileSync(join(hub, 'agents', `${name}.md`), '---\n---\n');
-    const before = process.env.BOTHUB_PROXY_KEYS;
-    process.env.BOTHUB_PROXY_KEYS = 'implementor=ki,reviewer=kr';
+    const before = process.env.AGENTGRAPH_PROXY_KEYS;
+    process.env.AGENTGRAPH_PROXY_KEYS = 'implementor=ki,reviewer=kr';
     repoint(hub, 'opencode:none');
-    const keys = process.env.BOTHUB_PROXY_KEYS;
-    if (before === undefined) delete process.env.BOTHUB_PROXY_KEYS;
-    else process.env.BOTHUB_PROXY_KEYS = before;
+    const keys = process.env.AGENTGRAPH_PROXY_KEYS;
+    if (before === undefined) delete process.env.AGENTGRAPH_PROXY_KEYS;
+    else process.env.AGENTGRAPH_PROXY_KEYS = before;
     expect(keys).toBe('implementor=ki,reviewer=kr,scout=ki');
   });
 

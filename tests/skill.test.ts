@@ -8,8 +8,8 @@ import { tmp } from './fixtures.ts';
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-  delete process.env.BOTHUB_TUNE;
-  delete process.env.BOTHUB_CLAUDE;
+  delete process.env.AGENTGRAPH_TUNE;
+  delete process.env.AGENTGRAPH_CLAUDE;
   delete process.env.STUB_HOT;
 });
 
@@ -67,7 +67,7 @@ process.stdin.on('end', () => {
 const setup = () => {
   const root = tmp('skill');
   dirs.push(root);
-  process.env.BOTHUB_TUNE = join(root, 'tune');
+  process.env.AGENTGRAPH_TUNE = join(root, 'tune');
   const cases = join(root, 'cases');
   const splits: Record<string, string> = {};
   const add = (id: string, split: string, day: number) => {
@@ -83,7 +83,7 @@ const setup = () => {
   add('t1', 'test', 12);
   writeFileSync(join(root, 'splits.json'), JSON.stringify(splits));
   writeFileSync(join(root, 'claude'), stub, { mode: 0o755 });
-  process.env.BOTHUB_CLAUDE = join(root, 'claude');
+  process.env.AGENTGRAPH_CLAUDE = join(root, 'claude');
   process.env.STUB_LOG = join(root, 'calls.jsonl');
   return { root, cases, splits: join(root, 'splits.json'), repos: join(root, 'repos'), point: 'opencode:luna' };
 };
@@ -122,7 +122,7 @@ describe('skill benchmark', () => {
     expect(calls).toHaveLength(2);
     const first = JSON.parse(calls[0]!) as { cwd: string; args: string[]; prompt: string };
     expect(first.args).toContain('--restricted');
-    expect(first.prompt).toMatch(/bothub:tune-graph skill in benchmark mode/);
+    expect(first.prompt).toMatch(/agentgraph:tune-graph skill in benchmark mode/);
     expect(existsSync(join(dir, 'skill/plugin/skills/tune-graph/SKILL.md'))).toBe(true);
 
     const steps = tuneRows(dir).steps;

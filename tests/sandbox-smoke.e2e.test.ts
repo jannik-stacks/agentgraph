@@ -3,12 +3,12 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const smoke = resolve(import.meta.dirname, '../infra/local/sandbox/smoke.sh');
-const image = 'bothub-sandbox:local';
+const image = 'agentgraph-sandbox:local';
 
 const docker = (args: string[], input?: string) =>
   spawnSync('docker', args, { encoding: 'utf8', input, timeout: 120_000 });
 const run = (tag: string) => spawnSync(smoke, [tag], { encoding: 'utf8', timeout: 120_000 });
-const up = () => process.env.BOTHUB_E2E === '1' && docker(['image', 'inspect', image]).status === 0;
+const up = () => process.env.AGENTGRAPH_E2E === '1' && docker(['image', 'inspect', image]).status === 0;
 
 describe.skipIf(!up())('the sandbox image smoke test', () => {
   it('passes on the built image', () => {
@@ -17,7 +17,7 @@ describe.skipIf(!up())('the sandbox image smoke test', () => {
 
   /** Runs the smoke test on the built image after `step` runs as root in it. */
   const broken = (step: string) => {
-    const tag = 'bothub-sandbox:smoke-broken';
+    const tag = 'agentgraph-sandbox:smoke-broken';
     expect(docker(['build', '-q', '-t', tag, '-'], `FROM ${image}\nUSER root\nRUN ${step}\nUSER node\n`).status).toBe(
       0
     );

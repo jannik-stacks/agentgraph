@@ -28,7 +28,7 @@ import { begin, cancelled, reenter, transition, type Run, type Step } from '../s
 import { git, hubOf } from './fixtures.ts';
 
 const foot = (...lines: string[]) =>
-  `<details><summary><sub>bothub</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
+  `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
 const replyHint = answerWith;
 const hub = hubOf('acme-app', {
   types: { run: '! grep -q TODO hello.txt' },
@@ -44,7 +44,7 @@ afterEach(() => {
 
 /** A bare origin with one commit on main, a forge with issue #7 and its `/agent` comment, and a data dir. */
 const world = () => {
-  const root = mkdtempSync(join(tmpdir(), 'bothub-run-'));
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-run-'));
   dirs.push(root);
   const seed = join(root, 'seed');
   mkdirSync(seed);
@@ -79,14 +79,14 @@ const write = (path: string, content: string): SessionEvent => ({
 });
 const reply = (...proposals: Proposal[]): SessionEvent => ({
   type: 'end',
-  final: `Done.\n\n\`\`\`bothub\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
+  final: `Done.\n\n\`\`\`agentgraph\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
   ended: 'stop',
   exit: 0,
 });
-const push: Proposal = { kind: 'push', branch: 'bothub/7', message: 'Add hello' };
+const push: Proposal = { kind: 'push', branch: 'agentgraph/7', message: 'Add hello' };
 const pull: Proposal = {
   kind: 'pull_request',
-  branch: 'bothub/7',
+  branch: 'agentgraph/7',
   base: 'main',
   title: 'Add hello',
   body: 'Closes #7',
@@ -189,11 +189,11 @@ describe('drive', () => {
       'Brief: add hello.txt',
       'still not right',
     ]);
-    expect(forge.labels).toEqual(['bothub:waiting']);
+    expect(forge.labels).toEqual(['agentgraph:waiting']);
     const pr = await run(Effect.flatMap(Forge, f => f.issue(8)));
-    expect(pr.pull).toMatchObject({ branch: 'bothub/7', base: 'main' });
-    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello world');
-    expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'bothub/7'));
+    expect(pr.pull).toMatchObject({ branch: 'agentgraph/7', base: 'main' });
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello world');
+    expect(pr.pull?.head).toBe(git(where.origin, 'rev-parse', 'agentgraph/7'));
     expect(existsSync(join(where.forge, '8', 'diff.patch'))).toBe(true);
 
     // retry and ways back resume the implementor's session; review is fresh every time
@@ -342,10 +342,10 @@ describe('drive', () => {
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped', tries: 0 });
     expect(stopped.reason).toMatch(/^safety: /);
     expect(specs).toHaveLength(3);
-    expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'bothub/7')).toThrow();
+    expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
     expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\n${foot('Cost so far: $0.25.')}`);
-    expect(issue.labels).toEqual(['bothub:stopped']);
+    expect(issue.labels).toEqual(['agentgraph:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
   }, 30_000);
@@ -378,25 +378,27 @@ describe('drive', () => {
     const where = world();
     const clone = join(where.root, 'clone');
     git(where.root, 'clone', '-q', where.origin, clone);
-    git(clone, 'checkout', '-q', '-b', 'bothub/8');
+    git(clone, 'checkout', '-q', '-b', 'agentgraph/8');
     writeFileSync(join(clone, 'CHAT.md'), 'early\n');
     git(clone, 'add', '-A');
     git(clone, 'commit', '-q', '-m', 'Touch CHAT.md');
-    git(clone, 'push', '-q', 'origin', 'bothub/8');
+    git(clone, 'push', '-q', 'origin', 'agentgraph/8');
     mkdirSync(join(where.forge, '8'), { recursive: true });
     writeFileSync(
       join(where.forge, '8.md'),
-      '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+      '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
     writeFileSync(
       join(where.forge, '8', 'pull.json'),
-      JSON.stringify({ branch: 'bothub/8', base: 'main', head: git(clone, 'rev-parse', 'HEAD') })
+      JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: git(clone, 'rev-parse', 'HEAD') })
     );
     const { run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-      [start('i1'), write('hello.txt', 'hello\n'), reply({ ...push, branch: 'bothub/8' })],
+      [start('i1'), write('hello.txt', 'hello\n'), reply({ ...push, branch: 'agentgraph/8' })],
     ]);
-    const scoped = hubOf('acme-app', { safety: { run: '! git diff --name-only $BOTHUB_BASE | grep -qx CHAT.md' } });
+    const scoped = hubOf('acme-app', {
+      safety: { run: '! git diff --name-only $AGENTGRAPH_BASE | grep -qx CHAT.md' },
+    });
     const stopped = await run(drive(w, begin(w, { id: 'run-8', issue: 8, started: fresh().started }), scoped));
     expect(stopped).toMatchObject({ step: 'implement', status: 'stopped' });
     expect(stopped.reason).toMatch(/^safety: /);
@@ -409,7 +411,7 @@ describe('drive', () => {
       [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
     ]);
     const reads = hubOf('acme-app', {
-      safety: { run: 'cat "$BOTHUB_CONTEXT"; echo "issue $BOTHUB_ISSUE"; cat "$BOTHUB_REPLY"; exit 1' },
+      safety: { run: 'cat "$AGENTGRAPH_CONTEXT"; echo "issue $AGENTGRAPH_ISSUE"; cat "$AGENTGRAPH_REPLY"; exit 1' },
     });
     const stopped = await run(drive(w, fresh(), reads));
     expect(stopped.reason).toContain('## #7 Add a greeting\n\nAdd hello.txt.');
@@ -479,10 +481,10 @@ describe('drive', () => {
                 type: 'tool',
                 tool: 'bash',
                 callID: 'c1',
-                state: { status: 'completed', input: { command: 'env' }, output: `BOTHUB_LLM_API_KEY=${key}` },
+                state: { status: 'completed', input: { command: 'env' }, output: `AGENTGRAPH_LLM_API_KEY=${key}` },
               },
             }),
-            'bothub-exit 0',
+            'agentgraph-exit 0',
           ]),
       }))
     ).pipe(Layer.provide(host(where.origin)));
@@ -496,7 +498,7 @@ describe('drive', () => {
     await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
     const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
     expect(text).toContain('"prompt"');
-    expect(text).toContain('BOTHUB_LLM_API_KEY=***');
+    expect(text).toContain('AGENTGRAPH_LLM_API_KEY=***');
     expect(text).not.toContain(key);
   }, 30_000);
 });
@@ -563,12 +565,12 @@ const check = (issue: number, name: string, conclusion: string, at: string): Eve
 const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {
   writeFileSync(
     join(where.forge, '8.md'),
-    '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+    '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
   );
   mkdirSync(join(where.forge, '8'), { recursive: true });
   writeFileSync(
     join(where.forge, '8', 'pull.json'),
-    JSON.stringify({ branch: 'bothub/7', base: 'main', head: 'x', baseSha: base })
+    JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: base })
   );
 };
 
@@ -592,7 +594,7 @@ describe('tick', () => {
     ]);
     const first = await run(tick(small));
     expect(first.map(r => [r.id, r.status])).toEqual([['issue-7-20261016000000000', 'done']]);
-    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
     expect(await run(tick(small))).toEqual([]);
     where.human('/agent once more', '2026-10-17T00:00:00.000Z');
     const second = await run(tick(small));
@@ -663,7 +665,7 @@ describe('tick', () => {
     await run(tick(small));
     expect(specs[1]!.prompt).toContain('use comment, it is posted under the thread you are answering');
     expect(specs[1]!.prompt).toContain('nothing from this reply was applied: send every proposal again');
-    expect(git(where.origin, 'branch', '--list', 'bothub/7')).toBe('');
+    expect(git(where.origin, 'branch', '--list', 'agentgraph/7')).toBe('');
   }, 30_000);
 
   it('keeps the worktree files of a parked run and puts them back when it reenters', async () => {
@@ -673,7 +675,7 @@ describe('tick', () => {
       [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Hello or hi?' })],
       [start('a'), write('bye.txt', 'bye\n'), reply(push)],
     ]);
-    const kept = 'refs/bothub/runs/run-7';
+    const kept = 'refs/agentgraph/runs/run-7';
     const [asked, done, saved] = await run(
       Effect.gen(function* () {
         const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
@@ -684,9 +686,9 @@ describe('tick', () => {
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Hello or hi?' });
     console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))));
     expect(saved).toBe('hello');
-    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
-    expect(git(where.origin, 'show', 'bothub/7:bye.txt')).toBe('bye');
-    expect(git(where.origin, 'log', '--format=%s', 'main..bothub/7')).toBe('Add hello');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
+    expect(git(where.origin, 'show', 'agentgraph/7:bye.txt')).toBe('bye');
+    expect(git(where.origin, 'log', '--format=%s', 'main..agentgraph/7')).toBe('Add hello');
     expect(git(where.origin, 'rev-parse', `${kept}^`)).toBe(git(where.origin, 'rev-parse', 'main'));
     expect(git(where.origin, 'show', `${kept}^2:hello.txt`)).toBe('hello');
   }, 30_000);
@@ -787,12 +789,12 @@ describe('tick', () => {
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'GitHub failed: forbidden' });
-    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
   }, 30_000);
 
   it('sends a run waiting at merge back when the aside a mention starts proposes back, resuming its fork', async () => {
     const where = world();
-    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     say(where, comment(8, 'morgan', true, '/agent please undo the greeting', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
       [start('f'), reply({ kind: 'comment', body: 'Will undo.' }, { kind: 'back', why: 'undo the greeting' })],
@@ -825,7 +827,7 @@ describe('tick', () => {
 
   it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
     const where = world();
-    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, []);
     await run(waiting(where));
@@ -899,7 +901,7 @@ describe('tick', () => {
 
   it('answers a question at merge from a fork of the work session, under its thread, and keeps waiting', async () => {
     const where = world();
-    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     const at = '2026-10-16T00:00:05.000Z';
     const asked = 'so the greeting was already documented in the README?';
     say(where, {
@@ -920,15 +922,15 @@ describe('tick', () => {
     expect(specs[0]).toMatchObject({ resume: { id: 'a', home: '/homes/a' }, fork: true });
     expect(specs[0]!.prompt).toContain(asked);
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
-    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under])).toEqual([
+    expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([
       ['No, README.md only says demo.', 'r1'],
     ]);
-    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(git(where.origin, 'rev-parse', 'main'));
   }, 30_000);
 
   it('answers a burst of review comments once, under the newest thread, and holds none of them once answered', async () => {
     const where = world();
-    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:bothub/7');
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
     const line = (id: string, body: string, at: string): Event => ({
       ...comment(8, 'morgan', true, body, at),
       comment: { id, author: 'morgan', body, at, path: 'hello.txt', line: 1 },
@@ -938,7 +940,9 @@ describe('tick', () => {
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Both asked for.' })]]);
     const [answered] = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
-    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under])).toEqual([['Both asked for.', 'r2']]);
+    expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under])).toEqual([
+      ['Both asked for.', 'r2'],
+    ]);
     expect(answered!.said).toEqual([{ issue: 8 }]);
   }, 30_000);
 
@@ -971,7 +975,7 @@ describe('tick', () => {
   it('ignores mentions from untrusted people and its own comments, and stops on a command on the issue', async () => {
     const where = world();
     say(where, comment(8, 'mallory', false, '/agent undo everything', '2026-10-16T00:00:05.000Z'));
-    say(where, comment(8, 'bothub[bot]', false, '/agent undo everything', '2026-10-16T00:00:06.000Z'));
+    say(where, comment(8, 'agentgraph[bot]', false, '/agent undo everything', '2026-10-16T00:00:06.000Z'));
     const { specs, run } = services(where, []);
     expect(await run(Effect.zipRight(waiting(where), tick(merging, 7)))).toEqual([]);
     where.human('/agent stop not needed', '2026-10-16T00:00:07.000Z');
@@ -1050,28 +1054,31 @@ describe('stacks', () => {
     start('a'),
     write(file, content),
     reply(
-      { kind: 'push', branch: 'bothub/9', message: 'Add bye' },
-      { kind: 'pull_request', branch: 'bothub/9', base: 'main', title: 'Add bye', body: 'Stacks on #7. Closes #9' }
+      { kind: 'push', branch: 'agentgraph/9', message: 'Add bye' },
+      { kind: 'pull_request', branch: 'agentgraph/9', base: 'main', title: 'Add bye', body: 'Stacks on #7. Closes #9' }
     ),
   ];
 
-  /** Pull request #8 on bothub/7 with hello.txt, issue #9 that stacks on #7, and `move` to push to bothub/7 again. */
+  /** Pull request #8 on agentgraph/7 with hello.txt, issue #9 that stacks on #7, and `move` to push to agentgraph/7 again. */
   const parent = (where: ReturnType<typeof world>) => {
     const clone = join(where.root, 'clone');
     git(where.root, 'clone', '-q', where.origin, clone);
-    git(clone, 'checkout', '-q', '-b', 'bothub/7');
+    git(clone, 'checkout', '-q', '-b', 'agentgraph/7');
     const move = (file: string, content: string) => {
       writeFileSync(join(clone, file), content);
       git(clone, 'add', '-A');
       git(clone, 'commit', '-q', '-m', `Write ${file}`);
-      git(clone, 'push', '-q', 'origin', 'bothub/7');
+      git(clone, 'push', '-q', 'origin', 'agentgraph/7');
       const head = git(clone, 'rev-parse', 'HEAD');
-      writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch: 'bothub/7', base: 'main', head }));
+      writeFileSync(
+        join(where.forge, '8', 'pull.json'),
+        JSON.stringify({ branch: 'agentgraph/7', base: 'main', head })
+      );
       return head;
     };
     writeFileSync(
       join(where.forge, '8.md'),
-      '---\ntitle: Add hello\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+      '---\ntitle: Add hello\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
     mkdirSync(join(where.forge, '8'), { recursive: true });
     const head = move('hello.txt', 'hello\n');
@@ -1097,15 +1104,15 @@ describe('stacks', () => {
     expect(parked).toMatchObject({
       step: 'merge',
       status: 'waiting',
-      base: { pull: 8, branch: 'bothub/7', sha: head },
+      base: { pull: 8, branch: 'agentgraph/7', sha: head },
     });
-    expect(specs[0]!.prompt).toContain('pull requests go into bothub/7.');
+    expect(specs[0]!.prompt).toContain('pull requests go into agentgraph/7.');
     const pr = pr10(where);
-    expect(pr.pull).toMatchObject({ branch: 'bothub/9', base: 'bothub/7' });
+    expect(pr.pull).toMatchObject({ branch: 'agentgraph/9', base: 'agentgraph/7' });
     expect(pr.body).toMatch(/\n\nCloses #9\n\nStacks on #8\n?$/);
     expect(pr.diff).toContain('bye.txt');
     expect(pr.diff).not.toContain('hello.txt');
-    expect(git(where.origin, 'rev-parse', 'bothub/9~1')).toBe(head);
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(head);
   }, 30_000);
 
   it('with stacks off, opens the same issue as an independent pull request off main', async () => {
@@ -1116,9 +1123,9 @@ describe('stacks', () => {
     expect(parked.base).toBeUndefined();
     expect(specs[0]!.prompt).toContain('pull requests go into main.');
     const pr = pr10(where);
-    expect(pr.pull).toMatchObject({ branch: 'bothub/9', base: 'main' });
+    expect(pr.pull).toMatchObject({ branch: 'agentgraph/9', base: 'main' });
     expect(pr.body).not.toContain('Stacks on');
-    expect(git(where.origin, 'rev-parse', 'bothub/9~1')).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(git(where.origin, 'rev-parse', 'main'));
   }, 30_000);
 
   it('rebases the branch onto the new head when #8 moves, keeping its own commit on top', async () => {
@@ -1128,15 +1135,15 @@ describe('stacks', () => {
     await run(drive(flow, run9(), merging));
     const moved = move('more.txt', 'more\n');
     await run(tick(merging, 9));
-    expect(git(where.origin, 'rev-parse', 'bothub/9~1')).toBe(moved);
-    expect(git(where.origin, 'log', '--format=%s', 'bothub/7..bothub/9')).toBe('Add bye');
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(moved);
+    expect(git(where.origin, 'log', '--format=%s', 'agentgraph/7..agentgraph/9')).toBe('Add bye');
     expect(saved(where)).toMatchObject({ status: 'waiting', base: { sha: moved } });
     const pr = pr10(where);
-    expect(pr.pull.head).toBe(git(where.origin, 'rev-parse', 'bothub/9'));
+    expect(pr.pull.head).toBe(git(where.origin, 'rev-parse', 'agentgraph/9'));
     expect(pr.diff).not.toContain('more.txt');
-    const before = git(where.origin, 'rev-parse', 'bothub/9');
+    const before = git(where.origin, 'rev-parse', 'agentgraph/9');
     await run(tick(merging, 9));
-    expect(git(where.origin, 'rev-parse', 'bothub/9')).toBe(before);
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
   }, 30_000);
 
   it('says on the issue when the branch does not rebase cleanly and leaves it where it was', async () => {
@@ -1144,11 +1151,11 @@ describe('stacks', () => {
     const { move } = parent(where);
     const { run } = services(where, [child('hello and bye\n', 'hello.txt')]);
     await run(drive(flow, run9(), merging));
-    const before = git(where.origin, 'rev-parse', 'bothub/9');
+    const before = git(where.origin, 'rev-parse', 'agentgraph/9');
     const moved = move('hello.txt', 'hi\n');
     await run(tick(merging, 9));
-    expect(git(where.origin, 'rev-parse', 'bothub/9')).toBe(before);
-    expect(readFileSync(join(where.forge, '9.jsonl'), 'utf8')).toContain('#8 moved and bothub/9 could not follow');
+    expect(git(where.origin, 'rev-parse', 'agentgraph/9')).toBe(before);
+    expect(readFileSync(join(where.forge, '9.jsonl'), 'utf8')).toContain('#8 moved and agentgraph/9 could not follow');
     expect(saved(where).base?.sha).toBe(moved);
   }, 30_000);
 });
@@ -1160,13 +1167,13 @@ describe('start with one issue', () => {
     writeFileSync(key, 'PEM');
     writeFileSync(
       join(where.root, 'app.env'),
-      `BOTHUB_APP_ID=42\nBOTHUB_APP_SLUG=stx-bothub\nBOTHUB_APP_KEY_FILE="${key}"\nBOTHUB_INSTALLATION_ID=7\n`
+      `AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_SLUG=stx-agentgraph\nAGENTGRAPH_APP_KEY_FILE="${key}"\nAGENTGRAPH_INSTALLATION_ID=7\n`
     );
     const sandbox = join(import.meta.dirname, '..', 'examples', 'sandbox');
     const env = {
-      BOTHUB_APP_ENV: join(where.root, 'app.env'),
-      BOTHUB_PROXY_KEYS: 'implementor=k1,reviewer=k2',
-      BOTHUB_HUB: sandbox,
+      AGENTGRAPH_APP_ENV: join(where.root, 'app.env'),
+      AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2',
+      AGENTGRAPH_HUB: sandbox,
     };
     Object.assign(process.env, env);
     const seen: Settings[] = [];
@@ -1193,10 +1200,14 @@ describe('start with one issue', () => {
     try {
       const parked = await main(one, doubles);
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
-      expect(seen[0]).toMatchObject({ repo: 'acme/sandbox', data: where.data, forge: { id: '42' } });
+      expect(seen[0]).toMatchObject({
+        repo: 'acme/sandbox',
+        data: where.data,
+        forge: { id: '42' },
+      });
       expect(Redacted.value((seen[0]!.forge as { key: Redacted.Redacted }).key)).toBe('PEM');
       expect(Redacted.value(seen[0]!.proxy.keys)).toBe('implementor=k1,reviewer=k2');
-      expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+      expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
 
       const later = new Date(Date.now() + 1000).toISOString();
       say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
@@ -1210,7 +1221,7 @@ describe('start with one issue', () => {
 
 describe('temporary', () => {
   it('names a data dir under a temp dir, by its own path or through a link, and its mirror', () => {
-    const home = mkdtempSync(join(homedir(), '.bothub-test-'));
+    const home = mkdtempSync(join(homedir(), '.agentgraph-test-'));
     dirs.push(home);
     const linked = join(home, 'data');
     symlinkSync('/tmp', linked);
@@ -1402,8 +1413,8 @@ describe('coworker', () => {
             file = /(\S+) holds what is new/.exec(spec.prompt)![1]!;
             expect(file.startsWith(spec.dir)).toBe(false);
             expect(spec.read).toEqual([dirname(file)]);
-            mkdirSync(join(spec.dir, '.bothub'));
-            symlinkSync(target, join(spec.dir, '.bothub', 'news.md'));
+            mkdirSync(join(spec.dir, '.agentgraph'));
+            symlinkSync(target, join(spec.dir, '.agentgraph', 'news.md'));
             symlinkSync(where.forge, join(spec.dir, 'news'));
             seen.push(news(spec.dir));
             say(where, comment(7, 'ana', true, 'also say bye', later(1)));
@@ -1413,7 +1424,7 @@ describe('coworker', () => {
             yield* minute(spec.dir, () => false);
             renameSync(join(where.forge, '7.away'), join(where.forge, '7.md'));
             writeFileSync(join(spec.dir, 'hello.txt'), 'hello\n');
-            rmSync(join(spec.dir, '.bothub'), { recursive: true });
+            rmSync(join(spec.dir, '.agentgraph'), { recursive: true });
             rmSync(join(spec.dir, 'news'));
           })
         ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push)]))),
@@ -1432,8 +1443,8 @@ describe('coworker', () => {
       '## New since you last looked\n\n@ana: also say bye\n',
       '## New since you last looked\n\n@ana: also say bye\n',
     ]);
-    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
-    expect(git(where.origin, 'ls-tree', '-r', '--name-only', 'bothub/7')).not.toContain('.bothub');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
+    expect(git(where.origin, 'ls-tree', '-r', '--name-only', 'agentgraph/7')).not.toContain('.agentgraph');
     expect(readFileSync(target, 'utf8')).toBe('keep\n');
   }, 30_000);
 
@@ -1475,7 +1486,7 @@ describe('coworker', () => {
     expect(specs).toHaveLength(2);
     expect(specs[1]!.resume?.id).toBe('a');
     expect(specs[1]!.prompt).toContain('@ana: /agent say bye too');
-    expect(specs[1]!.prompt).toContain('end your reply with the whole bothub block again');
+    expect(specs[1]!.prompt).toContain('end your reply with the whole agentgraph block again');
   }, 30_000);
 
   it('queue: a comment made while the session works applies once the try ends, as an answer would', async () => {
@@ -1508,17 +1519,17 @@ describe('coworker', () => {
     expect(stopped).toMatchObject({ status: 'stopped', reason: 'wrong issue' });
   }, 30_000);
 
-  const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'bothub' } } } } };
+  const assigned = { ...small, workflows: { issue: { ...flow, on: { issues: { label: 'agentgraph' } } } } };
   const labelled = (actor: string, trusted: boolean, kind: 'label' | 'unlabel', at: string): Event => ({
     issue: 7,
     kind,
     actor,
     trusted,
     at,
-    label: 'bothub',
+    label: 'agentgraph',
   });
 
-  it("begins a run on a maintainer's bothub label, not on an outsider's, and stops it when the label is removed", async () => {
+  it("begins a run on a maintainer's agentgraph label, not on an outsider's, and stops it when the label is removed", async () => {
     const where = world();
     say(where, labelled('mallory', false, 'label', '2026-10-16T00:00:01.000Z'));
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
@@ -1531,16 +1542,16 @@ describe('coworker', () => {
     expect(await run(tick(assigned))).toEqual([]);
     say(where, labelled('morgan', true, 'unlabel', later(2)));
     const [stopped] = await run(tick(assigned));
-    expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the bothub label was removed' });
+    expect(stopped).toMatchObject({ id: asked!.id, status: 'stopped', reason: 'the agentgraph label was removed' });
     expect(readFileSync(join(where.forge, '7.reactions'), 'utf8')).toBe('');
     expect(reactions(where.data, asked!.id)).toEqual([
       [true, undefined],
       [true, '#7'],
     ]);
-    expect((await run(Effect.flatMap(Forge, f => f.issue(7)))).labels).toEqual(['bothub:stopped']);
+    expect((await run(Effect.flatMap(Forge, f => f.issue(7)))).labels).toEqual(['agentgraph:stopped']);
   }, 30_000);
 
-  it('begins on one issue only where the latest bothub label came from a maintainer', async () => {
+  it('begins on one issue only where the latest agentgraph label came from a maintainer', async () => {
     const where = world();
     say(where, labelled('morgan', true, 'label', '2026-10-16T00:00:01.000Z'));
     say(where, labelled('mallory', false, 'unlabel', '2026-10-16T00:00:02.000Z'));
@@ -1569,7 +1580,7 @@ describe('coworker', () => {
     writeFileSync(join(where.forge, '7.jsonl'), '');
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     expect(await run(sweep(ready))).toEqual([]);
-    say(where, marked('stx-bothub[bot]', false, '2026-10-16T00:00:01.000Z'));
+    say(where, marked('stx-agentgraph[bot]', false, '2026-10-16T00:00:01.000Z'));
     say(where, marked('mallory', false, '2026-10-16T00:00:02.000Z'));
     expect(await run(sweep(ready))).toEqual([]);
     say(where, marked('morgan', true, '2026-10-16T00:00:03.000Z'));
@@ -1598,7 +1609,7 @@ describe('coworker', () => {
     const asked = await run(drive(flow, begun(), small));
     expect(asked).toMatchObject({ status: 'waiting', tries: 1, comment: '7-3' });
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
-    expect(issue.labels).toEqual(['bothub:waiting']);
+    expect(issue.labels).toEqual(['agentgraph:waiting']);
     expect(bodies(issue)).toEqual([
       '/agent',
       `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint, 'Cost so far: $0.00.')}`,
@@ -1689,7 +1700,7 @@ describe('coworker', () => {
     await run(drive(flow, { ...begun(), said: [{ issue: 7 }] }, small));
     expect(specs[0]!.prompt).toContain('@morgan on hello.txt:1, id r1: why hello?');
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
-    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body, c.under, c.path])).toEqual([
+    expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body, c.under, c.path])).toEqual([
       ['Asked for.', 'r1', 'hello.txt'],
     ]);
   }, 30_000);
@@ -1718,7 +1729,7 @@ describe('coworker', () => {
     expect(again).toMatchObject({ status: 'waiting', said: [{ issue: 8 }] });
     expect(done).toMatchObject({ status: 'done', said: [{ issue: 8 }] });
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
-    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
+    expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body.split('\n')[0], c.under, c.path])).toEqual([
       ['And bye?', undefined, undefined],
       ['Said bye.', review.at, 'hello.txt'],
     ]);
@@ -1728,12 +1739,12 @@ describe('coworker', () => {
 });
 
 describe('gate', () => {
-  it('lets a check read the pending proposals from BOTHUB_PROPOSALS', async () => {
+  it('lets a check read the pending proposals from AGENTGRAPH_PROPOSALS', async () => {
     const where = world();
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = hubOf('hub', { types: { run: 'cat "$BOTHUB_PROPOSALS"; exit 1' } });
+    const small = hubOf('hub', { types: { run: 'cat "$AGENTGRAPH_PROPOSALS"; exit 1' } });
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -1844,7 +1855,7 @@ describe('gate', () => {
     ]);
   });
 
-  it('lets a check read the hub directory through BOTHUB_HUB', async () => {
+  it('lets a check read the hub directory through AGENTGRAPH_HUB', async () => {
     const where = world();
     const dir = join(where.root, 'work');
     mkdirSync(dir);
@@ -1852,7 +1863,7 @@ describe('gate', () => {
     const hubDir = join(where.root, 'hubdir');
     mkdirSync(join(hubDir, 'scripts'), { recursive: true });
     writeFileSync(join(hubDir, 'scripts', 'x.sh'), 'echo from hub\n');
-    const small = { ...hubOf('hub', { types: { run: 'sh "$BOTHUB_HUB/scripts/x.sh"; exit 1' } }), dir: hubDir };
+    const small = { ...hubOf('hub', { types: { run: 'sh "$AGENTGRAPH_HUB/scripts/x.sh"; exit 1' } }), dir: hubDir };
     const step = small.workflows.issue!.steps.find(s => s.checks.includes('types'))!;
     const { run } = services(where, []);
     const left = {
@@ -1935,7 +1946,7 @@ describe('gate', () => {
     ]);
     expect(outcome).toMatchObject({ kind: 'failed', checks: [{ check: 'correct', findings: 'FAIL off by one' }] });
   });
-  it('shows every check what a human answered during the run, judges in their prompt and scripts in BOTHUB_CONTEXT', async () => {
+  it('shows every check what a human answered during the run, judges in their prompt and scripts in AGENTGRAPH_CONTEXT', async () => {
     const where = world();
     const dir = join(where.root, 'work');
     mkdirSync(dir);
@@ -1944,7 +1955,7 @@ describe('gate', () => {
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
     const seen = join(where.root, 'seen.md');
     const small = hubOf('acme-app', {
-      types: { run: `cp "$BOTHUB_CONTEXT" ${seen}` },
+      types: { run: `cp "$AGENTGRAPH_CONTEXT" ${seen}` },
       claims: { agent: 'claim-checker' },
     });
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['types', 'claims'], tries: 3 };
@@ -2185,7 +2196,7 @@ describe('a base that moved', () => {
     git(mover, 'push', '-q', 'origin', 'main');
     return where;
   };
-  const behind = (where: ReturnType<typeof world>) => git(where.origin, 'rev-list', '--count', 'bothub/7..main');
+  const behind = (where: ReturnType<typeof world>) => git(where.origin, 'rev-list', '--count', 'agentgraph/7..main');
   const rebases = (where: ReturnType<typeof world>) =>
     traceOf(where.data, 'run-7').flatMap(t =>
       'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
@@ -2208,8 +2219,8 @@ describe('a base that moved', () => {
     const { specs, commands, run } = services(where, []);
     await run(tick(hub));
     expect(behind(where)).toBe('0');
-    expect(git(where.origin, 'show', 'bothub/7:other.txt')).toBe('upstream');
-    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello');
+    expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('upstream');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
     expect(specs).toHaveLength(0);
     expect(ran(commands, '! grep -q TODO hello.txt')).toBe(true);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
@@ -2219,11 +2230,11 @@ describe('a base that moved', () => {
 
   it('merges the base into the branch with a plain push by default', async () => {
     const where = await moved('other.txt');
-    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const before = git(where.origin, 'rev-parse', 'agentgraph/7');
     const { specs, run } = services(where, []);
     await run(tick(merging({ follow: 'merge' })));
-    expect(git(where.origin, 'rev-parse', 'bothub/7^1')).toBe(before);
-    expect(git(where.origin, 'rev-parse', 'bothub/7^2')).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7^1')).toBe(before);
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7^2')).toBe(git(where.origin, 'rev-parse', 'main'));
     expect(specs).toHaveLength(0);
     const diff = readFileSync(join(where.forge, '8', 'diff.patch'), 'utf8');
     expect(diff).toContain('hello.txt');
@@ -2290,12 +2301,12 @@ describe('a base that moved', () => {
     );
     await run(tick(hub));
     expect(specs[0]!.prompt).toMatch(
-      /^the merge step sent this back: bothub\/7 no longer rebases onto main at \w+: conflicts in hello.txt/
+      /^the merge step sent this back: agentgraph\/7 no longer rebases onto main at \w+: conflicts in hello.txt/
     );
     expect(seen[0]).toMatch(/^<<<<<<< [^\n]*\nupstream\n=======\nhello\n>>>>>>> /);
-    expect(git(where.origin, 'rev-parse', 'bothub/7~1')).toBe(git(where.origin, 'rev-parse', 'main'));
-    expect(git(where.origin, 'show', 'bothub/7:hello.txt')).toBe('hello upstream');
-    expect(git(where.origin, 'show', 'bothub/7:other.txt')).toBe('upstream');
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7~1')).toBe(git(where.origin, 'rev-parse', 'main'));
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello upstream');
+    expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('upstream');
     const diff = readFileSync(join(where.forge, '8', 'diff.patch'), 'utf8');
     expect(diff).toContain('+hello upstream');
     expect(diff).not.toContain('other.txt');
@@ -2307,7 +2318,7 @@ describe('a base that moved', () => {
 
   it('fails a try that leaves conflict markers and pushes nothing', async () => {
     const where = await moved('hello.txt');
-    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const before = git(where.origin, 'rev-parse', 'agentgraph/7');
     const { specs, run } = services(where, [
       [start('i1'), reply(push)],
       judged,
@@ -2315,7 +2326,7 @@ describe('a base that moved', () => {
     ]);
     await run(tick(hub));
     expect(specs[2]!.prompt).toContain('conflict markers left in hello.txt');
-    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(before);
     const [stored] = await run(Effect.flatMap(Store, s => s.list()));
     expect(stored).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Which side?' });
     expect(stored!.onto).toBeDefined();
@@ -2323,7 +2334,7 @@ describe('a base that moved', () => {
 
   it('says a conflict on the issue once when the harness already had its try at that base head', async () => {
     const where = await moved('hello.txt');
-    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const before = git(where.origin, 'rev-parse', 'agentgraph/7');
     const { run } = services(where, [[start('i1'), reply({ kind: 'ask', question: 'Stuck.' })]]);
     await run(tick(hub));
     const [asked] = await run(Effect.flatMap(Store, s => s.list()));
@@ -2331,10 +2342,10 @@ describe('a base that moved', () => {
     await run(Effect.flatMap(Store, s => s.put({ ...back, step: 'merge', status: 'waiting' })));
     await run(tick(hub));
     await run(tick(hub));
-    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(before);
     expect(rebases(where)).toEqual([false, false]);
     expect(
-      said(where).split('bothub/7 no longer rebases onto main: conflicts in hello.txt. Update it by hand.')
+      said(where).split('agentgraph/7 no longer rebases onto main: conflicts in hello.txt. Update it by hand.')
     ).toHaveLength(2);
   }, 60_000);
 
@@ -2357,10 +2368,10 @@ describe('a base that moved', () => {
     });
     await run(tick({ ...hub, workflows: { issue: { ...w, steps } } }));
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
-    expect(pr.filter(c => c.author === 'bothub[bot]').map(c => [c.body.split(':')[0], c.under])).toEqual([
+    expect(pr.filter(c => c.author === 'agentgraph[bot]').map(c => [c.body.split(':')[0], c.under])).toEqual([
       ['Looks right.', undefined],
       ['Asked for.', 'r1'],
-      ['bothub/7 no longer rebases onto main', undefined],
+      ['agentgraph/7 no longer rebases onto main', undefined],
     ]);
   }, 60_000);
 
@@ -2381,10 +2392,10 @@ describe('a base that moved', () => {
   it('does nothing when the branch is up to date', async () => {
     const where = await moved('other.txt');
     git(where.origin, 'update-ref', 'refs/heads/main', git(where.origin, 'rev-parse', 'main~1'));
-    const before = git(where.origin, 'rev-parse', 'bothub/7');
+    const before = git(where.origin, 'rev-parse', 'agentgraph/7');
     const { specs, run } = services(where, []);
     await run(tick(hub));
-    expect(git(where.origin, 'rev-parse', 'bothub/7')).toBe(before);
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(before);
     expect(specs).toHaveLength(0);
     expect(rebases(where)).toEqual([]);
   }, 30_000);
@@ -2435,7 +2446,7 @@ describe('compound engineering', () => {
     writeFileSync(join(where.data, 'run-7', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const seen = join(where.root, 'seen.md');
     const kit = hubOf('acme-app', {
-      types: { run: `cp "$BOTHUB_TRACES" ${seen}` },
+      types: { run: `cp "$AGENTGRAPH_TRACES" ${seen}` },
       claims: { agent: 'claim-checker' },
     });
     const auditor = { ...kit.agents['claim-checker']!, tools: ['read'], reads: 'traces' as const };
@@ -2581,12 +2592,12 @@ describe('compound engineering', () => {
     const where = world();
     writeFileSync(
       join(where.forge, '8.md'),
-      '---\ntitle: Add hello\nstate: merged\nauthor: bothub[bot]\n---\n\nCloses #7\n'
+      '---\ntitle: Add hello\nstate: merged\nauthor: agentgraph[bot]\n---\n\nCloses #7\n'
     );
     mkdirSync(join(where.forge, '8'), { recursive: true });
     writeFileSync(
       join(where.forge, '8', 'pull.json'),
-      JSON.stringify({ branch: 'bothub/7', base: 'main', head: 'x', baseSha: 'b1' })
+      JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: 'x', baseSha: 'b1' })
     );
     say(where, comment(8, 'morgan', true, 'Next time reuse the helper.', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [[start('r'), reply()]]);

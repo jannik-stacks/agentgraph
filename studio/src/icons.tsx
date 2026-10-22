@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { cx } from './ui.tsx';
 
-/** The bothub mark: a bot head with an antenna, in the current text color with see-through eyes. */
+/** The agentgraph mark: a bot head with an antenna, in the current text color with see-through eyes. */
 export const Mark = ({ className }: { className?: string }) => {
   const mask = useId();
   return (

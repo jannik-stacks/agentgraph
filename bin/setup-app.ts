@@ -1,7 +1,7 @@
 /**
- * Creates the bothub GitHub App through the manifest flow and saves its id and key, both 0600, under
- * `<dir>/<slug>/`. Point `BOTHUB_APP_ENV` at the `app.env` it prints, then install the App on the repo.
- * Usage: node bin/setup-app.ts [--org <org>] [--name bothub] [--dir ~/.config/bothub] [--port 5189]
+ * Creates the agentgraph GitHub App through the manifest flow and saves its id and key, both 0600, under
+ * `<dir>/<slug>/`. Point `AGENTGRAPH_APP_ENV` at the `app.env` it prints, then install the App on the repo.
+ * Usage: node bin/setup-app.ts [--org <org>] [--name agentgraph] [--dir ~/.config/agentgraph] [--port 5189]
  */
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-/** The one bothub App: private, no webhook, and only the permissions the engine uses. */
+/** The one agentgraph App: private, no webhook, and only the permissions the engine uses. */
 export const manifest = (name: string, base: string) => ({
   name,
   url: 'https://github.com',
@@ -33,8 +33,8 @@ const escape = (text: string) =>
 
 /** Serves the manifest page on 127.0.0.1, trades GitHub's code for the App and resolves to the saved env file. */
 export const setupApp = async ({
-  dir = join(homedir(), '.config', 'bothub'),
-  name = 'bothub',
+  dir = join(homedir(), '.config', 'agentgraph'),
+  name = 'agentgraph',
   org,
   port = 5189,
   fetch = globalThis.fetch,
@@ -62,7 +62,7 @@ export const setupApp = async ({
     const key = join(home, 'key.pem');
     const env = join(home, 'app.env');
     await writeFile(key, app.pem, { mode: 0o600 });
-    await writeFile(env, `BOTHUB_APP_ID=${app.id}\nBOTHUB_APP_KEY_FILE=${key}\n`, { mode: 0o600 });
+    await writeFile(env, `AGENTGRAPH_APP_ID=${app.id}\nAGENTGRAPH_APP_KEY_FILE=${key}\n`, { mode: 0o600 });
     return env;
   };
 
@@ -76,7 +76,7 @@ export const setupApp = async ({
         status: 200,
         body:
           `<form id="f" method="post" action="${target}?state=${state}"><input type="hidden" name="manifest" value="${json}">` +
-          `<p>Sending the bothub App manifest to GitHub. Click Create there.</p><button>Continue to GitHub</button></form>` +
+          `<p>Sending the agentgraph App manifest to GitHub. Click Create there.</p><button>Continue to GitHub</button></form>` +
           `<script>document.getElementById('f').submit()</script>`,
       };
     }
@@ -86,7 +86,7 @@ export const setupApp = async ({
       return { status: 400, body: '<p>State mismatch. Start the setup again.</p>' };
     const res = await fetch(`https://api.github.com/app-manifests/${encodeURIComponent(code)}/conversions`, {
       method: 'POST',
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'bothub' },
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'agentgraph' },
     });
     if (!res.ok) return { status: 502, body: `<p>GitHub refused the code (${res.status}). Start the setup again.</p>` };
     const app = (await res.json()) as { id: number; slug: string; pem: string; html_url: string };
@@ -101,7 +101,7 @@ export const setupApp = async ({
       ({ status, body, location, env }) => {
         res.writeHead(status, location ? { location } : { 'content-type': 'text/html; charset=utf-8' });
         res.end(
-          body && `<!doctype html><meta charset="utf-8"><title>bothub setup</title>${body}`,
+          body && `<!doctype html><meta charset="utf-8"><title>agentgraph setup</title>${body}`,
           () => env && finish(env)
         );
       },

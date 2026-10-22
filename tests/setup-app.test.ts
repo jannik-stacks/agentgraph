@@ -12,9 +12,9 @@ describe('setupApp', () => {
       exchanged.push(`${init?.method} ${url}`);
       return Response.json({
         id: 7,
-        slug: 'bothub-acme',
+        slug: 'agentgraph-acme',
         pem: '-----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END RSA PRIVATE KEY-----\n',
-        html_url: 'https://github.com/apps/bothub-acme',
+        html_url: 'https://github.com/apps/agentgraph-acme',
         client_secret: 'not kept',
       });
     }) as typeof globalThis.fetch;
@@ -45,13 +45,13 @@ describe('setupApp', () => {
 
     expect((await globalThis.fetch(`${base}/created?code=c1&state=wrong`)).status).toBe(400);
     const created = await globalThis.fetch(`${base}/created?code=c1&state=${state}`, { redirect: 'manual' });
-    expect(created.headers.get('location')).toBe('https://github.com/apps/bothub-acme/installations/new');
+    expect(created.headers.get('location')).toBe('https://github.com/apps/agentgraph-acme/installations/new');
     expect(exchanged).toEqual(['POST https://api.github.com/app-manifests/c1/conversions']);
 
     const env = await finished;
-    const home = join(dir, 'bothub-acme');
+    const home = join(dir, 'agentgraph-acme');
     expect(env).toBe(join(home, 'app.env'));
-    expect(readFileSync(env, 'utf8')).toBe(`BOTHUB_APP_ID=7\nBOTHUB_APP_KEY_FILE=${join(home, 'key.pem')}\n`);
+    expect(readFileSync(env, 'utf8')).toBe(`AGENTGRAPH_APP_ID=7\nAGENTGRAPH_APP_KEY_FILE=${join(home, 'key.pem')}\n`);
     expect(statSync(join(home, 'key.pem')).mode & 0o777).toBe(0o600);
     expect(statSync(env).mode & 0o777).toBe(0o600);
     expect(statSync(home).mode & 0o777).toBe(0o700);

@@ -52,7 +52,7 @@ const reply = (...proposals: unknown[]): SessionEvent[] => [
   { type: 'start', session: 's', model: 'test', home: '/homes/s' },
   {
     type: 'end',
-    final: `Sized.\n\n\`\`\`bothub\n${JSON.stringify(proposals)}\n\`\`\``,
+    final: `Sized.\n\n\`\`\`agentgraph\n${JSON.stringify(proposals)}\n\`\`\``,
     ended: 'stop',
     exit: 0,
   },
@@ -97,7 +97,7 @@ describe('triage', () => {
     where.label(1);
     const { value } = await run(where, [reply({ kind: 'label', add: ['size/S'] })], tick(hub));
     expect(value.map(r => [r.workflow, r.issue, r.status])).toEqual([['triage', 1, 'done']]);
-    expect((await issues(where)).map(t => [t.number, t.labels])).toEqual([[1, ['size/S', 'bothub:done']]]);
+    expect((await issues(where)).map(t => [t.number, t.labels])).toEqual([[1, ['size/S', 'agentgraph:done']]]);
   });
 
   it('does not end done on a comment alone', async () => {
@@ -248,7 +248,7 @@ describe('triage', () => {
     where.label(3);
     await run(where, [reply(part('a big part', 'XL'))], tick(unbounded, 3));
     expect((await issues(where)).filter(t => t.parent === 3).map(t => [t.number, t.labels])).toEqual([
-      [4, ['bothub:waiting']],
+      [4, ['agentgraph:waiting']],
       [5, ['size/XL', 'priority/medium']],
     ]);
     expect((await runs(where)).some(r => r.issue === 5)).toBe(false);
@@ -298,11 +298,14 @@ describe('ordering', () => {
       [2, 'morgan'],
     ]);
     appendFileSync(join(where.forge, '2.md'), '\nDepends on #1\n');
-    writeFileSync(join(where.forge, '3.md'), '---\ntitle: Fix 1\nstate: open\nauthor: bothub[bot]\n---\n\nCloses #1\n');
+    writeFileSync(
+      join(where.forge, '3.md'),
+      '---\ntitle: Fix 1\nstate: open\nauthor: agentgraph[bot]\n---\n\nCloses #1\n'
+    );
     mkdirSync(join(where.forge, '3'), { recursive: true });
     writeFileSync(
       join(where.forge, '3', 'pull.json'),
-      JSON.stringify({ branch: 'bothub/1', base: 'main', head: 'abc' })
+      JSON.stringify({ branch: 'agentgraph/1', base: 'main', head: 'abc' })
     );
     const implement = hub.workflows.issue!;
     const waiting = begin(implement, { id: 'issue-2', issue: 2, started: at(5) });

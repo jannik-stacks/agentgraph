@@ -83,7 +83,7 @@ const runLink = (studio: string, run: string, at: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}?at=${at}`;
 
 /** The body without any provenance marker or ⁂ link in it. */
-const unstamped = (body: string) => body.replace(/<!--\s*bothub\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
+const unstamped = (body: string) => body.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
 
 /**
  * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any
@@ -94,7 +94,7 @@ const stamp = (body: string, mark: Mark, at: string, studio = '') => {
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);
   const link = studio ? `[⁂](${runLink(studio, mark.run, at)}) ` : '';
-  return `${unstamped(body)}\n\n${link}<!-- bothub ${fields.join(' ')} -->`;
+  return `${unstamped(body)}\n\n${link}<!-- agentgraph ${fields.join(' ')} -->`;
 };
 
 /** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */
@@ -109,7 +109,7 @@ export const marked = (p: Proposal, studio?: string) =>
 export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string }> {}
 
 /** The repo as the state: GitHub in production, a JSON file in tests. */
-export class Forge extends Context.Tag('bothub/Forge')<
+export class Forge extends Context.Tag('agentgraph/Forge')<
   Forge,
   {
     issues: (filter?: Partial<Pick<Issue, 'state' | 'labels' | 'parent'>>) => Effect.Effect<Issue[], ForgeError>;
@@ -158,7 +158,7 @@ export const matches =
 export const withheld = (author: string, what = 'comment', why = 'not a collaborator') =>
   `(${what} by @${author} withheld: ${why})`;
 
-const me = 'bothub[bot]';
+const me = 'agentgraph[bot]';
 
 /**
  * A forge in a folder, for tests and local runs. `<n>.md` is an issue (frontmatter title, state, author, labels,
@@ -181,7 +181,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         Effect.runPromise(
           Effect.mapError(
             hostGit(work.git, [
-              ...['-c', `user.name=${who}`, '-c', 'user.email=bothub@localhost'],
+              ...['-c', `user.name=${who}`, '-c', 'user.email=agentgraph@localhost'],
               ...['-c', 'remote.origin.mirror=false'],
               ...args,
             ]),

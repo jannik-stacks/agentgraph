@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const proposals = JSON.parse(readFileSync(process.env.BOTHUB_PROPOSALS, 'utf8'));
+const proposals = JSON.parse(readFileSync(process.env.AGENTGRAPH_PROPOSALS, 'utf8'));
 
 const body = [
   [/\b\d+ (?:\w+ )?tests?\b|\ball (?:the )?(?:\w+ )?tests? pass/i, 'counts passing tests'],

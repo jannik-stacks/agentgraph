@@ -27,7 +27,7 @@ The terms the rest of the docs use. Common agent and GitHub terms keep their usu
 | **trace**     | The lines a run writes: session events, check results, applied proposals, outcomes. An agent with `reads: traces` reads those of every run on its issue |
 | **studio**    | The web UI that draws workflows and lists runs                                                                               |
 
-"Agent" always means the file. "bothub" means the whole thing. "Bot" is only the GitHub account
+"Agent" always means the file. "agentgraph" means the whole thing. "Bot" is only the GitHub account
 that posts comments and opens pull requests.
 
 ## Agent terms

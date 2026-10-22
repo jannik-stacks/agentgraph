@@ -1,6 +1,6 @@
 # tune-graph
 
-A Claude Code skill that tunes a bothub hub on one repo. `SKILL.md` is the skill; `scripts/status.sh`
+A Claude Code skill that tunes a agentgraph hub on one repo. `SKILL.md` is the skill; `scripts/status.sh`
 prints one screen on a tune: the incumbent, the last 5 steps and the budget left. Copy the folder into
 `~/.claude/skills/` or a repo's `.claude/skills/` to install it.
 
@@ -13,7 +13,7 @@ only difference is who proposes the candidates.
   `skill@<version>` beside it, so cases, splits, point, engine and keep rule are the same, and the
   starting score comes from the bench cache.
 - Each round is one `claude -p --restricted` session with the skill loaded as the plugin
-  `bothub:tune-graph`, in `skill@<v>/skill/r<NNN>/`. That folder holds the incumbent, the fit and mine
+  `agentgraph:tune-graph`, in `skill@<v>/skill/r<NNN>/`. That folder holds the incumbent, the fit and mine
   cases, the incumbent's fit runs, `tried.md` with held-out ids redacted, and `out/d1` to `out/d<k>`.
   File tools cannot reach outside it and there is no shell. Tool calls that name a held-out case
   or a tune path outside the folder are listed in `round.json` as `leaks`.

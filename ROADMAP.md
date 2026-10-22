@@ -1,4 +1,4 @@
-# bothub roadmap
+# agentgraph roadmap
 
 One codebase that runs on a laptop first, then on a VPS or in managed sandboxes by swapping
 backends, never by forking code. Each milestone ends with something you can run.
@@ -12,7 +12,7 @@ backends, never by forking code. Each milestone ends with something you can run.
 | Events | local issue files, watched | GitHub App webhooks through a tunnel | webhook Worker and a queue |
 | Issues | `issues/*.md` | GitHub issues | same |
 | Run store | data dir on disk | data dir on a volume | R2 through `Files` |
-| UI | BHM on localhost | BHM behind Cloudflare Access | same |
+| UI | AGI on localhost | AGI behind Cloudflare Access | same |
 
 ## Milestones
 
@@ -22,8 +22,8 @@ backends, never by forking code. Each milestone ends with something you can run.
 2. **Hardened core.** Enforced or warned config, explicit job closure, fail-closed checks, branch
    and PR handoff, journaled idempotent apply, event dedupe, crash reconciliation, branch locks,
    resolved model per run, fault scenarios in the test doubles.
-3. **One-command stack.** bothub itself as a container (serve, API, BHM), added to the compose
-   stack; config only through env and the hub repo; `bothub doctor` checks every dependency.
+3. **One-command stack.** agentgraph itself as a container (serve, API, AGI), added to the compose
+   stack; config only through env and the hub repo; `agentgraph doctor` checks every dependency.
 4. **GitHub mode.** GitHub App, webhook receiver with signature check, tunnel for local testing,
    a test repository, the same workflows as local mode.
 5. **Portable sandbox.** A `Sandbox` interface with docker, docker plus gVisor and remote

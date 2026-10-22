@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-export const temp = (prefix: string) => mkdtempSync(join(tmpdir(), `bothub-${prefix}-`));
+export const temp = (prefix: string) => mkdtempSync(join(tmpdir(), `agentgraph-${prefix}-`));
 
 /** Runs git in `cwd` with a fixed identity and no signing. */
 export const git = (cwd: string, ...args: string[]) =>
@@ -41,7 +41,7 @@ export const change = (before: Record<string, string>, after: Record<string, str
   return { dir, base };
 };
 
-/** Runs a hub script with node in `dir`, with `BOTHUB_BASE` set to `base`; `env` extends `PATH`, `HOME` and the base. */
+/** Runs a hub script with node in `dir`, with `AGENTGRAPH_BASE` set to `base`; `env` extends `PATH`, `HOME` and the base. */
 export const runScript = (
   path: string,
   { dir, base }: { dir: string; base?: string },
@@ -51,7 +51,13 @@ export const runScript = (
   const result = spawnSync(process.execPath, [path, ...args], {
     cwd: dir,
     encoding: 'utf8',
-    env: { PATH: process.env.PATH ?? '', HOME: tmpdir(), TMPDIR: tmpdir(), ...(base && { BOTHUB_BASE: base }), ...env },
+    env: {
+      PATH: process.env.PATH ?? '',
+      HOME: tmpdir(),
+      TMPDIR: tmpdir(),
+      ...(base && { AGENTGRAPH_BASE: base }),
+      ...env,
+    },
   });
   return { ok: result.status === 0, out: `${result.stdout}${result.stderr}`.trim() };
 };

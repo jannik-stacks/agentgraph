@@ -18,7 +18,7 @@ const pull = (events: Event[]): Issues => {
     state: 'open',
     labels: [],
     author: 'bot[bot]',
-    pull: { branch: 'bothub/14', base: 'main', head: 'h' },
+    pull: { branch: 'agentgraph/14', base: 'main', head: 'h' },
     url: '',
   };
   return { issue: { ...issue, events } };

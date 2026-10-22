@@ -205,7 +205,7 @@ const userFacing = () => {
     add(
       'env var',
       file,
-      [...read(file).matchAll(/\bBOTHUB_[A-Z0-9_]+\b/g)].map(m => m[0])
+      [...read(file).matchAll(/\bAGENTGRAPH_[A-Z0-9_]+\b/g)].map(m => m[0])
     );
   const seen = new Set();
   return items.filter(i => !seen.has(`${i.what} ${i.name}`) && seen.add(`${i.what} ${i.name}`));

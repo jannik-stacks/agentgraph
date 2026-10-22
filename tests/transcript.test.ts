@@ -38,7 +38,7 @@ const lines: Trace[] = [
   {
     at,
     step: 'implement',
-    event: { type: 'text', text: 'Done. BOTHUB_LLM_API_KEY=sk-bh-implementor-0123456789abcdef' },
+    event: { type: 'text', text: 'Done. AGENTGRAPH_LLM_API_KEY=sk-bh-implementor-0123456789abcdef' },
   },
   { at, step: 'implement', session: { id: 's1', resumed: false, ended: 'stop', usd: 0.4 } },
   { at, step: 'implement', check: { check: 'tests', pass: false, findings: '1 failed', ms: 1 } },
@@ -62,7 +62,7 @@ describe('transcript', () => {
     expect(text).toContain('7 check tests: FAIL 1 failed');
     expect(text).toContain('8 outcome back: document maxFee -> implement running');
     expect(text).not.toContain('saved');
-    expect(text).toContain('5 text: Done. BOTHUB_LLM_API_KEY=[redacted]');
+    expect(text).toContain('5 text: Done. AGENTGRAPH_LLM_API_KEY=[redacted]');
   });
 
   it('redacts tokens and private keys', () => {

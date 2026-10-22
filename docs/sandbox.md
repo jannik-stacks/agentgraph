@@ -4,7 +4,7 @@ How a run is isolated and which models it can reach.
 
 ## The sandbox
 
-Every session, script step, check script and setup is one `docker run --rm`. Nothing runs on the host. When docker or the `bothub-sandbox` network is not usable, the run stops with the reason.
+Every session, script step, check script and setup is one `docker run --rm`. Nothing runs on the host. When docker or the `agentgraph-sandbox` network is not usable, the run stops with the reason.
 
 Each container has:
 
@@ -15,13 +15,13 @@ Each container has:
 - no image pulls,
 - a watchdog that kills it at the timeout.
 
-The checkout is at `/work` and the session's home at `/home/agent`, both writable. The hub is at `/hub`, read-only, and named by `BOTHUB_HUB`. The bare mirror is mounted read-only, so refs and objects cannot be touched. <!-- code: src/docker.ts#dockerArgs -->
+The checkout is at `/work` and the session's home at `/home/agent`, both writable. The hub is at `/hub`, read-only, and named by `AGENTGRAPH_HUB`. The bare mirror is mounted read-only, so refs and objects cannot be touched. <!-- code: src/docker.ts#dockerArgs -->
 
 The docker socket is never mounted and no GitHub token goes inside. A session gets the proxy URL and its own agent's key. Pushes and pull requests happen on the host, after the checks pass.
 
 ## The network
 
-Sessions and the hub's `setup` join `bothub-sandbox`, an internal docker network. Its only ways out are:
+Sessions and the hub's `setup` join `agentgraph-sandbox`, an internal docker network. Its only ways out are:
 
 - the model proxy,
 - the Ollama relay to the host's Ollama, when the `sandbox` compose profile runs it,
@@ -31,7 +31,7 @@ That allows `npm install` from the npm registry and cloning or downloading from 
 
 Scripts and checks run with no network at all.
 
-With `network: models` in `hub.yaml`, sessions and setup join `bothub-models` instead. Only the model proxy is on that network, so nothing else can be reached, not even the npm registry. Dependencies then come from the hub's image. The local compose stack creates the network and puts the proxy on it.
+With `network: models` in `hub.yaml`, sessions and setup join `agentgraph-models` instead. Only the model proxy is on that network, so nothing else can be reached, not even the npm registry. Dependencies then come from the hub's image. The local compose stack creates the network and puts the proxy on it.
 
 `setup` in `hub.yaml` is a shell script that installs dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. It runs once per base commit in the hub's [environment](#environments), and again in a checkout whose files differ from the base. A setup that fails parks the run, and an answer runs setup and the step again.
 
@@ -39,28 +39,28 @@ The image is built from `infra/local/sandbox`. `smoke.sh` there checks it the wa
 
 ## Environments
 
-A run should not install its dependencies again for every checkout. bothub builds a repo's environment once per base commit and starts every checkout and score from it, the way a Docker build caches layers and CI caches dependencies.
+A run should not install its dependencies again for every checkout. agentgraph builds a repo's environment once per base commit and starts every checkout and score from it, the way a Docker build caches layers and CI caches dependencies.
 
-The environment is a local image, `bothub-env/<repo>:<key>`. One build container makes it:
+The environment is a local image, `agentgraph-env/<repo>:<key>`. One build container makes it:
 
 1. It unpacks the files of the base commit into `/work`, from the read-only mirror. Nothing a run wrote is there.
 2. It runs the [toolchain step](#toolchains).
 3. It runs the hub's `setup`.
-4. It lists the ignored directories setup made, such as `node_modules` or `target`, moves the dependency directories among them into one volume, `bothub-lower-<key>`, and commits the container as the image.
+4. It lists the ignored directories setup made, such as `node_modules` or `target`, moves the dependency directories among them into one volume, `agentgraph-lower-<key>`, and commits the container as the image.
 
-The build has docker's default network, so it reaches any host. The key covers the base image, the base commit's files, the toolchain lines and `setup`, so an image with the same key is never built again. A setup that reads `$BOTHUB_HUB` is left out of the build and runs in each checkout. <!-- code: src/env.ts#envOf -->
+The build has docker's default network, so it reaches any host. The key covers the base image, the base commit's files, the toolchain lines and `setup`, so an image with the same key is never built again. A setup that reads `$AGENTGRAPH_HUB` is left out of the build and runs in each checkout. <!-- code: src/env.ts#envOf -->
 
-Each checkout gets an overlay volume for every `node_modules` or `target` directory setup made, mounted at the same path under `/work`. It shows the environment's copy from `bothub-lower-<key>` and keeps the checkout's own writes in a small volume of its own, so the checkout starts with its dependencies installed, every checkout of a base shares one copy of them, and a write in one checkout is invisible to the others. Paths and relative links stay as setup made them, so workspace packages resolve to the checkout's own files. Where docker cannot mount overlays, the volume holds a copy instead. Every other dependency directory the checkout could get, `node_modules` beside each `package.json` and `target` beside the outermost `Cargo.toml`, gets an empty volume, so setup never writes dependencies into the checkout folder, also when there is no environment or setup failed in it. Smaller outputs, such as a `dist` or a wasm `pkg`, are copied into the checkout folder itself, because a build may delete and remake them and a mount point cannot be deleted. What a run writes to them stays in that checkout, and the volumes are removed with it. A checkout of the base's own files skips setup. Setup runs again on a checkout with other files, such as a resumed run, and on one whose setup also left files outside those directories.
+Each checkout gets an overlay volume for every `node_modules` or `target` directory setup made, mounted at the same path under `/work`. It shows the environment's copy from `agentgraph-lower-<key>` and keeps the checkout's own writes in a small volume of its own, so the checkout starts with its dependencies installed, every checkout of a base shares one copy of them, and a write in one checkout is invisible to the others. Paths and relative links stay as setup made them, so workspace packages resolve to the checkout's own files. Where docker cannot mount overlays, the volume holds a copy instead. Every other dependency directory the checkout could get, `node_modules` beside each `package.json` and `target` beside the outermost `Cargo.toml`, gets an empty volume, so setup never writes dependencies into the checkout folder, also when there is no environment or setup failed in it. Smaller outputs, such as a `dist` or a wasm `pkg`, are copied into the checkout folder itself, because a build may delete and remake them and a mount point cannot be deleted. What a run writes to them stays in that checkout, and the volumes are removed with it. A checkout of the base's own files skips setup. Setup runs again on a checkout with other files, such as a resumed run, and on one whose setup also left files outside those directories.
 
-The volumes and checkout folders carry the runner that made them, and a runner that starts removes the ones whose runner is gone. A runner is known by a random id and a heartbeat file under `BOTHUB_STATE` (`~/.cache/bothub` by default), next to the last-use stamps of the images, so a runner in a container that always runs as pid 1 is still told apart. Runners on one docker share `BOTHUB_STATE`; in a container, put it on the persistent data volume.
+The volumes and checkout folders carry the runner that made them, and a runner that starts removes the ones whose runner is gone. A runner is known by a random id and a heartbeat file under `AGENTGRAPH_STATE` (`~/.cache/agentgraph` by default), next to the last-use stamps of the images, so a runner in a container that always runs as pid 1 is still told apart. Runners on one docker share `AGENTGRAPH_STATE`; in a container, put it on the persistent data volume.
 
-Images pile up, one per base, each with its dependency volume. Past `BOTHUB_ENV_CAP` (`60g`, both counted) the least recently used go first with their volume, never one a running container or a live checkout uses; `node bin/env.ts prune [--cap 60g] [--dry]` does the same by hand, and `list` shows them with their last use. Before a checkout, an environment build and each command, the runner checks the free space of its data dir and of docker's disk, measured from inside a container on the cache volume. Below `BOTHUB_MIN_FREE_GB` (40) it sweeps and evicts, and if that is not enough it fails as infra with `disk low`, which holds a bench run until there is room.
+Images pile up, one per base, each with its dependency volume. Past `AGENTGRAPH_ENV_CAP` (`60g`, both counted) the least recently used go first with their volume, never one a running container or a live checkout uses; `node bin/env.ts prune [--cap 60g] [--dry]` does the same by hand, and `list` shows them with their last use. Before a checkout, an environment build and each command, the runner checks the free space of its data dir and of docker's disk, measured from inside a container on the cache volume. Below `AGENTGRAPH_MIN_FREE_GB` (40) it sweeps and evicts, and if that is not enough it fails as infra with `disk low`, which holds a bench run until there is room.
 
-`BOTHUB_IMAGE` names the image a build starts from when a hub sets no `image`. The default is `bothub-sandbox:local`.
+`AGENTGRAPH_IMAGE` names the image a build starts from when a hub sets no `image`. The default is `agentgraph-sandbox:local`.
 
 ### Toolchains
 
-The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `bothub-cache` at `/cache`. rustup and cargo keep their homes there, and npm, pnpm and yarn keep their downloads there, so what one run fetched serves every later run, check and data dir. Each of these tools but yarn 1 locks its own writes, so parallel runs do not corrupt the volume.
+The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `agentgraph-cache` at `/cache`. rustup and cargo keep their homes there, and npm, pnpm and yarn keep their downloads there, so what one run fetched serves every later run, check and data dir. Each of these tools but yarn 1 locks its own writes, so parallel runs do not corrupt the volume.
 
 The toolchain step installs what the repo's root files name:
 
@@ -76,14 +76,14 @@ toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked ca
 
 A failed toolchain step stops the run with its output. A lock file in the volume lets one build at a time install, so two runners never race inside rustup. On a warm volume the step takes seconds, because rustup and cargo find everything already installed. Checks then build offline from the fetched crates. <!-- code: src/env.ts#toolchainOf -->
 
-`BOTHUB_CACHE_VOLUME` names another volume. An empty value turns off the volume and the environments. Every run can write to the volume, so treat it like the egress network: a run could leave files there that later runs use. `docker volume rm bothub-cache` empties it.
+`AGENTGRAPH_CACHE_VOLUME` names another volume. An empty value turns off the volume and the environments. Every run can write to the volume, so treat it like the egress network: a run could leave files there that later runs use. `docker volume rm agentgraph-cache` empties it.
 
 ## A hub's own image
 
-`image` in `hub.yaml` names a local image that every command of a run starts in: sessions, setup, scripts and checks. The [environment](#environments) builds on top of it. bothub never builds or pulls it. Build it beforehand from the sandbox image, so the harnesses are already in it, and add what the repo needs, such as a toolchain or installed dependencies:
+`image` in `hub.yaml` names a local image that every command of a run starts in: sessions, setup, scripts and checks. The [environment](#environments) builds on top of it. agentgraph never builds or pulls it. Build it beforehand from the sandbox image, so the harnesses are already in it, and add what the repo needs, such as a toolchain or installed dependencies:
 
 ```dockerfile
-FROM bothub-sandbox:local
+FROM agentgraph-sandbox:local
 USER root
 COPY package.json package-lock.json /
 RUN npm ci --no-audit --no-fund && npm cache clean --force
@@ -94,7 +94,7 @@ USER node
 Node looks for packages in every parent folder, so `/node_modules` from the image serves the checkout at `/work` with no install. The dependencies are the ones locked when the image was built, and a pull request that changes them does not change the image.
 
 ```yaml
-image: acme-node:bothub
+image: acme-node:agentgraph
 network: models
 ```
 
@@ -120,11 +120,11 @@ An agent names a model alias with `model`, never a vendor model. Without one, op
 
 LiteLLM sits in front of every model and maps aliases to upstreams. It gives each agent its own virtual key, so the logs show which agent spent what.
 
-`BOTHUB_PROXY_URL` points at the proxy. `BOTHUB_PROXY_KEYS` lists `name=key` pairs, one per agent, separated by commas or spaces. An agent without a key cannot start a session. <!-- code: src/harnesses.ts#keysOf -->
+`AGENTGRAPH_PROXY_URL` points at the proxy. `AGENTGRAPH_PROXY_KEYS` lists `name=key` pairs, one per agent, separated by commas or spaces. An agent without a key cannot start a session. <!-- code: src/harnesses.ts#keysOf -->
 
-Inside the container the key is `BOTHUB_LLM_API_KEY` for opencode and pi, and `ANTHROPIC_AUTH_TOKEN` for Claude Code. opencode finds the proxy at `BOTHUB_LLM_BASE_URL`. The key is passed by name, never on a command line, and masked in the harness output.
+Inside the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi, and `ANTHROPIC_AUTH_TOKEN` for Claude Code. opencode finds the proxy at `AGENTGRAPH_LLM_BASE_URL`. The key is passed by name, never on a command line, and masked in the harness output.
 
-Usage a harness does not price, as with a subscription behind the proxy, is priced from the list prices in `infra/local/prices.json`, or the file `BOTHUB_PRICES` names. <!-- code: src/harnesses.ts#priced -->
+Usage a harness does not price, as with a subscription behind the proxy, is priced from the list prices in `infra/local/prices.json`, or the file `AGENTGRAPH_PRICES` names. <!-- code: src/harnesses.ts#priced -->
 
 Moving an alias from an API key to a subscription is a proxy config change. No agent file changes.
 

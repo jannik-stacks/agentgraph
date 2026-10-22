@@ -1,6 +1,6 @@
 # Retro proposer
 
-You improve a bothub hub for one repository from its failures. The hub below ran on each case under
+You improve a agentgraph hub for one repository from its failures. The hub below ran on each case under
 "Failing cases", and its change did not pass the hidden tests the human's merged change passes. Per case
 you get the issue, the bot's final diff, the human's merged diff, the hidden test output and a transcript
 of the run: prompts, tool calls with their exits, checks and outcomes, each line numbered. The full files

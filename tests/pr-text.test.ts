@@ -11,7 +11,7 @@ const check = (hub: string, proposals: Proposal[]) => {
   const file = join(mkdtempSync(join(tmpdir(), 'pr-text-')), 'proposals.json');
   writeFileSync(file, JSON.stringify(proposals));
   const out = spawnSync('node', [join(script, hub, 'scripts', 'pr-text.mjs')], {
-    env: { ...process.env, BOTHUB_PROPOSALS: file },
+    env: { ...process.env, AGENTGRAPH_PROPOSALS: file },
     encoding: 'utf8',
   });
   return { code: out.status, lines: out.stdout.split('\n').filter(Boolean) };
@@ -25,7 +25,7 @@ const pull = (body: string): Proposal => ({
   body,
 });
 
-describe.each(['bothub', 'sk', 'sandbox'])('pr-text bounds in %s', hub => {
+describe.each(['agentgraph', 'sk', 'sandbox'])('pr-text bounds in %s', hub => {
   it('fails a body over 120 words', () => {
     const { lines } = check(hub, [pull(Array(121).fill('word').join(' '))]);
     expect(lines).toEqual(['pull request body is 121 words, over 120']);
@@ -44,7 +44,7 @@ describe.each(['bothub', 'sk', 'sandbox'])('pr-text bounds in %s', hub => {
   });
 });
 
-describe.each(['bothub', 'sk', 'sandbox'])('pr-text in %s', hub => {
+describe.each(['agentgraph', 'sk', 'sandbox'])('pr-text in %s', hub => {
   it('fails one line per hit on the real long body and a loose commit', () => {
     const body =
       'Validation: new regressions failed without the fix. Each touched test file passes individually; npm --prefix kit run typecheck passes; npm --prefix kit test passes all 897 tests in 37 files. No docs generators run.\n\nNothing left open for this issue. Human review and merge required.';

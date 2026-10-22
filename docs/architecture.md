@@ -98,6 +98,6 @@ The planned bundle uses one compose file with three parts:
 
 The sandbox network and egress proxy sit beside them, as in `infra/local/docker-compose.yml`. The data dir is a volume shared by runner and studio.
 
-The studio is optional. It can run anywhere that mounts the data dir read-only. The proxy can be one that already runs, since the engine needs only `BOTHUB_PROXY_URL` and the per-agent keys.
+The studio is optional. It can run anywhere that mounts the data dir read-only. The proxy can be one that already runs, since the engine needs only `AGENTGRAPH_PROXY_URL` and the per-agent keys.
 
 The runner cannot be split from docker, because a run is a container the runner starts. The GitHub side needs only the App credentials, which stay with the runner.

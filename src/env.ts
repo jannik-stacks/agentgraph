@@ -68,7 +68,7 @@ const asOperator = () => {
  */
 const build = [
   'set -e',
-  'export HOME=/tmp TMPDIR=/tmp GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="*" BOTHUB_BASE="$2"',
+  'export HOME=/tmp TMPDIR=/tmp GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="*" AGENTGRAPH_BASE="$2"',
   'cd /work',
   'git --git-dir="$1" archive "$2" | tar -x -C /work',
   'if [ -n "$3" ]; then (exec 9>/cache/.toolchain.lock && flock 9 && sh -ec "$3") || exit 97; fi',
@@ -91,7 +91,7 @@ const section = (out: string, name: string) =>
   (out.split(`@@${name}\n`)[1] ?? '').split(/\n@@/)[0]!.split('\n').filter(Boolean);
 
 /** Where runners keep what must outlive them: Env last-use stamps and owner heartbeats. */
-const state = () => process.env.BOTHUB_STATE || join(homedir(), '.cache', 'bothub');
+const state = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
 const used = () => join(state(), 'envs');
 const owners = () => join(state(), 'owners');
 const stamp = (file: string) => {
@@ -140,7 +140,7 @@ export const live = (label: string) => {
 };
 
 const tagOf = (repo: string, key: string) =>
-  `bothub-env/${
+  `agentgraph-env/${
     repo
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, '-')
@@ -150,18 +150,18 @@ const tagOf = (repo: string, key: string) =>
 const labels = async (tag: string) => {
   const out = await docker(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(() => '');
   const l = out ? (JSON.parse(out) as Record<string, string> | null) : null;
-  return l?.['bothub.env'] ? l : undefined;
+  return l?.['agentgraph.env'] ? l : undefined;
 };
 
-const lowerOf = (key: string) => `bothub-lower-${key}`;
+const lowerOf = (key: string) => `agentgraph-lower-${key}`;
 
 const envOfLabels = (tag: string, l: Record<string, string>): Env => {
-  const outputs = JSON.parse(l['bothub.outputs'] ?? '[]') as string[];
+  const outputs = JSON.parse(l['agentgraph.outputs'] ?? '[]') as string[];
   return {
     image: tag,
     outputs,
-    complete: l['bothub.complete'] === 'true',
-    ...(outputs.some(o => deps.test(o)) && { lower: lowerOf(l['bothub.env']!) }),
+    complete: l['agentgraph.complete'] === 'true',
+    ...(outputs.some(o => deps.test(o)) && { lower: lowerOf(l['agentgraph.env']!) }),
   };
 };
 
@@ -206,8 +206,8 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
       )
         return (touch(key), env);
       if (env) await docker(['rmi', '-f', tag]).catch(() => '');
-      const name = `bothub-envbuild-${key}`;
-      await docker(['volume', 'create', '--label', `bothub.lower=${key}`, lowerOf(key)]);
+      const name = `agentgraph-envbuild-${key}`;
+      await docker(['volume', 'create', '--label', `agentgraph.lower=${key}`, lowerOf(key)]);
       const started = Date.now();
       const args = [
         'run',
@@ -217,7 +217,7 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
         '--name',
         name,
         '--label',
-        'bothub.envbuild=1',
+        'agentgraph.envbuild=1',
         '--network',
         'bridge',
         '--user',
@@ -274,7 +274,7 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
         await docker([
           'commit',
           '--change',
-          `LABEL bothub.env=${key} bothub.lowerkb=${Number(section(out.output, 'lower')[0]) || 0} bothub.complete=${complete} bothub.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
+          `LABEL agentgraph.env=${key} agentgraph.lowerkb=${Number(section(out.output, 'lower')[0]) || 0} agentgraph.complete=${complete} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
           name,
           tag,
         ]);
@@ -335,7 +335,7 @@ let overlay: Promise<boolean> | undefined;
 /** Whether this docker mounts an overlay volume, tried once with `image`. */
 const overlays = (image: string) =>
   (overlay ??= (async () => {
-    const [lower, upper, over] = ['l', 'u', 'o'].map(s => `bothub-probe-${self}-${s}`) as [string, string, string];
+    const [lower, upper, over] = ['l', 'u', 'o'].map(s => `agentgraph-probe-${self}-${s}`) as [string, string, string];
     const run = (mount: string, ...cmd: string[]) =>
       docker(['run', '--rm', '--pull', 'never', '--network', 'none', '--user', '0:0', '--mount', mount, image, ...cmd]);
     try {
@@ -371,8 +371,8 @@ export const layer = async (
   const rest = from.outputs.filter(o => !deps.test(o));
   if (!paths.length && !rest.length) return [];
   const over = made.length > 0 && (await overlays(from.image));
-  const label = ['--label', `bothub.layer=${beat()}`, '--label', `bothub.owner=${owner}`];
-  const layers: Layer[] = paths.map((o, i) => ({ name: `bothub-layer-${owner}-${i}`, dst: `/work/${o}` }));
+  const label = ['--label', `agentgraph.layer=${beat()}`, '--label', `agentgraph.owner=${owner}`];
+  const layers: Layer[] = paths.map((o, i) => ({ name: `agentgraph-layer-${owner}-${i}`, dst: `/work/${o}` }));
   const [uid, gid] = user();
   const script = [
     'set -e',
@@ -426,7 +426,7 @@ export const layer = async (
           'create',
           ...label,
           '--label',
-          `bothub.lower=${from.lower!.replace('bothub-lower-', '')}`,
+          `agentgraph.lower=${from.lower!.replace('agentgraph-lower-', '')}`,
           ...overlayOf(`${lower}/data/${i}`, upper),
           name,
         ]);
@@ -487,7 +487,7 @@ const volumes = async (label: string, timeout?: number) =>
 /** Removes dependency volumes whose owner is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
 export const sweep = async (timeout = 600_000) => {
   beat();
-  const dead = (await volumes('bothub.layer', timeout).catch(() => []))
+  const dead = (await volumes('agentgraph.layer', timeout).catch(() => []))
     .filter(([, owner]) => !live(owner))
     .map(([name]) => name)
     .sort((a, b) => Number(b.endsWith('-o')) - Number(a.endsWith('-o')));
@@ -505,7 +505,7 @@ export const bytes = (size: string) => {
 /** Env images with their size in bytes, their dependency volume's included, and their last use, the oldest first. */
 export const envs = async () => {
   const tags = (
-    await docker(['image', 'ls', '--filter', 'label=bothub.env', '--format', '{{.Repository}}:{{.Tag}}']).catch(
+    await docker(['image', 'ls', '--filter', 'label=agentgraph.env', '--format', '{{.Repository}}:{{.Tag}}']).catch(
       () => ''
     )
   )
@@ -516,7 +516,7 @@ export const envs = async () => {
         'image',
         'inspect',
         '--format',
-        '{{index .RepoTags 0}} {{.Size}} {{index .Config.Labels "bothub.lowerkb"}}',
+        '{{index .RepoTags 0}} {{.Size}} {{index .Config.Labels "agentgraph.lowerkb"}}',
         ...tags,
       ]).catch(() => '')
     : '';
@@ -535,7 +535,7 @@ export const envs = async () => {
     .sort((a, b) => a.used - b.used);
 };
 
-const cap = () => bytes(process.env.BOTHUB_ENV_CAP || '60g');
+const cap = () => bytes(process.env.AGENTGRAPH_ENV_CAP || '60g');
 
 /**
  * Removes the least recently used Env images and their dependency volumes until they fit in `limit` bytes, never one
@@ -544,8 +544,8 @@ const cap = () => bytes(process.env.BOTHUB_ENV_CAP || '60g');
 export const evict = async (limit = cap(), dry = false) => {
   const all = await envs();
   const running = new Set((await docker(['ps', '--format', '{{.Image}}']).catch(() => '')).split('\n').filter(Boolean));
-  const layered = await volumes('bothub.lower').catch(() => []);
-  const owners = new Map((await volumes('bothub.layer').catch(() => [])).map(([name, owner]) => [name, owner]));
+  const layered = await volumes('agentgraph.lower').catch(() => []);
+  const owners = new Map((await volumes('agentgraph.layer').catch(() => [])).map(([name, owner]) => [name, owner]));
   const inUse = (key: string) => layered.some(([name, k]) => k === key && live(owners.get(name) ?? ''));
   let total = all.reduce((sum, e) => sum + e.bytes, 0);
   const removed: string[] = [];
@@ -616,14 +616,14 @@ const freeGb = async ({ dir, image, volume }: Disk) => {
 };
 
 /**
- * Makes sure `disk` has `BOTHUB_MIN_FREE_GB` (40) free: below it, sweeps and evicts Envs past `BOTHUB_ENV_CAP`, then
+ * Makes sure `disk` has `AGENTGRAPH_MIN_FREE_GB` (40) free: below it, sweeps and evicts Envs past `AGENTGRAPH_ENV_CAP`, then
  * throws `disk low` if that was not enough.
  */
-export const room = async (disk: Disk, min = Number(process.env.BOTHUB_MIN_FREE_GB || 40)) => {
+export const room = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
   if ((await freeGb(disk)) >= min) return;
   inDocker.clear();
   await sweep(60_000);
   await evict();
   const gb = await freeGb(disk);
-  if (gb < min) throw new Error(`disk low: ${gb.toFixed(1)} GB free, BOTHUB_MIN_FREE_GB is ${min}`);
+  if (gb < min) throw new Error(`disk low: ${gb.toFixed(1)} GB free, AGENTGRAPH_MIN_FREE_GB is ${min}`);
 };

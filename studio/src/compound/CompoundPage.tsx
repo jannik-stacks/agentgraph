@@ -128,7 +128,7 @@ const DiffText = ({ diff }: { diff: string }) => (
 const Detail = ({ series, point, onClose }: { series: Series; point: Point; onClose: () => void }) => {
   const { step } = point;
   return (
-    <aside className="bhm-in shrink-0 space-y-3 overflow-y-auto border-t border-zinc-200 p-4 text-xs lg:w-[28rem] lg:border-t-0 lg:border-l dark:border-zinc-800">
+    <aside className="agi-in shrink-0 space-y-3 overflow-y-auto border-t border-zinc-200 p-4 text-xs lg:w-[28rem] lg:border-t-0 lg:border-l dark:border-zinc-800">
       <div className="flex items-center gap-1.5">
         <h2 className="truncate font-mono font-medium">{step.id}</h2>
         <Tooltip tip={proposers[step.proposer]}>

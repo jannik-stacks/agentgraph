@@ -64,11 +64,11 @@ describe('docker with a stand-in docker client', () => {
         `[ "$1" = network ] && { echo true; exit 0; }`,
         `[ "$1" = rm ] && exit 0`,
         `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
-        `[ "$1 $2" = "volume inspect" ] && for a; do case $a in bothub-*) echo /m/$a;; esac; done`,
+        `[ "$1 $2" = "volume inspect" ] && for a; do case $a in agentgraph-*) echo /m/$a;; esac; done`,
         `case "$1" in commit|volume) echo "$*" >> ${log}.all; exit 0;; esac`,
         `printf '%s\\n' "$@" > ${log}`,
         `echo "$*" >> ${log}.all`,
-        `echo "secret=\${BOTHUB_LLM_API_KEY:-unset}" >> ${log}`,
+        `echo "secret=\${AGENTGRAPH_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
         `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n';; esac`,
       ].join('\n')
@@ -88,34 +88,34 @@ describe('docker with a stand-in docker client', () => {
     const home = tmp('home');
     const exit = await use(layer, s =>
       s.exec(
-        command(dir, { home, network: 'proxy', secrets: { BOTHUB_LLM_API_KEY: Redacted.make('sk-value-123456') } })
+        command(dir, { home, network: 'proxy', secrets: { AGENTGRAPH_LLM_API_KEY: Redacted.make('sk-value-123456') } })
       )
     );
     expect(exit).toEqual(Exit.succeed({ code: 0, output: 'line one\nline two\n' }));
     const args = logged();
     for (const flag of ['--rm', '--read-only', '--cap-drop=ALL', 'no-new-privileges=true', '--pull', 'never'])
       expect(args).toContain(flag);
-    expect(args[args.indexOf('--network') + 1]).toBe('bothub-sandbox');
+    expect(args[args.indexOf('--network') + 1]).toBe('agentgraph-sandbox');
     expect(args).toContain(`type=bind,src=${dir},dst=/work`);
     expect(args).toContain(`type=bind,src=${home},dst=/home/agent`);
     expect(args).toContain('HOME=/home/agent');
     expect(args).toContain('HTTPS_PROXY=http://egress:8888');
     expect(args).toContain('A=1');
-    expect(args.slice(args.indexOf('BOTHUB_LLM_API_KEY') - 1, args.indexOf('BOTHUB_LLM_API_KEY') + 1)).toEqual([
+    expect(args.slice(args.indexOf('AGENTGRAPH_LLM_API_KEY') - 1, args.indexOf('AGENTGRAPH_LLM_API_KEY') + 1)).toEqual([
       '-e',
-      'BOTHUB_LLM_API_KEY',
+      'AGENTGRAPH_LLM_API_KEY',
     ]);
     expect(args.join(' ')).not.toContain('sk-value-123456=');
     expect(args.filter(a => a.includes('sk-value'))).toEqual(['secret=sk-value-123456']);
-    expect(args.slice(-6, -2)).toEqual(['bothub-sandbox:local', 'sh', '-c', 'echo hi']);
+    expect(args.slice(-6, -2)).toEqual(['agentgraph-sandbox:local', 'sh', '-c', 'echo hi']);
   });
 
-  it('mounts the hub read-only at /hub and names it in BOTHUB_HUB', async () => {
+  it('mounts the hub read-only at /hub and names it in AGENTGRAPH_HUB', async () => {
     const hub = tmp('hub');
     await use(layer, s => s.exec(command(tmp('work'), { hub })));
     const args = logged();
     expect(args).toContain(`type=bind,src=${hub},dst=/hub,readonly`);
-    expect(args).toContain('BOTHUB_HUB=/hub');
+    expect(args).toContain('AGENTGRAPH_HUB=/hub');
   });
 
   it('has no network without the proxy and returns any exit code', async () => {
@@ -185,18 +185,18 @@ describe('docker with a stand-in docker client', () => {
       })
     );
     const args = Exit.isSuccess(exit) ? exit.value : [];
-    expect(args[args.indexOf('--network') + 1]).toBe('bothub-models');
+    expect(args[args.indexOf('--network') + 1]).toBe('agentgraph-models');
     expect(args.join('\n')).not.toContain('HTTPS_PROXY');
-    expect(args.slice(-6, -4)).toEqual([expect.stringMatching(/^bothub-env\/repo:\w+$/), 'sh']);
+    expect(args.slice(-6, -4)).toEqual([expect.stringMatching(/^agentgraph-env\/repo:\w+$/), 'sh']);
     const build = readFileSync(`${log}.all`, 'utf8')
       .split('\n')
-      .findLast(l => l.includes('bothub.envbuild'));
+      .findLast(l => l.includes('agentgraph.envbuild'));
     expect(build).toContain(' acme-rust:1 sh -c ');
   });
 
   it('mounts the cache volume in every container, and none with an empty name', async () => {
     await use(layer, s => s.exec(command(tmp('work'))));
-    expect(logged()).toContain('type=volume,src=bothub-cache,dst=/cache');
+    expect(logged()).toContain('type=volume,src=agentgraph-cache,dst=/cache');
     await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '' }), s => s.exec(command(tmp('work'))));
     expect(logged().join('\n')).not.toContain('type=volume');
     const exit = await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '--x' }), s =>
@@ -213,7 +213,7 @@ describe('docker with a stand-in docker client', () => {
     const builds = () =>
       readFileSync(`${log}.all`, 'utf8')
         .split('\n')
-        .filter(l => l.includes('bothub.envbuild')).length;
+        .filter(l => l.includes('agentgraph.envbuild')).length;
     const before = existsSync(`${log}.all`) ? builds() : 0;
     const exit = await use(docker({ data: tmp('data'), origin: repo }), s =>
       Effect.gen(function* () {
@@ -226,16 +226,16 @@ describe('docker with a stand-in docker client', () => {
     );
     const base = Exit.isSuccess(exit) ? exit.value : '';
     const all = readFileSync(`${log}.all`, 'utf8');
-    const text = all.slice(all.lastIndexOf('bothub.envbuild'));
+    const text = all.slice(all.lastIndexOf('agentgraph.envbuild'));
     expect(text).toContain('--network bridge');
     expect(text).toContain(base);
-    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/volume create .* bothub-layer-\w+-0\n/);
+    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/volume create .* agentgraph-layer-\w+-0\n/);
     expect(text).toContain('archive "$2" | tar -x -C /work');
     expect(text.indexOf('flock 9')).toBeLessThan(text.indexOf('sh -ec "$3"'));
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
     expect(builds() - before).toBe(1);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(
-      /commit --change LABEL bothub\.env=\w+ bothub\.lowerkb=\d+ bothub\.complete=true/
+      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.lowerkb=\d+ agentgraph\.complete=true/
     );
   });
 
@@ -250,10 +250,10 @@ describe('docker with a stand-in docker client', () => {
     const { ready, args } = Exit.isSuccess(exit) ? exit.value : { ready: false, args: [] };
     expect(ready).toBe(true);
     const mount = args.find(a => a.includes('dst=/work/node_modules')) ?? '';
-    expect(mount).toMatch(/^type=volume,src=bothub-layer-\w+-0-o,dst=\/work\/node_modules,volume-nocopy$/);
+    expect(mount).toMatch(/^type=volume,src=agentgraph-layer-\w+-0-o,dst=\/work\/node_modules,volume-nocopy$/);
     const name = /src=([\w-]+)/.exec(mount)?.[1];
     const all = readFileSync(`${log}.all`, 'utf8');
-    expect(all).toContain(`volume create --label bothub.layer=${process.pid}:`);
+    expect(all).toContain(`volume create --label agentgraph.layer=${process.pid}:`);
     expect(all).toContain('type=overlay');
     expect(all).toContain('mkdir -p /u/0/upper /u/0/work');
     expect(all).toMatch(new RegExp(`volume rm -f ${name} ${name!.slice(0, -2)}`));
@@ -388,7 +388,7 @@ describe('docker checkout', () => {
   it('keeps the files under the keep ref through a fetch and puts them back on the next checkout', async () => {
     const data = tmp('data');
     const layer = docker({ data, origin: origin() });
-    const keep = 'refs/bothub/runs/r1';
+    const keep = 'refs/agentgraph/runs/r1';
     const first = await use(layer, s =>
       Effect.map(s.checkout('main', 'feature', keep), c => writeFileSync(join(c.dir, 'b.txt'), 'kept\n'))
     );
@@ -408,7 +408,7 @@ describe('docker checkout', () => {
     const data = tmp('data');
     const repo = origin();
     const layer = docker({ data, origin: repo });
-    const keep = 'refs/bothub/runs/r2';
+    const keep = 'refs/agentgraph/runs/r2';
     await use(layer, s =>
       Effect.map(s.checkout('main', 'work', keep), c => writeFileSync(join(c.dir, 'b.txt'), 'second try\n'))
     );
@@ -428,7 +428,7 @@ describe('docker checkout', () => {
 
   it('keeps the files through host git that nothing in the worktree can steer', async () => {
     const data = tmp('data');
-    const keep = 'refs/bothub/runs/r3';
+    const keep = 'refs/agentgraph/runs/r3';
     const mirror = join(data, 'mirror.git');
     let planted = { marker: '', victim: '' };
     let dir = '';
@@ -471,8 +471,8 @@ describe('docker checkout', () => {
   });
 });
 
-/** Real containers: `BOTHUB_DOCKER=1` with the bothub-sandbox network and the bothub-sandbox:local image present. */
-describe.runIf(process.env.BOTHUB_DOCKER === '1')('docker for real', () => {
+/** Real containers: `AGENTGRAPH_DOCKER=1` with the agentgraph-sandbox network and the agentgraph-sandbox:local image present. */
+describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
   it('runs a command in the sandbox image with no network', async () => {
     const dir = tmp('work');
     writeFileSync(join(dir, 'x.txt'), 'inside\n');
@@ -482,10 +482,10 @@ describe.runIf(process.env.BOTHUB_DOCKER === '1')('docker for real', () => {
     expect(Exit.isSuccess(exit) && exit.value.output).toMatch(/^inside\n\d+\nread-only\n$/);
   }, 60_000);
 
-  it('reads the hub at BOTHUB_HUB and cannot write it', async () => {
+  it('reads the hub at AGENTGRAPH_HUB and cannot write it', async () => {
     const hub = tmp('hub');
     writeFileSync(join(hub, 'x.sh'), 'hub script\n');
-    const script = 'cat "$BOTHUB_HUB/x.sh"; touch "$BOTHUB_HUB/y" 2>/dev/null || echo read-only';
+    const script = 'cat "$AGENTGRAPH_HUB/x.sh"; touch "$AGENTGRAPH_HUB/y" 2>/dev/null || echo read-only';
     const exit = await use(docker({ data: tmp('data'), origin: '/nowhere' }), s =>
       s.exec(command(tmp('work'), { args: ['-c', script], hub }))
     );
@@ -500,12 +500,12 @@ describe.runIf(process.env.BOTHUB_DOCKER === '1')('docker for real', () => {
     git(repo, 'add', '.');
     git(repo, 'commit', '-q', '-m', 'deps');
     const hub = {
-      repo: 'bothub-disk-test',
+      repo: 'agentgraph-disk-test',
       setup: 'mkdir -p node_modules/x && head -c 5000000 /dev/urandom > node_modules/x/blob',
     };
     const sh = (dir: string, script: string) => (s: Sandbox['Type']) => s.exec(command(dir, { args: ['-c', script] }));
     const kb = (args: string[]) => Number(execFileSync('docker', args, { encoding: 'utf8' }).trim().split(/\s+/)[0]);
-    const exit = await use(docker({ data: tmp('data'), origin: repo, cache: 'bothub-disk-test-cache' }), s =>
+    const exit = await use(docker({ data: tmp('data'), origin: repo, cache: 'agentgraph-disk-test-cache' }), s =>
       Effect.gen(function* () {
         const works = yield* Effect.all(
           [1, 2, 3].map(() => s.checkout('main', undefined, undefined, hub)),
@@ -516,17 +516,32 @@ describe.runIf(process.env.BOTHUB_DOCKER === '1')('docker for real', () => {
         yield* sh(works[0]!.dir, 'echo mine > node_modules/mine')(s);
         const seen = yield* sh(works[1]!.dir, 'ls node_modules; du -sk node_modules/x')(s);
         const uppers = works.map(w =>
-          kb(['run', '--rm', '-u', '0', '-v', `bothub-layer-${basename(w.dir)}-0:/u`, 'bothub-sandbox:local', 'du', '-sk', '/u'])
+          kb([
+            'run',
+            '--rm',
+            '-u',
+            '0',
+            '-v',
+            `agentgraph-layer-${basename(w.dir)}-0:/u`,
+            'agentgraph-sandbox:local',
+            'du',
+            '-sk',
+            '/u',
+          ])
         );
         const host = works.map(w =>
-          kb(['run', '--rm', '-v', `${w.dir}:/w`, 'bothub-sandbox:local', 'du', '-sk', '/w'])
+          kb(['run', '--rm', '-v', `${w.dir}:/w`, 'agentgraph-sandbox:local', 'du', '-sk', '/w'])
         );
         return { seen: seen.output, uppers, host, ids: works.map(w => basename(w.dir)) };
       })
     );
-    const keys = execFileSync('docker', ['image', 'ls', '--format', '{{.Tag}}', 'bothub-env/bothub-disk-test'], {
-      encoding: 'utf8',
-    });
+    const keys = execFileSync(
+      'docker',
+      ['image', 'ls', '--format', '{{.Tag}}', 'agentgraph-env/agentgraph-disk-test'],
+      {
+        encoding: 'utf8',
+      }
+    );
     try {
       expect(Exit.isSuccess(exit)).toBe(true);
       if (!Exit.isSuccess(exit)) return;
@@ -537,25 +552,25 @@ describe.runIf(process.env.BOTHUB_DOCKER === '1')('docker for real', () => {
       for (const id of exit.value.ids) expect(left).not.toContain(id);
     } finally {
       for (const key of keys.split('\n').filter(Boolean)) {
-        spawnSync('docker', ['rmi', '-f', `bothub-env/bothub-disk-test:${key}`]);
-        spawnSync('docker', ['volume', 'rm', `bothub-lower-${key}`]);
+        spawnSync('docker', ['rmi', '-f', `agentgraph-env/agentgraph-disk-test:${key}`]);
+        spawnSync('docker', ['volume', 'rm', `agentgraph-lower-${key}`]);
       }
-      spawnSync('docker', ['volume', 'rm', 'bothub-disk-test-cache']);
+      spawnSync('docker', ['volume', 'rm', 'agentgraph-disk-test-cache']);
     }
   }, 900_000);
 });
 
 /**
- * One real opencode session in docker against the model proxy: `BOTHUB_LIVE=1` and `BOTHUB_PROXY_KEYS` holding a key
- * for `implementor`. Uses the `fast` alias unless `BOTHUB_LIVE_MODEL` names another.
+ * One real opencode session in docker against the model proxy: `AGENTGRAPH_LIVE=1` and `AGENTGRAPH_PROXY_KEYS` holding a key
+ * for `implementor`. Uses the `fast` alias unless `AGENTGRAPH_LIVE_MODEL` names another.
  */
-describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
+describe.runIf(process.env.AGENTGRAPH_LIVE === '1')('opencode for real', () => {
   it('answers, is denied a read outside the allowlist, and resumes', async () => {
     const dir = tmp('work');
     writeFileSync(join(dir, 'note.txt'), 'the word is kumquat\n');
     const layer = harnesses({
       data: tmp('data'),
-      proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(process.env.BOTHUB_PROXY_KEYS ?? '') },
+      proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(process.env.AGENTGRAPH_PROXY_KEYS ?? '') },
       prices: join(import.meta.dirname, '../infra/local/prices.json'),
     }).pipe(Layer.provide(docker({ data: tmp('data'), origin: '/nowhere' })));
     const open = (prompt: string, resume?: { id: string; home: string }) =>
@@ -566,7 +581,7 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
               s.open({
                 harness: 'opencode',
                 agent: 'implementor',
-                model: process.env.BOTHUB_LIVE_MODEL ?? 'fast',
+                model: process.env.AGENTGRAPH_LIVE_MODEL ?? 'fast',
                 system: 'You are a terse assistant. Use tools when asked.',
                 prompt,
                 dir,
@@ -584,7 +599,7 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
     const first = await open(
       'Read note.txt, then run the bash command `ls /` even if you expect it to fail. Then say the word from the note.'
     );
-    if (process.env.BOTHUB_LIVE_OUT) writeFileSync(process.env.BOTHUB_LIVE_OUT, JSON.stringify(first, null, 1));
+    if (process.env.AGENTGRAPH_LIVE_OUT) writeFileSync(process.env.AGENTGRAPH_LIVE_OUT, JSON.stringify(first, null, 1));
     const start = first.find(e => e.type === 'start');
     const end = first.at(-1);
     expect(start).toMatchObject({ type: 'start' });
@@ -596,7 +611,8 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
     const second = await open('What was the word? Answer with the word only.', { id: start.session, home: start.home });
     expect(second.find(e => e.type === 'start')).toMatchObject({ session: start.session });
     expect(second.at(-1)).toMatchObject({ type: 'end', ended: 'stop', exit: 0 });
-    if (process.env.BOTHUB_LIVE_OUT) writeFileSync(`${process.env.BOTHUB_LIVE_OUT}.2`, JSON.stringify(second, null, 1));
+    if (process.env.AGENTGRAPH_LIVE_OUT)
+      writeFileSync(`${process.env.AGENTGRAPH_LIVE_OUT}.2`, JSON.stringify(second, null, 1));
   }, 600_000);
 });
 
@@ -609,14 +625,14 @@ const faked = async <A>(out: Record<string, string>, f: (log: () => string) => P
     .join('\n');
   writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho "$*" >> ${log}\ncase "$1 $2" in\n${cases}\nesac\n`);
   chmodSync(join(bin, 'docker'), 0o755);
-  const saved = { PATH: process.env.PATH, BOTHUB_STATE: process.env.BOTHUB_STATE };
+  const saved = { PATH: process.env.PATH, AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE };
   process.env.PATH = `${bin}${delimiter}${saved.PATH}`;
-  process.env.BOTHUB_STATE = tmp('state');
+  process.env.AGENTGRAPH_STATE = tmp('state');
   try {
     return await f(() => (existsSync(log) ? readFileSync(log, 'utf8') : ''));
   } finally {
     Object.assign(process.env, saved);
-    if (saved.BOTHUB_STATE === undefined) delete process.env.BOTHUB_STATE;
+    if (saved.AGENTGRAPH_STATE === undefined) delete process.env.AGENTGRAPH_STATE;
   }
 };
 
@@ -644,48 +660,52 @@ describe('disk lifecycle', () => {
   it('layers overlays over the Env copy where it made a dependency dir and empty volumes elsewhere', async () => {
     await faked({ 'volume inspect': '/lower\\n/u0\\n' }, async log => {
       const layers = await layer(
-        { image: 'img', outputs: ['node_modules', 'dist'], lower: 'bothub-lower-k' },
+        { image: 'img', outputs: ['node_modules', 'dist'], lower: 'agentgraph-lower-k' },
         'own',
         tmp('work'),
         ['node_modules', 'packages/a/node_modules']
       );
       expect(layers).toEqual([
-        { name: 'bothub-layer-own-0-o', dst: '/work/node_modules', upper: 'bothub-layer-own-0' },
-        { name: 'bothub-layer-own-1', dst: '/work/packages/a/node_modules' },
+        { name: 'agentgraph-layer-own-0-o', dst: '/work/node_modules', upper: 'agentgraph-layer-own-0' },
+        { name: 'agentgraph-layer-own-1', dst: '/work/packages/a/node_modules' },
       ]);
       expect(log()).toMatch(
-        /volume create --label bothub\.layer=\d+:[0-9a-f]{12} --label bothub\.owner=own bothub-layer-own-1/
+        /volume create --label agentgraph\.layer=\d+:[0-9a-f]{12} --label agentgraph\.owner=own agentgraph-layer-own-1/
       );
-      expect(log()).toContain('o=lowerdir=/lower/data/0,upperdir=/u0/upper,workdir=/u0/work bothub-layer-own-0-o');
-      expect(log()).toContain('type=volume,src=bothub-lower-k,dst=/lower,readonly');
+      expect(log()).toContain('o=lowerdir=/lower/data/0,upperdir=/u0/upper,workdir=/u0/work agentgraph-layer-own-0-o');
+      expect(log()).toContain('type=volume,src=agentgraph-lower-k,dst=/lower,readonly');
       expect(log()).not.toContain('/u/1/upper');
       expect(log()).toContain(`cp -a '/work/dist' '/dst/'/`);
       await discard(layers);
-      expect(log()).toContain('volume rm -f bothub-layer-own-0-o bothub-layer-own-1 bothub-layer-own-0');
+      expect(log()).toContain('volume rm -f agentgraph-layer-own-0-o agentgraph-layer-own-1 agentgraph-layer-own-0');
     });
   });
 
   it('evicts the least recently used Envs past the cap and keeps one a container runs', async () => {
     await faked(
       {
-        'image ls': 'bothub-env/r:old\\nbothub-env/r:mid\\nbothub-env/r:new\\n',
+        'image ls': 'agentgraph-env/r:old\\nagentgraph-env/r:mid\\nagentgraph-env/r:new\\n',
         'image inspect':
-          'bothub-env/r:old 10000000000 19531250\\nbothub-env/r:mid 30000000000 0\\nbothub-env/r:new 30000000000 0\\n',
-        'ps --format': 'bothub-env/r:mid\\n',
-        'volume ls': 'bothub-lower-old old\\n',
+          'agentgraph-env/r:old 10000000000 19531250\\nagentgraph-env/r:mid 30000000000 0\\nagentgraph-env/r:new 30000000000 0\\n',
+        'ps --format': 'agentgraph-env/r:mid\\n',
+        'volume ls': 'agentgraph-lower-old old\\n',
       },
       async log => {
-        const envs = join(process.env.BOTHUB_STATE!, 'envs');
+        const envs = join(process.env.AGENTGRAPH_STATE!, 'envs');
         mkdirSync(envs, { recursive: true });
         ['old', 'mid', 'new'].forEach((key, i) => {
           writeFileSync(join(envs, key), '');
           utimesSync(join(envs, key), 1000 + i, 1000 + i);
         });
-        expect(await evict(bytes('70g'), true)).toEqual(['bothub-env/r:old', 'bothub-lower-old']);
-        expect(await evict(bytes('50g'))).toEqual(['bothub-env/r:old', 'bothub-env/r:new', 'bothub-lower-old']);
-        expect(log()).toContain('volume rm bothub-lower-old');
-        expect(log()).toContain('rmi bothub-env/r:new');
-        expect(log()).not.toContain('rmi bothub-env/r:mid');
+        expect(await evict(bytes('70g'), true)).toEqual(['agentgraph-env/r:old', 'agentgraph-lower-old']);
+        expect(await evict(bytes('50g'))).toEqual([
+          'agentgraph-env/r:old',
+          'agentgraph-env/r:new',
+          'agentgraph-lower-old',
+        ]);
+        expect(log()).toContain('volume rm agentgraph-lower-old');
+        expect(log()).toContain('rmi agentgraph-env/r:new');
+        expect(log()).not.toContain('rmi agentgraph-env/r:mid');
       }
     );
   });

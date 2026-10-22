@@ -92,7 +92,7 @@ export const Muted = ({ children }: { children: ReactNode }) => <p className="p-
 
 /** Three pulsing dots that fade in only once a wait passes half a second, so quick loads never flash. */
 export const Loading = () => (
-  <p role="status" aria-label="Loading" className="bhm-loading flex gap-1 p-4">
+  <p role="status" aria-label="Loading" className="agi-loading flex gap-1 p-4">
     {[0, 1, 2].map(i => (
       <span key={i} className="size-1 rounded-full bg-zinc-400 dark:bg-zinc-500" />
     ))}
@@ -150,7 +150,7 @@ export const Disclosure = ({
         </svg>
         {summary}
       </summary>
-      {shown && <div className="bhm-in">{children}</div>}
+      {shown && <div className="agi-in">{children}</div>}
     </details>
   );
 };
@@ -209,7 +209,7 @@ export const TipBubble = ({
       id={id}
       role="tooltip"
       popover="manual"
-      className="bhm-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug text-pretty whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
+      className="agi-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug text-pretty whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
     >
       {info && tip}
       {action && (
@@ -438,7 +438,7 @@ export const Combobox = ({
           <ul
             id={id}
             role="listbox"
-            className="bhm-in absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-96 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900"
+            className="agi-in absolute top-full left-0 z-50 mt-1 max-h-72 w-full min-w-96 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900"
           >
             {shown.map((o, i) => (
               <li

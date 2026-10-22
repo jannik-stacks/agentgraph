@@ -7,7 +7,7 @@ import { change, runScript, temp } from './kit.ts';
 
 const hub = resolve(import.meta.dirname, '../examples/acme-app');
 const scripts = join(hub, 'scripts');
-const bothubScripts = resolve(import.meta.dirname, '../examples/bothub/scripts');
+const agentgraphScripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
 const bin = resolve(import.meta.dirname, '../node_modules/.bin');
 
 const check = (script: string, repo: { dir: string; base?: string }, ...args: string[]) =>
@@ -50,7 +50,7 @@ describe('safety check', () => {
       {
         'kit/old.ts': `const old = '${token}';\nconst key = 'sk-${'b'.repeat(24)}';\n`,
         'kit/new.ts': `// nothing\n-----BEGIN OPENSSH PRIVATE KEY-----\n`,
-        'kit/conf.ts': `const env = 'BOTHUB_LLM_API_KEY_IMPLEMENTOR=${'c'.repeat(20)}';\n`,
+        'kit/conf.ts': `const env = 'AGENTGRAPH_LLM_API_KEY_IMPLEMENTOR=${'c'.repeat(20)}';\n`,
       }
     );
     const { ok, out } = check('safety.mjs', repo, 'kit/');
@@ -76,7 +76,7 @@ describe('safety check', () => {
     expect(check('safety.mjs', repo, 'kit/').ok).toBe(true);
     expect(check('safety.mjs', { dir: repo.dir }, 'kit/')).toMatchObject({
       ok: false,
-      out: expect.stringContaining('BOTHUB_BASE is not set'),
+      out: expect.stringContaining('AGENTGRAPH_BASE is not set'),
     });
     expect(check('safety.mjs', { dir: repo.dir, base: 'f'.repeat(40) }, 'kit/').ok).toBe(false);
   });
@@ -183,15 +183,15 @@ describe('lint check', () => {
     const result = spawnSync(process.execPath, [join(scripts, 'lint.mjs')], {
       cwd: repo.dir,
       encoding: 'utf8',
-      env: { PATH: `${onlyNode}:/usr/bin:/bin`, BOTHUB_BASE: repo.base },
+      env: { PATH: `${onlyNode}:/usr/bin:/bin`, AGENTGRAPH_BASE: repo.base },
     });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('oxlint is not installed in this sandbox');
   });
 });
 
-describe('bothub hub checks', () => {
-  const at = (script: string) => join(bothubScripts, script);
+describe('agentgraph hub checks', () => {
+  const at = (script: string) => join(agentgraphScripts, script);
 
   it('flags dated or historical comments and symbol-laden docs lines a change adds', () => {
     const repo = change(
@@ -281,7 +281,7 @@ describe('clarinet reach check', () => {
     const dir = temp('engine-files');
     const brief = '## Title\nfeat(cli): x\n\n## Reach\n- CLI: `components/a.rs`';
     const at = '2026-10-13T09:01:00.000Z';
-    const comment = { id: at, author: 'bothub[bot]', body: brief, at };
+    const comment = { id: at, author: 'agentgraph[bot]', body: brief, at };
     const issue = {
       number: 1,
       title: 'X',
@@ -291,13 +291,13 @@ describe('clarinet reach check', () => {
       author: 'morgan',
       url: '',
     };
-    const events = [{ issue: 1, kind: 'comment' as const, actor: 'bothub[bot]', trusted: true, at, comment }];
+    const events = [{ issue: 1, kind: 'comment' as const, actor: 'agentgraph[bot]', trusted: true, at, comment }];
     writeFileSync(join(dir, 'context.md'), context({ issue: { ...issue, events } }));
     writeFileSync(join(dir, 'reply.md'), 'Done.\n\nNot reached: `components/a.rs`: a follow-up does it');
     const repo = change({ 'README.md': 'x\n' });
     const out = runScript(resolve(import.meta.dirname, '../examples/clarinet/scripts/reach.mjs'), repo, [], {
-      BOTHUB_CONTEXT: join(dir, 'context.md'),
-      BOTHUB_REPLY: join(dir, 'reply.md'),
+      AGENTGRAPH_CONTEXT: join(dir, 'context.md'),
+      AGENTGRAPH_REPLY: join(dir, 'reply.md'),
     });
     expect(out.out.split('\n')[0]).toBe('components/a.rs (CLI) not reached: a follow-up does it');
   });

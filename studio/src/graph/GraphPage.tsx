@@ -27,7 +27,7 @@ import { storyOf, trailOf, visitsOf } from './visits.ts';
 const hubParam = queryParam('hub');
 const runParam = queryParam('run');
 
-const panelAtom = atomWithStorage('bothub.stepPanel', 320, undefined, { getOnInit: true });
+const panelAtom = atomWithStorage('agentgraph.stepPanel', 320, undefined, { getOnInit: true });
 const panelWidth = (w: number) => Math.round(Math.min(Math.max(w, 260), 720, innerWidth * 0.7));
 
 /** The side panel's width, dragged from its left edge and kept across visits. */

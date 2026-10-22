@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, runScript } from './kit.ts';
 
-const script = resolve(import.meta.dirname, '../examples/bothub/scripts/propagation.mjs');
+const script = resolve(import.meta.dirname, '../examples/agentgraph/scripts/propagation.mjs');
 const run = (repo: { dir: string; base: string }) => runScript(script, repo);
 
 const status = (name: string) => `export type Status = 'running' | '${name}';\n`;

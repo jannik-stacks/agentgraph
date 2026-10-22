@@ -34,21 +34,23 @@ export type Settings = {
 const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.url));
 
 export const settings: Config.Config<Settings> = Config.all({
-  repo: Config.string('BOTHUB_REPO'),
-  hub: Config.string('BOTHUB_HUB').pipe(Config.withDefault('.bothub')),
-  data: Config.string('BOTHUB_DATA').pipe(Config.withDefault('.bothub-data')),
-  every: Config.number('BOTHUB_EVERY').pipe(Config.withDefault(5)),
+  repo: Config.string('AGENTGRAPH_REPO'),
+  hub: Config.string('AGENTGRAPH_HUB').pipe(Config.withDefault('.agentgraph')),
+  data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault('.bothub-data')),
+  every: Config.number('AGENTGRAPH_EVERY').pipe(Config.withDefault(5)),
   proxy: Config.all({
-    url: Config.string('BOTHUB_PROXY_URL').pipe(Config.withDefault('http://litellm:4000/v1')),
-    keys: Config.redacted('BOTHUB_PROXY_KEYS'),
+    url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://litellm:4000/v1')),
+    keys: Config.redacted('AGENTGRAPH_PROXY_KEYS'),
   }),
-  prices: Config.string('BOTHUB_PRICES').pipe(Config.withDefault(prices)),
-  cache: Config.string('BOTHUB_CACHE_VOLUME').pipe(Config.withDefault('bothub-cache')),
-  image: Config.string('BOTHUB_IMAGE').pipe(Config.withDefault('bothub-sandbox:local')),
-  checkLogs: Config.literal(...checkLogs)('BOTHUB_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
-  studio: Config.string('BOTHUB_STUDIO_URL').pipe(Config.withDefault('')),
-  forge: Config.string('BOTHUB_FORGE').pipe(
-    Config.orElse(() => Config.all({ id: Config.string('BOTHUB_APP_ID'), key: Config.redacted('BOTHUB_APP_KEY') }))
+  prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(prices)),
+  cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
+  image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault('agentgraph-sandbox:local')),
+  checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
+  studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
+  forge: Config.string('AGENTGRAPH_FORGE').pipe(
+    Config.orElse(() =>
+      Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
+    )
   ),
 });
 

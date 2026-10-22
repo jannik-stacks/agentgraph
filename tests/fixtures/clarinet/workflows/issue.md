@@ -1,6 +1,6 @@
 ---
 on: { issue_comment: {} }
-branch: bothub/{issue}
+branch: agentgraph/{issue}
 steps:
   triage: { agent: triager, checks: [triage-brief] }
   implement:
@@ -28,5 +28,5 @@ steps:
 ---
 
 A maintainer says `/agent` on an issue. The triager replies with a brief that names every
-entry point the change reaches. The implementor works on `bothub/<issue>` until the gating checks
+entry point the change reaches. The implementor works on `agentgraph/<issue>` until the gating checks
 pass. A human reviews and merges.

@@ -2,12 +2,12 @@
 
 A proposal is a change an agent asks the engine to make. It is the only way an agent writes to GitHub: the agent has no GitHub token and does not run `git` or `gh`.
 
-The agent ends its reply with a fenced `bothub` block. The engine reads the last such block, as a JSON array, one JSON object, or one JSON object per line. <!-- code: src/engine.ts#proposalsOf -->
+The agent ends its reply with a fenced `agentgraph` block. The engine reads the last such block, as a JSON array, one JSON object, or one JSON object per line. <!-- code: src/engine.ts#proposalsOf -->
 
-```bothub
+```agentgraph
 [
-  {"kind": "push", "branch": "bothub/42", "message": "Fix fee rounding"},
-  {"kind": "pull_request", "branch": "bothub/42", "base": "main", "title": "Fix fee rounding", "body": "Closes #42"}
+  {"kind": "push", "branch": "agentgraph/42", "message": "Fix fee rounding"},
+  {"kind": "pull_request", "branch": "agentgraph/42", "base": "main", "title": "Fix fee rounding", "body": "Closes #42"}
 ]
 ```
 
@@ -46,7 +46,7 @@ returns: [comment, push, pull_request]
    └──> otherwise: pushes first, then the rest in order
 ```
 
-The try also fails, with the expected shape as feedback, when the reply has no `bothub` block, the block is not in one of the forms above, a proposal has missing or extra fields, or the agent may not make that kind. Nothing from such a reply is applied, and the feedback says to send every proposal again. <!-- code: src/engine.ts#attempt -->
+The try also fails, with the expected shape as feedback, when the reply has no `agentgraph` block, the block is not in one of the forms above, a proposal has missing or extra fields, or the agent may not make that kind. Nothing from such a reply is applied, and the feedback says to send every proposal again. <!-- code: src/engine.ts#attempt -->
 
 Each applied proposal is traced with its URL, or the reason it failed. A failed proposal fails the try, and the reason goes back as feedback. On GitHub, a second pull request for the same branch fails this way.
 
@@ -56,7 +56,7 @@ A comment goes where the human who started or woke the run spoke: the issue, its
 
 ## Pushes
 
-A push never forces. Its branch starts with `bothub/`, and it builds on the commit the checkout started from or on its own last push. When the branch moved meanwhile, the push is refused.
+A push never forces. Its branch starts with `agentgraph/`, and it builds on the commit the checkout started from or on its own last push. When the branch moved meanwhile, the push is refused.
 
 Only regular files outside `.github/` and `.git/` are pushed, at most 200 files and 1 MiB per file. A change under `.github/`, such as a workflow, is left out of the push and the rest goes on; the pull request names the files left out, for a maintainer to push. The engine writes the commits through GitHub's Git API, so GitHub signs them. <!-- code: src/github.ts#unpushable -->
 

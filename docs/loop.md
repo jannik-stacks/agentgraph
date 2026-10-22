@@ -30,7 +30,7 @@ A workflow is a Markdown file in the hub's `workflows/` folder, such as `workflo
 
 ```yaml
 on: issue_comment
-branch: bothub/{issue}
+branch: agentgraph/{issue}
 steps:
   implement:
     agent: implementor
@@ -131,7 +131,7 @@ The bot is never trusted either. Its own comments, labels and the issues it file
 
 The agent's body goes into the session's system prompt. Claude Code and pi add it after their own default prompt. opencode uses it in place of its base prompt and still adds its environment, tools and skills.
 
-The prompt holds the step's skill and the skills it `uses`, the workflow body, the issue and its comments, the pull request on the run's branch with its reviews, the branch to work on, the `until` sentence, any feedback, and the shape of every proposal the agent may make. The agent ends its reply with a fenced `bothub` block of [proposals](proposals.md). <!-- code: src/context.ts#context -->
+The prompt holds the step's skill and the skills it `uses`, the workflow body, the issue and its comments, the pull request on the run's branch with its reviews, the branch to work on, the `until` sentence, any feedback, and the shape of every proposal the agent may make. The agent ends its reply with a fenced `agentgraph` block of [proposals](proposals.md). <!-- code: src/context.ts#context -->
 
 While the session works, the engine writes what is new on the issue and its pull request to a news file every minute. An agent with the `read` tool is told to read it before it finishes. A resumed session gets only the feedback and what is new. <!-- code: src/context.ts#news -->
 
@@ -167,14 +167,14 @@ Scripts run with the checkout as their working directory and get these variables
 
 | Variable           | What it holds                                                | Given to         |
 | ------------------ | ------------------------------------------------------------ | ---------------- |
-| `BOTHUB_BASE`      | Where the change starts: on a branch, where it forks from the base | checks and steps |
-| `BOTHUB_HUB`       | The hub folder, read-only                                    | checks and steps |
-| `BOTHUB_ISSUE`     | The issue number                                             | checks           |
-| `BOTHUB_PROPOSALS` | A JSON file of the proposals the try made                    | checks           |
-| `BOTHUB_CONTEXT`   | A file with the issue and pull request as the agent saw them, then the human answers | checks           |
-| `BOTHUB_REPLY`     | A file with the try's reply                                  | checks           |
-| `BOTHUB_TRACES`    | A file with the traces of the runs on the issue, see [Reading traces](compound.md#reading-traces) | checks |
-| `BOTHUB_ITEM`      | The item, in a fan-out                                       | checks           |
+| `AGENTGRAPH_BASE`      | Where the change starts: on a branch, where it forks from the base | checks and steps |
+| `AGENTGRAPH_HUB`       | The hub folder, read-only                                    | checks and steps |
+| `AGENTGRAPH_ISSUE`     | The issue number                                             | checks           |
+| `AGENTGRAPH_PROPOSALS` | A JSON file of the proposals the try made                    | checks           |
+| `AGENTGRAPH_CONTEXT`   | A file with the issue and pull request as the agent saw them, then the human answers | checks           |
+| `AGENTGRAPH_REPLY`     | A file with the try's reply                                  | checks           |
+| `AGENTGRAPH_TRACES`    | A file with the traces of the runs on the issue, see [Reading traces](compound.md#reading-traces) | checks |
+| `AGENTGRAPH_ITEM`      | The item, in a fan-out                                       | checks           |
 
 ## Tries and going back
 
@@ -190,7 +190,7 @@ Going forward into a step starts a fresh session. Going back resumes the session
 
 A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question as its own comment on the issue.
 
-A human answers with a comment that says `/agent` on the thread, and the comment becomes feedback for the same step. The run keeps every answer with its question, and every later check reads them: an agent check in its prompt, with the note that a point an answer settles is not a finding, and a script at the end of `BOTHUB_CONTEXT`. <!-- code: src/engine.ts#heard --> `/agent stop` ends the run, waiting or working, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
+A human answers with a comment that says `/agent` on the thread, and the comment becomes feedback for the same step. The run keeps every answer with its question, and every later check reads them: an agent check in its prompt, with the note that a point an answer settles is not a finding, and a script at the end of `AGENTGRAPH_CONTEXT`. <!-- code: src/engine.ts#heard --> `/agent stop` ends the run, waiting or working, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
 
 `node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
 
@@ -229,7 +229,7 @@ The setting follows GitHub Actions `concurrency`, where the group is always the 
 
 ## A hub in the repo
 
-The hub can live in the repo it works on, as `.bothub/` on the default branch. `BOTHUB_HUB` names it: a relative path, `.bothub` by default, is a folder in the repo, and an absolute path, such as the one `--hub <dir>` gives, is a folder on this machine. <!-- code: src/hub.ts#hubAt -->
+The hub can live in the repo it works on, as `.agentgraph/` on the default branch. `AGENTGRAPH_HUB` names it: a relative path, `.agentgraph` by default, is a folder in the repo, and an absolute path, such as the one `--hub <dir>` gives, is a folder on this machine. <!-- code: src/hub.ts#hubAt -->
 
 A hub in the repo is read again at every look, always from the head of the default branch and never from a pull request's branch. A bot can propose a change to its own workflows, agents or checks, but the change counts only once a human merges it. The trust list is read once, when the runner starts. <!-- code: src/main.ts#start -->
 
@@ -239,7 +239,7 @@ A run waiting at a `wait: human` step was checked against two things that can ch
 
 If the branch is behind its base, for example `gh-pages` got new commits, the engine brings it up to date with no model. `follow` on the wait step says how: `merge` (the default) merges the base into the branch with a plain push, like GitHub's "Update branch" button, and leaves commits people pushed to the branch alone; `rebase` replays the branch onto the base and force-pushes, the same way it rebases a stacked branch. <!-- code: src/workflow.ts#Step -->
 
-Then it compares the pull request's own change before and after, by `git patch-id`. When it is the same, only the wait step's `checks` run again. They default to the script checks of the step that `back` leads to, so finding out whether a pull request still holds costs no tokens. `checks: []` follows the base and checks nothing. A judged check in the list runs only once the scripts passed, and reads what moved on the base from `$BOTHUB_REPLY`; that is how a cheap agent can decide whether the pull request needs an update. When the change differs, or the hub changed since the run was last checked, every check of the step that `back` leads to runs, under the current hub. The hub's `setup` runs first, as in any new checkout. If the checks pass, the run keeps waiting. If they fail, the run goes back to that step as a request for changes would, with the failed checks as the reason. <!-- code: src/engine.ts#catchUp -->
+Then it compares the pull request's own change before and after, by `git patch-id`. When it is the same, only the wait step's `checks` run again. They default to the script checks of the step that `back` leads to, so finding out whether a pull request still holds costs no tokens. `checks: []` follows the base and checks nothing. A judged check in the list runs only once the scripts passed, and reads what moved on the base from `$AGENTGRAPH_REPLY`; that is how a cheap agent can decide whether the pull request needs an update. When the change differs, or the hub changed since the run was last checked, every check of the step that `back` leads to runs, under the current hub. The hub's `setup` runs first, as in any new checkout. If the checks pass, the run keeps waiting. If they fail, the run goes back to that step as a request for changes would, with the failed checks as the reason. <!-- code: src/engine.ts#catchUp -->
 
 A base that conflicts sends the run back to that step too, with the conflicting files as the reason. Its next try starts on the new base head with the change applied and conflict markers left in those files, and its push lands as one commit on the base (`rebase`) or as a merge of it (`merge`). The agent only edits files; the engine does the git. A try that leaves a conflict marker in the change fails. <!-- code: src/engine.ts#following --> If the run comes back to wait with the same base head still conflicting, that is said once on the issue, for a human to update by hand. A run that is up to date with both is left alone.
 
@@ -247,7 +247,7 @@ The hub's version is a hash of `hub.yaml`, the agents, skills, checks, workflows
 
 ## Status on the issue
 
-The engine keeps one status comment on the issue up to date: the step and try, a link to the open question, why the run stopped, the cost so far, the pull request and any failing GitHub checks on it. It also keeps one status label: `bothub:working`, `bothub:waiting`, `bothub:done` or `bothub:stopped`. <!-- code: src/context.ts#shown --> Once a question is answered, the status comment above it says it asked the question below, and the next status is a new comment under the answer, so a finished run never reads as asking. <!-- code: src/engine.ts#tick -->
+The engine keeps one status comment on the issue up to date: the step and try, a link to the open question, why the run stopped, the cost so far, the pull request and any failing GitHub checks on it. It also keeps one status label: `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. <!-- code: src/context.ts#shown --> Once a question is answered, the status comment above it says it asked the question below, and the next status is a new comment under the answer, so a finished run never reads as asking. <!-- code: src/engine.ts#tick -->
 
 ## Order and limits
 

@@ -3,7 +3,7 @@
 ## Unreleased
 
 - A trusted comment speaks to the bot only when it says `/agent`, both to start a run and on the
-  issue or pull request of a live run, review comments included. The `/bothub` command,
+  issue or pull request of a live run, review comments included. The `/agentgraph` command,
   `on.issue_comment.command` and plain replies are gone; write `issue_comment: {}`, and with several
   comment workflows name one as the first word after `/agent`.
 - `@agent` calls the bot the same as `/agent`.
@@ -32,17 +32,17 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
 ### Toolchains
 
 - When a checkout is made, a toolchain step installs what the repo names (the pinned Rust
-  toolchain with clippy and rustfmt, then `cargo fetch`) into the `bothub-cache` volume, then runs
+  toolchain with clippy and rustfmt, then `cargo fetch`) into the `agentgraph-cache` volume, then runs
   the hub's new `toolchain` script. Later runs and checks reuse it and build offline.
-- `BOTHUB_CACHE_VOLUME` names another volume, and an empty value turns the step off.
+- `AGENTGRAPH_CACHE_VOLUME` names another volume, and an empty value turns the step off.
 - A file lock in the cache volume stops two runners installing toolchains at once.
 
 ### Starting and sweeping
 
 - A workflow with `issues: { label: agent:ready }` starts when a maintainer adds the label, once
-  per issue. Adding it again after a done run starts nothing, and `/bothub restart` runs it again.
+  per issue. Adding it again after a done run starts nothing, and `/agentgraph restart` runs it again.
 - `loop` first looks at every open issue once, so it catches up on what happened while it was
-  down, then looks again every `BOTHUB_EVERY` minutes.
+  down, then looks again every `AGENTGRAPH_EVERY` minutes.
 - GitHub calls that are safe to repeat are retried with backoff on network errors and 502 to 504.
 - A warning at start when the data dir or its mirror is under a temp dir, which the OS may clear.
 
@@ -59,7 +59,7 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
 
 - Every check's full output is kept gzipped by content hash, and a check row in the studio opens
   it on demand.
-- `BOTHUB_CHECK_LOGS`, `--logs` or `logs` in `instance.yaml` keeps `all`, `failed` or `off`.
+- `AGENTGRAPH_CHECK_LOGS`, `--logs` or `logs` in `instance.yaml` keeps `all`, `failed` or `off`.
   `node bin/run.ts prune-logs --data <dir>` counts the logs no trace names, and `--apply` deletes
   them.
 
@@ -82,8 +82,8 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
   the held-out ones.
 - A finished run keeps only its records: dependencies live once per base in a docker volume that each
   checkout overlays with its own writes, never in a checkout,
-  score trees go after scoring, Envs past `BOTHUB_ENV_CAP` are evicted, and runs wait below
-  `BOTHUB_MIN_FREE_GB` free.
+  score trees go after scoring, Envs past `AGENTGRAPH_ENV_CAP` are evicted, and runs wait below
+  `AGENTGRAPH_MIN_FREE_GB` free.
 
 ## 0.1.0
 
@@ -93,7 +93,7 @@ The first versioned release.
 
 - Workflows start jobs from GitHub events or local issue files. A job casts a bot, hands it a
   skill and may stop on `until` or `requires`.
-- Bots run on the opencode, pi or Claude Code harness. Each attempt ends in proposals that bothub
+- Bots run on the opencode, pi or Claude Code harness. Each attempt ends in proposals that agentgraph
   validates before anything reaches the repository.
 - Attempts repeat until the gating checks pass or the attempts run out. Failing findings go back
   to the bot. A human merges.
@@ -107,7 +107,7 @@ The first versioned release.
 
 ### Hubs and checks
 
-- A hub is config: `hub.yaml`, bots, skills, checks, workflows and notes. `bothub check`
+- A hub is config: `hub.yaml`, bots, skills, checks, workflows and notes. `agentgraph check`
   validates it and fails closed.
 - Checks are scripts or narrow bot judges, in modes `log`, `warn` and `block`. A script slices the
   change into hunks, items or files, and a bot answers one question per piece.
@@ -120,7 +120,7 @@ The first versioned release.
   the issue, even when an answer asked for it.
 - A docs paragraph that names code the change touched is read against the new code, even when the
   change edits no docs.
-- Example hubs: `bothub`, `acme-app`, `clarinet`, `hub`. `bothub sim` replays scripted
+- Example hubs: `agentgraph`, `acme-app`, `clarinet`, `hub`. `agentgraph sim` replays scripted
   scenarios against a hub.
 
 ### Sandbox
@@ -150,9 +150,9 @@ The first versioned release.
 ### Data kept
 
 - Runs, parked branches and mirrors are never deleted.
-- Each attempt's commit is kept under `refs/bothub/attempts/<run id>/<n>` in the mirror.
+- Each attempt's commit is kept under `refs/agentgraph/attempts/<run id>/<n>` in the mirror.
 - Every run's work is parked on `<branch>-parked-<run id>`. A worktree removed for any other
-  reason first keeps unsaved work on `bothub/kept-<run id>`, locally only.
+  reason first keeps unsaved work on `agentgraph/kept-<run id>`, locally only.
 - A run's `home/` and its `tmp/` are kept after scrubbing secrets.
 - The bench driver keeps each case's diff and data directory.
 
@@ -176,6 +176,6 @@ The first versioned release.
   ones, so the cache grows with the number of issues.
 - A hub change reaches only events after it. A run in flight keeps the old hub, and nothing warns
   about the runs it affects.
-- Review questions that apply to every hub live in the bothub hub only.
+- Review questions that apply to every hub live in the agentgraph hub only.
 - Run records are written to local disk. The `Files` interface for other backends is not wired
   in.

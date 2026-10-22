@@ -9,7 +9,7 @@ const check = (hub: string, proposals: object[]) => {
   const file = join(mkdtempSync(join(tmpdir(), 'sized-')), 'proposals.json');
   writeFileSync(file, JSON.stringify(proposals));
   const out = spawnSync('node', [join(import.meta.dirname, '..', 'examples', hub, 'scripts', 'sized.mjs')], {
-    env: { ...process.env, BOTHUB_PROPOSALS: file },
+    env: { ...process.env, AGENTGRAPH_PROPOSALS: file },
     encoding: 'utf8',
   });
   return { code: out.status, out: out.stdout.trim() };

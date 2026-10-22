@@ -51,7 +51,7 @@ const check = async (repositories: string[]) => {
         : answers[`${init.method ?? 'GET'} ${u.pathname}`];
     return new Response(JSON.stringify(body), { status: body ? 200 : 404 });
   };
-  const data = mkdtempSync(join(tmpdir(), 'bothub-status-'));
+  const data = mkdtempSync(join(tmpdir(), 'agentgraph-status-'));
   for (const [id, issue, status] of [
     ['a', 3, 'asking'],
     ['b', 4, 'waiting'],

@@ -2,7 +2,7 @@
 
 Every field a hub file may hold, with its type, its default and what it does. An unknown field is an error, and a removed one is reported with what to write instead. <!-- code: src/hub.ts#gone -->
 
-A hub is a folder: `.bothub/` on the default branch of the repo it works on, or a folder on this machine given with `--hub`, see [A hub in the repo](loop.md#a-hub-in-the-repo). Its version is a hash of `hub.yaml` and every agent, skill, check, workflow and script in it. When the version changes, runs waiting for a human are checked again, see [When the base or the hub moves](loop.md#when-the-base-or-the-hub-moves). <!-- code: src/hub.ts#loadHub -->
+A hub is a folder: `.agentgraph/` on the default branch of the repo it works on, or a folder on this machine given with `--hub`, see [A hub in the repo](loop.md#a-hub-in-the-repo). Its version is a hash of `hub.yaml` and every agent, skill, check, workflow and script in it. When the version changes, runs waiting for a human are checked again, see [When the base or the hub moves](loop.md#when-the-base-or-the-hub-moves). <!-- code: src/hub.ts#loadHub -->
 
 ## hub.yaml
 
@@ -13,7 +13,7 @@ A hub is a folder: `.bothub/` on the default branch of the repo it works on, or 
 | `repo`      | `owner/name`         | none                              | The GitHub repo the hub works on                                     |
 | `setup`     | shell script         | none                              | Installs dependencies once per base, see [Environments](sandbox.md#environments) |
 | `toolchain` | shell script         | none                              | Installs more tools, see [Toolchains](sandbox.md#toolchains)         |
-| `image`     | local image name     | `bothub-sandbox:local`            | The image every command of a run starts in                           |
+| `image`     | local image name     | `agentgraph-sandbox:local`            | The image every command of a run starts in                           |
 | `network`   | `egress` or `models` | `egress`                          | What sessions and setup reach, see [Sandbox](sandbox.md#the-network) |
 | `stacks`    | boolean              | `false`                           | Whether a `Stacks on #n` line builds on the pull request of #n       |
 | `milestone` | milestone title      | none, every open issue            | Only open issues in this milestone start runs                        |
@@ -121,4 +121,4 @@ An [instance](local.md#instances) is a folder with `instance.yaml`, the hub in `
 | `repo`  | path                     | none                   | The git repo on this machine the instance copies and exports to |
 | `base`  | branch name              | `main`                 | The branch `sync` and `export --patch` read from the repo       |
 | `owner` | name                     | `git config user.name` | Who `bin/forge.ts` acts as when `--as` is not given             |
-| `logs`  | `all`, `failed` or `off` | `all`                  | Which check output the data dir keeps, as `BOTHUB_CHECK_LOGS`   |
+| `logs`  | `all`, `failed` or `off` | `all`                  | Which check output the data dir keeps, as `AGENTGRAPH_CHECK_LOGS`   |

@@ -23,20 +23,20 @@ if (values.instance && !instance) {
   process.exit(2);
 }
 const hubDir = resolve(values.hub ?? instance?.hub ?? join(import.meta.dirname, '..', 'examples', 'acme-app'));
-const dataDir = resolve(values.data ?? instance?.data ?? process.env.BOTHUB_DATA ?? join(homedir(), '.bothub'));
+const dataDir = resolve(values.data ?? instance?.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;
 console.log(`hub    ${hubDir}\ndata   ${dataDir}${real !== dataDir ? ` -> ${real}` : ''}`);
 const loaded = await Effect.runPromise(Effect.either(loadHub(hubDir)));
 if (Either.isLeft(loaded))
   console.error(`the hub does not load, so the studio shows no workflow:\n${loaded.left.message}`);
 
-process.env.VITE_BHM_HUB = hubDir;
-process.env.VITE_BHM_DATA = dataDir;
-if (values.bench) process.env.VITE_BHM_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
-if (values.tune) process.env.VITE_BHM_TUNE = resolve(values.tune);
+process.env.VITE_AGI_HUB = hubDir;
+process.env.VITE_AGI_DATA = dataDir;
+if (values.bench) process.env.VITE_AGI_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
+if (values.tune) process.env.VITE_AGI_TUNE = resolve(values.tune);
 const vite = await createServer({ root: import.meta.dirname });
 await vite.listen().catch((e: Error) => {
-  console.error(`bhm: ${e.message}; pick another port with BHM_PORT`);
+  console.error(`agi: ${e.message}; pick another port with AGI_PORT`);
   process.exit(1);
 });
 vite.printUrls();

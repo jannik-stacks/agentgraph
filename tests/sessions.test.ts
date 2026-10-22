@@ -16,7 +16,7 @@ afterEach(() => {
 
 /** Three runs gate one check that judges each of ten items, against a harness that counts its live sessions. */
 const peakOf = async (sessions: number) => {
-  const root = mkdtempSync(join(tmpdir(), 'bothub-sessions-'));
+  const root = mkdtempSync(join(tmpdir(), 'agentgraph-sessions-'));
   dirs.push(root);
   const work = join(root, 'work');
   mkdirSync(work);

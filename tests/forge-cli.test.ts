@@ -18,8 +18,8 @@ const sandboxHub = join(import.meta.dirname, '..', 'examples', 'sandbox');
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  delete process.env.BOTHUB_FORGE;
-  delete process.env.BOTHUB_PROXY_KEYS;
+  delete process.env.AGENTGRAPH_FORGE;
+  delete process.env.AGENTGRAPH_PROXY_KEYS;
 });
 
 const start = (session: string): SessionEvent => ({ type: 'start', session, model: 'test', home: `/homes/${session}` });
@@ -32,7 +32,7 @@ const write = (path: string, content: string): SessionEvent => ({
 });
 const reply = (...proposals: Proposal[]): SessionEvent => ({
   type: 'end',
-  final: `Done.\n\n\`\`\`bothub\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
+  final: `Done.\n\n\`\`\`agentgraph\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
   ended: 'stop',
   exit: 0,
 });
@@ -54,7 +54,7 @@ const world = () => {
     expect(r.status, r.stderr).toBe(0);
     return r.stdout.trim();
   };
-  Object.assign(process.env, { BOTHUB_FORGE: dir, BOTHUB_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
+  Object.assign(process.env, { AGENTGRAPH_FORGE: dir, AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
   const seen: Settings[] = [];
   const run = (turns: SessionEvent[][], issue: number | 'all' = 'all') =>
     main({ hub: sandboxHub, issue, data }, s => {
@@ -78,10 +78,10 @@ describe('bin/forge.ts with run --forge', () => {
     expect(w.forge('issue', 'Add a greeting', '--body', join(w.root, 'body.md'))).toBe('#1');
     w.forge('label', '1', 'agent:ready');
 
-    const push = (message: string): Proposal => ({ kind: 'push', branch: 'bothub/1', message });
+    const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });
     const pull: Proposal = {
       kind: 'pull_request',
-      branch: 'bothub/1',
+      branch: 'agentgraph/1',
       base: 'main',
       title: 'Add hello',
       body: 'Adds hello.txt.',
@@ -94,7 +94,7 @@ describe('bin/forge.ts with run --forge', () => {
     expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
     expect(readFileSync(join(w.dir, '2', 'diff.patch'), 'utf8')).toContain('+hello');
     expect(w.forge('show')).toBe(
-      '#1 open Add a greeting [agent:ready, bothub:waiting]\n#2 open Add hello (bothub/1 into main)'
+      '#1 open Add a greeting [agent:ready, agentgraph:waiting]\n#2 open Add hello (agentgraph/1 into main)'
     );
 
     w.forge('comment', '2', '/agent say hello world');
@@ -111,12 +111,12 @@ describe('bin/forge.ts with run --forge', () => {
     expect(w.forge('merge', '2')).toMatch(/^main at [0-9a-f]{40}$/);
     expect(git(w.origin, 'show', 'main:hello.txt')).toBe('hello world');
     expect(w.forge('show')).toBe(
-      '#1 closed Add a greeting [agent:ready, bothub:waiting]\n#2 merged Add hello (bothub/1 into main)'
+      '#1 closed Add a greeting [agent:ready, agentgraph:waiting]\n#2 merged Add hello (agentgraph/1 into main)'
     );
     const last = await w.run([]);
     expect(last.map(r => [r.issue, r.step, r.status])).toEqual([[1, 'merge', 'done']]);
     expect(w.forge('show')).toBe(
-      '#1 closed Add a greeting [agent:ready, bothub:done]\n#2 merged Add hello (bothub/1 into main)'
+      '#1 closed Add a greeting [agent:ready, agentgraph:done]\n#2 merged Add hello (agentgraph/1 into main)'
     );
   }, 30_000);
 
@@ -125,10 +125,10 @@ describe('bin/forge.ts with run --forge', () => {
     w.forge('init', w.seed);
     w.forge('issue', 'Add a greeting');
     w.forge('label', '1', 'agent:ready');
-    const push = (message: string): Proposal => ({ kind: 'push', branch: 'bothub/1', message });
+    const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });
     const pull: Proposal = {
       kind: 'pull_request',
-      branch: 'bothub/1',
+      branch: 'agentgraph/1',
       base: 'main',
       title: 'Add hello',
       body: 'Adds it.',
@@ -164,18 +164,18 @@ describe('bin/forge.ts with run --forge', () => {
         start(`i${n}`),
         write(file, `${file}\n`),
         reply(
-          { kind: 'push', branch: `bothub/${n}`, message: `feat: add ${file}` },
-          { kind: 'pull_request', branch: `bothub/${n}`, base: 'main', title: `Add ${file}`, body: `Adds ${file}.` }
+          { kind: 'push', branch: `agentgraph/${n}`, message: `feat: add ${file}` },
+          { kind: 'pull_request', branch: `agentgraph/${n}`, base: 'main', title: `Add ${file}`, body: `Adds ${file}.` }
         ),
       ],
       [start(`r${n}`), reply({ kind: 'comment', body: 'Looks right.' })],
     ];
     await w.run([...turn(1, 'hello.txt'), ...turn(2, 'bye.txt')]);
-    expect(w.forge('show')).toContain('#3 open Add hello.txt (bothub/1 into main)');
-    expect(w.forge('show')).toContain('#4 open Add bye.txt (bothub/2 into bothub/1)');
+    expect(w.forge('show')).toContain('#3 open Add hello.txt (agentgraph/1 into main)');
+    expect(w.forge('show')).toContain('#4 open Add bye.txt (agentgraph/2 into agentgraph/1)');
 
     w.forge('merge', '3');
-    expect(w.forge('show')).toContain('#4 open Add bye.txt (bothub/2 into main)');
+    expect(w.forge('show')).toContain('#4 open Add bye.txt (agentgraph/2 into main)');
     w.forge('merge', '4');
     expect(git(w.origin, 'show', 'main:bye.txt')).toBe('bye.txt');
     expect(existsSync(join(w.dir, '2.md'))).toBe(true);
@@ -231,7 +231,7 @@ describe('an instance', () => {
     expect(instance).toMatchObject({ dir: at, repo: w.seed, base: 'main', owner: 'morgan' });
     expect(bh(instance.hub, 'issue', 'Add a greeting', '--label', 'agent:ready')).toBe('#1');
 
-    process.env.BOTHUB_FORGE = instance.forge;
+    process.env.AGENTGRAPH_FORGE = instance.forge;
     const run = (turns: SessionEvent[][]) =>
       main({ hub: instance.hub, issue: 'all', data: instance.data }, s =>
         Layer.mergeAll(
@@ -241,8 +241,8 @@ describe('an instance', () => {
           scripted(turns)
         )
       );
-    const push = (message: string): Proposal => ({ kind: 'push', branch: 'bothub/1', message });
-    const pull: Proposal = { kind: 'pull_request', branch: 'bothub/1', base: 'main', title: 'Add hello', body: '' };
+    const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });
+    const pull: Proposal = { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Add hello', body: '' };
     const first = await run([
       [start('i'), write('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
@@ -276,11 +276,11 @@ describe('an instance', () => {
     bh(at, 'export', '2', '--patch', patch);
     expect(readFileSync(patch, 'utf8')).toContain('+hello world');
     expect(looks()).toBe(before);
-    expect(bh(at, 'export', '2')).toMatch(/^bothub\/1 at [0-9a-f]{40} in /);
-    expect(git(w.seed, 'show', 'bothub/1:hello.txt')).toBe('hello world');
+    expect(bh(at, 'export', '2')).toMatch(/^agentgraph\/1 at [0-9a-f]{40} in /);
+    expect(git(w.seed, 'show', 'agentgraph/1:hello.txt')).toBe('hello world');
     expect(git(w.seed, 'status', '--porcelain')).toBe('?? wip.txt');
 
-    git(w.seed, 'merge', '-q', '--ff-only', 'bothub/1');
+    git(w.seed, 'merge', '-q', '--ff-only', 'agentgraph/1');
     writeFileSync(join(w.seed, 'later.txt'), 'later\n');
     git(w.seed, 'add', 'later.txt');
     git(w.seed, 'commit', '-q', '-m', 'later');

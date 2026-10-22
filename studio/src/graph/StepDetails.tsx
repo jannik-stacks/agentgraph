@@ -107,7 +107,7 @@ const CheckItem = ({
           )}
         </div>
         {script && check?.run && (
-          <div className="bhm-in">
+          <div className="agi-in">
             <Code code={check.run} lang="sh" compact wrap lines={12} />
           </div>
         )}

@@ -1,24 +1,24 @@
 # Model aliases bots ask for. Upstream model IDs come from the environment (see .env.example).
 # For a fully offline run, switch to litellm.offline.yaml (LITELLM_CONFIG in .env).
 #
-# Clients (opencode, pi): BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000/v1 (http://litellm:4000/v1 in a sandbox)
+# Clients (opencode, pi): AGENTGRAPH_LLM_BASE_URL=http://127.0.0.1:4000/v1 (http://litellm:4000/v1 in a sandbox)
 
 model_list:
   # ChatGPT subscription through the chatgpt/ provider. Tokens come from the device login
   # (README) and live in $CHATGPT_TOKEN_DIR. Spend is reported as $0, so key budgets do not
-  # apply here; per-key rpm/tpm and bothub's runs-per-day budget are the limits. Its chat
+  # apply here; per-key rpm/tpm and agentgraph's runs-per-day budget are the limits. Its chat
   # completions bridge drops streamed tool-call arguments, so opencode talks to /v1/responses.
   - model_name: smart
     model_info: { mode: responses }
     litellm_params:
-      model: os.environ/BOTHUB_MODEL_SMART
+      model: os.environ/AGENTGRAPH_MODEL_SMART
 
   - model_name: writer
     model_info: { mode: responses }
     litellm_params:
-      model: os.environ/BOTHUB_MODEL_WRITER
+      model: os.environ/AGENTGRAPH_MODEL_WRITER
 
-  # A small, fast chat model for decide calls (BOTHUB_DECIDE_MODEL=luna). No tools and no
+  # A small, fast chat model for decide calls (AGENTGRAPH_DECIDE_MODEL=luna). No tools and no
   # streaming, so plain chat completions work.
   - model_name: luna
     litellm_params:
@@ -27,13 +27,13 @@ model_list:
   # Local models through Ollama. qwen3.5 thinks by default; think: false keeps replies short.
   - model_name: fast
     litellm_params:
-      model: os.environ/BOTHUB_MODEL_LOCAL
+      model: os.environ/AGENTGRAPH_MODEL_LOCAL
       api_base: os.environ/OLLAMA_API_BASE
       think: false
 
   - model_name: local
     litellm_params:
-      model: os.environ/BOTHUB_MODEL_LOCAL
+      model: os.environ/AGENTGRAPH_MODEL_LOCAL
       api_base: os.environ/OLLAMA_API_BASE
       think: false
 

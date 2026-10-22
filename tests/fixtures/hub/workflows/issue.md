@@ -1,6 +1,6 @@
 ---
 on: { issue_comment: {} }
-branch: bothub/{issue}
+branch: agentgraph/{issue}
 steps:
   implement: { agent: implementor, checks: [types, review], tries: 2 }
 ---

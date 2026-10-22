@@ -25,7 +25,7 @@ const answers = {
       {
         path: 'checks/ran-tests.md',
         content:
-          '---\nmode: block\nrun: node "$BOTHUB_HUB/scripts/ran-tests.mjs"\n---\nThe tests the change adds ran.\n',
+          '---\nmode: block\nrun: node "$AGENTGRAPH_HUB/scripts/ran-tests.mjs"\n---\nThe tests the change adds ran.\n',
       },
       { path: 'scripts/ran-tests.mjs', content: 'process.exit(0);\n' },
       { path: 'workflows/issue.md', old: 'checks: [tests]', new: 'checks: [tests, ran-tests]' },
@@ -130,10 +130,10 @@ beforeEach(() => {
   cpSync(join(root, 'examples', 'bench'), join(dir, 'hub'), { recursive: true });
   save(join(dir, 'claude'), stub);
   spawnSync('chmod', ['+x', join(dir, 'claude')]);
-  process.env.BOTHUB_CLAUDE = join(dir, 'claude');
+  process.env.AGENTGRAPH_CLAUDE = join(dir, 'claude');
 });
 afterEach(() => {
-  delete process.env.BOTHUB_CLAUDE;
+  delete process.env.AGENTGRAPH_CLAUDE;
   delete process.env.STUB_FIRST;
   delete process.env.STUB_ANSWER;
   rmSync(dir, { recursive: true, force: true });

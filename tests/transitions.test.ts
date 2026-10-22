@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, runScript } from './kit.ts';
 
-const script = resolve(import.meta.dirname, '../examples/bothub/scripts/transitions.mjs');
+const script = resolve(import.meta.dirname, '../examples/agentgraph/scripts/transitions.mjs');
 const items = (repo: { dir: string; base: string }) => {
   const { ok, out } = runScript(script, repo);
   expect(ok).toBe(true);

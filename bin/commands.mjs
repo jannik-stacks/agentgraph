@@ -1,5 +1,5 @@
 // Fails when the README, the docs, a hub README or a usage header in bin/ names a command that does not exist: a
-// `node bin/` file, its subcommand, a flag it does not read, an npm script, or a `bothub <command>`, which has no
+// `node bin/` file, its subcommand, a flag it does not read, an npm script, or a `agentgraph <command>`, which has no
 // binary. Usage: node bin/commands.mjs
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -83,8 +83,8 @@ for (const page of pages) {
           if (!everyFlag.has(flag)) bad.push(`${at}: no bin file reads --${flag}`);
       for (const [, script] of line.matchAll(/npm (?:--prefix \w+ )?run(?: -s)? ([\w:-]+)/g))
         if (!npm.has(script)) bad.push(`${at}: there is no npm script ${script}`);
-      for (const [, word] of line.matchAll(/`bothub ([a-z][\w-]*)/g))
-        bad.push(`${at}: \`bothub ${word}\` names a binary that does not exist; say node bin/run.ts`);
+      for (const [, word] of line.matchAll(/`agentgraph ([a-z][\w-]*)/g))
+        bad.push(`${at}: \`agentgraph ${word}\` names a binary that does not exist; say node bin/run.ts`);
     });
 }
 if (bad.length) {

@@ -2,10 +2,10 @@
 
 What a run records, and where.
 
-A run is one workflow on one issue. Everything bothub keeps sits in one data directory, `BOTHUB_DATA`.
+A run is one workflow on one issue. Everything agentgraph keeps sits in one data directory, `AGENTGRAPH_DATA`.
 
 ```
-$BOTHUB_DATA/
+$AGENTGRAPH_DATA/
   <run id>/run.json       where the run stands
   <run id>/trace.jsonl    one line per thing that happened
   mirror.git              a bare mirror of the repo
@@ -58,19 +58,19 @@ The studio reads only these files. `status` reads them too, and asks GitHub whic
 
 ## Provenance
 
-Every comment, reply, pull request and issue body bothub posts ends in a hidden `<!-- bothub run=<id> step=<step> session=<id> at=<time> -->`. With `BOTHUB_STUDIO_URL` set, a `⁂` before it links to `<studio>/runs/<id>?at=<time>`, which opens the run at that write. The engine adds both when it posts, and drops any an agent wrote itself. The `applied` line keeps the same `at`. <!-- code: src/forge.ts#stamp -->
+Every comment, reply, pull request and issue body agentgraph posts ends in a hidden `<!-- agentgraph run=<id> step=<step> session=<id> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` before it links to `<studio>/runs/<id>?at=<time>`, which opens the run at that write. The engine adds both when it posts, and drops any an agent wrote itself. The `applied` line keeps the same `at`. <!-- code: src/forge.ts#stamp -->
 
 `/runs?gh=<link or comment id>` goes the other way, and works for runs from before the marker: it finds the newest `applied` line whose URL or comment id matches, and opens the run there. A pull request or issue link opens that issue's runs. Pasting a GitHub link into the issue box on the Runs page does the same. Each write in a run has a `copy link` to its own `?at=` page, and the run's graph link selects the step of that write, else the step the run is at. <!-- code: src/store.ts#locate -->
 
 ## Check logs
 
-Every script check and every judged check's final reply is kept whole in `logs/`, gzipped and named by its sha256. Output that repeats, such as a passing lint over many runs and tries, is stored once, which is why the folder is shared and not per run. The trace and the forge only see the short findings; the studio opens the full output from a check row. `BOTHUB_CHECK_LOGS` set to `failed` keeps only failing output, and `off` keeps none. It is a runner setting, not a hub one, since what a machine keeps on disk is the runner's choice. `node bin/run.ts prune-logs --data <dir>` counts the logs that no run's trace names any more, and `--apply` deletes them; run it while no run is being driven. <!-- code: src/store.ts#checkLogs --> <!-- code: src/store.ts#Log --> <!-- code: src/store.ts#pruneLogs -->
+Every script check and every judged check's final reply is kept whole in `logs/`, gzipped and named by its sha256. Output that repeats, such as a passing lint over many runs and tries, is stored once, which is why the folder is shared and not per run. The trace and the forge only see the short findings; the studio opens the full output from a check row. `AGENTGRAPH_CHECK_LOGS` set to `failed` keeps only failing output, and `off` keeps none. It is a runner setting, not a hub one, since what a machine keeps on disk is the runner's choice. `node bin/run.ts prune-logs --data <dir>` counts the logs that no run's trace names any more, and `--apply` deletes them; run it while no run is being driven. <!-- code: src/store.ts#checkLogs --> <!-- code: src/store.ts#Log --> <!-- code: src/store.ts#pruneLogs -->
 
 ## Checkout
 
 Each run works in a checkout of the mirror, on the branch the workflow names.
 
-When a run's scope closes, its files are kept under `refs/bothub/runs/<run id>` in the mirror. A run that waits for a human picks up where it left off. <!-- code: src/docker.ts#docker -->
+When a run's scope closes, its files are kept under `refs/agentgraph/runs/<run id>` in the mirror. A run that waits for a human picks up where it left off. <!-- code: src/docker.ts#docker -->
 
 The mirror's refs are read-only inside the sandbox.
 

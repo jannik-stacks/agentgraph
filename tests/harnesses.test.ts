@@ -33,14 +33,14 @@ const key = 'sk-bh-implementor-0123456789abcdef';
 
 /** Runs one session over a sandbox that replays `lines` and then the exit line, recording the command it got. */
 const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError, prices?: string) => {
-  const data = mkdtempSync(join(tmpdir(), 'bothub-harness-'));
+  const data = mkdtempSync(join(tmpdir(), 'agentgraph-harness-'));
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
     checkout: () => Effect.die('checkout'),
     exec: () => Effect.die('exec'),
     lines: command => {
       commands.push(command);
-      const out = Stream.fromIterable([...lines, '', `bothub-exit ${exit}`]);
+      const out = Stream.fromIterable([...lines, '', `agentgraph-exit ${exit}`]);
       return fail ? Stream.concat(out.pipe(Stream.take(1)), Stream.fail(fail)) : out;
     },
   });
@@ -68,7 +68,7 @@ const harnessArgs = (c: Command) => c.args.slice(c.args.indexOf('sh', 1) + 2);
 
 describe('the session loop', () => {
   it('prices usage the harness reports at $0 from the price table, cached input at its own rate', async () => {
-    const prices = join(mkdtempSync(join(tmpdir(), 'bothub-prices-')), 'prices.json');
+    const prices = join(mkdtempSync(join(tmpdir(), 'agentgraph-prices-')), 'prices.json');
     writeFileSync(
       prices,
       JSON.stringify({
@@ -93,14 +93,14 @@ describe('the session loop', () => {
   it('runs the harness in a shell that reports its exit code, with only the agent key, by name', async () => {
     const { command, data } = await events(spec, sample('opencode-run.jsonl'));
     expect(command.cmd).toBe('sh');
-    expect(command.args[1]).toContain('bothub-exit');
+    expect(command.args[1]).toContain('agentgraph-exit');
     expect(command.args[3]).toBe('opencode');
     expect(command.network).toBe('proxy');
     expect(command.minutes).toBe(5);
     expect(command.dir).toBe('/repo/work');
     expect(command.home?.startsWith(join(data, 'homes'))).toBe(true);
-    expect(Object.keys(command.secrets ?? {})).toEqual(['BOTHUB_LLM_API_KEY']);
-    expect(Redacted.value(command.secrets!.BOTHUB_LLM_API_KEY!)).toBe(key);
+    expect(Object.keys(command.secrets ?? {})).toEqual(['AGENTGRAPH_LLM_API_KEY']);
+    expect(Redacted.value(command.secrets!.AGENTGRAPH_LLM_API_KEY!)).toBe(key);
     expect(JSON.stringify([command.args, command.env])).not.toContain(key);
   });
 
@@ -128,7 +128,7 @@ describe('the session loop', () => {
   });
 
   it('resumes in the session home it was given', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'bothub-home-'));
+    const home = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
     const { command, events: got } = await events(
       { ...spec, resume: { id: 'ses_1', home } },
       sample('opencode-run.jsonl')
@@ -143,7 +143,7 @@ describe('the session loop', () => {
     ['claude', ['--resume', 'ses_1', '--fork-session']],
     ['pi', ['--fork', 'ses_1']],
   ] as const)('forks a %s session in a copy of its home', async (harness, flags) => {
-    const home = mkdtempSync(join(tmpdir(), 'bothub-home-'));
+    const home = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
     writeFileSync(join(home, 'history'), 'kept');
     const { command } = await events({ ...spec, harness, resume: { id: 'ses_1', home }, fork: true }, []);
     const args = harnessArgs(command);
@@ -186,11 +186,11 @@ describe('opencode', () => {
       '--format',
       'json',
       '--title',
-      'bothub',
+      'agentgraph',
       '--agent',
-      'bothub',
+      'agentgraph',
       '--model',
-      'bothub/smart',
+      'agentgraph/smart',
     ]);
     expect(args.slice(split + 1)).toEqual(['fix', 'the', '"bug"', 'in\t2', 'files']);
     expect(JSON.parse(command.env.OPENCODE_PERMISSION!)).toEqual({
@@ -205,9 +205,9 @@ describe('opencode', () => {
       },
     });
     const config = JSON.parse(command.env.OPENCODE_CONFIG_CONTENT!);
-    expect(config.agent.bothub.prompt).toBe(spec.system);
-    expect(config.provider.bothub.options.apiKey).toBe('{env:BOTHUB_LLM_API_KEY}');
-    expect(command.env.BOTHUB_LLM_BASE_URL).toBe('http://litellm:4000/v1');
+    expect(config.agent.agentgraph.prompt).toBe(spec.system);
+    expect(config.provider.agentgraph.options.apiKey).toBe('{env:AGENTGRAPH_LLM_API_KEY}');
+    expect(command.env.AGENTGRAPH_LLM_BASE_URL).toBe('http://litellm:4000/v1');
     expect(command.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe('1');
   });
 
@@ -358,10 +358,15 @@ describe('pi', () => {
   it('sets up the proxy in the run home and grants only tools without a pattern', async () => {
     const { command } = await events(pi, []);
     const args = harnessArgs(command);
-    expect(args).toEqual(expect.arrayContaining(['--tools', 'read', '--model', 'bothub/smart', '--no-context-files']));
+    expect(args).toEqual(
+      expect.arrayContaining(['--tools', 'read', '--model', 'agentgraph/smart', '--no-context-files'])
+    );
     expect(args).not.toContain('--no-session');
     const models = JSON.parse(readFileSync(join(command.home!, '.pi/agent/models.json'), 'utf8'));
-    expect(models.providers.bothub).toMatchObject({ baseUrl: 'http://litellm:4000/v1', apiKey: '$BOTHUB_LLM_API_KEY' });
+    expect(models.providers.agentgraph).toMatchObject({
+      baseUrl: 'http://litellm:4000/v1',
+      apiKey: '$AGENTGRAPH_LLM_API_KEY',
+    });
     expect(readFileSync(join(command.home!, '.pi/agent/models.json'), 'utf8')).not.toContain(key);
     expect(existsSync(join(command.home!, '.pi/agent/settings.json'))).toBe(true);
   });
@@ -379,12 +384,12 @@ describe('pi', () => {
   });
 
   it('never writes through a link the agent left in a resumed home', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'bothub-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'agentgraph-outside-'));
     writeFileSync(join(outside, 'victim'), 'keep');
-    const linked = mkdtempSync(join(tmpdir(), 'bothub-home-'));
+    const linked = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
     mkdirSync(join(linked, '.pi', 'agent'), { recursive: true });
     symlinkSync(join(outside, 'victim'), join(linked, '.pi', 'agent', 'models.json'));
-    const dir = mkdtempSync(join(tmpdir(), 'bothub-home-'));
+    const dir = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
     symlinkSync(outside, join(dir, '.pi'));
     for (const home of [linked, dir]) {
       const { exit } = await session({ ...pi, resume: { id: 's', home } }, []);

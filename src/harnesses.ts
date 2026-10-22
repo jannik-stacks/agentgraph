@@ -137,7 +137,7 @@ const deniedByOpencode = 'prevents you from using this specific tool call';
  * config and harness memory are off, and sessions live in the run home.
  */
 const opencode: Adapter = {
-  key: 'BOTHUB_LLM_API_KEY',
+  key: 'AGENTGRAPH_LLM_API_KEY',
   links: {
     '.config/opencode/node_modules': '/opt/opencode/node_modules',
     '.config/opencode/package-lock.json': '/opt/opencode/package-lock.json',
@@ -149,17 +149,17 @@ const opencode: Adapter = {
       '--format',
       'json',
       '--title',
-      'bothub',
+      'agentgraph',
       '--agent',
-      'bothub',
+      'agentgraph',
       '--model',
-      `bothub/${alias(spec)}`,
+      `agentgraph/${alias(spec)}`,
       ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
       '--',
       ...words(spec.prompt),
     ],
     env: {
-      BOTHUB_LLM_BASE_URL: url,
+      AGENTGRAPH_LLM_BASE_URL: url,
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
         $schema: 'https://opencode.ai/config.json',
         autoupdate: false,
@@ -167,21 +167,21 @@ const opencode: Adapter = {
         snapshot: false,
         compaction: { auto: false, prune: false },
         tool_output: { max_lines: 300, max_bytes: 16_384 },
-        enabled_providers: ['bothub'],
+        enabled_providers: ['agentgraph'],
         provider: {
-          bothub: {
+          agentgraph: {
             npm: '@ai-sdk/openai',
-            name: 'bothub',
+            name: 'agentgraph',
             options: {
-              baseURL: '{env:BOTHUB_LLM_BASE_URL}',
-              apiKey: '{env:BOTHUB_LLM_API_KEY}',
+              baseURL: '{env:AGENTGRAPH_LLM_BASE_URL}',
+              apiKey: '{env:AGENTGRAPH_LLM_API_KEY}',
               headerTimeout: modelTimeouts.headersMs,
               chunkTimeout: modelTimeouts.idleMs,
             },
             models: { [alias(spec)]: {} },
           },
         },
-        agent: { bothub: { mode: 'primary', prompt: spec.system } },
+        agent: { agentgraph: { mode: 'primary', prompt: spec.system } },
       }),
       OPENCODE_PERMISSION: JSON.stringify(permission(spec.tools, spec.read)),
       OPENCODE_DISABLE_PROJECT_CONFIG: '1',
@@ -367,7 +367,7 @@ const claude: Adapter = {
 
 /** pi in print mode with JSON events, its one provider the model proxy, set up in the run home's `models.json`. */
 const pi: Adapter = {
-  key: 'BOTHUB_LLM_API_KEY',
+  key: 'AGENTGRAPH_LLM_API_KEY',
   command: spec => {
     const tools = spec.tools.filter(tool => pattern(tool)[2] === undefined);
     return {
@@ -385,7 +385,7 @@ const pi: Adapter = {
         '--no-themes',
         ...(tools.length ? ['--tools', tools.join(',')] : ['--no-tools']),
         '--model',
-        `bothub/${alias(spec)}`,
+        `agentgraph/${alias(spec)}`,
         ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
         '--append-system-prompt',
         spec.system,
@@ -398,10 +398,10 @@ const pi: Adapter = {
   files: (spec, url) => ({
     '.pi/agent/models.json': JSON.stringify({
       providers: {
-        bothub: {
+        agentgraph: {
           baseUrl: url,
           api: 'openai-completions',
-          apiKey: '$BOTHUB_LLM_API_KEY',
+          apiKey: '$AGENTGRAPH_LLM_API_KEY',
           models: [{ id: alias(spec), contextWindow: 200_000, maxTokens: 32_000 }],
         },
       },
@@ -456,12 +456,12 @@ const pi: Adapter = {
 
 const adapters: Record<Agent['harness'], Adapter> = { opencode, claude, pi };
 
-const exitLine = /^bothub-exit (\d+)$/;
+const exitLine = /^agentgraph-exit (\d+)$/;
 
 /** Runs the harness and prints its exit code as a last line, so the stream says how the process ended. */
 const wrapped = (cmd: string, args: string[]) => ({
   cmd: 'sh',
-  args: ['-c', '"$@" 2>&1; code=$?; printf "\\nbothub-exit %s\\n" "$code"; exit "$code"', 'sh', cmd, ...args],
+  args: ['-c', '"$@" 2>&1; code=$?; printf "\\nagentgraph-exit %s\\n" "$code"; exit "$code"', 'sh', cmd, ...args],
 });
 
 /** `agent=key` pairs, separated by commas or white space. */

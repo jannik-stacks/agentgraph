@@ -122,7 +122,7 @@ const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
-  run: '{"kind":"run","workflow":"<name of a bothub workflow to start; run a command with your shell tool instead>","issue":1,"step":"<optional: the step to start at>"}',
+  run: '{"kind":"run","workflow":"<name of a agentgraph workflow to start; run a command with your shell tool instead>","issue":1,"step":"<optional: the step to start at>"}',
   tell: '{"kind":"tell","issue":1,"text":"<what the live run on that issue hears, as if a maintainer said it: feedback or an answer, or stop or cancel>"}',
 };
 const shapeOf = (item: unknown) => {
@@ -131,15 +131,15 @@ const shapeOf = (item: unknown) => {
     ? `write it as ${shapes[kind as keyof typeof shapes]}`
     : `kind must be one of ${Object.keys(shapes).join(', ')}${kind === 'reply' ? '; to answer, use comment, it is posted under the thread you are answering' : ''}`;
 };
-const block = /^(`{3,}|~{3,})[ \t]*bothub[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
+const block = /^(`{3,}|~{3,})[ \t]*agentgraph[ \t]*\r?\n([\s\S]*?)^\1[ \t]*$/gm;
 
-/** The proposals in the last fenced `bothub` block of a reply: a JSON array. */
+/** The proposals in the last fenced `agentgraph` block of a reply: a JSON array. */
 const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; problems: string[] } => {
   const source = [...reply.matchAll(block)].at(-1)?.[2]?.trim();
   if (source === undefined)
     return {
       proposals: [],
-      problems: required ? ['end the reply with a fenced bothub block: a JSON array'] : [],
+      problems: required ? ['end the reply with a fenced agentgraph block: a JSON array'] : [],
     };
   let items: unknown;
   try {
@@ -153,7 +153,7 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; pro
     } catch {
       return {
         proposals: [],
-        problems: [`bothub block: ${(e as Error).message}`],
+        problems: [`agentgraph block: ${(e as Error).message}`],
       };
     }
   }
@@ -161,7 +161,7 @@ const proposalsOf = (reply: string, required: boolean): { proposals: Said[]; pro
   if (!Array.isArray(items))
     return {
       proposals: [],
-      problems: ['bothub block: a JSON array of proposals'],
+      problems: ['agentgraph block: a JSON array of proposals'],
     };
   const proposals: Said[] = [];
   const problems: string[] = [];
@@ -500,7 +500,7 @@ const sh = (
 const setUp = (hub: Hub, work: Checkout) =>
   Effect.gen(function* () {
     if (!hub.setup || work.ready) return;
-    const out = yield* sh(hub.setup, hub.dir, work.dir, { BOTHUB_BASE: work.base }, hub.limits.minutes, 'proxy');
+    const out = yield* sh(hub.setup, hub.dir, work.dir, { AGENTGRAPH_BASE: work.base }, hub.limits.minutes, 'proxy');
     if (out.code !== 0)
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
   });
@@ -554,7 +554,7 @@ const itemsOf = (
   hub: string,
   work: Checkout,
   minutes: number,
-  env: Record<string, string> = { BOTHUB_BASE: work.base }
+  env: Record<string, string> = { AGENTGRAPH_BASE: work.base }
 ) => {
   const lines = (text: string) => text.split('\n').filter(line => line.trim());
   if (each === 'hunks')
@@ -701,10 +701,10 @@ const verdictOf = (...args: Parameters<typeof converse<never>>) =>
  * the reply and the traces of the runs on the issue.
  */
 const checkFiles = (work: Checkout) => ({
-  BOTHUB_PROPOSALS: join(dirname(work.news), 'proposals.json'),
-  BOTHUB_CONTEXT: join(dirname(work.news), 'context.md'),
-  BOTHUB_REPLY: join(dirname(work.news), 'reply.md'),
-  BOTHUB_TRACES: join(dirname(work.news), 'traces.md'),
+  AGENTGRAPH_PROPOSALS: join(dirname(work.news), 'proposals.json'),
+  AGENTGRAPH_CONTEXT: join(dirname(work.news), 'context.md'),
+  AGENTGRAPH_REPLY: join(dirname(work.news), 'reply.md'),
+  AGENTGRAPH_TRACES: join(dirname(work.news), 'traces.md'),
 });
 
 /** Whether a run is a retro, a run of a workflow that feedback starts. */
@@ -720,12 +720,12 @@ const traced = (hub: Hub, issue: number, work: Checkout) =>
     const read = yield* Effect.forEach(runs, run =>
       Effect.map(Stream.runCollect(store.read(run.id)), lines => ({ run, lines: Chunk.toArray(lines) }))
     );
-    yield* Effect.promise(() => writeFile(checkFiles(work).BOTHUB_TRACES, transcript(issue, read)));
+    yield* Effect.promise(() => writeFile(checkFiles(work).AGENTGRAPH_TRACES, transcript(issue, read)));
   });
 
 /** The prompt line that points an agent that reads traces at them. */
 const tracesAt = (work: Checkout) =>
-  `${checkFiles(work).BOTHUB_TRACES} holds the traces of the runs on this issue: per session the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
+  `${checkFiles(work).AGENTGRAPH_TRACES} holds the traces of the runs on this issue: per session the prompt, thinking, tool calls and replies, then checks, proposals and moves. Read it in pages and grep it; cite entries by run and line.`;
 
 /** What a try left for its checks: the checkout, the run and its issue, the issue as agents saw it, the reply, the proposals and the human answers so far. */
 type Left = Checkout & {
@@ -768,8 +768,8 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
     const started = Date.now();
     const minutes = hub.limits.minutes;
     const base = {
-      BOTHUB_BASE: work.base,
-      BOTHUB_ISSUE: String(work.issue),
+      AGENTGRAPH_BASE: work.base,
+      AGENTGRAPH_ISSUE: String(work.issue),
       ...checkFiles(work),
     };
     const all: Effect.Effect<(string | undefined)[], EachFailed | SandboxError, Sandbox> = check.each
@@ -783,7 +783,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
       Effect.gen(function* () {
         const env = {
           ...base,
-          ...(item !== undefined && { BOTHUB_ITEM: item }),
+          ...(item !== undefined && { AGENTGRAPH_ITEM: item }),
         };
         const out = check.run ? yield* sh(check.run, hub.dir, work.dir, env, minutes) : undefined;
         if (out?.code === 127)
@@ -970,7 +970,7 @@ const attempt = (
     const answering = asked && held;
     if ('run' in step.does) {
       const started = Date.now();
-      const out = yield* sh(step.does.run, hub.dir, work.dir, { BOTHUB_BASE: work.base }, minutes);
+      const out = yield* sh(step.does.run, hub.dir, work.dir, { AGENTGRAPH_BASE: work.base }, minutes);
       const result: CheckResult = {
         check: step.name,
         pass: out.code === 0,
@@ -1023,7 +1023,7 @@ const attempt = (
         agent.returns.includes('issue') && (yield* filed()),
         run.feedback,
         [
-          'End your reply with a fenced bothub block holding a JSON array of proposals. The runner commits, pushes,',
+          'End your reply with a fenced agentgraph block holding a JSON array of proposals. The runner commits, pushes,',
           'opens pull requests and posts comments from them, so do not run git or gh yourself. The shape of each kind:',
           ...kinds.map(k => shapes[k as keyof typeof shapes]),
         ].join('\n'),
@@ -1099,7 +1099,7 @@ const attempt = (
       if (now && late && w.concurrency === 'steer') {
         const since = news(now, caught.seen);
         const r = yield* talk(
-          `${since.text}\n\nTake this into account, then end your reply with the whole bothub block again.`,
+          `${since.text}\n\nTake this into account, then end your reply with the whole agentgraph block again.`,
           since.seen,
           session
         );
@@ -1260,9 +1260,9 @@ export const gate = (
     const files = checkFiles(left);
     yield* Effect.promise(() =>
       Promise.all([
-        writeFile(files.BOTHUB_PROPOSALS, JSON.stringify(left.proposals)),
-        writeFile(files.BOTHUB_CONTEXT, [left.context, heard(left.answers)].filter(Boolean).join('\n\n')),
-        writeFile(files.BOTHUB_REPLY, left.reply),
+        writeFile(files.AGENTGRAPH_PROPOSALS, JSON.stringify(left.proposals)),
+        writeFile(files.AGENTGRAPH_CONTEXT, [left.context, heard(left.answers)].filter(Boolean).join('\n\n')),
+        writeFile(files.AGENTGRAPH_REPLY, left.reply),
       ])
     );
     if (checks.length > 0) yield* traced(hub, left.issue, left);
@@ -1376,7 +1376,7 @@ const unthreaded = (run: Run): Run =>
 
 /**
  * Runs the hub's setup, then tries until the run stops running. A runner error is retried once on the next tick, then parks the run at its step, so an
- * answer tries that step again with the feedback it had. Files are kept under `refs/bothub/runs/<run id>`.
+ * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
  */
 export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {
@@ -1430,7 +1430,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       const ref =
         (own && issue.pull?.branch === own && issue.pull.base) ||
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
-      const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/bothub/runs/${run.id}`, hub));
+      const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, hub));
       const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
       if (!w.on.feedback) yield* setUp(hub, work);
       while (current.status === 'running') {
@@ -1483,7 +1483,7 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
     const forge = yield* Forge;
     yield* store.lock(run.id);
     const branch = expand(w.branch!, yield* forge.issue(run.issue));
-    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch, `refs/bothub/runs/${run.id}`));
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch, `refs/agentgraph/runs/${run.id}`));
     const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from: base.sha, onto: head }, work);
     const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
     const said = applied.ok ? [] : yield* land(unthreaded(run), [{ kind: 'comment', body }]);
@@ -1628,7 +1628,7 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
       `A human said this on the pull request while it waits at ${step.name}:\n\n${said}`,
       'This checkout is the pull request head; anything you change here is thrown away.',
       'Answer with a comment. When it asks for a change, or you find one is needed, also propose back with why.',
-      `End your reply with a fenced bothub block holding a JSON array of proposals:\n${shapes.comment}\n${shapes.back}`,
+      `End your reply with a fenced agentgraph block holding a JSON array of proposals:\n${shapes.comment}\n${shapes.back}`,
     ]
       .filter(Boolean)
       .join('\n\n');

@@ -1,6 +1,6 @@
 # The hub contract
 
-From 0.2.0 on the engine changes rarely, and the work of making bothub better on a repo happens in its hub. This page lists what a hub and the people running it can rely on. Every name here keeps its name and meaning across 0.x releases. A release that renames or drops one says so in `CHANGELOG.md`, and `check` reports the old key with what to write instead. <!-- code: src/hub.ts#gone -->
+From 0.2.0 on the engine changes rarely, and the work of making agentgraph better on a repo happens in its hub. This page lists what a hub and the people running it can rely on. Every name here keeps its name and meaning across 0.x releases. A release that renames or drops one says so in `CHANGELOG.md`, and `check` reports the old key with what to write instead. <!-- code: src/hub.ts#gone -->
 
 ## Engine
 
@@ -27,9 +27,9 @@ Everything in a hub folder is tunable. The fields are described in [Hub files](r
 | `checks/<name>.md`      | `mode`, `run`, `agent`, `each`, `max`                                                            |
 | `skills/<name>.md`      | `description`, `uses`                                                                            |
 
-The Markdown bodies are prompts and descriptions, free to change. Scripts and other folders are the hub's own, read through `$BOTHUB_HUB`. The proposal kinds an agent may return are in [Proposals](proposals.md#kinds).
+The Markdown bodies are prompts and descriptions, free to change. Scripts and other folders are the hub's own, read through `$AGENTGRAPH_HUB`. The proposal kinds an agent may return are in [Proposals](proposals.md#kinds).
 
-A hub script gets `BOTHUB_HUB` and `BOTHUB_BASE`. A check script also gets `BOTHUB_ISSUE`, `BOTHUB_ITEM` when it judges one item, and the files `BOTHUB_PROPOSALS`, `BOTHUB_CONTEXT`, `BOTHUB_REPLY` and `BOTHUB_TRACES`. <!-- code: src/engine.ts#checkFiles -->
+A hub script gets `AGENTGRAPH_HUB` and `AGENTGRAPH_BASE`. A check script also gets `AGENTGRAPH_ISSUE`, `AGENTGRAPH_ITEM` when it judges one item, and the files `AGENTGRAPH_PROPOSALS`, `AGENTGRAPH_CONTEXT`, `AGENTGRAPH_REPLY` and `AGENTGRAPH_TRACES`. <!-- code: src/engine.ts#checkFiles -->
 
 ## Commands
 
@@ -37,7 +37,7 @@ A hub script gets `BOTHUB_HUB` and `BOTHUB_BASE`. A check script also gets `BOTH
 | --------------------------------------------------------- | ----------------------------------------------------- |
 | `node bin/run.ts check --hub <dir>`                       | Loads a hub and prints every problem, or `ok`         |
 | `node bin/run.ts --hub <dir> --issue <n> --data <dir>`    | Looks at one issue once; `--all` for every open issue |
-| `node bin/run.ts loop --hub <dir> --data <dir>`           | Sweeps once, then looks every `BOTHUB_EVERY` minutes  |
+| `node bin/run.ts loop --hub <dir> --data <dir>`           | Sweeps once, then looks every `AGENTGRAPH_EVERY` minutes  |
 | `node bin/run.ts status --hub <dir> --data <dir>`         | Lists what waits on a human                           |
 | `node bin/run.ts prune-logs --data <dir> --apply`         | Deletes check logs no trace names                     |
 | `node bin/forge.ts <dir> init <git repo> --hub <hub>`     | Makes a local instance, see [Instances](local.md#instances) |
@@ -47,6 +47,6 @@ A hub script gets `BOTHUB_HUB` and `BOTHUB_BASE`. A check script also gets `BOTH
 
 ## Tuning inside it
 
-A tune changes hub files only. `tune init` records the engine as the release tag the checkout sits on, such as `bothub-v0.2.0`, or as the commit when there is none. Every run of the tune refuses an engine whose `src/` tree differs.
+A tune changes hub files only. `tune init` records the engine as the release tag the checkout sits on, such as `agentgraph-v0.2.0`, or as the commit when there is none. Every run of the tune refuses an engine whose `src/` tree differs.
 
 When a hub needs something this page does not offer, that is an engine change: it goes through the bench on a fixed hub, ships in a new release, and tunes start again from it.

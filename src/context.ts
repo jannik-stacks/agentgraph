@@ -84,16 +84,16 @@ export function news(t: Issues, seen: Seen): { text: string; seen: Seen } {
 }
 
 const statuses: Record<Run['status'], string> = {
-  running: 'bothub:working',
-  waiting: 'bothub:waiting',
-  done: 'bothub:done',
-  stopped: 'bothub:stopped',
+  running: 'agentgraph:working',
+  waiting: 'agentgraph:waiting',
+  done: 'agentgraph:done',
+  stopped: 'agentgraph:stopped',
 };
 const failures = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'error']);
 
 /** Housekeeping lines as a collapsed, small-print footer. */
 export const footer = (...lines: string[]): string =>
-  `<details><summary><sub>bothub</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
+  `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
 
 export const answerWith = 'Answer with <code>/agent</code> and your reply, or <code>/agent stop</code> to end the run.';
 

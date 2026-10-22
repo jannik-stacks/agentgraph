@@ -28,7 +28,7 @@ An unknown key, a missing agent or a check that does not exist is an error befor
 
 ## Services with doubles
 
-The forge, store, session and sandbox are Effect services. Production uses GitHub, files, docker and the harnesses. Tests use a forge in a folder, a scripted session and a sandbox on the host, so whole runs are tested without a network. The forge folder also runs bothub locally without GitHub.
+The forge, store, session and sandbox are Effect services. Production uses GitHub, files, docker and the harnesses. Tests use a forge in a folder, a scripted session and a sandbox on the host, so whole runs are tested without a network. The forge folder also runs agentgraph locally without GitHub.
 
 <!-- code: src/forge.ts#fileForge -->
 
@@ -46,7 +46,7 @@ A session gets only its own agent's key, passed to docker by name, so the value 
 
 ## Few dependencies
 
-bothub composes existing programs (the harness, LiteLLM, docker, git) and a few libraries.
+agentgraph composes existing programs (the harness, LiteLLM, docker, git) and a few libraries.
 
 See [package.json](../package.json).
 

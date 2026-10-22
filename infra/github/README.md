@@ -1,6 +1,6 @@
-# GitHub App for bothub
+# GitHub App for agentgraph
 
-bothub acts on GitHub as one App. Every step and bot uses it; the step and bot show in the commit
+agentgraph acts on GitHub as one App. Every step and bot uses it; the step and bot show in the commit
 message and under each comment. Commits go through the Git data API, so GitHub signs them and they
 show as Verified, which a "require signed commits" rule needs.
 
@@ -9,20 +9,20 @@ requests write, issues write, metadata read. It never gets workflows or administ
 
 ## Settings
 
-bothub reads the App from the environment, so the same settings work on a laptop, in a container
+agentgraph reads the App from the environment, so the same settings work on a laptop, in a container
 and in Kubernetes:
 
 | Variable | What |
 |---|---|
-| `BOTHUB_APP_ID` | the App id |
-| `BOTHUB_APP_KEY_FILE` | path to the private key (PEM, as GitHub hands it out) |
+| `AGENTGRAPH_APP_ID` | the App id |
+| `AGENTGRAPH_APP_KEY_FILE` | path to the private key (PEM, as GitHub hands it out) |
 
-Locally they go in the env file `BOTHUB_APP_ENV` names, or the shell. In Kubernetes, put the
+Locally they go in the env file `AGENTGRAPH_APP_ENV` names, or the shell. In Kubernetes, put the
 key in a Secret mounted as a file into the runner only, and set the variables on the runner:
 
 ```sh
-kubectl -n bothub create secret generic bothub-app \
-  --from-file=key.pem=$HOME/.config/bothub/<slug>/key.pem
+kubectl -n agentgraph create secret generic agentgraph-app \
+  --from-file=key.pem=$HOME/.config/agentgraph/<slug>/key.pem
 ```
 
 Keys never live in a repository and never appear in logs.
@@ -38,10 +38,10 @@ node bin/setup-app.ts --org acme     # the App belongs to the organization
    page sends the manifest to GitHub.
 2. On GitHub, click **Create GitHub App**. For `--org`, you must be an owner of the organization or
    one of its GitHub App managers.
-3. GitHub sends you back; the command saves `~/.config/bothub/<slug>/key.pem` and `app.env`, both
+3. GitHub sends you back; the command saves `~/.config/agentgraph/<slug>/key.pem` and `app.env`, both
    readable only by you, and forwards you to the install page.
 4. On the install page, pick **Only select repositories**, choose the one repository, click
-   **Install**. bothub finds the installation from the repo, so `app.env` needs nothing more.
+   **Install**. agentgraph finds the installation from the repo, so `app.env` needs nothing more.
 
 Who must approve the install:
 
@@ -51,18 +51,18 @@ Who must approve the install:
 | the organization | the organization | an organization owner installs it, or anyone with admin on the repository can request it |
 | your account | an organization | a repository admin can only request it; an organization owner approves under the organization's settings, GitHub Apps, pending requests |
 
-When the install was only requested, bothub works once an owner approves it.
+When the install was only requested, agentgraph works once an owner approves it.
 
-Then point `BOTHUB_APP_ENV` at the `app.env` the command printed.
+Then point `AGENTGRAPH_APP_ENV` at the `app.env` the command printed.
 
 ## Mention autocomplete
 
 People talk to the bot by mentioning it, `@<slug>`, but GitHub only autocompletes logins that can be
 mentioned in the repository, and an App has no such login. To get autocomplete, create an ordinary
-GitHub user whose login is the App's slug (for example `stx-bothub`) and add it to the repository as
+GitHub user whose login is the App's slug (for example `stx-agentgraph`) and add it to the repository as
 a collaborator with read access. It never needs a token or a password the engine knows; the App
 keeps doing all the writes. In an organization the user takes a seat. Without it everything still
-works: the engine reads a typed `@<slug>` or `/bothub` the same way.
+works: the engine reads a typed `@<slug>` or `/agentgraph` the same way.
 
 ## Webhooks later
 

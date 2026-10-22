@@ -1,6 +1,6 @@
 ---
-on: { issue_comment: { command: /bothub } }
-branch: bothub/{issue}
+on: { issue_comment: { command: /agentgraph } }
+branch: agentgraph/{issue}
 steps:
   implement: { agent: implementor, tries: 1 }
   merge: { wait: human }

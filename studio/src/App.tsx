@@ -33,7 +33,7 @@ const base = (dir: string | undefined, parts = 1) => dir?.split('/').filter(Bool
 
 /** The hub and data directory the dev server reads, by folder name; the full paths on hover. */
 const Where = () => {
-  const { VITE_BHM_HUB: hub, VITE_BHM_DATA: data } = import.meta.env as Record<string, string | undefined>;
+  const { VITE_AGI_HUB: hub, VITE_AGI_DATA: data } = import.meta.env as Record<string, string | undefined>;
   if (!hub && !data) return null;
   return (
     <Tooltip tip={[hub && `Hub: ${hub}`, data && `Data: ${data}`].filter(Boolean).join('\n')} focusable>
@@ -66,7 +66,7 @@ export const App = () => {
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-200 px-3 sm:gap-5 sm:px-4 dark:border-zinc-800">
         <Link href="/runs" className="inline-flex shrink-0 items-center gap-1.5 font-semibold tracking-tight">
           <Mark className="size-5" />
-          bothub
+          agentgraph
         </Link>
         <nav className="inline-flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 text-[13px] leading-5 dark:bg-zinc-900">
           {routes.map(r => (

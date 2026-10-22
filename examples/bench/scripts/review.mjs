@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-const base = process.env.BOTHUB_BASE ?? 'HEAD';
+const base = process.env.AGENTGRAPH_BASE ?? 'HEAD';
 const small = 10;
 const test = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_test\.\w+$/;
 

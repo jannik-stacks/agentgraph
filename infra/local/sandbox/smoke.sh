@@ -1,10 +1,10 @@
 #!/bin/sh
-# Starts the image the way bothub starts a run: read-only root, tmpfs /tmp as HOME, the host user, no capabilities.
+# Starts the image the way agentgraph starts a run: read-only root, tmpfs /tmp as HOME, the host user, no capabilities.
 # Fails when a tool the runs need or opencode's plugin install is missing, or opencode cannot load its config there.
 #
 #   infra/local/sandbox/smoke.sh [image]
 set -eu
-image=${1:-${BOTHUB_SANDBOX_IMAGE:-bothub-sandbox:local}}
+image=${1:-${AGENTGRAPH_SANDBOX_IMAGE:-agentgraph-sandbox:local}}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 docker run --rm --pull never --read-only --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g --user "$(id -u):$(id -g)" \

@@ -114,7 +114,7 @@ const git = (work: Checkout, args: string[]) =>
 const gitText = (work: Checkout, args: string[]) => Effect.map(git(work, args), out => out.toString('utf8').trim());
 
 /** The branches a push may move, the files it may change at most, and the largest file it may write. */
-const pushable = { prefix: 'bothub/', files: 200, bytes: 1 << 20 };
+const pushable = { prefix: 'agentgraph/', files: 200, bytes: 1 << 20 };
 
 /** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
 const unpushable = (path: string, modes: string[]) =>
@@ -149,7 +149,7 @@ const requester = (fetch: Fetch) => {
               Accept: 'application/vnd.github+json',
               Authorization: `Bearer ${auth}`,
               'X-GitHub-Api-Version': version,
-              'User-Agent': 'bothub',
+              'User-Agent': 'agentgraph',
               ...(cached && { 'If-None-Match': cached.etag }),
               ...(body !== undefined && { 'Content-Type': 'application/json' }),
             },
@@ -800,7 +800,7 @@ export const githubForge = (
             type Made = { number: number; html_url: string };
             const left = [...(held.get(p.branch) ?? [])];
             const note = left.length
-              ? `\n\nNot pushed: ${left.map(f => `\`${f}\``).join(', ')}. bothub does not push files under \`.github/\` (GitHub needs the app's Workflows permission for workflow files, and they run with the repo's secrets), so a maintainer pushes them to \`${p.branch}\`.`
+              ? `\n\nNot pushed: ${left.map(f => `\`${f}\``).join(', ')}. agentgraph does not push files under \`.github/\` (GitHub needs the app's Workflows permission for workflow files, and they run with the repo's secrets), so a maintainer pushes them to \`${p.branch}\`.`
               : '';
             const body = { title: p.title, head: p.branch, base: p.base, body: p.body + note };
             const owner = app.repo.split('/')[0];

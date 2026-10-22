@@ -42,8 +42,8 @@ type Round = {
   stopped?: string;
 };
 
-const bothub = join(import.meta.dirname, '..');
-const skillDir = join(bothub, 'skills/tune-graph');
+const agentgraph = join(import.meta.dirname, '..');
+const skillDir = join(agentgraph, 'skills/tune-graph');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const save = (path: string, v: unknown) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -158,7 +158,7 @@ const session = (
   live: Live
 ) =>
   new Promise<string>((done, fail) => {
-    const child = spawn(process.env.BOTHUB_CLAUDE ?? 'claude', args, {
+    const child = spawn(process.env.AGENTGRAPH_CLAUDE ?? 'claude', args, {
       cwd: w,
       env: { ...process.env, NODE_OPTIONS: '' },
     });
@@ -214,13 +214,13 @@ const leaksOf = (stream: string, dir: string, w: string, hidden: string[]) =>
 
 const pluginOf = (dir: string) => {
   const plugin = join(dir, 'skill', 'plugin');
-  save(join(plugin, '.claude-plugin/plugin.json'), { name: 'bothub' });
+  save(join(plugin, '.claude-plugin/plugin.json'), { name: 'agentgraph' });
   cpSync(skillDir, join(plugin, 'skills/tune-graph'), { recursive: true });
   return plugin;
 };
 
 const promptOf = (iteration: number, o: Options) =>
-  `Use the bothub:tune-graph skill in benchmark mode. This is round ${iteration} of ${o.rounds}. ` +
+  `Use the agentgraph:tune-graph skill in benchmark mode. This is round ${iteration} of ${o.rounds}. ` +
   `The workspace is the current folder: start with tried.md and cases.json. Fill at most ${o.k} slots ` +
   `(out/d1 to out/d${o.k}), each a different direction, and answer with one line per slot.`;
 

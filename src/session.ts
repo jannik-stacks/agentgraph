@@ -47,7 +47,7 @@ export class SessionStop extends Data.TaggedError('SessionStop')<{
 }> {}
 
 /** Runs one harness session in the sandbox and streams what it does. The harness exiting ends it. */
-export class Session extends Context.Tag('bothub/Session')<
+export class Session extends Context.Tag('agentgraph/Session')<
   Session,
   { open: (spec: SessionSpec) => Stream.Stream<SessionEvent, SessionStop, Scope.Scope> }
 >() {}

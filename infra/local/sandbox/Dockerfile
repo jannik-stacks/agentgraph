@@ -1,7 +1,7 @@
 # One throwaway container per agent run. No secrets are baked in: the run gets its bot's
 # LiteLLM key at start, and the GitHub token never enters the container.
 #
-#   docker build -t bothub-sandbox:local infra/local/sandbox
+#   docker build -t agentgraph-sandbox:local infra/local/sandbox
 #   infra/local/sandbox/smoke.sh      starts it the way a run does; fails on a missing tool or plugin install
 FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
@@ -38,7 +38,7 @@ RUN npm install -g --no-fund --no-audit \
       oxfmt@${OXFMT_VERSION} \
  && npm cache clean --force
 
-# opencode installs @opencode-ai/plugin into its global config dir before loading bothub's plugins. Each run home
+# opencode installs @opencode-ai/plugin into its global config dir before loading agentgraph's plugins. Each run home
 # links that dir's node_modules and lockfile here, so opencode finds the install and skips it (about 10 seconds).
 RUN mkdir -p /opt/opencode \
  && cd /opt/opencode \

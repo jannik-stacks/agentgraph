@@ -14,7 +14,7 @@ const reaches = (
         headers: {
           Accept: 'application/vnd.github+json',
           Authorization: `Bearer ${token}`,
-          'User-Agent': 'bothub',
+          'User-Agent': 'agentgraph',
         },
       }).then(r => (r.ok ? r.json() : Promise.reject(new Error(`GET /installation/repositories ${r.status}`))))
     );

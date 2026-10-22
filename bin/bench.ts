@@ -65,7 +65,7 @@ type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; pre
 
 const bots = ['v2', 'floor', 'v1'];
 const arms = ['human', ...bots, 'control'];
-const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'bothub-sandbox': 'sandbox' };
+const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'agentgraph-sandbox': 'sandbox' };
 const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
@@ -203,9 +203,9 @@ const loadCase = (dir: string): Case & Commands => {
 const loadKeys = (file: string) => {
   const env = parseEnv(read(file)) as Record<string, string>;
   Object.assign(process.env, env);
-  process.env.BOTHUB_PROXY_KEYS ??= Object.entries(env)
+  process.env.AGENTGRAPH_PROXY_KEYS ??= Object.entries(env)
     .flatMap(([k, v]) =>
-      k.startsWith('BOTHUB_LLM_API_KEY_') ? [`${k.slice(19).toLowerCase().replaceAll('_', '-')}=${v}`] : []
+      k.startsWith('AGENTGRAPH_LLM_API_KEY_') ? [`${k.slice(19).toLowerCase().replaceAll('_', '-')}=${v}`] : []
     )
     .join(',');
 };
@@ -257,16 +257,16 @@ export const repoint = (hub: string, point: string) => {
         head.replace(/^harness: .*$/m, `harness: ${harness}`).replace(/^model: .*$/m, `model: ${model}`)
       )
     );
-  const key = process.env[`BOTHUB_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
+  const key = process.env[`AGENTGRAPH_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
   const own = new Map(
-    (process.env.BOTHUB_PROXY_KEYS ?? '').split(',').flatMap(kv => {
+    (process.env.AGENTGRAPH_PROXY_KEYS ?? '').split(',').flatMap(kv => {
       const at = kv.indexOf('=');
       return at > 0 ? [[kv.slice(0, at), kv.slice(at + 1)] as const] : [];
     })
   );
   const spare = key ?? own.get('implementor') ?? [...own.values()][0];
   for (const name of names.map(n => basename(n, '.md'))) if (spare && (key || !own.has(name))) own.set(name, spare);
-  if (own.size) process.env.BOTHUB_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
+  if (own.size) process.env.AGENTGRAPH_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
 };
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
@@ -281,7 +281,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     );
     save(
       join(hub, 'checks/tests.md'),
-      read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$BOTHUB_HUB/scripts/tests.sh"')
+      read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
     );
     if (c.setup) save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${read(join(hub, 'hub.yaml'))}`);
   }
@@ -313,7 +313,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   save(join(at, 'issue.md'), c.body);
   forge(dir, 'issue', c.title, '--body', join(at, 'issue.md'));
   forge(dir, 'comment', '1', '/agent');
-  process.env.BOTHUB_FORGE = dir;
+  process.env.AGENTGRAPH_FORGE = dir;
   let answers = 0;
   let status: string | undefined;
   let reason: string | undefined;
@@ -331,7 +331,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   const pull = readdirSync(dir)
     .map(n => join(dir, n, 'pull.json'))
     .find(existsSync);
-  const branch = ['--git-dir', origin, 'rev-parse', '-q', '--verify', 'refs/heads/bothub/1'];
+  const branch = ['--git-dir', origin, 'rev-parse', '-q', '--verify', 'refs/heads/agentgraph/1'];
   const head = pull
     ? (JSON.parse(read(pull)) as { head: string }).head
     : spawnSync('git', branch, { encoding: 'utf8' }).stdout.trim();
@@ -402,7 +402,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (arm === 'v1')
     throw new Error('not yet: v1 needs its own sandbox image, env and a leak-free seed (docs/bench.md)');
   if (existsSync(join(at, 'diff.patch'))) return;
-  if (!process.env.BOTHUB_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
+  if (!process.env.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   const log = logger(out, { case: c.id, arm });
   if (!claim(at)) return log({ event: 'busy' });
   onStop(signal => {
@@ -507,14 +507,14 @@ export const stats = (diff: string, human: string[] = []) => {
     overlap: union.size ? round(mine.filter(p => human.includes(p)).length / union.size) : 1,
   };
 };
-const image = process.env.BOTHUB_IMAGE || 'bothub-sandbox:local';
-const cache = process.env.BOTHUB_CACHE_VOLUME ?? 'bothub-cache';
+const image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
+const cache = process.env.AGENTGRAPH_CACHE_VOLUME ?? 'agentgraph-cache';
 const scoreSize = { memory: '8g', cpus: '4', pids: '2048' };
 
 /** One score command in its own container on the tree at `/work`, with no network unless `open`. */
 const exec = (cmd: string, tree: string, box: Made, from: string, network: 'none' | 'open' = 'none') => {
   const started = Date.now();
-  const name = `bothub-score-${randomBytes(6).toString('hex')}`;
+  const name = `agentgraph-score-${randomBytes(6).toString('hex')}`;
   const c = { cmd: 'sh', args: ['-c', cmd], dir: tree, env: { NODE_OPTIONS: '' }, network, minutes: 60 };
   const r = spawnSync('docker', dockerArgs(c, from, name, box, cache, scoreSize), {
     encoding: 'utf8',
@@ -857,7 +857,7 @@ export const pad = (diff: string) => {
 
 /** A diff for a judge: no lockfiles or changelogs, no index lines, issue numbers and the given names masked. */
 export const scrub = (text: string, names: string[] = []) => {
-  const who = new RegExp(`\\b(${['bothub', ...names.filter(n => /^[\w-]+$/.test(n))].join('|')})\\b`, 'gi');
+  const who = new RegExp(`\\b(${['agentgraph', ...names.filter(n => /^[\w-]+$/.test(n))].join('|')})\\b`, 'gi');
   const kept = text.startsWith('diff --git')
     ? files(text)
         .filter(f => !noise.test(f.path))
@@ -892,7 +892,10 @@ const claude = (model: string) => (prompt: string, cwd: string) =>
 const proxied = (model: string) => async (prompt: string) => {
   const r = await fetch('http://127.0.0.1:4000/v1/chat/completions', {
     method: 'POST',
-    headers: { authorization: `Bearer ${process.env.BOTHUB_LLM_API_KEY_REVIEWER}`, 'content-type': 'application/json' },
+    headers: {
+      authorization: `Bearer ${process.env.AGENTGRAPH_LLM_API_KEY_REVIEWER}`,
+      'content-type': 'application/json',
+    },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
   });
   return ((await r.json()) as { choices?: { message: { content: string } }[] }).choices?.[0]?.message.content ?? '';

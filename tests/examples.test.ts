@@ -15,7 +15,7 @@ const agentsOf = async (dir: string) => Object.values((await Effect.runPromise(l
 describe('example hubs', () => {
   it('finds every example hub', () => {
     expect(hubDirs.map(dir => dir.slice(examples.length + 1))).toEqual(
-      expect.arrayContaining(['bothub', 'clarinet', 'sandbox', 'sk', 'acme-app'])
+      expect.arrayContaining(['agentgraph', 'clarinet', 'sandbox', 'sk', 'acme-app'])
     );
   });
 

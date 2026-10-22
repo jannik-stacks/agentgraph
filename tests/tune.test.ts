@@ -21,8 +21,8 @@ import { tmp } from './fixtures.ts';
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-  delete process.env.BOTHUB_TUNE;
-  delete process.env.VITE_BHM_TUNE;
+  delete process.env.AGENTGRAPH_TUNE;
+  delete process.env.VITE_AGI_TUNE;
 });
 
 const evalOf = (flips: Record<string, Flip> = {}): Parameters<typeof decide>[1] => ({
@@ -183,7 +183,7 @@ const fakeBench = (ran: { id: string; case: string; repeat?: number }[]) => ({
 const setup = () => {
   const root = tmp('tune');
   dirs.push(root);
-  process.env.BOTHUB_TUNE = join(root, 'tune');
+  process.env.AGENTGRAPH_TUNE = join(root, 'tune');
   const cases = join(root, 'cases');
   const splits: Record<string, string> = {};
   const add = (id: string, split: string, day: number, bucket = 'tests') => {
@@ -322,11 +322,11 @@ describe('tune loop', () => {
 const tuneRoot = (dir: string) => join(dir, '..', '..');
 
 describe('/core/compound', () => {
-  it('answers every tune under VITE_BHM_TUNE with its steps', async () => {
+  it('answers every tune under VITE_AGI_TUNE with its steps', async () => {
     const routes: Record<string, (req: unknown, res: unknown) => Promise<void>> = {};
     const plugin = fixtures().configureServer as (server: unknown) => void;
     plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
-    process.env.VITE_BHM_TUNE = join(import.meta.dirname, 'fixtures/tune');
+    process.env.VITE_AGI_TUNE = join(import.meta.dirname, 'fixtures/tune');
     let body = '';
     await routes['/core/compound']!({}, { setHeader: () => {}, end: (b: string) => (body = b) });
     const tunes = JSON.parse(body) as ReturnType<typeof tunesOf>;

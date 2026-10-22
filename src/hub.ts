@@ -102,12 +102,12 @@ const SkillFile = Schema.Struct({
 });
 type SkillFile = typeof SkillFile.Type;
 
-/** The folders a hub holds besides those a hub file reads through `$BOTHUB_HUB`: the four it loads, scripts and fixtures. */
+/** The folders a hub holds besides those a hub file reads through `$AGENTGRAPH_HUB`: the four it loads, scripts and fixtures. */
 const folders = ['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures'];
 
-/** Whether a hub file reads the hub folder `name` through `$BOTHUB_HUB`. */
+/** Whether a hub file reads the hub folder `name` through `$AGENTGRAPH_HUB`. */
 const reads = (texts: string[], name: string) =>
-  texts.some(text => new RegExp(`BOTHUB_HUB[^\\n]*['"\`/]${name.replace(/\W/g, '\\$&')}['"\`/]`).test(text));
+  texts.some(text => new RegExp(`AGENTGRAPH_HUB[^\\n]*['"\`/]${name.replace(/\W/g, '\\$&')}['"\`/]`).test(text));
 
 const rest = 'a step starts a fresh session and a retry resumes it';
 
@@ -189,9 +189,9 @@ const unknownKinds = (body: string, say: (message: string) => void) => {
   }
 };
 
-/** Words and phrases that described bothub once and no longer do, each with what to say now. */
+/** Words and phrases that described agentgraph once and no longer do, each with what to say now. */
 const retiredWords: [RegExp, string][] = [
-  [/(?<![\w./-])\/bothub\b(?![/-])/i, '/agent followed by what you want'],
+  [/(?<![\w./-])\/agentgraph\b(?![/-])/i, '/agent followed by what you want'],
   [/\bmerge requests?\b/i, 'pull request'],
   [/\bopen-pr\b/, 'pull_request'],
   [/\b(?:souls?|personas?|executors?)\b/i, 'agent, or harness for the program that runs a session'],
@@ -400,7 +400,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
     for (const name of read.unread)
       problems.push({
         path: name,
-        message: `nothing reads ${name}/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $BOTHUB_HUB`,
+        message: `nothing reads ${name}/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $AGENTGRAPH_HUB`,
       });
     if (problems.length > 0 || !hub) return yield* new HubError({ problems });
     const sha = createHash('sha256');

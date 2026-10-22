@@ -161,7 +161,7 @@ describe('claims extractor', () => {
         )
     );
 
-    const { claims } = run(dir, ['--changed', 'docs/*.mdx'], { BOTHUB_BASE: base });
+    const { claims } = run(dir, ['--changed', 'docs/*.mdx'], { AGENTGRAPH_BASE: base });
     expect(claims.map(c => `${c.file}:${c.line}`)).toEqual([
       'docs/signing.mdx:46',
       'docs/signing.mdx:55',

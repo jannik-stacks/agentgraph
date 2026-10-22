@@ -18,7 +18,7 @@ const { Markdown: Render } = createMarkdownRenderer({ remarkPlugins: [remarkGfm]
 
 /** The one surface every code block sits on: close to the page, a hairline border, no shadow. */
 export const codeSurface =
-  'rounded-md border border-zinc-200 bg-(--bhm-code-bg) text-zinc-700 dark:border-zinc-800 dark:text-zinc-300';
+  'rounded-md border border-zinc-200 bg-(--agi-code-bg) text-zinc-700 dark:border-zinc-800 dark:text-zinc-300';
 
 /** Copies `code`, showing a tick for a moment after. */
 const CopyCode = ({ code }: { code: string }) => {
@@ -73,7 +73,7 @@ export const Code = memo(function Code({
   const more = hidden > 0 || clipped || open;
   return (
     <div className={cx('relative my-1.5', codeSurface, className)}>
-      <div className="absolute top-1 right-1 z-2 flex items-center gap-0.5 rounded bg-(--bhm-code-bg)">
+      <div className="absolute top-1 right-1 z-2 flex items-center gap-0.5 rounded bg-(--agi-code-bg)">
         {more && (
           <IconButton
             tip={open ? 'Show fewer lines' : 'Show every line'}
@@ -103,7 +103,7 @@ export const Code = memo(function Code({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="absolute inset-x-0 bottom-0 flex h-8 items-end rounded-b-[inherit] bg-(--bhm-code-bg) px-3 pb-1 text-left text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+          className="absolute inset-x-0 bottom-0 flex h-8 items-end rounded-b-[inherit] bg-(--agi-code-bg) px-3 pb-1 text-left text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
         >
           {hidden > 0 ? `${hidden} more ${hidden === 1 ? 'line' : 'lines'}` : 'show all'}
         </button>
@@ -130,7 +130,7 @@ const components = { pre, a };
 /** Markdown with GitHub extensions and highlighted code blocks, sized for panels. */
 export const Markdown = memo(function Markdown({ text, className }: { text: string; className?: string | undefined }) {
   return (
-    <div className={cx('bhm-md', className)}>
+    <div className={cx('agi-md', className)}>
       <Render components={components}>{text}</Render>
     </div>
   );

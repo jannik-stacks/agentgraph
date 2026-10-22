@@ -125,19 +125,19 @@ export const release = (path: string) => {
 };
 
 /**
- * Removes the sandbox containers (`bothub-<12 hex>`) that mount anything under `dir`, the unit this process holds, so
+ * Removes the sandbox containers (`agentgraph-<12 hex>`) that mount anything under `dir`, the unit this process holds, so
  * a killed run's containers never outlive it; every other container is left alone. Answers the names removed.
  */
 export const sweep = (dir: string) => {
   const roots = [dir, ...(existsSync(dir) ? [realpathSync(dir)] : [])];
   const names = (
-    spawnSync('docker', ['ps', '--filter', 'name=bothub-', '--format', '{{.Names}}'], {
+    spawnSync('docker', ['ps', '--filter', 'name=agentgraph-', '--format', '{{.Names}}'], {
       encoding: 'utf8',
       timeout: 30_000,
     }).stdout ?? ''
   )
     .split('\n')
-    .filter(n => /^bothub-[0-9a-f]{12}$/.test(n));
+    .filter(n => /^agentgraph-[0-9a-f]{12}$/.test(n));
   if (!names.length) return [];
   const mounts = spawnSync('docker', ['inspect', '-f', '{{.Name}}{{range .Mounts}}\t{{.Source}}{{end}}', ...names], {
     encoding: 'utf8',
@@ -151,8 +151,8 @@ export const sweep = (dir: string) => {
   return stray;
 };
 
-/** The host URL of the model proxy's liveness check, from `BOTHUB_PROXY_URL`. */
-export const probeUrl = (proxy = process.env.BOTHUB_PROXY_URL ?? 'http://litellm:4000/v1') => {
+/** The host URL of the model proxy's liveness check, from `AGENTGRAPH_PROXY_URL`. */
+export const probeUrl = (proxy = process.env.AGENTGRAPH_PROXY_URL ?? 'http://litellm:4000/v1') => {
   const url = new URL(proxy);
   if (url.hostname === 'litellm') url.hostname = '127.0.0.1';
   url.pathname = '/health/liveliness';

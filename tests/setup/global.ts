@@ -39,10 +39,10 @@ export const leftovers = (spawned: Map<number, string>, running: Proc[] = parse(
 
 /** Records every process the tests spawn and fails the run if any of them outlives it. */
 export default () => {
-  const dir = mkdtempSync(join(tmpdir(), 'bothub-test-processes-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-test-processes-'));
   const log = join(dir, 'pids');
   writeFileSync(log, '');
-  process.env.BOTHUB_TEST_PROCESSES = log;
+  process.env.AGENTGRAPH_TEST_PROCESSES = log;
 
   return async () => {
     const spawned = new Map(

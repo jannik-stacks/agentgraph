@@ -24,9 +24,9 @@ const render = (props: Record<string, unknown>) => renderToStaticMarkup(React.cr
 
 describe('Markdown in the studio', () => {
   it('renders inline code plainly and opens links in a new tab', () => {
-    const html = render({ text: 'Run `bothub serve` before the [docs](https://example.com).' });
-    expect(html).toMatch(/^<div class="bhm-md">/);
-    expect(html).toContain('<code>bothub serve</code>');
+    const html = render({ text: 'Run `agentgraph serve` before the [docs](https://example.com).' });
+    expect(html).toMatch(/^<div class="agi-md">/);
+    expect(html).toContain('<code>agentgraph serve</code>');
     expect(html).toMatch(/<a href="https:\/\/example.com" target="_blank" rel="noreferrer">docs<\/a>/);
   });
 

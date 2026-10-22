@@ -422,7 +422,7 @@ const tools: Record<string, { summary: (input: Input) => string; Body: Component
 };
 
 /** A tool's name as the transcript shows it: without the hub's prefix. */
-export const toolName = (tool: string) => tool.replace(/^bothub_/, '');
+export const toolName = (tool: string) => tool.replace(/^agentgraph_/, '');
 
 const known = (tool: string) => tools[toolName(tool).toLowerCase()];
 const record = (input: unknown): Input =>

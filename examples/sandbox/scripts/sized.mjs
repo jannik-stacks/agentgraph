@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const proposals = JSON.parse(readFileSync(process.env.BOTHUB_PROPOSALS, 'utf8'));
+const proposals = JSON.parse(readFileSync(process.env.AGENTGRAPH_PROPOSALS, 'utf8'));
 const sizes = ['XS', 'S', 'M', 'L', 'XL'];
 const label = proposals
   .flatMap(p => (p.kind === 'label' ? (p.add ?? []) : []))

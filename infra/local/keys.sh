@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Creates one LiteLLM virtual key per bot, or updates the limits of keys that already exist.
-# New key values are appended to $KEYS_FILE as BOTHUB_LLM_API_KEY_<BOT>=...; the runner hands
-# each bot only its own key, as BOTHUB_LLM_API_KEY.
+# New key values are appended to $KEYS_FILE as AGENTGRAPH_LLM_API_KEY_<BOT>=...; the runner hands
+# each bot only its own key, as AGENTGRAPH_LLM_API_KEY.
 #
 #   ./keys.sh             create missing keys, converge budgets and limits on existing ones
 #   ROTATE=1 ./keys.sh    delete and recreate every key (old values stop working)
@@ -16,7 +16,7 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 
 # bot | allowed aliases | USD per day | requests per minute | tokens per minute
 # Subscription models report $0 spend, so for smart, writer and luna the rpm/tpm limits and
-# bothub's runs-per-day budget are what actually bite; the dollar budget covers API-key models.
+# agentgraph's runs-per-day budget are what actually bite; the dollar budget covers API-key models.
 # Every bot may use the OpenRouter aliases, since a bench point moves every agent of a hub to one model.
 OPENROUTER=glm,glm-flash,deepseek,deepseek-flash,minimax,gemini,gemini-flash,grok,grok-build,qwen,qwen-flash,kimi,muse,muse-flash
 BOTS=(
@@ -50,10 +50,10 @@ touch "$KEYS_FILE" && chmod 600 "$KEYS_FILE"
 for row in "${BOTS[@]}"; do
   read -r bot models budget rpm tpm <<<"$row"
   alias="bh-$bot"
-  var="BOTHUB_LLM_API_KEY_$(tr 'a-z-' 'A-Z_' <<<"$bot")"
+  var="AGENTGRAPH_LLM_API_KEY_$(tr 'a-z-' 'A-Z_' <<<"$bot")"
   limits=$(jq -nc --arg a "$alias" --arg m "$models" --arg bot "$bot" --argjson b "$budget" --argjson r "$rpm" --argjson t "$tpm" \
     '{key_alias: $a, models: ($m | split(",")), max_budget: $b, budget_duration: "1d", rpm_limit: $r, tpm_limit: $t,
-      metadata: {bot: $bot, source: "bothub-keys.sh"}}')
+      metadata: {bot: $bot, source: "agentgraph-keys.sh"}}')
 
   exists=$(api GET "/key/list?key_alias=$alias" | jq '.total_count // (.keys | length)')
   if [[ "$exists" != 0 && "${ROTATE:-}" == 1 ]]; then
@@ -76,4 +76,4 @@ for row in "${BOTS[@]}"; do
   echo "created $alias ($models, \$$budget/day, $rpm rpm, $tpm tpm)"
 done
 
-echo "keys in $KEYS_FILE (mode 600); copy the lines you need into \$BOTHUB_DATA/.env"
+echo "keys in $KEYS_FILE (mode 600); copy the lines you need into \$AGENTGRAPH_DATA/.env"

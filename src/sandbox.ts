@@ -12,7 +12,7 @@ export type Command = {
   cmd: string;
   args: string[];
   dir: string;
-  /** The hub directory, readable by the command as `$BOTHUB_HUB`, never writable. */
+  /** The hub directory, readable by the command as `$AGENTGRAPH_HUB`, never writable. */
   hub?: string;
   home?: string;
   env: Record<string, string>;
@@ -52,7 +52,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
  * It keeps its own files there as one local commit when its scope closes. Every command in a checkout runs in the
  * `image` and on the `network` of the `hub` it was made for, starting from that hub's Env at the base when there is one.
  */
-export class Sandbox extends Context.Tag('bothub/Sandbox')<
+export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
   Sandbox,
   {
     checkout: (
@@ -122,7 +122,7 @@ export const hostGit = (
     child.stdin?.end(input ?? '');
   });
 
-const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
+const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
 const spawned = (command: Command) =>
   spawn(command.cmd, command.args, {
@@ -130,7 +130,7 @@ const spawned = (command: Command) =>
     env: {
       ...process.env,
       ...command.env,
-      ...(command.hub !== undefined && { BOTHUB_HUB: command.hub }),
+      ...(command.hub !== undefined && { AGENTGRAPH_HUB: command.hub }),
       ...(command.home !== undefined && { HOME: command.home }),
       ...Object.fromEntries(Object.entries(command.secrets ?? {}).map(([k, v]) => [k, Redacted.value(v)])),
     },
@@ -145,8 +145,8 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
     checkout: (ref, branch, keep) => {
       const work = async () => {
-        const dir = await mkdtemp(join(tmpdir(), 'bothub-work-'));
-        const news = await mkdtemp(join(tmpdir(), 'bothub-news-'));
+        const dir = await mkdtemp(join(tmpdir(), 'agentgraph-work-'));
+        const news = await mkdtemp(join(tmpdir(), 'agentgraph-news-'));
         const run = (...args: string[]) => git('git', args, { cwd: dir }).then(r => r.stdout.trim());
         await git('git', ['clone', '-q', repo, dir]);
         const base = await run('rev-parse', '--verify', `origin/${ref}`).catch(() => run('rev-parse', '--verify', ref));

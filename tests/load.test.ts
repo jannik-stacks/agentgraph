@@ -17,7 +17,7 @@ describe('load', () => {
     const w = fixture('acme-app').workflows.issue!;
     expect(w.name).toBe('issue');
     expect(w.on).toEqual({ issue_comment: {} });
-    expect(w.branch).toBe('bothub/{issue}');
+    expect(w.branch).toBe('agentgraph/{issue}');
     expect(w.body).toMatch(/^A maintainer says `\/agent`/);
     expect(w.steps.map(s => s.name)).toEqual(['triage', 'implement', 'review', 'merge']);
     const [triage, implement, review, merge] = w.steps;
@@ -61,11 +61,11 @@ describe('load', () => {
 
   it('reads a script step and branch filters', () => {
     const w = fixture('acme-app').workflows.merge!;
-    expect(w.on).toEqual({ pull_request: { branches: ['bothub/*'] } });
+    expect(w.on).toEqual({ pull_request: { branches: ['agentgraph/*'] } });
     expect(w.steps).toEqual([
       {
         name: 'merge',
-        does: { run: 'node "$BOTHUB_HUB/scripts/merge-next.mjs"' },
+        does: { run: 'node "$AGENTGRAPH_HUB/scripts/merge-next.mjs"' },
         checks: ['types', 'tests'],
         tries: 3,
       },

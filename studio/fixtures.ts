@@ -9,7 +9,7 @@ const from = <T>(path: string): Promise<T> => import(new URL(path, root).href);
 
 /** The served hub as the engine loads it: the hub, or the problems that stop it loading. */
 const servedHub = async () => {
-  const dir = process.env.VITE_BHM_HUB;
+  const dir = process.env.VITE_AGI_HUB;
   if (!dir) return;
   const { Effect, Either } = await import('effect');
   const { loadHub }: typeof import('../src/hub.ts') = await from('src/hub.ts');
@@ -55,12 +55,12 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
  * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line, and
  * `GET /core/logs/<hash>` the full output of a check, and `GET /core/locate?gh=<link or comment id>` what `locate` finds.
- * `GET /core/bench` answers the rows of every bench out dir under the dirs `VITE_BHM_BENCH` names, and the price table.
- * `GET /core/compound` answers every tune under `VITE_BHM_TUNE` (default ~/bothub-data/tune): its folder name, settings and steps.
+ * `GET /core/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, and the price table.
+ * `GET /core/compound` answers every tune under `VITE_AGI_TUNE` (default ~/bothub-data/tune): its folder name, settings and steps.
  * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const fixtures = (): Plugin => ({
-  name: 'bothub:fixtures',
+  name: 'agentgraph:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
     server.middlewares.use('/core/events', (req, res) => {
@@ -70,7 +70,7 @@ export const fixtures = (): Plugin => ({
         connection: 'keep-alive',
       });
       res.write(': open\n\n');
-      const data = process.env.VITE_BHM_DATA;
+      const data = process.env.VITE_AGI_DATA;
       if (!data || !existsSync(data)) return;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const watcher = watch(data, { recursive: true }, () => {
@@ -84,7 +84,7 @@ export const fixtures = (): Plugin => ({
     });
     server.middlewares.use('/core/bench', async (_req, res) => {
       const { rowsOf }: typeof import('../bin/bench.ts') = await from('bin/bench.ts');
-      const dirs = (process.env.VITE_BHM_BENCH ?? '').split(':').filter(Boolean);
+      const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
         rows: dirs.flatMap(dir => outsOf(dir)).flatMap(rowsOf),
         prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
@@ -92,10 +92,10 @@ export const fixtures = (): Plugin => ({
     });
     server.middlewares.use('/core/compound', async (_req, res) => {
       const { tunesOf }: typeof import('../bin/tune.ts') = await from('bin/tune.ts');
-      json(res, tunesOf(process.env.VITE_BHM_TUNE));
+      json(res, tunesOf(process.env.VITE_AGI_TUNE));
     });
     server.middlewares.use('/core/logs', async (req, res) => {
-      const data = process.env.VITE_BHM_DATA;
+      const data = process.env.VITE_AGI_DATA;
       const { Effect } = await import('effect');
       const { Store, fileStore }: typeof import('../src/store.ts') = await from('src/store.ts');
       const hash = (req.url ?? '/').split('?')[0]!.slice(1);
@@ -107,7 +107,7 @@ export const fixtures = (): Plugin => ({
       res.end(text || '');
     });
     server.middlewares.use('/core/locate', async (req, res) => {
-      const data = process.env.VITE_BHM_DATA;
+      const data = process.env.VITE_AGI_DATA;
       const { Effect, Either } = await import('effect');
       const { fileStore, locate }: typeof import('../src/store.ts') = await from('src/store.ts');
       if (!data) return json(res, null, 404);
@@ -118,7 +118,7 @@ export const fixtures = (): Plugin => ({
     });
     server.middlewares.use('/core/runs', async (req, res) => {
       const served = await servedHub();
-      const data = process.env.VITE_BHM_DATA;
+      const data = process.env.VITE_AGI_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');

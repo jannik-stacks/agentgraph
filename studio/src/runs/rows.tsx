@@ -128,17 +128,17 @@ const tips = {
       "The engine saved the run's state to its run.json: the fields that changed, like step, status, tries or cost.",
   },
   proposal: {
-    comment: 'A comment bothub posted, under the thread a human last spoke in.',
-    label: 'Labels bothub added to or removed from the issue.',
-    push: 'Commits bothub pushed to the run branch.',
-    pull: 'A pull request bothub opened.',
-    merge: 'A pull request bothub merged.',
-    issue: 'An issue bothub filed: a part, a follow-up or a hub change.',
-    ask: 'A question bothub posted. The run waits for your answer.',
+    comment: 'A comment agentgraph posted, under the thread a human last spoke in.',
+    label: 'Labels agentgraph added to or removed from the issue.',
+    push: 'Commits agentgraph pushed to the run branch.',
+    pull: 'A pull request agentgraph opened.',
+    merge: 'A pull request agentgraph merged.',
+    issue: 'An issue agentgraph filed: a part, a follow-up or a hub change.',
+    ask: 'A question agentgraph posted. The run waits for your answer.',
     back: 'The agent sent the run back to an earlier step.',
     run: 'Another workflow this run started by name.',
-    react: 'A reaction bothub left on a comment to show it saw it.',
-    rebase: 'bothub moved the branch onto its new base.',
+    react: 'A reaction agentgraph left on a comment to show it saw it.',
+    rebase: 'agentgraph moved the branch onto its new base.',
   },
   outcome: {
     pass: 'The step finished and its checks passed. The run moves on.',
@@ -186,7 +186,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
     body: (
       <>
         <From>session text</From>
-        <Markdown text={e.text} className="bhm-tight" />
+        <Markdown text={e.text} className="agi-tight" />
       </>
     ),
   }),
@@ -199,7 +199,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
     body: (
       <>
         <From>session thinking</From>
-        <Markdown text={e.text} className="bhm-tight" />
+        <Markdown text={e.text} className="agi-tight" />
       </>
     ),
   }),
@@ -214,7 +214,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
     body: (
       <>
         <From>final reply</From>
-        <Markdown text={e.final} className="bhm-tight" />
+        <Markdown text={e.final} className="agi-tight" />
       </>
     ),
   }),
@@ -234,10 +234,10 @@ const lines: {
       <div className="space-y-2 font-sans">
         {muted(`tools ${p.tools.length ? p.tools.join(', ') : 'none'}, dir ${p.dir}`)}
         <Disclosure summary={<span className="text-xs">system prompt, the agent's file</span>}>
-          <Markdown text={p.system} className="bhm-tight" />
+          <Markdown text={p.system} className="agi-tight" />
         </Disclosure>
-        <From>prompt bothub wrote from the step, the issue and its comments</From>
-        <Markdown text={p.prompt} className="bhm-tight" />
+        <From>prompt agentgraph wrote from the step, the issue and its comments</From>
+        <Markdown text={p.prompt} className="agi-tight" />
       </div>
     ),
   }),
@@ -272,8 +272,8 @@ const lines: {
     body: ('body' in p || 'question' in p) && (
       <div className="space-y-1 py-0.5 pl-4">
         {'title' in p && <p className="font-medium">{p.title}</p>}
-        {'body' in p && <Markdown text={p.body} className="bhm-tight" />}
-        {'question' in p && <Markdown text={p.question} className="bhm-tight" />}
+        {'body' in p && <Markdown text={p.body} className="agi-tight" />}
+        {'question' in p && <Markdown text={p.question} className="agi-tight" />}
         {url && p.kind === 'pull_request' && <Url url={`${url}/files`} text="the diff on GitHub" />}
       </div>
     ),
@@ -310,7 +310,7 @@ const lines: {
 };
 
 /** A trace line as a row, read through `lines`; `by` is who proposed what it applied. */
-export const lineRow = (line: Trace, by = 'bothub'): Row => {
+export const lineRow = (line: Trace, by = 'agentgraph'): Row => {
   const kind = (Object.keys(lines) as (keyof typeof lines)[]).find(k => k in line)!;
   return { at: line.at, raw: line, ...(lines[kind] as (l: Trace, by: string) => Row)(line, by) };
 };

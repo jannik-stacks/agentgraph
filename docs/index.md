@@ -1,6 +1,6 @@
-# What bothub is
+# What agentgraph is
 
-bothub runs coding agents on a team's repositories. A comment with `/agent` on a GitHub issue starts a workflow, and `/agent` is how people talk to it.
+agentgraph runs coding agents on a team's repositories. A comment with `/agent` on a GitHub issue starts a workflow, and `/agent` is how people talk to it.
 
 Agents work on their own branch. Scripts and other agents check the result. A human merges.
 
@@ -53,7 +53,7 @@ hub/
   workflows/issue.md       events to steps
 ```
 
-`check` loads the hub and prints every problem with its file before anything runs. It reports unknown keys, steps naming agents that do not exist, checks that do not exist, a skill no step names and no skill uses, and a folder that neither the engine loads nor a hub script reads through `$BOTHUB_HUB`. <!-- code: src/hub.ts#loadHub -->
+`check` loads the hub and prints every problem with its file before anything runs. It reports unknown keys, steps naming agents that do not exist, checks that do not exist, a skill no step names and no skill uses, and a folder that neither the engine loads nor a hub script reads through `$AGENTGRAPH_HUB`. <!-- code: src/hub.ts#loadHub -->
 
 ## Ways in
 

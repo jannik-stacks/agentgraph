@@ -8,7 +8,7 @@ const builtins = new Set(builtinModules);
 
 /** Fails the build when browser code imports a Node builtin, which vite would otherwise only stub out. */
 const noNodeInBrowser = (): Plugin => ({
-  name: 'bothub:no-node-in-browser',
+  name: 'agentgraph:no-node-in-browser',
   enforce: 'pre',
   resolveId(source, importer, options) {
     if (options.ssr || !importer || importer.includes('/node_modules/')) return;
@@ -19,7 +19,7 @@ const noNodeInBrowser = (): Plugin => ({
   },
 });
 
-const server = { port: Number(process.env.BHM_PORT) || 5182, strictPort: true };
+const server = { port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
 
 export default defineConfig({
   appType: 'spa',

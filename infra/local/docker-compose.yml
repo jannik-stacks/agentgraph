@@ -1,4 +1,4 @@
-# Local bothub stack. Every published port binds to 127.0.0.1.
+# Local agentgraph stack. Every published port binds to 127.0.0.1.
 #
 #   default   litellm (model proxy, virtual keys, admin UI at /ui) + postgres (keys, spend, UI login)
 #   sandbox   egress allowlist proxy and Ollama relay on the internal network run containers join
@@ -7,7 +7,7 @@
 # Images are pinned by digest; the tag is informational. Re-pin with
 #   docker buildx imagetools inspect <image>:<tag>
 
-name: bothub
+name: agentgraph
 
 services:
   litellm:
@@ -23,9 +23,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      BOTHUB_MODEL_SMART: ${BOTHUB_MODEL_SMART:-chatgpt/gpt-6.1-sol}
-      BOTHUB_MODEL_WRITER: ${BOTHUB_MODEL_WRITER:-chatgpt/gpt-6.1-sol}
-      BOTHUB_MODEL_LOCAL: ${BOTHUB_MODEL_LOCAL:-ollama_chat/qwen3.5:4b}
+      AGENTGRAPH_MODEL_SMART: ${AGENTGRAPH_MODEL_SMART:-chatgpt/gpt-6.1-sol}
+      AGENTGRAPH_MODEL_WRITER: ${AGENTGRAPH_MODEL_WRITER:-chatgpt/gpt-6.1-sol}
+      AGENTGRAPH_MODEL_LOCAL: ${AGENTGRAPH_MODEL_LOCAL:-ollama_chat/qwen3.5:4b}
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
       # ChatGPT device-login tokens. The refresh token is single-use: never point two LiteLLM
       # instances at the same token store.
@@ -64,7 +64,7 @@ services:
   egress:
     profiles: [sandbox]
     build: ./egress
-    image: bothub-egress:local
+    image: agentgraph-egress:local
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -79,7 +79,7 @@ services:
   ollama-relay:
     profiles: [sandbox]
     build: ./egress
-    image: bothub-egress:local
+    image: agentgraph-egress:local
     entrypoint: ["socat", "TCP-LISTEN:11434,fork,reuseaddr", "TCP:${OLLAMA_HOST_ADDR:-host.docker.internal:11434}"]
     extra_hosts: ["host.docker.internal:host-gateway"]
     read_only: true
@@ -106,11 +106,11 @@ networks:
     internal: true
   egress: {}
   sandbox:
-    name: bothub-sandbox
+    name: agentgraph-sandbox
     internal: true
   # For hubs with network: models. The model proxy is the only thing on it.
   models:
-    name: bothub-models
+    name: agentgraph-models
     internal: true
 
 volumes:

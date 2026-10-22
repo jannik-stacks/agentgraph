@@ -11,12 +11,12 @@ body {
 }
 
 :root {
-  --bhm-code-bg: var(--color-zinc-50);
+  --agi-code-bg: var(--color-zinc-50);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bhm-code-bg: var(--color-zinc-900);
+    --agi-code-bg: var(--color-zinc-900);
   }
 }
 
@@ -38,7 +38,7 @@ body {
   }
 }
 
-.bhm-md {
+.agi-md {
   @apply text-[13px] leading-relaxed break-words;
 
   & > :first-child {
@@ -79,7 +79,7 @@ body {
   }
 }
 
-.bhm-md.bhm-tight {
+.agi-md.agi-tight {
   @apply font-mono text-[11px] leading-snug text-zinc-600 dark:text-zinc-400;
 
   & :where(p, ul, ol, blockquote, table, h1, h2, h3, h4) {
@@ -120,22 +120,22 @@ body {
   }
 }
 
-.bhm-in {
-  animation: bhm-in 150ms ease-out;
+.agi-in {
+  animation: agi-in 150ms ease-out;
 }
 
-@keyframes bhm-in {
+@keyframes agi-in {
   from {
     opacity: 0;
     transform: translateY(-2px);
   }
 }
 
-.bhm-loading {
-  animation: bhm-fade 300ms ease-out 500ms both;
+.agi-loading {
+  animation: agi-fade 300ms ease-out 500ms both;
 
   & > span {
-    animation: bhm-pulse 1s ease-in-out infinite;
+    animation: agi-pulse 1s ease-in-out infinite;
   }
   & > span:nth-child(2) {
     animation-delay: 150ms;
@@ -145,19 +145,19 @@ body {
   }
 }
 
-@keyframes bhm-fade {
+@keyframes agi-fade {
   from {
     opacity: 0;
   }
 }
 
-@keyframes bhm-pulse {
+@keyframes agi-pulse {
   50% {
     opacity: 0.3;
   }
 }
 
-.bhm-tip {
+.agi-tip {
   opacity: 0;
   transition:
     opacity 120ms ease-out,
@@ -181,7 +181,7 @@ body {
     animation-duration: 1ms !important;
     transition-duration: 1ms !important;
   }
-  .bhm-loading > span {
+  .agi-loading > span {
     animation: none !important;
   }
 }

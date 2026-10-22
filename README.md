@@ -1,6 +1,6 @@
-# bothub
+# agentgraph
 
-bothub is an agent hub. Scripts slice the work, and many narrow
+agentgraph is an agent hub. Scripts slice the work, and many narrow
 agents each judge one piece. A hub is the config: `hub.yaml` and agents, skills, checks and workflows, all
 Markdown files with YAML frontmatter, plus the scripts its checks run. See `docs/index.md` for how a change reaches the repository.
 
@@ -13,11 +13,11 @@ Run them from this directory as `node bin/run.ts <command>`. `docs/local.md` has
 - `check --hub <dir>` loads a hub and prints every problem with its file, or `ok`.
 - `--hub <dir> --issue <n> --data <dir>` looks at one issue once and drives its run until it waits or ends.
   `--all` does the same for every open issue.
-- `loop --hub <dir> --data <dir>` looks at every open issue each `BOTHUB_EVERY` minutes.
+- `loop --hub <dir> --data <dir>` looks at every open issue each `AGENTGRAPH_EVERY` minutes.
 - `status --hub <dir> --data <dir>` lists what waits on a human.
 
 `node bin/traces.mjs <data dir> [workflow=kind ...]` checks finished runs by hand, for example
-`node bin/traces.mjs "$BOTHUB_DATA" 'issue=pull_request|push' 'triage=label|issue|ask'`. It fails on a denied tool call, a session
+`node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push' 'triage=label|issue|ask'`. It fails on a denied tool call, a session
 that started but cost nothing, and a done run of a named workflow that applied none of its kinds. It also prints how long
 each run waited before its first session. It reads run data only, so it is not part of `precommit`.
 
@@ -38,26 +38,26 @@ each run waited before its first session. It reads run data only, so it is not p
    ```
 
    `keys.sh` creates one virtual key per bot in `.keys.env`. Copy those lines into
-   `$BOTHUB_DATA/.env` (default `~/.bothub`). Then set
-   `BOTHUB_LLM_BASE_URL=http://127.0.0.1:4000/v1`. Ollama and the ChatGPT login are covered in
+   `$AGENTGRAPH_DATA/.env` (default `~/.agentgraph`). Then set
+   `AGENTGRAPH_LLM_BASE_URL=http://127.0.0.1:4000/v1`. Ollama and the ChatGPT login are covered in
    `infra/local/README.md`.
 
 3. Build the sandbox image. Every agent run happens in a throwaway container from it.
 
    ```sh
    docker compose --profile sandbox up -d
-   docker build -t bothub-sandbox:local sandbox
+   docker build -t agentgraph-sandbox:local sandbox
    ```
 
 4. Create the GitHub App once with `node bin/setup-app.ts` (see `infra/github/README.md`) and
-   set `BOTHUB_APP_ENV` to the `app.env` it prints. Then `infra/local/e2e.sh` prepares a data
+   set `AGENTGRAPH_APP_ENV` to the `app.env` it prints. Then `infra/local/e2e.sh` prepares a data
    directory with the agents' keys and prints the commands that run a hub against its repo.
 
    ```sh
-   ./e2e.sh /tmp/bothub-e2e ../../examples/sandbox
+   ./e2e.sh /tmp/agentgraph-e2e ../../examples/sandbox
    ```
 
-5. Open the studio dashboard. From `studio/`, run `npm install`, then `npm run dev -- --data /tmp/bothub-e2e`.
+5. Open the studio dashboard. From `studio/`, run `npm install`, then `npm run dev -- --data /tmp/agentgraph-e2e`.
    The app is at http://localhost:5182.
 
 ## Docs
@@ -66,13 +66,13 @@ The docs are plain Markdown in `docs/`, starting at `docs/index.md`. `npm run ve
 
 ## Git hooks
 
-`npm run hooks` points git at `bin/hooks`. Then a commit that touches `bothub/` runs `npm run precommit`,
+`npm run hooks` points git at `bin/hooks`. Then a commit that touches `agentgraph/` runs `npm run precommit`,
 the studio build when it touches `studio/` or `src/`, and the pr-text rules on its message. It sets
 `core.hooksPath` for the whole repository and every worktree; `git config --unset core.hooksPath` undoes it.
 
 ## Examples
 
-- `examples/bothub` is the hub bothub runs on its own repository.
+- `examples/agentgraph` is the hub agentgraph runs on its own repository.
 - `examples/acme-app` is the hub for the acme-app repository: triage, implement, review and
   plans step by step.
 - `examples/clarinet` is a hub for a Rust repository.

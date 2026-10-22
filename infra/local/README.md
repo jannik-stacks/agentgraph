@@ -1,4 +1,4 @@
-# Local bothub stack
+# Local agentgraph stack
 
 LiteLLM in front of every model, Ollama for local models and the decision API, and one
 throwaway container per agent run. Every port binds to 127.0.0.1. Commands run from `infra/local`.
@@ -12,7 +12,7 @@ throwaway container per agent run. Every port binds to 127.0.0.1. Commands run f
    prefixed with `docker compose exec ollama` on Linux. Ollama must be 0.35 or later for
    `/v1/systemone`.
 3. `docker compose up -d` (LiteLLM and Postgres), then `docker compose --profile sandbox up -d`.
-4. `docker build -t bothub-sandbox:local sandbox` (opencode and pi).
+4. `docker build -t agentgraph-sandbox:local sandbox` (opencode and pi).
 
 ## ChatGPT login for smart, writer and luna
 
@@ -44,8 +44,8 @@ and only these aliases fail.
 ## Keys
 
 `./keys.sh` creates one virtual key per bot (or updates limits on existing ones) and appends
-`BOTHUB_LLM_API_KEY_<BOT>=...` to `.keys.env`. Copy those lines into `$BOTHUB_DATA/.env`.
-Subscription models report $0 spend, so their real limits are the per-key rpm/tpm and bothub's
+`AGENTGRAPH_LLM_API_KEY_<BOT>=...` to `.keys.env`. Copy those lines into `$AGENTGRAPH_DATA/.env`.
+Subscription models report $0 spend, so their real limits are the per-key rpm/tpm and agentgraph's
 runs-per-day budget. `ROTATE=1 ./keys.sh` replaces every key.
 
 Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `docker compose up -d litellm`.
@@ -54,12 +54,12 @@ Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `docker com
 
 `e2e.sh` writes the agents' keys from `.keys.env` into a data directory and prints the commands
 that run a hub against its GitHub repo: one look at one issue, or a loop over every open issue.
-It needs `BOTHUB_APP_ENV` set to the App env file from `bin/setup-app.ts`. Every agent runs
+It needs `AGENTGRAPH_APP_ENV` set to the App env file from `bin/setup-app.ts`. Every agent runs
 in a sandbox container; without the `sandbox` profile up and the image built, runs fail and
 nothing falls back to the host.
 
 ```sh
-./e2e.sh /tmp/bothub-e2e ../../examples/sandbox
+./e2e.sh /tmp/agentgraph-e2e ../../examples/sandbox
 ```
 
 ## Prices

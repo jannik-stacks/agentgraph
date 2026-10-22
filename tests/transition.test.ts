@@ -18,7 +18,7 @@ const failed: Outcome = {
   kind: 'failed',
   checks: [{ check: 'types', pass: false, findings: 'x.ts:1 error', ms: 10 }],
   proposals: [],
-  problems: ['no bothub block'],
+  problems: ['no agentgraph block'],
 };
 
 describe('begin', () => {
@@ -63,7 +63,7 @@ describe('transition, running', () => {
       tries: 2,
       sessions: { implement: session('s-implement') },
     });
-    expect(next.feedback).toBe('types: x.ts:1 error\nno bothub block');
+    expect(next.feedback).toBe('types: x.ts:1 error\nno agentgraph block');
   });
 
   it('failed with no tries left: waiting, the failure is the question', () => {
@@ -72,7 +72,7 @@ describe('transition, running', () => {
       step: 'implement',
       status: 'waiting',
       tries: 4,
-      reason: 'types: x.ts:1 error\nno bothub block',
+      reason: 'types: x.ts:1 error\nno agentgraph block',
     });
   });
 

@@ -9,7 +9,7 @@ import { dependencyDirs, discard, envOf, type Layer as Deps, layer, mark, reap, 
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
-const networks = { egress: 'bothub-sandbox', models: 'bothub-models' } as const;
+const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
 const egress = 'http://egress:8888';
 const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
 const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub', cache: '/cache' };
@@ -17,7 +17,7 @@ const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
 /** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
 const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
-const ident = ['-c', 'user.name=bothub', '-c', 'user.email=bothub@localhost'];
+const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
 
@@ -129,7 +129,7 @@ export const dockerArgs = (
         no_proxy: direct,
       }),
     ...c.env,
-    ...(c.hub && { BOTHUB_HUB: inside.hub }),
+    ...(c.hub && { AGENTGRAPH_HUB: inside.hub }),
   }).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
   ...Object.keys(c.secrets ?? {}).flatMap(key => ['-e', key]),
   image,
@@ -193,7 +193,7 @@ const timeout = (c: Command) => () =>
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
  * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
- * the volume `cache`, `bothub-cache` by default. A checkout for a hub starts from the hub's Env at its base, built once
+ * the volume `cache`, `agentgraph-cache` by default. A checkout for a hub starts from the hub's Env at its base, built once
  * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
  * name turns the volume and Envs off.
  */
@@ -207,8 +207,8 @@ export const docker = (o: {
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
-      const image = o.image ?? 'bothub-sandbox:local';
-      const cache = o.cache ?? 'bothub-cache';
+      const image = o.image ?? 'agentgraph-sandbox:local';
+      const cache = o.cache ?? 'agentgraph-cache';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
       if (cache) yield* Effect.promise(() => sweep(30_000).catch(() => 0));
@@ -233,7 +233,7 @@ export const docker = (o: {
           yield* roomy;
           const box = made.get(c.dir) ?? { mounts: [] };
           if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
-          const name = `bothub-${randomBytes(6).toString('hex')}`;
+          const name = `agentgraph-${randomBytes(6).toString('hex')}`;
           const args = yield* Effect.try({
             try: () => dockerArgs(c, box.image ?? image, name, box, cache),
             catch: e => e as SandboxError,
@@ -319,7 +319,7 @@ export const docker = (o: {
           const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           const base = onto ? yield* inMirror(['merge-base', rev, onto]).pipe(Effect.orElseSucceed(() => rev)) : rev;
           yield* roomy;
-          const setup = hub?.setup?.includes('BOTHUB_HUB') ? undefined : hub?.setup;
+          const setup = hub?.setup?.includes('AGENTGRAPH_HUB') ? undefined : hub?.setup;
           const env =
             hub && cache
               ? yield* Effect.tryPromise({

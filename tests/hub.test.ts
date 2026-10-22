@@ -10,7 +10,7 @@ import { git } from './fixtures.ts';
 
 /** A hub directory with `files` written into it. */
 const hubDir = (files: Record<string, string>) => {
-  const dir = mkdtempSync(join(tmpdir(), 'bothub-hub-'));
+  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-hub-'));
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), text);
@@ -53,7 +53,7 @@ const problems = async (dir: string) => {
 };
 
 describe('loadHub', () => {
-  it.each(['bothub', 'clarinet', 'acme-app', 'hub', 'loop'])('loads a hub around the %s fixture', async name => {
+  it.each(['agentgraph', 'clarinet', 'acme-app', 'hub', 'loop'])('loads a hub around the %s fixture', async name => {
     const { dir, names } = fromFixture(name);
     const hub = await Effect.runPromise(loadHub(dir));
     expect(Object.keys(hub.agents).sort()).toEqual([...names.agents].sort());
@@ -181,12 +181,12 @@ describe('loadHub', () => {
       'fixtures/check.jsonl': '',
       'notes/style/a.md': 'A note.\n',
       'issues/1-a.md': 'An issue.\n',
-      'scripts/brief.mjs': "const dir = join(process.env.BOTHUB_HUB, 'issues');\n",
+      'scripts/brief.mjs': "const dir = join(process.env.AGENTGRAPH_HUB, 'issues');\n",
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
     });
     expect(await problems(dir)).toEqual([
       "skills/orphan.md: no step names orphan and no skill uses it; name it as a step's skill or in a skill's uses, or remove it",
-      'notes: nothing reads notes/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $BOTHUB_HUB',
+      'notes: nothing reads notes/; the engine loads agents, skills, checks and workflows, and a hub script reads a folder through $AGENTGRAPH_HUB',
     ]);
   });
 
@@ -212,14 +212,14 @@ describe('loadHub', () => {
   it('fails retired words in any hub prompt, naming the word and what to say now', async () => {
     const dir = hubDir({
       'agents/a.md': '---\nharness: opencode\n---\nOpen a merge request.\n',
-      'skills/s.md': 'A human answers with `/bothub <answer>` on the issue.\n',
+      'skills/s.md': 'A human answers with `/agentgraph <answer>` on the issue.\n',
       'checks/c.md': '---\nmode: warn\nrun: "true"\n---\nReads bots/triage.md.\n',
       'workflows/w.md':
         '---\non: issues\nsteps:\n  x: { agent: a, skill: s, checks: [c] }\n---\nThe persona runs for-each file.\n',
     });
     expect(await problems(dir)).toEqual([
       'agents/a.md: says "merge request", which is retired; say pull request',
-      'skills/s.md: says "/bothub", which is retired; say /agent followed by what you want',
+      'skills/s.md: says "/agentgraph", which is retired; say /agent followed by what you want',
       'checks/c.md: says "bots/", which is retired; say agents/',
       'workflows/w.md: says "persona", which is retired; say agent, or harness for the program that runs a session',
       'workflows/w.md: says "for-each", which is retired; say returns: and each:',
@@ -259,11 +259,11 @@ describe('loadHub', () => {
 describe('hubAt', () => {
   it('reads a relative hub from the head of the default branch, never from another branch', async () => {
     const example = join(import.meta.dirname, '..', 'examples', 'sandbox');
-    const root = mkdtempSync(join(tmpdir(), 'bothub-hubat-'));
+    const root = mkdtempSync(join(tmpdir(), 'agentgraph-hubat-'));
     const seed = join(root, 'seed');
     mkdirSync(seed);
     git(seed, 'init', '-q', '-b', 'main');
-    cpSync(example, join(seed, '.bothub'), { recursive: true });
+    cpSync(example, join(seed, '.agentgraph'), { recursive: true });
     git(seed, 'add', '-A');
     git(seed, 'commit', '-q', '-m', 'hub');
     git(root, 'clone', '-q', '--bare', seed, 'origin.git');
@@ -271,7 +271,7 @@ describe('hubAt', () => {
     const edit = (branch: string) => {
       git(seed, 'checkout', '-q', '-B', branch, 'main');
       writeFileSync(
-        join(seed, '.bothub', 'hub.yaml'),
+        join(seed, '.agentgraph', 'hub.yaml'),
         `${readFileSync(join(example, 'hub.yaml'), 'utf8')}\n# ${branch}\n`
       );
       git(seed, 'commit', '-q', '-am', branch);
@@ -279,11 +279,11 @@ describe('hubAt', () => {
     };
     const sha = () =>
       Effect.runPromise(
-        Effect.scoped(Effect.map(hubAt('.bothub'), h => h.sha)).pipe(Effect.provide(host(join(root, 'origin.git'))))
+        Effect.scoped(Effect.map(hubAt('.agentgraph'), h => h.sha)).pipe(Effect.provide(host(join(root, 'origin.git'))))
       );
     const local = (await Effect.runPromise(loadHub(example))).sha;
     expect(await sha()).toBe(local);
-    edit('bothub/1');
+    edit('agentgraph/1');
     expect(await sha()).toBe(local);
     edit('main');
     expect(await sha()).not.toBe(local);

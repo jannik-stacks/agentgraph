@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, runScript } from './kit.ts';
 
-const script = resolve(import.meta.dirname, '../examples/bothub/scripts/shape.mjs');
+const script = resolve(import.meta.dirname, '../examples/agentgraph/scripts/shape.mjs');
 const run = (repo: { dir: string; base: string }) => runScript(script, repo, ['src', 'core']);
 
 const run_ = 'export type Run = { id: string; status: string; started: string; ended: string };\n';
