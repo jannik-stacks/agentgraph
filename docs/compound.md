@@ -1,72 +1,34 @@
 # Compound engineering
 
-Every review, comment or push a person makes where the bot worked can mean the bot missed something.
-A retro asks, each time, how the bot could have avoided it, and turns the answer into a change to the
-hub or the docs its agents read. Nothing changes until a person merges it.
-
-```
- a person reviews, comments or pushes on the issue or pull request of a run
-                      |
-                      v
- the loop starts a run of the `on: feedback` workflow on that issue: a retro
-                      |
-                      v
- the retro agent (`reads: traces`) reads what was said and the traces of the runs on the issue
-                      |
-                      v
- it decides: nothing, a hub issue, or a follow-up
-                      |
-                      v
- a person works the hub issue like any other; once merged, the hub catches the miss next time
-```
+A retro examines human feedback for recurring misses and proposes hub or documentation changes. People review and merge those changes.
 
 ## The retro
 
-A workflow with `on: feedback` starts on what a trusted person says or pushes where another run
-worked: a comment, a review that requests changes or approves with a comment, or a commit pushed to the
-run's branch. A comment that only says `/agent stop`, `/agent cancel` or `/agent restart` is not feedback. Comments on a
-pull request count for the issue its branch worked on, also once it is merged or closed. <!-- code: src/engine.ts#feedback -->
+`on: feedback` starts a retro on trusted comments, change-request reviews, approvals with comments, or commits pushed where another run worked. Pull request feedback counts for its issue after merge or closure too. Bare `/agent stop`, `/agent cancel` and `/agent restart` are excluded. <!-- code: src/engine.ts#feedback -->
 
-What came in since the last retro on the issue starts one retro, once the issue has been quiet for 30
-seconds. The run's feedback is the list of what was said or pushed. What comes in while a retro works
-starts the next one at once, so nothing waits for it. <!-- code: src/engine.ts#tick -->
+New feedback since the previous retro is batched after 30 seconds of quiet. Its text becomes run feedback. Events arriving during a retro start another without waiting for it. <!-- code: src/engine.ts#tick -->
 
-A retro keeps out of the way of the run it looks at. It never holds the issue, never takes an answer
-meant for another run, shows no status on the issue, skips the hub's `setup`, and never waits: where
-another run would ask, it stops. <!-- code: src/workflow.ts#transition -->
+Retros never hold an issue, consume another run's answers or post status. They skip setup and stop wherever another workflow would wait. <!-- code: src/workflow.ts#transition -->
 
-A retro decides one of three:
+The retro chooses:
 
-- **nothing**, with one line of why. Most feedback lands here: taste, a one-off wording, a choice only a
-  person could make.
-- **a hub issue** (`"relation":"hub"`), when the same miss would come back and a check, a lint, a
-  prompt line or a doc line would have caught it. Its body names the miss class, the evidence (run and
-  trace lines) and the smallest change.
-- **a follow-up**, when the feedback points at work in the repo that no issue covers.
+- Nothing, with a short reason, for taste, one-off wording or decisions requiring a person.
+- A hub issue (`relation: hub`) for a recurring miss preventable by a check, lint, prompt or doc edit. Include the miss class, run/trace evidence and smallest change.
+- A follow-up for uncovered repo work.
 
-A follow-up or hub issue with the title of an open one is added to it as a comment instead, and an
-agent that may file issues sees the open follow-up and hub issues listed, so the same miss is not filed
-twice. <!-- code: src/engine.ts#file -->
+[Issue filing](stacks.md#follow-ups) handles duplicate titles and lists existing follow-up and hub issues for the agent.
 
 ## Reading traces
 
-An agent with `reads: traces` gets `traces.md` beside its news file, read-only, and its prompt says
-where. It holds every run on the issue that is not a retro, oldest first: each agent's system prompt
-once, then per session the prompt, thinking, tool calls with their input and output, and replies, then
-the checks, applied proposals and outcomes. Each line starts with its line number in that run's trace,
-so evidence can cite it. <!-- code: src/context.ts#transcript -->
+`reads: traces` gives an agent a read-only `traces.md` beside its news file and points to it in the prompt. It contains non-retro runs on that issue, oldest first: system prompts once per agent, session prompts, thinking, tool inputs/outputs, replies, checks, proposals and outcomes. Entries retain run trace line numbers for citations. <!-- code: src/context.ts#transcript -->
 
-Long text is cut in the middle, keys and tokens are redacted, a long session keeps its first and last
-entries with a tally of the ones between, and past about 60,000 characters the oldest runs keep only
-how their sessions ended and their outcomes.
+Long text is cut in the middle, secrets redacted, and long sessions keep first and last entries with an omitted count. Beyond about 60,000 characters, oldest runs retain only session endings and outcomes.
 
-Checks get the same file as `AGENTGRAPH_TRACES`, so a script can grep it with no model, for example to see
-whether a session ran the tests after its last edit. <!-- code: src/engine.ts#traced -->
+Checks receive the same file as `AGENTGRAPH_TRACES`; scripts can inspect it without a model, for example to check whether tests ran after the last edit. <!-- code: src/engine.ts#traced -->
 
 ## Super review
 
-A check whose agent reads traces judges how the work was done, not only the change. The sk hub's
-`claims` check has an auditor hold the implementor's reply to the tool calls its session made:
+Trace-reading judges inspect how work was done. The sk hub's `claims` check compares an implementor's claims with its tool calls:
 
 ```yaml
 # checks/claims.md
@@ -76,5 +38,4 @@ agent: auditor
 Did the implementor do what its reply says it did?
 ```
 
-A step whose agent reads traces works the same way. The studio marks both with "reads traces", and
-draws a dashed edge from each workflow's human step to the workflows that start on feedback. <!-- code: src/graph.ts#graphOf -->
+Steps can read traces too. The studio marks both with "reads traces" and draws dashed edges from human steps to feedback workflows. <!-- code: src/graph.ts#graphOf -->
