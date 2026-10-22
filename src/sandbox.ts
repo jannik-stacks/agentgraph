@@ -177,7 +177,8 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
             const commit = await run(...ident, 'commit-tree', await run('write-tree'), ...parents, '-m', keep);
             await run('push', '-q', 'origin', `+${commit}:${keep}`);
           }).pipe(
-            Effect.ignoreLogged,
+            Effect.mapError(e => new Error(`unsaved checkout preserved at ${dir}: ${String(e)}`, { cause: e })),
+            Effect.orDie,
             Effect.zipRight(
               Effect.promise(() => Promise.all([dir, news].map(p => rm(p, { recursive: true, force: true }))))
             )

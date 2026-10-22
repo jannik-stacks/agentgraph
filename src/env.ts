@@ -1,6 +1,16 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statfsSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -516,9 +526,10 @@ export const reap = (data: string) => {
   const work = join(data, 'work');
   let ids: string[] = [];
   try {
-    ids = readdirSync(work).filter(n => !n.endsWith('.owner'));
+    ids = readdirSync(work).filter(n => !n.endsWith('.owner') && !n.endsWith('.failed'));
   } catch {}
   const gone = ids.filter(id => {
+    if (existsSync(join(work, `${id}.failed`))) return false;
     try {
       return !live(readFileSync(join(work, `${id}.owner`), 'utf8').trim());
     } catch {

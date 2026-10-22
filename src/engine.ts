@@ -1605,8 +1605,21 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 /** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 const following = (work: Checkout, onto: string, first: boolean) =>
   Effect.gen(function* () {
-    if (first && work.head && (yield* text(work, ['merge-base', onto, work.head])) !== onto)
-      yield* hostGit(work.git, ['read-tree', '-u', '--reset', (yield* mergeOf(work, onto, work.head)).tree]);
+    if (first && work.head && (yield* text(work, ['merge-base', onto, work.head])) !== onto) {
+      const head = yield* text(work, [
+        '-c',
+        'user.name=agentgraph',
+        '-c',
+        'user.email=agentgraph@localhost',
+        'commit-tree',
+        yield* treeOf(work),
+        '-p',
+        work.head,
+        '-m',
+        'Saved work',
+      ]);
+      yield* hostGit(work.git, ['read-tree', '-u', '--reset', (yield* mergeOf(work, onto, head)).tree]);
+    }
     return { ...work, base: onto };
   });
 
@@ -1617,7 +1630,7 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
     const forge = yield* Forge;
     yield* store.lock(run.id);
     const branch = expand(w.branch!, yield* forge.issue(run.issue));
-    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch, `refs/agentgraph/runs/${run.id}`));
+    const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
     const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from: base.sha, onto: head }, work);
     const body = `#${base.pull} moved and ${branch} could not follow: ${applied.reason}. Rebase it by hand, or say what to do.`;
     const said = applied.ok ? [] : yield* land(unthreaded(run), [{ kind: 'comment', body }]);

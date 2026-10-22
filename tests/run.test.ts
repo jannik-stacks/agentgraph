@@ -14,6 +14,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, FiberRef, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
+import { docker } from '../src/docker.ts';
 import { drive, gate, settle, sweep, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
 import { start as main, temporary } from '../src/main.ts';
@@ -156,6 +157,66 @@ const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m
 const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
 describe('drive', () => {
+  it.each(['docker', 'host'])(
+    'preserves the checkout and index when saving work fails: %s',
+    async kind => {
+      const where = world();
+      const small = hubOf('hub');
+      const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
+      let work: import('../src/sandbox.ts').Checkout | undefined;
+      const sandbox = Layer.effect(
+        Sandbox,
+        Effect.map(Sandbox, s => ({
+          ...s,
+          checkout: (...args: Parameters<typeof s.checkout>) =>
+            s.checkout(...args).pipe(
+              Effect.tap(made =>
+                Effect.sync(() => {
+                  work = made;
+                  const refs = join(kind === 'host' ? where.origin : made.git.GIT_DIR, 'refs', 'agentgraph', 'runs');
+                  mkdirSync(refs, { recursive: true });
+                  writeFileSync(join(refs, 'run-7.lock'), 'blocked');
+                })
+              )
+            ),
+        }))
+      ).pipe(
+        Layer.provide(
+          kind === 'host' ? host(where.origin) : docker({ data: where.data, origin: where.origin, cache: '' })
+        )
+      );
+      const layer = Layer.mergeAll(
+        fileForge(where.forge),
+        fileStore(where.data),
+        sandbox,
+        scripted([[start('a'), write('pending.txt', 'keep me\n'), reply({ kind: 'ask', question: 'Continue?' })]])
+      );
+      const exit = await Effect.runPromiseExit(
+        drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(readFileSync(join(work!.dir, 'pending.txt'), 'utf8')).toBe('keep me\n');
+      expect(existsSync(work!.git.GIT_INDEX_FILE ?? join(work!.git.GIT_DIR, 'index'))).toBe(true);
+      expect(String(Exit.isFailure(exit) && exit.cause)).toContain(work!.dir);
+      if (kind === 'docker') {
+        writeFileSync(`${work!.dir}.owner`, '999999:gone');
+        const restarted = Layer.mergeAll(
+          fileForge(where.forge),
+          fileStore(where.data),
+          docker({ data: where.data, origin: where.origin, cache: '' }),
+          scripted([[start('b'), reply({ kind: 'ask', question: 'Other run' })]])
+        );
+        await Effect.runPromise(
+          drive(flow, begin(flow, { id: 'other', issue: 7, started: fresh().started }), small).pipe(
+            Effect.provide(restarted)
+          )
+        );
+        expect(readFileSync(join(work!.dir, 'pending.txt'), 'utf8')).toBe('keep me\n');
+      }
+    },
+    30_000
+  );
+
   it.each(['initialized', 'empty'])('does not steal a live run lock: %s', async kind => {
     const where = world();
     const previous = process.env.AGENTGRAPH_STATE;
@@ -672,6 +733,36 @@ describe('a run branch that moved', () => {
     },
     30_000
   );
+
+  it('keeps restored edits when following a new base on the first try', async () => {
+    const where = world();
+    const seed = join(where.root, 'seed');
+    writeFileSync(join(seed, 'hello.txt'), 'hello\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-qm', 'Greeting');
+    git(seed, 'push', '-q', where.origin, 'HEAD:agentgraph/7');
+    const first = services(where, [
+      [start('a'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+    ]);
+    const parked = await first.run(
+      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
+    );
+    git(seed, 'checkout', '-q', '--detach', git(where.origin, 'rev-parse', 'main'));
+    writeFileSync(join(seed, 'other.txt'), 'upstream\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-qm', 'Base moved');
+    git(seed, 'push', '-q', where.origin, 'HEAD:main');
+    const onto = git(seed, 'rev-parse', 'HEAD');
+    let pending = false;
+    const next = services(where, [[start('a'), reply(push)]], undefined, spec => {
+      pending = existsSync(join(spec.dir, 'pending.txt'));
+    });
+    const done = await next.run(drive(flow, { ...parked, status: 'running', tries: 0, onto: { sha: onto } }, small));
+    expect(pending).toBe(true);
+    expect(done.status).toBe('done');
+    expect(git(where.origin, 'show', 'agentgraph/7:pending.txt')).toBe('pending');
+    expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('upstream');
+  }, 30_000);
 
   it.each([0, 1])(
     'replays saved work onto the rebased tip before try %s',
@@ -1475,6 +1566,31 @@ describe('stacks', () => {
     expect(pr.pull).toMatchObject({ branch: 'agentgraph/9', base: 'main' });
     expect(pr.body).not.toContain('Stacks on');
     expect(git(where.origin, 'rev-parse', 'agentgraph/9~1')).toBe(git(where.origin, 'rev-parse', 'main'));
+  }, 30_000);
+
+  it('keeps saved edits while a stacked branch follows its parent', async () => {
+    const where = world();
+    const { move } = parent(where);
+    const first = services(where, [
+      child(),
+      [start('a'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+    ]);
+    const parked = await first.run(
+      Effect.gen(function* () {
+        const waiting = yield* drive(flow, run9(), merging);
+        return yield* drive(flow, { ...waiting, step: 'implement', status: 'running' }, merging);
+      })
+    );
+    expect(git(where.origin, 'show', 'refs/agentgraph/runs/run-9:pending.txt')).toBe('pending');
+    move('more.txt', 'more\n');
+    const next = services(where, [
+      [start('a'), reply({ kind: 'push', branch: 'agentgraph/9', message: 'Pending work' })],
+    ]);
+    await next.run(tick(merging, 9));
+    expect(git(where.origin, 'show', 'refs/agentgraph/runs/run-9:pending.txt')).toBe('pending');
+    await next.run(drive(flow, { ...parked, status: 'running' }, merging));
+    expect(git(where.origin, 'show', 'agentgraph/9:pending.txt')).toBe('pending');
+    expect(git(where.origin, 'show', 'agentgraph/9:more.txt')).toBe('more');
   }, 30_000);
 
   it('rebases the branch onto the new head when #8 moves, keeping its own commit on top', async () => {

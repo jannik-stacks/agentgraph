@@ -362,7 +362,13 @@ export const docker = (o: {
               const parents = ['-p', rev, ...(saved ? ['-p', saved] : [])];
               const commit = yield* inWork([...ident, 'commit-tree', tree, ...parents, '-m', name]);
               yield* inWork(['update-ref', name, commit]);
-            }).pipe(Effect.ignoreLogged);
+            }).pipe(
+              Effect.tapError(() => Effect.promise(() => rename(`${dir}.owner`, `${dir}.failed`))),
+              Effect.mapError(
+                e => new Error(`${e.detail}; unsaved checkout preserved at ${dir}, index ${index}`, { cause: e })
+              ),
+              Effect.orDie
+            );
           let admin = '';
           let layers: Deps[] = [];
           const add = Effect.gen(function* () {
