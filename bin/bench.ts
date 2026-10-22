@@ -279,12 +279,13 @@ const tested = (repo: string, tests: string[]): Commands => {
     const test = cargoTests(tests).map(t =>
       name === 'clarity-wasm' && t.includes('clar2wasm/Cargo.toml') ? clarityVersions(t) : t
     );
-    const build = test.map(t => t.replace('cargo test', 'cargo test --no-run'));
+    const matrix =
+      name === 'clarity-wasm' ? [clarityVersions('cargo test --no-run --manifest-path clar2wasm/Cargo.toml')] : [];
     return test.length
       ? {
           image: services,
           toolchain: pinRust,
-          setup: [oldRust, ...build].join(' && '),
+          setup: [oldRust, 'cargo test --no-run', ...matrix].join(' && '),
           test: [oldRust, ...(name === 'clarity-wasm' ? ['export PROPTEST_CASES=100'] : []), ...test].join(' && '),
         }
       : { hasTests: false };
@@ -299,8 +300,9 @@ const tested = (repo: string, tests: string[]): Commands => {
       : older;
   const cargo = cargoTests(tests, dir => `-p ${dir.split('/').pop()}`);
   const test = [...(cargo.length ? [oldRust, ...cargo] : []), ...(run.test ? [run.test] : [])];
-  const build = cargo.length ? [oldRust, ...cargo.map(t => t.replace('cargo test', 'cargo test --no-run'))] : [];
-  const setup = [...(run.setup ? [run.setup] : []), ...build].join(' && ');
+  const setup = [...(run.setup ? [run.setup] : []), ...(cargo.length ? [oldRust, 'cargo test --no-run'] : [])].join(
+    ' && '
+  );
   return test.length
     ? { ...run, ...(cargo.length && { toolchain: pinRust }), ...(setup && { setup }), test: test.join(' && ') }
     : { hasTests: false };
