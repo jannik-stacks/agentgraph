@@ -80,13 +80,14 @@ const excluded = new Set(['billing']);
 const benched = (repo = '') => !excluded.has(repo.split('/').pop() ?? '');
 const arms = ['human', ...bots, 'control'];
 const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'agentgraph-sandbox': 'sandbox' };
-const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
+const strataKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
 const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
 let panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_tests?\.\w+$/;
-const noise = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|Cargo\.lock|CHANGELOG[^/]*|[^/]*\.tsbuildinfo)$|(^|\/)\.husky\//;
+const noise =
+  /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|Cargo\.lock|CHANGELOG[^/]*|[^/]*\.tsbuildinfo)$|(^|\/)\.husky\//;
 const caseStart = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|#\[(?:tokio::)?test\]|def test_|func Test)/;
 const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
 const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
@@ -1175,6 +1176,7 @@ const loadScored = (out: string, id: string): Scored => {
       return s ? [[arm, JSON.parse(s) as Record<string, unknown>]] : [];
     })
   );
+  if (scores.human) strata.tests = scores.human.hidden ? 'hidden' : 'judge-only';
   const skipped = Object.fromEntries(
     bots.flatMap(arm => {
       const reason = scores[arm] && infra(scores[arm]);
@@ -1427,7 +1429,7 @@ if (import.meta.main) {
       keys: { type: 'string' },
       'max-codex': { type: 'string', default: '30' },
       'max-claude-calls': { type: 'string', default: '60' },
-      judges: { type: 'string', default: 'opus:1,sonnet:2,sol:2' },
+      judges: { type: 'string', default: 'opus:1,sonnet:2' },
       point: { type: 'string' },
       repeat: { type: 'string', default: '1' },
       pairs: { type: 'string', default: 'all' },

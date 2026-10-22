@@ -316,6 +316,7 @@ describe('bin/bench.ts score and report', () => {
     expect(report).toContain('| v2 | 3 |');
     expect(report).toContain('## kind bug, 1 cases');
     expect(report).toContain('## issue pr-body, 1 cases');
+    expect(report).toContain('## tests hidden, 1 cases');
     expect(report).toContain('Judges agree, order-consistent, on 0 of 1 case pairs.');
     expect(report).toContain('| v2 | 1 | 1 | 1 | 1 | 1 | 1 |');
 
@@ -328,7 +329,7 @@ describe('bin/bench.ts score and report', () => {
     expect(rows[1]).toMatchObject({
       case: 'demo',
       repeat: 1,
-      strata: { kind: 'bug', issue: 'pr-body' },
+      strata: { kind: 'bug', issue: 'pr-body', tests: 'hidden' },
       hidden: 1,
       suite: 1,
       vsHuman: { opus: 0, sonnet: 0.5 },

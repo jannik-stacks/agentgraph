@@ -28,7 +28,7 @@ const tones: Record<string, string> = {
 const help: Record<keyof typeof defaults, string> = {
   test: 'Test files added by the merged pull request, run on the arm’s finished change. Passing scores 1, failing scores 0.',
   judge:
-    'LLM judges compare the run’s diff with the human’s merged diff, blind. For quality, a tie scores 1, always preferring the run scores 2, always preferring the human scores 0.',
+    'LLM judges compare the run’s diff with the human’s merged diff, blind. For quality, always preferring the human scores 0 and a tie scores 1, the human’s level. Preferring the run counts no higher than a tie, so judged and tested parts share one scale. Cases without hidden tests show as their own judge-only point.',
   suite: 'The repo’s own test suite and typecheck, run on the arm’s change: 1 when both pass.',
   crit: 'Penalty: a third for each critical or high finding above the human’s count on the same case, at most 1.',
   help: 'Penalty: the full weight when the run stopped to ask one or more questions.',
@@ -83,6 +83,9 @@ const terms: [string, ReactNode][] = [
   ],
 ];
 
+/** Judges outside the default panel, unticked unless the page says otherwise. */
+const unpanelled = 'sol';
+
 const parse = (key: string) => {
   const [, harness = '', model = '', arm = '', engine = '', tree = '', set = ''] =
     /^(.+?):(.+?)\/(\w+)@([^/]*)\/([^/]*)\/(.*)$/.exec(key) ?? [];
@@ -116,7 +119,7 @@ export const BenchPage = () => {
     const given = w?.split(',').map(Number) ?? [];
     return Object.fromEntries(names.map((k, i) => [k, given[i] ?? defaults[k]])) as typeof defaults;
   }, [w]);
-  const dropped = useMemo(() => drop?.split(',').filter(Boolean) ?? [], [drop]);
+  const dropped = useMemo(() => (drop ?? unpanelled).split(',').filter(Boolean), [drop]);
   const minutes = xAxis === 'minutes';
   const rows = value?.rows;
   const judges = useMemo(() => [...new Set(rows?.flatMap(r => Object.keys(r.vsHuman)))].sort(), [rows]);
@@ -296,9 +299,10 @@ export const BenchPage = () => {
               <input
                 type="checkbox"
                 checked={!dropped.includes(j)}
-                onChange={e =>
-                  setDrop((e.target.checked ? dropped.filter(d => d !== j) : [...dropped, j]).join(',') || null)
-                }
+                onChange={e => {
+                  const next = (e.target.checked ? dropped.filter(d => d !== j) : [...dropped, j]).join(',');
+                  setDrop(next === unpanelled ? null : next);
+                }}
               />
               {j}
             </label>

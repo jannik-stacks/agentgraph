@@ -40,7 +40,7 @@ export const quality = (row: Row, w: typeof defaults, judges?: string[], human?:
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
   const parts: [number, number][] = [
     ...(row.hidden === undefined ? [] : [[w.test, row.hidden] as [number, number]]),
-    ...(votes.length ? [[w.judge, 2 * mean(votes)] as [number, number]] : []),
+    ...(votes.length ? [[w.judge, Math.min(1, 2 * mean(votes))] as [number, number]] : []),
     ...(row.suite === undefined && row.typecheck === undefined
       ? []
       : [[w.suite, (row.suite ?? 1) * (row.typecheck ?? 1)] as [number, number]]),
@@ -80,7 +80,7 @@ export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, see
   return { y: point[0], x: point[1], yCi: ci(0), xCi: ci(1) };
 };
 
-/** One summary per point of the bot rows: quality and x with their intervals, cases, repeats and completion. */
+/** One summary per point of the bot rows, judge-only cases apart: quality and x with their intervals, cases, repeats and completion. */
 export const summarise = (
   rows: Row[],
   o: { w: typeof defaults; x: (row: Row) => number; judges?: string[]; infraZero?: boolean }
@@ -89,7 +89,7 @@ export const summarise = (
   const humanOf = (r: Row) => humans.get(`${r.point.replace(/\/\w+@/, '/human@')}|${r.case}`);
   const byPoint = group(
     rows.filter(r => !r.point.includes('/human@')),
-    r => r.point
+    r => (r.strata.tests === 'judge-only' ? `${r.point}, judge-only` : r.point)
   );
   return [...byPoint].map(([key, all]) => {
     const kept = all.filter(r => o.infraZero || !r.infra);

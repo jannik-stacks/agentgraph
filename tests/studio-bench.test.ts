@@ -45,6 +45,11 @@ describe('bench score', () => {
     expect(quality(row({ hidden: 1, answers: 3 }), defaults)).toBeCloseTo(0.9);
   });
 
+  it('caps the judge part at the human, so judged and tested parts share one scale', () => {
+    expect(quality(row({ vsHuman: { opus: 1, sonnet: 1 } }), defaults)).toBe(1);
+    expect(quality(row({ hidden: 0, vsHuman: { opus: 1 } }), defaults)).toBeCloseTo(0.35 / 0.85);
+  });
+
   it('prices tokens by class through the aliases, or falls back to the reported cost', () => {
     const tokens = { smart: { input: 1e6, cacheRead: 1e6, cacheWrite: 0, output: 1e5 } };
     expect(price(tokens, prices)).toBeCloseTo(1.25 + 0.125 + 1);
@@ -89,5 +94,17 @@ describe('bench score', () => {
       { key: 'tied', x: 4, y: 0.8 },
     ];
     expect(frontier(points)).toEqual(['cheap', 'better']);
+  });
+
+  it('reports judge-only cases as their own point, never averaged with tested ones', () => {
+    const rows = [
+      row({ case: 'a', strata: { repo: 'me/a', tests: 'hidden' }, hidden: 1 }),
+      row({ case: 'b', strata: { repo: 'me/a', tests: 'judge-only' }, vsHuman: { opus: 0 } }),
+    ];
+    const s = summarise(rows, { w: defaults, x: r => r.minutes });
+    expect(s.map(p => [p.key, p.n, p.y])).toEqual([
+      ['opencode:smart/v2@unknown//runs-3', 1, 1],
+      ['opencode:smart/v2@unknown//runs-3, judge-only', 1, 0],
+    ]);
   });
 });
