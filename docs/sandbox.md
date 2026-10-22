@@ -58,7 +58,7 @@ The volumes carry the process that made them, and a runner that starts removes t
 
 ### Toolchains
 
-The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `bothub-cache` at `/cache`. rustup and cargo keep their homes there, and npm and pnpm keep their downloads there, so what one run fetched serves every later run, check and data dir. Each of these tools locks its own writes, so parallel runs do not corrupt the volume.
+The image carries toolchain managers and a C compiler, not toolchains. Every container mounts the docker volume `bothub-cache` at `/cache`. rustup and cargo keep their homes there, and npm, pnpm and yarn keep their downloads there, so what one run fetched serves every later run, check and data dir. Each of these tools but yarn 1 locks its own writes, so parallel runs do not corrupt the volume.
 
 The toolchain step installs what the repo's root files name:
 

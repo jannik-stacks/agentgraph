@@ -55,10 +55,14 @@ const volume = (name: string, dst: string, nocopy = false) => {
   return ['--mount', `type=volume,src=${name},dst=${dst}${nocopy ? ',volume-nocopy' : ''}`];
 };
 
-/** Where npm and pnpm keep what they download, shared by every container through the cache; both lock their own writes. */
+/**
+ * Where npm, pnpm and yarn keep what they download, shared by every container through the cache. npm and pnpm lock
+ * their own writes; yarn 1 does not, and without this its cache fills the small `/tmp`.
+ */
 const caches = {
   npm_config_cache: `${inside.cache}/npm`,
   npm_config_store_dir: `${inside.cache}/pnpm`,
+  YARN_CACHE_FOLDER: `${inside.cache}/yarn`,
 };
 
 /**
