@@ -61,7 +61,7 @@ const terms: [string, ReactNode][] = [
   ['repeats', 'Running the same case again on the same point.'],
   [
     'infra',
-    'The environment broke, or the run left an empty diff, failed setup or never finished. These runs are left out by default. Every other failure counts against the agent.',
+    'The environment failed the run: the proxy, docker or the machine broke, scoring setup failed, or the run never finished. These runs are left out by default. Every other failure counts against the agent, and a run that changed nothing scores 0.',
   ],
   ['waiting', 'A run stopped to ask a question. The bench answers once: “No more information. Use your judgment.”'],
   [

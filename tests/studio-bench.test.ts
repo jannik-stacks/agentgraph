@@ -30,6 +30,10 @@ describe('bench score', () => {
     expect(quality(parity, defaults)).toBeCloseTo(1);
   });
 
+  it('scores a run that changed nothing 0, whatever else it has', () => {
+    expect(quality(row({ outcome: 'no-change', hidden: 0, suite: 1, vsHuman: { opus: 0.5 } }), defaults)).toBe(0);
+  });
+
   it('weights the parts a case has, drops judges and charges findings above the human', () => {
     const judged = row({ vsHuman: { opus: 1, sol: 0 } });
     expect(quality(judged, defaults)).toBeCloseTo(1);
@@ -68,7 +72,7 @@ describe('bench score', () => {
   it('summarises points without the human, with completion, and keeps the non-dominated ones', () => {
     const rows = [
       row({ case: 'a', hidden: 1, suite: 1 }),
-      row({ case: 'b', infra: 'empty diff' }),
+      row({ case: 'b', infra: 'docker unreachable' }),
       row({ point: 'opencode:smart/floor@unknown//runs-3', case: 'a', hidden: 0, suite: 1 }),
       row({ point: 'opencode:smart/human@unknown//runs-3', case: 'a', hidden: 1 }),
     ];

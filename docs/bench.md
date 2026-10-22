@@ -53,7 +53,7 @@ Tested cases are valid only if hidden tests fail on base and pass on human, the 
 
 Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers one question with "No more information. Use your judgment."; answers are counted.
 
-Empty or unfinished arms retry once, then become infra in `meta.json`, excluded from win rates and means. Scoring setup failures also count as infra. Environment failures retry with backoff across restarts, logging `infra` in `log.jsonl`; after six failures they remain infra. Unreachable registries leave scores unwritten.
+Unfinished arms retry once, then become infra in `meta.json`, excluded from win rates and means. An arm that changed nothing is the agent's result: it is not rerun, its row says `outcome: no-change`, and it scores 0. Scoring setup failures also count as infra. Environment failures retry with backoff across restarts, logging `infra` in `log.jsonl`; after six failures they remain infra. Unreachable registries leave scores unwritten.
 
 ## Commands
 

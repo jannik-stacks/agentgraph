@@ -36,6 +36,7 @@ const mean = (xs: number[]) => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.l
 
 /** Quality on a fixed scale where 0 is nothing useful and 1 is the human; `human` is the human row of the same case. */
 export const quality = (row: Row, w: typeof defaults, judges?: string[], human?: Row) => {
+  if (row.outcome === 'no-change') return 0;
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
   const parts: [number, number][] = [
     ...(row.hidden === undefined ? [] : [[w.test, row.hidden] as [number, number]]),

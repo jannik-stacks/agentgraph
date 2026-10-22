@@ -160,12 +160,13 @@ describe('bench helpers', () => {
     ]);
   });
 
-  it('calls an empty diff, a failed setup or an unfinished run infra, not a result', () => {
-    expect(infra({ files: 0 })).toBe('empty diff');
-    expect(infra({ files: 2, setup: { ok: false } })).toBe('setup fails');
-    expect(infra({ files: 2, status: 'running' })).toBe('run did not finish');
-    expect(infra({ files: 0, infra: 'boom' })).toBe('boom');
-    expect(infra({ files: 2, status: 'waiting', setup: { ok: true } })).toBeUndefined();
+  it('calls a failed setup, an unfinished run or a broken environment infra, and an empty diff a result', () => {
+    expect(infra({})).toBeUndefined();
+    expect(infra({ infra: 'empty diff' })).toBeUndefined();
+    expect(infra({ setup: { ok: false } })).toBe('setup fails');
+    expect(infra({ status: 'running' })).toBe('run did not finish');
+    expect(infra({ infra: 'boom' })).toBe('boom');
+    expect(infra({ status: 'waiting', setup: { ok: true } })).toBeUndefined();
   });
 
   it('plants one flipped comparison in a source line and pads with tests', () => {
@@ -291,11 +292,11 @@ describe('bin/bench.ts score and report', () => {
     mkdirSync(join(out, 'bad', 'human'), { recursive: true });
     writeFileSync(join(out, 'bad', 'valid.json'), JSON.stringify({ invalid: 'base already passes the hidden tests' }));
     const report = bench('report', out);
-    expect(report).toContain('1 valid cases, 1 invalid, 1 infra arm runs.');
+    expect(report).toContain('1 valid cases, 1 invalid, 0 infra arm runs.');
     expect(report).toContain('| v2 | 1 | 1 | 1 |');
-    expect(report).not.toContain('| floor |');
+    expect(report).toContain('| floor | 0 | 1 | 0 |');
     expect(report).toContain('- bad: base already passes the hidden tests');
-    expect(report).toContain('- demo/floor: empty diff');
+    expect(report).not.toContain('- demo/floor: empty diff');
     expect(report).toContain('| human vs v2 | 1 | 0.75 | 0.75 to 0.75 |');
     expect(report).toContain('| v2 | 3 |');
     expect(report).toContain('## kind bug, 1 cases');
@@ -322,7 +323,9 @@ describe('bin/bench.ts score and report', () => {
       usdSource: 'list-price estimate',
     });
     expect(rows[0]!.findings.high).toBe(0.25);
-    expect(rows[2]).toMatchObject({ infra: 'empty diff', vsHuman: {} });
+    expect(rows[2]).toMatchObject({ outcome: 'no-change', hidden: 0, vsHuman: {} });
+    expect(rows[2]).not.toHaveProperty('infra');
+    expect(rows[1]).not.toHaveProperty('outcome');
     const point = { harness: 'pi', model: 'luna', engine: 'abc', hubs: { v2: 'h2' }, set: 'core@1', repeat: 2 };
     writeFileSync(join(out, 'point.json'), JSON.stringify(point));
     expect(rowsOf(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);

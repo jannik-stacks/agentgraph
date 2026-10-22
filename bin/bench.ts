@@ -354,16 +354,13 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
 export const runnerError = (reason = '') =>
   /runner error|^(SandboxError|SessionStop|ForgeError)\b/.test(reason) ? reason.slice(0, 200) : undefined;
 
-/** Why an arm's run says nothing about the arm, when it does not: no diff, a failed setup or a run that never finished. */
-export const infra = (s: { infra?: string; files?: number; setup?: { ok: boolean }; status?: string | undefined }) =>
-  s.infra ??
-  (s.files === 0
-    ? 'empty diff'
-    : s.setup?.ok === false
-      ? 'setup fails'
-      : s.status === 'running'
-        ? 'run did not finish'
-        : undefined);
+/**
+ * Why an arm's run says nothing about the arm, when its environment failed it: a recorded environment failure, a
+ * failed setup or a run that never finished. A run that changed nothing is the agent's result, not infra.
+ */
+export const infra = (s: { infra?: string; setup?: { ok: boolean }; status?: string | undefined }) =>
+  (s.infra === 'empty diff' ? undefined : s.infra) ??
+  (s.setup?.ok === false ? 'setup fails' : s.status === 'running' ? 'run did not finish' : undefined);
 
 /** The hub an arm of the case starts from: `BENCH_HUB` when set, else the example hub of its repo. */
 const hubOf = (c: Pick<Case, 'repo'>) =>
@@ -406,9 +403,10 @@ export const harnessError = (data: string) => {
 const patience = 6;
 
 /**
- * Runs one arm of a case once. Done means `diff.patch` exists, written last. A run the agent ended with nothing is
- * tried twice, then done as infra. A run its environment broke (proxy, docker, a runner error, the machine asleep)
- * waits for the environment and is tried again, and stays undone until it works or fails `patience` times.
+ * Runs one arm of a case once. Done means `diff.patch` exists, written last. A run that never finished is tried
+ * twice, then done as infra; a run that changed nothing is done as the agent's result. A run its environment broke
+ * (proxy, docker, a runner error, the machine asleep) waits for the environment and is tried again, and stays undone
+ * until it works or fails `patience` times.
  */
 const runArm = async (arm: string, caseDir: string, out: string, repo: string) => {
   const c = loadCase(caseDir);
@@ -453,12 +451,12 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
       }
       time.stop();
       const { diff = '', ...meta } = ran ?? {};
-      const nothing = ran && infra({ ...stats(diff), ...meta });
+      const nothing = ran && infra(meta);
       const env =
         broke ??
         runnerError(ran?.reason) ??
         harnessError(join(at, 'data')) ??
-        (nothing ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
+        (nothing || !diff.trim() ? ((await down()) ?? (time.missed() ? 'the machine slept' : undefined)) : undefined);
       save(join(at, 'meta.json'), {
         ...meta,
         ms: Date.now() - started - time.missed(),
@@ -1221,6 +1219,7 @@ export const rowsOf = (out: string) => {
             repeat: p.repeat,
             strata: c.strata,
             ...(c.infra[arm] && { infra: c.infra[arm] }),
+            ...(!c.infra[arm] && arm !== 'human' && s.files === 0 && { outcome: 'no-change' as const }),
             ...(hidden !== undefined && { hidden }),
             ...(suite !== undefined && { suite }),
             ...(typecheck !== undefined && { typecheck }),
