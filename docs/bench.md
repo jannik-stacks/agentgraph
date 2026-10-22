@@ -118,8 +118,8 @@ notional USD per task or minutes. It reads every out dir under the dirs it is gi
 useful and 1 for the human: the hidden tests, twice the judges' preference over the human and the suite,
 weighted by the sliders, less penalties for findings above the human's and for questions. Cost is the
 tokens priced from `infra/local/prices.json`. Crosses are 95% intervals from a bootstrap over cases, then
-repeats. The staircase through the points no cheaper point beats shows once each of them has 10 valid
-cases. Click a point for its cases.
+repeats. The staircase through the points no cheaper point beats is dashed while one of them has fewer
+than 10 valid cases. Click a point for its cases.
 
 ## Long runs
 
