@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Effect, Redacted, Stream } from 'effect';
+import { Deferred, Effect, Fiber, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { Forge, provenance, type Proposal } from '../src/forge.ts';
 import { githubForge } from '../src/github.ts';
@@ -730,6 +730,45 @@ describe('githubForge', () => {
     );
     expect(failed._tag).toBe('ForgeError');
     expect(failed.status).toBe(502);
+  });
+
+  it.each(['headers', 'body'])('times out a stalled GitHub request and aborts its fetch: %s', async phase => {
+    const f = fake({});
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const ready = yield* Deferred.make<void>();
+        let signal: AbortSignal | undefined;
+        const stalled = async (url: string, init?: RequestInit) => {
+          if (!url.endsWith('/issues/7/comments')) return f.fetch(url, init);
+          signal = init?.signal ?? undefined;
+          Effect.runSync(Deferred.succeed(ready, undefined));
+          if (phase === 'body')
+            return new Response(
+              new ReadableStream({
+                start: controller => {
+                  signal?.addEventListener('abort', () => controller.error(new Error('aborted')), { once: true });
+                },
+              })
+            );
+          return new Promise<Response>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          });
+        };
+        const request = Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'comment', body: 'Hello' })).pipe(
+          Effect.provide(githubForge(app, stalled)),
+          Effect.either
+        );
+        const fiber = yield* Effect.fork(request);
+        yield* Deferred.await(ready);
+        yield* TestClock.adjust('31 seconds');
+        expect(signal?.aborted).toBe(true);
+        const result = yield* Fiber.join(fiber);
+        expect(result).toMatchObject({
+          _tag: 'Left',
+          left: { _tag: 'ForgeError', message: expect.stringMatching(/timed out/) },
+        });
+      }).pipe(Effect.provide(TestContext.TestContext))
+    );
   });
 
   it('retries minting a token after a network failure, and never a comment GitHub failed', async () => {

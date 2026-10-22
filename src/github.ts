@@ -136,9 +136,10 @@ const requester = (fetch: Fetch) => {
         (method !== 'POST' || path.endsWith('/access_tokens')) &&
         !(method === 'PATCH' && (body as { force?: boolean })?.force);
       const res = yield* Effect.tryPromise({
-        try: async () => {
+        try: async signal => {
           const res = await fetch(url, {
             method,
+            signal,
             headers: {
               Accept: 'application/vnd.github+json',
               Authorization: `Bearer ${auth}`,
@@ -153,7 +154,13 @@ const requester = (fetch: Fetch) => {
           return { status: res.status, ok: res.ok, headers: res.headers, text: await res.text() };
         },
         catch: e => new ForgeError({ message: `GitHub ${method} ${path}: ${String(e)}` }),
-      }).pipe(Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 }));
+      }).pipe(
+        Effect.timeoutFail({
+          duration: '30 seconds',
+          onTimeout: () => new ForgeError({ message: `GitHub ${method} ${path} timed out` }),
+        }),
+        Effect.retry({ schedule: Schedule.exponential('1 second'), times: again ? 4 : 0 })
+      );
       if (res.status === 304 && cached) return cached as { data: T; next?: string };
       if (!res.ok) {
         const message = `GitHub ${method} ${path} failed with ${res.status}: ${res.text.slice(0, 200)}`;
