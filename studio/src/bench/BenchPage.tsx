@@ -2,7 +2,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { rowsOf } from '../../../bin/bench.ts';
 import { live, queryParam } from '../state.ts';
-import { Button, cx, Disclosure, Field, Fields, Loading, Muted, Select, Tooltip } from '../ui.tsx';
+import { Button, cx, Disclosure, Field, Fields, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaults, frontier, presets, type price, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
 
@@ -69,7 +69,7 @@ const terms: [string, string][] = [
   ],
   [
     'chart',
-    'Crosses are 95 percent intervals from a bootstrap over cases, then repeats. The line steps through points no cheaper point matches and shows once each has 10 cases. A dimmed point has a cheaper match; a hollow one is dimmed but its interval still reaches the line.',
+    'Crosses are 95 percent intervals from a bootstrap over cases, then repeats. The line steps through the setups no cheaper setup matches in quality, and is dashed and faint while a setup on it has fewer than 10 cases. A dimmed point has a cheaper setup that matches it. A hollow point is dimmed, but its interval still reaches the line.',
   ],
 ];
 
@@ -128,7 +128,7 @@ export const BenchPage = () => {
 
   const front = frontier(points);
   const onFront = points.filter(p => front.includes(p.key));
-  const drawn = onFront.length > 0 && onFront.every(p => p.n >= 10);
+  const rough = onFront.some(p => p.n < 10);
   const stair = (x: number) => Math.max(-Infinity, ...onFront.filter(p => p.x <= x).map(p => p.y));
   const harnesses = new Set(points.map(p => parse(p.key).harness + parse(p.key).model));
   const label = (key: string) => {
@@ -288,6 +288,19 @@ export const BenchPage = () => {
       </aside>
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
         <section className="max-w-3xl">
+          <p className="mb-2 text-xs text-pretty text-zinc-600 dark:text-zinc-400">
+            Each point is one setup: a harness and model on one arm and case set. Across is{' '}
+            {minutes ? 'minutes' : 'cost'} per task, up is quality, where the human’s merged pull request scores 1. Up
+            and to the left is better, and the line steps through the setups no cheaper setup matches in quality. This
+            chart does not show change over time, the{' '}
+            <Link
+              href="/compound"
+              className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100"
+            >
+              Compound
+            </Link>{' '}
+            tab does.
+          </p>
           <Scatter
             log={!minutes}
             xLabel={xLabel}
@@ -300,8 +313,9 @@ export const BenchPage = () => {
             yTip="Quality per task, averaged over repeats within each case, then over cases. 0 means nothing useful, 1 means as good as the human."
             hTip="The human’s quality is 1 by definition."
             hLine={1}
-            line={drawn ? onFront : []}
-            note={drawn ? undefined : 'no line until each frontier point has 10 cases'}
+            line={onFront}
+            rough={rough}
+            note={rough ? 'few cases, the line is rough' : undefined}
             picked={picked ?? undefined}
             onPick={key => setPicked(key === picked ? null : key)}
             dots={points.map(p => {
@@ -333,7 +347,8 @@ export const BenchPage = () => {
             })}
           />
           <p className="mt-1 text-[11px] text-zinc-500">
-            Circles are v2, squares floor. Click a point to see its runs.
+            Circles are v2, the engine with its checks and review. Squares are floor, one plain session without them.
+            Click a point to see its runs. The terms below explain the rest.
           </p>
           <Disclosure summary="What the terms mean" className="mt-2 text-[11px] text-zinc-500">
             <div className="mt-1 max-w-2xl">

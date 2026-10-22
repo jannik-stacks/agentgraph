@@ -19,12 +19,13 @@ type Dot = {
 const [width, left, right, top, bottom] = [640, 44, 96, 22, 30];
 
 /**
- * A scatter of dots with optional interval crosses, a staircase through `line` and a dashed line at `hLine`. `xTip`,
+ * A scatter of dots with optional interval crosses, a staircase through `line` (faint and dashed when `rough`) and a dashed line at `hLine`. `xTip`,
  * `yTip` and `hTip` explain the axis labels and the dashed line on hover and focus.
  */
 export const Scatter = ({
   dots,
   line = [],
+  rough = false,
   hLine,
   log = false,
   height = 320,
@@ -39,6 +40,7 @@ export const Scatter = ({
 }: {
   dots: Dot[];
   line?: { x: number; y: number }[];
+  rough?: boolean;
   hLine?: number;
   log?: boolean;
   height?: number;
@@ -154,6 +156,8 @@ export const Scatter = ({
             fill="none"
             className="stroke-zinc-400 dark:stroke-zinc-500"
             strokeWidth={1.5}
+            strokeDasharray={rough ? '4 3' : undefined}
+            opacity={rough ? 0.5 : undefined}
           />
         )}
         {note && (
