@@ -1498,13 +1498,12 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         (own && issue.pull?.branch === own && issue.pull.base) ||
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, hub));
-      const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
-      if (own && made.saved && !current.onto) {
-        const from = yield* text(work, ['rev-parse', `${made.saved}^`]);
-        const onto = work.head ?? work.base;
-        const tree = yield* treeOf(work);
-        if (from !== onto && tree !== (yield* text(work, ['rev-parse', `${onto}^{tree}`]))) {
-          const head = yield* text(work, [
+      if (own && made.saved) {
+        const from = yield* text(made, ['rev-parse', `${made.saved}^`]);
+        const onto = made.head ?? made.base;
+        const tree = yield* treeOf(made);
+        if (from !== onto && tree !== (yield* text(made, ['rev-parse', `${onto}^{tree}`]))) {
+          const head = yield* text(made, [
             '-c',
             'user.name=agentgraph',
             '-c',
@@ -1516,7 +1515,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
             '-m',
             'Saved work',
           ]);
-          const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, work);
+          const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, made);
           yield* store.trace(run.id, { at: now(), step: current.step, applied });
           if (!applied.ok)
             current = {
@@ -1531,6 +1530,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
             };
         }
       }
+
+      const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
 
       if (!w.on.feedback) yield* setUp(hub, work);
       while (current.status === 'running') {
@@ -1574,7 +1575,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 /** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 const following = (work: Checkout, onto: string, first: boolean) =>
   Effect.gen(function* () {
-    if (first && work.head)
+    if (first && work.head && (yield* text(work, ['merge-base', onto, work.head])) !== onto)
       yield* hostGit(work.git, ['read-tree', '-u', '--reset', (yield* mergeOf(work, onto, work.head)).tree]);
     return { ...work, base: onto };
   });

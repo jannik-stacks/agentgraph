@@ -626,6 +626,66 @@ describe('a run branch that moved', () => {
     30_000
   );
 
+  it.each([0, 1])(
+    'replays saved work onto the rebased tip before try %s',
+    async tries => {
+      const where = world();
+      const seed = join(where.root, 'seed');
+      writeFileSync(join(seed, 'hello.txt'), 'hello\n');
+      git(seed, 'add', '-A');
+      git(seed, 'commit', '-qm', 'Greeting');
+      git(seed, 'push', '-q', where.origin, 'HEAD:agentgraph/7');
+      const first = services(where, [
+        [start('a'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+      ]);
+      const parked = await first.run(
+        drive(flow, { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), tries }, small)
+      );
+      const from = git(where.origin, 'rev-parse', 'main');
+      git(seed, 'checkout', '-q', '--detach', from);
+      writeFileSync(join(seed, 'other.txt'), 'upstream\n');
+      git(seed, 'add', '-A');
+      git(seed, 'commit', '-qm', 'Base moved');
+      git(seed, 'push', '-q', where.origin, 'HEAD:main');
+      const onto = git(seed, 'rev-parse', 'HEAD');
+      await first.run(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const sandbox = yield* Sandbox;
+            const forge = yield* Forge;
+            const work = yield* sandbox.checkout('main', 'agentgraph/7');
+            expect(yield* forge.apply(7, { kind: 'rebase', branch: 'agentgraph/7', from, onto }, work)).toMatchObject({
+              ok: true,
+            });
+          })
+        )
+      );
+      const tip = git(where.origin, 'rev-parse', 'agentgraph/7');
+      const next = services(where, [[start('a'), reply(push)]], undefined, spec => {
+        expect(readFileSync(join(spec.dir, 'other.txt'), 'utf8')).toBe('upstream\n');
+        expect(readFileSync(join(spec.dir, 'pending.txt'), 'utf8')).toBe('pending\n');
+      });
+      const done = await next.run(drive(flow, { ...parked, status: 'running', onto: { sha: onto } }, small));
+      expect(done.status).toBe('done');
+      expect(next.specs).toHaveLength(1);
+      const pushes = traceOf(where.data, 'run-7').flatMap(t =>
+        'applied' in t && t.applied.proposal.kind === 'push' ? [t.applied.ok] : []
+      );
+      expect(pushes).toEqual([true]);
+      expect(git(where.origin, 'show', 'agentgraph/7:pending.txt')).toBe('pending');
+      expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('upstream');
+      expect(traceOf(where.data, 'run-7')).toContainEqual(
+        expect.objectContaining({
+          applied: expect.objectContaining({
+            proposal: expect.objectContaining({ kind: 'rebase', onto: tip }),
+            ok: true,
+          }),
+        })
+      );
+    },
+    30_000
+  );
+
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();
     const attempted: Proposal[] = [];
