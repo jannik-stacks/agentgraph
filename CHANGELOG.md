@@ -6,6 +6,9 @@
   issue or pull request of a live run, review comments included. The `/bothub` command,
   `on.issue_comment.command` and plain replies are gone; write `issue_comment: {}`, and with several
   comment workflows name one as the first word after `/agent`.
+- Only the comment workflow hears `/agent`; other runs hear what it tells them. A router agent
+  decides with `comment`, `issue`, `run` (now with an optional `step`) and the new `tell`, which
+  passes feedback, an answer, `stop` or `cancel` to the live run on an issue.
 
 ## 0.2.0
 

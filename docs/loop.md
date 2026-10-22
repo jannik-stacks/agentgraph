@@ -83,7 +83,7 @@ The issue must be open, and one run at a time holds it, whatever started it. A l
 
 ## Dispatch
 
-A workflow with `dispatch` under `on` can be started by another run. An agent whose `returns` has `run` proposes `{"kind": "run", "workflow": "triage", "issue": 12}`. The engine refuses it, and the try fails, unless the workflow has `dispatch`, #12 is an open issue in scope, no other live run holds it, and it is the try's only `run`. <!-- code: src/engine.ts#undispatchable -->
+A workflow with `dispatch` under `on` can be started by another run. An agent whose `returns` has `run` proposes `{"kind": "run", "workflow": "triage", "issue": 12}`. With `"step": "implement"` the child begins at that step, which runs a workflow again from there. The engine refuses it, and the try fails, unless the workflow has `dispatch`, #12 is an open issue in scope, no other live run holds it, and it is the try's only `run`. <!-- code: src/engine.ts#undispatchable -->
 
 Once the try's other proposals land, the engine begins the child run with `by` set to the parent's id. The parent waits with the reason `waiting on <child id>`, and says nothing on the issue about it. <!-- code: src/engine.ts#dispatch -->
 
@@ -102,7 +102,20 @@ Once the try's other proposals land, the engine begins the child run with `by` s
 
 The parent hears of it as an answer, such as `triage on #12 is done` or `triage on #12 asks: ...`, in its kept session. It decides with the proposals it has: a comment, another `run`, or nothing. A child's question still goes on the child's issue, and a person answers it there. <!-- code: src/engine.ts#settled -->
 
-A router is a workflow whose agent returns `run`, so what a router may do is just its `returns`. In `examples/sandbox`, `/agent` starts the router; it starts triage, files a follow-up, or replies. Building waits for a person to add `agent:ready`.
+### Routing
+
+Only a workflow with an `issue_comment` trigger hears `/agent` from people. The runs of other workflows hear what it tells them. So when a hub has one comment workflow whose agent decides, `/agent` always reaches that agent, even beside a live run of another workflow, and the agent picks what happens. <!-- code: src/engine.ts#heardBy -->
+
+A router is such a workflow, and what it may do is just its `returns`:
+
+- `comment`: replies where the person spoke.
+- `issue`: files a follow-up.
+- `run`: starts a dispatch workflow on an issue, from its first step or the one `step` names. That is how it starts new work, follows up on a finished run, and runs a workflow again.
+- `tell`: `{"kind": "tell", "issue": 12, "text": "stop"}` passes text to the live run on #12, which hears it as if a maintainer had said `/agent` and the text: feedback, an answer to its question, `stop` or `cancel`. The engine refuses it when no other run is live there. <!-- code: src/engine.ts#tellsOf -->
+
+Each tell is traced twice: as an applied proposal on the router, and as a `told` line, with the router's id, on the run that hears it. A run the router starts has `by` set to the router's id, and the router keeps where the person spoke.
+
+In `examples/sandbox`, `/agent` starts the router; it starts triage, tells a live run what the person said, files a follow-up, or replies. Building waits for a person to add `agent:ready`.
 
 ## Trust and scope
 

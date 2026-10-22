@@ -88,7 +88,9 @@ const ProposalSchema = Schema.Union(
     kind: Schema.Literal('run'),
     workflow: Schema.String,
     issue: Schema.Int,
-  })
+    step: Schema.optionalWith(Schema.String, { exact: true }),
+  }),
+  Schema.Struct({ kind: Schema.Literal('tell'), issue: Schema.Int, text: Schema.String })
 );
 const decodeProposal = Schema.decodeUnknownEither(ProposalSchema, {
   onExcessProperty: 'error',
@@ -120,7 +122,8 @@ const shapes: Record<Exclude<Proposal['kind'], 'react' | 'rebase'>, string> = {
   ].join('\n'),
   ask: '{"kind":"ask","question":"..."}',
   back: '{"kind":"back","why":"..."}',
-  run: '{"kind":"run","workflow":"<name of a bothub workflow to start; run a command with your shell tool instead>","issue":1}',
+  run: '{"kind":"run","workflow":"<name of a bothub workflow to start; run a command with your shell tool instead>","issue":1,"step":"<optional: the step to start at>"}',
+  tell: '{"kind":"tell","issue":1,"text":"<what the live run on that issue hears, as if a maintainer said it: feedback or an answer, or stop or cancel>"}',
 };
 const shapeOf = (item: unknown) => {
   const kind = (item as { kind?: unknown } | null)?.kind;
@@ -368,11 +371,11 @@ const dispatch = (hub: Hub, run: Run, p: Extract<Proposal, { kind: 'run' }>) =>
     const at = now();
     const w = hub.workflows[p.workflow]!;
     const child: Run = {
-      ...begin(w, {
-        id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`,
-        issue: p.issue,
-        started: at,
-      }),
+      ...begin(
+        w,
+        { id: `${w.name}-${p.issue}-${at.replace(/\D/g, '')}`, issue: p.issue, started: at },
+        w.steps.find(s => s.name === p.step)
+      ),
       by: run.id,
     };
     yield* Effect.flatMap(Store, s => s.put(child));
@@ -408,19 +411,55 @@ const newest = (...times: (string | undefined)[]) =>
     .sort()
     .at(-1);
 
-/** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
-const told = (w: Workflow, run: Run, t: Issues) => {
-  if (w.on.feedback) return undefined;
-  const since = run.seen ?? run.started;
-  const said = [...t.issue.events, ...(t.pull?.events ?? [])]
-    .filter(m => m.at > since)
-    .flatMap(m => {
-      const o = reenter(w, run, { ...m, issue: run.issue });
-      return o ? [{ o, at: m.at }] : [];
-    });
-  const outcome = fold(said.map(s => s.o));
-  return outcome && { outcome, at: newest(...said.map(s => s.at))! };
+/** What the comment workflow told `run`, each as a trusted comment that speaks to it. */
+const tellsOf = (run: Run) =>
+  Effect.flatMap(Store, store => Stream.runCollect(store.read(run.id))).pipe(
+    Effect.map(lines =>
+      Chunk.toArray(lines).flatMap((t): Event[] =>
+        'told' in t
+          ? [
+              {
+                issue: run.issue,
+                kind: 'comment',
+                actor: t.told.by,
+                trusted: true,
+                at: t.at,
+                comment: { id: '', author: t.told.by, body: t.told.text, at: t.at, said: t.told.text },
+              },
+            ]
+          : []
+      )
+    )
+  );
+
+/** The comment workflow whose agent may `tell`, which then hears every `/agent` on behalf of the other runs. */
+const router = (hub: Hub) =>
+  Object.values(hub.workflows).find(
+    w =>
+      w.on.issue_comment && w.steps.some(s => 'agent' in s.does && hub.agents[s.does.agent]?.returns.includes('tell'))
+  );
+
+/** The event as a run of `w` hears it: with a router, only the router hears `/agent` from people, the others hear what it tells them. */
+const heardBy = (hub: Hub, w: Workflow, m: Event): Event => {
+  if (!router(hub) || w.on.issue_comment || m.comment?.said === undefined) return m;
+  const { said: _said, ...comment } = m.comment;
+  return { ...m, comment };
 };
+
+/** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
+const told = (hub: Hub, w: Workflow, run: Run, t: Issues) =>
+  Effect.map(tellsOf(run), tells => {
+    if (w.on.feedback) return undefined;
+    const since = run.seen ?? run.started;
+    const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => heardBy(hub, w, m)), ...tells]
+      .filter(m => m.at > since)
+      .flatMap(m => {
+        const o = reenter(w, run, { ...m, issue: run.issue });
+        return o ? [{ o, at: m.at }] : [];
+      });
+    const outcome = fold(said.map(s => s.o));
+    return outcome && { outcome, at: newest(...said.map(s => s.at))! };
+  });
 
 /** A trusted person's comment, review or pushed commit; a bare stop, cancel or restart is a command, not feedback. */
 const feedback = (m: Event) =>
@@ -915,7 +954,7 @@ const attempt = (
             continue;
           }
           yield* refresh(run, work, seen, now.right);
-          const cut = told(w, by, now.right);
+          const cut = yield* Effect.orElseSucceed(told(hub, w, by, now.right), () => undefined);
           if (cut && (cut.outcome.kind !== 'answer' || w.concurrency === 'cancel')) return cut;
         }
       });
@@ -1055,7 +1094,7 @@ const attempt = (
       }
       const session = step.each === undefined ? tried.sessions[step.name] : undefined;
       const now = session && Option.getOrUndefined(yield* Effect.option(issuesOf(w, run)));
-      const late = now && told(w, tried, now);
+      const late = now ? yield* told(hub, w, tried, now) : undefined;
       if (late && late.outcome.kind !== 'answer') return done(late.outcome, { ...tried, seen: late.at });
       if (now && late && w.concurrency === 'steer') {
         const since = news(now, caught.seen);
@@ -1154,10 +1193,21 @@ const attempt = (
       ? pullOf(w, run.issue, yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' })))
       : undefined;
     const runs = world.filter(p => p.kind === 'run');
-    const refused = yield* undispatchable(hub, run, runs);
+    const tells = yield* Effect.forEach(
+      world.filter(p => p.kind === 'tell'),
+      p => Effect.map(store.list({ issue: p.issue }), rs => ({ p, to: rs.find(r => live(r) && r.id !== run.id) }))
+    );
+    const refused = [
+      ...(yield* undispatchable(hub, run, runs)),
+      ...tells.flatMap(({ p, to }): Applied[] =>
+        to ? [] : [{ proposal: p, ok: false, reason: `no live run on #${p.issue} to tell` }]
+      ),
+    ];
     if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
+    for (const { p, to } of tells)
+      yield* store.trace(to!.id, { at: now(), step: to!.step, told: { text: p.text, by: run.id } });
     const children = world.filter((p): p is Child => p.kind === 'issue');
-    const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run');
+    const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
     const landed = yield* Effect.either(
       Effect.zipWith(land(tried, rest, work, to), file(w, tried, children), (a, b) => [...a, ...b]).pipe(
         writing(tried, spoke)
@@ -1179,7 +1229,11 @@ const attempt = (
       tried = rest;
     }
     const child = runs[0] && !failed.length ? yield* dispatch(hub, tried, runs[0]) : undefined;
-    const applied = [...landed.right, ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : [])];
+    const applied = [
+      ...landed.right,
+      ...tells.map(({ p, to }) => ({ proposal: p, ok: true, id: to!.id })),
+      ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : []),
+    ];
     yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
     return done(
       failed.length
@@ -1387,7 +1441,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           yield* settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why }));
         }
         const t = live(current) ? yield* Effect.option(issuesOf(w, current)) : Option.none();
-        const queued = Option.isSome(t) ? told(w, current, t.value) : undefined;
+        const queued = Option.isSome(t) ? yield* told(hub, w, current, t.value) : undefined;
         if (queued) yield* settle(queued.outcome, { ...transition(w, current, queued.outcome), seen: queued.at });
       }
     });
@@ -1709,6 +1763,7 @@ export const tick = (
       );
     };
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment);
+    const routed = router(hub) !== undefined;
     /** Whether a trusted event on the issue is younger than `quiet`, so a burst still coming starts nothing yet. */
     const young = (issue: number) =>
       quiet > 0 && latest.some(m => m.issue === issue && m.trusted && Date.now() - Date.parse(m.at) < quiet);
@@ -1735,14 +1790,15 @@ export const tick = (
     waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
     for (const { run, at } of waiting) {
       const w = hub.workflows[run.workflow];
+      const tells = w ? yield* tellsOf(run) : [];
       /** A working run takes only a stop here; what else people say reaches it where it works. */
       const taken = (m: Event, lined: Event[] = []) => {
-        const o = w && reenter(w, run, m, lined);
+        const o = w && reenter(w, run, tells.includes(m) ? m : heardBy(hub, w, m), lined);
         return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
       };
       const answers =
         w && !young(run.issue)
-          ? events.filter(m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m))
+          ? [...events, ...tells].filter(m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m))
           : [];
       const m = answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
       if (!w || !m) continue;
@@ -1752,7 +1808,7 @@ export const tick = (
       );
       const outcome = fold([m, ...answers.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
       const seen = {
-        ...(m.kind === 'comment' ? yield* eyes(run, m) : run),
+        ...(m.kind === 'comment' && m.comment?.id ? yield* eyes(run, m) : run),
         said: heard([m, ...answers.filter(a => a !== m)]),
       };
       const step = w.steps.find(s => s.name === run.step);
@@ -1854,15 +1910,19 @@ export const tick = (
       const [verb = '', step = ''] = named ? words.slice(1) : words;
       const restart = /^restart$/i.test(verb) ? step : undefined;
       if (!w || (used.has(m) && restart === undefined) || !m.trusted || !open.has(m.issue) || young(m.issue)) continue;
-      if (/^(stop|cancel)$/i.test(verb)) continue;
+      /** With a router, a comment concerns only the router's runs; the others hear it through what the router tells them. */
+      const concerns = (name: string) => m.kind !== 'comment' || !routed || !!hub.workflows[name]?.on.issue_comment;
+      if (/^(stop|cancel)$/i.test(verb) && !runs.some(r => r.issue === m.issue && live(r) && !concerns(r.workflow)))
+        continue;
       const old =
         restart === undefined &&
         runs.some(
           r =>
             r.issue === m.issue &&
+            concerns(r.workflow) &&
             (m.at <= (r.seen ?? r.started) || (m.kind === 'label' && r.workflow === w.name && r.status === 'done'))
         );
-      const held = [...busy].some(k => k.endsWith(`#${m.issue}`));
+      const held = [...busy].some(k => k.endsWith(`#${m.issue}`) && concerns(k.slice(0, k.lastIndexOf('#'))));
       if (!held && !old) yield* start(w, m.issue, m.at, m, restart);
     }
     if (only !== undefined && !marked && !runs.some(live) && !touched.some(r => r.issue === only)) {

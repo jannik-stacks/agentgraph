@@ -774,6 +774,7 @@ export const githubForge = (
         }
         case 'back':
         case 'run':
+        case 'tell':
           return Effect.succeed({});
         case 'label':
           return Effect.gen(function* () {

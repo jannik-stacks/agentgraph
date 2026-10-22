@@ -34,6 +34,7 @@ export type Trace = { at: string; step: string } & (
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }
+  | { told: { text: string; by: string } }
 );
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */

@@ -863,7 +863,7 @@ describe('tick', () => {
     const fix = { ...merging.workflows.issue, name: 'fix', on: { issues: { label: 'fix' } } };
     const all = { ...merging, workflows: { ...merging.workflows, triage, fix } };
     say(where, comment(7, 'morgan', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
-    say(where, comment(7, 'ana', true, 'and keep it short', '2026-10-16T00:00:06.000Z'));
+    say(where, comment(7, 'ana', true, '/agent and keep it short', '2026-10-16T00:00:06.000Z'));
     say(where, { issue: 7, kind: 'label', actor: 'ana', trusted: true, at: '2026-10-16T00:00:07.000Z', label: 'fix' });
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Short how?' })]]);
     const asked = { ...begin(triage, { id: 'triage-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }) };
@@ -892,8 +892,8 @@ describe('tick', () => {
     const at = '2026-10-16T00:00:05.000Z';
     const asked = 'so the greeting was already documented in the README?';
     say(where, {
-      ...comment(8, 'morgan', true, asked, at),
-      comment: { id: 'r1', author: 'morgan', body: asked, at, path: 'hello.txt', line: 1 },
+      ...comment(8, 'morgan', true, `/agent ${asked}`, at),
+      comment: { id: 'r1', author: 'morgan', body: `/agent ${asked}`, at, path: 'hello.txt', line: 1 },
     });
     const { specs, run } = services(where, [
       [
@@ -922,8 +922,8 @@ describe('tick', () => {
       ...comment(8, 'morgan', true, body, at),
       comment: { id, author: 'morgan', body, at, path: 'hello.txt', line: 1 },
     });
-    say(where, line('r1', 'why hello?', '2026-10-16T00:00:05.000Z'));
-    say(where, line('r2', 'and CHAT.md?', '2026-10-16T00:00:06.000Z'));
+    say(where, line('r1', '/agent why hello?', '2026-10-16T00:00:05.000Z'));
+    say(where, line('r2', '/agent and CHAT.md?', '2026-10-16T00:00:06.000Z'));
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Both asked for.' })]]);
     const [answered] = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     const pr = (await run(Effect.flatMap(Forge, f => f.issue(8)))).events.flatMap(m => m.comment ?? []);
@@ -948,11 +948,11 @@ describe('tick', () => {
       workflows: { issue: { ...issue, steps: [...issue.steps, { ...issue.steps[0]!, name: 'again' }] } },
     };
     expect(await run(tick(twice))).toEqual([]);
-    where.human('where is the PR?', '2026-10-16T00:00:05.000Z');
+    where.human('/agent where is the PR?', '2026-10-16T00:00:05.000Z');
     const touched = await run(tick(twice));
     expect(touched.map(r => [r.id, r.status, r.said])).toEqual([['issue-7-20261016000005000', 'done', [{ issue: 7 }]]]);
     expect(specs).toHaveLength(1);
-    expect(specs[0]!.prompt).toContain('@morgan: where is the PR?');
+    expect(specs[0]!.prompt).toContain('@morgan: /agent where is the PR?');
     expect(specs[0]!.prompt).toContain('When it does not ask for work, answer it with comment proposals only');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('No PR yet.');
   });
@@ -1266,7 +1266,7 @@ describe('sweep', () => {
         Effect.forEach([done(7, '2026-10-16T00:00:00.000Z'), done(9, '2026-10-19T00:00:00.000Z')], s.put)
       )
     );
-    where.human('use gh-pages', '2026-10-17T00:00:00.000Z');
+    where.human('/agent use gh-pages', '2026-10-17T00:00:00.000Z');
     expect(await run(tick(small))).toEqual([]);
     const touched = await run(sweep(small));
     expect(touched.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
@@ -1453,7 +1453,7 @@ describe('coworker', () => {
       Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext)));
     return { specs, go };
   };
-  const bye = comment(7, 'ana', true, 'say bye too', later(1));
+  const bye = comment(7, 'ana', true, '/agent say bye too', later(1));
   const greet = [start('a'), write('hello.txt', 'hello\n'), reply(push)];
 
   it('steer: a comment made while the session works reaches it in one more turn of the same session', async () => {
@@ -1463,7 +1463,7 @@ describe('coworker', () => {
     expect(done).toMatchObject({ status: 'done', seen: later(1) });
     expect(specs).toHaveLength(2);
     expect(specs[1]!.resume?.id).toBe('a');
-    expect(specs[1]!.prompt).toContain('@ana: say bye too');
+    expect(specs[1]!.prompt).toContain('@ana: /agent say bye too');
     expect(specs[1]!.prompt).toContain('end your reply with the whole bothub block again');
   }, 30_000);
 
@@ -1490,7 +1490,7 @@ describe('coworker', () => {
   }, 30_000);
 
   it('cancel parks a working run with its session, and stop ends it, whatever the concurrency', async () => {
-    const parked = await during(world(), comment(7, 'ana', true, 'cancel', later(1)), [], true).go(flow);
+    const parked = await during(world(), comment(7, 'ana', true, '/agent cancel', later(1)), [], true).go(flow);
     expect(parked).toMatchObject({ status: 'waiting', reason: cancelled, sessions: { implement: { id: 'a' } } });
     const stop = comment(7, 'ana', true, '/agent stop wrong issue', later(1));
     const stopped = await during(world(), stop, [], true).go({ ...flow, concurrency: 'queue' });
@@ -1656,13 +1656,13 @@ describe('coworker', () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
     await run(drive(flow, begun(), small));
-    where.human('hi', new Date().toISOString());
+    where.human('/agent hi', new Date().toISOString());
     await services(where, [[start('a'), reply({ kind: 'ask', question: 'Hi with a dot?' })]]).run(tick(small, 7));
     expect(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))).toEqual([
       '/agent',
       'Asked the question below at implement.',
       'Hello or hi?',
-      'hi',
+      '/agent hi',
       `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint, 'Cost so far: $0.00.')}`,
       'Hi with a dot?',
     ]);
@@ -2330,8 +2330,8 @@ describe('a base that moved', () => {
   it('says a conflict at the top of the pull request, not under a thread the run already answered', async () => {
     const where = await parked();
     const at = new Date().toISOString();
-    const line = { id: 'r1', author: 'morgan', body: 'why hello?', at, path: 'hello.txt', line: 1 };
-    say(where, { ...comment(8, 'morgan', true, 'why hello?', at), comment: line });
+    const line = { id: 'r1', author: 'morgan', body: '/agent why hello?', at, path: 'hello.txt', line: 1 };
+    say(where, { ...comment(8, 'morgan', true, '/agent why hello?', at), comment: line });
     const { run } = services(where, [[start('f'), reply({ kind: 'comment', body: 'Asked for.' })]]);
     await run(tick(hub));
     const mover = join(where.root, 'mover');

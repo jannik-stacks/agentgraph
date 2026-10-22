@@ -346,6 +346,34 @@ describe('dispatch', () => {
     });
   });
 
+  it('hands /agent beside a live triage to the router, which tells the triage to stop', async () => {
+    const where = world();
+    const triage = {
+      ...begin(hub.workflows.triage!, { id: 'triage-1', issue: 1, started: at(0) }),
+      status: 'waiting' as const,
+      reason: 'Which size?',
+    };
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(triage)).pipe(Effect.provide(fileStore(where.data))));
+    mention(where, '/agent stop the triage, it is not needed');
+    const first = await run(where, [reply({ kind: 'tell', issue: 1, text: 'stop not needed' })], tick(hub));
+    expect(first.value.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
+    const trace = await Effect.runPromise(
+      Effect.flatMap(Store, s => Stream.runCollect(s.read('triage-1'))).pipe(Effect.provide(fileStore(where.data)))
+    );
+    expect(Chunk.toArray(trace).flatMap(t => ('told' in t ? [t.told] : []))).toEqual([
+      { text: 'stop not needed', by: first.value[0]!.id },
+    ]);
+    await run(where, [], tick(hub));
+    expect((await runs(where)).find(r => r.id === 'triage-1')).toMatchObject({ status: 'stopped' });
+  });
+
+  it('refuses a tell where no run is live', async () => {
+    const where = world();
+    mention(where, '/agent tell the triage to stop');
+    const { value } = await run(where, Array(3).fill(reply({ kind: 'tell', issue: 1, text: 'stop' })), tick(hub));
+    expect(value[0]!.reason).toContain('no live run on #1 to tell');
+  });
+
   it('refuses a run of a workflow without on: dispatch, and a run from an agent that does not return run', async () => {
     const where = world();
     mention(where, '/agent build this');

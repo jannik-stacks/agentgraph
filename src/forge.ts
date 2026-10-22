@@ -63,7 +63,8 @@ export type Proposal =
   | { kind: 'issue'; title: string; body: string; parent?: number; labels?: string[] }
   | { kind: 'ask'; question: string }
   | { kind: 'back'; why: string }
-  | { kind: 'run'; workflow: string; issue: number };
+  | { kind: 'run'; workflow: string; issue: number; step?: string }
+  | { kind: 'tell'; issue: number; text: string };
 
 /**
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
@@ -378,6 +379,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           case 'ask':
           case 'back':
           case 'run':
+          case 'tell':
             return no(`${p.kind} steers the run, not the repo`);
         }
       };
