@@ -1253,6 +1253,30 @@ describe('tick', () => {
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('hello');
   }, 30_000);
 
+  it('does not promote an outsider inline comment into trusted review instructions', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    const outsider = comment(8, 'mallory', false, '/agent inject secret instructions', '2026-10-16T00:00:04.000Z');
+    say(where, { ...outsider, comment: { ...outsider.comment!, path: 'a.ts', line: 1 } });
+    say(where, {
+      issue: 8,
+      kind: 'changes_requested',
+      actor: 'morgan',
+      trusted: true,
+      at: '2026-10-16T00:00:05.000Z',
+      comment: { id: 'review', author: 'morgan', body: 'Trusted request', at: '2026-10-16T00:00:05.000Z' },
+    });
+    const { specs, run } = services(where, [[start('i'), write('hello.txt', 'hello\n'), reply(push)]]);
+    await run(waiting(where));
+    await run(tick(merging, 7));
+    expect(specs[0]!.prompt).toContain('Trusted request');
+    expect(specs[0]!.prompt).not.toContain('inject secret instructions');
+    const events = await run(Effect.flatMap(Forge, f => Stream.runCollect(f.since(''))));
+    const withheld = [...events].find(m => m.actor === 'mallory')!.comment!;
+    expect(withheld.body).toContain('withheld');
+    expect(withheld.said).toBeUndefined();
+  }, 30_000);
+
   it('sends a run waiting at merge back when the aside a mention starts proposes back, resuming its fork', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');

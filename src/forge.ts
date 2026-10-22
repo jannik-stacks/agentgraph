@@ -246,7 +246,12 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           .filter(Boolean)
           .map(line => JSON.parse(line) as Event)
           .map(m => (m.comment ? { ...m, comment: addressed(m.comment) } : m))
-          .map(m => (trust && !trust.includes(m.actor) ? { ...m, trusted: false } : m));
+          .map(m => (trust && !trust.includes(m.actor) ? { ...m, trusted: false } : m))
+          .map(m => {
+            if (!m.comment || m.trusted || m.actor === me) return m;
+            const { said: _said, ...comment } = m.comment;
+            return { ...m, comment: { ...comment, body: withheld(m.actor) } };
+          });
       const now = () => new Date().toISOString();
       const say = (m: Omit<Event, 'actor' | 'trusted' | 'at'>) =>
         appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: who, trusted: who !== me, at: now() })}\n`);

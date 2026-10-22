@@ -1974,7 +1974,8 @@ export const tick = (
         const took = taken(m)!.kind === 'answer' ? answers : [m];
         for (const a of took) used.add(a);
         const lined = events.filter(
-          l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
+          l =>
+            l.trusted && l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
         );
         const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
         const seen = {
