@@ -1073,6 +1073,29 @@ describe('tick', () => {
     ]);
   }, 30_000);
 
+  it('consumes an approval arriving during an aside on the next tick', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent why the greeting?', '2026-10-16T00:00:05.000Z'));
+    const { run } = services(
+      where,
+      [[start('f'), reply({ kind: 'comment', body: 'For the example.' })]],
+      undefined,
+      () => {
+        say(where, { issue: 8, kind: 'approved', actor: 'morgan', trusted: true, at: '2026-10-16T00:00:06.000Z' });
+      }
+    );
+    await run(waiting(where));
+    writeFileSync(
+      join(where.forge, '8', 'pull.json'),
+      JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
+    );
+    await run(tick(merging, 7));
+    await run(tick(merging, 7));
+    const stored = await run(Effect.flatMap(Store, s => s.get('run-7')));
+    expect(stored).toMatchObject({ status: 'done', seen: '2026-10-16T00:00:06.000Z' });
+  }, 30_000);
+
   it('retries an aside that errors once, then answers the human with a short comment and moves on', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');

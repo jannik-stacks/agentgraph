@@ -1810,12 +1810,7 @@ export const tick = (
     const mine = (r: { issue: number }) => only === undefined || r.issue === only;
     const all = yield* store.list();
     const runs = all.filter(mine).filter(r => !retro(hub, r));
-    const waiting = yield* Effect.forEach(runs.filter(live), r =>
-      Effect.map(Stream.runLast(Stream.filter(store.read(r.id), t => 'outcome' in t)), last => ({
-        run: r,
-        at: last._tag === 'Some' ? last.value.at : r.started,
-      }))
-    );
+    const waiting = runs.filter(live).map(run => ({ run, at: run.seen ?? run.started }));
     const started = runs
       .map(r => r.started)
       .sort()
@@ -1891,7 +1886,10 @@ export const tick = (
     const routed = router(hub) !== undefined;
     /** Whether a trusted event on the issue is younger than `quiet`, so a burst still coming starts nothing yet. */
     const young = (issue: number) =>
-      quiet > 0 && latest.some(m => m.issue === issue && m.trusted && Date.now() - Date.parse(m.at) < quiet);
+      quiet > 0 &&
+      latest.some(
+        m => (m.issue === issue || onRun(m).issue === issue) && m.trusted && Date.now() - Date.parse(m.at) < quiet
+      );
     const events = latest.map(onRun).filter(mine);
     const used = new Set<Event>();
     const touched: Run[] = [];
