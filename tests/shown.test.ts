@@ -58,6 +58,12 @@ describe('the status comment', () => {
       expect(shown({ ...run, ...tick }, t)).toEqual([]);
   });
 
+  it('is not edited when the forge reads it back with its run stamp', () => {
+    const body = bodyOf(run)!;
+    expect(shown(run, holding(`${body}\n\n[⁂](http://studio/runs/issue-7?at=1) `))).toEqual([]);
+    expect(shown(run, holding(`${body}\n\n<!-- agentgraph run=issue-7 step=implement -->`))).toEqual([]);
+  });
+
   it('is edited when the step, status, question, pull request or result changes', () => {
     const t = holding(bodyOf(run)!);
     const pr: Issue = {

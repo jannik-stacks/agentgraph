@@ -1,4 +1,4 @@
-import type { Event, Proposal, Issue } from './forge.ts';
+import { unstamped, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Trace } from './store.ts';
 import { failure, type Run, type Seen } from './workflow.ts';
 
@@ -129,6 +129,7 @@ export function shown(run: Run, t: Issues): Proposal[] {
     .filter(Boolean)
     .join('\n\n');
   const now = run.comment && t.issue.events.find(m => m.comment?.id === run.comment)?.comment?.body;
+  const same = now !== undefined && unstamped(now) === body;
   return [
     ...(labels.includes(label) && stale.length === 0
       ? []
@@ -139,7 +140,7 @@ export function shown(run: Run, t: Issues): Proposal[] {
             ...(stale.length > 0 && { remove: stale }),
           },
         ]),
-    ...(now === body ? [] : [{ kind: 'comment' as const, body, ...(run.comment && { edit: run.comment }) }]),
+    ...(same ? [] : [{ kind: 'comment' as const, body, ...(run.comment && { edit: run.comment }) }]),
   ];
 }
 

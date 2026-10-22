@@ -84,7 +84,7 @@ const runLink = (studio: string, run: string, at: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}?at=${at}`;
 
 /** The body without any provenance marker or ⁂ link in it. */
-const unstamped = (body: string) =>
+export const unstamped = (body: string) =>
   body.replace(/<!--\s*(?:agentgraph|bothub)\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
 
 /**
