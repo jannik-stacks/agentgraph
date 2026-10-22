@@ -4,6 +4,8 @@ import {
   isValidElement,
   type ReactElement,
   type ReactNode,
+  type TransitionEvent,
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -41,6 +43,31 @@ export const Link = ({ href, onClick, ...props }: ComponentProps<'a'>) => {
         navigate({ href });
       }}
     />
+  );
+};
+
+/** Animates its height as its content resizes, clipping only while it moves so dropdowns inside stay visible. */
+export const AutoHeight = ({ className, children }: { className?: string; children: ReactNode }) => {
+  const [height, setHeight] = useState<number>();
+  const [moving, setMoving] = useState(false);
+  const measure = useCallback((el: HTMLDivElement) => {
+    const observer = new ResizeObserver(() => setHeight(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const own = (to: boolean) => (e: TransitionEvent) => e.target === e.currentTarget && setMoving(to);
+  return (
+    <div
+      className={cx('shrink-0 transition-[height] duration-200 ease-out', moving && 'overflow-hidden')}
+      style={{ height }}
+      onTransitionRun={own(true)}
+      onTransitionEnd={own(false)}
+      onTransitionCancel={own(false)}
+    >
+      <div ref={measure} className={className}>
+        {children}
+      </div>
+    </div>
   );
 };
 

@@ -7,7 +7,7 @@ import { fixtures, served } from 'virtual:fixtures';
 import { graphOf } from '../../../src/graph.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
-import { accent, Combobox, Muted, Select } from '../ui.tsx';
+import { accent, AutoHeight, Combobox, Muted, Select } from '../ui.tsx';
 import { layout, type Start } from './layout.ts';
 import {
   Frame,
@@ -319,7 +319,7 @@ export const GraphPage = () => {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Problems />
-      <div className="flex flex-wrap items-center gap-4 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
+      <AutoHeight className="flex flex-wrap items-center gap-4 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
         {hubs.length > 1 && (
           <Select
             label="Hub"
@@ -361,7 +361,7 @@ export const GraphPage = () => {
             'The workflows as written. An example hub, with no runs of its own.'
           )}
         </p>
-      </div>
+      </AutoHeight>
       <WorkflowGraph shown={hub.fixtures} picked={picked} />
       <Legend />
     </div>
