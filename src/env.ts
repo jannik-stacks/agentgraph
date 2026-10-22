@@ -153,6 +153,11 @@ const build = [
   '  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE',
   '  if [ -n "$3" ]; then (exec 9>/cache/.toolchain.lock && flock 9 && sh -ec "$3") || exit 97; fi',
   '  if [ -n "$4" ]; then RUSTUP_AUTO_INSTALL=0 sh -ec "$4" || exit 98; fi',
+  '  if [ "$5" = deps ] && [ -d target ]; then',
+  '    printf "%s\\n" "$6" | grep "Cargo\\.toml$" | while read -r f; do',
+  '      sed -n "/^\\[package\\]/,/^\\[/s/^name *= *\\"\\([^\\"]*\\)\\".*/\\1/p" "$f" | head -1',
+  '    done | while read -r n; do RUSTUP_AUTO_INSTALL=0 cargo clean --offline -q -p "$n" || true; done',
+  '  fi',
   '  export GIT_DIR="$1" GIT_WORK_TREE=/work GIT_INDEX_FILE=/tmp/index',
   '  { echo @@ignored; git ls-files -o -i --exclude-standard --directory | grep -v "^.agentgraph-env/$" || true;',
   '    echo @@untracked; git ls-files -o --exclude-standard --directory | grep -v "^.agentgraph-env/$" || true; } > $out/listing.part',
@@ -284,7 +289,7 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   ]);
   const lines = [...toolchainOf(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join('\n');
   if (!lines && !spec.setup) return undefined;
-  const family = hash([5, from, lines, spec.setup ?? '']);
+  const family = hash([6, from, lines, spec.setup ?? '']);
   const wide = join(state(), 'tree-only', family);
   const one = async (mode: Env['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
