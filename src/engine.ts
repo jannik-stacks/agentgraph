@@ -1249,9 +1249,22 @@ const attempt = (
     const parsed = replies.map(reply => proposalsOf(reply, !('run' in step.does)));
     const proposals = parsed.flatMap(p => p.proposals);
     const problems = parsed.flatMap(p => p.problems);
-    for (const p of proposals)
+    for (const p of proposals) {
       if ((p.kind === 'push' || p.kind === 'pull_request') && p.branch !== own)
         problems.push(`branch ${p.branch} is not this run's branch ${own ?? '(none)'}`);
+      if (p.kind === 'merge') {
+        const target = own
+          ? yield* Effect.flatMap(Forge, f => f.issue(p.number)).pipe(
+              Effect.catchIf(
+                e => e.status === 404,
+                () => Effect.succeed(undefined)
+              )
+            )
+          : undefined;
+        if (!own || target?.pull?.branch !== own)
+          problems.push(`merge #${p.number} is not from this run's branch ${own ?? '(none)'}`);
+      }
+    }
     const marked = proposals.some(p => p.kind === 'push') ? markedIn(yield* diffOf(work)) : [];
     if (marked.length > 0) problems.push(`conflict markers left in ${marked.join(', ')}`);
     const ask = proposals.find(p => p.kind === 'ask');

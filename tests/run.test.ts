@@ -967,6 +967,39 @@ describe('a run branch that moved', () => {
     30_000
   );
 
+  it('refuses a merge proposal for another run branch', async () => {
+    const where = world();
+    pullRequest(where);
+    writeFileSync(
+      join(where.forge, '8', 'pull.json'),
+      JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: 'foreign' })
+    );
+    const { run } = services(where, [
+      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'foreign' })],
+      [start('a'), reply({ kind: 'ask', question: 'My own PR?' })],
+    ]);
+    await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('open');
+    expect(
+      traceOf(where.data, 'run-7').some(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'merge')
+    ).toBe(false);
+  }, 30_000);
+
+  it.each(['agentgraph/7', 'bothub/7'])(
+    'accepts a merge proposal for its own branch: %s',
+    async branch => {
+      const where = world();
+      pullRequest(where);
+      writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
+      const { run } = services(where, [
+        [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'own' })],
+      ]);
+      await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+      expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('merged');
+    },
+    30_000
+  );
+
   it.each(['workflow', 'symlink', 'oversize'])(
     'file forge refuses unsafe push content: %s',
     async kind => {
@@ -3366,6 +3399,37 @@ describe('a base that moved', () => {
     expect(git(where.origin, 'show', 'agentgraph/7:resolution.txt')).toBe('merge-only');
     expect(rebases(where)).toContain(false);
   }, 30_000);
+
+  it.each(['workflow', 'symlink', 'oversize'])(
+    'refuses unsafe content during a file-forge rebase: %s',
+    async kind => {
+      const where = await parked();
+      const mover = join(where.root, 'mover');
+      git(where.root, 'clone', '-q', where.origin, mover);
+      git(mover, 'checkout', '-q', '-B', 'agentgraph/7', 'origin/agentgraph/7');
+      if (kind === 'workflow') {
+        mkdirSync(join(mover, '.github', 'workflows'), { recursive: true });
+        writeFileSync(join(mover, '.github', 'workflows', 'x.yml'), 'run: bad\n');
+      } else if (kind === 'symlink') symlinkSync('README.md', join(mover, 'link.txt'));
+      else writeFileSync(join(mover, 'big.txt'), 'x'.repeat((1 << 20) + 1));
+      git(mover, 'add', '-A');
+      git(mover, 'commit', '-qm', 'Unsupported content');
+      const tip = git(mover, 'rev-parse', 'HEAD');
+      git(mover, 'push', '-q', 'origin', 'agentgraph/7');
+      const pr = JSON.parse(readFileSync(join(where.forge, '8', 'pull.json'), 'utf8'));
+      writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ ...pr, head: tip }));
+      git(mover, 'reset', '-q', '--hard', 'origin/main');
+      writeFileSync(join(mover, 'upstream.txt'), 'upstream\n');
+      git(mover, 'add', '-A');
+      git(mover, 'commit', '-qm', 'Upstream');
+      git(mover, 'push', '-q', 'origin', 'HEAD:main');
+      const { run } = services(where, []);
+      await run(tick(hub, 7));
+      expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(tip);
+      expect(rebases(where)).toContain(false);
+    },
+    30_000
+  );
 
   it('rebases a clean branch with no model and runs only its script checks when the change stays the same', async () => {
     const where = await moved('other.txt');

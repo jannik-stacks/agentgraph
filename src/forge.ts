@@ -216,6 +216,18 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             e => new ForgeError({ message: e.detail })
           )
         ).then(out => out.toString('utf8').trim());
+      const problemOf = async (work: Checkout, from: string, to: string) => {
+        const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', from, to)).split('\0');
+        if ((fields.length - 1) / 2 > pushable.files) return `at most ${pushable.files} files can be pushed`;
+        for (let i = 0; i + 1 < fields.length; i += 2) {
+          const [oldMode, newMode, , sha] = fields[i]!.slice(1).split(' ');
+          const problem = unpushable(fields[i + 1]!, [oldMode!, newMode!]);
+          if (problem) return problem;
+          if (newMode !== '000000' && Number(await git(work, 'cat-file', '-s', sha!)) > pushable.bytes)
+            return `${fields[i + 1]} is over ${pushable.bytes} bytes`;
+        }
+        return undefined;
+      };
       /** The last commit pushed from each checkout; the next push from it builds on that commit. */
       const pushed = new Map<string, string>();
 
@@ -331,18 +343,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const parents = onto ? (p.merge ? [parent, onto] : [onto]) : [parent];
             await git(work, 'add', '-A');
             const tree = await git(work, 'write-tree');
-            const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', `${parent}^{tree}`, tree)).split(
-              '\0'
-            );
-            if ((fields.length - 1) / 2 > pushable.files) return no(`at most ${pushable.files} files can be pushed`);
-            for (let i = 0; i + 1 < fields.length; i += 2) {
-              const [oldMode, newMode, , sha] = fields[i]!.slice(1).split(' ');
-              const problem = unpushable(fields[i + 1]!, [oldMode!, newMode!]);
-              if (problem) return no(problem);
-              if (newMode !== '000000' && Number(await git(work, 'cat-file', '-s', sha!)) > pushable.bytes)
-                return no(`${fields[i + 1]} is over ${pushable.bytes} bytes`);
-            }
-
+            const problem = await problemOf(work, `${parent}^{tree}`, tree);
+            if (problem) return no(problem);
             const head =
               !onto && tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
                 ? parent
@@ -383,6 +385,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
                 tree = next;
                 continue;
               }
+              const problem = await problemOf(work, tree, next);
+              if (problem) return no(problem);
               const message = await git(work, 'log', '-1', '--format=%B', commit);
               head = await git(work, 'commit-tree', next, '-p', head, '-m', message);
               tree = next;
