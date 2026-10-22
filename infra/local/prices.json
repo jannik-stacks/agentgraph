@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-21",
+  "asOf": "2026-10-22",
   "aliases": {
     "smart": "chatgpt/gpt-6.1-sol",
     "writer": "chatgpt/gpt-6.1-sol",
@@ -12,7 +12,9 @@
     "gpt-6-luna": { "input": 0.25, "cached": 0.025, "output": 2 },
     "gpt-5": { "input": 1.25, "cached": 0.125, "output": 10 },
     "gpt-5-mini": { "input": 0.25, "cached": 0.025, "output": 2 },
-    "claude-opus-5-5": { "input": 5, "cached": 0.5, "output": 25 },
+    "claude-opus-5-5": { "input": 4, "cached": 0.2, "output": 20 },
+    "claude-sonnet-5-5": { "input": 2, "cached": 0.1, "output": 10 },
+    "claude-haiku-5-5": { "input": 0.1, "cached": 0.01, "output": 0.5 },
     "claude-opus-4-5": { "input": 5, "cached": 0.5, "output": 25 },
     "claude-sonnet-4-5": { "input": 3, "cached": 0.3, "output": 15 },
     "claude-haiku-4-5": { "input": 1, "cached": 0.1, "output": 5 },
