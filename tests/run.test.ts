@@ -185,7 +185,7 @@ describe('drive', () => {
       '/agent',
       'Waiting for an answer to the question below, at review.\n\nPull request: ' +
         join(where.forge, '8.md') +
-        `\n\n${foot(replyHint, 'Cost so far: $1.50.')}`,
+        `\n\n${foot(replyHint)}`,
       'Brief: add hello.txt',
       'still not right',
     ]);
@@ -347,7 +347,7 @@ describe('drive', () => {
     expect(specs).toHaveLength(3);
     expect(() => git(where.origin, 'rev-parse', '--verify', '-q', 'agentgraph/7')).toThrow();
     const issue = await run(Effect.flatMap(Forge, f => f.issue(7)));
-    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\n${foot('Cost so far: $0.25.')}`);
+    expect(bodies(issue)[1]).toBe(`Stopped at implement: ${stopped.reason}\n\n${foot('Cost: $0.25.')}`);
     expect(issue.labels).toEqual(['agentgraph:stopped']);
     const runs = await run(Effect.flatMap(Store, s => s.list({ status: 'stopped' })));
     expect(runs.map(r => r.id)).toEqual(['run-7']);
@@ -1763,7 +1763,7 @@ describe('coworker', () => {
     expect(issue.labels).toEqual(['agentgraph:waiting']);
     expect(bodies(issue)).toEqual([
       '/agent',
-      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint, 'Cost so far: $0.00.')}`,
+      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint)}`,
       'Hello or hi?',
     ]);
     const edits = traceOf(where.data, 'run-7').flatMap(t =>
@@ -1771,10 +1771,7 @@ describe('coworker', () => {
         ? [t.applied.proposal.body]
         : []
     );
-    expect(edits).toEqual([
-      `Working on implement, try 2 of 2.\n\n${foot('Cost so far: $0.00.')}`,
-      expect.stringMatching(/^Waiting for an answer/),
-    ]);
+    expect(edits).toEqual([expect.stringMatching(/^Waiting for an answer/)]);
   }, 30_000);
 
   it.each([false, true])(
@@ -1854,7 +1851,7 @@ describe('coworker', () => {
       'Asked the question below at implement.',
       'Hello or hi?',
       '/agent hi',
-      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint, 'Cost so far: $0.00.')}`,
+      `Waiting for an answer to the question below, at implement.\n\n${foot(replyHint)}`,
       'Hi with a dot?',
     ]);
   }, 30_000);

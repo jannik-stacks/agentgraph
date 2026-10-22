@@ -1372,7 +1372,7 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
     if (w.on.feedback) return run;
     const forge = yield* Forge;
     const t = yield* issuesOf(w, run);
-    const status = yield* Effect.forEach(shown(run, w, t), p => forge.apply(run.issue, p));
+    const status = yield* Effect.forEach(shown(run, t), p => forge.apply(run.issue, p));
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>

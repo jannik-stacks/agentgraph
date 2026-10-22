@@ -1,6 +1,6 @@
 import type { Event, Proposal, Issue } from './forge.ts';
 import type { Trace } from './store.ts';
-import { failure, type Run, type Seen, type Workflow } from './workflow.ts';
+import { failure, type Run, type Seen } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
 export type Issues = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
@@ -97,19 +97,25 @@ export const footer = (...lines: string[]): string =>
 
 export const answerWith = 'Answer with <code>/agent</code> and your reply, or <code>/agent stop</code> to end the run.';
 
-/** The labels and status comment for a run, as proposals; only what differs from the issue now. */
-export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
+/**
+ * The labels and status comment for a run, as proposals; only what differs from the issue now. The comment holds what
+ * a human acts on, so tries, rounds and cost so far never edit it.
+ */
+export function shown(run: Run, t: Issues): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => (Object.values(statuses).includes(l) || l.startsWith('bothub:')) && l !== label);
   const pull = t.pull ?? (t.issue.pull ? t.issue : undefined);
   const checks = new Map((pull?.events ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
   const failing = [...checks].filter(([, c]) => failures.has(c)).map(([name]) => name);
-  const round = Math.max(0, ...Object.values(run.rounds));
-  const tries = w.steps.find(s => s.name === run.step)?.tries ?? 1;
+  const ended = run.status === 'done' || run.status === 'stopped';
+  const notes = [
+    ...(run.status === 'waiting' && run.reason ? [answerWith] : []),
+    ...(ended ? [`Cost: $${run.usd.toFixed(2)}.`] : []),
+  ];
   const body = [
     {
-      running: `Working on ${run.step}, try ${run.tries + 1} of ${tries}${round ? `, round ${round + 1}` : ''}.`,
+      running: `Working on ${run.step}.`,
       waiting: run.reason
         ? `Waiting for an answer to the question below, at ${run.step}.`
         : `Waiting for a human at ${run.step}.`,
@@ -118,7 +124,7 @@ export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
     }[run.status],
     pull && `Pull request: ${pull.url}`,
     failing.length > 0 && `Failing checks: ${failing.join(', ')}`,
-    footer(...(run.status === 'waiting' && run.reason ? [answerWith] : []), `Cost so far: $${run.usd.toFixed(2)}.`),
+    notes.length > 0 && footer(...notes),
   ]
     .filter(Boolean)
     .join('\n\n');

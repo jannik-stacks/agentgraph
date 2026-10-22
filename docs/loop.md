@@ -186,7 +186,7 @@ Conflicts also return the run. Its checkout starts at the new base with the chan
 
 ## Status on the issue
 
-One status comment shows step, try, open question, stop reason, cost, pull request and failing GitHub checks. One label tracks `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. After an answer, the old status marks its question as answered and a new status appears below the answer. <!-- code: src/context.ts#shown src/engine.ts#tick -->
+One status comment shows step, open question, stop reason, pull request, failing GitHub checks and, once the run ends, its cost. Tries, rounds and running cost stay in the studio, so the comment changes only when something a human acts on does. One label tracks `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. After an answer, the old status marks its question as answered and a new status appears below the answer. <!-- code: src/context.ts#shown src/engine.ts#tick -->
 
 ## Order and limits
 
