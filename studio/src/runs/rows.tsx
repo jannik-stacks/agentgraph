@@ -374,9 +374,7 @@ const sessionRow = (
 const live = (r: CoreRun) => r.run.status === 'running';
 
 /** What a run is doing or waiting for, in a sentence or two. */
-export const statusTip = (
-  run: Pick<Run, 'status' | 'step' | 'tries'> & Partial<Pick<Run, 'reason' | 'issue' | 'said'>>
-) => {
+export const statusTip = (run: Run) => {
   const at = `issue #${run.said?.[0]?.issue ?? run.issue}`;
   if (run.status === 'running') return `Working on ${run.step}, try ${run.tries + 1}.`;
   if (run.status === 'done') return 'Finished every step.';

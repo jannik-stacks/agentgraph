@@ -203,8 +203,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
             ...(run && {
               overlay: {
                 visits: visits!.filter(v => v.node.step === node.step).length,
-                ...(node.run?.current &&
-                  run.run.status !== 'done' && { status: run.run.status, reason: run.run.reason }),
+                ...(node.run?.current && run.run.status !== 'done' && { here: run.run }),
               },
             }),
           },

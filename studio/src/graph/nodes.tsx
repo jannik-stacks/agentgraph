@@ -75,8 +75,8 @@ const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg
 /** Where arrows end: a few pixels short of the node, so the head never touches its border. */
 const arrival = { left: -5 };
 
-/** The run drawn over one step: how often it came here, and where the run stands when it stands here. */
-type Overlay = { visits: number; status?: Run['status'] | undefined; reason?: string | undefined };
+/** The run drawn over one step: how often it came here, and the run itself while it stands here. */
+type Overlay = { visits: number; here?: Run | undefined };
 
 type StepData = {
   node: GraphNode;
@@ -111,12 +111,12 @@ const Chip = ({ tip, count, children }: { tip: string; count?: number | undefine
   </Tooltip>
 );
 
-const statusLine = (node: GraphNode, o: Overlay) =>
-  o.status === 'waiting' && o.reason !== undefined
+const statusLine = (node: GraphNode, run: Run) =>
+  run.status === 'waiting' && run.reason !== undefined
     ? 'asking you'
-    : o.status === 'waiting'
+    : run.status === 'waiting'
       ? 'waiting for you'
-      : o.status === 'stopped'
+      : run.status === 'stopped'
         ? 'stopped'
         : node.run && node.run.tries > 0
           ? `try ${Math.min(node.run.tries + 1, node.tries)} of ${node.tries}`
@@ -125,9 +125,9 @@ const statusLine = (node: GraphNode, o: Overlay) =>
 /** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
 export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<StepFlowNode>) => {
   const kind = kindOf(node.doer);
-  const here = overlay?.status !== undefined;
-  const refused = here && !!node.run && node.run.tries > 0;
-  const status = here ? statusLine(node, overlay) : live;
+  const here = overlay?.here;
+  const refused = !!here && !!node.run && node.run.tries > 0;
+  const status = here ? statusLine(node, here) : live;
   return (
     <div
       className={cx(
@@ -150,22 +150,15 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
       {status ? (
         <Tooltip
           tip={
-            overlay?.status
-              ? statusTip({
-                  status: overlay.status,
-                  step: node.step,
-                  tries: node.run?.tries ?? 0,
-                  ...(overlay.reason !== undefined && { reason: overlay.reason }),
-                })
+            here
+              ? statusTip(here)
               : `${status}. Click the step for its runs; hover a run's status for what it waits for.`
           }
           className="block"
         >
           <div className="mb-1 truncate text-sky-600 dark:text-sky-400">
             {status}
-            {overlay?.reason && overlay.status !== 'waiting' && (
-              <span className="text-zinc-500">, {overlay.reason}</span>
-            )}
+            {here?.reason && here.status !== 'waiting' && <span className="text-zinc-500">, {here.reason}</span>}
           </div>
         </Tooltip>
       ) : (
@@ -195,13 +188,13 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
           {refused ? `${Math.min(node.run!.tries + 1, node.tries)}/${node.tries}` : node.tries}
         </Bubble>
       )}
-      {overlay?.status === 'waiting' && overlay.reason !== undefined && (
-        <Bubble tip={`Asking you: ${overlay.reason ?? ''}`} className="-top-2.5 -left-2.5 [&>span]:bg-sky-600">
+      {here?.status === 'waiting' && here.reason !== undefined && (
+        <Bubble tip={`Asking you: ${here.reason}`} className="-top-2.5 -left-2.5 [&>span]:bg-sky-600">
           <Glyph name="hand" />
         </Bubble>
       )}
-      {overlay?.status === 'stopped' && (
-        <Bubble tip={`Stopped: ${overlay.reason ?? ''}`} className="-top-2.5 -left-2.5 [&>span]:bg-sky-600">
+      {here?.status === 'stopped' && (
+        <Bubble tip={`Stopped: ${here.reason ?? ''}`} className="-top-2.5 -left-2.5 [&>span]:bg-sky-600">
           <Glyph name="stop" />
         </Bubble>
       )}
