@@ -433,7 +433,7 @@ export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[
         body: `/agent ${instruction.text}`,
         said: instruction.text,
         at,
-        ...(parent && { path: parent.path!, under: parent.under ?? parent.id }),
+        ...(parent && { path: parent.path!, line: parent.line, under: parent.under ?? parent.id }),
       },
     };
     const runs = yield* Effect.flatMap(Store, s => s.list());
@@ -445,10 +445,6 @@ export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[
       Effect.provideService(Forge, {
         ...forge,
         since: () => Stream.make(event),
-        issue: n =>
-          Effect.map(forge.issue(n), t =>
-            n === issue.number || n === owner?.issue ? { ...t, events: [...t.events, event] } : t
-          ),
       })
     );
   });
@@ -464,15 +460,21 @@ const settled = (child: Run) =>
   }`;
 
 /** The run's issue and the pull request on its branch, fetched before every session. */
-const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError, Forge> =>
+const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError | StoreError, Forge | Store> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
     const issue = yield* forge.issue(run.issue);
     const pull =
       issue.pull || w.branch === undefined ? undefined : pullOf(w, run.issue, yield* forge.issues({ state: 'open' }));
+    const spoken = Chunk.toArray(yield* Stream.runCollect((yield* Store).read(run.id))).flatMap(t =>
+      'spoken' in t ? [t.spoken] : []
+    );
+    const review = pull !== undefined ? yield* forge.issue(pull) : undefined;
     return {
-      issue,
-      ...(pull !== undefined && { pull: yield* forge.issue(pull) }),
+      issue: { ...issue, events: [...issue.events, ...spoken.filter(m => m.issue !== review?.number)] },
+      ...(review && {
+        pull: { ...review, events: [...review.events, ...spoken.filter(m => m.issue === review.number)] },
+      }),
     };
   });
 
@@ -1445,7 +1447,7 @@ const unthreaded = (run: Run): Run =>
   run.said ? { ...run, said: run.said.slice(0, 1).map(s => ({ issue: s.issue })) } : run;
 
 /**
- * Runs the hub's setup, then tries until the run stops running. A runner error is retried once on the next tick, then parks the run at its step, so an
+ * Runs the hub's setup, then tries until the run stops running. A runner error is retried once, then parks the run at its step, so an
  * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
  */
 export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
@@ -1485,7 +1487,6 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         yield* store.put(current);
       });
     const walk = Effect.gen(function* () {
-      yield* store.lock(run.id);
       const issue = yield* forge.issue(run.issue);
       current = yield* show(w, {
         ...current,
@@ -1527,16 +1528,19 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         { ...unthreaded(current), status: 'waiting', reason: question, retried: true }
       );
     };
-    yield* walk.pipe(
-      Effect.scoped,
-      Effect.catchTags({
-        SandboxError: halt,
-        SessionStop: halt,
-        ForgeError: halt,
-      })
-    );
+    yield* store.lock(run.id);
+    do {
+      yield* walk.pipe(
+        Effect.scoped,
+        Effect.catchTags({
+          SandboxError: halt,
+          SessionStop: halt,
+          ForgeError: halt,
+        })
+      );
+    } while (current.status === 'running');
     return current;
-  });
+  }).pipe(Effect.scoped);
 
 /** A checkout measured from `onto`; on a first try its files become the branch merged onto it, conflicts marked. */
 const following = (work: Checkout, onto: string, first: boolean) =>
@@ -1800,7 +1804,11 @@ export const tick = (
     };
     /** 👀 on the comment that woke a run, or on its issue for a label; the run comes back holding it. */
     const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError> => {
-      if (m.source === 'cli') return Effect.as(store.trace(run.id, { at: m.at, step: run.step, spoken: m }), run);
+      if (m.source === 'cli')
+        return Effect.as(
+          store.trace(run.id, { at: m.at, step: run.step, spoken: { ...m, issue: origin.get(m) ?? m.issue } }),
+          run
+        );
       if (m.kind !== 'comment' && m.kind !== 'label') return Effect.succeed(run);
       const issue = origin.get(m) ?? m.issue;
       const react: Extract<Proposal, { kind: 'react' }> = {

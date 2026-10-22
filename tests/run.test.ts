@@ -293,6 +293,9 @@ describe('drive', () => {
       ['pull_request', at('implement', 'i1')],
       ['comment', at('review')],
       ['comment', at('implement', 'i1')],
+      ['comment', at('implement', 'i1')],
+      ['label', at('implement', 'i1')],
+      ['comment', at('implement', 'i1')],
     ]);
   }, 30_000);
 
@@ -445,9 +448,7 @@ describe('drive', () => {
   it('parks the run at its step when a session cannot run, and an answer tries that step again', async () => {
     const where = world();
     const { run } = services(where, []);
-    const first = await run(drive(w, { ...fresh(), feedback: 'fix the typo' }, hub));
-    expect(first).toMatchObject({ step: 'triage', status: 'running', retried: true, feedback: 'fix the typo' });
-    const parked = await run(drive(w, first, hub));
+    const parked = await run(drive(w, { ...fresh(), feedback: 'fix the typo' }, hub));
     expect(parked).toMatchObject({ step: 'triage', status: 'waiting', feedback: 'fix the typo' });
     expect(parked.reason).toBe(
       'Stopped by a runner error (SessionStop). The details are in the trace of run run-7. Reply to try triage again from where it was.'

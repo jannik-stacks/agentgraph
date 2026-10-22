@@ -10,7 +10,7 @@ import { loadHub } from '../src/hub.ts';
 import { Effect } from 'effect';
 import { Store } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
-import { host } from '../src/sandbox.ts';
+import { host, Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import { scripted, type SessionEvent } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
@@ -60,14 +60,25 @@ const world = () => {
   };
   Object.assign(process.env, { AGENTGRAPH_FORGE: dir, AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
   const seen: Settings[] = [];
-  const run = (turns: SessionEvent[][], issue: number | 'all' = 'all', instruction?: Instruction) =>
+  const run = (turns: SessionEvent[][], issue: number | 'all' = 'all', instruction?: Instruction, failures = 0) =>
     main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, s => {
       seen.push(s);
       const forgeDir = s.forge as string;
       return Layer.mergeAll(
         fileForge(forgeDir),
         fileStore(s.data),
-        host(join(forgeDir, 'origin.git')),
+        Layer.effect(
+          Sandbox,
+          Effect.map(Sandbox, sandbox => ({
+            ...sandbox,
+            checkout: (...args) =>
+              Effect.suspend(() =>
+                failures-- > 0
+                  ? Effect.fail(new SandboxError({ reason: 'infra', detail: 'no commit for main' }))
+                  : sandbox.checkout(...args)
+              ),
+          }))
+        ).pipe(Layer.provide(host(join(forgeDir, 'origin.git')))),
         scripted(turns)
       );
     });
@@ -201,60 +212,73 @@ describe('bin/forge.ts with run --forge', () => {
     expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['router', 'stopped', 'wrong issue']]);
   });
 
-  it('says through the router immediately, including a review thread beside a waiting run', async () => {
-    const w = world();
-    w.forge('init', w.seed);
-    w.forge('issue', 'Add a greeting');
-    w.forge('label', '1', 'agent:ready');
-    const [waiting] = await w.run([
-      [
-        start('i'),
-        write('hello.txt', 'hello\n'),
-        reply(
-          { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
-          { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
-        ),
-      ],
-      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
-    ]);
-    w.forge('comment', '2', 'This line?', '--line', 'hello.txt:1');
-    const event = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
-      .trim()
-      .split('\n')
-      .map(l => JSON.parse(l))
-      .at(-1);
-    const routed = await w.run(
-      [
+  it.each([0, 1])(
+    'routes review say with %i checkout failures',
+    async failures => {
+      const w = world();
+      w.forge('init', w.seed);
+      w.forge('issue', 'Add a greeting');
+      w.forge('label', '1', 'agent:ready');
+      const [waiting] = await w.run([
         [
-          start('cli-router'),
-          reply({ kind: 'comment', body: 'Answer in thread.' }, { kind: 'tell', issue: 1, text: 'Please revise it' }),
+          start('i'),
+          write('hello.txt', 'hello\n'),
+          reply(
+            { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
+            { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
+          ),
         ],
-      ],
-      2,
-      { kind: 'say', issue: 2, comment: event.comment.id, text: 'Please explain this line' }
-    );
-    const router = routed.find(r => r.workflow === 'router')!;
-    expect(router.status).toBe('done');
-    const trace = readFileSync(join(w.root, 'data', router.id, 'trace.jsonl'), 'utf8');
-    expect(trace).toContain('"source":"cli"');
-    expect(
-      trace
+        [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+      ]);
+      w.forge('comment', '2', 'This line?', '--line', 'hello.txt:1');
+      const event = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
         .trim()
         .split('\n')
         .map(l => JSON.parse(l))
-        .some(t => t.prompt?.prompt.includes('Please explain this line'))
-    ).toBe(true);
-    const timeline = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
-      .trim()
-      .split('\n')
-      .map(l => JSON.parse(l));
-    expect(
-      timeline.some(m => m.comment?.body.includes('Answer in thread.') && m.comment.under === event.comment.id)
-    ).toBe(true);
-    expect(readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')).toContain(
-      '"text":"Please revise it"'
-    );
-  }, 30_000);
+        .at(-1);
+      const routed = await w.run(
+        [
+          [
+            start('cli-router'),
+            reply({ kind: 'comment', body: 'Answer in thread.' }, { kind: 'tell', issue: 1, text: 'Please revise it' }),
+          ],
+        ],
+        2,
+        { kind: 'say', issue: 2, comment: event.comment.id, text: 'Please explain this line' },
+        failures
+      );
+      const router = routed.find(r => r.workflow === 'router')!;
+      expect(router.status).toBe('done');
+      const trace = readFileSync(join(w.root, 'data', router.id, 'trace.jsonl'), 'utf8');
+      expect(trace).toContain('"source":"cli"');
+      expect(
+        JSON.parse(
+          trace
+            .trim()
+            .split('\n')
+            .find(l => JSON.parse(l).prompt)!
+        ).prompt.prompt
+      ).toContain('hello.txt:1');
+      expect(
+        trace
+          .trim()
+          .split('\n')
+          .map(l => JSON.parse(l))
+          .some(t => t.prompt?.prompt.includes('Please explain this line'))
+      ).toBe(true);
+      const timeline = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map(l => JSON.parse(l));
+      expect(
+        timeline.some(m => m.comment?.body.includes('Answer in thread.') && m.comment.under === event.comment.id)
+      ).toBe(true);
+      expect(readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')).toContain(
+        '"text":"Please revise it"'
+      );
+    },
+    30_000
+  );
 
   it('says on an issue, and rejects an unknown review thread', async () => {
     const w = world();
@@ -270,6 +294,59 @@ describe('bin/forge.ts with run --forge', () => {
     await expect(w.run([], 1, { kind: 'say', issue: 1, comment: 'missing', text: 'Explain' })).rejects.toThrow(
       'no review comment'
     );
+  });
+
+  it.each([0, 1])('keeps say text in the router prompt with %i checkout failures', async failures => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'A question');
+    const [run] = await w.run(
+      [[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]],
+      1,
+      { kind: 'say', issue: 1, text: 'Explain the retry path' },
+      failures
+    );
+    expect(run!.status).toBe('done');
+    const trace = readFileSync(join(w.root, 'data', run!.id, 'trace.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l));
+    expect(trace.filter(t => t.prompt).map(t => t.prompt.prompt)).toEqual([
+      expect.stringContaining('@cli: /agent Explain the retry path'),
+    ]);
+    expect(trace.filter(t => t.outcome?.question === 'SandboxError: no commit for main')).toHaveLength(failures);
+  });
+
+  it('parks say after both checkout attempts fail', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'A question');
+    const [run] = await w.run([], 1, { kind: 'say', issue: 1, text: 'Explain the project' }, 2);
+    expect(run).toMatchObject({ status: 'waiting', retried: true });
+  });
+
+  it.each([1, 'all'] as const)('recovers an unowned running run through %s', async issue => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'A question');
+    const [parked] = await w.run([], 1, { kind: 'say', issue: 1, text: 'Remember the original request' }, 2);
+    const { reason: _reason, ...running } = { ...parked!, status: 'running' as const, retried: true as const };
+    await Effect.runPromise(
+      Effect.flatMap(Store, store => store.put(running)).pipe(Effect.provide(fileStore(join(w.root, 'data'))))
+    );
+    const lock = join(w.root, 'data', '.locks', `${running.id}.lock`);
+    writeFileSync(lock, String(process.pid));
+    expect(await w.run([], issue)).toEqual([running]);
+    const dead = spawnSync(process.execPath, ['-e', ''], { env: { ...process.env, NODE_OPTIONS: '' } });
+    writeFileSync(lock, String(dead.pid));
+    const [recovered] = await w.run([[start('recovered'), reply({ kind: 'comment', body: 'Recovered.' })]], issue);
+    expect(recovered).toMatchObject({ id: running.id, status: 'done' });
+    expect(existsSync(lock)).toBe(false);
+    const trace = readFileSync(join(w.root, 'data', running.id, 'trace.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l));
+    expect(trace.filter(t => t.prompt).at(-1).prompt.prompt).toContain('Remember the original request');
   });
 
   it('dispatches with the router checks and tells through the CLI without a hub or App', async () => {
