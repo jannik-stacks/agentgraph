@@ -501,6 +501,26 @@ describe('githubForge', () => {
     expect(minted).toContainEqual({ permissions: { issues: 'write' }, repositories: ['r'] });
   });
 
+  it('returns the created issue when its sub-issue link is refused', async () => {
+    const f = fake({
+      'POST /repos/o/r/issues': { id: 555, number: 10, html_url: 'https://github.com/o/r/issues/10' },
+      'POST /repos/o/r/issues/7/sub_issues': () => ({ status: 422, body: { message: 'Cannot link this issue' } }),
+    });
+    const applied = await run(
+      f,
+      Effect.flatMap(Forge, forge =>
+        forge.apply(7, { kind: 'issue', title: 'Part', body: 'Done when complete', parent: 7 })
+      )
+    );
+    expect(applied).toMatchObject({
+      ok: true,
+      id: '10',
+      url: 'https://github.com/o/r/issues/10',
+      reason: expect.stringMatching(/link.*422/),
+    });
+    expect(f.calls.filter(c => c.path === '/repos/o/r/issues')).toHaveLength(1);
+  });
+
   it('edits a comment, replies under a review comment, reacts with eyes and takes the eyes back', async () => {
     const f = fake({
       'PATCH /repos/o/r/issues/comments/11': { id: 11, html_url: 'u11' },

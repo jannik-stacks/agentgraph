@@ -846,9 +846,14 @@ export const githubForge = (
               fields,
               'issue'
             );
-            if (p.parent !== undefined)
-              yield* gh('POST', `${repo}/issues/${p.parent}/sub_issues`, { sub_issue_id: made.id }, 'issue');
-            return { url: made.html_url, id: String(made.number) };
+            const reason =
+              p.parent === undefined
+                ? undefined
+                : yield* gh('POST', `${repo}/issues/${p.parent}/sub_issues`, { sub_issue_id: made.id }, 'issue').pipe(
+                    Effect.as(undefined),
+                    Effect.catchAll(e => Effect.succeed(`could not link #${made.number} to #${p.parent}: ${e.message}`))
+                  );
+            return { url: made.html_url, id: String(made.number), ...(reason && { reason }) };
           });
       }
     };
