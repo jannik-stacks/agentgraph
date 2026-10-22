@@ -2,7 +2,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { rowsOf } from '../../../bin/bench.ts';
 import { live, queryParam } from '../state.ts';
-import { Button, cx, Disclosure, Field, Fields, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
+import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaults, frontier, presets, type price, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
 
@@ -26,11 +26,18 @@ const tones: Record<string, string> = {
   'claude-sub': 'text-orange-600 dark:text-orange-400',
 };
 const help: Record<keyof typeof defaults, string> = {
-  test: 'Hidden tests score 1 when they pass and 0 when they fail.',
+  test: 'Hidden tests are the test files the merged pull request added. They run on top of the arm’s change after it finished: 1 when they pass, 0 when they fail.',
   judge: 'Twice the judges’ mean preference over the human. A tie scores 1, always preferring the run scores 2.',
   suite: 'Scores 1 when both the repo’s suite and typecheck pass.',
   crit: 'Penalty: a third for each critical or high finding above the human’s count on the same case, at most 1.',
   help: 'Penalty: the full weight when the run stopped to ask one or more questions.',
+};
+const labels: Record<keyof typeof defaults, string> = {
+  test: 'hidden tests',
+  judge: 'judges',
+  suite: 'suite',
+  crit: '− findings',
+  help: '− asking',
 };
 const presetHelp: Record<string, string> = {
   composite: 'The default mix of hidden tests, judges and suite.',
@@ -211,9 +218,11 @@ export const BenchPage = () => {
             ))}
           </div>
           {names.map(k => (
-            <Tooltip key={k} tip={help[k]} className="w-full">
-              <label className="grid w-full grid-cols-[2.5rem_1fr_2.25rem] items-center gap-2 font-mono text-zinc-600 dark:text-zinc-400">
-                {k}
+            <div key={k} className="w-full">
+              <label className="grid w-full grid-cols-[6.5rem_1fr_2.25rem] items-center gap-2 font-mono text-zinc-600 dark:text-zinc-400">
+                <span className="inline-flex items-center gap-1">
+                  {labels[k]} <Help tip={help[k]} />
+                </span>
                 <input
                   type="range"
                   min={0}
@@ -225,7 +234,7 @@ export const BenchPage = () => {
                 />
                 <span className="text-right tabular-nums">{weights[k].toFixed(2)}</span>
               </label>
-            </Tooltip>
+            </div>
           ))}
         </Control>
         <Control
