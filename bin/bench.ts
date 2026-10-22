@@ -257,7 +257,10 @@ const tested = (repo: string, tests: string[]): Commands => {
     return { setup: `${npmCi} && npm run build -w @stacks/connect-ui`, test: perPackage(js, 2, 'npx vitest run') };
   if (name === 'workers' && js.length) return { setup: install('10.33.0'), test: perPackage(js, 2, 'npx vitest run') };
   if (name === 'stacks-mesh-api' && js.length)
-    return { setup: npmCi, test: perPackage(js, 2, 'NODE_ENV=test node --test --import tsx --test-timeout 300000') };
+    return {
+      setup: `${npmCi} && npm run build -w @stacks/mesh-schemas`,
+      test: perPackage(js, 2, 'NODE_ENV=test node --test --import tsx --test-timeout 300000'),
+    };
   if (name === 'clarity-wasm' || name === 'stacks-core') {
     const test = cargoTests(tests);
     const build = test.map(t => t.replace('cargo test', 'cargo test --no-run'));
