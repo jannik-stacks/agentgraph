@@ -13,7 +13,7 @@ import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
-import { parseArgs, parseEnv } from 'node:util';
+import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
 import { priceOf, type Prices } from '../src/harnesses.ts';
 import {
@@ -576,7 +576,7 @@ const coupled =
 
 /** Passed and total counts a jest, vitest, cargo or node test run printed last. */
 const counts = (tail = '') => {
-  const text = tail.replace(/\x1b\[[\d;]*m/g, '');
+  const text = stripVTControlCharacters(tail);
   const cargo = [...text.matchAll(/test result: \w+\. (\d+) passed; (\d+) failed/g)];
   if (cargo.length)
     return cargo.reduce((n, m) => ({ passed: n.passed + +m[1]!, total: n.total + +m[1]! + +m[2]! }), {
