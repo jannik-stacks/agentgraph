@@ -28,7 +28,7 @@ export const runningBest = (points: { x: number; y?: number | undefined; kept: b
  * A step's usd and minutes per run, case-weighted over its select evals. An eval without `perRun` counts its total
  * spread over its cases.
  */
-export const perRun = (step: Step) => {
+const perRun = (step: Step) => {
   const evals = step.evals.filter(e => e.split !== 'test');
   const n = sum(evals.map(e => e.cases.length));
   const of = (k: 'usd' | 'minutes') =>
