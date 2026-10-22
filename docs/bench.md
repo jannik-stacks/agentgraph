@@ -1,7 +1,6 @@
 # Bench
 
-The bench replays merged pull requests. Each arm gets the issue text at the merge's parent commit, and
-its result is scored against what was merged, first by tests and then by a blind panel of judges.
+The bench replays merged pull requests from their parent commit and issue text. Tests and blind judges score each arm against the merged change.
 
 ## Run it at a commit
 
@@ -9,68 +8,52 @@ its result is scored against what was merged, first by tests and then by a blind
 BENCH_CASES=<miner cases> BENCH_REPOS=<clones> npm run bench -- --at <engine-commit> [--set smoke] [--fresh]
 ```
 
-It checks the commit out as a git worktree under `runs/<sha>/engine`, runs every case of
-`bench/sets/<set>.json` (validity, v2, floor, score, judge) with that engine, and writes
-`runs/<sha>/report.md` and `compare.md`, the headline numbers that changed against the newest earlier
-report. `--cases-dir`, `--repos-dir`, `--out` (default `runs`), `--parallel` (default 3) and `--judges`
-override the defaults. A set pins each case's `base`; a case whose folder has another base is skipped.
+The command checks out `runs/<sha>/engine`, then runs validity, v2, floor, scoring and judging for `bench/sets/<set>.json`. It writes `report.md` and `compare.md` against the newest earlier report. Cases whose base differs from the set's pinned base are skipped.
 
-`--point harness:model` (or `BENCH_POINT`) runs every agent of the hub copy on that harness and model, and `--repeat k` runs
-a case again instead of reusing it. The model is any alias of the model proxy, such as `--point opencode:glm` for an
-OpenRouter model ([local stack](../infra/local/README.md#openrouter-models)). Either puts the run in `runs/<sha>/<harness>-<model>/r<k>`, with a
-`point.json` that names the harness, model, engine, hub trees, set and repeat. When the keys file has
-`AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>`, every agent uses that key. `--pairs human` judges each arm
-against the human only. `BENCH_HUB=<dir>` runs the v2 arm on that hub as it is, in place of the repo's, and its
-content joins the arm's cache key.
+| Option | Effect |
+| --- | --- |
+| `--cases-dir`, `--repos-dir` | Override `BENCH_CASES`, `BENCH_REPOS` |
+| `--out` | Output root, default `runs` |
+| `--parallel` | Concurrent cases, default 3 |
+| `--point harness:model` | Repoint every hub agent; aliases include `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)) |
+| `--repeat k` | Separate repeat instead of reuse |
+| `--pairs human` | Judge only pairs containing the human |
+| `--judges` | Replace the [judge panel](#commands) |
+| `--fresh` | Ignore shared caches |
 
-Nothing unchanged is run or judged again. Results live in `runs/.cache`: validity by case, the scoring
-code and the sandbox image the score step starts from, an arm by
-case, arm, hub content and the engine's `src` tree (the floor arm leaves the tree out), and the point and
-repeat when given, a judge verdict by
-judge and prompt, which holds both diffs and their order. `--fresh` ignores the cache.
+Point or repeat options write under `runs/<sha>/<harness>-<model>/r<k>`. `point.json` records harness, model, engine, hub trees, set and repeat. `BENCH_POINT` also selects the model for arm commands; use explicit `--point` for matching commit-run metadata. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key. `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key.
+
+Shared results live in `runs/.cache`: validity keys include case, scoring code and sandbox image; arm keys include case, arm, hub, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped.
 
 ## Cases
 
-A case is a folder with `case.json`, `issue.md` and `merged.diff`. `case.json` names the repo, the
-`base` (the parent commit) and the `merged` commit. The commands are optional: `test` runs the tests
-the merged change adds, `suite` the whole suite (it falls back to `test`), `typecheck`, and `setup`
-before them. `image` names a local image the score step starts from in place of the sandbox image, such as
-`agentgraph-sandbox:node20` from `infra/local/sandbox/node20` for a repo that needs Node 20. A case with `hasTests: false` gets no test runs, only metrics and judges.
-Strata fields such as `size`, `kind` and `area` group the report.
+Each case folder has `case.json`, `issue.md` and `merged.diff`.
 
-A case counts only when the hidden tests fail on the base and pass on the human, and the human diff
-applies, its setup works and its suite passes. Otherwise `valid.json` says why, the case's arms are not
-run or judged, and the report lists it as invalid. A case is also invalid as `coupled` when a hidden test
-imports a path or a name that only the human's diff adds and the issue never mentions, or checks a snapshot:
-such a test checks the human's exact interface, not the behaviour the issue asks for. That check reads only
-the diff, the base tree and the issue, and runs before any container.
+| Case field | Meaning |
+| --- | --- |
+| `repo`, `base`, `merged` | Repo and commits to replay |
+| `test`, `suite`, `typecheck`, `setup` | Optional commands; suite defaults to test |
+| `image` | Local scoring base image, e.g. `agentgraph-sandbox:node20` from `infra/local/sandbox/node20` |
+| `hasTests: false` | Metrics and judges only |
+| `size`, `kind`, `area` | Report strata |
+| `control` | `bug` flips an added comparison; `padded` adds trivial tests |
 
-A case with `control: bug` or `control: padded` judges the human diff against a copy of itself instead of
-the arms: `bug` flips one comparison in an added source line, `padded` appends a test file of trivial cases. Judges that prefer the copy are
-wrong, which measures how well they catch bugs and how much they reward size.
+Mined cases list test files in `tests`; `plan` in `bin/bench.ts` derives repo commands. `bucket: no-tests` disables tests.
+
+Tested cases are valid only if hidden tests fail on base and pass on human, the human diff applies, setup works and the human suite passes. Invalid cases record reasons in `valid.json` and skip arms and judges. Before containers run, a coupling check rejects tests importing human-only paths or names absent from the issue, or checking snapshots. Controls compare the human with its mutated copy; preferring the copy measures judge mistakes.
 
 ## Arms
 
-- `human`: the merged change.
-- `v2`: the engine with the repo's hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), or
-  `examples/bench` for any other repo: an implementor that must pass the case's `test` command, then a
-  reviewer that may send it back once (skipped for one small edit to one source file), then a human
-  merge.
-- `floor`: one plain session in the same hub's sandbox and budget, no checks and no review
-  (`bench/floor`).
-- `v1`: not yet. It needs its own sandbox image and env, and its seed must be made leak-free first.
+| Arm | Behavior |
+| --- | --- |
+| `human` | Merged change |
+| `v2` | Repo hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), otherwise `examples/bench`: implement, check tests, review with one return, then human merge. Small single-source edits skip review in the fallback hub. |
+| `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
+| `v1` | Unavailable; needs a separate image, environment and leak-free seed |
 
-An arm run that ends with an empty diff or never finished is infra, not a result. It is retried once,
-and if it fails again `meta.json` says why and the arm is left out of every win rate and mean, and
-listed in the report. A setup failure while scoring counts the same way. A run its environment broke
-(a runner error, the model proxy or docker gone, the machine asleep) is not done at all: it is logged
-as `infra` in `log.jsonl`, waits for the environment, is tried again with backoff, and only after 6 such
-failures across restarts is it kept as infra. A setup failure while the registry is unreachable leaves
-the arm unscored.
+Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers one question with "No more information. Use your judgment."; answers are counted.
 
-Each run seeds a forge folder with `node bin/forge.ts <dir> init <repo> --at <base>`, so the fix is not
-in the origin. When a run asks a question, a scripted maintainer answers once with "No more
-information. Use your judgment." and the answer is counted.
+Empty or unfinished arms retry once, then become infra in `meta.json`, excluded from win rates and means. Scoring setup failures also count as infra. Environment failures retry with backoff across restarts, logging `infra` in `log.jsonl`; after six failures they remain infra. Unreachable registries leave scores unwritten.
 
 ## Commands
 
@@ -82,42 +65,12 @@ node bin/bench.ts judge <case> <out>
 node bin/bench.ts report <out>
 ```
 
-- `run` leaves the arm's forge, data dir, hub copy, `diff.patch`, `meta.json` and `usage.json` (sessions,
-  reported cost and tokens by model and class) in `<out>/<case>/<arm>`. A cached arm keeps `usage.json`
-  but not its data dir. `--point` and `--repeat` work as above.
-- `score` checks each arm out at the base in one shared tree, applies its diff and runs the suite and
-  typecheck. Then it puts the merged change's test files on top and runs `test`: those are the hidden
-  tests. A `base` row shows whether they fail before any change. It also counts source and test lines,
-  files, overlap with the human's files, added test cases, the change in branch tokens, and sessions,
-  cost and answers from `usage.json`, else the traces. With `--drop-env` it then removes the
-  environment images the case's scores ran in. The run at a commit passes it after a case's last arm;
-  a tune does not, since its candidates score the same cases again.
-- `judge` hands every pair of arms to three judges (Opus and Sonnet through `claude -p`, sol through
-  LiteLLM's `smart`). `--judges opus:1,sonnet:2,sol:2` sets how many orders each reads; a judge with
-  one reads the order picked by the case and pair, so a pair costs three Claude calls. The panel given
-  replaces the default, so `--judges sol:1` runs sol alone. A judge from the same maker as the point's model
-  (by its upstream name in `infra/local/prices.json`) is swapped for the first of sol, `gemini` (through
-  LiteLLM's `gemini`) and Opus from another maker, so luna is judged by gemini. `--pairs human`
-  judges only the pairs with the human in them. The diffs are blinded: no lockfiles or changelogs, no index
-  lines, issue numbers and names masked. The prompt is `bench/judge.md`: correctness against the issue
-  first, then scope, and more tests or lines are not better in themselves. Each verdict lists findings
-  by severity and category, a preference, and is kept as JSON next to the raw answer.
-- `report` writes `report.md`: the valid, invalid and infra counts, the hidden test pass rate per arm,
-  then win rates with a bootstrap interval over cases, mean metrics per arm,
-  findings by severity, judge agreement, all of it again per stratum, and a table per case.
+- `run` writes forge, data, hub copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage includes sessions, reported costs and tokens by model and class. Cached arms retain usage, not data. `--point` and `--repeat` also work here.
+- `score` applies each diff to a shared base checkout, runs suite and typecheck, overlays human test files and runs hidden tests. A base row checks pre-change failure. Metrics count source/test lines, files, human-file overlap, added tests, branch-token changes, sessions, cost and answers. Usage comes from `usage.json`, otherwise traces. `--drop-env` removes scoring environments afterward; commit runs use it after the last arm, tunes retain environments for reuse.
+- `judge` compares pairs with Opus and Sonnet via `claude -p`, and sol via proxy alias `smart`. Default `--judges opus:1,sonnet:2,sol:2` sets one or both diff orders; a single order is chosen by case and pair. `--judges sol:1` replaces the panel. Judges sharing the contestant's maker are replaced by another maker from sol, gemini, Opus, using upstream names in `infra/local/prices.json`. Prompts omit lockfiles, changelogs and index lines, and mask names and issue numbers. `bench/judge.md` prioritizes correctness, then scope, without rewarding size. JSON verdicts keep severity, category and preference beside raw replies.
+- `report` writes valid/invalid/infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables.
 
-Every step skips outputs that exist and moves an unfinished arm into `<case>/.attic/` instead of
-deleting it, without its checkouts. A finished run keeps only its records (traces, diff, score, meta,
-usage and validity files); the score tree is removed after scoring, dependencies live in docker volumes
-and never in a checkout, and a run waits while the disk is low (see [environments](sandbox.md#environments)). Progress appends to `<out>/log.jsonl`. The score step runs each command in a container of the
-case's [environment](sandbox.md#environments), with no network except for setup. Nothing of a case runs on the
-host: without docker or the sandbox image the step fails and writes no score. Setup runs again only when the diff
-touches a manifest such as a lockfile, and a case's `build` (the clarinet SDK) runs on every diff. A mined
-`case.json` lists its test files in `tests` and has no commands: the bench derives them per repo (`plan` in
-`bin/bench.ts`), and `bucket: no-tests` means
-metrics and judges only. Model keys come from `--keys`, `infra/local/.keys.env` by default. Before a
-paid step the bench reads the weekly Codex use and stops once it is more than `--max-codex` points (30)
-above the first reading, or after `--max-claude-calls` judge calls (60).
+Scoring commands run only in [Docker environments](sandbox.md#environments), offline except setup; missing Docker or images produces no score. Setup reruns for manifest changes or incomplete environments; otherwise case `build` runs on nonempty diffs. Progress appends to `<out>/log.jsonl`. Model keys use `--keys`, default `infra/local/.keys.env`. Paid steps stop above `--max-codex` weekly-use points since the first reading (30), or `--max-claude-calls` judge calls (60).
 
 ## Cost against quality
 
@@ -125,38 +78,21 @@ above the first reading, or after `--max-claude-calls` judge calls (60).
 cd studio && npm run dev -- --bench ~/bothub-data/bench/runs-2 ~/bothub-data/bench/runs-3
 ```
 
-The studio's Bench tab plots each point, a harness and model on an arm and a set, as quality against
-notional USD per task or minutes. It reads every out dir under the dirs it is given; a dir without
-`point.json` reads as opencode on `smart`, repeat 1, with the dir name as its set. Quality is 0 for nothing
-useful and 1 for the human: the hidden tests, twice the judges' preference over the human and the suite,
-weighted by the sliders, less penalties for findings above the human's and for questions. Cost is the
-tokens priced from `infra/local/prices.json`. Crosses are 95% intervals from a bootstrap over cases, then
-repeats. The staircase through the points no cheaper point beats is dashed while one of them has fewer
-than 10 valid cases. Click a point for its cases.
+The Bench tab reads runs under these directories. Without `point.json`, it assumes opencode, `smart`, repeat 1 and directory name as set. Click a point for cases.
+
+Quality combines hidden tests, twice judge preference over human, and suite scores with slider weights, minus extra findings and question penalties. Zero means nothing useful; one matches human. Cost uses token list prices or elapsed minutes. Crosses show 95% bootstrap intervals over cases, then repeats. The staircase connects points no cheaper point beats; it stays dashed while any has fewer than ten valid cases.
 
 ## Long runs
 
-A bench or tune survives being stopped, killed, a dead harness or proxy, a sleeping laptop and a crash.
-Rerun the same command and it continues: an arm is done once its `diff.patch` exists, which is written
-last, and every result file is written whole through a rename. A unit a live process holds is skipped
-(`<arm>.lock`), one a dead process left half done goes to the attic and runs again, and the sandbox
-containers that mount it are removed. Ctrl-C or `kill` stops a run at once; the unit it was on
-runs again on the next start. A tune's `run --until <iteration>` stops at that iteration whatever the
-restarts, and a tune phase whose runs stay unfinished waits for the environment and tries them again
-before it gives up without deciding anything.
+Rerun the same command after interruption. Atomic renames protect results; `diff.patch` is written last to mark completion. Live `<arm>.lock` holders are skipped. Abandoned work moves to `<case>/.attic/` without checkouts; its containers are removed. Completed records remain, scoring trees are removed, and dependencies stay in Docker volumes. Low disk space [holds work](sandbox.md#environments).
 
-The first start records the `BENCH_*` settings, `--keys` and `--point` it ran with in `env.json` in the
-out dir or tune dir. A restart without them takes them from there; one that sets a different value, or
-whose recorded paths are gone, stops before it runs anything. Edit `env.json` to change one on purpose.
+A tune's `run --until <iteration>` survives restarts. Unfinished phases wait and retry before giving up without a decision. First startup pins `BENCH_*`, `--keys` and `--point` in `env.json`. Restarts restore missing settings and reject changed values or missing paths. Edit that file for deliberate changes.
 
 ```sh
-node bin/bench.ts status <out>        # done of total, infra, running, retries, a wait, minutes left
-node bin/tune.ts status <tune dir>    # steps, whether it runs, the current phase of runs
-sh bin/overnight.sh <queue>           # one command per line, in order, kept awake with caffeinate
+node bin/bench.ts status <out>
+node bin/tune.ts status <tune dir>
+sh bin/overnight.sh <queue>
 sh bin/overnight.sh status <queue>
 ```
 
-The queue file holds one shell command per line (`#` comments). A line that exits 0 goes to
-`<queue>.done` and is skipped on every rerun; a failing one is tried 3 times with backoff, then left for
-the next rerun. Output appends to `<queue>.log`. Keep queues and out dirs under `~/bothub-data`, never
-`/tmp`, which macOS empties.
+Status shows progress, infra, running work, retries, waits and estimates; tune status includes its phase. Queues contain shell commands, one per line, with `#` comments. Success appends to `<queue>.done` and is skipped thereafter. Failures retry three times with backoff, then wait for rerun. Output appends to `<queue>.log`; macOS uses `caffeinate`. Keep queues and outputs under `~/bothub-data`, outside `/tmp`.
