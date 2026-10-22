@@ -6,7 +6,7 @@ import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { ToolBody, toolName, toolSummary } from './tools.tsx';
-import { type CoreRun, detail, type Session, visitsOf } from './trace.ts';
+import { atLink, type CoreRun, detail, type Session, visitsOf } from './trace.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
@@ -18,6 +18,8 @@ export type Row = {
   raw?: unknown;
   open?: boolean;
   scroll?: boolean;
+  /** The line a deep link points at, highlighted. */
+  target?: boolean;
 };
 
 const usd = (n: number) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
@@ -47,6 +49,25 @@ const Url = ({ url, text }: { url: string; text?: string }) => (
     {text ?? url.replace(/^https:\/\/github\.com\/[^/]+\/[^/]+\//, '')}
   </a>
 );
+
+/** Copies the full URL of a studio page. */
+const CopyLink = ({ href }: { href: string }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="text-zinc-400 underline hover:text-zinc-900 dark:hover:text-zinc-100"
+      onClick={() =>
+        navigator.clipboard.writeText(new URL(href, location.origin).href).then(
+          () => setCopied(true),
+          () => undefined
+        )
+      }
+    >
+      {copied ? 'copied' : 'copy link'}
+    </button>
+  );
+};
 
 /** A check's full output, fetched from the data dir when asked for. */
 const FullLog = ({ log }: { log: NonNullable<Line<'check'>['log']> }) => {
@@ -296,7 +317,13 @@ export const lineRow = (line: Trace, by = 'bothub'): Row => {
 };
 
 /** A session folded to who ran, on what, how it ended and what it cost, its end line as its raw; open, its prompt and every event in order. */
-const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: boolean, repo?: string): Row => {
+const sessionRow = (
+  { prompt, events, end }: Session,
+  running: boolean,
+  expand: boolean,
+  repo?: string,
+  target?: Trace
+): Row => {
   const spec = prompt?.prompt;
   const aside = prompt?.aside;
   const heard =
@@ -311,7 +338,7 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: 
   const how = end && `${end.session.ended}${end.session.exit === undefined ? '' : `, exit ${end.session.exit}`}`;
   return {
     at: first ?? end?.at,
-    open: expand || (running && !end),
+    open: expand || (running && !end) || [prompt, ...events, end].some(l => l && l === target),
     scroll: true,
     raw: end,
     summary: (
@@ -337,7 +364,11 @@ const sessionRow = ({ prompt, events, end }: Session, running: boolean, expand: 
         {first && muted(took(first, end?.at))}
       </span>
     ),
-    children: [...(prompt ? [prompt] : []), ...events].map(line => lineRow(line)),
+    children: [...(prompt ? [prompt] : []), ...events].map(line => ({
+      ...lineRow(line),
+      ...(line === target && { target: true }),
+    })),
+    ...(end && end === target && { target: true }),
   };
 };
 
@@ -370,13 +401,16 @@ const Issue = ({ r }: { r: CoreRun }) =>
   );
 
 /** An open run's first line: its try, its graph and its JSON, then why it stopped or what it asks. */
-const RunInfo = ({ r: { run, fixture } }: { r: CoreRun }) => {
+const RunInfo = ({ r: { run, fixture }, step }: { r: CoreRun; step: string }) => {
   const [raw, setRaw] = useState(false);
   return (
     <>
       <p className="flex gap-x-2 text-zinc-500">
         <span>try {run.tries}</span>
-        <Link href={`/graph?run=${encodeURIComponent(`${fixture}:${run.id}`)}`} className="underline">
+        <Link
+          href={`/graph?run=${encodeURIComponent(`${fixture}:${run.id}`)}&step=${encodeURIComponent(`${run.workflow}/${step}`)}`}
+          className="underline"
+        >
           graph
         </Link>
         <button type="button" aria-pressed={raw} className="underline" onClick={() => setRaw(!raw)}>
@@ -406,18 +440,28 @@ export const RunLine = ({ r }: { r: CoreRun }) => (
 );
 
 /** A run as a row: where it stands, what it cost and left on the forge; open, the steps it visited. */
-export const runRow = (r: CoreRun, open = false, expand = false): Row => {
+export const runRow = (r: CoreRun, open = false, expand = false, target?: Trace): Row => {
   const { run, trace } = r;
   const visits = visitsOf(trace);
   let by: string | undefined;
-  const partRow = (part: Session | Trace) => {
+  const partRow = (part: Session | Trace): Row => {
     if ('events' in part) {
       by ??= part.prompt?.prompt.agent ?? 'the agent';
-      return sessionRow(part, live(r), expand, r.repo);
+      return sessionRow(part, live(r), expand, r.repo, target);
     }
     const row = lineRow(part, by);
     if ('outcome' in part) by = undefined;
-    return row;
+    return {
+      ...row,
+      ...(part === target && { target: true, open: true }),
+      ...('applied' in part && {
+        summary: (
+          <>
+            {row.summary} <CopyLink href={atLink(run.id, part.applied.at ?? part.at)} />
+          </>
+        ),
+      }),
+    };
   };
   return {
     key: run.id,
@@ -457,7 +501,7 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
         )}
       </span>
     ),
-    body: <RunInfo r={r} />,
+    body: <RunInfo r={r} step={target?.step ?? run.step} />,
     children: visits.map((visit, i) => ({
       open: true,
       summary: (
@@ -478,6 +522,8 @@ export const runRow = (r: CoreRun, open = false, expand = false): Row => {
     })),
   };
 };
+
+const targeted = 'rounded bg-amber-100/70 dark:bg-amber-900/30';
 
 const Head = ({ row, full = false, children }: { row: Row; full?: boolean; children?: ReactNode }) => (
   <span className="flex min-w-0 items-baseline gap-2">
@@ -519,7 +565,7 @@ const LeafView = ({ row }: { row: Row }) => {
   const cutOff = (el: HTMLElement) =>
     [...el.querySelectorAll<HTMLElement>('.truncate')].some(t => t.scrollWidth > t.clientWidth);
   return (
-    <li className="pl-4.5">
+    <li className={cx('pl-4.5', row.target && targeted)} data-target={row.target || undefined}>
       <span
         className={cx('group/row block', (cut || full) && 'cursor-pointer')}
         onMouseEnter={e => setCut(cutOff(e.currentTarget))}
@@ -557,7 +603,7 @@ const RowView = ({ row }: { row: Row }) => {
     );
   if (!row.body && !row.children?.length) return <LeafView row={row} />;
   return (
-    <li>
+    <li className={cx(row.target && targeted)} data-target={row.target || undefined}>
       <Disclosure
         summary={
           <Head row={row}>

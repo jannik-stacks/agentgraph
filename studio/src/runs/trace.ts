@@ -1,4 +1,4 @@
-import type { Trace } from '../../../src/store.ts';
+import type { Located, Trace } from '../../../src/store.ts';
 import type { Outcome, Run } from '../../../src/workflow.ts';
 
 /** What an outcome says beyond its kind. */
@@ -74,3 +74,22 @@ export const visitsOf = (trace: Trace[]) => {
   }
   return visits;
 };
+
+/** The trace line `?at=` opens: the write stamped then, else the first write at or after it, else any line. */
+export const lineAt = (trace: Trace[], at: string | null) =>
+  at === null
+    ? undefined
+    : (trace.find(l => 'applied' in l && l.applied.at === at) ??
+      trace.find(l => 'applied' in l && l.at >= at) ??
+      trace.find(l => l.at >= at));
+
+/** The studio page of a run at one trace line. */
+export const atLink = (run: string, at: string) => `/runs/${encodeURIComponent(run)}?at=${at}`;
+
+/** Where a `locate` answer opens: the run at that write, or the runs of an issue. */
+export const locatedLink = (found: Located) =>
+  'run' in found ? atLink(found.run, found.at) : `/runs?issue=${found.issue}`;
+
+/** Whether pasted text is a GitHub issue, pull request or comment link, or a comment id, for `/runs?gh=`. */
+export const isGitHubRef = (text: string) =>
+  /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/(?:issues|pull)\/\d+\S*$/.test(text) || /^\d{7,}$/.test(text);

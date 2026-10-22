@@ -1,14 +1,41 @@
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
 import { storyOfRun, WorkflowGraph } from '../graph/GraphPage.tsx';
 import { trailOf } from '../graph/visits.ts';
-import { pageAtom, live, queryParam, runsAtom } from '../state.ts';
+import { pageAtom, live, navigateAtom, queryParam, runsAtom, selectedStepAtom } from '../state.ts';
 import { Combobox, Disclosure, Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
-import type { CoreRun } from './trace.ts';
+import { type CoreRun, isGitHubRef, lineAt, locatedLink } from './trace.ts';
+import type { Located } from '../../../src/store.ts';
 
 const issueParam = queryParam('issue');
+const ghParam = queryParam('gh');
+const atParam = queryParam('at');
+
+/** Opens what a GitHub link or comment id names, as the server's `locate` finds it. */
+const Locate = ({ gh }: { gh: string }) => {
+  const navigate = useSetAtom(navigateAtom);
+  const [failure, setFailure] = useState<string>();
+  useEffect(() => {
+    let current = true;
+    fetch(`/core/locate?gh=${encodeURIComponent(gh)}`)
+      .then(r => r.json() as Promise<Located | { error: string } | null>)
+      .then(
+        found => {
+          if (!current) return;
+          if (!found) setFailure(`No run wrote ${gh}.`);
+          else if ('error' in found) setFailure(found.error);
+          else navigate({ href: locatedLink(found), replace: true });
+        },
+        (e: Error) => current && setFailure(e.message)
+      );
+    return () => {
+      current = false;
+    };
+  }, [gh, navigate]);
+  return failure ? <Muted>{failure}</Muted> : <Loading />;
+};
 
 /** Each issue the runs worked on, newest first, as a filter option with its title and body, else its workflows. */
 const issuesOf = (runs: CoreRun[]) => {
@@ -31,8 +58,14 @@ const issuesOf = (runs: CoreRun[]) => {
 };
 
 const RunList = () => {
+  const gh = useAtomValue(ghParam);
+  return gh ? <Locate gh={gh} /> : <Runs />;
+};
+
+const Runs = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
   const [issue, setIssue] = useAtom(issueParam);
+  const navigate = useSetAtom(navigateAtom);
   const options = useMemo(() => issuesOf(runs ?? []), [runs]);
   if (!runs) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!runs.length) return <Muted>No runs in this data dir.</Muted>;
@@ -41,7 +74,22 @@ const RunList = () => {
     .toSorted((a, b) => b.run.started.localeCompare(a.run.started));
   return (
     <>
-      <Combobox label="Issue" placeholder="every issue" value={issue} options={options} onChange={setIssue} />
+      <div
+        onPaste={e => {
+          const text = e.clipboardData.getData('text').trim();
+          if (!isGitHubRef(text)) return;
+          e.preventDefault();
+          navigate({ href: `/runs?gh=${encodeURIComponent(text)}` });
+        }}
+      >
+        <Combobox
+          label="Issue"
+          placeholder="every issue, or paste a GitHub link"
+          value={issue}
+          options={options}
+          onChange={setIssue}
+        />
+      </div>
       <Rows rows={shown.map(r => runRow(r))} />
     </>
   );
@@ -98,8 +146,16 @@ const RunPage = ({ id }: { id: string }) => {
   const one = useMemo(() => live<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`), [id]);
   const { value: r, failure } = useAtomValue(one);
   const [expand, setExpand] = useStored('bothub.expandSessions', true);
+  const at = useAtomValue(atParam);
+  const [step, setStep] = useAtom(selectedStepAtom);
+  const target = useMemo(() => (r ? lineAt(r.trace, at) : undefined), [r, at]);
   const end = useRef<HTMLDivElement>(null);
-  const following = expand && r?.run.status === 'running';
+  const following = expand && r?.run.status === 'running' && !target;
+  useEffect(() => {
+    if (!r || !target) return;
+    if (!step) setStep(`${r.run.workflow}/${target.step}`);
+    document.querySelector('[data-target]')?.scrollIntoView({ block: 'center' });
+  }, [at, !!target]);
   useEffect(() => {
     if (!following) return;
     for (const box of document.querySelectorAll('[data-scroll]')) box.scrollTop = box.scrollHeight;
@@ -114,7 +170,7 @@ const RunPage = ({ id }: { id: string }) => {
         <input type="checkbox" checked={expand} onChange={e => setExpand(e.target.checked)} />
         Open every session{r.run.status === 'running' && ' and follow the newest events'}
       </label>
-      <Rows rows={[runRow(r, true, expand)]} />
+      <Rows rows={[runRow(r, true, expand, target)]} />
       <div ref={end} />
     </>
   );

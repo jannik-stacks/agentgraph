@@ -15,10 +15,15 @@ type Row = {
   children?: Row[];
   raw?: unknown;
   open?: boolean;
+  target?: boolean;
 };
 type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] };
 Object.assign(globalThis, { location: new URL('http://localhost/runs') });
-const { runRow } = await studioModule<{ runRow: (r: CoreRun, open?: boolean) => Row }>('runs/rows.tsx');
+const { runRow } = await studioModule<{
+  runRow: (r: CoreRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
+}>('runs/rows.tsx');
+const { lineAt, locatedLink, isGitHubRef } =
+  await studioModule<typeof import('../studio/src/runs/trace.ts')>('runs/trace.ts');
 const dependency = <T>(name: string) =>
   import(
     /* @vite-ignore */ pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href
@@ -135,5 +140,71 @@ describe('sessions in a trace', () => {
     expect(sessions[2]?.raw).toBe(ended);
     expect(text(sessions[2]).match(/ended/g)).toHaveLength(1);
     expect(text(sessions[2])).toContain('ended before it started: stop, exit 0');
+  });
+});
+
+describe('a deep link into a run', () => {
+  const pr = 'https://github.com/o/r/pull/8';
+  const lines = [
+    ...trace,
+    { at: '2026-10-16T05:01:00.000Z', step: 'review', event: { type: 'text', text: 'looking' } },
+    {
+      at: '2026-10-16T05:02:00.000Z',
+      step: 'review',
+      applied: { proposal: { kind: 'push', branch: 'b', message: 'm' }, ok: true, url: `${pr}/commits/1` },
+    },
+    {
+      at: '2026-10-16T05:02:00.000Z',
+      step: 'review',
+      applied: {
+        proposal: { kind: 'comment', body: 'Looks right.' },
+        ok: true,
+        url: `${pr}#issuecomment-5`,
+        id: '5',
+        at: '2026-10-16T05:01:59.000Z',
+      },
+    },
+  ] as Trace[];
+  const [, , push, comment] = lines.slice(-4);
+
+  it('opens at the write stamped at that time, else the first write or line at or after it', () => {
+    expect(lineAt(lines, '2026-10-16T05:01:59.000Z')).toBe(comment);
+    expect(lineAt(lines, '2026-10-16T05:01:30.000Z')).toBe(push);
+    expect(lineAt(lines, '2026-10-16T05:00:30.000Z')).toBe(push);
+    expect(lineAt(lines, '2026-10-16T06:00:00.000Z')).toBeUndefined();
+    expect(lineAt(lines, null)).toBeUndefined();
+  });
+
+  it('highlights that line, links each write to GitHub and to itself, and points the graph at its step', () => {
+    const row = runRow({ fixture: 'sk/issue', repo: 'o/r', run, trace: lines }, true, false, comment);
+    const review = row.children!.at(-1)!;
+    const shown = review.children!.find(c => c.raw === comment)!;
+    expect(shown.target).toBe(true);
+    expect(review.children!.filter(c => c.target)).toHaveLength(1);
+    const html = renderToStaticMarkup(shown.summary);
+    expect(html).toContain(`href="${pr}#issuecomment-5"`);
+    expect(html).toContain('copy link');
+    expect(renderToStaticMarkup(review.children!.find(c => c.raw === push)!.summary)).toContain('copy link');
+    const info = renderToStaticMarkup(row.body as never);
+    expect(info).toContain(`href="/graph?run=${encodeURIComponent('sk/issue:issue-1')}&amp;step=issue%2Freview"`);
+  });
+
+  it('opens the session that holds a targeted event', () => {
+    const event = lines.find(l => 'event' in l && l.event.type === 'text' && l.step === 'review')!;
+    const row = runRow({ fixture: 'sk/issue', repo: 'o/r', run, trace: lines }, true, false, event);
+    const session = row.children!.at(-1)!.children!.find(c => c.children?.some(e => e.raw === event))!;
+    expect(session.open).toBe(true);
+    expect(session.children!.find(e => e.raw === event)?.target).toBe(true);
+  });
+
+  it('turns what locate finds into a studio link, and knows a pasted GitHub link or comment id', () => {
+    expect(locatedLink({ run: 'issue-2-1', step: 'review', at: '2026-10-19T15:43:05.403Z' })).toBe(
+      '/runs/issue-2-1?at=2026-10-19T15:43:05.403Z'
+    );
+    expect(locatedLink({ issue: 2 })).toBe('/runs?issue=2');
+    for (const text of [`${pr}#discussion_r4315833405`, pr, 'https://github.com/o/r/issues/2', '4315833405'])
+      expect(isGitHubRef(text)).toBe(true);
+    for (const text of ['2', 'review', 'https://github.com/o/r', 'https://example.com/o/r/pull/8'])
+      expect(isGitHubRef(text)).toBe(false);
   });
 });
