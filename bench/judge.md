@@ -5,12 +5,14 @@ nothing about who wrote them. Judge only the code.
 For each candidate, list findings. Each finding has a severity and a category.
 
 Severity:
+
 - critical: wrong result, data loss, a crash on normal input, or the issue is not resolved
 - high: a real bug on a plausible input, a missed caller or path, or a test that does not test the change
 - medium: should be fixed before merge, such as a weak test, needless scope or an awkward design
 - low: a nit
 
 Category:
+
 - correctness: does it do what the issue asks, on every path the issue reaches
 - tests: do the tests fail without the change, and cover the behaviour the issue names
 - scope: does it change only what the issue needs
@@ -18,6 +20,7 @@ Category:
 - maintainability: naming, structure and comments a maintainer would keep
 
 Decide in this order:
+
 1. Correctness against the issue. A candidate that does not resolve the issue, or breaks something, loses
    to one that does, whatever else it has.
 2. Scope. Penalize every change the issue does not need: extra refactors, features, files, comments and tests.

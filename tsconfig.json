@@ -13,5 +13,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "bin", "tune"]
+  "include": ["src", "tests", "bin", "tune", "bench"]
 }
