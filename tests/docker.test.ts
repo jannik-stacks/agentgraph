@@ -1,10 +1,23 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
-import { beat, bytes, dependencyDirs, evict, live, mark, reap, room, seed, sweep, toolchainOf } from '../src/env.ts';
+import {
+  beat,
+  bytes,
+  dependencyDirs,
+  evict,
+  live,
+  discard,
+  layer,
+  mark,
+  reap,
+  room,
+  sweep,
+  toolchainOf,
+} from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -51,6 +64,7 @@ describe('docker with a stand-in docker client', () => {
         `[ "$1" = network ] && { echo true; exit 0; }`,
         `[ "$1" = rm ] && exit 0`,
         `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
+        `[ "$1 $2" = "volume inspect" ] && for a; do case $a in bothub-*) echo /m/$a;; esac; done`,
         `case "$1" in commit|volume) echo "$*" >> ${log}.all; exit 0;; esac`,
         `printf '%s\\n' "$@" > ${log}`,
         `echo "$*" >> ${log}.all`,
@@ -215,15 +229,17 @@ describe('docker with a stand-in docker client', () => {
     const text = all.slice(all.lastIndexOf('bothub.envbuild'));
     expect(text).toContain('--network bridge');
     expect(text).toContain(base);
-    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/volume create .* bothub-seed-\w+-0\n/);
+    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/volume create .* bothub-layer-\w+-0\n/);
     expect(text).toContain('archive "$2" | tar -x -C /work');
     expect(text.indexOf('flock 9')).toBeLessThan(text.indexOf('sh -ec "$3"'));
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
     expect(builds() - before).toBe(1);
-    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/commit --change LABEL bothub\.env=\w+ bothub\.complete=true/);
+    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(
+      /commit --change LABEL bothub\.env=\w+ bothub\.lowerkb=\d+ bothub\.complete=true/
+    );
   });
 
-  it('seeds a checkout with fresh volumes of what setup made, skips setup on base files and drops them after', async () => {
+  it("layers a checkout's dependency dirs over the Env's copy, skips setup on base files and drops them after", async () => {
     const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main', undefined, undefined, { setup: 'withdeps' });
@@ -233,13 +249,14 @@ describe('docker with a stand-in docker client', () => {
     );
     const { ready, args } = Exit.isSuccess(exit) ? exit.value : { ready: false, args: [] };
     expect(ready).toBe(true);
-    const seed = args.find(a => a.includes('dst=/work/node_modules')) ?? '';
-    expect(seed).toMatch(/^type=volume,src=bothub-seed-\w+-0,dst=\/work\/node_modules,volume-nocopy$/);
-    const name = /src=([\w-]+)/.exec(seed)?.[1];
+    const mount = args.find(a => a.includes('dst=/work/node_modules')) ?? '';
+    expect(mount).toMatch(/^type=volume,src=bothub-layer-\w+-0-o,dst=\/work\/node_modules,volume-nocopy$/);
+    const name = /src=([\w-]+)/.exec(mount)?.[1];
     const all = readFileSync(`${log}.all`, 'utf8');
-    expect(all).toContain(`volume create --label bothub.seed=${process.pid}`);
-    expect(all).toContain(`cp -a '/work/node_modules/.' /seed/0/`);
-    expect(all).toMatch(new RegExp(`volume rm -f ${name}`));
+    expect(all).toContain(`volume create --label bothub.layer=${process.pid}:`);
+    expect(all).toContain('type=overlay');
+    expect(all).toContain('mkdir -p /u/0/upper /u/0/work');
+    expect(all).toMatch(new RegExp(`volume rm -f ${name} ${name!.slice(0, -2)}`));
   });
 
   it('fails the checkout when the toolchain fails', async () => {
@@ -475,6 +492,57 @@ describe.runIf(process.env.BOTHUB_DOCKER === '1')('docker for real', () => {
     expect(Exit.isSuccess(exit) && exit.value.output).toBe('hub script\nread-only\n');
     expect(existsSync(join(hub, 'y'))).toBe(false);
   }, 60_000);
+
+  it("keeps one copy of an Env's dependencies however many checkouts use it, each with only its own writes", async () => {
+    const repo = origin();
+    writeFileSync(join(repo, 'package.json'), '{}\n');
+    writeFileSync(join(repo, '.gitignore'), 'node_modules\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-q', '-m', 'deps');
+    const hub = {
+      repo: 'bothub-disk-test',
+      setup: 'mkdir -p node_modules/x && head -c 5000000 /dev/urandom > node_modules/x/blob',
+    };
+    const sh = (dir: string, script: string) => (s: Sandbox['Type']) => s.exec(command(dir, { args: ['-c', script] }));
+    const kb = (args: string[]) => Number(execFileSync('docker', args, { encoding: 'utf8' }).trim().split(/\s+/)[0]);
+    const exit = await use(docker({ data: tmp('data'), origin: repo, cache: 'bothub-disk-test-cache' }), s =>
+      Effect.gen(function* () {
+        const works = yield* Effect.all(
+          [1, 2, 3].map(() => s.checkout('main', undefined, undefined, hub)),
+          {
+            concurrency: 3,
+          }
+        );
+        yield* sh(works[0]!.dir, 'echo mine > node_modules/mine')(s);
+        const seen = yield* sh(works[1]!.dir, 'ls node_modules; du -sk node_modules/x')(s);
+        const uppers = works.map(w =>
+          kb(['run', '--rm', '-u', '0', '-v', `bothub-layer-${basename(w.dir)}-0:/u`, 'bothub-sandbox:local', 'du', '-sk', '/u'])
+        );
+        const host = works.map(w =>
+          kb(['run', '--rm', '-v', `${w.dir}:/w`, 'bothub-sandbox:local', 'du', '-sk', '/w'])
+        );
+        return { seen: seen.output, uppers, host, ids: works.map(w => basename(w.dir)) };
+      })
+    );
+    const keys = execFileSync('docker', ['image', 'ls', '--format', '{{.Tag}}', 'bothub-env/bothub-disk-test'], {
+      encoding: 'utf8',
+    });
+    try {
+      expect(Exit.isSuccess(exit)).toBe(true);
+      if (!Exit.isSuccess(exit)) return;
+      expect(exit.value.seen).toMatch(/^x\n4\d{3}\s/);
+      expect(Math.max(...exit.value.uppers)).toBeLessThan(64);
+      expect(Math.max(...exit.value.host)).toBeLessThan(64);
+      const left = execFileSync('docker', ['volume', 'ls', '-q'], { encoding: 'utf8' });
+      for (const id of exit.value.ids) expect(left).not.toContain(id);
+    } finally {
+      for (const key of keys.split('\n').filter(Boolean)) {
+        spawnSync('docker', ['rmi', '-f', `bothub-env/bothub-disk-test:${key}`]);
+        spawnSync('docker', ['volume', 'rm', `bothub-lower-${key}`]);
+      }
+      spawnSync('docker', ['volume', 'rm', 'bothub-disk-test-cache']);
+    }
+  }, 900_000);
 });
 
 /**
@@ -573,27 +641,38 @@ describe('disk lifecycle', () => {
     ]);
   });
 
-  it('seeds copies where the Env made a dependency dir and empty volumes elsewhere', async () => {
-    await faked({}, async log => {
-      const seeds = await seed({ image: 'img', outputs: ['node_modules', 'dist'] }, 'own', tmp('work'), [
-        'node_modules',
-        'packages/a/node_modules',
-      ]);
-      expect(seeds.map(s => s.dst)).toEqual(['/work/node_modules', '/work/packages/a/node_modules']);
-      expect(log()).toMatch(
-        /volume create --label bothub\.seed=\d+:[0-9a-f]{12} --label bothub\.owner=own bothub-seed-own-1/
+  it('layers overlays over the Env copy where it made a dependency dir and empty volumes elsewhere', async () => {
+    await faked({ 'volume inspect': '/lower\\n/u0\\n' }, async log => {
+      const layers = await layer(
+        { image: 'img', outputs: ['node_modules', 'dist'], lower: 'bothub-lower-k' },
+        'own',
+        tmp('work'),
+        ['node_modules', 'packages/a/node_modules']
       );
-      expect(log()).toContain(`cp -a '/work/node_modules/.' /seed/0/`);
-      expect(log()).not.toContain('/seed/1/');
+      expect(layers).toEqual([
+        { name: 'bothub-layer-own-0-o', dst: '/work/node_modules', upper: 'bothub-layer-own-0' },
+        { name: 'bothub-layer-own-1', dst: '/work/packages/a/node_modules' },
+      ]);
+      expect(log()).toMatch(
+        /volume create --label bothub\.layer=\d+:[0-9a-f]{12} --label bothub\.owner=own bothub-layer-own-1/
+      );
+      expect(log()).toContain('o=lowerdir=/lower/data/0,upperdir=/u0/upper,workdir=/u0/work bothub-layer-own-0-o');
+      expect(log()).toContain('type=volume,src=bothub-lower-k,dst=/lower,readonly');
+      expect(log()).not.toContain('/u/1/upper');
       expect(log()).toContain(`cp -a '/work/dist' '/dst/'/`);
+      await discard(layers);
+      expect(log()).toContain('volume rm -f bothub-layer-own-0-o bothub-layer-own-1 bothub-layer-own-0');
     });
   });
 
   it('evicts the least recently used Envs past the cap and keeps one a container runs', async () => {
     await faked(
       {
-        'image ls': 'bothub-env/r:old 30GB\\nbothub-env/r:mid 30GB\\nbothub-env/r:new 30GB\\n',
+        'image ls': 'bothub-env/r:old\\nbothub-env/r:mid\\nbothub-env/r:new\\n',
+        'image inspect':
+          'bothub-env/r:old 10000000000 19531250\\nbothub-env/r:mid 30000000000 0\\nbothub-env/r:new 30000000000 0\\n',
         'ps --format': 'bothub-env/r:mid\\n',
+        'volume ls': 'bothub-lower-old old\\n',
       },
       async log => {
         const envs = join(process.env.BOTHUB_STATE!, 'envs');
@@ -602,8 +681,9 @@ describe('disk lifecycle', () => {
           writeFileSync(join(envs, key), '');
           utimesSync(join(envs, key), 1000 + i, 1000 + i);
         });
-        expect(await evict(bytes('70g'), true)).toEqual(['bothub-env/r:old']);
-        expect(await evict(bytes('50g'))).toEqual(['bothub-env/r:old', 'bothub-env/r:new']);
+        expect(await evict(bytes('70g'), true)).toEqual(['bothub-env/r:old', 'bothub-lower-old']);
+        expect(await evict(bytes('50g'))).toEqual(['bothub-env/r:old', 'bothub-env/r:new', 'bothub-lower-old']);
+        expect(log()).toContain('volume rm bothub-lower-old');
         expect(log()).toContain('rmi bothub-env/r:new');
         expect(log()).not.toContain('rmi bothub-env/r:mid');
       }

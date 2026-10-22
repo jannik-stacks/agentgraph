@@ -7,9 +7,10 @@ import { dirname, join } from 'node:path';
 /**
  * A repo's environment at one base: an image holding the base files plus what the toolchain step and setup made of
  * them. `outputs` are the ignored directories setup made, relative to the checkout root; `complete` says they are
- * everything setup left behind, so a checkout of the same files needs no setup.
+ * everything setup left behind, so a checkout of the same files needs no setup. The dependency directories among the
+ * outputs live once in the volume `lower`, at `data/<n>` in their order, not in the image.
  */
-export type Env = { image: string; outputs: string[]; complete: boolean };
+export type Env = { image: string; outputs: string[]; complete: boolean; lower?: string };
 
 /** What an Env is built from: `git` is a repo dir holding `base`, `image` the image it starts from. */
 export type EnvSpec = {
@@ -58,10 +59,13 @@ const user = () => [process.getuid?.() ?? 1000, process.getgid?.() ?? 1000];
 /** The build: as root only to hand `/work` to the operator, then the rest as the operator. */
 const asOperator = () => {
   const [uid, gid] = user();
-  return `mkdir -p /work && chown ${uid}:${gid} /work && exec setpriv --reuid=${uid} --regid=${gid} --clear-groups sh -c "$1" sh "$2" "$3" "$4" "$5"`;
+  return `mkdir -p /work && chown ${uid}:${gid} /work /lower && exec setpriv --reuid=${uid} --regid=${gid} --clear-groups sh -c "$1" sh "$2" "$3" "$4" "$5"`;
 };
 
-/** Base files into `/work`, the toolchain under the cache lock, setup, then the directories git does not track. */
+/**
+ * Base files into `/work`, the toolchain under the cache lock, setup, then the directories git does not track; the
+ * dependency directories among them move to `/lower/data/<n>`.
+ */
 const build = [
   'set -e',
   'export HOME=/tmp TMPDIR=/tmp GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="*" BOTHUB_BASE="$2"',
@@ -75,6 +79,12 @@ const build = [
   'git ls-files -o -i --exclude-standard --directory',
   'echo @@untracked',
   'git ls-files -o --exclude-standard --directory',
+  'rm -rf /lower/data && mkdir /lower/data && n=0',
+  'git ls-files -o -i --exclude-standard --directory | grep -E "(^|/)(node_modules|target)/$" | while read -r d; do',
+  '  mv "/work/${d%/}" "/lower/data/$n" && n=$((n + 1))',
+  'done',
+  'echo @@lower',
+  'du -sk /lower/data | cut -f1',
 ].join('\n');
 
 const section = (out: string, name: string) =>
@@ -143,11 +153,17 @@ const labels = async (tag: string) => {
   return l?.['bothub.env'] ? l : undefined;
 };
 
-const envOfLabels = (tag: string, l: Record<string, string>): Env => ({
-  image: tag,
-  outputs: JSON.parse(l['bothub.outputs'] ?? '[]') as string[],
-  complete: l['bothub.complete'] === 'true',
-});
+const lowerOf = (key: string) => `bothub-lower-${key}`;
+
+const envOfLabels = (tag: string, l: Record<string, string>): Env => {
+  const outputs = JSON.parse(l['bothub.outputs'] ?? '[]') as string[];
+  return {
+    image: tag,
+    outputs,
+    complete: l['bothub.complete'] === 'true',
+    ...(outputs.some(o => deps.test(o)) && { lower: lowerOf(l['bothub.env']!) }),
+  };
+};
 
 const building = new Map<string, Promise<Env | undefined>>();
 
@@ -170,7 +186,7 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   const lines = [...toolchainOf(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join('\n');
   if (!lines && !spec.setup) return undefined;
   const key = createHash('sha256')
-    .update(JSON.stringify([2, from, tree, lines, spec.setup ?? '']))
+    .update(JSON.stringify([3, from, tree, lines, spec.setup ?? '']))
     .digest('hex')
     .slice(0, 24);
   const tag = tagOf(spec.repo, key);
@@ -179,8 +195,19 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   const made = (async () => {
     for (;;) {
       const found = await labels(tag);
-      if (found) return (touch(key), envOfLabels(tag, found));
+      const env = found && envOfLabels(tag, found);
+      if (
+        env &&
+        (!env.lower ||
+          (await docker(['volume', 'inspect', env.lower]).then(
+            () => true,
+            () => false
+          )))
+      )
+        return (touch(key), env);
+      if (env) await docker(['rmi', '-f', tag]).catch(() => '');
       const name = `bothub-envbuild-${key}`;
+      await docker(['volume', 'create', '--label', `bothub.lower=${key}`, lowerOf(key)]);
       const started = Date.now();
       const args = [
         'run',
@@ -208,6 +235,8 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
         '--mount',
         `type=bind,src=${spec.git},dst=${spec.git},readonly`,
         ...(spec.cache ? ['--mount', `type=volume,src=${spec.cache},dst=/cache`] : []),
+        '--mount',
+        `type=volume,src=${lowerOf(key)},dst=/lower`,
         spec.image,
         'sh',
         '-c',
@@ -232,6 +261,8 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
         else await docker(['rm', '-f', name]).catch(() => '');
         continue;
       }
+      const keep = out.code === 0 && section(out.output, 'ignored').some(p => deps.test(p.slice(0, -1)));
+      if (!keep) await docker(['volume', 'rm', '-f', lowerOf(key)]).catch(() => '');
       try {
         if (out.code === 97) throw new Error(`toolchain exited: ${out.output.trim().slice(-2000)}`);
         if (out.code === 98) return undefined;
@@ -239,11 +270,11 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
         const ignored = section(out.output, 'ignored');
         const outputs = ignored.filter(p => p.endsWith('/')).map(p => p.slice(0, -1));
         const complete = outputs.length === ignored.length && !section(out.output, 'untracked').length;
-        const env = { image: tag, outputs, complete };
+        const env = { image: tag, outputs, complete, ...(keep && { lower: lowerOf(key) }) };
         await docker([
           'commit',
           '--change',
-          `LABEL bothub.env=${key} bothub.complete=${complete} bothub.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
+          `LABEL bothub.env=${key} bothub.lowerkb=${Number(section(out.output, 'lower')[0]) || 0} bothub.complete=${complete} bothub.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
           name,
           tag,
         ]);
@@ -259,9 +290,8 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   made.catch(() => building.delete(tag));
   return made;
 };
-
-/** A seed: a named volume at `dst`, holding a copy of the Env's output there or starting empty. */
-export type Seed = { name: string; dst: string };
+/** A dependency directory of a checkout: the volume `name` at `dst`, and when it is an overlay, the volume `upper` holding its writes. */
+export type Layer = { name: string; dst: string; upper?: string };
 
 /** Dependency directories, which setup fills and rarely deletes, so a volume can sit at their path. */
 const deps = /(^|\/)(node_modules|target)$/;
@@ -288,32 +318,70 @@ export const dependencyDirs = (git: string, base: string, limit = 64) =>
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+const overlayOf = (lower: string, upper: string) => [
+  '--driver',
+  'local',
+  '--opt',
+  'type=overlay',
+  '--opt',
+  'device=overlay',
+  '--opt',
+  `o=lowerdir=${lower},upperdir=${upper}/upper,workdir=${upper}/work`,
+];
+const mountpoints = async (...names: string[]) =>
+  (await docker(['volume', 'inspect', '-f', '{{.Mountpoint}}', ...names])).split('\n');
+
+let overlay: Promise<boolean> | undefined;
+/** Whether this docker mounts an overlay volume, tried once with `image`. */
+const overlays = (image: string) =>
+  (overlay ??= (async () => {
+    const [lower, upper, over] = ['l', 'u', 'o'].map(s => `bothub-probe-${self}-${s}`) as [string, string, string];
+    const run = (mount: string, ...cmd: string[]) =>
+      docker(['run', '--rm', '--pull', 'never', '--network', 'none', '--user', '0:0', '--mount', mount, image, ...cmd]);
+    try {
+      await docker(['volume', 'create', lower]);
+      await docker(['volume', 'create', upper]);
+      await run(`type=volume,src=${upper},dst=/u`, 'mkdir', '-p', '/u/upper', '/u/work');
+      const [l, u] = await mountpoints(lower, upper);
+      await docker(['volume', 'create', ...overlayOf(l!, u!), over]);
+      await run(`type=volume,src=${over},dst=/o`, 'touch', '/o/x');
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await docker(['volume', 'rm', '-f', over, upper, lower]).catch(() => '');
+    }
+  })());
+
 /**
- * Volumes for the checkout at `dir` at every dependency directory, so setup never writes one into the checkout: a
- * copy of the Env's output where it made one, else empty. `more` names directories beyond the Env's outputs. Each
- * volume carries this process as its owner, so a sweep finds the ones a dead runner left. The Env's other outputs are
- * copied into `dir`, where a build may delete and remake them. `from.image` runs the copy.
+ * Volumes for the checkout at `dir` at every dependency directory, so setup never writes one into the checkout. Where
+ * the Env made one, the volume is an overlay over the Env's `lower` copy that holds only this checkout's writes, or a
+ * copy of it where docker cannot mount overlays; elsewhere it starts empty. `more` names directories beyond the Env's
+ * outputs. Every volume carries this process as its owner, so a sweep finds the ones a dead runner left. The Env's
+ * other outputs are copied into `dir`, where a build may delete and remake them.
  */
-export const seed = async (
-  from: Pick<Env, 'image' | 'outputs'>,
+export const layer = async (
+  from: Pick<Env, 'image' | 'outputs' | 'lower'>,
   owner: string,
   dir: string,
   more: string[] = []
-): Promise<Seed[]> => {
-  const made = from.outputs.filter(o => deps.test(o));
+): Promise<Layer[]> => {
+  const made = from.lower ? from.outputs.filter(o => deps.test(o)) : [];
   const paths = [...new Set([...made, ...more])];
-  const seeds = paths.map((o, i) => ({ name: `bothub-seed-${owner}-${i}`, dst: `/work/${o}` }));
   const rest = from.outputs.filter(o => !deps.test(o));
-  if (!seeds.length && !rest.length) return [];
-  for (const s of seeds)
-    await docker(['volume', 'create', '--label', `bothub.seed=${beat()}`, '--label', `bothub.owner=${owner}`, s.name]);
+  if (!paths.length && !rest.length) return [];
+  const over = made.length > 0 && (await overlays(from.image));
+  const label = ['--label', `bothub.layer=${beat()}`, '--label', `bothub.owner=${owner}`];
+  const layers: Layer[] = paths.map((o, i) => ({ name: `bothub-layer-${owner}-${i}`, dst: `/work/${o}` }));
   const [uid, gid] = user();
   const script = [
     'set -e',
-    ...seeds.map((s, i) =>
-      i < made.length
-        ? `cp -a ${quote(`${s.dst}/.`)} /seed/${i}/ && chown ${uid}:${gid} /seed/${i}`
-        : `chown ${uid}:${gid} /seed/${i}`
+    ...layers.map((_, i) =>
+      i >= made.length
+        ? `chown ${uid}:${gid} /u/${i}`
+        : over
+          ? `mkdir -p /u/${i}/upper /u/${i}/work && chown ${uid}:${gid} /u/${i}/upper`
+          : `cp -a /lower/data/${i}/. /u/${i}/ && chown ${uid}:${gid} /u/${i}`
     ),
     ...rest.map(o => {
       const parent = quote(`/dst/${o.split('/').slice(0, -1).join('/')}`);
@@ -321,6 +389,7 @@ export const seed = async (
     }),
   ].join('\n');
   try {
+    for (const l of layers) await docker(['volume', 'create', ...label, l.name]);
     await docker(
       [
         'run',
@@ -339,7 +408,8 @@ export const seed = async (
         'no-new-privileges=true',
         '--mount',
         `type=bind,src=${dir},dst=/dst`,
-        ...seeds.flatMap((s, i) => ['--mount', `type=volume,src=${s.name},dst=/seed/${i},volume-nocopy`]),
+        ...(made.length ? ['--mount', `type=volume,src=${from.lower},dst=/lower,readonly`] : []),
+        ...layers.flatMap((l, i) => ['--mount', `type=volume,src=${l.name},dst=/u/${i},volume-nocopy`]),
         from.image,
         'sh',
         '-c',
@@ -347,16 +417,36 @@ export const seed = async (
       ],
       3_600_000
     );
+    if (over) {
+      const [lower, ...uppers] = await mountpoints(from.lower!, ...layers.slice(0, made.length).map(l => l.name));
+      for (const [i, upper] of uppers.entries()) {
+        const name = `${layers[i]!.name}-o`;
+        await docker([
+          'volume',
+          'create',
+          ...label,
+          '--label',
+          `bothub.lower=${from.lower!.replace('bothub-lower-', '')}`,
+          ...overlayOf(`${lower}/data/${i}`, upper),
+          name,
+        ]);
+        layers[i] = { ...layers[i]!, name, upper: layers[i]!.name };
+      }
+    }
   } catch (e) {
-    await drop(seeds);
+    await discard(layers);
     throw e;
   }
-  return seeds;
+  return layers;
 };
 
-export const drop = (seeds: Seed[], timeout?: number) =>
-  seeds.length
-    ? docker(['volume', 'rm', '-f', ...seeds.map(s => s.name)], timeout).then(
+/** Removes a checkout's dependency volumes, each overlay before the volume holding its writes. */
+export const discard = (layers: Layer[], timeout?: number) =>
+  layers.length
+    ? docker(
+        ['volume', 'rm', '-f', ...layers.map(l => l.name), ...layers.flatMap(l => (l.upper ? [l.upper] : []))],
+        timeout
+      ).then(
         () => undefined,
         () => undefined
       )
@@ -388,19 +478,20 @@ export const reap = (data: string) => {
   return gone.length;
 };
 
-/** Removes seeds whose owner is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
+const volumes = async (label: string, timeout?: number) =>
+  (await docker(['volume', 'ls', '--filter', `label=${label}`, '--format', `{{.Name}} {{.Label "${label}"}}`], timeout))
+    .split('\n')
+    .filter(Boolean)
+    .map(l => l.split(' ') as [string, string]);
+
+/** Removes dependency volumes whose owner is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
 export const sweep = async (timeout = 600_000) => {
   beat();
-  const out = await docker(
-    ['volume', 'ls', '--filter', 'label=bothub.seed', '--format', '{{.Name}} {{.Label "bothub.seed"}}'],
-    timeout
-  ).catch(() => '');
-  const dead = out
-    .split('\n')
-    .map(l => l.split(' '))
-    .filter(([name, owner]) => name && owner && !live(owner))
-    .map(([name]) => ({ name: name!, dst: '' }));
-  await drop(dead, timeout);
+  const dead = (await volumes('bothub.layer', timeout).catch(() => []))
+    .filter(([, owner]) => !live(owner))
+    .map(([name]) => name)
+    .sort((a, b) => Number(b.endsWith('-o')) - Number(a.endsWith('-o')));
+  if (dead.length) await docker(['volume', 'rm', '-f', ...dead], timeout).catch(() => '');
   return dead.length;
 };
 
@@ -411,16 +502,24 @@ export const bytes = (size: string) => {
   return Number(m[1]) * 1000 ** ' kmgt'.indexOf(m[2]!.toLowerCase() || ' ');
 };
 
-/** Env images with their size in bytes and the time each was last used, the oldest first. */
+/** Env images with their size in bytes, their dependency volume's included, and their last use, the oldest first. */
 export const envs = async () => {
-  const out = await docker([
-    'image',
-    'ls',
-    '--filter',
-    'label=bothub.env',
-    '--format',
-    '{{.Repository}}:{{.Tag}} {{.Size}}',
-  ]).catch(() => '');
+  const tags = (
+    await docker(['image', 'ls', '--filter', 'label=bothub.env', '--format', '{{.Repository}}:{{.Tag}}']).catch(
+      () => ''
+    )
+  )
+    .split('\n')
+    .filter(Boolean);
+  const out = tags.length
+    ? await docker([
+        'image',
+        'inspect',
+        '--format',
+        '{{index .RepoTags 0}} {{.Size}} {{index .Config.Labels "bothub.lowerkb"}}',
+        ...tags,
+      ]).catch(() => '')
+    : '';
   const times = new Map<string, number>();
   try {
     for (const key of readdirSync(used())) times.set(key, statSync(join(used(), key)).mtimeMs);
@@ -429,23 +528,30 @@ export const envs = async () => {
     .split('\n')
     .filter(Boolean)
     .map(l => {
-      const [image = '', size = ''] = l.split(' ');
-      return { image, size, bytes: bytes(size), used: times.get(image.split(':')[1] ?? '') ?? 0 };
+      const [image = '', size = '0', kb = '0'] = l.split(' ');
+      const b = Number(size) + (Number(kb) || 0) * 1024;
+      return { image, size: `${(b / 1e9).toFixed(1)}GB`, bytes: b, used: times.get(image.split(':')[1] ?? '') ?? 0 };
     })
     .sort((a, b) => a.used - b.used);
 };
 
 const cap = () => bytes(process.env.BOTHUB_ENV_CAP || '60g');
 
-/** Removes the least recently used Env images until they fit in `limit` bytes, never one a running container uses. */
+/**
+ * Removes the least recently used Env images and their dependency volumes until they fit in `limit` bytes, never one
+ * a running container or a live checkout uses, then any dependency volume whose image is gone and no checkout uses.
+ */
 export const evict = async (limit = cap(), dry = false) => {
   const all = await envs();
   const running = new Set((await docker(['ps', '--format', '{{.Image}}']).catch(() => '')).split('\n').filter(Boolean));
+  const layered = await volumes('bothub.lower').catch(() => []);
+  const owners = new Map((await volumes('bothub.layer').catch(() => [])).map(([name, owner]) => [name, owner]));
+  const inUse = (key: string) => layered.some(([name, k]) => k === key && live(owners.get(name) ?? ''));
   let total = all.reduce((sum, e) => sum + e.bytes, 0);
   const removed: string[] = [];
   for (const e of all) {
     if (total <= limit) break;
-    if (running.has(e.image)) continue;
+    if (running.has(e.image) || inUse(e.image.split(':')[1] ?? '')) continue;
     if (
       dry ||
       (await docker(['rmi', e.image]).then(
@@ -457,7 +563,10 @@ export const evict = async (limit = cap(), dry = false) => {
       total -= e.bytes;
     }
   }
-  return removed;
+  const kept = new Set(all.filter(e => !removed.includes(e.image)).map(e => e.image.split(':')[1]));
+  const orphans = layered.filter(([name, key]) => name === lowerOf(key) && !kept.has(key) && !inUse(key));
+  if (!dry) for (const [name] of orphans) await docker(['volume', 'rm', name]).catch(() => '');
+  return [...removed, ...orphans.map(([name]) => name)];
 };
 
 /** Where room() measures: the data dir on this host, and through `volume` and `image`, the disk docker writes to. */

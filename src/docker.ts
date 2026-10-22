@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
 import type { Hub } from './hub.ts';
-import { dependencyDirs, drop, envOf, mark, reap, room, type Seed, seed, sweep } from './env.ts';
+import { dependencyDirs, discard, envOf, type Layer as Deps, layer, mark, reap, room, sweep } from './env.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
@@ -47,8 +47,8 @@ const user = () => {
   return id;
 };
 
-/** What the host recorded for a checkout: its git mounts, its seeds and the container settings of its hub and Env. */
-export type Made = { mounts: Mount[]; seeds?: Seed[] } & Pick<Hub, 'image' | 'network'>;
+/** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its hub and Env. */
+export type Made = { mounts: Mount[]; layers?: Deps[] } & Pick<Hub, 'image' | 'network'>;
 
 const volume = (name: string, dst: string, nocopy = false) => {
   if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
@@ -68,14 +68,14 @@ const caches = {
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
  * the only routes out are the model proxy and, unless the hub's network is `models`, the egress allowlist; with
- * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`; each seed is a volume
+ * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`; each layer is a volume
  * at its path.
  */
 export const dockerArgs = (
   c: Command,
   image: string,
   name: string,
-  { mounts, seeds = [], network = 'egress' }: Made,
+  { mounts, layers = [], network = 'egress' }: Made,
   cache = '',
   size = limits
 ) => [
@@ -109,7 +109,7 @@ export const dockerArgs = (
   ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
   ...mounts.flatMap(bind),
   ...(cache ? volume(cache, inside.cache) : []),
-  ...seeds.flatMap(s => volume(s.name, s.dst, true)),
+  ...layers.flatMap(l => volume(l.name, l.dst, true)),
   '--workdir',
   inside.work,
   ...Object.entries({
@@ -358,7 +358,7 @@ export const docker = (o: {
               yield* inWork(['update-ref', name, commit]);
             }).pipe(Effect.ignoreLogged);
           let admin = '';
-          let seeds: Seed[] = [];
+          let layers: Deps[] = [];
           const add = Effect.gen(function* () {
             yield* Effect.try({ try: () => mark(dir), catch: e => infra((e as Error).message) });
             yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
@@ -374,16 +374,16 @@ export const docker = (o: {
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
             if (hub && cache)
-              seeds = yield* Effect.tryPromise({
+              layers = yield* Effect.tryPromise({
                 try: async () =>
-                  seed(env ?? { image: hub.image ?? image, outputs: [] }, id, dir, await dependencyDirs(mirror, rev)),
+                  layer(env ?? { image: hub.image ?? image, outputs: [] }, id, dir, await dependencyDirs(mirror, rev)),
                 catch: e => infra((e as Error).message),
               });
             const own = env?.image ?? hub?.image;
             made.set(dir, {
               ...(own !== undefined && { image: own }),
               ...(hub?.network !== undefined && { network: hub.network }),
-              seeds,
+              layers,
               mounts: [
                 { src: dirname(dirname(admin)), dst: dirname(dirname(admin)), readonly: true },
                 { src: admin, dst: admin },
@@ -397,7 +397,7 @@ export const docker = (o: {
               ...[dir, `${dir}.owner`, index, news, admin]
                 .filter(Boolean)
                 .map(p => rm(p, { recursive: true, force: true })),
-              drop(seeds),
+              discard(layers),
             ]);
           });
           yield* Effect.acquireRelease(add, () => Effect.zipRight(keep ? save(keep) : Effect.void, remove));

@@ -15,7 +15,7 @@ import { basename, join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
-import { dependencyDirs, drop, envOf, manifest, ownerId, room, seed } from '../src/env.ts';
+import { dependencyDirs, discard, envOf, layer, manifest, ownerId, room } from '../src/env.ts';
 import {
   append,
   attic,
@@ -558,10 +558,10 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const env = cache
     ? await envOf({ repo: c.repo, image: start, git, base: c.base, cache, ...(c.setup && { setup: c.setup }) })
     : undefined;
-  const seeds = cache
-    ? await seed(env ?? { image: start, outputs: [] }, ownerId(), tree, await dependencyDirs(git, c.base))
+  const layers = cache
+    ? await layer(env ?? { image: start, outputs: [] }, ownerId(), tree, await dependencyDirs(git, c.base))
     : [];
-  const box = { mounts: [{ src: git, dst: git, readonly: true }], seeds };
+  const box = { mounts: [{ src: git, dst: git, readonly: true }], layers };
   const from = env?.image ?? start;
   try {
     const again = !env?.complete || files(diff).some(f => manifest.test(f.path));
@@ -581,7 +581,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     const run = exec(c.test, tree, box, from);
     return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
   } finally {
-    await drop(seeds);
+    await discard(layers);
   }
 };
 /** Sessions, reported cost and tokens by model of an arm's traces; input counts only uncached tokens. */
@@ -903,7 +903,12 @@ const judges: Record<string, (prompt: string, cwd: string) => Promise<string>> =
   sol: proxied('smart'),
   gemini: proxied('gemini'),
 };
-const judgeModels: Record<string, string> = { opus: 'claude-opus', sonnet: 'claude-sonnet', sol: 'smart', gemini: 'gemini' };
+const judgeModels: Record<string, string> = {
+  opus: 'claude-opus',
+  sonnet: 'claude-sonnet',
+  sol: 'smart',
+  gemini: 'gemini',
+};
 const upstream = (JSON.parse(read(here('infra/local/prices.json')) || '{}') as { aliases?: Record<string, string> })
   .aliases;
 
