@@ -18,15 +18,11 @@ export const navigateAtom = atom(null, (_get, set, to: { href: string; replace?:
   set(locationAtom, readLocation());
 });
 
-/** The route: `/graph`, `/runs[/<id>]`, `/docs[/<page>]`, `/bench` or `/compound`. */
+/** The route and the id after it: `/graph`, `/runs[/<id>]`, `/docs[/<page>]`, `/bench` or `/compound`. */
 export const pageAtom = atom(get => {
   const [page, id] = get(locationAtom).path.split('/').filter(Boolean);
-  if (page === 'graph') return { route: 'graph' as const, run: null };
-  if (page === 'runs') return { route: 'runs' as const, run: id ? decodeURIComponent(id) : null };
-  if (page === 'bench') return { route: 'bench' as const, run: null };
-  if (page === 'compound') return { route: 'compound' as const, run: null };
-  if (page === 'docs') return { route: 'docs' as const, run: id ? decodeURIComponent(id) : null };
-  return { route: undefined, run: null };
+  const route = routes.find(r => r === page);
+  return { route, id: route && id ? decodeURIComponent(id) : null };
 });
 
 /** One query parameter of the location, written in place. */

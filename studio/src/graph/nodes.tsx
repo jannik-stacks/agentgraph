@@ -246,19 +246,13 @@ export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>
   </div>
 );
 
-export type FrameFlowNode = Node<
-  { workflow: string; trigger: string; worst: number; selected: boolean; width: number; height: number },
-  'frame'
->;
+export type FrameFlowNode = Node<{ workflow: string; trigger: string; worst: number; selected: boolean }, 'frame'>;
 
 /** The box around one workflow, titled with its name; the title opens the workflow. */
-export const Frame = ({ data: { workflow, trigger, worst, selected, width, height } }: NodeProps<FrameFlowNode>) => {
+export const Frame = ({ data: { workflow, trigger, worst, selected } }: NodeProps<FrameFlowNode>) => {
   const select = useSetAtom(selectedStepAtom);
   return (
-    <div
-      style={{ width, height }}
-      className="pointer-events-none rounded-xl border border-zinc-200 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-900/40"
-    >
+    <div className="pointer-events-none size-full rounded-xl border border-zinc-200 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-900/40">
       <button
         type="button"
         onClick={e => {

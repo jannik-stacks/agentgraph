@@ -1,7 +1,7 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useEffect, useMemo, useState } from 'react';
-import { served } from 'virtual:fixtures';
 import { pageAtom, navigateAtom, queryParam, runsAtom } from '../state.ts';
+import { Problems } from '../Problems.tsx';
 import { Combobox, Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { RunPage } from './RunPage.tsx';
@@ -95,22 +95,11 @@ const Runs = () => {
 
 /** The served hub's runs as rows, at `/runs`; one run opened with every trace line at `/runs/<id>`. */
 export const RunsPage = () => {
-  const { run } = useAtomValue(pageAtom);
+  const { id } = useAtomValue(pageAtom);
   return (
-    <div className="h-full space-y-3 overflow-y-auto p-4">
-      {served && served.problems.length > 0 && (
-        <div className="space-y-1">
-          <p className="font-medium">The hub does not load.</p>
-          <ul className="list-disc pl-5 text-xs">
-            {served.problems.map((p, i) => (
-              <li key={i}>
-                <span className="font-mono">{p.path}</span>: {p.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {run ? <RunPage id={run} /> : <RunList />}
+    <div className="flex h-full flex-col">
+      <Problems />
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">{id ? <RunPage id={id} /> : <RunList />}</div>
     </div>
   );
 };

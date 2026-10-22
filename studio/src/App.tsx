@@ -4,8 +4,13 @@ import { navigateAtom, pageAtom, routes } from './state.ts';
 import { Mark } from './icons.tsx';
 import { cx, Link, Loading, Tooltip } from './ui.tsx';
 
-const GraphPage = lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage })));
-const RunsPage = lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage })));
+const pages = {
+  graph: lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage }))),
+  runs: lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage }))),
+  docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
+  bench: lazy(() => import('./bench/BenchPage.tsx').then(m => ({ default: m.BenchPage }))),
+  compound: lazy(() => import('./compound/CompoundPage.tsx').then(m => ({ default: m.CompoundPage }))),
+};
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   override state: { error?: Error } = {};
@@ -23,14 +28,6 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
     );
   }
 }
-
-const DocsPage = lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage })));
-
-const BenchPage = lazy(() => import('./bench/BenchPage.tsx').then(m => ({ default: m.BenchPage })));
-
-const CompoundPage = lazy(() => import('./compound/CompoundPage.tsx').then(m => ({ default: m.CompoundPage })));
-
-const labels = { graph: 'Graph', runs: 'Runs', docs: 'Docs', bench: 'Bench', compound: 'Compound' };
 
 const base = (dir: string | undefined, parts = 1) => dir?.split('/').filter(Boolean).slice(-parts).join('/');
 
@@ -59,6 +56,7 @@ const Where = () => {
 
 export const App = () => {
   const { route } = useAtomValue(pageAtom);
+  const Page = route && pages[route];
   const navigate = useSetAtom(navigateAtom);
   useEffect(() => {
     if (!route) navigate({ href: '/runs', replace: true });
@@ -77,13 +75,13 @@ export const App = () => {
               href={`/${r}`}
               aria-current={r === route ? 'page' : undefined}
               className={cx(
-                'rounded-md px-2 py-0.5',
+                'rounded-md px-2 py-0.5 capitalize',
                 r === route
                   ? 'bg-white font-medium shadow-sm dark:bg-zinc-700'
                   : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
               )}
             >
-              {labels[r]}
+              {r}
             </Link>
           ))}
         </nav>
@@ -93,13 +91,7 @@ export const App = () => {
       </header>
       <main className="min-h-0 flex-1">
         <Boundary key={route}>
-          <Suspense fallback={<Loading />}>
-            {route === 'graph' && <GraphPage />}
-            {route === 'runs' && <RunsPage />}
-            {route === 'docs' && <DocsPage />}
-            {route === 'bench' && <BenchPage />}
-            {route === 'compound' && <CompoundPage />}
-          </Suspense>
+          <Suspense fallback={<Loading />}>{Page && <Page />}</Suspense>
         </Boundary>
       </main>
     </div>

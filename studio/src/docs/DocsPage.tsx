@@ -36,7 +36,7 @@ const sections = (() => {
 const title = (name: string) => /^# (.+)$/m.exec(pages[name]!)?.[1] ?? name;
 
 export const DocsPage = () => {
-  const { run: name } = useAtomValue(pageAtom);
+  const { id: name } = useAtomValue(pageAtom);
   const text = name ? pages[name] : undefined;
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">

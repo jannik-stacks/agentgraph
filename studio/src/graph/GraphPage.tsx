@@ -6,6 +6,7 @@ import { useMemo } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
 import { graphOf } from '../../../src/graph.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
+import { Problems } from '../Problems.tsx';
 import { accent, Combobox, Muted, Select } from '../ui.tsx';
 import { layout, type Start } from './layout.ts';
 import {
@@ -25,10 +26,6 @@ import { storyOf, trailOf, visitsOf } from './visits.ts';
 
 const hubParam = queryParam('hub');
 const runParam = queryParam('run');
-
-/** The picked run told in one sentence. */
-const storyOfRun = (p: Picked) =>
-  storyOf(visitsOf(graphOf(p.fixture.workflow, p.fixture.checks, p.run, p.fixture.roles), p.trail, p.run));
 
 const panelAtom = atomWithStorage('bothub.stepPanel', 320, undefined, { getOnInit: true });
 const panelWidth = (w: number) => Math.round(Math.min(Math.max(w, 260), 720, innerWidth * 0.7));
@@ -96,7 +93,17 @@ const nodeTypes = { step: StepCard, pill: Pill, frame: Frame };
 const edgeTypes = { route: RouteEdge };
 const gray = '#a1a1aa';
 const sky = '#0284c7';
-const arrow = (color: string) => ({ type: MarkerType.ArrowClosed, color, width: 16, height: 16 });
+/** An edge's arrow and stroke; dashed off the main path. */
+const line = (color: string, { width = 1.25, dashed = false } = {}) => ({
+  markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+  style: { stroke: color, strokeWidth: width, ...(dashed && { strokeDasharray: '5 4' }) },
+});
+/** A node placed at `box` with that size. */
+const placed = (box: { x: number; y: number; width: number; height: number }) => ({
+  position: box,
+  measured: { width: box.width, height: box.height },
+  style: { width: box.width, height: box.height },
+});
 
 /** How many of the served hub's runs stand at each step and are not done, keyed `fixture/step`. */
 const useHere = () => {
@@ -161,30 +168,20 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
       nodes.push({
         id: `${workflow}:frame`,
         type: 'frame',
-        position: row.frame,
-        measured: { width: row.frame.width, height: row.frame.height },
-        data: {
-          workflow,
-          trigger: graph.trigger,
-          worst: graph.worst,
-          selected: selected === workflow,
-          width: row.frame.width,
-          height: row.frame.height,
-        },
+        ...placed(row.frame),
+        data: { workflow, trigger: graph.trigger, worst: graph.worst, selected: selected === workflow },
         selectable: false,
         zIndex: -1,
       } satisfies FrameFlowNode);
       const byStep = new Map(graph.nodes.map(n => [n.step, n]));
       const visited = (step: string) => !!byStep.get(step)?.run?.visited;
-      for (const placed of row.nodes) {
-        if (placed.kind !== 'step') {
-          const done = placed.kind === 'done';
+      for (const { id, kind, step, box } of row.nodes) {
+        if (kind !== 'step') {
+          const done = kind === 'done';
           nodes.push({
-            id: placed.id,
+            id,
             type: 'pill',
-            position: placed.box,
-            measured: { width: placed.box.width, height: placed.box.height },
-            style: { width: placed.box.width, height: placed.box.height },
+            ...placed(box),
             data: {
               label: done ? 'done' : graph.trigger,
               done,
@@ -194,16 +191,14 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           } satisfies PillFlowNode);
           continue;
         }
-        const node = byStep.get(placed.step!)!;
+        const node = byStep.get(step!)!;
         nodes.push({
-          id: placed.id,
+          id,
           type: 'step',
-          position: placed.box,
-          measured: { width: placed.box.width, height: placed.box.height },
-          style: { width: placed.box.width, height: placed.box.height },
+          ...placed(box),
           data: {
             node,
-            selected: selected === placed.id,
+            selected: selected === id,
             live: run ? undefined : hereLine(here.get(`${fixture}/${node.step}`)),
             ...(run && {
               overlay: {
@@ -224,14 +219,12 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           !!run &&
           (fromStep === undefined || visited(fromStep)) &&
           (toStep === undefined ? run.run.status === 'done' : visited(toStep));
-        const color = taken ? sky : gray;
         edges.push({
           id: `${from}>${to}`,
           source: from,
           target: to,
           type: 'straight',
-          markerEnd: arrow(color),
-          style: { stroke: color, strokeWidth: taken ? 2 : 1.25 },
+          ...(taken ? line(sky, { width: 2 }) : line(gray)),
         });
       });
       for (const { edge, points } of row.backs)
@@ -240,8 +233,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           type: 'route',
           source: `${workflow}/${edge.from}`,
           target: `${workflow}/${edge.to}`,
-          markerEnd: arrow((edge.taken ?? 0) > 0 ? sky : gray),
-          style: { stroke: (edge.taken ?? 0) > 0 ? sky : gray, strokeWidth: 1.25, strokeDasharray: '5 4' },
+          ...line((edge.taken ?? 0) > 0 ? sky : gray, { dashed: true }),
           data: { points, back: edge },
         } satisfies RouteFlowEdge);
     });
@@ -251,8 +243,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
         type: 'route',
         source: `${start.workflow}/${start.step}`,
         target: `${start.target}:trigger`,
-        markerEnd: arrow(gray),
-        style: { stroke: gray, strokeWidth: 1.25, strokeDasharray: '5 4' },
+        ...line(gray, { dashed: true }),
         data: { points: start.points, tip: `${start.step} starts a ${start.target} run.` },
       } satisfies RouteFlowEdge);
     return { nodes, edges };
@@ -328,15 +319,7 @@ export const GraphPage = () => {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {served && served.problems.length > 0 && (
-        <ul className="list-disc space-y-1 border-b border-zinc-200 py-2 pr-4 pl-8 text-xs dark:border-zinc-800">
-          {served.problems.map((problem, i) => (
-            <li key={i}>
-              {served?.name} does not load: <span className="font-mono">{problem.path}</span>, {problem.message}
-            </li>
-          ))}
-        </ul>
-      )}
+      <Problems />
       <div className="flex flex-wrap items-center gap-4 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
         {hubs.length > 1 && (
           <Select
@@ -365,7 +348,13 @@ export const GraphPage = () => {
                 {'trace' in picked ? `Live, run ${picked.run.id}` : 'Simulated run'}, {picked.run.status} at{' '}
                 {picked.run.step}.
               </span>{' '}
-              {storyOfRun(picked)}
+              {storyOf(
+                visitsOf(
+                  graphOf(picked.fixture.workflow, picked.fixture.checks, picked.run, picked.fixture.roles),
+                  picked.trail,
+                  picked.run
+                )
+              )}
             </>
           ) : hub.key === served?.name ? (
             'The workflows as written. A blue step holds runs that are live now.'

@@ -1,6 +1,7 @@
 import type { Graph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/store.ts';
 import type { Run } from '../../../src/workflow.ts';
+import { kindOf } from './chips.ts';
 import type { Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
@@ -36,7 +37,7 @@ export type End =
   | { kind: 'waiting' }
   | { kind: 'running'; try: number };
 
-const isAgent = (n: Node) => n.doer !== 'script' && n.doer !== 'human';
+const isAgent = (n: Node) => kindOf(n.doer) === 'agent';
 
 /** Unrolls a run into the visits it made, in order. */
 export function visitsOf(graph: Graph, trail: Trail, run: Run): { visits: Visit[]; end: End } {
