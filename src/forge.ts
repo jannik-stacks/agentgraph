@@ -74,18 +74,17 @@ export type Mark = { run: string; step: string; session?: string };
 export const provenance = FiberRef.unsafeMake<Mark | undefined>(undefined);
 
 /** The studio page of a run, opened at the trace line written at or after `at`. */
-export const runLink = (studio: string, run: string, at: string) =>
+const runLink = (studio: string, run: string, at: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}?at=${at}`;
 
 /** The body without any provenance marker or ⁂ link in it. */
-export const unstamped = (body: string) =>
-  body.replace(/<!--\s*bothub\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
+const unstamped = (body: string) => body.replace(/<!--\s*bothub\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
 
 /**
  * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any
  * marker or link already in the body is dropped first.
  */
-export const stamp = (body: string, mark: Mark, at: string, studio = '') => {
+const stamp = (body: string, mark: Mark, at: string, studio = '') => {
   const fields = Object.entries({ ...mark, at })
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);

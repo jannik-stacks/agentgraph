@@ -559,7 +559,9 @@ describe('githubForge', () => {
     expect(posted[0]).toBe(
       `Done.\n\n[⁂](http://studio:5492/runs/issue-2-1?at=${at}) <!-- bothub run=issue-2-1 step=review session=ses_1 at=${at} -->`
     );
-    expect(posted[1]).toMatch(/^Fixed\.\n\n\[⁂\]\(http:\/\/studio:5492\/runs\/issue-2-1\?at=[^)]+\) <!-- bothub run=issue-2-1 /);
+    expect(posted[1]).toMatch(
+      /^Fixed\.\n\n\[⁂\]\(http:\/\/studio:5492\/runs\/issue-2-1\?at=[^)]+\) <!-- bothub run=issue-2-1 /
+    );
   });
 
   it('posts only the hidden marker without a studio URL, and nothing extra outside a run', async () => {

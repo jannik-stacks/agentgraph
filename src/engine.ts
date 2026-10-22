@@ -3,7 +3,16 @@ import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
 import { answerWith, context, footer, line, news, shown, transcript, type Issues } from './context.ts';
-import { Forge, provenance, withheld, type Applied, type ForgeError, type Event, type Proposal, type Issue } from './forge.ts';
+import {
+  Forge,
+  provenance,
+  withheld,
+  type Applied,
+  type ForgeError,
+  type Event,
+  type Proposal,
+  type Issue,
+} from './forge.ts';
 import type { Check, Hub } from './hub.ts';
 import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
@@ -229,7 +238,9 @@ const writing =
   (run: Run, session = run.sessions[run.step]?.id) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.locallyWith(effect, provenance, outer =>
-      outer?.run === run.id && outer.step === run.step ? outer : { run: run.id, step: run.step, ...(session && { session }) }
+      outer?.run === run.id && outer.step === run.step
+        ? outer
+        : { run: run.id, step: run.step, ...(session && { session }) }
     );
 
 const file = (w: Workflow, run: Run, children: Child[]) =>

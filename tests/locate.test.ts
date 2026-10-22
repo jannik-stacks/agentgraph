@@ -11,7 +11,11 @@ const trace: Trace[] = [
   {
     at: '2026-10-19T15:40:00.000Z',
     step: 'implement',
-    applied: { proposal: { kind: 'pull_request', branch: 'b', base: 'main', title: 't', body: 'b' }, ok: true, url: pr },
+    applied: {
+      proposal: { kind: 'pull_request', branch: 'b', base: 'main', title: 't', body: 'b' },
+      ok: true,
+      url: pr,
+    },
   },
   {
     at: '2026-10-19T15:43:05.403Z',
