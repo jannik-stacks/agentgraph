@@ -654,6 +654,67 @@ describe('plan', () => {
     expect(plan('acme/explorer', ['README.md'])).toMatchObject({ hasTests: false, typecheck: expect.any(String) });
     expect(plan('acme/billing', [])).toEqual({ hasTests: false });
   });
+
+  it('runs one cargo command per hidden Rust file and builds the tests during setup', () => {
+    expect(
+      plan('acme/clarity-wasm', [
+        'clar2wasm/tests/wasm-generation/main.rs',
+        'clar2wasm/tests/wasm-generation/equal.rs',
+        'clar2wasm/tests/contracts/a.clar',
+        'tests/tests/lib_tests.rs',
+        'tests/benches/benchmark.rs',
+      ])
+    ).toEqual({
+      setup:
+        'cargo test --no-run --manifest-path clar2wasm/Cargo.toml --test wasm-generation equal:: && cargo test --no-run --manifest-path tests/Cargo.toml --test lib_tests',
+      test: 'cargo test --manifest-path clar2wasm/Cargo.toml --test wasm-generation equal:: && cargo test --manifest-path tests/Cargo.toml --test lib_tests',
+    });
+    expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toBe(
+      'cargo test --manifest-path clar2wasm/Cargo.toml --test oom-checker'
+    );
+    expect(
+      plan('stacks-network/stacks-core', ['stacks-signer/src/tests/chainstate.rs', 'src/vm/tests/mod.rs', 'src/a.rs'])
+        .test
+    ).toBe('cargo test --manifest-path stacks-signer/Cargo.toml --lib tests::chainstate && cargo test --lib vm::tests');
+    expect(plan('stacks-network/stacks-core', ['stackslib/src/net/api/mod.rs'])).toEqual({ hasTests: false });
+  });
+
+  it('starts PostgreSQL for the API repos and runs each file under the jest config that holds it', () => {
+    expect(
+      plan('acme/stacks-blockchain-api', ['src/tests/tx-tests.ts', 'tests/api/a.test.ts', 'tests/utils/b.ts'])
+    ).toEqual({
+      image: 'agentgraph-sandbox:services',
+      setup: 'npm ci --no-audit --no-fund --ignore-scripts',
+      test: "services && npm run test -- --coverage=false --runTestsByPath 'src/tests/tx-tests.ts' && npm run test:api -- --coverage=false --runTestsByPath 'tests/api/a.test.ts'",
+    });
+    expect(plan('acme/stacks-blockchain-api', ['tests/utils/b.ts', 'tests/2.5/c.test.ts'])).toEqual({
+      hasTests: false,
+    });
+    expect(plan('acme/token-metadata-api', ['tests/a.test.ts'])).toMatchObject({
+      image: 'agentgraph-sandbox:services',
+      test: expect.stringMatching(
+        /^services && export .*PGPORT=5432 .*jest --runInBand --runTestsByPath 'tests\/a\.test\.ts'; else .*node --import tsx --test/
+      ),
+    });
+  });
+
+  it('runs vitest, jest or node tests per package in the smaller JS repos', () => {
+    expect(plan('acme/connect', ['packages/connect/tests/a.test.ts']).test).toBe(
+      "(cd packages/connect && npx vitest run 'tests/a.test.ts')"
+    );
+    expect(plan('leather-io/workers', ['packages/x/src/a.spec.ts']).setup).toContain("'10.33.0'");
+    expect(plan('acme/stacks-mesh-api', ['packages/api/tests/api/a.test.ts', 'packages/api/tests/h.ts']).test).toBe(
+      "(cd packages/api && NODE_ENV=test node --test --import tsx --test-timeout 300000 'tests/api/a.test.ts')"
+    );
+    expect(plan('acme/api-toolkit', ['src/__tests__/a.test.ts']).test).toBe(
+      "node_modules/.bin/jest --runInBand --runTestsByPath 'src/__tests__/a.test.ts'"
+    );
+    expect(plan('acme/clarinet', ['components/clarinet-sdk/vitest-helpers/tests/a.test.ts'])).toEqual({
+      setup: '(cd components/clarinet-sdk && npm ci --no-audit --no-fund --ignore-scripts)',
+      test: "(cd components/clarinet-sdk && npx vitest run 'vitest-helpers/tests/a.test.ts')",
+      typecheck: 'cargo check --tests',
+    });
+  });
 });
 
 describe('run comparison', () => {

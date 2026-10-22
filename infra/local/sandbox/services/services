@@ -1,0 +1,13 @@
+#!/bin/sh
+# PostgreSQL with trust auth for the user postgres, on the PG_PORT the checkout's .env names, else 5432; Redis on 6379.
+# initdb needs a passwd entry for the container user, which nss_wrapper provides.
+set -e
+port=$(sed -n 's/^PG_PORT=//p' .env 2>/dev/null | head -n 1)
+bin=$(ls -d /usr/lib/postgresql/*/bin | tail -n 1)
+echo "postgres:x:$(id -u):$(id -g)::/tmp:/bin/sh" > /tmp/passwd
+echo "postgres:x:$(id -g):" > /tmp/group
+export LD_PRELOAD=libnss_wrapper.so NSS_WRAPPER_PASSWD=/tmp/passwd NSS_WRAPPER_GROUP=/tmp/group
+"$bin/initdb" -D /tmp/pg -U postgres --auth=trust >/dev/null
+"$bin/pg_ctl" -D /tmp/pg -l /tmp/pg.log -w start \
+  -o "-p ${port:-5432} -k /tmp -c listen_addresses=127.0.0.1 -c fsync=off -c max_connections=300" >/dev/null
+redis-server --port 6379 --save '' --appendonly no --dir /tmp --daemonize yes >/dev/null

@@ -139,31 +139,82 @@ const clarinetSdk = (files: string[]): Commands => {
     test: `(cd ${node} && npx vitest run ${files.map(p => quote(p.slice(node.length + 1))).join(' ')})`,
   };
 };
-/** Cargo commands for test targets, fixtures under a crate's tests/ and `*_tests.rs` modules in src. */
-const cargoTests = (tests: string[]) => {
-  const at = (re: RegExp) =>
-    tests.flatMap(p => {
-      const m = re.exec(p);
-      return m ? [[m[1]!, m[2]!] as const] : [];
-    });
-  const targets = at(/^components\/([^/]+)\/tests\/([^/]+)\.rs$/);
-  const fixtures = at(/^components\/([^/]+)\/tests\/(.+\.(?!rs$)\w+)$/)
-    .map(([crate]) => crate)
-    .filter(crate => !targets.some(([named]) => named === crate));
-  return [
-    ...targets.map(([crate, test]) => `cargo test -p ${crate} --test ${test}`),
-    ...[...new Set(fixtures)].map(crate => `cargo test -p ${crate} --tests`),
-    ...at(/^components\/([^/]+)\/src\/(.+_tests)\.rs$/).map(
-      ([crate, mod]) => `cargo test -p ${crate} --lib ${mod.replaceAll('/', '::')}`
-    ),
-  ];
+/**
+ * One cargo command per hidden Rust file: an integration target, a module of a target directory, or a test module in
+ * src; fixtures under tests/ run every test target of their crate when no Rust file does. `crate` selects the crate
+ * at a directory, the workspace root when empty.
+ */
+const cargoTests = (tests: string[], crate = (dir: string) => `--manifest-path ${dir}/Cargo.toml`) => {
+  const at = (dir = '') => (dir ? `${crate(dir)} ` : '');
+  const rust = tests.filter(p => p.endsWith('.rs') && !/(^|\/)benches\//.test(p));
+  const runs = rust.flatMap(p => {
+    const lib = /^(?:(.*?)\/)?src\/(.+)\.rs$/.exec(p);
+    if (lib) {
+      const mod = lib[2]!.replace(/\/mod$/, '');
+      return /_tests?$|(^|\/)tests?(\/|$)/.test(mod)
+        ? [`cargo test ${at(lib[1])}--lib ${mod.replaceAll('/', '::')}`]
+        : [];
+    }
+    const file = /^(?:(.*)\/)?tests\/([^/]+)\.rs$/.exec(p);
+    if (file) return [`cargo test ${at(file[1])}--test ${file[2]}`];
+    const dir = /^(?:(.*)\/)?tests\/([^/]+)\/(.+)\.rs$/.exec(p);
+    if (!dir) return [];
+    const target = `cargo test ${at(dir[1])}--test ${dir[2]}`;
+    const mod = dir[3]!.replace(/(^|\/)mod$/, '');
+    if (mod && mod !== 'main') return [`${target} ${mod.replaceAll('/', '::')}::`];
+    return rust.some(o => o !== p && o.startsWith(p.slice(0, p.lastIndexOf('/') + 1))) ? [] : [target];
+  });
+  const fixtures = tests.flatMap(p =>
+    /\.(rs|[cm]?[jt]sx?)$/.test(p) ? [] : (/^(?:(.*)\/)?tests\//.exec(p)?.slice(1, 2) ?? [])
+  );
+  return runs.length ? [...new Set(runs)] : [...new Set(fixtures)].map(dir => `cargo test ${at(dir)}--tests`);
+};
+/** `run` once in each package directory `depth` segments deep, on that package's files. */
+const perPackage = (js: string[], depth: number, run: string) =>
+  [...new Set(js.map(p => p.split('/').slice(0, depth).join('/')))]
+    .map(
+      d =>
+        `(cd ${d} && ${run} ${js
+          .filter(p => p.startsWith(`${d}/`))
+          .map(p => quote(p.slice(d.length + 1)))
+          .join(' ')})`
+    )
+    .join(' && ');
+/** The sandbox image with PostgreSQL and Redis; its `services` command starts both. */
+const services = 'agentgraph-sandbox:services';
+/** The settings token-metadata-api's CI exports for its tests. */
+const tokenEnv = [
+  'export API_HOST=127.0.0.1 API_PORT=3000 PROMETHEUS_PORT=9154',
+  ...['PG', 'BLOCKCHAIN_API_PG'].map(
+    p => `${p}HOST=127.0.0.1 ${p}PORT=5432 ${p}USER=postgres ${p}PASSWORD=postgres ${p}DATABASE=postgres`
+  ),
+  'STACKS_NODE_RPC_HOST=127.0.0.1 STACKS_NODE_RPC_PORT=24440',
+].join(' ');
+const npmCi = 'npm ci --no-audit --no-fund --ignore-scripts';
+/**
+ * The package script whose jest config holds each test file: `test:<dir>` for tests/<dir>/, else `test`. tests/2.5
+ * needs a stacks node and bitcoind, which the sandbox lacks.
+ */
+const blockchainApi = (tests: string[]): Commands => {
+  const files = tests.filter(p => /^(src\/)?tests\/.+(\.test|-tests)\.ts$/.test(p) && !p.startsWith('tests/2.5/'));
+  const script = (p: string) => (p.startsWith('tests/') ? `test:${p.split('/')[1]}` : 'test');
+  const runs = [...new Set(files.map(script))].map(
+    s =>
+      `npm run ${s} -- --coverage=false --runTestsByPath ${files
+        .filter(p => script(p) === s)
+        .map(quote)
+        .join(' ')}`
+  );
+  return runs.length
+    ? { image: services, setup: npmCi, test: ['services', ...runs].join(' && ') }
+    : { hasTests: false };
 };
 
 /** Each repo's typecheck and the setup it needs, run on every case whether or not it has hidden tests. */
 const typechecks: Record<string, Commands> = {
   explorer: { setup: install('10.28.2'), typecheck: 'node_modules/.bin/tsc --noEmit' },
   'stacks.js': {
-    setup: 'npm ci --no-audit --no-fund --ignore-scripts',
+    setup: npmCi,
     typecheck: 'npm run typecheck --workspaces --if-present',
   },
   clarinet: { typecheck: 'cargo check --tests' },
@@ -189,19 +240,34 @@ const tested = (repo: string, tests: string[]): Commands => {
     const runner = 'TZ=UTC node_modules/.bin/jest --env=jsdom --runTestsByPath';
     return { setup: `${install('10.28.2')}`, runner, test: `${runner} ${files}` };
   }
-  if (name === 'stacks.js' && js.length) {
-    const dirs = [...new Set(js.map(p => p.split('/').slice(0, 2).join('/')))];
-    const run = (d: string) =>
-      `(cd ${d} && npx jest --runTestsByPath ${js
-        .filter(p => p.startsWith(`${d}/`))
-        .map(p => quote(p.slice(d.length + 1)))
-        .join(' ')})`;
-    return { setup: 'npm ci --no-audit --no-fund --ignore-scripts', test: dirs.map(run).join(' && ') };
+  if (name === 'stacks.js' && js.length) return { setup: npmCi, test: perPackage(js, 2, 'npx jest --runTestsByPath') };
+  if (name === 'stacks-blockchain-api') return blockchainApi(tests);
+  if (name === 'token-metadata-api' && js.length)
+    return {
+      image: services,
+      setup: npmCi,
+      test: `services && ${tokenEnv} && if [ -f jest.config.js ]; then node_modules/.bin/jest --runInBand --runTestsByPath ${files}; else NODE_ENV=test node --import tsx --test --test-concurrency=1 ${files}; fi`,
+    };
+  if (name === 'api-toolkit' && js.length)
+    return { setup: npmCi, test: `node_modules/.bin/jest --runInBand --runTestsByPath ${files}` };
+  if (name === 'connect' && js.length) return { setup: npmCi, test: perPackage(js, 2, 'npx vitest run') };
+  if (name === 'workers' && js.length) return { setup: install('10.33.0'), test: perPackage(js, 2, 'npx vitest run') };
+  if (name === 'stacks-mesh-api' && js.length)
+    return { setup: npmCi, test: perPackage(js, 2, 'NODE_ENV=test node --test --import tsx --test-timeout 300000') };
+  if (name === 'clarity-wasm' || name === 'stacks-core') {
+    const test = cargoTests(tests);
+    const build = test.map(t => t.replace('cargo test', 'cargo test --no-run'));
+    return test.length ? { setup: build.join(' && '), test: test.join(' && ') } : { hasTests: false };
   }
   if (name !== 'clarinet') return { hasTests: false };
-  const sdk = js.filter(p => p.startsWith('components/clarinet-sdk/node/tests/'));
-  const run = sdk.length ? clarinetSdk(sdk) : {};
-  const test = [...cargoTests(tests), ...(run.test ? [run.test] : [])];
+  const sdk = js.filter(p => p.startsWith('components/clarinet-sdk/'));
+  const older = { setup: `(cd components/clarinet-sdk && ${npmCi})`, test: perPackage(sdk, 2, 'npx vitest run') };
+  const run = !sdk.length
+    ? {}
+    : sdk.some(p => p.startsWith('components/clarinet-sdk/node/'))
+      ? clarinetSdk(sdk)
+      : older;
+  const test = [...cargoTests(tests, dir => `-p ${dir.split('/').pop()}`), ...(run.test ? [run.test] : [])];
   return test.length ? { ...run, test: test.join(' && ') } : { hasTests: false };
 };
 
@@ -643,6 +709,9 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     for (const path of hidden)
       if (spawnSync('git', ['-C', tree, 'checkout', c.merged, '--', path]).status)
         rmSync(join(tree, path), { force: true });
+    const relaxed = read(join(c.dir, 'hidden.relaxed.diff'));
+    if (relaxed && spawnSync('git', ['-C', tree, 'apply', '-'], { input: relaxed }).status)
+      throw new Error(`${c.id}: hidden.relaxed.diff does not apply to the hidden tests`);
     const run = exec(c.test, tree, box, from);
     return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
   };
@@ -921,7 +990,7 @@ export const scorer = () =>
 
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
-  if (!existsSync(file)) {
+  if (!existsSync(file) && !existsSync(join(c.dir, 'hidden.relaxed.diff'))) {
     const coupled = couplings(read(join(c.dir, 'merged.diff')), `${c.title}\n${c.body}`, baseOf(repo, c.base));
     if (coupled.length) save(file, { invalid: 'coupled', coupled });
   }
@@ -933,6 +1002,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     c.runner,
     c.setup,
     c.test,
+    ...[read(join(c.dir, 'hidden.relaxed.diff'))].filter(Boolean),
     ...(c.image ? [c.image] : []),
     ...(c.typecheck ? [c.typecheck] : []),
     scorer()
