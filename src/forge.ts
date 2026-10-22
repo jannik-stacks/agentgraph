@@ -2,7 +2,7 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
-import { hostGit, mergeOf, type Checkout } from './sandbox.ts';
+import { hostGit, mergeOf, published, type Checkout } from './sandbox.ts';
 
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
 export type Issue = {
@@ -335,6 +335,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
                 : await git(work, 'commit-tree', tree, ...parents.flatMap(c => ['-p', c]), '-m', p.message);
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was ?? ''}`;
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
+            await Effect.runPromise(published(work, tree));
             pushed.set(work.dir, head);
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
@@ -377,6 +378,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was}`;
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
             await git(work, 'read-tree', '-u', '--reset', tree);
+            await Effect.runPromise(published(work, tree));
             pushed.set(work.dir, head);
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }

@@ -1136,6 +1136,50 @@ describe('tick', () => {
     );
   };
 
+  it.each([false, true])(
+    'does not replay published changes over a human revert (pending: %s)',
+    async pending => {
+      const where = world();
+      const implementation = merging.workflows.issue.steps[0]!;
+      const flow = pending
+        ? {
+            ...merging.workflows.issue,
+            steps: [
+              implementation,
+              { ...implementation, name: 'draft', checks: [] },
+              ...merging.workflows.issue.steps.slice(1),
+            ],
+          }
+        : merging.workflows.issue;
+      const kit = { ...merging, workflows: { issue: flow } };
+      const first = services(where, [
+        [start('a'), write('hello.txt', 'published\n'), reply(push, pull)],
+        ...(pending
+          ? [[start('d'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })]]
+          : []),
+      ]);
+      const parked = await first.run(
+        drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit)
+      );
+      const seed = join(where.root, 'seed');
+      git(seed, 'fetch', '-q', where.origin, 'agentgraph/7');
+      git(seed, 'checkout', '-q', '--detach', 'FETCH_HEAD');
+      git(seed, 'rm', '-q', 'hello.txt');
+      git(seed, 'commit', '-qm', 'Human revert');
+      git(seed, 'push', '-q', where.origin, 'HEAD:agentgraph/7');
+      let resurrected = false;
+      let kept = !pending;
+      const next = services(where, [[start('b'), reply({ kind: 'ask', question: 'Ready?' })]], undefined, spec => {
+        resurrected = existsSync(join(spec.dir, 'hello.txt'));
+        if (pending) kept = existsSync(join(spec.dir, 'pending.txt'));
+      });
+      await next.run(drive(flow, { ...parked, step: pending ? 'draft' : 'implement', status: 'running' }, kit));
+      expect(resurrected).toBe(false);
+      expect(kept).toBe(true);
+    },
+    30_000
+  );
+
   it('takes an approval that came before a later trace line of the waiting run, such as a rebase', async () => {
     const where = world();
     const at = (s: number) => `2026-10-16T00:00:0${s}.000Z`;

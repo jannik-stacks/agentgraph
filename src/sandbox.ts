@@ -36,6 +36,7 @@ export type Checkout = {
   base: string;
   head?: string;
   saved?: string;
+  published?: string;
   /** The checkout starts from an Env that already ran the hub's setup on these files. */
   ready?: boolean;
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
@@ -125,6 +126,12 @@ export const hostGit = (
 
 const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
+/** Keeps the last published tree as a local commit for saved-work replay. */
+export const published = (work: Checkout, tree: string) =>
+  Effect.map(hostGit(work.git, [...ident, 'commit-tree', tree, '-m', 'Published work']), out => {
+    work.published = out.toString('utf8').trim();
+  });
+
 const spawned = (command: Command) =>
   spawn(command.cmd, command.args, {
     cwd: command.dir,
@@ -145,6 +152,7 @@ const late = (command: Command) =>
 export const host = (repo: string): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
     checkout: (ref, branch, keep) => {
+      let checked: Checkout | undefined;
       const work = async () => {
         const dir = await mkdtemp(join(tmpdir(), 'agentgraph-work-'));
         const news = await mkdtemp(join(tmpdir(), 'agentgraph-news-'));
@@ -173,8 +181,20 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
           Effect.tryPromise(async () => {
             if (!keep) return;
             await run('add', '-A');
-            const parents = ['-p', from, ...(kept ? ['-p', kept] : [])];
-            const commit = await run(...ident, 'commit-tree', await run('write-tree'), ...parents, '-m', keep);
+            const parents = [
+              '-p',
+              from,
+              ...(kept ? ['-p', kept] : []),
+              ...(checked?.published ? ['-p', checked.published] : []),
+            ];
+            const commit = await run(
+              ...ident,
+              'commit-tree',
+              await run('write-tree'),
+              ...parents,
+              '-m',
+              keep + (checked?.published ? `\n\nbaseline ${checked.published}` : '')
+            );
             await run('push', '-q', 'origin', `+${commit}:${keep}`);
           }).pipe(
             Effect.mapError(e => new Error(`unsaved checkout preserved at ${dir}: ${String(e)}`, { cause: e })),
@@ -184,14 +204,17 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
             )
           )
       ).pipe(
-        Effect.map(({ dir, base, from, kept, news }) => ({
-          dir,
-          base,
-          ...(from !== base && { head: from }),
-          ...(kept && { saved: kept }),
-          git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
-          news: join(news, 'news.md'),
-        }))
+        Effect.map(
+          ({ dir, base, from, kept, news }) =>
+            (checked = {
+              dir,
+              base,
+              ...(from !== base && { head: from }),
+              ...(kept && { saved: kept }),
+              git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+              news: join(news, 'news.md'),
+            })
+        )
       );
     },
     exec: command =>

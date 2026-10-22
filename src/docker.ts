@@ -359,8 +359,20 @@ export const docker = (o: {
             Effect.gen(function* () {
               yield* inWork(['add', '-A']);
               const tree = yield* inWork(['write-tree']);
-              const parents = ['-p', rev, ...(saved ? ['-p', saved] : [])];
-              const commit = yield* inWork([...ident, 'commit-tree', tree, ...parents, '-m', name]);
+              const parents = [
+                '-p',
+                rev,
+                ...(saved ? ['-p', saved] : []),
+                ...(work.published ? ['-p', work.published] : []),
+              ];
+              const commit = yield* inWork([
+                ...ident,
+                'commit-tree',
+                tree,
+                ...parents,
+                '-m',
+                name + (work.published ? `\n\nbaseline ${work.published}` : ''),
+              ]);
               yield* inWork(['update-ref', name, commit]);
             }).pipe(
               Effect.tapError(() => Effect.promise(() => rename(`${dir}.owner`, `${dir}.failed`))),

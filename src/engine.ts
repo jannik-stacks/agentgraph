@@ -1515,7 +1515,9 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, hub));
       if (own && made.saved) {
-        const from = yield* text(made, ['rev-parse', `${made.saved}^`]);
+        const message = yield* text(made, ['log', '-1', '--format=%B', made.saved]);
+        const from =
+          /^baseline ([0-9a-f]{40,64})$/m.exec(message)?.[1] ?? (yield* text(made, ['rev-parse', `${made.saved}^`]));
         const onto = made.head ?? made.base;
         const tree = yield* treeOf(made);
         if (from !== onto && tree !== (yield* text(made, ['rev-parse', `${onto}^{tree}`]))) {
@@ -1622,7 +1624,8 @@ const following = (work: Checkout, onto: string, first: boolean) =>
       ]);
       yield* hostGit(work.git, ['read-tree', '-u', '--reset', (yield* mergeOf(work, onto, head)).tree]);
     }
-    return { ...work, base: onto };
+    work.base = onto;
+    return work;
   });
 
 /** Rebases a stacked run's branch onto `head`, the new head of the pull request it stacks on; a conflict is said on the issue. */

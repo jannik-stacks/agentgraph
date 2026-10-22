@@ -16,7 +16,7 @@ import {
   matches,
   withheld,
 } from './forge.ts';
-import { hostGit, mergeOf, type Checkout } from './sandbox.ts';
+import { hostGit, mergeOf, published, type Checkout } from './sandbox.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type User = { login: string; type?: string } | null | undefined;
@@ -607,6 +607,7 @@ export const githubForge = (
           return yield* refuse(`${branch} moved while the commit was built`);
         if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
         else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
+        yield* published(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
         return head;
       });
@@ -673,6 +674,7 @@ export const githubForge = (
         if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`);
         yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: true }, 'push');
         yield* git(work, ['read-tree', '-u', '--reset', tree]);
+        yield* published(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
         return head;
       });
