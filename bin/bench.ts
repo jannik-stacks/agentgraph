@@ -549,7 +549,12 @@ export const stats = (diff: string, human: string[] = []) => {
     overlap: union.size ? round(mine.filter(p => human.includes(p)).length / union.size) : 1,
   };
 };
-const image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
+let image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
+
+/** The id of the image a tag names now, so a bench keeps one sandbox even when the tag moves or goes. */
+const imageId = (tag: string) =>
+  spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', tag], { encoding: 'utf8' }).stdout?.trim() ||
+  undefined;
 const cache = process.env.AGENTGRAPH_CACHE_VOLUME ?? 'agentgraph-cache';
 const scoreSize = { memory: '8g', cpus: '4', pids: '2048' };
 
@@ -1574,14 +1579,17 @@ if (import.meta.main) {
   });
   const [command, a, b, c] = positionals;
   const out = command === 'run' ? c : ['score', 'judge'].includes(command ?? '') ? b : undefined;
+  const sandbox = out && command !== 'judge' && !image.startsWith('sha256:') ? imageId(image) : undefined;
   const env = out
     ? pin(join(resolve(out), 'env.json'), {
         ...benchEnv(),
         ...(values.keys && { keys: resolve(values.keys) }),
         ...(values.point && { point: values.point }),
+        ...(sandbox && { image: sandbox }),
       })
     : {};
   for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
+  if (env.image) process.env.AGENTGRAPH_IMAGE = image = env.image;
   engine = process.env.BENCH_ENGINE ?? engine;
   if (out && command !== 'judge') reapTrees(resolve(out));
   if (cache && command !== 'judge') await sweepLayers();

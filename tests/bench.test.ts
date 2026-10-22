@@ -40,6 +40,7 @@ const hostDocker = (image = true) => {
     [
       '#!/bin/sh',
       ...(image ? [] : ['[ "$1" = image ] && exit 1']),
+      '[ "$1 $3" = "image --format" ] && echo "${FAKE_IMAGE_ID:-sha256:one}" && exit 0',
       '[ "$1" = run ] || exit 0',
       'for a; do case "$a" in type=bind,src=*,dst=/work) dir=${a#type=bind,src=}; dir=${dir%,dst=/work};; esac; done',
       'while [ $# -gt 1 ] && [ "$1" != -c ]; do shift; done',
@@ -321,6 +322,12 @@ describe('bin/bench.ts score and report', () => {
       return r.stdout;
     };
     bench('score', kase, out, '--repo', repo);
+    expect(JSON.parse(readFileSync(join(out, 'env.json'), 'utf8'))).toMatchObject({ image: 'sha256:one' });
+    const moved = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
+      encoding: 'utf8',
+      env: { ...env, FAKE_IMAGE_ID: 'sha256:two' },
+    });
+    expect(moved.stderr).toContain('image is sha256:two, but this run started with sha256:one');
     const score = (arm: string) => JSON.parse(readFileSync(join(out, 'demo', arm, 'score.json'), 'utf8'));
     expect(score('base')).toMatchObject({ applied: true, suite: { ok: true }, hidden: { ok: false } });
     expect(score('v2')).toMatchObject({ applied: true, hidden: { ok: true }, srcAdded: 1, overlap: 0.5, usd: 0.25 });
