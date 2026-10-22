@@ -98,6 +98,8 @@ describe('bin/forge.ts with run --forge', () => {
     );
 
     w.forge('comment', '2', '/agent say hello world');
+    const routed = await w.run([[start('o'), reply({ kind: 'tell', issue: 1, text: 'say hello world' })]]);
+    expect(routed.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     const second = await w.run([
       [start('a'), reply({ kind: 'comment', body: 'On it.' }, { kind: 'back', why: 'say hello world' })],
       [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
