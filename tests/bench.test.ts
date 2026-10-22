@@ -113,6 +113,11 @@ describe('bench helpers', () => {
     expect(invalid(red, { ...ok, suite: { ok: false } })).toMatch(/human fails the suite/);
     expect(invalid(red, { applied: false })).toMatch(/does not apply/);
     expect(invalid(red, { ...ok, setup: { ok: false } })).toMatch(/setup fails/);
+    expect(invalid(red, { ...ok, typecheck: { ok: false } })).toMatch(/human fails the typecheck/);
+    expect(invalid({ applied: true }, { applied: true, typecheck: { ok: false } })).toMatch(
+      /human fails the typecheck/
+    );
+    expect(invalid({ applied: true }, { applied: true, typecheck: { ok: true } })).toBeUndefined();
   });
 
   it('calls hidden tests coupled when they import what only the human adds, or check a snapshot', () => {
@@ -334,6 +339,45 @@ describe('bin/bench.ts score and report', () => {
   });
 });
 
+describe('bin/bench.ts typecheck', () => {
+  it('typechecks a case without hidden tests and calls it invalid when the human fails it', { timeout: 30_000 }, () => {
+    const root = tmp('bench');
+    dirs.push(root);
+    const repo = join(root, 'repo');
+    mkdirSync(repo, { recursive: true });
+    git(repo, 'init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'a.js'), 'ok\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'base');
+    const base = git(repo, 'rev-parse', 'HEAD').trim();
+    writeFileSync(join(repo, 'a.js'), 'bad\n');
+    git(repo, 'commit', '-q', '-am', 'change');
+    const merged = git(repo, 'rev-parse', 'HEAD').trim();
+    const kase = join(root, 'cases', 'demo');
+    mkdirSync(kase, { recursive: true });
+    const typecheck = 'grep -q ok a.js';
+    writeFileSync(
+      join(kase, 'case.json'),
+      JSON.stringify({ repo: 'me/demo', base, merged, bucket: 'no-tests', typecheck })
+    );
+    writeFileSync(join(kase, 'issue.md'), '# Change a\n\nChange it.\n');
+    writeFileSync(join(kase, 'merged.diff'), git(repo, 'diff', base, merged));
+    const out = join(root, 'out');
+    const r = spawnSync(process.execPath, [cli, 'score', kase, out, '--repo', repo], {
+      encoding: 'utf8',
+      env: hostDocker(),
+    });
+    expect(r.status, r.stderr).toBe(0);
+    const score = (arm: string) => JSON.parse(readFileSync(join(out, 'demo', arm, 'score.json'), 'utf8'));
+    expect(score('base')).toMatchObject({ applied: true, typecheck: { ok: true } });
+    expect(score('base')).not.toHaveProperty('hidden');
+    expect(score('human')).toMatchObject({ typecheck: { ok: false } });
+    expect(JSON.parse(readFileSync(join(out, 'demo', 'valid.json'), 'utf8'))).toEqual({
+      invalid: 'the human fails the typecheck',
+    });
+  });
+});
+
 describe('points', () => {
   it('rewrites only the harness and model of each agent front matter', () => {
     const hub = tmp('hub');
@@ -494,9 +538,11 @@ describe('plan', () => {
     );
     expect(plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])).toEqual({
       test: 'cargo test -p clarinet-deployments --test remap',
+      typecheck: 'cargo check --tests',
     });
     expect(plan('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar'])).toEqual({
       test: 'cargo test -p clarinet-format --tests',
+      typecheck: 'cargo check --tests',
     });
     expect(plan('acme/clarinet', ['components/clarity-repl/src/analysis/coverage_tests.rs']).test).toBe(
       'cargo test -p clarity-repl --lib analysis::coverage_tests'
@@ -508,7 +554,13 @@ describe('plan', () => {
     expect(plan('acme/explorer', ['src/a/__tests__/__snapshots__/B.test.tsx.snap']).test).toContain(
       "'src/a/__tests__/B.test.tsx'"
     );
-    expect(plan('acme/stacks.js', [])).toEqual({ hasTests: false });
+    expect(plan('acme/stacks.js', [])).toEqual({
+      hasTests: false,
+      setup: 'npm ci --no-audit --no-fund --ignore-scripts',
+      typecheck: 'npm run typecheck --workspaces --if-present',
+    });
+    expect(plan('acme/explorer', ['README.md'])).toMatchObject({ hasTests: false, typecheck: expect.any(String) });
+    expect(plan('acme/billing', [])).toEqual({ hasTests: false });
   });
 });
 

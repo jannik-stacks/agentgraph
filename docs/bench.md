@@ -38,9 +38,9 @@ Each case folder has `case.json`, `issue.md` and `merged.diff`.
 | `size`, `kind`, `area` | Report strata |
 | `control` | `bug` flips an added comparison; `padded` adds trivial tests |
 
-Mined cases list test files in `tests`; `plan` in `bin/bench.ts` derives repo commands. `bucket: no-tests` disables tests.
+Mined cases list test files in `tests`; `plan` in `bin/bench.ts` derives repo commands, and a per-repo typecheck for explorer, stacks.js and clarinet that runs on every case. `bucket: no-tests` disables hidden tests, not the typecheck.
 
-Tested cases are valid only if hidden tests fail on base and pass on human, the human diff applies, setup works and the human suite passes. Invalid cases record reasons in `valid.json` and skip arms and judges. Before containers run, a coupling check rejects tests importing human-only paths or names absent from the issue, or checking snapshots. Controls compare the human with its mutated copy; preferring the copy measures judge mistakes.
+Tested cases are valid only if hidden tests fail on base and pass on human, the human diff applies, setup works and the human passes the suite and the typecheck. A case without hidden tests is invalid only when the human fails the typecheck. A row counts the suite only where base passes it. Invalid cases record reasons in `valid.json` and skip arms and judges. Before containers run, a coupling check rejects tests importing human-only paths or names absent from the issue, or checking snapshots. Controls compare the human with its mutated copy; preferring the copy measures judge mistakes.
 
 ## Arms
 

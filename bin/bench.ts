@@ -164,8 +164,23 @@ const cargoTests = (tests: string[]) => {
   ];
 };
 
-/** The test command and its setup, from the repo and the test files a merged change touches. */
-export const plan = (repo: string, tests: string[]): Commands => {
+/** Each repo's typecheck and the setup it needs, run on every case whether or not it has hidden tests. */
+const typechecks: Record<string, Commands> = {
+  explorer: { setup: install('10.28.2'), typecheck: 'node_modules/.bin/tsc --noEmit' },
+  'stacks.js': {
+    setup: 'npm ci --no-audit --no-fund --ignore-scripts',
+    typecheck: 'npm run typecheck --workspaces --if-present',
+  },
+  clarinet: { typecheck: 'cargo check --tests' },
+};
+
+/** The test command, the typecheck and their setup, from the repo and the test files a merged change touches. */
+export const plan = (repo: string, tests: string[]): Commands => ({
+  ...typechecks[repo.split('/').pop() ?? ''],
+  ...tested(repo, tests),
+});
+
+const tested = (repo: string, tests: string[]): Commands => {
   const name = repo.split('/').pop();
   const js = [...new Set(tests.map(p => p.replace(/^(.*\/)__snapshots__\/(.+)\.snap$/, '$1$2')))].filter(p =>
     /\.(test|spec)\.[jt]sx?$/.test(p)
@@ -688,7 +703,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
       const diff = read(join(at, 'diff.patch'));
       const meta = JSON.parse(read(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
       const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
-        (c.test || c.suite) && c.hasTests !== false ? check(c, tree, diff, hidden, resolve(repo)) : {}
+        c.test || c.suite || c.typecheck ? check(c, tree, diff, c.hasTests === false ? [] : hidden, resolve(repo)) : {}
       );
       const offline = (tests as Tests).setup?.ok === false && (await down(true));
       if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
@@ -708,16 +723,24 @@ const reapTrees = (out: string) => {
   }
 };
 
-type Tests = { applied?: boolean; setup?: { ok: boolean }; suite?: { ok: boolean }; hidden?: { ok: boolean } };
+type Tests = {
+  applied?: boolean;
+  setup?: { ok: boolean };
+  suite?: { ok: boolean };
+  typecheck?: { ok: boolean };
+  hidden?: { ok: boolean };
+};
 
 /** Why a case cannot tell arms apart, when it cannot: the hidden tests must fail on base and pass on the human. */
 export const invalid = (base: Tests, human: Tests, tested = false) => {
   if (human.applied === false) return 'the human diff does not apply to base';
   if (base.setup?.ok === false || human.setup?.ok === false) return 'setup fails';
-  if (!base.hidden || !human.hidden) return tested ? 'no hidden tests run' : undefined;
+  if (!base.hidden || !human.hidden)
+    return tested ? 'no hidden tests run' : human.typecheck?.ok === false ? 'the human fails the typecheck' : undefined;
   if (base.hidden.ok) return 'base already passes the hidden tests';
   if (!human.hidden.ok) return 'the human fails the hidden tests';
   if (human.suite?.ok === false) return 'the human fails the suite';
+  if (human.typecheck?.ok === false) return 'the human fails the typecheck';
   return undefined;
 };
 
@@ -852,6 +875,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     c.setup,
     c.test,
     ...(c.image ? [c.image] : []),
+    ...(c.typecheck ? [c.typecheck] : []),
     scorer()
   );
   if (!existsSync(file) && reusable(kept)) {
