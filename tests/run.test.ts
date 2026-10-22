@@ -1575,6 +1575,39 @@ describe('tick', () => {
     30_000
   );
 
+  it('does not count restored work as a new edit in a comment-only session', async () => {
+    const where = world();
+    const seed = join(where.root, 'seed');
+    writeFileSync(join(seed, 'hello.txt'), 'hello\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-qm', 'Greeting');
+    git(seed, 'push', '-q', where.origin, 'HEAD:agentgraph/7');
+    pullRequest(where);
+    const flow = small.workflows.issue!;
+    const { specs, run } = services(where, [
+      [write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+      [reply({ kind: 'comment', body: 'Answer only' })],
+      [reply({ kind: 'ask', question: 'Unexpected edit?' })],
+    ]);
+    const [done, issue] = await run(
+      Effect.gen(function* () {
+        const asked = yield* drive(
+          flow,
+          { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), said: [{ issue: 7 }] },
+          small
+        );
+        const done = yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'Just answer' }), small);
+        return [done, yield* Effect.flatMap(Forge, f => f.issue(7))] as const;
+      })
+    );
+    expect(done.status).toBe('done');
+    expect(specs).toHaveLength(2);
+    expect(specs[1]!.resume).toBeUndefined();
+    expect(bodies(issue).some(body => body.split('\n\n')[0] === 'Answer only')).toBe(true);
+    expect(git(where.origin, 'show', 'refs/agentgraph/runs/run-7:pending.txt')).toBe('pending');
+    expect(git(where.origin, 'ls-tree', '--name-only', 'agentgraph/7')).not.toContain('pending.txt');
+  }, 30_000);
+
   it('takes an approval that came before a later trace line of the waiting run, such as a rebase', async () => {
     const where = world();
     const at = (s: number) => `2026-10-16T00:00:0${s}.000Z`;

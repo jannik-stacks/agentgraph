@@ -1057,6 +1057,7 @@ const attempt = (
     const returns = 'agent' in step.does ? (hub.agents[step.does.agent]?.returns ?? []) : [];
     /** The first session of a run a comment started, which may answer that comment. */
     const asked = returns.includes('comment') && run.said !== undefined && Object.keys(run.sessions).length === 0;
+    const before = asked ? yield* treeOf(work) : undefined;
     if ('wait' in step.does) {
       const { issue, pull } = yield* issuesOf(w, run);
       const open = w.branch === undefined || issue.pull !== undefined || pull !== undefined;
@@ -1267,7 +1268,7 @@ const attempt = (
       });
 
     const commented = !back && world.length > 0 && world.every(p => p.kind === 'comment');
-    const edited = commented && asked && (yield* hostGit(work.git, ['status', '--porcelain'])).length > 0;
+    const edited = commented && asked && (yield* treeOf(work)) !== before;
     const answered = commented && answering && !edited;
     if (asked && commented && (edited || !held) && (returns.includes('push') || returns.includes('pull_request')))
       return done(
