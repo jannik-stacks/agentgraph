@@ -1029,7 +1029,7 @@ export const verdict = (text: string): Verdict | undefined => {
 type Tokens = ReturnType<typeof effort>['tokens'][string];
 type Answer = { text: string; tokens?: Tokens; usd?: number };
 
-/** A judge's reply with its tokens and cost when reported, from `claude -p --output-format json` or a completion. */
+/** A judge's reply with its tokens and cost when reported, from claude's JSON output or a chat completion. */
 export const answerOf = (raw: unknown): Answer => {
   let r = raw as {
     result?: string;
