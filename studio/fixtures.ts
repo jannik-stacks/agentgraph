@@ -54,7 +54,7 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
  * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
  * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line, and
- * `GET /core/logs/<hash>` the full output of a check.
+ * `GET /core/logs/<hash>` the full output of a check, and `GET /core/locate?gh=<link or comment id>` what `locate` finds.
  * `GET /core/bench` answers the rows of every bench out dir under the dirs `VITE_BHM_BENCH` names, and the price table.
  * `GET /core/compound` answers every tune under `VITE_BHM_TUNE` (default ~/bothub-data/tune): its folder name, settings and steps.
  * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
@@ -105,6 +105,16 @@ export const fixtures = (): Plugin => ({
       res.statusCode = text === undefined || text === '' ? 404 : 200;
       res.setHeader('content-type', 'text/plain; charset=utf-8');
       res.end(text || '');
+    });
+    server.middlewares.use('/core/locate', async (req, res) => {
+      const data = process.env.VITE_BHM_DATA;
+      const { Effect, Either } = await import('effect');
+      const { fileStore, locate }: typeof import('../src/store.ts') = await from('src/store.ts');
+      if (!data) return json(res, null, 404);
+      const gh = new URL(req.url ?? '/', 'http://studio').searchParams.get('gh');
+      const found = await Effect.runPromise(Effect.either(locate({ gh })).pipe(Effect.provide(fileStore(data))));
+      if (Either.isLeft(found)) return json(res, { error: found.left.message }, 400);
+      json(res, found.right ?? null, found.right ? 200 : 404);
     });
     server.middlewares.use('/core/runs', async (req, res) => {
       const served = await servedHub();

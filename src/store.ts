@@ -3,7 +3,7 @@ import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
-import { Context, Data, Effect, Layer, Stream, type Scope } from 'effect';
+import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
 import type { Applied } from './forge.ts';
 import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';
@@ -222,6 +222,36 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         : Effect.succeed(undefined),
   });
 };
+
+const Query = Schema.Struct({ gh: Schema.Trim.pipe(Schema.nonEmptyString()) });
+
+/** A write of a run, at the time the studio opens it at, or an issue whose runs to show. */
+export type Located = { run: string; step: string; at: string } | { issue: number };
+
+/**
+ * The write a GitHub link or comment id names: the newest `applied` line whose URL is the link or whose comment id is
+ * the id, as its run, its step and the time the studio opens it at. A link with no comment in it, or a comment no run
+ * wrote, names an issue instead: the one whose run opened it, else the number in the link.
+ */
+export const locate = (input: unknown) =>
+  Effect.gen(function* () {
+    const { gh } = yield* Schema.decodeUnknown(Query)(input);
+    const store = yield* Store;
+    const id = /(?:#discussion_r|#issuecomment-|#r|^)(\d+)$/.exec(gh)?.[1];
+    const url = gh.replace(/\/+$/, '');
+    let found: { run: Run; step: string; at: string } | undefined;
+    for (const run of yield* store.list())
+      for (const line of Chunk.toArray(yield* Stream.runCollect(store.read(run.id)))) {
+        if (!('applied' in line)) continue;
+        const { applied: a } = line;
+        if (a.url !== url && !(id && a.proposal.kind === 'comment' && a.id === id)) continue;
+        const at = a.at ?? line.at;
+        if (!found || at > found.at) found = { run, step: line.step, at };
+      }
+    if (found && id) return { run: found.run.id, step: found.step, at: found.at };
+    const issue = found?.run.issue ?? Number(/\/(?:issues|pull)\/(\d+)(?:[/?#]|$)/.exec(gh)?.[1]);
+    return issue ? { issue } : undefined;
+  });
 
 /** The check logs in `<dir>/logs` that no run's trace names; they are deleted only when `apply` is set. */
 export const pruneLogs = async (dir: string, apply = false) => {
