@@ -129,7 +129,7 @@ if (import.meta.main) {
       }
       const common = [caseDir, dir, '--repo', join(values['repos-dir']!, basename(c.repo))];
       for (const arm of ['v2', 'floor']) await run(['run', arm, ...common, ...pointArgs], env);
-      await run(['score', ...common], env);
+      await run(['score', ...common, '--drop-env'], env);
       await run(
         [
           'judge',

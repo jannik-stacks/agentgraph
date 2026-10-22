@@ -89,7 +89,9 @@ node bin/bench.ts report <out>
   typecheck. Then it puts the merged change's test files on top and runs `test`: those are the hidden
   tests. A `base` row shows whether they fail before any change. It also counts source and test lines,
   files, overlap with the human's files, added test cases, the change in branch tokens, and sessions,
-  cost and answers from `usage.json`, else the traces.
+  cost and answers from `usage.json`, else the traces. With `--drop-env` it then removes the
+  environment images the case's scores ran in. The run at a commit passes it after a case's last arm;
+  a tune does not, since its candidates score the same cases again.
 - `judge` hands every pair of arms to three judges (Opus and Sonnet through `claude -p`, sol through
   LiteLLM's `smart`). `--judges opus:1,sonnet:2,sol:2` sets how many orders each reads; a judge with
   one reads the order picked by the case and pair, so a pair costs three Claude calls. The panel given

@@ -1,7 +1,7 @@
 /**
  * Replays merged pull requests on v2, on a plain single session (floor) and on v1, then scores and judges them blind.
  * Usage: node bin/bench.ts run (v2|floor|v1) <case dir> <out> --repo <clone> [--point harness:model] [--repeat k]
- *        node bin/bench.ts score <case dir> <out> --repo <clone>
+ *        node bin/bench.ts score <case dir> <out> --repo <clone> [--drop-env]
  *        node bin/bench.ts judge <case dir> <out> [--pairs all|human]
  *        node bin/bench.ts report <out>
  * A case dir holds case.json, issue.md and merged.diff. Each step skips outputs that exist, keeps everything under
@@ -566,6 +566,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     const suite = c.suite ?? c.test;
     const result = {
       applied: true,
+      ...(env && { env: env.image }),
       ...(prep && { setup: exec(prep, tree, box, from, 'open') }),
       ...(suite && { suite: exec(suite, tree, box, from) }),
       ...(c.typecheck && { typecheck: exec(c.typecheck, tree, box, from) }),
@@ -796,9 +797,19 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
 };
 
-const score = async (caseDir: string, out: string, repo: string) => {
+/** Removes the Env images a case's scores ran in; docker keeps one a container still uses. */
+const dropEnvs = (root: string) => {
+  const used = readdirSync(root).flatMap(arm => {
+    const env = (JSON.parse(read(join(root, arm, 'score.json')) || '{}') as { env?: string }).env;
+    return env ? [env] : [];
+  });
+  for (const image of new Set(used)) spawnSync('docker', ['rmi', image], { stdio: 'ignore' });
+};
+
+const score = async (caseDir: string, out: string, repo: string, drop = false) => {
   const c = loadCase(caseDir);
   if (!(await prepare(c, out, repo))) await scoreArms(c, out, repo, bots);
+  if (drop && existsSync(join(out, c.id))) dropEnvs(join(out, c.id));
 };
 
 const flips: [RegExp, string][] = [
@@ -1264,6 +1275,7 @@ if (import.meta.main) {
       point: { type: 'string' },
       repeat: { type: 'string', default: '1' },
       pairs: { type: 'string', default: 'all' },
+      'drop-env': { type: 'boolean', default: false },
     },
   });
   const [command, a, b, c] = positionals;
@@ -1285,7 +1297,7 @@ if (import.meta.main) {
   panel = parsePanel(values.judges);
   loadKeys(env.keys ?? values.keys ?? here('infra/local/.keys.env'));
   if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
-  else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo);
+  else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo, values['drop-env']);
   else if (command === 'judge' && a && b) await judge(a, resolve(b));
   else if (command === 'report' && a) {
     save(join(a, 'report.md'), report(a));
