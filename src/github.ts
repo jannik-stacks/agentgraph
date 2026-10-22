@@ -141,7 +141,9 @@ const requester = (fetch: Fetch) => {
     Effect.gen(function* () {
       const url = path.startsWith('https://') ? path : api + path;
       const cached = method === 'GET' ? etags.get(url) : undefined;
-      const again = method !== 'POST' || path.endsWith('/access_tokens');
+      const again =
+        (method !== 'POST' || path.endsWith('/access_tokens')) &&
+        !(method === 'PATCH' && (body as { force?: boolean })?.force);
       const res = yield* Effect.tryPromise({
         try: async () => {
           const res = await fetch(url, {
@@ -600,6 +602,11 @@ export const githubForge = (
         }
         if (head === tip) return head;
         const force = !!follow && !merge;
+        if (
+          force &&
+          (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha !== tip
+        )
+          return yield* refuse(`${branch} moved while the commit was built`);
         if (tip) yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
         else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
         pushed.set(work.dir, { sha: head, tree });

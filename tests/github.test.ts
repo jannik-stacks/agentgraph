@@ -850,6 +850,28 @@ describe('githubForge', () => {
       expect(patch).toEqual({ sha: second.url!.split('/').at(-1), force: false });
     });
 
+    it('refuses a rewrite when a human pushes during commit creation', async () => {
+      const { dir, base, work } = repo();
+      writeFileSync(join(dir, 'a.txt'), 'two\n');
+      let tip = base;
+      const f = dataApi(work, {
+        'GET /repos/o/r/git/ref/heads/agentgraph/7': () => ({ body: { object: { sha: tip } } }),
+        'POST /repos/o/r/git/commits': () => {
+          tip = 'human-push';
+          return { body: { sha: 'replacement' } };
+        },
+        'PATCH /repos/o/r/git/refs/heads/agentgraph/7': {},
+      });
+      const applied = await run(
+        f,
+        Effect.flatMap(Forge, forge =>
+          forge.apply(7, { kind: 'push', branch: 'agentgraph/7', message: 'Rewrite', onto: base }, work)
+        )
+      );
+      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/moved/) });
+      expect(f.calls.filter(c => c.method === 'PATCH')).toEqual([]);
+    });
+
     it('only moves a branch that is still where the checkout builds on', async () => {
       const { dir, work } = repo();
       writeFileSync(join(dir, 'a.txt'), 'two\n');

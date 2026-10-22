@@ -308,8 +308,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               !onto && tree === (await git(work, 'rev-parse', `${parent}^{tree}`))
                 ? parent
                 : await git(work, 'commit-tree', tree, ...parents.flatMap(c => ['-p', c]), '-m', p.message);
-            const force = onto && !p.merge ? '+' : '';
-            await git(work, 'push', '-q', 'origin', `${force}${head}:refs/heads/${p.branch}`);
+            const lease = `--force-with-lease=refs/heads/${p.branch}:${was ?? ''}`;
+            await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
             pushed.set(work.dir, head);
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
