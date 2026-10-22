@@ -409,20 +409,24 @@ const overlays = (image: string) =>
  * Volumes for the checkout at `dir` at every dependency directory, so setup never writes one into the checkout. Where
  * the Env made one, the volume is an overlay over the Env's `lower` copy that holds only this checkout's writes, or a
  * copy of it where docker cannot mount overlays; elsewhere it starts empty. `more` names directories beyond the Env's
- * outputs. Every volume carries this process as its owner, so a sweep finds the ones a dead runner left. The Env's
- * other outputs are copied into `dir`, where a build may delete and remake them.
+ * outputs. With `cache`, one more overlay at `/cache` over that shared volume holds the checkout's own writes, so run
+ * code never changes what later runs read; without overlays there is none. Every volume carries this process as its
+ * owner, so a sweep finds the ones a dead runner left. The Env's other outputs are copied into `dir`, where a build may
+ * delete and remake them.
  */
 export const layer = async (
   from: Pick<Env, 'image' | 'outputs' | 'lower'>,
   owner: string,
   dir: string,
-  more: string[] = []
+  more: string[] = [],
+  cache = ''
 ): Promise<Layer[]> => {
   const made = from.lower ? from.outputs.filter(o => deps.test(o)) : [];
   const paths = [...new Set([...made, ...more])];
   const rest = from.outputs.filter(o => !deps.test(o));
-  if (!paths.length && !rest.length) return [];
-  const over = made.length > 0 && (await overlays(from.image));
+  const over = (made.length > 0 || Boolean(cache)) && (await overlays(from.image));
+  const shared = over && cache ? `agentgraph-layer-${owner}-c` : '';
+  if (!paths.length && !rest.length && !shared) return [];
   const label = ['--label', `agentgraph.layer=${beat()}`, '--label', `agentgraph.owner=${owner}`];
   const layers: Layer[] = paths.map((o, i) => ({ name: `agentgraph-layer-${owner}-${i}`, dst: `/work/${o}` }));
   const [uid, gid] = user();
@@ -435,13 +439,15 @@ export const layer = async (
           ? `mkdir -p /u/${i}/upper /u/${i}/work && chown ${uid}:${gid} /u/${i}/upper`
           : `cp -a /lower/data/${i}/. /u/${i}/ && chown ${uid}:${gid} /u/${i}`
     ),
+    ...(shared ? [`mkdir -p /c/upper /c/work && chown ${uid}:${gid} /c/upper`] : []),
     ...rest.map(o => {
       const parent = quote(`/dst/${o.split('/').slice(0, -1).join('/')}`);
       return `mkdir -p ${parent} && cp -a ${quote(`/work/${o}`)} ${parent}/`;
     }),
   ].join('\n');
   try {
-    for (const l of layers) await docker(['volume', 'create', ...label, l.name]);
+    for (const name of [...layers.map(l => l.name), ...(shared ? [shared] : [])])
+      await docker(['volume', 'create', ...label, name]);
     await docker(
       [
         'run',
@@ -463,6 +469,7 @@ export const layer = async (
         `type=bind,src=${dir},dst=/dst`,
         ...(made.length ? ['--mount', `type=volume,src=${from.lower},dst=/lower,readonly`] : []),
         ...layers.flatMap((l, i) => ['--mount', `type=volume,src=${l.name},dst=/u/${i},volume-nocopy`]),
+        ...(shared ? ['--mount', `type=volume,src=${shared},dst=/c,volume-nocopy`] : []),
         from.image,
         'sh',
         '-c',
@@ -470,7 +477,7 @@ export const layer = async (
       ],
       3_600_000
     );
-    if (over) {
+    if (over && made.length) {
       const [lower, ...uppers] = await mountpoints(from.lower!, ...layers.slice(0, made.length).map(l => l.name));
       for (const [i, upper] of uppers.entries()) {
         const name = `${layers[i]!.name}-o`;
@@ -486,11 +493,47 @@ export const layer = async (
         layers[i] = { ...layers[i]!, name, upper: layers[i]!.name };
       }
     }
+    if (shared) {
+      await docker(['volume', 'create', cache]);
+      const [lower, upper] = await mountpoints(cache, shared);
+      await docker(['volume', 'create', ...label, ...overlayOf(lower!, upper!), `${shared}-o`]);
+      layers.push({ name: `${shared}-o`, dst: '/cache', upper: shared });
+    }
   } catch (e) {
-    await discard(layers);
+    await discard([...layers, ...(shared ? [{ name: shared, dst: '' }] : [])]);
     throw e;
   }
   return layers;
+};
+
+/** Files a checkout wrote over the shared cache, from its `/cache` overlay; undefined when it has none. */
+export const written = async (layers: Layer[], image: string) => {
+  const upper = layers.find(l => l.dst === '/cache')?.upper;
+  if (!upper) return undefined;
+  const out = await docker(
+    [
+      'run',
+      ...unlogged,
+      '--rm',
+      '--pull',
+      'never',
+      '--network',
+      'none',
+      '--read-only',
+      '--user',
+      '0:0',
+      '--cap-drop=ALL',
+      '--cap-add=DAC_READ_SEARCH',
+      '--mount',
+      `type=volume,src=${upper},dst=/u,readonly`,
+      image,
+      'sh',
+      '-c',
+      'find /u/upper ! -type d | wc -l',
+    ],
+    120_000
+  ).catch(() => '');
+  return out.trim() ? Number(out.trim()) : undefined;
 };
 
 /** Removes a checkout's dependency volumes, each overlay before the volume holding its writes. */

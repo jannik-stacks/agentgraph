@@ -16,6 +16,7 @@ import {
   sweep,
   caches,
   unlogged,
+  written,
 } from './env.ts';
 import { room } from './disk.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
@@ -62,16 +63,22 @@ const user = () => {
 /** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its hub and Env. */
 export type Made = { mounts: Mount[]; layers?: Deps[] } & Pick<Hub, 'image' | 'network'>;
 
-const volume = (name: string, dst: string, nocopy = false) => {
+const volume = (name: string, dst: string, nocopy = false, readonly = false) => {
   if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
-  return ['--mount', `type=volume,src=${name},dst=${dst}${nocopy ? ',volume-nocopy' : ''}`];
+  return [
+    '--mount',
+    `type=volume,src=${name},dst=${dst}${nocopy ? ',volume-nocopy' : ''}${readonly ? ',readonly' : ''}`,
+  ];
 };
+
+/** Where package managers keep downloads when the shared cache is read-only. */
+const scratch = Object.fromEntries(Object.entries(caches).map(([k, v]) => [k, v.replace(/^\/cache/, '/tmp')]));
 
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
  * the only routes out are the model proxy and, unless the hub's network is `models`, the egress allowlist; with
- * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`; each layer is a volume
- * at its path.
+ * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a layer
+ * overlays it there; each layer is a volume at its path.
  */
 export const dockerArgs = (
   c: Command,
@@ -111,7 +118,7 @@ export const dockerArgs = (
   ...(c.home ? bind({ src: c.home, dst: inside.home }) : []),
   ...(c.hub ? bind({ src: c.hub, dst: inside.hub, readonly: true }) : []),
   ...mounts.flatMap(bind),
-  ...(cache ? volume(cache, inside.cache) : []),
+  ...(cache && !layers.some(l => l.dst === inside.cache) ? volume(cache, inside.cache, false, true) : []),
   ...layers.flatMap(l => volume(l.name, l.dst, true)),
   '--workdir',
   inside.work,
@@ -121,7 +128,7 @@ export const dockerArgs = (
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'safe.directory',
     GIT_CONFIG_VALUE_0: '*',
-    ...(cache && caches),
+    ...(cache && (layers.some(l => l.dst === inside.cache) ? caches : scratch)),
     ...(c.network === 'proxy' &&
       network === 'egress' && {
         HTTPS_PROXY: egress,
@@ -402,10 +409,17 @@ export const docker = (o: {
             if (hub && cache)
               layers = yield* Effect.tryPromise({
                 try: async () =>
-                  layer(env ?? { image: hub.image ?? image, outputs: [] }, id, dir, await dependencyDirs(mirror, rev)),
+                  layer(
+                    env ?? { image: hub.image ?? image, outputs: [] },
+                    id,
+                    dir,
+                    await dependencyDirs(mirror, rev),
+                    cache
+                  ),
                 catch: e => infra((e as Error).message),
               });
             const own = env?.image ?? hub?.image;
+            work.written = () => written(layers, own ?? image);
             made.set(dir, {
               ...(own !== undefined && { image: own }),
               ...(hub?.network !== undefined && { network: hub.network }),

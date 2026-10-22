@@ -1684,6 +1684,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         const queued = Option.isSome(t) ? yield* told(hub, w, current, t.value) : undefined;
         if (queued) yield* settle(queued.outcome, { ...transition(w, current, queued.outcome), seen: queued.at });
       }
+      const files = made.written && (yield* Effect.promise(made.written));
+      if (files !== undefined) yield* store.trace(run.id, { at: now(), step: current.step, cache: { files } });
     });
     const halt = (e: SandboxError | SessionStop | ForgeError) => {
       const why = `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;

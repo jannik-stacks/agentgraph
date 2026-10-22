@@ -6,7 +6,7 @@ Sessions, script steps, checks and checkout setup run in disposable Docker conta
 
 Containers have a read-only root, tmpfs `/tmp`, the operator's non-root uid, no capabilities, `no-new-privileges`, 4g memory, 1.5 CPUs, 512 pids and a timeout watchdog. Images are never pulled.
 
-`/work` and the session home `/home/agent` are writable. `/hub` (`AGENTGRAPH_HUB`) and the bare mirror are read only. The shared cache mounts at `/cache`. No Docker socket or GitHub token enters a session; it receives only its agent's model key. The host applies [proposals](proposals.md) after checks. <!-- code: src/docker.ts#dockerArgs -->
+`/work` and the session home `/home/agent` are writable. `/hub` (`AGENTGRAPH_HUB`) and the bare mirror are read only. The shared cache mounts at `/cache`: a checkout's commands see it through their own overlay, so what they write stays with the checkout, and a command outside a checkout sees it read-only. No Docker socket or GitHub token enters a session; it receives only its agent's model key. The host applies [proposals](proposals.md) after checks. <!-- code: src/docker.ts#dockerArgs -->
 
 ## The network
 
@@ -68,7 +68,9 @@ toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked ca
 
 A volume lock serializes toolchain installs. Warm caches avoid downloads; checks build offline. Toolchain failure raises a runner error with output. <!-- code: src/env.ts#toolchainOf -->
 
-`AGENTGRAPH_CACHE_VOLUME` changes the volume; an empty value disables it and environments. Runs can write shared cache content that later runs consume. `docker volume rm agentgraph-cache` clears it.
+Only environment builds write the cache volume. Sessions, checkout setup and score commands write into an overlay that is removed with the checkout; where Docker cannot mount overlays, `/cache` is read-only and npm, pnpm and yarn download into `/tmp`. A run's trace counts the files its checkout wrote there (`cache`), and a score records the same count, 0 when nothing reran setup. <!-- code: src/env.ts#layer src/env.ts#written src/docker.ts#dockerArgs -->
+
+`AGENTGRAPH_CACHE_VOLUME` changes the volume; an empty value disables it and environments. `docker volume rm agentgraph-cache` clears it.
 
 ## A hub's own image
 

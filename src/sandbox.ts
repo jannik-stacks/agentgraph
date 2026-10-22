@@ -41,6 +41,8 @@ export type Checkout = {
   ready?: boolean;
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
   news: string;
+  /** How many files the checkout's commands wrote over the shared cache so far, when the sandbox can tell. */
+  written?: () => Promise<number | undefined>;
 };
 
 export class SandboxError extends Data.TaggedError('SandboxError')<{

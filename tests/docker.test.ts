@@ -3,8 +3,8 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import { basename, delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { docker } from '../src/docker.ts';
-import { beat, dependencyDirs, live, discard, layer, mark, reap, sweep, toolchainOf } from '../src/env.ts';
+import { docker, dockerArgs } from '../src/docker.ts';
+import { beat, dependencyDirs, live, discard, layer, mark, reap, sweep, toolchainOf, written } from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -204,9 +204,10 @@ describe('docker with a stand-in docker client', () => {
     expect(build).toContain('run --log-driver none ');
   });
 
-  it('mounts the cache volume in every container, and none with an empty name', async () => {
+  it('mounts the cache volume read-only in every container, and none with an empty name', async () => {
     await use(layer, s => s.exec(command(tmp('work'))));
-    expect(logged()).toContain('type=volume,src=agentgraph-cache,dst=/cache');
+    expect(logged()).toContain('type=volume,src=agentgraph-cache,dst=/cache,readonly');
+    expect(logged()).toContain('npm_config_cache=/tmp/npm');
     await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '' }), s => s.exec(command(tmp('work'))));
     expect(logged().join('\n')).not.toContain('type=volume');
     const exit = await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '--x' }), s =>
@@ -272,7 +273,8 @@ describe('docker with a stand-in docker client', () => {
     expect(all).toContain(`volume create --label agentgraph.layer=${process.pid}:`);
     expect(all).toContain('type=overlay');
     expect(all).toContain('mkdir -p /u/0/upper /u/0/work');
-    expect(all).toMatch(new RegExp(`volume rm -f ${name} ${name!.slice(0, -2)}`));
+    expect(all).toMatch(new RegExp(`volume rm -f ${name} ${name!.slice(0, -4)}-c-o ${name!.slice(0, -2)} `));
+    expect(args).toContain(`type=volume,src=${name!.slice(0, -4)}-c-o,dst=/cache,volume-nocopy`);
     const runs = all.split('\n').filter(l => l.startsWith('run '));
     expect(runs.length).toBeGreaterThan(2);
     for (const run of runs) expect(run).toMatch(/^run --log-driver none /);
@@ -672,6 +674,32 @@ describe('disk lifecycle', () => {
       expect(log()).toContain(`cp -a '/work/dist' '/dst/'/`);
       await discard(layers);
       expect(log()).toContain('volume rm -f agentgraph-layer-own-0-o agentgraph-layer-own-1 agentgraph-layer-own-0');
+    });
+  });
+
+  it('gives a checkout its own overlay over the shared cache, so run code never writes it', async () => {
+    await faked({ 'volume inspect': '/m/a\\n/m/b\\n' }, async log => {
+      const layers = await layer({ image: 'img', outputs: [] }, 'own', tmp('work'), [], 'agentgraph-cache');
+      expect(layers).toEqual([{ name: 'agentgraph-layer-own-c-o', dst: '/cache', upper: 'agentgraph-layer-own-c' }]);
+      expect(log()).toContain('o=lowerdir=/m/a,upperdir=/m/b/upper,workdir=/m/b/work agentgraph-layer-own-c-o');
+      const args = dockerArgs(
+        { cmd: 'true', args: [], dir: '/w', env: {}, network: 'none', minutes: 1 },
+        'img',
+        'n',
+        { mounts: [], layers },
+        'agentgraph-cache'
+      );
+      expect(args).toContain('type=volume,src=agentgraph-layer-own-c-o,dst=/cache,volume-nocopy');
+      expect(args.join(' ')).not.toContain('src=agentgraph-cache');
+      expect(args).toContain('npm_config_cache=/cache/npm');
+    });
+  });
+
+  it('counts the files a checkout wrote over the shared cache', async () => {
+    await faked({ run: '3\\n' }, async log => {
+      expect(await written([{ name: 'x-o', dst: '/cache', upper: 'x' }], 'img')).toBe(3);
+      expect(log()).toContain('type=volume,src=x,dst=/u,readonly');
+      expect(await written([{ name: 'y', dst: '/work/node_modules' }], 'img')).toBeUndefined();
     });
   });
 

@@ -33,6 +33,7 @@ export type Trace = { at: string; step: string } & (
     }
   | { check: CheckResult; item?: string; exit?: number; log?: Log }
   | { setup: { ms: number; exit: number } }
+  | { cache: { files: number } }
   | { applied: Applied }
   | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
   | { saved: Partial<Run>; cleared?: (keyof Run)[] }

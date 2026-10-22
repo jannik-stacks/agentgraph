@@ -16,7 +16,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
 import { priceOf, type Prices } from '../src/harnesses.ts';
-import { dependencyDirs, discard, envOf, layer, manifest, ownerId, sweep as sweepLayers } from '../src/env.ts';
+import { dependencyDirs, discard, envOf, layer, manifest, ownerId, sweep as sweepLayers, written } from '../src/env.ts';
 import { collect, room, trees } from '../src/disk.ts';
 import {
   append,
@@ -624,11 +624,11 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     ? await envOf({ repo: c.repo, image: start, git, base: c.base, cache, ...(c.setup && { setup: c.setup }) })
     : undefined;
   const layers = cache
-    ? await layer(env ?? { image: start, outputs: [] }, ownerId(), tree, await dependencyDirs(git, c.base))
+    ? await layer(env ?? { image: start, outputs: [] }, ownerId(), tree, await dependencyDirs(git, c.base), cache)
     : [];
   const box = { mounts: [{ src: git, dst: git, readonly: true }], layers };
   const from = env?.image ?? start;
-  try {
+  const scored = () => {
     const again = !env?.complete || files(diff).some(f => manifest.test(f.path));
     const prep = again ? c.setup : diff.trim() ? c.build : undefined;
     const suite = c.suite ?? c.test;
@@ -645,6 +645,11 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
         rmSync(join(tree, path), { force: true });
     const run = exec(c.test, tree, box, from);
     return { ...result, hidden: run.ok ? run : { ...run, class: failureClass(run.tail) } };
+  };
+  try {
+    const result = scored();
+    const writes = await written(layers, from);
+    return { ...result, ...(writes !== undefined && { cache: writes }) };
   } finally {
     await discard(layers);
   }

@@ -749,6 +749,22 @@ describe('setup', () => {
     expect(setup).toEqual([expect.objectContaining({ step: 'triage', setup: { ms: expect.any(Number), exit: 0 } })]);
   }, 30_000);
 
+  it('traces how many files the checkout wrote over the shared cache', async () => {
+    const where = world();
+    const sandbox = Layer.effect(
+      Sandbox,
+      Effect.map(Sandbox, s => ({
+        ...s,
+        checkout: (...args: Parameters<typeof s.checkout>) =>
+          Effect.map(s.checkout(...args), made => ({ ...made, written: async () => 2 })),
+      }))
+    ).pipe(Layer.provide(host(where.origin)));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, scripted(stopping()));
+    await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
+    const cache = traceOf(where.data, 'run-7').flatMap(t => ('cache' in t ? [t.cache] : []));
+    expect(cache).toEqual([{ files: 2 }]);
+  }, 30_000);
+
   it('parks the run as infra with the output when setup fails, before any step', async () => {
     const where = world();
     const { specs, run } = services(where, []);
