@@ -12,6 +12,11 @@
 - Only the comment workflow hears `/agent`; other runs hear what it tells them. A router agent
   decides with `comment`, `issue`, `run` (now with an optional `step`) and the new `tell`, which
   passes feedback, an answer, `stop` or `cancel` to the live run on an issue.
+- An environment with dependency volumes counts as complete again when setup made nothing else, so a
+  checkout with changed files no longer reinstalls its dependencies into its own volume. Existing
+  environments are built once more.
+- A bench run that drops a case's environment image also drops its dependency volume, and a bench
+  command removes the dependency volumes of runners that are gone when it starts.
 
 ## 0.2.0
 
