@@ -121,7 +121,7 @@ export class Forge extends Context.Tag('bothub/Forge')<
   }
 >() {}
 
-/** The body without its first `/agent` outside quoted lines and fenced code, or undefined when it has none. */
+/** The body without its first `/agent` or `@agent` outside quoted lines and fenced code, or undefined when it has none. */
 const called = (body: string): string | undefined => {
   let fenced = false;
   let offset = 0;
@@ -130,7 +130,7 @@ const called = (body: string): string | undefined => {
     offset += line.length + 1;
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
     if (fenced || /^\s*>/.test(line)) continue;
-    const found = /(?<![\w./-])\/agent(?![\w/-])/i.exec(line);
+    const found = /(?<![\w./-])[/@]agent(?![\w/-])/i.exec(line);
     if (found)
       return `${body.slice(0, start + found.index).trimEnd()} ${body
         .slice(start + found.index + found[0].length)

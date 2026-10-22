@@ -63,7 +63,7 @@ Two triggers start runs today:
 
 `pull_request` and `branches` are accepted but start nothing yet. A third way in, `dispatch`, is for runs that other runs start, see [Dispatch](#dispatch).
 
-A trusted comment speaks to the bot only when it has `/agent` in it as a word, outside quoted lines and fenced code. No `/agent`, no bot. The bot reads the comment without the `/agent`, so a bare `/agent` starts the workflow too. On an issue with no live run, `/agent stop` or `/agent cancel` starts nothing. <!-- code: src/forge.ts#called -->
+A trusted comment speaks to the bot only when it has `/agent` in it as a word, outside quoted lines and fenced code; `@agent` works the same. No `/agent`, no bot. The bot reads the comment without the `/agent`, so a bare `/agent` starts the workflow too. On an issue with no live run, `/agent stop` or `/agent cancel` starts nothing. <!-- code: src/forge.ts#called -->
 
 The same holds on an issue with a live run: a comment without `/agent` is context the agent may read, never an answer. Comments and review comments on the run's pull request count for its issue, and the bot's own comments never count.
 

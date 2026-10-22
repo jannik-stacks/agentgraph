@@ -245,6 +245,7 @@ describe('reenter', () => {
   it('waiting at a human step: changes requested is back, a mention is an answer for the aside', () => {
     expect(reenter(w, waiting, said('changes_requested'))).toEqual({ kind: 'back', why: 'changes requested' });
     expect(reenter(w, waiting, comment('/agent rename foo'))).toEqual({ kind: 'answer', text: 'rename foo' });
+    expect(reenter(w, waiting, comment('@agent rename foo'))).toEqual({ kind: 'answer', text: 'rename foo' });
   });
 
   it('waiting: closed is stop', () => {
