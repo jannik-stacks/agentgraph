@@ -17,16 +17,18 @@ command -v jq >/dev/null || { echo "keys.sh needs jq" >&2; exit 1; }
 # bot | allowed aliases | USD per day | requests per minute | tokens per minute
 # Subscription models report $0 spend, so for smart, writer and luna the rpm/tpm limits and
 # bothub's runs-per-day budget are what actually bite; the dollar budget covers API-key models.
+# Every bot may use the OpenRouter aliases, since a bench point moves every agent of a hub to one model.
+OPENROUTER=glm,glm-flash,deepseek,deepseek-flash,minimax,gemini,gemini-flash,grok,grok-build,qwen,qwen-flash,kimi
 BOTS=(
-  "implementor   smart,writer,fast,local,luna   10  30  400000"
-  "reviewer      smart,fast,local,luna           5  60  900000"
-  "triager       smart,fast,local,luna            1  30  300000"
-  "checker       smart,fast,local,luna            1  30  200000"
-  "claim-checker fast,local,luna                  1  30  200000"
-  "scout         fast,local,luna                  1  30  200000"
-  "router        smart,fast,local,luna            1  30  200000"
-  "retro         smart,fast,local,luna            2  30  400000"
-  "auditor       smart,fast,local,luna            1  30  400000"
+  "implementor   smart,writer,fast,local,luna,$OPENROUTER   10  30  400000"
+  "reviewer      smart,fast,local,luna,$OPENROUTER           5  60  900000"
+  "triager       smart,fast,local,luna,$OPENROUTER           1  30  300000"
+  "checker       smart,fast,local,luna,$OPENROUTER           1  30  200000"
+  "claim-checker fast,local,luna,$OPENROUTER                 1  30  200000"
+  "scout         fast,local,luna,$OPENROUTER                 1  30  200000"
+  "router        smart,fast,local,luna,$OPENROUTER           1  30  200000"
+  "retro         smart,fast,local,luna,$OPENROUTER           2  30  400000"
+  "auditor       smart,fast,local,luna,$OPENROUTER           1  30  400000"
 )
 
 # Every bot in the example hubs needs a row.

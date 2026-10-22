@@ -28,6 +28,19 @@ persist in the `chatgpt-auth` volume.
 
 The refresh token is single-use: never run two LiteLLM instances against the same volume.
 
+## OpenRouter models
+
+`litellm.config.yaml` routes a flagship and a cheap model per family through OpenRouter: `glm`,
+`glm-flash`, `deepseek`, `deepseek-flash`, `minimax`, `gemini`, `gemini-flash`, `grok`, `grok-build`,
+`qwen`, `qwen-flash` and `kimi`. The OpenRouter key stays in the proxy; bots reach these aliases with
+their own virtual keys, and the per-key dollar budget applies to them. Without the key the proxy starts
+and only these aliases fail.
+
+1. Add `OPENROUTER_API_KEY=sk-or-...` to `.env`.
+2. `docker compose up -d litellm` (recreates the proxy with the new environment and config).
+3. `./keys.sh` so existing bot keys may use the new aliases.
+4. Check: `curl -s 127.0.0.1:4000/v1/chat/completions -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H 'Content-Type: application/json' -d '{"model":"glm-flash","messages":[{"role":"user","content":"ping"}]}'`
+
 ## Keys
 
 `./keys.sh` creates one virtual key per bot (or updates limits on existing ones) and appends

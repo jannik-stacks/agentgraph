@@ -16,7 +16,8 @@ report. `--cases-dir`, `--repos-dir`, `--out` (default `runs`), `--parallel` (de
 override the defaults. A set pins each case's `base`; a case whose folder has another base is skipped.
 
 `--point harness:model` (or `BENCH_POINT`) runs every agent of the hub copy on that harness and model, and `--repeat k` runs
-a case again instead of reusing it. Either puts the run in `runs/<sha>/<harness>-<model>/r<k>`, with a
+a case again instead of reusing it. The model is any alias of the model proxy, such as `--point opencode:glm` for an
+OpenRouter model ([local stack](../infra/local/README.md#openrouter-models)). Either puts the run in `runs/<sha>/<harness>-<model>/r<k>`, with a
 `point.json` that names the harness, model, engine, hub trees, set and repeat. When the keys file has
 `BOTHUB_LLM_API_KEY_PT_<HARNESS>_<MODEL>`, every agent uses that key. `--pairs human` judges each arm
 against the human only. `BENCH_HUB=<dir>` runs the v2 arm on that hub as it is, in place of the repo's, and its

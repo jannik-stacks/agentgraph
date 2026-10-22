@@ -37,6 +37,45 @@ model_list:
       api_base: os.environ/OLLAMA_API_BASE
       think: false
 
+  # Paid models through OpenRouter, a flagship and a cheap one per family. Without OPENROUTER_API_KEY the
+  # proxy still starts and these answer 401. Per-token costs are set so per-key dollar budgets apply.
+  - model_name: glm
+    litellm_params: { model: openrouter/z-ai/glm-5.3, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 7.9e-8, output_cost_per_token: 1.4e-6, cache_read_input_token_cost: 7.8e-8 }
+  - model_name: glm-flash
+    litellm_params: { model: openrouter/z-ai/glm-5.3-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 1.71e-8, output_cost_per_token: 1.21e-7, cache_read_input_token_cost: 1.71e-8 }
+  - model_name: deepseek
+    litellm_params: { model: openrouter/deepseek/deepseek-v4-pro-0813, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 1.32e-6, output_cost_per_token: 3.96e-6, cache_read_input_token_cost: 4.4e-8 }
+  - model_name: deepseek-flash
+    litellm_params: { model: openrouter/deepseek/deepseek-v4.1-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 3.0e-7, output_cost_per_token: 1.2e-6, cache_read_input_token_cost: 6.0e-9 }
+  - model_name: minimax
+    litellm_params: { model: openrouter/minimax/minimax-m3, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 3.0e-7, output_cost_per_token: 1.2e-6, cache_read_input_token_cost: 6.0e-8 }
+  - model_name: gemini
+    litellm_params: { model: openrouter/google/gemini-4-argon, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 2.0e-6, output_cost_per_token: 1.0e-5, cache_read_input_token_cost: 1.0e-7 }
+  - model_name: gemini-flash
+    litellm_params: { model: openrouter/google/gemini-3.8-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 8.25e-7, output_cost_per_token: 4.125e-6, cache_read_input_token_cost: 8.25e-8 }
+  - model_name: grok
+    litellm_params: { model: openrouter/x-ai/grok-4.7, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 2.0e-6, output_cost_per_token: 6.0e-6, cache_read_input_token_cost: 5.0e-7 }
+  - model_name: grok-build
+    litellm_params: { model: openrouter/x-ai/grok-build-0.1, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 1.0e-6, output_cost_per_token: 2.0e-6, cache_read_input_token_cost: 2.0e-7 }
+  - model_name: qwen
+    litellm_params: { model: openrouter/qwen/qwen3.8-max-0902, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 2.0e-6, output_cost_per_token: 6.0e-6, cache_read_input_token_cost: 2.5e-7 }
+  - model_name: qwen-flash
+    litellm_params: { model: openrouter/qwen/qwen3.8-flash, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 1.5e-7, output_cost_per_token: 4.7e-7, cache_read_input_token_cost: 1.6e-8 }
+  - model_name: kimi
+    litellm_params: { model: openrouter/moonshotai/kimi-k3, api_key: os.environ/OPENROUTER_API_KEY }
+    model_info: { input_cost_per_token: 2.39e-7, output_cost_per_token: 1.1936e-5, cache_read_input_token_cost: 2.1e-7 }
+
 # Timeouts are shortest here: a stream silent for stream_timeout seconds fails and is retried once, before the
 # harness's own wait (src/harnesses/timeouts.ts) runs out. Each alias has one deployment, so there is no fallback.
 litellm_settings:
