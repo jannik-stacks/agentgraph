@@ -1717,26 +1717,42 @@ describe('coworker', () => {
     ]);
   }, 30_000);
 
-  it('asks at once with what the session said when a retry changes no file and its check fails again', async () => {
-    const where = world();
-    const typed = {
-      ...flow,
-      steps: [{ name: 'implement', does: { agent: 'implementor' }, checks: ['types'], tries: 3 }],
-    };
-    const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
-      [start('a'), reply({ kind: 'comment', body: 'The registry is unreachable here.' })],
-    ]);
-    const asked = await run(
-      drive(typed, begin(typed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small)
-    );
-    expect(specs).toHaveLength(2);
-    expect(specs[0]!.prompt).toContain(
-      'When you stop, the runner checks the change: types runs `! grep -q TODO hello.txt`.'
-    );
-    expect(asked).toMatchObject({ status: 'waiting', tries: 1 });
-    expect(asked.reason).toMatch(/^The registry is unreachable here\.\n\ntypes: /);
-  }, 30_000);
+  it.each([false, true])(
+    'uses every check retry before asking a human (fixed: %s)',
+    async fixed => {
+      const where = world();
+      const findings = '{"at":"hello.txt:1","why":"TODO remains"}';
+      const checked = {
+        ...small,
+        checks: {
+          ...small.checks,
+          types: { ...small.checks.types!, run: `if grep -q TODO hello.txt; then echo '${findings}'; exit 1; fi` },
+        },
+      };
+      const typed = {
+        ...flow,
+        steps: [{ name: 'implement', does: { agent: 'implementor' }, checks: ['types'], tries: 3 }],
+      };
+      const { specs, run } = services(where, [
+        [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
+        [start('a'), reply(push)],
+        [start('a'), ...(fixed ? [write('hello.txt', 'hello\n')] : []), reply(push)],
+      ]);
+      const done = await run(drive(typed, begin(typed, { id: 'run-7', issue: 7, started: fresh().started }), checked));
+      expect(specs).toHaveLength(3);
+      expect(specs[2]!.prompt).toContain(findings);
+      expect(done).toMatchObject({ status: fixed ? 'done' : 'waiting', tries: fixed ? 2 : 3 });
+      const issue = bodies(await run(Effect.flatMap(Forge, f => f.issue(7))));
+      expect(issue.join('\n')).not.toContain(findings);
+      if (!fixed) {
+        expect(done.reason).toBe('implement failed after 3 tries (checks: types). How should I proceed?');
+        expect(issue).toContain(done.reason);
+      }
+      const outcomes = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome.kind] : []));
+      expect(outcomes).toEqual(['failed', 'failed', fixed ? 'pass' : 'failed']);
+    },
+    30_000
+  );
 
   it('opens a step that can send the change back on the whole diff of the branch', async () => {
     const where = world();

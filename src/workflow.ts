@@ -306,7 +306,13 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
       case 'failed': {
         const tries = run.tries + 1;
         const text = failure(o);
-        return tries < step.tries ? { ...fresh(run), tries, feedback: text } : { ...ask(text), tries };
+        const question =
+          o.checks.length > 0
+            ? `${step.name} failed after ${tries} tries (checks: ${o.checks.map(c => c.check).join(', ')}). How should I proceed?`
+            : text;
+        return tries < step.tries
+          ? { ...fresh(run), tries, feedback: text }
+          : { ...ask(question), tries, feedback: text };
       }
       case 'back':
         if (step.back) return back(o.why);

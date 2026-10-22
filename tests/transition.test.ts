@@ -66,13 +66,13 @@ describe('transition, running', () => {
     expect(next.feedback).toBe('types: x.ts:1 error\nno agentgraph block');
   });
 
-  it('failed with no tries left: waiting, the failure is the question', () => {
+  it('failed with no tries left: waiting with a readable question', () => {
     const next = transition(w, at('implement', { tries: 3 }), failed);
     expect(next).toMatchObject({
       step: 'implement',
       status: 'waiting',
       tries: 4,
-      reason: 'types: x.ts:1 error\nno agentgraph block',
+      reason: 'implement failed after 4 tries (checks: types). How should I proceed?',
     });
   });
 

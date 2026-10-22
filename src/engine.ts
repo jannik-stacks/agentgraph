@@ -1022,8 +1022,6 @@ const attempt = (
         }
       });
     const t = yield* issuesOf(w, run);
-    /** On a retry, the files before it: a retry that changes none cannot pass checks that failed on them. */
-    const before = run.tries > 0 && step.checks.length > 0 ? yield* treeOf(work) : undefined;
     /** Whether the work a comment-only reply answers exists: no branch, a pull request, or a finished run. */
     const held =
       w.branch === undefined ||
@@ -1233,15 +1231,6 @@ const attempt = (
     if ('cut' in checked) return done(checked.cut.outcome, { ...tried, seen: checked.cut.at });
     const { outcome: gated, usd } = checked;
     tried = { ...tried, usd: tried.usd + usd };
-    if (
-      gated.kind === 'failed' &&
-      gated.checks.length > 0 &&
-      before !== undefined &&
-      before === (yield* treeOf(work))
-    ) {
-      const said = world.flatMap(p => (p.kind === 'comment' ? [p.body] : []));
-      return done({ kind: 'ask', question: [...said, failure(gated)].join('\n\n') }, tried);
-    }
     if (gated.kind === 'failed' || (gated.kind === 'pass' && problems.length > 0))
       return done(
         gated.kind === 'failed'
