@@ -24,6 +24,7 @@ BOTS=(
   "reviewer      smart,fast,local,luna,$OPENROUTER           5  60  900000"
   "triager       smart,fast,local,luna,$OPENROUTER           1  30  300000"
   "checker       smart,fast,local,luna,$OPENROUTER           1  30  200000"
+  "editor        smart,fast,local,luna,$OPENROUTER           1  30  200000"
   "claim-checker fast,local,luna,$OPENROUTER                 1  30  200000"
   "scout         fast,local,luna,$OPENROUTER                 1  30  200000"
   "router        smart,fast,local,luna,$OPENROUTER           1  30  200000"
