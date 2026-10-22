@@ -271,6 +271,9 @@ const envOfLabels = (tag: string, l: Record<string, string>): Env => ({
 
 const building = new Map<string, Promise<Env | 'setup' | undefined>>();
 
+/** The Env build format; an Env of another version is never reused. */
+export const envVersion = 6;
+
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
 
 /**
@@ -288,7 +291,7 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   ]);
   const lines = [...toolchainOf(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join('\n');
   if (!lines && !spec.setup) return undefined;
-  const family = hash([6, from, lines, spec.setup ?? '']);
+  const family = hash([envVersion, from, lines, spec.setup ?? '']);
   const wide = join(state(), 'tree-only', family);
   const one = async (mode: Env['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
@@ -405,7 +408,7 @@ const buildOf = async (
       await docker([
         'commit',
         '--change',
-        `LABEL agentgraph.env=${key} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
+        `LABEL agentgraph.env=${key} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
         name,
         tag,
       ]);

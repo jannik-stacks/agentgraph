@@ -24,7 +24,7 @@ const { positionals, values } = parseArgs({
 const [command, name, ...globs] = positionals;
 const gb = (b: number) => `${(b / 1e9).toFixed(2)} GB`;
 const row = (i: Item) =>
-  `  ${gb(i.bytes).padStart(10)}  ${i.kind.padEnd(6)}  ${i.refs.join(' ')}${i.held ? `  (held: ${i.held})` : ''}`;
+  `  ${gb(i.bytes).padStart(10)}  ${i.kind.padEnd(6)}  ${i.refs.join(' ')}${i.gone ? `  (unreachable: ${i.gone})` : ''}${i.held ? `  (held: ${i.held})` : ''}`;
 const sum = (items: Item[]) => gb(items.reduce((n, i) => n + i.bytes, 0));
 
 if (command === 'list') {

@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
-import { alive, docker, held, live, lowerOf, state, sweep, unlogged, used } from './env.ts';
+import { alive, docker, envVersion, held, live, lowerOf, state, sweep, unlogged, used } from './env.ts';
 
 /**
  * What a cache item is: an Env image with its dependency volume, a dependency volume no image uses, an object the old
@@ -21,10 +21,18 @@ type Kind = 'env' | 'lower' | 'legacy' | 'tree';
 
 /**
  * One deletable cache thing. `refs` are what removing it names: image tags, volume names or one host path. `bytes` are
- * what removing it frees, `used` its last use in ms, `held` why it must stay now, and `always` that it goes whatever
- * the cap.
+ * what removing it frees, `used` its last use in ms, `held` why it must stay now, `always` that it goes whatever the
+ * cap, and `gone` why an Env can never be reused.
  */
-export type Item = { kind: Kind; refs: string[]; bytes: number; used: number; held?: string; always?: boolean };
+export type Item = {
+  kind: Kind;
+  refs: string[];
+  bytes: number;
+  used: number;
+  held?: string;
+  always?: boolean;
+  gone?: string;
+};
 
 /** Bytes of a size like `60g`, `1.2GB` or `512MB`, in powers of 1000 as docker prints them. */
 export const bytes = (size: string) => {
@@ -157,10 +165,23 @@ const labelsOf = (text = '') =>
  */
 export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<Item[]> => {
   const tagsOf = new Map<string, string[]>();
+  const others = new Set<string>();
   for (const l of lines(await ask(['image', 'ls', '--no-trunc', '--format', '{{.ID}} {{.Repository}}:{{.Tag}}']))) {
     const [id = '', tag = ''] = l.split(' ');
     if (/^(agentgraph|bothub)-env\//.test(tag)) tagsOf.set(id, [...(tagsOf.get(id) ?? []), tag]);
+    else if (!tag.includes('<none>')) others.add(id);
   }
+  const bases = others.size
+    ? lines(await ask(['image', 'inspect', '--format', '{{json .RootFS.Layers}}', ...others])).map(
+        l => JSON.parse(l) as string[]
+      )
+    : [];
+  const gone = (labels: Record<string, string>, layers: string[]) =>
+    labels['agentgraph.version'] && labels['agentgraph.version'] !== String(envVersion)
+      ? 'old version'
+      : bases.length && !bases.some(b => b.length === layers.length - 1 && b.every((x, i) => x === layers[i]))
+        ? 'base replaced'
+        : undefined;
   const containers = lines(await ask(['ps', '-a', '--no-trunc', '--format', '{{.Image}}|{{.Mounts}}'])).map(l =>
     l.split('|')
   );
@@ -181,12 +202,19 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   const keys = new Set<string>();
   const inspected = tagsOf.size
     ? lines(
-        await ask(['image', 'inspect', '--format', '{{.Id}} {{.Created}} {{json .Config.Labels}}', ...tagsOf.keys()])
+        await ask([
+          'image',
+          'inspect',
+          '--format',
+          '{{.Id}} {{.Created}} {{json .RootFS.Layers}} {{json .Config.Labels}}',
+          ...tagsOf.keys(),
+        ])
       )
     : [];
   for (const l of inspected) {
-    const [id = '', created = '', ...rest] = l.split(' ');
+    const [id = '', created = '', layers = '[]', ...rest] = l.split(' ');
     const labels = (JSON.parse(rest.join(' ') || 'null') ?? {}) as Record<string, string>;
+    const why = labels['agentgraph.env'] ? gone(labels, JSON.parse(layers) as string[]) : undefined;
     const tags = tagsOf.get(id) ?? [];
     if (!tags.length || isData('', labels)) continue;
     const top = Number(lines(await ask(['history', '--human=false', '--format', '{{.Size}}', id]))[0]) || 0;
@@ -198,6 +226,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       refs: [...tags, ...(key && names.has(lowerOf(key)) ? [lowerOf(key)] : [])],
       bytes: top + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
       used: stamp,
+      ...(why && { always: true, gone: why }),
       ...((tags.some(t => runImages.has(t)) || runImages.has(id)) && { held: 'container' }),
       ...(key && overlaid(key) && { held: 'live checkout' }),
       ...(key && held(key, false) && { held: 'recent use' }),

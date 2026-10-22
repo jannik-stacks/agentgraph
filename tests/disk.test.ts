@@ -2,6 +2,7 @@ import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { collect, DiskLow, inventory, type Item, pin, plan, room, trees, unpin } from '../src/disk.ts';
+import { envVersion } from '../src/env.ts';
 import { faked, put, tmp } from './fixtures.ts';
 
 const GB = 1e9;
@@ -43,11 +44,11 @@ const box = {
     'sha256:p0 postgres:17-alpine',
     '',
   ].join('\\n'),
-  'image inspect': [
-    `sha256:e1 2026-10-01T00:00:00Z ${'{"agentgraph.env":"k1","agentgraph.lowerkb":"1000"}'}`,
-    `sha256:e2 2026-10-02T00:00:00Z ${'{"agentgraph.env":"k2","agentgraph.lowerkb":"0"}'}`,
-    'sha256:l1 2026-10-22T00:00:00Z {"bothub.env":"abc"}',
-    'sha256:l2 2026-10-22T00:00:00Z {"bothub.env":"abc","com.docker.compose.project":"x"}',
+  'image inspect --format {{.Id}}': [
+    `sha256:e1 2026-10-01T00:00:00Z [] ${'{"agentgraph.env":"k1","agentgraph.lowerkb":"1000"}'}`,
+    `sha256:e2 2026-10-02T00:00:00Z [] ${'{"agentgraph.env":"k2","agentgraph.lowerkb":"0"}'}`,
+    'sha256:l1 2026-10-22T00:00:00Z [] {"bothub.env":"abc"}',
+    'sha256:l2 2026-10-22T00:00:00Z [] {"bothub.env":"abc","com.docker.compose.project":"x"}',
     '',
   ].join('\\n'),
   'history --human=false --format {{.Size}} sha256:e1': '3000000\\n0\\n',
@@ -92,6 +93,41 @@ describe('inventory', () => {
       expect(by['bothub-cache']).toMatchObject({ kind: 'legacy' });
       expect(by['bothub-cache']?.always).toBeUndefined();
     });
+  });
+
+  it('takes an Env of an old family version or a replaced base image whatever the cap, unless held', async () => {
+    const env = (id: string, labels: string, layers: string) => `sha256:${id} 2026-10-01T00:00:00Z ${layers} ${labels}`;
+    await faked(
+      {
+        'image ls': [
+          'sha256:a agentgraph-env/r:a',
+          'sha256:b agentgraph-env/r:b',
+          'sha256:c agentgraph-env/r:c',
+          'sha256:d agentgraph-env/r:d',
+          'sha256:s1 agentgraph-sandbox:services',
+          '',
+        ].join('\\n'),
+        'image inspect --format {{.Id}}': [
+          env('a', `{"agentgraph.env":"a","agentgraph.version":"${envVersion}"}`, '["l1","l2","ea"]'),
+          env('b', `{"agentgraph.env":"b","agentgraph.version":"5"}`, '["l1","l2","eb"]'),
+          env('c', `{"agentgraph.env":"c","agentgraph.version":"${envVersion}"}`, '["l1","old","ec"]'),
+          env('d', `{"agentgraph.env":"d","agentgraph.version":"${envVersion}"}`, '["l1","old","ed"]'),
+          '',
+        ].join('\\n'),
+        'image inspect --format {{json .RootFS.Layers}}': '["l1"]\\n["l1","l2"]\\n',
+        'volume ls --format': 'agentgraph-lower-d\\tagentgraph.lower=d\\n',
+        'ps -a': 'agentgraph-env/r:d|x\\n',
+      },
+      async () => {
+        const by = Object.fromEntries((await inventory()).map(i => [i.refs[0], i]));
+        expect(by['agentgraph-env/r:a']?.always).toBeUndefined();
+        expect(by['agentgraph-env/r:b']).toMatchObject({ always: true, gone: 'old version' });
+        expect(by['agentgraph-env/r:c']).toMatchObject({ always: true, gone: 'base replaced' });
+        expect(by['agentgraph-env/r:d']).toMatchObject({ always: true, held: 'container' });
+        const { removed } = await collect({ dry: true, limit: 1e15 });
+        expect(removed.map(i => i.refs[0]).sort()).toEqual(['agentgraph-env/r:b', 'agentgraph-env/r:c']);
+      }
+    );
   });
 
   it('holds what a pin names until the pin expires', async () => {

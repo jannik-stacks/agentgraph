@@ -268,7 +268,7 @@ describe('docker with a stand-in docker client', () => {
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
     expect(builds() - before).toBe(1);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(
-      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.lowerkb=5 agentgraph\.complete=true/
+      /commit --change LABEL agentgraph\.env=\w+ agentgraph\.version=\d+ agentgraph\.lowerkb=5 agentgraph\.complete=true/
     );
   });
 
