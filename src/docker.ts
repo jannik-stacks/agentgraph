@@ -13,11 +13,11 @@ import {
   layer,
   mark,
   reap,
-  room,
   sweep,
   caches,
   unlogged,
 } from './env.ts';
+import { room } from './disk.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */

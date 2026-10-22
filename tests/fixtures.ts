@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import type { Check } from '../src/hub.ts';
 import type { Hub } from '../src/hub.ts';
@@ -106,4 +106,38 @@ export const hubOf = (hub: string, checks: Record<string, Omit<Check, 'mode'>> =
     workflows: f.workflows,
     limits: { minutes: 1, usdPerRun: 10, parallel: 2, sessions: 4 },
   };
+};
+
+/**
+ * Runs `f` with a fake `docker` that logs its arguments and prints `out` for the first key its arguments start with;
+ * a `*` in a key matches anything. Each call gets its own state dir.
+ */
+export const faked = async <A>(out: Record<string, string>, f: (log: () => string) => Promise<A>) => {
+  const bin = tmp('bin');
+  const log = join(bin, 'log');
+  const cases = Object.entries(out)
+    .map(
+      ([k, v]) =>
+        `  ${k
+          .split('*')
+          .map(p => `"${p}"`)
+          .join('*')}*) printf '${v}' ;;`
+    )
+    .join('\n');
+  writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho "$*" >> ${log}\ncase "$*" in\n${cases}\nesac\n`);
+  chmodSync(join(bin, 'docker'), 0o755);
+  const saved = { PATH: process.env.PATH, AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE };
+  process.env.PATH = `${bin}${delimiter}${saved.PATH}`;
+  process.env.AGENTGRAPH_STATE = tmp('state');
+  try {
+    return await f(() => (existsSync(log) ? readFileSync(log, 'utf8') : ''));
+  } finally {
+    Object.assign(process.env, saved);
+    if (saved.AGENTGRAPH_STATE === undefined) delete process.env.AGENTGRAPH_STATE;
+  }
+};
+
+export const put = (dir: string, file: string, text = '') => {
+  mkdirSync(join(dir, file, '..'), { recursive: true });
+  writeFileSync(join(dir, file), text);
 };

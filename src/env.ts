@@ -1,16 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statfsSync,
-  statSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -63,7 +53,7 @@ export const caches = {
 /** Containers keep no log on the docker disk; the runner reads their output as they run. */
 export const unlogged = ['--log-driver', 'none'];
 
-const docker = (args: string[], timeout = 600_000) =>
+export const docker = (args: string[], timeout = 600_000) =>
   new Promise<string>((done, fail) =>
     execFile('docker', args, { timeout, maxBuffer: 256 << 20 }, (error, stdout, stderr) =>
       error
@@ -114,8 +104,8 @@ const section = (out: string, name: string) =>
   (out.split(`@@${name}\n`)[1] ?? '').split(/^@@/m)[0]!.split('\n').filter(Boolean);
 
 /** Where runners keep what must outlive them: Env last-use stamps, holds per runner and owner heartbeats. */
-const state = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
-const used = () => join(state(), 'envs');
+export const state = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
+export const used = () => join(state(), 'envs');
 const holds = () => join(state(), 'holds');
 const owners = () => join(state(), 'owners');
 const stamp = (file: string) => {
@@ -132,15 +122,15 @@ const touch = (key: string) => {
 };
 const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
 
-/** Whether another live runner used the Env `key` within the hold window; dead runners' holds are dropped. */
-const held = (key: string) => {
+/** Whether another live runner used the Env `key` within the hold window; with `prune`, dead runners' holds are dropped. */
+export const held = (key: string, prune = true) => {
   const dir = join(holds(), key);
   let owners: string[] = [];
   try {
     owners = readdirSync(dir);
   } catch {}
   const [alive, dead] = [owners.filter(o => live(`0:${o}`)), owners.filter(o => !live(`0:${o}`))];
-  for (const owner of dead) rmSync(join(dir, owner), { force: true });
+  if (prune) for (const owner of dead) rmSync(join(dir, owner), { force: true });
   return alive.some(o => o !== self && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
 };
 
@@ -157,7 +147,7 @@ export const beat = () => {
   return `${process.pid}:${self}`;
 };
 
-const alive = (pid: number) => {
+export const alive = (pid: number) => {
   try {
     process.kill(pid, 0);
     return true;
@@ -194,7 +184,7 @@ const labels = async (tag: string) => {
   return l?.['agentgraph.env'] ? l : undefined;
 };
 
-const lowerOf = (key: string) => `agentgraph-lower-${key}`;
+export const lowerOf = (key: string) => `agentgraph-lower-${key}`;
 
 const envOfLabels = (tag: string, l: Record<string, string>): Env => {
   const outputs = JSON.parse(l['agentgraph.outputs'] ?? '[]') as string[];
@@ -557,139 +547,4 @@ export const sweep = async (timeout = 600_000) => {
     .sort((a, b) => Number(b.endsWith('-o')) - Number(a.endsWith('-o')));
   if (dead.length) await docker(['volume', 'rm', '-f', ...dead], timeout).catch(() => '');
   return dead.length;
-};
-
-/** Bytes of a size like `60g`, `1.2GB` or `512MB`, in powers of 1000 as docker prints them. */
-export const bytes = (size: string) => {
-  const m = /^([\d.]+)\s*([kmgt]?)b?$/i.exec(size.trim());
-  if (!m) throw new Error(`not a size: ${size}`);
-  return Number(m[1]) * 1000 ** ' kmgt'.indexOf(m[2]!.toLowerCase() || ' ');
-};
-
-/** Env images with their size in bytes, their dependency volume's included, and their last use, the oldest first. */
-export const envs = async () => {
-  const tags = (
-    await docker(['image', 'ls', '--filter', 'label=agentgraph.env', '--format', '{{.Repository}}:{{.Tag}}']).catch(
-      () => ''
-    )
-  )
-    .split('\n')
-    .filter(Boolean);
-  const out = tags.length
-    ? await docker([
-        'image',
-        'inspect',
-        '--format',
-        '{{index .RepoTags 0}} {{.Size}} {{index .Config.Labels "agentgraph.lowerkb"}}',
-        ...tags,
-      ]).catch(() => '')
-    : '';
-  const times = new Map<string, number>();
-  try {
-    for (const key of readdirSync(used())) times.set(key, statSync(join(used(), key)).mtimeMs);
-  } catch {}
-  return out
-    .split('\n')
-    .filter(Boolean)
-    .map(l => {
-      const [image = '', size = '0', kb = '0'] = l.split(' ');
-      const b = Number(size) + (Number(kb) || 0) * 1024;
-      return { image, size: `${(b / 1e9).toFixed(1)}GB`, bytes: b, used: times.get(image.split(':')[1] ?? '') ?? 0 };
-    })
-    .sort((a, b) => a.used - b.used);
-};
-
-const cap = () => bytes(process.env.AGENTGRAPH_ENV_CAP || '60g');
-
-/**
- * Removes the least recently used Env images and their dependency volumes until they fit in `limit` bytes, never one
- * a running container, a live checkout or a live runner's recent use holds, then any dependency volume whose image is gone and no checkout uses.
- */
-export const evict = async (limit = cap(), dry = false) => {
-  const all = await envs();
-  const running = new Set((await docker(['ps', '--format', '{{.Image}}']).catch(() => '')).split('\n').filter(Boolean));
-  const layered = await volumes('agentgraph.lower').catch(() => []);
-  const owners = new Map((await volumes('agentgraph.layer').catch(() => [])).map(([name, owner]) => [name, owner]));
-  const inUse = (key: string) => layered.some(([name, k]) => k === key && live(owners.get(name) ?? ''));
-  let total = all.reduce((sum, e) => sum + e.bytes, 0);
-  const removed: string[] = [];
-  for (const e of all) {
-    if (total <= limit) break;
-    const key = e.image.split(':')[1] ?? '';
-    if (running.has(e.image) || inUse(key) || held(key)) continue;
-    if (
-      dry ||
-      (await docker(['rmi', e.image]).then(
-        () => true,
-        () => false
-      ))
-    ) {
-      removed.push(e.image);
-      total -= e.bytes;
-    }
-  }
-  const kept = new Set(all.filter(e => !removed.includes(e.image)).map(e => e.image.split(':')[1]));
-  const orphans = layered.filter(([name, key]) => name === lowerOf(key) && !kept.has(key) && !inUse(key));
-  if (!dry) for (const [name] of orphans) await docker(['volume', 'rm', name]).catch(() => '');
-  return [...removed, ...orphans.map(([name]) => name)];
-};
-
-/** Where room() measures: the data dir on this host, and through `volume` and `image`, the disk docker writes to. */
-export type Disk = { dir: string; image?: string; volume?: string };
-
-const inDocker = new Map<string, { at: number; free: Promise<number> }>();
-
-/** Free bytes of the docker disk holding `volume`, measured at most once a minute. */
-const dockerFree = (image: string, volume: string) => {
-  const key = `${image} ${volume}`;
-  const hit = inDocker.get(key);
-  if (hit && Date.now() - hit.at < 60_000) return hit.free;
-  const free = docker(
-    [
-      'run',
-      ...unlogged,
-      '--rm',
-      '--pull',
-      'never',
-      '--network',
-      'none',
-      '--read-only',
-      '--cap-drop=ALL',
-      '--mount',
-      `type=volume,src=${volume},dst=/disk,readonly`,
-      image,
-      'df',
-      '-Pk',
-      '/disk',
-    ],
-    60_000
-  ).then(
-    out => Number(out.split('\n').at(-1)?.trim().split(/\s+/)[3] ?? NaN) * 1024 || Infinity,
-    () => Infinity
-  );
-  inDocker.set(key, { at: Date.now(), free });
-  return free;
-};
-
-/** Free gigabytes where `disk` writes, the smaller of the host dir and the docker disk. */
-const freeGb = async ({ dir, image, volume }: Disk) => {
-  let host = Infinity;
-  try {
-    const s = statfsSync(dir);
-    host = s.bavail * s.bsize;
-  } catch {}
-  return Math.min(host, image && volume ? await dockerFree(image, volume) : Infinity) / 1e9;
-};
-
-/**
- * Makes sure `disk` has `AGENTGRAPH_MIN_FREE_GB` (40) free: below it, sweeps and evicts Envs past `AGENTGRAPH_ENV_CAP`, then
- * throws `disk low` if that was not enough.
- */
-export const room = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
-  if ((await freeGb(disk)) >= min) return;
-  inDocker.clear();
-  await sweep(60_000);
-  await evict();
-  const gb = await freeGb(disk);
-  if (gb < min) throw new Error(`disk low: ${gb.toFixed(1)} GB free, AGENTGRAPH_MIN_FREE_GB is ${min}`);
 };

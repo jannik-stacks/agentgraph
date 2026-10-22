@@ -1,27 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
-import {
-  beat,
-  bytes,
-  dependencyDirs,
-  evict,
-  live,
-  discard,
-  layer,
-  mark,
-  reap,
-  room,
-  sweep,
-  toolchainOf,
-} from '../src/env.ts';
+import { beat, dependencyDirs, live, discard, layer, mark, reap, sweep, toolchainOf } from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
-import { git, plant, tmp } from './fixtures.ts';
+import { faked, git, plant, put, tmp } from './fixtures.ts';
 
 /** A repo with one commit on `main` and a `feature` branch one commit ahead. */
 const origin = () => {
@@ -648,31 +635,6 @@ describe.runIf(process.env.AGENTGRAPH_LIVE === '1')('opencode for real', () => {
   }, 600_000);
 });
 
-/** Runs `f` with a fake `docker` that logs its arguments and prints `out` for a matching `$1 $2`, and its own state. */
-const faked = async <A>(out: Record<string, string>, f: (log: () => string) => Promise<A>) => {
-  const bin = tmp('bin');
-  const log = join(bin, 'log');
-  const cases = Object.entries(out)
-    .map(([k, v]) => `  "${k}") printf '${v}' ;;`)
-    .join('\n');
-  writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho "$*" >> ${log}\ncase "$1 $2" in\n${cases}\nesac\n`);
-  chmodSync(join(bin, 'docker'), 0o755);
-  const saved = { PATH: process.env.PATH, AGENTGRAPH_STATE: process.env.AGENTGRAPH_STATE };
-  process.env.PATH = `${bin}${delimiter}${saved.PATH}`;
-  process.env.AGENTGRAPH_STATE = tmp('state');
-  try {
-    return await f(() => (existsSync(log) ? readFileSync(log, 'utf8') : ''));
-  } finally {
-    Object.assign(process.env, saved);
-    if (saved.AGENTGRAPH_STATE === undefined) delete process.env.AGENTGRAPH_STATE;
-  }
-};
-
-const put = (dir: string, file: string) => {
-  mkdirSync(join(dir, file, '..'), { recursive: true });
-  writeFileSync(join(dir, file), '');
-};
-
 describe('disk lifecycle', () => {
   it('finds node_modules beside each package.json and target beside the outermost Cargo.toml', async () => {
     const dir = tmp('deps');
@@ -710,60 +672,6 @@ describe('disk lifecycle', () => {
       expect(log()).toContain(`cp -a '/work/dist' '/dst/'/`);
       await discard(layers);
       expect(log()).toContain('volume rm -f agentgraph-layer-own-0-o agentgraph-layer-own-1 agentgraph-layer-own-0');
-    });
-  });
-
-  it('evicts the least recently used Envs past the cap and keeps one a container runs', async () => {
-    await faked(
-      {
-        'image ls': 'agentgraph-env/r:old\\nagentgraph-env/r:mid\\nagentgraph-env/r:new\\n',
-        'image inspect':
-          'agentgraph-env/r:old 10000000000 19531250\\nagentgraph-env/r:mid 30000000000 0\\nagentgraph-env/r:new 30000000000 0\\n',
-        'ps --format': 'agentgraph-env/r:mid\\n',
-        'volume ls': 'agentgraph-lower-old old\\n',
-      },
-      async log => {
-        const envs = join(process.env.AGENTGRAPH_STATE!, 'envs');
-        mkdirSync(envs, { recursive: true });
-        ['old', 'mid', 'new'].forEach((key, i) => {
-          writeFileSync(join(envs, key), '');
-          utimesSync(join(envs, key), 1000 + i, 1000 + i);
-        });
-        expect(await evict(bytes('70g'), true)).toEqual(['agentgraph-env/r:old', 'agentgraph-lower-old']);
-        expect(await evict(bytes('50g'))).toEqual([
-          'agentgraph-env/r:old',
-          'agentgraph-env/r:new',
-          'agentgraph-lower-old',
-        ]);
-        expect(log()).toContain('volume rm agentgraph-lower-old');
-        expect(log()).toContain('rmi agentgraph-env/r:new');
-        expect(log()).not.toContain('rmi agentgraph-env/r:mid');
-      }
-    );
-  });
-
-  it('keeps an Env another live runner used lately, even with no container on it', async () => {
-    await faked(
-      {
-        'image ls': 'agentgraph-env/r:old\nagentgraph-env/r:new\n',
-        'image inspect': 'agentgraph-env/r:old 30000000000 0\nagentgraph-env/r:new 30000000000 0\n',
-        'ps --format': '',
-        'volume ls': '',
-      },
-      async () => {
-        const at = (dir: string) => join(process.env.AGENTGRAPH_STATE!, dir);
-        for (const f of ['envs/old', 'envs/new', 'holds/old/gone', 'holds/new/other', 'owners/other']) put(at(''), f);
-        utimesSync(at('envs/old'), 1000, 1000);
-        expect(await evict(bytes('10g'), true)).toEqual(['agentgraph-env/r:old']);
-        expect(existsSync(at('holds/old/gone'))).toBe(false);
-      }
-    );
-  });
-
-  it('throws disk low when sweeping and evicting leave too little free', async () => {
-    await faked({}, async () => {
-      await expect(room({ dir: tmp('disk') }, 0)).resolves.toBeUndefined();
-      await expect(room({ dir: tmp('disk') }, 1e9)).rejects.toThrow(/disk low/);
     });
   });
 

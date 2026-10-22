@@ -43,14 +43,16 @@ Containers keep no Docker log, since the runner reads their output as they run. 
 
 Runner ids and heartbeat files identify abandoned checkouts and volumes, removed on startup. `AGENTGRAPH_STATE` defaults to `~/.cache/agentgraph` and also holds image last-use stamps. Runners sharing Docker must share this directory; containerized runners need it on persistent storage.
 
-`AGENTGRAPH_ENV_CAP` defaults to `60g`, counting images and dependency volumes. Eviction removes least recently used pairs, excluding live containers and checkouts, and any Env another live runner (a second bench on the same daemon, say) used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2):
+Cache is collected by unique bytes: an image counts only the layer its build added, plus its dependency volume. The collector sees Env images and dependency volumes, the old engine's `bothub-env/*` images and `bothub-*` cache volumes, and score trees and `target-shared` dirs (with `CACHEDIR.TAG`) under `--root` or `AGENTGRAPH_GC_ROOTS`. Compose volumes and `bothub_*` volumes are data and never listed. Dependency volumes no image uses, the old engine's layer volumes and score trees nobody holds always go. The rest goes least recently used first, the old engine's first, while the total is over `AGENTGRAPH_ENV_CAP` (`60g`). Nothing goes while a container uses it, a live checkout overlays it, another live runner used it in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2), or a pin names it. Collection runs after each bench case and when disk runs low:
 
 ```sh
 node bin/env.ts list
-node bin/env.ts prune --cap 60g --dry
+node bin/env.ts collect --dry-run --root ~/bothub-data/tune
+node bin/env.ts pin luna-full 'bothub-env/*' bothub-cache --days 14
+node bin/env.ts unpin luna-full
 ```
 
-Omit `--dry` to prune. Before checkouts, builds and commands, free space is checked in both the data directory and Docker disk. Below `AGENTGRAPH_MIN_FREE_GB` (40), cleanup runs; insufficient space then raises `disk low`, holding bench work until space returns. <!-- code: src/env.ts#evict src/env.ts#room -->
+A pin holds what its globs name until it expires; then those items fall back into the normal order. Omit `--dry-run` to remove. Before checkouts, builds and commands, free space is checked in both the data directory and Docker disk. Below `AGENTGRAPH_MIN_FREE_GB` (40), cleanup runs; if that is not enough, `disk low` names the held cache and the command that frees it, and bench work waits until space returns. Running containers are never stopped. <!-- code: src/disk.ts#collect src/disk.ts#room -->
 
 `AGENTGRAPH_IMAGE` supplies the base image when hub `image` is absent; default `agentgraph-sandbox:local`.
 

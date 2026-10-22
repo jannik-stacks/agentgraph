@@ -13,7 +13,7 @@
   ],
   "project": ["src/**/*.ts", "bin/**", "bench/*.ts", "tune/**", "studio/**/*.{ts,tsx}", "examples/*/scripts/**"],
   "vitest": false,
-  "ignoreBinaries": ["continue", "codex"],
+  "ignoreBinaries": ["continue", "codex", "du"],
   "ignoreDependencies": [
     "react",
     "react-dom",

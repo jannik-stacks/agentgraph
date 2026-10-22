@@ -21,7 +21,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { type Disk, room } from '../src/env.ts';
+import { type Disk, room } from '../src/disk.ts';
 
 const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
 

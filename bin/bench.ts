@@ -16,17 +16,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
 import { priceOf, type Prices } from '../src/harnesses.ts';
-import {
-  dependencyDirs,
-  discard,
-  envOf,
-  evict,
-  layer,
-  manifest,
-  ownerId,
-  room,
-  sweep as sweepLayers,
-} from '../src/env.ts';
+import { dependencyDirs, discard, envOf, layer, manifest, ownerId, sweep as sweepLayers } from '../src/env.ts';
+import { collect, room, trees } from '../src/disk.ts';
 import {
   append,
   attic,
@@ -780,12 +771,10 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
   }
 };
 
-/** Removes the scoring trees under `out` that no live process holds. */
+/** Removes the scoring trees under `out`, nested runs included, that no live process holds. */
 const reapTrees = (out: string) => {
-  for (const id of existsSync(out) ? readdirSync(out) : []) {
-    const tree = join(out, id, 'tree');
-    if (existsSync(tree) && !busy(tree)) rmSync(tree, { recursive: true, force: true });
-  }
+  for (const tree of trees(out))
+    if (basename(tree) === 'tree' && !busy(tree)) rmSync(tree, { recursive: true, force: true });
 };
 
 type Tests = {
@@ -959,19 +948,19 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
 };
 
 /** Removes the Env images a case's scores ran in and their dependency volumes; docker keeps one a container still uses. */
-const dropEnvs = async (root: string) => {
+const dropEnvs = (root: string) => {
   const used = readdirSync(root).flatMap(arm => {
     const env = (JSON.parse(read(join(root, arm, 'score.json')) || '{}') as { env?: string }).env;
     return env ? [env] : [];
   });
   for (const image of new Set(used)) spawnSync('docker', ['rmi', image], { stdio: 'ignore' });
-  await evict();
 };
 
 const score = async (caseDir: string, out: string, repo: string, drop = false) => {
   const c = loadCase(caseDir);
   if (!(await prepare(c, out, repo))) await scoreArms(c, out, repo, bots);
-  if (drop && existsSync(join(out, c.id))) await dropEnvs(join(out, c.id));
+  if (drop && existsSync(join(out, c.id))) dropEnvs(join(out, c.id));
+  if (cache) await collect();
 };
 
 const flips: [RegExp, string][] = [
