@@ -5,6 +5,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     globalSetup: ['tests/setup/global.ts'],
     setupFiles: ['tests/setup/processes.ts'],
+    env: { BOTHUB_CACHE_VOLUME: '' },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
