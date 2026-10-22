@@ -15,7 +15,7 @@ import { basename, join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
-import { dependencyDirs, discard, envOf, layer, manifest, ownerId, room } from '../src/env.ts';
+import { dependencyDirs, discard, envOf, evict, layer, manifest, ownerId, room } from '../src/env.ts';
 import {
   append,
   attic,
@@ -814,19 +814,20 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
 };
 
-/** Removes the Env images a case's scores ran in; docker keeps one a container still uses. */
-const dropEnvs = (root: string) => {
+/** Removes the Env images a case's scores ran in and their dependency volumes; docker keeps one a container still uses. */
+const dropEnvs = async (root: string) => {
   const used = readdirSync(root).flatMap(arm => {
     const env = (JSON.parse(read(join(root, arm, 'score.json')) || '{}') as { env?: string }).env;
     return env ? [env] : [];
   });
   for (const image of new Set(used)) spawnSync('docker', ['rmi', image], { stdio: 'ignore' });
+  await evict();
 };
 
 const score = async (caseDir: string, out: string, repo: string, drop = false) => {
   const c = loadCase(caseDir);
   if (!(await prepare(c, out, repo))) await scoreArms(c, out, repo, bots);
-  if (drop && existsSync(join(out, c.id))) dropEnvs(join(out, c.id));
+  if (drop && existsSync(join(out, c.id))) await dropEnvs(join(out, c.id));
 };
 
 const flips: [RegExp, string][] = [
