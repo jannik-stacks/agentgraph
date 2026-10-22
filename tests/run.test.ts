@@ -1000,6 +1000,22 @@ describe('a run branch that moved', () => {
     ).toHaveLength(1);
   }, 30_000);
 
+  it('posts a repeated runner question after a new human answer', async () => {
+    const where = world();
+    const { run } = services(where, [
+      [start('a'), reply({ kind: 'ask', question: 'Which?' })],
+      [start('a'), reply({ kind: 'ask', question: 'Which?' })],
+    ]);
+    const issue = await run(
+      Effect.gen(function* () {
+        const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
+        yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'This one' }), small);
+        return yield* Effect.flatMap(Forge, f => f.issue(7));
+      })
+    );
+    expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'Which?')).toHaveLength(2);
+  }, 30_000);
+
   it('reuses a created child after a later child proposal fails', async () => {
     const where = world();
     let fail = true;

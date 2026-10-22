@@ -1525,7 +1525,7 @@ const land = (
           : yield* once(
               run,
               issue,
-              operation(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined),
+              work ? operation(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined) : randomUUID(),
               forge.apply(issue, p, work)
             );
         applied.push(a);
