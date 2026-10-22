@@ -783,6 +783,39 @@ describe('a run branch that moved', () => {
     30_000
   );
 
+  it('reopens a moved branch before retrying without spending a step try', async () => {
+    const where = world();
+    const seed = join(where.root, 'seed');
+    git(seed, 'push', '-q', where.origin, 'main:agentgraph/7');
+    let opened = 0;
+    let replayed = false;
+    const { specs, run } = services(
+      where,
+      [
+        [start('a'), write('hello.txt', 'pending\n'), reply(push)],
+        [start('a'), reply(push)],
+      ],
+      undefined,
+      spec => {
+        if (++opened === 1) {
+          writeFileSync(join(seed, 'other.txt'), 'human\n');
+          git(seed, 'add', '-A');
+          git(seed, 'commit', '-qm', 'Human push');
+          git(seed, 'push', '-q', where.origin, 'HEAD:agentgraph/7');
+        } else
+          replayed =
+            existsSync(join(spec.dir, 'other.txt')) &&
+            readFileSync(join(spec.dir, 'hello.txt'), 'utf8') === 'pending\n';
+      }
+    );
+    const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
+    expect(replayed).toBe(true);
+    expect(done).toMatchObject({ status: 'done', tries: 0 });
+    expect(specs).toHaveLength(2);
+    expect(git(where.origin, 'show', 'agentgraph/7:other.txt')).toBe('human');
+    expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('pending');
+  }, 30_000);
+
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();
     const attempted: Proposal[] = [];

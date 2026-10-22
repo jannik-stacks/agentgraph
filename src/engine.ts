@@ -1552,6 +1552,20 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       if (!w.on.feedback) yield* setUp(hub, work, current);
       while (current.status === 'running') {
         const tried = yield* attempt(w, current, hub, work, own);
+        if (
+          tried.outcome.kind === 'failed' &&
+          tried.outcome.proposals.some(
+            a =>
+              !a.ok &&
+              a.proposal.kind === 'push' &&
+              (a.reason?.includes(', the checkout builds on ') || a.reason?.startsWith(`${a.proposal.branch} moved `))
+          )
+        ) {
+          current = tried.run;
+          yield* store.put(current);
+          return;
+        }
+
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
         if (current.status === 'running' && current.usd > hub.limits.usdPerRun) {
           const why = `Spent $${current.usd.toFixed(2)}, over the hub's usd-per-run of ${hub.limits.usdPerRun}.`;
