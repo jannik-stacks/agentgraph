@@ -31,7 +31,7 @@ const braced = (text, open) => {
   }
 };
 
-/** What a bin file takes: its parseArgs options or its quoted `'--flag'` literals, and its `case` or `[0] ===` words. */
+/** What a bin file takes: its parseArgs options or its quoted `'--flag'` literals, and its `case`, `[0] ===` or `command ===` words. */
 const takes = file => {
   const code = read(`bin/${file}`)
     .split('\n')
@@ -41,7 +41,7 @@ const takes = file => {
   const flags = options
     ? [...options.matchAll(/(?:^|[\n,{])\s*(?:'([\w-]+)'|(\w+)):\s*\{\s*type/g)].map(m => m[1] ?? m[2])
     : [...code.matchAll(/'--([\w-]+)'/g)].map(m => m[1]);
-  const words = [...code.matchAll(/(?:case|positionals\[0\] ===) '([\w-]+)'/g)].map(m => m[1]);
+  const words = [...code.matchAll(/(?:case|(?:positionals\[0\]|command) ===) '([\w-]+)'/g)].map(m => m[1]);
   return { flags: new Set(flags), words: new Set(words) };
 };
 const known = Object.fromEntries(bins.map(f => [f, takes(f)]));

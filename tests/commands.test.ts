@@ -12,7 +12,9 @@ describe('commands', () => {
     for (const path of ['bin/commands.mjs', 'bin/run.ts', 'bin/forge.ts', 'package.json', 'studio/package.json'])
       cpSync(join(root, path), join(dir, path));
     write(dir, {
-      'README.md': 'Run `node bin/run.ts check --hub x` and `npm run dev`.\n',
+      'README.md':
+        'Run `node bin/run.ts check --hub x` and `npm run dev`.\n' +
+        '`node bin/run.ts say --hub x --issue 1`, `node bin/run.ts tell --issue 1` and `node bin/run.ts dispatch --workflow triage --issue 1`.\n',
       'infra/github/README.md': '',
       'docs/local.md':
         'Run `node bin/run.ts serve`, `node bin/sim.ts`, `npm run retro` and `agentgraph sim`.\nUse `node bin/run.ts --hub x --watch` and `node bin/forge.ts /d wipe`; `--hub` and `--nope` are flags.\n',
