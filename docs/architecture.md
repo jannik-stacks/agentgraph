@@ -1,7 +1,6 @@
 # Architecture
 
-This page shows where everything lives, how a run moves, and what is code versus judgement.
-The engine means the runner's own code in `src`.
+The engine is the runner code in `src/`.
 
 ## Where everything lives
 
@@ -38,11 +37,7 @@ The engine means the runner's own code in `src`.
 
 <!-- code: src/main.ts#start -->
 
-The engine is the only part that holds a GitHub token. A sandbox gets its own agent's proxy key and nothing else.
-
-Sessions and the hub's `setup` reach only the model proxy and an egress allowlist, and scripts and checks reach nothing, see [The network](sandbox.md#the-network).
-
-Each run works in its own git worktree of a bare mirror, see [Runs](runs.md#checkout).
+See [sandbox isolation](sandbox.md#the-sandbox), [network rules](sandbox.md#the-network) and [checkout storage](runs.md#checkout).
 
 The engine talks to the outside through four services. Each has a test double:
 
@@ -53,51 +48,19 @@ The engine talks to the outside through four services. Each has a test double:
 
 ## One run through the state machine
 
-```
- trusted event: /agent or a label
-        │
-        v
- ┌────────────────────┐   pass    ┌────────────────────┐   pass    ┌────────────────────┐
- │ step: implement    │──────────>│ step: review       │──────────>│ step: merge        │──> done
- │ agent session      │           │ agent session      │           │ wait: human        │
- └─────────┬──────────┘           └─────────┬──────────┘           └─────────┬──────────┘
-           │                                │ until does not hold            │ a person asks for changes
-           │                                └──> back to implement           └──> back to implement
-           │
-           ├──> a check or proposal failed: the next try, in the same session
-           ├──> ask, tries or rounds spent: waiting, until a human answers
-           └──> a stop check, the minutes or spend limit, a sandbox failure: stopped
-```
+[The loop](loop.md) describes transitions, checks, retries and waiting.
 
-The three ways out under `implement` hold for every agent step. [The loop](loop.md) draws one try in detail.
+| Engine code | Model judgment |
+| --- | --- |
+| Step transitions, tries and rounds caps | Session edits and proposals |
+| Script checks and failure modes | Agent check verdicts |
+| Proposal validation and application | Whether `until` holds |
+| Push safety, triggers and trust | Questions for humans |
 
-Which part is which:
-
-| Deterministic engine code                                                                    | LLM judgement                                    |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Transitions between steps                                                                    | The session: what it writes and proposes         |
-| The tries cap and the rounds cap                                                             | An agent-judged check: the reply is PASS or FAIL |
-| Script checks and their modes (`warn`, `block`, `stop`)                                      | Whether the `until` sentence holds               |
-| Which proposals are accepted and applied                                                     | What the agent asks a human                      |
-| Push safety: a push never forces and only the host holds the token                           |                                                  |
-| Triggers and trust: only a trusted command or label starts a run                             |                                                  |
-
-<!-- code: src/workflow.ts#transition src/engine.ts#land src/engine.ts#tick -->
-
-Judgement never moves a run by itself. An agent only proposes, a check only answers pass or fail, and the engine reads the answers and decides where the run goes. A reply that does not parse fails the try. `transition` is pure, so every path is a plain test. The engine loop around it reads each answer and applies it. <!-- code: src/engine.ts#drive -->
+Judgment supplies proposals and verdicts; engine code decides transitions. Malformed replies fail the try. `transition` is pure and testable without I/O; `drive` performs the surrounding reads and writes. <!-- code: src/workflow.ts#transition src/engine.ts#land src/engine.ts#tick src/engine.ts#drive -->
 
 ## Bundling for hosting
 
-Today `infra/local/docker-compose.yml` runs the model proxy, its database, the egress proxy and the Ollama relay. The runner and the studio run as node processes on the host.
+`infra/local/docker-compose.yml` runs LiteLLM, its database, the egress proxy and Ollama relay. Runner and studio run as Node processes on the host.
 
-The planned bundle uses one compose file with three parts:
-
-- The runner has access to the docker socket on its host because it starts the sandboxes.
-- The proxy is LiteLLM with its database. It holds keys and spend logs.
-- The studio only reads the data dir and needs nothing else.
-
-The sandbox network and egress proxy sit beside them, as in `infra/local/docker-compose.yml`. The data dir is a volume shared by runner and studio.
-
-The studio is optional. It can run anywhere that mounts the data dir read-only. The proxy can be one that already runs, since the engine needs only `AGENTGRAPH_PROXY_URL` and the per-agent keys.
-
-The runner cannot be split from docker, because a run is a container the runner starts. The GitHub side needs only the App credentials, which stay with the runner.
+The runner needs Docker access to start sandboxes and keeps App credentials. The studio is optional and can run anywhere with read-only access to the hub and data directory. An existing proxy can serve the runner through `AGENTGRAPH_PROXY_URL` and per-agent keys.
