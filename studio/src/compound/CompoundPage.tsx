@@ -1,7 +1,7 @@
 import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
 import { live, queryParam } from '../state.ts';
-import { Badge, Button, cx, Field, Fields, IconButton, Loading, Muted, Select, Tooltip } from '../ui.tsx';
+import { Badge, Button, cx, Field, Fields, Help, IconButton, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import {
   average,
   byIteration,
@@ -50,13 +50,33 @@ const metrics = {
   points: { label: 'points', unit: 'Codex and Claude 5h points per iteration' },
 };
 
+const help = {
+  view: 'Pick one repo or every repo. The x axis shows hours since the starting hub, the iteration count, or the usd spent on bench runs so far.',
+  series:
+    'Each tune name, such as t1 or t2, has a chip that hides or shows it. A tune is one climb on one repo, and the same name on several repos means the same setup.',
+  iteration:
+    'One round of the climb: proposers write up to k candidate hubs, each runs on the select cases, and at most one is kept.',
+  verdict:
+    'Kept means the candidate beat the current hub, by winning more cases than it lost or by costing less per run without dropping a case. Discarded means it ran on every select case and did neither. Screened out means it dropped two of its four screen cases and lifted none. Infra means its runs broke for reasons outside the hub.',
+  split:
+    'Fit cases are the ones proposers may study. Validate cases count toward keeping a candidate but proposers never see them. Together they are the select cases. Test cases stay held out and run only at checkpoints, with judges.',
+  quality:
+    "Each run gets 0.87 of its score when the hidden tests from the human's merged change pass, plus 0.13 when the repo's own test suite still passes. Averaged over cases, so the human scores 1.",
+  delta: "The candidate's average quality minus the current hub's, compared case by case.",
+  pUp: 'The share of 2000 resampled sets of the cases (bootstrap resamples) where the candidate came out ahead of the current hub.',
+  bars: 'Each bar totals one iteration: usd spent on bench runs, the minutes those runs took, or Codex and Claude five-hour window points used.',
+};
+
 const fmt = (v: number | undefined, digits = 2) => (v === undefined || !Number.isFinite(v) ? '' : v.toFixed(digits));
 const usd = (v: number) => `$${v.toFixed(2)}`;
 const signed = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
 
-const Control = ({ label, children }: { label: string; children: ReactNode }) => (
+const Control = ({ label, tip, children }: { label: string; tip: string; children: ReactNode }) => (
   <div className="space-y-1.5">
-    <h3 className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">{label}</h3>
+    <h3 className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
+      {label}
+      <Help tip={tip} />
+    </h3>
     {children}
   </div>
 );
@@ -127,7 +147,24 @@ const Detail = ({ series, point, onClose }: { series: Series; point: Point; onCl
         <Field name="series">
           <span className="font-mono">{series.key}</span>
         </Field>
-        <Field name="iteration">{step.iteration}</Field>
+        <Field
+          name={
+            <span className="inline-flex items-center gap-1">
+              iteration <Help tip={help.iteration} />
+            </span>
+          }
+        >
+          {step.iteration}
+        </Field>
+        <Field
+          name={
+            <span className="inline-flex items-center gap-1">
+              verdict <Help tip={help.verdict} />
+            </span>
+          }
+        >
+          {step.verdict}
+        </Field>
         <Field name="select">{fmt(point.y)}</Field>
         <Field name="why">{step.why}</Field>
         <Field name="hub">
@@ -147,9 +184,21 @@ const Detail = ({ series, point, onClose }: { series: Series; point: Point; onCl
         <table className="w-full text-left whitespace-nowrap tabular-nums">
           <thead className="text-zinc-500">
             <tr className="border-b border-zinc-200 dark:border-zinc-800">
-              {['split', 'cases', 'quality', 'delta', 'P(up)', 'usd'].map(h => (
+              {(
+                [
+                  ['split', help.split],
+                  ['cases'],
+                  ['quality', help.quality],
+                  ['delta', help.delta],
+                  ['P(up)', help.pUp],
+                  ['usd'],
+                ] as const
+              ).map(([h, tip]) => (
                 <th key={h} className="py-1 pr-3 font-medium">
-                  {h}
+                  <span className="inline-flex items-center gap-1">
+                    {h}
+                    {tip && <Help tip={tip} />}
+                  </span>
                 </th>
               ))}
             </tr>
@@ -382,7 +431,7 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <aside className="shrink-0 space-y-4 overflow-y-auto border-b border-zinc-200 p-4 text-xs lg:w-60 lg:border-r lg:border-b-0 dark:border-zinc-800">
-        <Control label="View">
+        <Control label="View" tip={help.view}>
           <Select
             label="repo"
             value={repo}
@@ -403,7 +452,7 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
             onChange={v => setX(v === 'time' ? null : v)}
           />
         </Control>
-        <Control label="Series">
+        <Control label="Series" tip={help.series}>
           <div className="flex flex-wrap gap-1">
             {names.map(name => {
               const of = all.filter(s => s.name === name);
@@ -454,12 +503,13 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
               </p>
             </section>
             <section className="max-w-3xl space-y-1">
-              <div className="flex gap-1">
+              <div className="flex items-center gap-1">
                 {(Object.keys(metrics) as (keyof typeof metrics)[]).map(m => (
                   <Chip key={m} on={bar === m} tip={metrics[m].unit} onClick={() => setBar(m === 'usd' ? null : m)}>
                     {metrics[m].label}
                   </Chip>
                 ))}
+                <Help tip={help.bars} />
               </div>
               <Bars bars={bars} xLabel="iteration" yLabel={metrics[bar].unit} />
             </section>

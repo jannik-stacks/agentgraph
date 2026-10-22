@@ -262,6 +262,15 @@ export const Tooltip = ({
   );
 };
 
+/** A small focusable "?" that explains the term beside it on hover or focus. */
+export const Help = ({ tip }: { tip: ReactNode }) => (
+  <Tooltip tip={tip} focusable>
+    <span className="inline-flex size-3.5 cursor-help items-center justify-center rounded-full border border-zinc-300 text-[9px] leading-none font-medium text-zinc-500 normal-case dark:border-zinc-700">
+      ?
+    </span>
+  </Tooltip>
+);
+
 export const Button = ({
   variant = 'small',
   className,
