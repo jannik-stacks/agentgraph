@@ -299,8 +299,10 @@ const tested = (repo: string, tests: string[]): Commands => {
       : older;
   const cargo = cargoTests(tests, dir => `-p ${dir.split('/').pop()}`);
   const test = [...(cargo.length ? [oldRust, ...cargo] : []), ...(run.test ? [run.test] : [])];
+  const build = cargo.length ? [oldRust, ...cargo.map(t => t.replace('cargo test', 'cargo test --no-run'))] : [];
+  const setup = [...(run.setup ? [run.setup] : []), ...build].join(' && ');
   return test.length
-    ? { ...run, ...(cargo.length && { toolchain: pinRust }), test: test.join(' && ') }
+    ? { ...run, ...(cargo.length && { toolchain: pinRust }), ...(setup && { setup }), test: test.join(' && ') }
     : { hasTests: false };
 };
 

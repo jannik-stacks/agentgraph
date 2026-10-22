@@ -631,6 +631,9 @@ describe('plan', () => {
     );
     expect(plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])).toEqual({
       toolchain: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install /),
+      setup: expect.stringMatching(
+        /^export RUSTUP_TOOLCHAIN=.* && cargo test --no-run -p clarinet-deployments --test remap$/
+      ),
       test: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && cargo test -p clarinet-deployments --test remap$/),
       typecheck: 'cargo check --tests',
     });
