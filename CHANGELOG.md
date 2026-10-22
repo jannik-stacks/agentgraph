@@ -58,6 +58,15 @@ rarely. [The hub contract](docs/contract.md) lists the hub fields and commands t
 - `--point` (or `BENCH_POINT`) picks a harness and model, `--repeat` runs it several times,
   `usage.json` records what each run used, and the studio's Bench tab plots cost against quality.
 - `BENCH_HUB` runs a case on a given hub, which is how a tune scores its candidates.
+- Each repo's setup is built once per base commit into an image, and checkouts start from it.
+  Scoring, validity and gating run every command in that container, and fail when docker or the
+  image is missing instead of running on the host.
+- Bench and tune runs survive a crash, a sleep or a dead proxy. Rerunning the same command resumes
+  at the first unfinished run, partial work moves to `.attic/`, and a run that failed for
+  infrastructure is retried, never scored as zero. `bench.ts status` and `tune.ts status` show
+  progress, and `bin/overnight.sh` runs a queue of commands that resumes the same way.
+- `tune/skill.ts` benchmarks the `tune-graph` skill as its own tune on the loop's cases, without
+  the held-out ones.
 
 ## 0.1.0
 
