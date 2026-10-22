@@ -101,7 +101,7 @@ export const answerWith = 'Answer with <code>/agent</code> and your reply, or <c
 export function shown(run: Run, w: Workflow, t: Issues): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
-  const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
+  const stale = labels.filter(l => (Object.values(statuses).includes(l) || l.startsWith('bothub:')) && l !== label);
   const pull = t.pull ?? (t.issue.pull ? t.issue : undefined);
   const checks = new Map((pull?.events ?? []).flatMap(m => (m.check ? [[m.check.name, m.check.conclusion]] : [])));
   const failing = [...checks].filter(([, c]) => failures.has(c)).map(([name]) => name);
