@@ -349,6 +349,9 @@ export const BenchPage = () => {
                   `${p.n} cases, ${p.repeats} runs, ${fmt(p.completion * 100, 0)}% complete`,
                   `${fmt(p.minutes, 1)} min, reported ${usd(mean(p.perCase.map(s => s.row.usd ?? 0)))} per run`,
                   tokens(p.perCase.map(s => s.row)),
+                  p.perCase.some(s => s.row.usdSource === 'list-price estimate')
+                    ? 'paid by a subscription: the cost is a list-price estimate'
+                    : '',
                   dominated && p.yCi[1] >= stair(p.x) ? 'within noise of the frontier' : '',
                 ]
                   .filter(Boolean)

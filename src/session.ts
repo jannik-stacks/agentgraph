@@ -38,7 +38,16 @@ export type SessionEvent =
       denied?: true;
     }
   /** `input` counts every input token, cache reads and writes among them. */
-  | { type: 'usage'; input: number; output: number; cacheRead?: number; cacheWrite?: number; usd?: number }
+  | {
+      type: 'usage';
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      usd?: number;
+      /** The model no list price was found for, when the harness reported no cost either. */
+      unpriced?: string;
+    }
   | { type: 'end'; final: string; ended: 'stop' | 'cap' | 'error'; exit: number };
 
 export class SessionStop extends Data.TaggedError('SessionStop')<{

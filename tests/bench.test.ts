@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   armSlot,
   bootstrap,
+  costOf,
   couplings,
   family,
   infra,
@@ -21,6 +22,7 @@ import {
   spent,
   stats,
   unbiased,
+  unpriced,
   verdict,
 } from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
@@ -317,6 +319,7 @@ describe('bin/bench.ts score and report', () => {
       findings: { critical: 0, high: 0.75 },
       tokens,
       usd: 0.25,
+      usdSource: 'list-price estimate',
     });
     expect(rows[0]!.findings.high).toBe(0.25);
     expect(rows[2]).toMatchObject({ infra: 'empty diff', vsHuman: {} });
@@ -434,6 +437,44 @@ describe('points', () => {
       ['.attic/v2-2026-10-22T09-00-00-000Z', 2000, 0.25, 'SandboxError: no image'],
       ['v2', 1000, 0.5, undefined],
     ]);
+  });
+});
+
+describe('prices', () => {
+  it('names the models of an arm that have no list price, so a bench stops before it spends', () => {
+    const hub = tmp('hub');
+    dirs.push(hub);
+    mkdirSync(join(hub, 'agents'));
+    writeFileSync(join(hub, 'agents', 'implementor.md'), '---\nharness: opencode\nmodel: smart\n---\n');
+    writeFileSync(join(hub, 'agents', 'scout.md'), '---\nharness: opencode\nmodel: mystery\n---\n');
+    expect(unpriced('v2', hub, undefined)).toEqual(['mystery']);
+    expect(unpriced('v2', hub, 'opencode:deepseek-flash')).toEqual([]);
+    expect(unpriced('v2', hub, 'opencode:nope')).toEqual(['nope']);
+    expect(unpriced('floor', hub, undefined)).toEqual([]);
+  });
+
+  it('reprices tokens when a run recorded no cost, and marks subscription cost as an estimate', () => {
+    const prices = {
+      aliases: { luna: 'chatgpt/gpt-6-luna', flash: 'openrouter/deepseek/deepseek-v4.1-flash' },
+      models: {
+        'gpt-6-luna': { input: 0.1, cached: 0.01, output: 0.5 },
+        'deepseek-v4.1-flash': { input: 0.3, cached: 0.006, output: 1.2 },
+      },
+      subscriptions: ['chatgpt/'],
+    };
+    const t = { input: 1e6, cacheRead: 1e6, cacheWrite: 1e6, output: 1e6 };
+    expect(costOf({ usd: 0, tokens: { flash: t } }, 'opencode', prices)).toEqual({
+      usd: 0.3 + 0.006 + 0.3 + 1.2,
+      usdSource: 'list price',
+    });
+    expect(costOf({ usd: 2, tokens: { flash: t } }, 'opencode', prices)).toEqual({ usd: 2, usdSource: 'recorded' });
+    expect(costOf({ usd: 0.5, tokens: { luna: t } }, 'opencode', prices).usdSource).toBe('list-price estimate');
+    expect(costOf({ usd: 0, tokens: { luna: t } }, 'opencode', prices)).toEqual({
+      usd: 0.71,
+      usdSource: 'list-price estimate',
+    });
+    expect(costOf({ usd: 1 }, 'claude-sub', prices).usdSource).toBe('list-price estimate');
+    expect(costOf({ usd: 0, tokens: { mystery: t } }, 'opencode', prices)).toEqual({ usd: 0, usdSource: 'unpriced' });
   });
 });
 

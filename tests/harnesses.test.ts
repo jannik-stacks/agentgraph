@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { harnesses } from '../src/harnesses.ts';
+import { harnesses, priceOf } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { type SessionEvent, Session, type SessionSpec } from '../src/session.ts';
 
@@ -88,6 +88,20 @@ describe('the session loop', () => {
     });
     const { events: unpriced } = await events(spec, sample('opencode-denied.jsonl'));
     expect(unpriced.filter(e => e.type === 'usage').every(e => e.type === 'usage' && e.usd === undefined)).toBe(true);
+    expect(unpriced.filter(e => e.type === 'usage').every(e => e.type === 'usage' && e.unpriced === 'smart')).toBe(
+      true
+    );
+  });
+
+  it('finds a list price by alias, upstream or bare name, and none for an unknown model', () => {
+    const prices = {
+      aliases: { luna: 'chatgpt/gpt-6-luna' },
+      models: { 'gpt-6-luna': { input: 0.1, output: 0.5 } },
+    };
+    for (const model of ['luna', 'litellm/luna', 'chatgpt/gpt-6-luna', 'gpt-6-luna'])
+      expect(priceOf(prices, [model])).toEqual({ input: 0.1, output: 0.5 });
+    expect(priceOf(prices, ['mystery'])).toBeUndefined();
+    expect(priceOf(prices, ['mystery', 'luna'])).toEqual({ input: 0.1, output: 0.5 });
   });
 
   it('runs the harness in a shell that reports its exit code, with only the agent key, by name', async () => {
@@ -246,9 +260,9 @@ describe('opencode', () => {
         ok: true,
         input: { path: 'a.txt', filePath: 'a.txt' },
       }),
-      { type: 'usage', input: 1200, output: 20 },
+      { type: 'usage', input: 1200, output: 20, unpriced: 'smart' },
       { type: 'text', text: 'done' },
-      { type: 'usage', input: 1300, output: 5 },
+      { type: 'usage', input: 1300, output: 5, unpriced: 'smart' },
       { type: 'end', final: 'done', ended: 'stop', exit: 0 },
     ]);
   });
@@ -331,7 +345,14 @@ describe('claude', () => {
         input: { file_path: '/tmp/x/add.js' },
       }),
       { type: 'text', text: final },
-      { type: 'usage', input: 4 + 8401 + 2340, output: 177, cacheRead: 8401, cacheWrite: 2340 },
+      {
+        type: 'usage',
+        input: 4 + 8401 + 2340,
+        output: 177,
+        cacheRead: 8401,
+        cacheWrite: 2340,
+        unpriced: 'claude-haiku-5-5',
+      },
       { type: 'end', final, ended: 'stop', exit: 0 },
     ]);
   });
@@ -404,7 +425,7 @@ describe('pi', () => {
     expect(got).toEqual([
       expect.objectContaining({ type: 'start', session: '01a1301a-3f7c-754a-a9a2-2b8e888e778a', model: 'smart' }),
       { type: 'text', text: 'Listing files.' },
-      { type: 'usage', input: 1200, output: 20 },
+      { type: 'usage', input: 1200, output: 20, unpriced: 'smart' },
       {
         type: 'tool',
         id: 'call_mock1',
@@ -414,7 +435,7 @@ describe('pi', () => {
         output: 'hi\n',
       },
       { type: 'text', text: 'done' },
-      { type: 'usage', input: 1300, output: 5 },
+      { type: 'usage', input: 1300, output: 5, unpriced: 'smart' },
       { type: 'end', final: 'done', ended: 'stop', exit: 0 },
     ]);
   });
@@ -423,6 +444,6 @@ describe('pi', () => {
     const usage = { input: 10, output: 2, cacheRead: 300, cacheWrite: 40 };
     const line = JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [], usage } });
     const { events: got } = await events(pi, [line]);
-    expect(got[0]).toEqual({ type: 'usage', input: 350, output: 2, cacheRead: 300, cacheWrite: 40 });
+    expect(got[0]).toEqual({ type: 'usage', input: 350, output: 2, cacheRead: 300, cacheWrite: 40, unpriced: 'smart' });
   });
 });

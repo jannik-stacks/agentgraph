@@ -15,6 +15,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
+import { priceOf, type Prices } from '../src/harnesses.ts';
 import {
   dependencyDirs,
   discard,
@@ -364,6 +365,10 @@ export const infra = (s: { infra?: string; files?: number; setup?: { ok: boolean
         ? 'run did not finish'
         : undefined);
 
+/** The hub an arm of the case starts from: `BENCH_HUB` when set, else the example hub of its repo. */
+const hubOf = (c: Pick<Case, 'repo'>) =>
+  process.env.BENCH_HUB ?? join(engine, 'examples', hubs[c.repo.split('/').pop() ?? ''] ?? 'bench');
+
 /** Where an arm run is kept: by case, arm, engine, hub (`BENCH_HUB` when set) and commands, and the point and repeat when given. */
 export const armSlot = (
   c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup'>,
@@ -371,14 +376,13 @@ export const armSlot = (
   { point, repeat }: Pick<typeof options, 'point' | 'repeat'> = options
 ) => {
   const treeSha = spawnSync('git', ['-C', engine, 'rev-parse', 'HEAD:./src'], { encoding: 'utf8' }).stdout.trim();
-  const own = hubs[c.repo.split('/').pop() ?? ''] ?? 'bench';
   return slot(
     'arm',
     c.id,
     c.base,
     arm,
     arm === 'floor' ? '' : treeSha,
-    treeText(process.env.BENCH_HUB ?? join(engine, 'examples', own)),
+    treeText(hubOf(c)),
     arm === 'floor' ? treeText(here('bench/floor')) : '',
     c.runner,
     c.setup,
@@ -412,6 +416,8 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (arm === 'v1')
     throw new Error('not yet: v1 needs its own sandbox image, env and a leak-free seed (docs/bench.md)');
   if (existsSync(join(at, 'diff.patch'))) return;
+  const missing = unpriced(arm, hubOf(c));
+  if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to prices.json with its source`);
   if (!process.env.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   const log = logger(out, { case: c.id, arm });
   if (!claim(at)) return log({ event: 'busy' });
@@ -964,8 +970,49 @@ const judgeModels: Record<string, string> = {
   sol: 'smart',
   gemini: 'gemini',
 };
-const upstream = (JSON.parse(read(here('infra/local/prices.json')) || '{}') as { aliases?: Record<string, string> })
-  .aliases;
+const priceTable = JSON.parse(read(here('infra/local/prices.json')) || '{}') as Prices;
+const upstream = priceTable.aliases;
+
+/** The models an arm's agents run on, at `point` when given, that the engine's price table has no list price for. */
+export const unpriced = (arm: string, hub: string, point = options.point) => {
+  const dir = join(arm === 'floor' ? here('bench/floor') : hub, 'agents');
+  const named = (existsSync(dir) ? readdirSync(dir) : [])
+    .filter(n => n.endsWith('.md'))
+    .map(n => /^model: *(\S+)/m.exec(read(join(dir, n)))?.[1] ?? 'default');
+  const prices = JSON.parse(
+    read(process.env.AGENTGRAPH_PRICES ?? join(engine, 'infra/local/prices.json')) || '{}'
+  ) as Prices;
+  return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !priceOf(prices, [m]));
+};
+
+/**
+ * What an arm's usage cost and where the number comes from: recorded by the run, else its tokens at today's list
+ * price. A subscription's cost is a list-price estimate either way.
+ */
+export const costOf = (
+  u: { usd?: number; tokens?: ReturnType<typeof effort>['tokens'] },
+  harness = '',
+  prices = priceTable
+) => {
+  const models = Object.keys(u.tokens ?? {});
+  const sub = (m: string) => (prices.subscriptions ?? []).some(p => (prices.aliases?.[m] ?? m).startsWith(p));
+  const estimate = harness === 'claude-sub' || models.some(sub);
+  if (u.usd || !models.length)
+    return { usd: u.usd ?? 0, usdSource: estimate ? 'list-price estimate' : 'recorded' } as const;
+  const listed = models.map(m => [priceOf(prices, [m]), u.tokens![m]!] as const);
+  if (listed.some(([p]) => !p)) return { usd: 0, usdSource: 'unpriced' } as const;
+  const usd = listed.reduce(
+    (sum, [p, t]) =>
+      sum +
+      (t.input * p!.input +
+        t.cacheRead * (p!.cached ?? p!.input) +
+        t.cacheWrite * (p!.cacheWrite ?? p!.input) +
+        t.output * p!.output) /
+        1e6,
+    0
+  );
+  return { usd: round(usd), usdSource: estimate ? 'list-price estimate' : 'list price' } as const;
+};
 
 /** The maker of a proxy alias or model, from its upstream name: openai, anthropic, google, z-ai, x-ai and so on. */
 export const family = (model: string, aliases = upstream ?? {}) => {
@@ -1110,7 +1157,10 @@ const loadScored = (out: string, id: string): Scored => {
   );
   const rows = Object.entries(scores)
     .filter(([arm]) => !(arm in skipped))
-    .map(([arm, s]): [string, Record<string, number>] => [arm, metrics({ ...s, ...usage(join(out, id, arm)) })]);
+    .map(([arm, s]): [string, Record<string, number>] => {
+      const u = { ...s, ...usage(join(out, id, arm)) };
+      return [arm, metrics({ ...u, usd: costOf(u).usd })];
+    });
   const failures = bots.flatMap(arm => {
     const h = (scores[arm] as { hidden?: { ok: boolean; tail: string; class?: string } } | undefined)?.hidden;
     return h && !h.ok && !(arm in skipped) ? [`${id}/${arm}: ${h.class ?? failureClass(h.tail)}`] : [];
@@ -1179,7 +1229,7 @@ export const rowsOf = (out: string) => {
             answers: Number(s.answers ?? 0),
             minutes: Number(spent.ms ?? 0) / 60_000,
             tokens: spent.tokens ?? {},
-            usd: Number(spent.usd ?? 0),
+            ...costOf(spent, p.harness),
           },
         ];
       })

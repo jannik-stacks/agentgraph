@@ -108,4 +108,4 @@ Agent `model` names a proxy alias. Without it, opencode and pi use `default`; Cl
 
 `AGENTGRAPH_PROXY_KEYS` holds `name=key` pairs separated by commas or spaces. Missing agent keys prevent sessions. `AGENTGRAPH_PROXY_URL` selects the proxy. Inside containers, keys use `AGENTGRAPH_LLM_API_KEY` for opencode/pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code; opencode uses `AGENTGRAPH_LLM_BASE_URL`. Secrets pass by environment name, never argv, and harness output masks them. <!-- code: src/harnesses.ts#keysOf -->
 
-Unpriced usage, including subscriptions, uses list prices from `AGENTGRAPH_PRICES` or `infra/local/prices.json`. <!-- code: src/harnesses.ts#priced -->
+Usage the harness does not price, including subscriptions, uses list prices from `AGENTGRAPH_PRICES` or `infra/local/prices.json`, each with its source. A model the table lacks is marked `unpriced` in the trace, never $0. <!-- code: src/harnesses.ts#priced -->

@@ -475,24 +475,37 @@ const keysOf = (keys: Redacted.Redacted) =>
       })
   );
 
-/** List prices in USD per million tokens, keyed by upstream model, and the proxy's aliases for them. */
-type Prices = {
+/**
+ * List prices in USD per million tokens, keyed by upstream model, the proxy's aliases for them, and the upstream
+ * prefixes a subscription pays for, whose list price is only an estimate.
+ */
+export type Prices = {
   aliases?: Record<string, string>;
-  models?: Record<string, { input: number; output: number; cached?: number }>;
+  models?: Record<string, { input: number; output: number; cached?: number; cacheWrite?: number }>;
+  subscriptions?: string[];
 };
 
-/** The usage's list price when the harness reports none, as a subscription through the proxy does. */
-const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
-  const cached = u.cacheRead ?? 0;
-  if (u.usd) return u;
+/** The list price of the first of `models` the table knows, by its own name, its alias's upstream or a bare name. */
+export const priceOf = (prices: Prices, models: string[]) => {
   const bare = (model: string) => model.split('/').at(-1) ?? model;
-  const price = models
-    .flatMap(model => [model, prices.aliases?.[model] ?? model])
+  return models
+    .flatMap(model => [model, prices.aliases?.[model] ?? model, prices.aliases?.[bare(model)] ?? model])
     .map(model => prices.models?.[model] ?? prices.models?.[bare(model)])
     .find(Boolean);
-  if (!price) return u;
+};
+
+/** The usage's list price when the harness reports none, as a subscription through the proxy does; else what is unpriced. */
+const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
+  if (u.usd) return u;
+  const price = priceOf(prices, models);
+  if (!price) return { ...u, unpriced: models[0] ?? 'unknown' };
+  const [read, write] = [u.cacheRead ?? 0, u.cacheWrite ?? 0];
   const usd =
-    ((u.input - cached) * price.input + cached * (price.cached ?? price.input) + u.output * price.output) / 1e6;
+    ((u.input - read - write) * price.input +
+      read * (price.cached ?? price.input) +
+      write * (price.cacheWrite ?? price.input) +
+      u.output * price.output) /
+    1e6;
   return { ...u, usd };
 };
 
