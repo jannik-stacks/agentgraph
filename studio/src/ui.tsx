@@ -18,6 +18,7 @@ export const cx = (...names: (string | false | null | undefined)[]) => names.fil
 export const accent = {
   text: 'text-sky-600 dark:text-sky-400',
   border: 'border-sky-600 dark:border-sky-400',
+  tint: 'bg-sky-50 dark:bg-sky-950',
 };
 
 const field =
@@ -181,7 +182,7 @@ export const TipBubble = ({
       id={id}
       role="tooltip"
       popover="manual"
-      className="bhm-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
+      className="bhm-tip pointer-events-none fixed inset-auto m-0 max-w-xs rounded border-0 bg-zinc-900 px-2 py-1 text-[11px] leading-snug text-pretty whitespace-pre-line text-zinc-50 shadow-md dark:bg-zinc-100 dark:text-zinc-900"
     >
       {info && tip}
       {action && (

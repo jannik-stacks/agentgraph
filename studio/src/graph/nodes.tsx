@@ -68,6 +68,9 @@ const Glyph = ({ name, className = 'size-3' }: { name: keyof typeof paths; class
   </svg>
 );
 
+/** The ring around the selected step, the one the side panel shows. */
+const ring = 'ring-2 ring-zinc-900 ring-offset-2 ring-offset-zinc-50 dark:ring-zinc-100 dark:ring-offset-zinc-900';
+
 const hidden = '!pointer-events-none !min-h-0 !min-w-0 !h-px !w-px !border-0 !bg-transparent';
 /** Where arrows end: a few pixels short of the node, so the head never touches its border. */
 const arrival = { left: -5 };
@@ -128,17 +131,14 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
   return (
     <div
       className={cx(
-        'relative flex size-full cursor-pointer flex-col gap-0.5 rounded-md border bg-white px-2.5 pt-3 text-xs transition-shadow dark:bg-zinc-950',
+        'relative flex size-full cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 pt-3 text-xs transition-shadow',
         here || live
-          ? accent.border
-          : selected
-            ? 'border-zinc-400 dark:border-zinc-500'
-            : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700',
+          ? cx(accent.border, accent.tint)
+          : 'border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700',
         node.each !== undefined
           ? 'shadow-[3px_3px_0_-1px_var(--color-white),3px_3px_0_0_var(--color-zinc-200),6px_6px_0_-1px_var(--color-white),6px_6px_0_0_var(--color-zinc-200)] dark:shadow-[3px_3px_0_-1px_var(--color-zinc-950),3px_3px_0_0_var(--color-zinc-800),6px_6px_0_-1px_var(--color-zinc-950),6px_6px_0_0_var(--color-zinc-800)]'
-          : selected
-            ? 'shadow-md'
-            : 'shadow-xs'
+          : 'shadow-xs',
+        selected && ring
       )}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} className={hidden} style={arrival} />
@@ -239,7 +239,7 @@ export const Pill = ({ data: { label, done, reached } }: NodeProps<PillFlowNode>
           <span className="size-2 rounded-full bg-current" />
         </span>
       ) : (
-        <span className="line-clamp-2 text-right leading-3.5">{label}</span>
+        <span className="line-clamp-2 text-right leading-3.5 text-balance">{label}</span>
       )}
       {done ? <span>done</span> : <span className="size-3 shrink-0 rounded-full bg-current" />}
     </Tooltip>
@@ -403,7 +403,12 @@ export const Legend = () => (
     <LegendItem mark={<Glyph name="writes" className="size-3" />}>writes to GitHub</LegendItem>
     <LegendItem mark={<Glyph name="each" className="size-3" />}>once per item</LegendItem>
     <LegendItem mark={<Glyph name="aside" className="size-3" />}>answers questions in an aside</LegendItem>
-    <LegendItem mark={<span className={cx('size-2 rounded-full bg-current', accent.text)} />}>live</LegendItem>
+    <LegendItem mark={<span className={cx('size-3 rounded-sm border', accent.border, accent.tint)} />}>
+      a run is here
+    </LegendItem>
+    <LegendItem mark={<span className={cx('size-2.5 rounded-sm border border-zinc-200 dark:border-zinc-800', ring)} />}>
+      selected
+    </LegendItem>
     <li className="ml-auto">Click a step for its checks and runs.</li>
   </ul>
 );
