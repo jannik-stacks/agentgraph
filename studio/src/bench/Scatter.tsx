@@ -1,5 +1,5 @@
 import { scaleLinear, scaleLog } from 'd3-scale';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useId, useState } from 'react';
 import { cx, TipBubble, useTip } from '../ui.tsx';
 
 type Dot = {
@@ -18,7 +18,10 @@ type Dot = {
 
 const [width, left, right, top, bottom] = [640, 44, 96, 22, 30];
 
-/** A scatter of dots with optional interval crosses, a staircase through `line` and a dashed line at `hLine`. */
+/**
+ * A scatter of dots with optional interval crosses, a staircase through `line` and a dashed line at `hLine`. `xTip`,
+ * `yTip` and `hTip` explain the axis labels and the dashed line on hover and focus.
+ */
 export const Scatter = ({
   dots,
   line = [],
@@ -27,6 +30,9 @@ export const Scatter = ({
   height = 320,
   xLabel,
   yLabel,
+  xTip,
+  yTip,
+  hTip,
   note,
   picked,
   onPick,
@@ -38,12 +44,31 @@ export const Scatter = ({
   height?: number;
   xLabel: string;
   yLabel: string;
+  xTip?: ReactNode;
+  yTip?: ReactNode;
+  hTip?: ReactNode;
   note?: string | undefined;
   picked?: string | undefined;
   onPick?: (key: string) => void;
 }) => {
   const { ref, show, hide } = useTip();
   const [tip, setTip] = useState<ReactNode>(null);
+  const id = useId();
+  const hint = (content: ReactNode, delay = 100) => {
+    const open = (target: Element, wait: number) => {
+      setTip(content);
+      show(() => target.getBoundingClientRect(), wait);
+    };
+    return content
+      ? {
+          'aria-describedby': id,
+          onMouseEnter: (e: { currentTarget: Element }) => open(e.currentTarget, delay),
+          onFocus: (e: { currentTarget: Element }) => open(e.currentTarget, 0),
+          onMouseLeave: hide,
+          onBlur: hide,
+        }
+      : {};
+  };
   const xs = dots.flatMap(d => [d.x, ...(d.xCi ?? [])]).filter(x => !log || x > 0);
   const ys = [0, ...(hLine === undefined ? [] : [hLine]), ...dots.flatMap(d => [d.y, ...(d.yCi ?? [])])];
   const [x0, x1] = [Math.min(...xs, log ? Infinity : 0), Math.max(...xs, 0)];
@@ -88,10 +113,17 @@ export const Scatter = ({
             {tick(t)}
           </text>
         ))}
-        <text x={width - right} y={height - 2} textAnchor="end" className="fill-zinc-500">
+        <text
+          x={width - right}
+          y={height - 2}
+          textAnchor="end"
+          tabIndex={xTip ? 0 : undefined}
+          className="fill-zinc-500 outline-none"
+          {...hint(xTip)}
+        >
           {xLabel}
         </text>
-        <text x={4} y={10} className="fill-zinc-500">
+        <text x={4} y={10} tabIndex={yTip ? 0 : undefined} className="fill-zinc-500 outline-none" {...hint(yTip)}>
           {yLabel}
         </text>
         {hLine !== undefined && (
@@ -104,7 +136,14 @@ export const Scatter = ({
               strokeDasharray="4 3"
               className="stroke-current"
             />
-            <text x={width - right + 4} y={y(hLine)} dy="0.32em" className="fill-current">
+            <text
+              x={width - right + 4}
+              y={y(hLine)}
+              dy="0.32em"
+              tabIndex={hTip ? 0 : undefined}
+              className="fill-current outline-none"
+              {...hint(hTip)}
+            >
               human
             </text>
           </g>
@@ -130,12 +169,7 @@ export const Scatter = ({
             aria-label={d.label ?? d.key}
             onClick={() => onPick?.(d.key)}
             onKeyDown={e => e.key === 'Enter' && onPick?.(d.key)}
-            onMouseEnter={e => {
-              const target = e.currentTarget;
-              setTip(d.tip);
-              show(() => target.getBoundingClientRect(), 80);
-            }}
-            onMouseLeave={hide}
+            {...hint(d.tip, 80)}
             className={cx(
               d.tone,
               'outline-none transition-opacity duration-150',
@@ -175,7 +209,7 @@ export const Scatter = ({
           </g>
         ))}
       </svg>
-      <TipBubble ref={ref} tip={tip} />
+      <TipBubble ref={ref} id={id} tip={tip} />
     </div>
   );
 };
