@@ -92,36 +92,72 @@ export const hostGit = (
 ) =>
   Effect.async<Buffer, SandboxError>(resume => {
     const inherited = Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'));
-    const child = execFile(
-      'git',
-      [...hardened, ...args],
-      {
-        cwd: env.GIT_WORK_TREE ?? env.GIT_DIR ?? tmpdir(),
-        encoding: 'buffer',
-        maxBuffer: 256 << 20,
-        timeout: 600_000,
-        env: {
-          ...Object.fromEntries(inherited),
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_CONFIG_NOSYSTEM: '1',
-          GIT_CONFIG_GLOBAL: '/dev/null',
-          GIT_ATTR_NOSYSTEM: '1',
-          ...env,
-        },
+    const child = spawn('git', [...hardened, ...args], {
+      cwd: env.GIT_WORK_TREE ?? env.GIT_DIR ?? tmpdir(),
+      detached: true,
+      env: {
+        ...Object.fromEntries(inherited),
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_ATTR_NOSYSTEM: '1',
+        ...env,
       },
-      (error, stdout, stderr) =>
+    });
+    let closed = false;
+    let problem: string | undefined;
+    const stop = () => {
+      if (closed || child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+    };
+    const timer = setTimeout(() => {
+      problem = 'git timed out';
+      stop();
+    }, 600_000).unref();
+    const output: Buffer[] = [];
+    const errors: Buffer[] = [];
+    const lengths = { stdout: 0, stderr: 0 };
+    const collect = (name: 'stdout' | 'stderr', chunks: Buffer[]) => (chunk: Buffer) => {
+      lengths[name] += chunk.length;
+      if (lengths[name] > 256 << 20) {
+        problem = `${name} maxBuffer length exceeded`;
+        stop();
+      } else chunks.push(chunk);
+    };
+    child.stdout.on('data', collect('stdout', output));
+    child.stderr.on('data', collect('stderr', errors));
+    child.once('error', e => {
+      problem = e.message;
+    });
+    const ending = new Promise<void>(resolve =>
+      child.once('close', (code, signal) => {
+        closed = true;
+        clearTimeout(timer);
         resume(
-          error && !codes.includes(Number(error.code))
+          problem || (code !== 0 && !codes.includes(code ?? -1))
             ? Effect.fail(
                 new SandboxError({
                   reason: 'infra',
-                  detail: `git ${args.slice(0, 3).join(' ')}: ${(stderr.toString().trim() || error.message).slice(-2000)}`,
+                  detail: `git ${args.slice(0, 3).join(' ')}: ${(Buffer.concat(errors).toString().trim() || problem || `exited ${code ?? signal}`).slice(-2000)}`,
                 })
               )
-            : Effect.succeed(stdout)
-        )
+            : Effect.succeed(Buffer.concat(output))
+        );
+        resolve();
+      })
     );
-    child.stdin?.end(input ?? '');
+    child.stdin.on('error', () => undefined);
+    child.stdin.end(input ?? '');
+    return Effect.promise(async () => {
+      if (!closed) {
+        stop();
+        await ending;
+      }
+    });
   });
 
 const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];

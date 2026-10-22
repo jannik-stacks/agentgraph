@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
   existsSync,
@@ -11,8 +12,20 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { Chunk, Deferred, Effect, Exit, FiberRef, Layer, Redacted, Stream, TestClock, TestContext } from 'effect';
+import { dirname, delimiter, join } from 'node:path';
+import {
+  Chunk,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FiberRef,
+  Layer,
+  Redacted,
+  Stream,
+  TestClock,
+  TestContext,
+} from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
 import { drive, gate, settle, sweep, tick } from '../src/engine.ts';
@@ -27,6 +40,7 @@ import { fileStore, Store, type Trace } from '../src/store.ts';
 import type { Hub } from '../src/hub.ts';
 import { begin, cancelled, reenter, transition, type Run, type Step } from '../src/workflow.ts';
 import { git, hubOf } from './fixtures.ts';
+import { startTime } from './setup/global.ts';
 
 const foot = (...lines: string[]) =>
   `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
@@ -253,6 +267,74 @@ describe('drive', () => {
     const admin = join(where.data, 'mirror.git', 'worktrees');
     expect(existsSync(admin) ? readdirSync(admin) : []).toEqual([]);
     expect(preserved).toBe(true);
+  }, 30_000);
+
+  it('waits for host git and its helpers to stop before releasing a cancelled drive', async () => {
+    const where = world();
+    const small = hubOf('hub');
+    const flow = {
+      ...small.workflows.issue!,
+      steps: small.workflows.issue!.steps.map(step => ({ ...step, checks: [] })),
+    };
+    const bin = join(where.root, 'bin');
+    mkdirSync(bin);
+    const pidFile = join(where.root, 'git.pid');
+    const childFile = join(where.root, 'helper.pid');
+    const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+    writeFileSync(
+      join(bin, 'git'),
+      '#!/bin/sh\ncase " $* " in *" fetch "*)\n echo $$ > "$AGENTGRAPH_CANCEL_PID"\n sleep 30 &\n echo $! > "$AGENTGRAPH_CANCEL_CHILD"\n wait\n exit 0;;\nesac\nexec "$AGENTGRAPH_CANCEL_REAL_GIT" "$@"\n',
+      { mode: 0o755 }
+    );
+    const previous = {
+      PATH: process.env.PATH,
+      AGENTGRAPH_CANCEL_PID: process.env.AGENTGRAPH_CANCEL_PID,
+      AGENTGRAPH_CANCEL_CHILD: process.env.AGENTGRAPH_CANCEL_CHILD,
+      AGENTGRAPH_CANCEL_REAL_GIT: process.env.AGENTGRAPH_CANCEL_REAL_GIT,
+    };
+    Object.assign(process.env, {
+      PATH: `${bin}${delimiter}${previous.PATH}`,
+      AGENTGRAPH_CANCEL_PID: pidFile,
+      AGENTGRAPH_CANCEL_CHILD: childFile,
+      AGENTGRAPH_CANCEL_REAL_GIT: realGit,
+    });
+    const layer = Layer.mergeAll(
+      fileForge(where.forge),
+      fileStore(where.data),
+      docker({ data: where.data, origin: where.origin, cache: '' }),
+      scripted([])
+    );
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const fiber = yield* Effect.fork(
+            drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
+          );
+          yield* Effect.gen(function* () {
+            while (!existsSync(childFile)) yield* Effect.sleep('10 millis');
+          }).pipe(Effect.timeoutFail({ duration: '3 seconds', onTimeout: () => new Error('git did not start') }));
+          const pid = Number(readFileSync(pidFile, 'utf8'));
+          const child = Number(readFileSync(childFile, 'utf8'));
+          yield* Fiber.interrupt(fiber);
+          expect(startTime(pid)).toBeUndefined();
+          expect(startTime(child)).toBeUndefined();
+          expect(existsSync(join(where.data, '.locks', 'run-7.lock'))).toBe(false);
+        }).pipe(Effect.provide(layer))
+      );
+    } finally {
+      for (const file of [childFile, pidFile]) {
+        if (existsSync(file)) {
+          try {
+            process.kill(Number(readFileSync(file, 'utf8')), 'SIGKILL');
+          } catch {}
+        }
+      }
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
   }, 30_000);
 
   it.each(['initialized', 'empty'])('does not steal a live run lock: %s', async kind => {
