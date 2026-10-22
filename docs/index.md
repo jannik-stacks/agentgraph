@@ -1,89 +1,52 @@
 # What agentgraph is
 
-agentgraph runs coding agents on a team's repositories. A comment with `/agent` on a GitHub issue starts a workflow, and `/agent` is how people talk to it.
-
-Agents work on their own branch. Scripts and other agents check the result. A human merges.
+agentgraph runs coding agents on repositories. People start and steer workflows with `/agent` comments or labels. Agents work on branches, scripts and judges check results, and humans merge.
 
 ## How data flows
 
-```
- ┌──────────────────────────────────────────┐
- │ GitHub issue: /agent or a label          │
- └────────────────────┬─────────────────────┘
-                      v
- ┌──────────────────────────────────────────┐      ┌──────────────────────┐
- │ runner (the engine)                      │─────>│ data dir             │
- │ looks every few minutes                  │      │ run.json, trace      │
- │                                          │      │ the studio reads it  │
- └────────────────────┬─────────────────────┘      └──────────────────────┘
-                      v
- ┌──────────────────────────────────────────┐      ┌──────────────────────┐
- │ sandbox: one session                     │<────>│ model proxy          │
- │ on the run's branch                      │      │ then model providers │
- └────────────────────┬─────────────────────┘      └──────────────────────┘
-                      v
- ┌──────────────────────────────────────────┐
- │ the reply ends with proposals            │
- │ push, pull_request, comment, ...         │
- └────────────────────┬─────────────────────┘
-                      v
- ┌──────────────────────────────────────────┐
- │ the engine runs the checks,              │
- │ then applies the proposals               │
- └────────────────────┬─────────────────────┘
-                      v
- ┌──────────────────────────────────────────┐
- │ GitHub: a pushed branch, a pull request, │
- │ comments, labels                         │
- └──────────────────────────────────────────┘
-```
-
-The agent never holds a GitHub token. It can only propose, and the engine decides what lands.
+The host runner polls GitHub, opens sandbox sessions and records runs. Sessions call models through a proxy and return [proposals](proposals.md). After checks, the runner applies writes to GitHub. Only the runner holds a GitHub token. The studio reads the hub and recorded runs. See [Architecture](architecture.md#where-everything-lives) for the diagram.
 
 ## Config as code
 
-A hub is a folder of Markdown files with YAML frontmatter. Frontmatter is for the machine. The body is prose for the model or for people.
+A hub holds machine-readable frontmatter and prose for agents:
 
 ```
 hub/
   hub.yaml
-  agents/implementor.md    who acts
-  skills/implement.md      what to do
-  checks/tests.md          what decides "done"
-  workflows/issue.md       events to steps
+  agents/implementor.md    role and permissions
+  skills/implement.md     instructions
+  checks/tests.md         acceptance checks
+  workflows/issue.md      triggers and steps
 ```
 
-`check` loads the hub and prints every problem with its file before anything runs. It reports unknown keys, steps naming agents that do not exist, checks that do not exist, a skill no step names and no skill uses, and a folder that neither the engine loads nor a hub script reads through `$AGENTGRAPH_HUB`. <!-- code: src/hub.ts#loadHub -->
+`check` rejects unknown keys, missing agents or checks, unused skills and folders neither loaded by the engine nor read through `$AGENTGRAPH_HUB`. <!-- code: src/hub.ts#loadHub -->
 
 ## Ways in
 
-- CLI: `node bin/run.ts` checks a hub, looks at one issue or all open ones, runs the polling loop, and shows what waits on a human.
-- The studio (web UI) draws each workflow as its steps and lists runs. It reads the same files.
+Use the [CLI](local.md#the-cli) to validate hubs, drive issues, poll or inspect waits. Use the studio to view workflow graphs and runs.
 
 ## Guide
 
-New here? Read these in order.
-
-1. [Vocabulary](vocabulary.md): the terms the other pages use.
-2. [The loop](loop.md): how a workflow turns into steps, checks, tries and waiting.
-3. [Proposals](proposals.md): what an agent may ask for and how it lands on GitHub.
-4. [Running it locally](local.md): trying it on the sandbox hub.
+1. [Vocabulary](vocabulary.md)
+2. [The loop](loop.md)
+3. [Proposals](proposals.md)
+4. [Running locally](local.md)
 
 ## Reference
 
-- [Hub files](reference.md): every field of every hub file.
-- [The hub contract](contract.md): what stays stable across releases, so tuning stays in the hub.
-- [Sub-issues and stacks](stacks.md): splitting an issue and building on another's pull request.
-- [Runs](runs.md): what a run records in the data dir.
-- [Sandbox and models](sandbox.md): the container, its network, harnesses and models.
-- [Compound engineering](compound.md): retros on what people say, and agents that read traces.
+- [Hub files](reference.md): fields and defaults.
+- [Hub contract](contract.md): compatibility and tuning boundaries.
+- [Sub-issues and stacks](stacks.md): splitting and dependencies.
+- [Runs](runs.md): records, traces and debugging.
+- [Sandbox and models](sandbox.md): containers, networks and harnesses.
+- [Compound engineering](compound.md): retros and trace-reading agents.
 
 ## Examples
 
-- [Triage](triage.md): an example workflow that sizes and splits issues.
+[Triage](triage.md) sizes and splits issues with hub configuration.
 
 ## Meta
 
-- [Architecture](architecture.md): where each part runs and what is code versus judgement.
-- [Patterns](patterns.md): the conventions the engine's code follows.
-- [Bench](bench.md): replaying merged pull requests and judging the results blind.
+- [Architecture](architecture.md): services and state machine.
+- [Patterns](patterns.md): code conventions.
+- [Bench](bench.md): replaying and scoring merged pull requests.
