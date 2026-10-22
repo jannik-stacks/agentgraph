@@ -930,6 +930,126 @@ describe('a run branch that moved', () => {
     expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe('pending');
   }, 30_000);
 
+  it('journals accepted proposals before a later failure and does not post them twice', async () => {
+    const where = world();
+    const kit = {
+      ...small,
+      agents: {
+        ...small.agents,
+        implementor: { ...small.agents.implementor!, returns: [...small.agents.implementor!.returns, 'tell' as const] },
+      },
+    };
+    let fail = true;
+    const failing = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
+          if (p.kind === 'comment' && p.body === 'Second' && fail) {
+            fail = false;
+            return Effect.fail(new ForgeError({ message: 'connection failed' }));
+          }
+          return f.apply(n, p, work);
+        },
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const proposals: Proposal[] = [
+      { kind: 'tell', issue: 8, text: 'Remember this' },
+      push,
+      { kind: 'comment', body: 'First' },
+      { kind: 'comment', body: 'Second' },
+    ];
+    const layer = Layer.mergeAll(
+      failing,
+      fileStore(where.data),
+      host(where.origin),
+      scripted([
+        [start('a'), write('hello.txt', 'hello\n'), reply(...proposals)],
+        [start('a'), reply(...proposals)],
+      ])
+    );
+    const [done, issue] = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* Effect.flatMap(Store, store =>
+          store.put({
+            ...begin(flow, { id: 'target-8', issue: 8, started: fresh().started }),
+            status: 'waiting',
+            reason: 'Waiting',
+          })
+        );
+        const parked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit);
+        expect(
+          traceOf(where.data, 'run-7').some(
+            t =>
+              'applied' in t &&
+              t.applied.ok &&
+              t.applied.proposal.kind === 'comment' &&
+              t.applied.proposal.body === 'First'
+          )
+        ).toBe(true);
+        const done = yield* drive(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), kit);
+        return [done, yield* Effect.flatMap(Forge, f => f.issue(7))] as const;
+      }).pipe(Effect.provide(layer))
+    );
+    expect(done.status).toBe('done');
+    expect(traceOf(where.data, 'target-8').filter(t => 'told' in t)).toHaveLength(1);
+    expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'First')).toHaveLength(1);
+    expect(bodies(issue).filter(body => body.split('\n\n')[0] === 'Second')).toHaveLength(1);
+    expect(
+      traceOf(where.data, 'run-7').filter(t => 'applied' in t && t.applied.ok && t.applied.proposal.kind === 'push')
+    ).toHaveLength(1);
+  }, 30_000);
+
+  it('reuses a created child after a later child proposal fails', async () => {
+    const where = world();
+    let fail = true;
+    const failing = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
+          if (p.kind === 'issue' && p.title === 'Second part' && fail) {
+            fail = false;
+            return Effect.fail(new ForgeError({ message: 'connection failed' }));
+          }
+          return f.apply(n, p, work);
+        },
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const proposals = ['First part', 'Second part'].map(title => ({
+      kind: 'issue',
+      title,
+      body: '## Done when\nComplete',
+      relation: 'part',
+      size: 'S',
+      priority: 'medium',
+    }));
+    const end: SessionEvent = {
+      type: 'end',
+      ended: 'stop',
+      exit: 0,
+      final: '```agentgraph\n' + JSON.stringify(proposals) + '\n```',
+    };
+    const layer = Layer.mergeAll(
+      failing,
+      fileStore(where.data),
+      host(where.origin),
+      scripted([
+        [start('a'), end],
+        [start('a'), end],
+      ])
+    );
+    const [done, issues] = await Effect.runPromise(
+      Effect.gen(function* () {
+        const parked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
+        const done = yield* drive(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), small);
+        return [done, yield* Effect.flatMap(Forge, f => f.issues())] as const;
+      }).pipe(Effect.provide(layer))
+    );
+    expect(done.status).toBe('done');
+    expect(issues.filter(t => t.parent === 7).map(t => t.title)).toEqual(['First part', 'Second part']);
+  }, 30_000);
+
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();
     const attempted: Proposal[] = [];

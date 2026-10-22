@@ -71,7 +71,16 @@ export type Proposal =
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
  * given. `at` is when its body was stamped with the run it came from.
  */
-export type Applied = { proposal: Proposal; ok: boolean; url?: string; id?: string; reason?: string; at?: string };
+export type Applied = {
+  operation?: string;
+  issue?: number;
+  proposal: Proposal;
+  ok: boolean;
+  url?: string;
+  id?: string;
+  reason?: string;
+  at?: string;
+};
 
 /** The run, step and session a write to the forge comes from. */
 export type Mark = { run: string; step: string; session?: string };

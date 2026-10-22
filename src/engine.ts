@@ -250,6 +250,43 @@ const writing =
         : { run: run.id, step: run.step, ...(session && { session }) }
     );
 
+const operation = (run: Run, issue: number, proposal: Proposal, slot: string, tree?: string) =>
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        run.id,
+        run.step,
+        run.tries,
+        run.rounds,
+        issue,
+        slot,
+        Object.entries(proposal).sort(([a], [b]) => a.localeCompare(b)),
+        tree,
+      ])
+    )
+    .digest('hex');
+
+const appliedBefore = (run: Run, key: string) =>
+  Effect.flatMap(Store, store =>
+    Effect.map(Stream.runCollect(store.read(run.id)), lines =>
+      Chunk.toArray(lines).findLast(t => 'applied' in t && t.applied.operation === key && t.applied.ok)
+    )
+  ).pipe(Effect.map(t => (t && 'applied' in t ? t.applied : undefined)));
+
+const once = (
+  run: Run,
+  issue: number,
+  key: string,
+  write: Effect.Effect<Applied, ForgeError | StoreError, Forge | Store>
+) =>
+  Effect.gen(function* () {
+    const before = yield* appliedBefore(run, key);
+    if (before) return before;
+    const applied = { ...(yield* write), operation: key, issue };
+    yield* Effect.flatMap(Store, store => store.trace(run.id, { at: now(), step: run.step, applied }));
+    return applied;
+  });
+
 const file = (w: Workflow, run: Run, children: Child[]) =>
   Effect.gen(function* () {
     if (children.length === 0) return [];
@@ -257,9 +294,13 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     const issue = yield* forge.issue(run.issue);
     const depth = yield* depthOf(run.issue);
     const open = new Map((yield* forge.issues({ state: 'open' })).map(t => [t.title.trim().toLowerCase(), t.number]));
+    const cached = yield* Effect.forEach(children, (p, i) =>
+      appliedBefore(run, operation(run, run.issue, p, `file:${i}`))
+    );
     const refusal = (p: Child, i: number) => {
       if (issue.body === withheld(issue.author, 'issue text')) return `#${run.issue} is withheld text from an outsider`;
-      if (isPart(p) && open.has(p.title.trim().toLowerCase())) return `${p.title}: an open issue has this title`;
+      if (isPart(p) && open.has(p.title.trim().toLowerCase()) && !cached[i])
+        return `${p.title}: an open issue has this title`;
       if (!/^#+\s*done when\b/im.test(p.body)) return `${p.title}: say when it is done under a "Done when" heading`;
       if (!isPart(p)) return;
       if (depth >= deepest) return `#${run.issue} sits ${depth} issues deep; split it by hand`;
@@ -275,7 +316,14 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
 
     const applied: Applied[] = [];
     const numbers: number[] = [];
-    for (const p of children) {
+    for (const [i, p] of children.entries()) {
+      const key = operation(run, run.issue, p, `file:${i}`);
+      if (cached[i]) {
+        const a = cached[i]!;
+        applied.push(a);
+        numbers.push(a.proposal.kind === 'issue' ? Number(a.id) : a.issue!);
+        continue;
+      }
       const lines = isPart(p)
         ? [
             ...(p.stacks_on === undefined ? [] : [`Stacks on #${numbers[p.stacks_on - 1]}`]),
@@ -284,21 +332,28 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
         : [`Found while working on #${run.issue}`];
       const same = isPart(p) ? undefined : open.get(p.title.trim().toLowerCase());
       if (same !== undefined) {
-        applied.push(yield* forge.apply(same, { kind: 'comment', body: [p.body, ...lines].join('\n\n') }));
+        applied.push(
+          yield* once(run, same, key, forge.apply(same, { kind: 'comment', body: [p.body, ...lines].join('\n\n') }))
+        );
         numbers.push(same);
         continue;
       }
-      const a = yield* forge.apply(run.issue, {
-        kind: 'issue',
-        title: p.title,
-        body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
-        ...(isPart(p)
-          ? {
-              parent: run.issue,
-              labels: [`size/${p.size}`, `priority/${p.priority}`],
-            }
-          : { labels: [p.relation] }),
-      });
+      const a = yield* once(
+        run,
+        run.issue,
+        key,
+        forge.apply(run.issue, {
+          kind: 'issue',
+          title: p.title,
+          body: [p.body, ...(lines.length > 0 ? [lines.join('\n')] : [])].join('\n\n'),
+          ...(isPart(p)
+            ? {
+                parent: run.issue,
+                labels: [`size/${p.size}`, `priority/${p.priority}`],
+              }
+            : { labels: [p.relation] }),
+        })
+      );
       applied.push(a);
       if (!a.ok) break;
       numbers.push(Number(a.id));
@@ -307,10 +362,15 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
     if (parts.length === 0) return applied;
     const list = parts.map(n => `- [ ] #${n}`).join('\n');
     applied.push(
-      yield* forge.apply(run.issue, {
-        kind: 'comment',
-        body: `Split into:\n\n${list}`,
-      })
+      yield* once(
+        run,
+        run.issue,
+        operation(run, run.issue, { kind: 'comment', body: `Split into:\n\n${list}` }, 'file-summary'),
+        forge.apply(run.issue, {
+          kind: 'comment',
+          body: `Split into:\n\n${list}`,
+        })
+      )
     );
     const store = yield* Store;
     for (const [i, n] of numbers.entries()) {
@@ -1263,7 +1323,13 @@ const attempt = (
     const runs = world.filter(p => p.kind === 'run');
     const tells = yield* Effect.forEach(
       world.filter(p => p.kind === 'tell'),
-      p => Effect.map(recipient(p.issue, run.id), to => ({ p, to }))
+      (p, i) =>
+        Effect.gen(function* () {
+          const key = operation(tried, p.issue, p, `tell:${i}`);
+          const prior = yield* appliedBefore(tried, key);
+          const to = prior?.id ? yield* store.get(prior.id) : yield* recipient(p.issue, run.id);
+          return { p, to, key };
+        })
     );
     const refused = [
       ...(yield* undispatchable(hub, run, runs)),
@@ -1272,7 +1338,14 @@ const attempt = (
       ),
     ];
     if (refused.length > 0) return done({ kind: 'failed', checks: [], proposals: refused, problems: [] }, tried);
-    for (const { p } of tells) yield* tell(p.issue, p.text, run.id);
+    const delivered = yield* Effect.forEach(tells, ({ p, key }) =>
+      once(
+        tried,
+        p.issue,
+        key,
+        Effect.map(tell(p.issue, p.text, run.id), to => ({ proposal: p, ok: true, id: to.id }))
+      )
+    );
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
     const landed = yield* Effect.either(
@@ -1281,7 +1354,7 @@ const attempt = (
         if (applied.some(a => !a.ok && a.proposal.kind === 'push'))
           return [
             ...applied,
-            ...children.map(proposal => ({ proposal, ok: false, reason: 'push failed; not applied' })),
+            ...children.map((proposal): Applied => ({ proposal, ok: false, reason: 'push failed; not applied' })),
           ];
         return [...applied, ...(yield* file(w, tried, children))];
       }).pipe(writing(tried, spoke))
@@ -1302,12 +1375,11 @@ const attempt = (
       tried = rest;
     }
     const child = runs[0] && !failed.length ? yield* dispatch(hub, tried, runs[0]) : undefined;
-    const applied = [
-      ...landed.right,
-      ...tells.map(({ p, to }) => ({ proposal: p, ok: true, id: to!.id })),
-      ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : []),
-    ];
-    yield* store.trace(run.id, ...applied.map(a => ({ at: now(), step: step.name, applied: a })));
+    const applied = [...landed.right, ...delivered, ...(child ? [{ proposal: runs[0]!, ok: true, id: child.id }] : [])];
+    yield* store.trace(
+      run.id,
+      ...applied.filter(a => !a.operation).map(a => ({ at: now(), step: step.name, applied: a }))
+    );
     return done(
       failed.length
         ? { kind: 'failed', checks: [], proposals: failed, problems: [] }
@@ -1423,7 +1495,7 @@ const land = (
   proposals: Proposal[],
   work?: Checkout,
   to?: number
-): Effect.Effect<Applied[], ForgeError, Forge> =>
+): Effect.Effect<Applied[], ForgeError | StoreError, Forge | Store> =>
   Effect.flatMap(Forge, forge =>
     Effect.gen(function* () {
       const threads = proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : []));
@@ -1442,11 +1514,20 @@ const land = (
                 : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
         );
       const applied: Applied[] = [];
+      const tree =
+        work && proposals.some(p => p.kind === 'push')
+          ? yield* treeOf(work).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })))
+          : undefined;
       let refused = false;
-      for (const [issue, p] of sent) {
+      for (const [i, [issue, p]] of sent.entries()) {
         const a = refused
           ? { proposal: p, ok: false, reason: 'push failed; not applied' }
-          : yield* forge.apply(issue, p, work);
+          : yield* once(
+              run,
+              issue,
+              operation(run, issue, p, `land:${i}`, p.kind === 'push' ? tree : undefined),
+              forge.apply(issue, p, work)
+            );
         applied.push(a);
         if (p.kind === 'push' && !a.ok) refused = true;
       }
@@ -1488,11 +1569,13 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
           if (Either.isRight(said))
             yield* store.trace(
               next.id,
-              ...said.right.map(applied => ({
-                at: now(),
-                step: next.step,
-                applied,
-              }))
+              ...said.right
+                .filter(a => !a.operation)
+                .map(applied => ({
+                  at: now(),
+                  step: next.step,
+                  applied,
+                }))
             );
         }
         current = yield* show(w, next);
@@ -1650,11 +1733,13 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
     const said = applied.ok ? [] : yield* land(unthreaded(run), [{ kind: 'comment', body }]);
     yield* store.trace(
       run.id,
-      ...[applied, ...said].map(a => ({
-        at: now(),
-        step: run.step,
-        applied: a,
-      }))
+      ...[applied, ...said]
+        .filter(a => !a.operation)
+        .map(a => ({
+          at: now(),
+          step: run.step,
+          applied: a,
+        }))
     );
     yield* store.put({ ...run, base: { ...base, sha: head } });
   }).pipe(Effect.scoped);
@@ -1715,7 +1800,10 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       if (!applied.ok) {
         const body = `${branch} no longer ${verb} ${pull.base}: ${applied.reason}. Update it by hand.`;
         const said = yield* land(current, [{ kind: 'comment', body }]);
-        yield* store.trace(run.id, ...said.map(a => ({ at: now(), step: run.step, applied: a })));
+        yield* store.trace(
+          run.id,
+          ...said.filter(a => !a.operation).map(a => ({ at: now(), step: run.step, applied: a }))
+        );
         return { run: current };
       }
       const patch = (diff: Buffer) =>
@@ -1825,7 +1913,10 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
     ).pipe(writing(run, r.id));
     if (!landed.some(a => a.ok)) return yield* new SessionStop({ reason: 'provider', detail: 'no aside reply landed' });
     const undone = landed.some(a => a.ok) && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
-    yield* store.trace(run.id, ...[...landed, ...undone].map(applied => ({ at: now(), step: step.name, applied })));
+    yield* store.trace(
+      run.id,
+      ...[...landed, ...undone].filter(a => !a.operation).map(applied => ({ at: now(), step: step.name, applied }))
+    );
     const { eyes, ...rest } = landed.some(a => a.ok) ? unthreaded(run) : run;
     const answered = { ...rest, ...(eyes && !undone.length && { eyes }), usd: run.usd + r.usd };
     if (!back || r.id === undefined) return { run: answered };
@@ -2014,7 +2105,10 @@ export const tick = (
                       };
                     const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
                     const landed = yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.orElseSucceed(() => []));
-                    yield* store.trace(run.id, ...landed.map(applied => ({ at: now(), step: run.step, applied })));
+                    yield* store.trace(
+                      run.id,
+                      ...landed.filter(a => !a.operation).map(applied => ({ at: now(), step: run.step, applied }))
+                    );
                     if (!landed.some(a => a.ok)) return { run: { ...seen, retried: true as const }, again: true };
                     if (seen.eyes) yield* forge.apply(seen.eyes.issue, seen.eyes.undo).pipe(Effect.ignore);
                     const { retried: _retried, eyes: _eyes, ...rest } = seen;
