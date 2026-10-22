@@ -195,6 +195,7 @@ const tokenEnv = [
 /** Rust 1.79 for a lockfile without time 0.3.35 or later, whose older time releases fail to build on newer Rust. */
 const oldRust =
   "export RUSTUP_TOOLCHAIN=$(grep -A1 '^name = \"time\"$' Cargo.lock | grep -qE '\"0[.]3[.](3[5-9]|[4-9][0-9])' && echo stable || echo 1.79)";
+const pinRust = `${oldRust} && rustup toolchain install $RUSTUP_TOOLCHAIN --profile minimal`;
 const npmCi = 'npm ci --no-audit --no-fund --ignore-scripts';
 /**
  * The package script whose jest config holds each test file: `test:<dir>` for tests/<dir>/, else `test`. tests/2.5
@@ -282,7 +283,7 @@ const tested = (repo: string, tests: string[]): Commands => {
     return test.length
       ? {
           image: services,
-          toolchain: `${oldRust} && rustup toolchain install $RUSTUP_TOOLCHAIN --profile minimal`,
+          toolchain: pinRust,
           setup: [oldRust, ...build].join(' && '),
           test: [oldRust, ...(name === 'clarity-wasm' ? ['export PROPTEST_CASES=100'] : []), ...test].join(' && '),
         }
@@ -296,8 +297,11 @@ const tested = (repo: string, tests: string[]): Commands => {
     : sdk.some(p => p.startsWith('components/clarinet-sdk/node/'))
       ? clarinetSdk(sdk)
       : older;
-  const test = [...cargoTests(tests, dir => `-p ${dir.split('/').pop()}`), ...(run.test ? [run.test] : [])];
-  return test.length ? { ...run, test: test.join(' && ') } : { hasTests: false };
+  const cargo = cargoTests(tests, dir => `-p ${dir.split('/').pop()}`);
+  const test = [...(cargo.length ? [oldRust, ...cargo] : []), ...(run.test ? [run.test] : [])];
+  return test.length
+    ? { ...run, ...(cargo.length && { toolchain: pinRust }), test: test.join(' && ') }
+    : { hasTests: false };
 };
 
 const loadCase = (dir: string): Case & Commands => {

@@ -630,15 +630,15 @@ describe('plan', () => {
       "(cd packages/api && npx jest --runTestsByPath 'tests/a.test.ts')"
     );
     expect(plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])).toEqual({
-      test: 'cargo test -p clarinet-deployments --test remap',
+      toolchain: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install /),
+      test: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && cargo test -p clarinet-deployments --test remap$/),
       typecheck: 'cargo check --tests',
     });
-    expect(plan('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar'])).toEqual({
-      test: 'cargo test -p clarinet-format --tests',
-      typecheck: 'cargo check --tests',
-    });
-    expect(plan('acme/clarinet', ['components/clarity-repl/src/analysis/coverage_tests.rs']).test).toBe(
-      'cargo test -p clarity-repl --lib analysis::coverage_tests'
+    expect(plan('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar']).test).toMatch(
+      / && cargo test -p clarinet-format --tests$/
+    );
+    expect(plan('acme/clarinet', ['components/clarity-repl/src/analysis/coverage_tests.rs']).test).toMatch(
+      / && cargo test -p clarity-repl --lib analysis::coverage_tests$/
     );
     expect(plan('acme/clarinet', ['components/clarinet-sdk/node/tests/a.test.ts'])).toMatchObject({
       setup: expect.stringContaining('build.mjs'),
