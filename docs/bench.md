@@ -40,7 +40,7 @@ Each case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hid
 
 Mined cases list test files in `tests`; `plan` in `bin/bench.ts` derives repo commands, and a per-repo typecheck for explorer, stacks.js and clarinet that runs on every case. `bucket: no-tests` disables hidden tests, not the typecheck. It also plans stacks-blockchain-api, token-metadata-api, clarity-wasm, stacks-core, api-toolkit, connect, workers and stacks-mesh-api:
 
-- Rust repos run one `cargo test` per hidden file: an integration target, a module of a target directory (`--test <dir> <module>::`) or a test module in src (`--lib <path>`); setup builds those targets once with `--no-run`.
+- Rust repos run one `cargo test` per hidden file: an integration target, a module of a target directory or a test module in src. Setup is the same for every case of a repo, so Envs are shared per lockfile: it fetches all crates, then builds the workspace tests where they compile; each case builds its own targets on top at score. clarity-wasm runs its clar2wasm tests once per `test-clarity-v*` feature, as its CI does.
 - The API repos score in `agentgraph-sandbox:services`, whose `services` command starts PostgreSQL (on the `PG_PORT` from `.env`, else 5432, trust auth for `postgres`, sorting as en_US.UTF-8 like the postgres image CI uses) and Redis inside the container. stacks-blockchain-api runs each file through the package script whose jest config holds it, `test:<dir>` for `tests/<dir>/`.
 - Repos whose tests start their own containers through the Docker API (signer-metrics-api, stacks-node-publisher, blockchain-api's `tests/2.5`) have no plan; the sandbox has no Docker socket.
 
