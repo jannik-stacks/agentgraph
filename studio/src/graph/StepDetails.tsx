@@ -215,7 +215,7 @@ export const StepDetails = ({ fixture, step, run }: { fixture: Fixture; step: St
   const lines = run && (run.trace ?? traceOf(run.trail, run.run)).filter(line => line.step === step.name);
   const graph = graphOf(workflow, checks, undefined, fixture.roles);
   const { trigger } = graph;
-  const writes = graph.nodes.find(n => n.step === step.name)?.writes;
+  const { writes, model } = graph.nodes.find(n => n.step === step.name) ?? {};
   const waits = 'wait' in does;
   return (
     <div className="space-y-5 p-4 text-xs">
@@ -239,6 +239,12 @@ export const StepDetails = ({ fixture, step, run }: { fixture: Fixture; step: St
             {doing(does)}
           </Term>
         </Field>
+        {'agent' in does && model !== undefined && (
+          <Field name={<Term tip="The model alias the agent asks the proxy for.">model</Term>}>
+            {model}, set by <span className="font-mono">model</span> in{' '}
+            <span className="font-mono">agents/{does.agent}.md</span>
+          </Field>
+        )}
         {'agent' in does && writes && (
           <Field
             name={

@@ -5,7 +5,8 @@ import type { Run, Step, Workflow } from './workflow.ts';
  * What the studio draws: what starts the workflow, one node per step, next and back edges, and the most sessions a run
  * can take before it asks. A check names the agent that judges it; a check without one is only a script. A step
  * `dispatches` when its agent may start a workflow with `on: dispatch`, and `traces` when its agent reads the traces of
- * the runs on the issue; a check the same when its judge does. `writes` lists what its agent may write to GitHub.
+ * the runs on the issue; a check the same when its judge does. `writes` lists what its agent may write to GitHub, and
+ * `model` names the model alias its agent asks for.
  */
 export type Graph = {
   trigger: string;
@@ -17,6 +18,7 @@ export type Graph = {
     each?: string;
     dispatches?: true;
     writes?: Agent['returns'];
+    model?: string;
     traces?: true;
     asides?: true;
     run?: { tries: number; current: boolean; visited: boolean };
@@ -49,7 +51,7 @@ export function graphOf(
   w: Workflow,
   checks: Record<string, Pick<Check, 'mode' | 'agent'>>,
   run?: Run,
-  agents: Record<string, Pick<Agent, 'returns' | 'reads'>> = {}
+  agents: Record<string, Pick<Agent, 'returns' | 'reads' | 'model'>> = {}
 ): Graph {
   const index = (name: string) => w.steps.findIndex(s => s.name === name);
   const loops = w.steps.flatMap((s, from) =>
@@ -82,6 +84,7 @@ export function graphOf(
     ...('agent' in s.does && agents[s.does.agent]?.returns.includes('run') && { dispatches: true as const }),
     ...('agent' in s.does &&
       agents[s.does.agent] && { writes: agents[s.does.agent]!.returns.filter(k => github.has(k)) }),
+    ...('agent' in s.does && agents[s.does.agent]?.model !== undefined && { model: agents[s.does.agent]!.model }),
     ...('agent' in s.does && agents[s.does.agent]?.reads && { traces: true as const }),
     ...('wait' in s.does && s.back && { asides: true as const }),
     ...(run && { run: { tries: k === current ? run.tries : 0, current: k === current, visited: k <= reached } }),

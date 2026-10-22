@@ -48,6 +48,14 @@ describe('graphOf', () => {
     });
   });
 
+  it("names the model alias of each agent step's agent, and none where the agent sets none", () => {
+    const { workflows, checks } = fixture('acme-app');
+    const agents = { triager: { returns: [], model: 'gemini' }, implementor: { returns: [] } };
+    const [triage, implement] = graphOf(workflows.issue!, checks, undefined, agents).nodes;
+    expect(triage!.model).toBe('gemini');
+    expect(implement!.model).toBeUndefined();
+  });
+
   it('counts the worst case of the user loop as 29 sessions', () => {
     const { workflows, checks } = fixture('loop');
     const g = graphOf(workflows.align!, checks);

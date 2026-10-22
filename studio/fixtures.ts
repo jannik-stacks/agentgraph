@@ -171,7 +171,7 @@ export const fixtures = (): Plugin => ({
       roles: Object.fromEntries(
         Object.entries(hub!.agents).map(([name, a]) => [
           name,
-          { returns: a.returns, ...(a.reads && { reads: a.reads }) },
+          { returns: a.returns, ...(a.reads && { reads: a.reads }), ...(a.model !== undefined && { model: a.model }) },
         ])
       ),
     }));

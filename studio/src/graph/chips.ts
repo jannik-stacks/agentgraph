@@ -37,6 +37,14 @@ export const chipsOf = (node: Graph['nodes'][number]): Chip[] => {
       count: judges.length,
       tip: `${judges.join(' and ')} review each try side by side, each in its own session. Their findings go back together.`,
     });
+  if (node.model !== undefined) {
+    const agent = node.doer.split(' / ')[0]!;
+    chips.push({
+      glyph: 'agent',
+      label: node.model,
+      tip: `${agent} runs on the model alias ${node.model}, which the proxy maps to a model. Set by model in agents/${agent}.md.`,
+    });
+  }
   if (node.writes?.length) {
     const agent = node.doer.split(' / ')[0]!;
     chips.push({

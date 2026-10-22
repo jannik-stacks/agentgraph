@@ -19,7 +19,7 @@ export type Fixture = {
   runs: Simulated[];
   agents?: Record<string, string>;
   skills?: Record<string, string>;
-  roles?: Record<string, Pick<Agent, 'returns' | 'reads'>>;
+  roles?: Record<string, Pick<Agent, 'returns' | 'reads' | 'model'>>;
 };
 
 /** Picks the next outcome at a step, or undefined to leave the run where it is. */
