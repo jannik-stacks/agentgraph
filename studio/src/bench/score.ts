@@ -39,7 +39,7 @@ export const quality = (row: Row, w: typeof defaults, judges?: string[], human?:
   if (row.outcome === 'no-change') return 0;
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
   const parts: [number, number][] = [
-    ...(row.hidden === undefined ? [] : [[w.test, row.hidden] as [number, number]]),
+    ...(row.hidden === undefined ? [] : [[w.test, row.hiddenShare ?? row.hidden] as [number, number]]),
     ...(votes.length ? [[w.judge, Math.min(1, 2 * mean(votes))] as [number, number]] : []),
     ...(row.suite === undefined && row.typecheck === undefined
       ? []

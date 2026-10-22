@@ -566,6 +566,33 @@ const exec = (cmd: string, tree: string, box: Made, from: string, network: 'none
 const coupled =
   /Cannot find module|Failed to resolve import|is not a function|is not exported|does not provide an export|No matching export|is not defined|is not a constructor|TS\d{4}|Cannot destructure|Cannot read propert/i;
 
+/** Passed and total counts a jest, vitest, cargo or node test run printed last. */
+const counts = (tail = '') => {
+  const text = tail.replace(/\x1b\[[\d;]*m/g, '');
+  const cargo = [...text.matchAll(/test result: \w+\. (\d+) passed; (\d+) failed/g)];
+  if (cargo.length)
+    return cargo.reduce((n, m) => ({ passed: n.passed + +m[1]!, total: n.total + +m[1]! + +m[2]! }), {
+      passed: 0,
+      total: 0,
+    });
+  const line = text.match(/^\s*Tests:?\s+.*$/gm)?.at(-1) ?? '';
+  const total = /(\d+) total|\((\d+)\)/.exec(line);
+  if (total) return { passed: +(/(\d+) passed/.exec(line)?.[1] ?? 0), total: +(total[1] ?? total[2]!) };
+  const [pass, fail] = [/^# pass (\d+)/m.exec(text), /^# fail (\d+)/m.exec(text)];
+  return pass && fail ? { passed: +pass[1]!, total: +pass[1]! + +fail[1]! } : undefined;
+};
+
+type Run = { ok: boolean; tail?: string };
+
+/** The share of the hidden tests base fails that a run passes; pass or fail when the run printed no counts. */
+export const hiddenShare = (run?: Run, base?: Run) => {
+  if (!run) return undefined;
+  const [r, b] = [counts(run.tail), base && counts(base.tail)];
+  if (run.ok || !r) return +run.ok;
+  const fixed = b?.total === r.total ? b.passed : 0;
+  return r.total > fixed ? round(Math.max(0, r.passed - fixed) / (r.total - fixed)) : 0;
+};
+
 /** Whether a failed hidden run broke on the human's names and signatures (coupled) or on a result (behaviour). */
 export const failureClass = (tail: string) => (coupled.test(tail) ? 'coupled' : 'behaviour');
 
@@ -1244,6 +1271,7 @@ export const rowsOf = (out: string, repos?: string[]) => {
         const spent = { ...s, ...usage(join(out, c.id, arm)) };
         const [hidden, typecheck] = [ok(s.hidden), ok(s.typecheck)];
         const suite = ok(base.suite) === 0 ? undefined : ok(s.suite);
+        const share = hiddenShare(s.hidden as Run | undefined, base.hidden as Run | undefined);
         return [
           {
             point: `${p.harness}:${p.model}/${arm}@${p.engine}/${p.hubs[arm] ?? ''}/${p.set}`,
@@ -1253,6 +1281,7 @@ export const rowsOf = (out: string, repos?: string[]) => {
             ...(c.infra[arm] && { infra: c.infra[arm] }),
             ...(!c.infra[arm] && arm !== 'human' && s.files === 0 && { outcome: 'no-change' as const }),
             ...(hidden !== undefined && { hidden }),
+            ...(share !== undefined && { hiddenShare: share }),
             ...(suite !== undefined && { suite }),
             ...(typecheck !== undefined && { typecheck }),
             vsHuman: Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, mean(ps)])),

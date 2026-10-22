@@ -45,6 +45,10 @@ describe('bench score', () => {
     expect(quality(row({ hidden: 1, answers: 3 }), defaults)).toBeCloseTo(0.9);
   });
 
+  it('takes the share of hidden tests passed over pass or fail when there is one', () => {
+    expect(quality(row({ hidden: 0, hiddenShare: 0.5 }), presets['hidden tests only']!)).toBe(0.5);
+  });
+
   it('caps the judge part at the human, so judged and tested parts share one scale', () => {
     expect(quality(row({ vsHuman: { opus: 1, sonnet: 1 } }), defaults)).toBe(1);
     expect(quality(row({ hidden: 0, vsHuman: { opus: 1 } }), defaults)).toBeCloseTo(0.35 / 0.85);

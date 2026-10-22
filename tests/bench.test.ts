@@ -8,6 +8,7 @@ import {
   costOf,
   couplings,
   family,
+  hiddenShare,
   infra,
   invalid,
   orders,
@@ -91,6 +92,22 @@ describe('bench helpers', () => {
     const out = scrub(diff, ['morgan']);
     expect(out).not.toMatch(/package-lock|^index |#12|agentgraph/m);
     expect(out).toContain('+// see #N from someone');
+  });
+
+  it('scores hidden tests as the share base fails that a run passes, from jest, vitest, cargo or node counts', () => {
+    const jest = (failed: number, passed: number) =>
+      `Test Suites: 1 failed, 1 total\nTests:       ${failed} failed, ${passed} passed, ${failed + passed} total\n`;
+    expect(hiddenShare({ ok: false, tail: jest(1, 10) }, { ok: false, tail: jest(4, 7) })).toBe(0.75);
+    expect(hiddenShare({ ok: false, tail: jest(1, 3) }, { ok: false, tail: 'error TS2305: no export' })).toBe(0.75);
+    expect(hiddenShare({ ok: false, tail: '\x1b[2m Tests \x1b[22m 2 failed | 6 passed (8)' })).toBe(0.75);
+    const cargo =
+      'test result: ok. 3 passed; 0 failed; 0 ignored\ntest result: FAILED. 2 passed; 3 failed; 0 ignored\n';
+    expect(hiddenShare({ ok: false, tail: cargo })).toBe(0.625);
+    expect(hiddenShare({ ok: false, tail: '# pass 1\n# fail 3\n' })).toBe(0.25);
+    expect(hiddenShare({ ok: true, tail: '' })).toBe(1);
+    expect(hiddenShare({ ok: false, tail: 'error: could not compile' })).toBe(0);
+    expect(hiddenShare({ ok: false, tail: jest(1, 7) }, { ok: false, tail: jest(1, 7) })).toBe(0);
+    expect(hiddenShare(undefined)).toBeUndefined();
   });
 
   it('drops build info and git hooks from both sides of a judged pair', () => {
@@ -339,6 +356,7 @@ describe('bin/bench.ts score and report', () => {
       usdSource: 'list-price estimate',
     });
     expect(rows[0]!.findings.high).toBe(0.25);
+    expect(rows[1]).toMatchObject({ hiddenShare: 1 });
     expect(rows[2]).toMatchObject({ outcome: 'no-change', hidden: 0, vsHuman: {} });
     expect(rows[2]).not.toHaveProperty('infra');
     expect(rows[1]).not.toHaveProperty('outcome');
