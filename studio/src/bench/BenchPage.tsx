@@ -41,7 +41,7 @@ const terms: [string, string][] = [
   ['point', 'One harness and model on one arm, with an engine commit, hub tree and case set. Each dot is a point.'],
   [
     'arm',
-    'Who made the change. human is the merged pull request. v2 is the engine with the repo’s hub, where the implementor must pass the case’s tests and a reviewer can send it back once. floor is one plain session in the same sandbox and budget, without checks or review.',
+    'Who made the change. human is the merged pull request. v2 is the engine with the repo’s hub, where the change must pass the hub’s checks, like the repo’s own tests, and a reviewer can send it back once. floor is one plain session in the same sandbox and budget, without checks or review.',
   ],
   ['base', 'The repo at the pull request’s parent commit, before any change.'],
   ['tree', 'The git tree hash of the hub’s files, part of a point’s key. Changing the hub creates a new point.'],
