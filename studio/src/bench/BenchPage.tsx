@@ -27,15 +27,16 @@ const tones: Record<string, string> = {
 };
 const help: Record<keyof typeof defaults, string> = {
   test: 'Hidden tests are the test files the merged pull request added. They run on top of the arm’s change after it finished: 1 when they pass, 0 when they fail.',
-  judge: 'Twice the judges’ mean preference over the human. A tie scores 1, always preferring the run scores 2.',
-  suite: 'Scores 1 when both the repo’s suite and typecheck pass.',
+  judge:
+    'LLM judges compare the run’s diff with the human’s merged diff, blind. The human is the baseline: a tie scores 1, always preferring the run scores 2.',
+  suite: 'The repo’s own test suite and typecheck, run on the arm’s change: 1 when both pass.',
   crit: 'Penalty: a third for each critical or high finding above the human’s count on the same case, at most 1.',
   help: 'Penalty: the full weight when the run stopped to ask one or more questions.',
 };
 const labels: Record<keyof typeof defaults, string> = {
   test: 'hidden tests',
-  judge: 'judges',
-  suite: 'suite',
+  judge: 'LLM judges',
+  suite: 'CI',
   crit: '− findings',
   help: '− asking',
 };
@@ -218,22 +219,25 @@ export const BenchPage = () => {
             ))}
           </div>
           {names.map(k => (
-            <div key={k} className="w-full">
-              <label className="grid w-full grid-cols-[6.5rem_1fr_2.25rem] items-center gap-2 font-mono text-zinc-600 dark:text-zinc-400">
-                <span className="inline-flex items-center gap-1">
-                  {labels[k]} <Help tip={help[k]} />
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={weights[k]}
-                  onChange={e => setW(names.map(n => (n === k ? e.target.value : weights[n])).join(','))}
-                  className="accent-zinc-700 dark:accent-zinc-300"
-                />
-                <span className="text-right tabular-nums">{weights[k].toFixed(2)}</span>
+            <div
+              key={k}
+              className="grid w-full grid-cols-[6rem_0.875rem_1fr_2rem] items-center gap-x-1.5 font-mono text-zinc-600 dark:text-zinc-400"
+            >
+              <label htmlFor={`w-${k}`} className="whitespace-nowrap">
+                {labels[k]}
               </label>
+              <Help tip={help[k]} />
+              <input
+                id={`w-${k}`}
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={weights[k]}
+                onChange={e => setW(names.map(n => (n === k ? e.target.value : weights[n])).join(','))}
+                className="w-full min-w-0 accent-zinc-700 dark:accent-zinc-300"
+              />
+              <span className="text-right tabular-nums">{weights[k].toFixed(2)}</span>
             </div>
           ))}
         </Control>
