@@ -1,4 +1,4 @@
-import { unstamped, type Event, type Proposal, type Issue } from './forge.ts';
+import { studioRun, unstamped, type Event, type Proposal, type Issue } from './forge.ts';
 import type { Trace } from './store.ts';
 import { failure, type Run, type Seen } from './workflow.ts';
 
@@ -99,9 +99,9 @@ export const answerWith = 'Answer with <code>/agent</code> and your reply, or <c
 
 /**
  * The labels and status comment for a run, as proposals; only what differs from the issue now. The comment holds what
- * a human acts on, so tries, rounds and cost so far never edit it.
+ * a human acts on, so tries, rounds and cost so far never edit it; they show in the studio, linked when `studio` is set.
  */
-export function shown(run: Run, t: Issues): Proposal[] {
+export function shown(run: Run, t: Issues, studio?: string): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => (Object.values(statuses).includes(l) || l.startsWith('bothub:')) && l !== label);
@@ -123,6 +123,7 @@ export function shown(run: Run, t: Issues): Proposal[] {
       stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,
     }[run.status],
     pull && `Pull request: ${pull.url}`,
+    studio && `[Progress in the studio](${studioRun(studio, run.id)})`,
     failing.length > 0 && `Failing checks: ${failing.join(', ')}`,
     notes.length > 0 && footer(...notes),
   ]

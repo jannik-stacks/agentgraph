@@ -79,9 +79,12 @@ export type Mark = { run: string; step: string; session?: string };
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
 export const provenance = FiberRef.unsafeMake<Mark | undefined>(undefined);
 
+/** The studio page of a run. */
+export const studioRun = (studio: string, run: string) =>
+  `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}`;
+
 /** The studio page of a run, opened at the trace line written at or after `at`. */
-const runLink = (studio: string, run: string, at: string) =>
-  `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}?at=${at}`;
+const runLink = (studio: string, run: string, at: string) => `${studioRun(studio, run)}?at=${at}`;
 
 /** The body without any provenance marker or ⁂ link in it. */
 export const unstamped = (body: string) =>
@@ -120,6 +123,8 @@ export class Forge extends Context.Tag('agentgraph/Forge')<
     apply: (number: number, proposal: Proposal, work?: Checkout) => Effect.Effect<Applied, ForgeError>;
     /** The login people mention to talk to the bot, when the forge has one. */
     slug?: Effect.Effect<string, ForgeError>;
+    /** The studio's URL that bodies link back to, when set. */
+    studio?: string;
   }
 >() {}
 

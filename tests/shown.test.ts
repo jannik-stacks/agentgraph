@@ -58,6 +58,15 @@ describe('the status comment', () => {
       expect(shown({ ...run, ...tick }, t)).toEqual([]);
   });
 
+  it('links the run in the studio, where tries, rounds and cost so far show', () => {
+    const body = shown(run, holding(''), 'http://studio:5492/').find(p => p.kind === 'comment');
+    expect(body).toMatchObject({
+      body: expect.stringContaining('[Progress in the studio](http://studio:5492/runs/issue-7)'),
+    });
+    const t = holding((body as { body: string }).body);
+    expect(shown({ ...run, tries: 2, usd: 1 }, t, 'http://studio:5492/')).toEqual([]);
+  });
+
   it('is not edited when the forge reads it back with its run stamp', () => {
     const body = bodyOf(run)!;
     expect(shown(run, holding(`${body}\n\n[⁂](http://studio/runs/issue-7?at=1) `))).toEqual([]);
