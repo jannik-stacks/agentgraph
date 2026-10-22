@@ -1,9 +1,10 @@
-import { createHash } from 'node:crypto';
-import { appendFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { appendFile, mkdir, link, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
+import { beat, live } from './env.ts';
 import type { Applied, Event } from './forge.ts';
 import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';
@@ -103,18 +104,9 @@ const current = (value: unknown, key = ''): unknown => {
 
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /**
  * A run is `<dir>/<id>/run.json` and its trace `<dir>/<id>/trace.jsonl`; every put that changes the run also traces
- * what changed. Locks are files whose holder is a pid. Check output is gzipped once per content at
+ * what changed. Locks carry a process owner and an acquisition id. Check output is gzipped once per content at
  * `<dir>/logs/<sha256>.gz`, as `logs` says.
  */
 export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
@@ -130,20 +122,26 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       )
     );
   const take = async (path: string) => {
-    for (let tries = 0; tries < 2; tries++) {
-      try {
-        const file = await open(path, 'wx');
-        await file.writeFile(String(process.pid));
-        await file.close();
-        return;
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-        const holder = Number(await readFile(path, 'utf8').catch(() => '0'));
-        if (holder && alive(holder)) throw new Error(`held by ${holder}`, { cause: e });
-        await rm(path, { force: true });
+    const holder = `${beat()}:${randomUUID()}`;
+    const candidate = `${path}.${randomUUID()}`;
+    await writeFile(candidate, holder, { flag: 'wx' });
+    try {
+      for (let tries = 0; tries < 2; tries++) {
+        try {
+          await link(candidate, path);
+          return holder;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+          const before = await readFile(path, 'utf8');
+          if (before ? live(before) : Date.now() - (await stat(path)).mtimeMs < 120_000)
+            throw new Error(`held by ${before || 'an initializing owner'}`, { cause: e });
+          if ((await readFile(path, 'utf8')) === before) await rm(path, { force: true });
+        }
       }
+      throw new Error('lock contended');
+    } finally {
+      await rm(candidate, { force: true });
     }
-    throw new Error('lock contended');
   };
 
   const trace = (id: string, ...lines: Trace[]) =>
@@ -210,7 +208,10 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       const path = join(dir, '.locks', `${name.replaceAll('/', '_')}.lock`);
       return Effect.acquireRelease(
         io(path, () => mkdir(join(dir, '.locks'), { recursive: true }).then(() => take(path))),
-        () => Effect.promise(() => rm(path, { force: true }))
+        holder =>
+          Effect.promise(async () => {
+            if ((await readFile(path, 'utf8').catch(() => undefined)) === holder) await rm(path, { force: true });
+          })
       );
     },
     log,

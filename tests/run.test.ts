@@ -156,6 +156,34 @@ const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m
 const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
 describe('drive', () => {
+  it.each(['initialized', 'empty'])('does not steal a live run lock: %s', async kind => {
+    const where = world();
+    const previous = process.env.AGENTGRAPH_STATE;
+    process.env.AGENTGRAPH_STATE = join(where.root, 'state');
+    mkdirSync(join(where.root, 'state', 'owners'), { recursive: true });
+    writeFileSync(join(where.root, 'state', 'owners', 'other'), '');
+    mkdirSync(join(where.data, '.locks'), { recursive: true });
+    writeFileSync(join(where.data, '.locks', 'run-7.lock'), kind === 'empty' ? '' : `${process.pid}:other`);
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    try {
+      await expect(run(drive(w, fresh(), hub))).rejects.toThrow();
+      expect(specs).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.AGENTGRAPH_STATE;
+      else process.env.AGENTGRAPH_STATE = previous;
+    }
+  });
+
+  it('does not remove a replacement lock when its walk closes', async () => {
+    const where = world();
+    const lock = join(where.data, '.locks', 'run-7.lock');
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]], undefined, () => {
+      writeFileSync(lock, 'replacement');
+    });
+    await run(drive(w, fresh(), hub));
+    expect(readFileSync(lock, 'utf8')).toBe('replacement');
+  });
+
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
     const where = world();
     const { specs, run } = services(where, [
