@@ -288,8 +288,12 @@ describe('ordering', () => {
     ]);
 
     writeFileSync(join(where.forge, '1.md'), '---\ntitle: Issue 1\nstate: closed\nauthor: morgan\n---\n\nDone.\n');
-    const after = await run(where, [], tick(hub, 2, true));
-    expect(after.value.map(r => [r.id, r.status])).toEqual([['issue-2', 'running']]);
+    const question = 'The dependency is closed; which implementation should I use?';
+    const after = await run(where, [reply({ kind: 'ask', question })], tick(hub, 2, true));
+    expect(after.value.map(r => [r.id, r.step, r.status, r.reason, r.tries])).toEqual([
+      ['issue-2', 'implement', 'waiting', question, 0],
+    ]);
+    expect(after.value[0]!.sessions.implement).toMatchObject({ id: 's' });
   });
 
   it('waits on a "Depends on" issue until it is closed, even once it has a pull request', async () => {
