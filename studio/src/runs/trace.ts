@@ -20,7 +20,7 @@ export const detail = (o: Outcome) =>
 /** A run as the dev server answers it: the run, its trace, and where it lives. */
 export type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] };
 
-type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
+export type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
 
 /** One harness session: its prompt when the trace has one, its events, and how it ended. */
 export type Session = { prompt?: Line<'prompt'>; events: Line<'event'>[]; end?: Line<'session'> };
@@ -85,6 +85,10 @@ export const lineAt = (trace: Trace[], at: string | null) =>
 
 /** The studio page of a run at one trace line. */
 export const atLink = (run: string, at: string) => `/runs/${encodeURIComponent(run)}?at=${at}`;
+
+/** The graph page with the run picked and `step` selected. */
+export const graphLink = (r: CoreRun, step: string) =>
+  `/graph?run=${encodeURIComponent(`${r.fixture}:${r.run.id}`)}&step=${encodeURIComponent(`${r.run.workflow}/${step}`)}`;
 
 /** Where a `locate` answer opens: the run at that write, or the runs of an issue. */
 export const locatedLink = (found: Located) =>

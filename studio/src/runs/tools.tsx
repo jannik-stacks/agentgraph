@@ -17,7 +17,8 @@ const parseJson = (text: string | undefined): unknown => {
   }
 };
 
-const Raw = ({ value }: { value: unknown }) => <Code code={json(value)} lang="json" compact wrap lines={12} />;
+/** A value as indented JSON. */
+export const Raw = ({ value }: { value: unknown }) => <Code code={json(value)} lang="json" compact wrap lines={12} />;
 const Label = ({ children }: { children: ReactNode }) => <span className="text-[11px] text-zinc-500">{children}</span>;
 
 type Input = Record<string, unknown>;

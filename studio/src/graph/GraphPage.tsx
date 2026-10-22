@@ -1,11 +1,10 @@
 import { Controls, type Edge, MarkerType, type Node, ReactFlow, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useAtom, useAtomValue } from 'jotai';
-import { useMemo, useState } from 'react';
+import { atomWithStorage } from 'jotai/utils';
+import { useMemo } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
 import { graphOf } from '../../../src/graph.ts';
-import type { Trace } from '../../../src/store.ts';
-import type { Run } from '../../../src/workflow.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
 import { accent, Combobox, Muted, Select } from '../ui.tsx';
 import { layout, type Start } from './layout.ts';
@@ -20,44 +19,30 @@ import {
   StepCard,
   type StepFlowNode,
 } from './nodes.tsx';
-import type { Fixture, Trail } from './scenarios.ts';
+import type { Fixture, Picked } from './scenarios.ts';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
 import { storyOf, trailOf, visitsOf } from './visits.ts';
 
 const hubParam = queryParam('hub');
 const runParam = queryParam('run');
 
-/** A run drawn over its workflow: a real one carries its trace, a simulated one only its trail. */
-type Picked = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | undefined };
-
 /** The picked run told in one sentence. */
-export const storyOfRun = (p: Picked) =>
+const storyOfRun = (p: Picked) =>
   storyOf(visitsOf(graphOf(p.fixture.workflow, p.fixture.checks, p.run, p.fixture.roles), p.trail, p.run));
 
-const panelKey = 'bothub.stepPanel';
+const panelAtom = atomWithStorage('bothub.stepPanel', 320, undefined, { getOnInit: true });
 const panelWidth = (w: number) => Math.round(Math.min(Math.max(w, 260), 720, innerWidth * 0.7));
 
-/** The side panel's width, dragged from its left edge and kept in local storage when the browser allows it. */
+/** The side panel's width, dragged from its left edge and kept across visits. */
 const usePanelWidth = () => {
-  const [width, setWidth] = useState(() => {
-    try {
-      return panelWidth(Number(localStorage.getItem(panelKey)) || 320);
-    } catch {
-      return 320;
-    }
-  });
+  const [stored, setStored] = useAtom(panelAtom);
+  const width = panelWidth(stored);
   const resize = (down: React.PointerEvent) => {
     down.preventDefault();
-    const at = (e: PointerEvent) => panelWidth(width + down.clientX - e.clientX);
-    const move = (e: PointerEvent) => setWidth(at(e));
-    const up = (e: PointerEvent) => {
+    const move = (e: PointerEvent) => setStored(panelWidth(width + down.clientX - e.clientX));
+    const up = () => {
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', up);
-      try {
-        localStorage.setItem(panelKey, String(at(e)));
-      } catch {
-        // Without storage the default width comes back next time.
-      }
     };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up);
@@ -69,7 +54,7 @@ const usePanelWidth = () => {
  * The workflows of `shown` as one canvas, with the picked run drawn over its workflow, and a side panel for the
  * selected step or workflow.
  */
-export const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefined }) => {
+const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefined }) => {
   const selected = useAtomValue(selectedStepAtom);
   const [workflowName, stepName] = selected?.split('/') ?? [];
   const fixture = shown.find(f => f.workflow.name === workflowName);

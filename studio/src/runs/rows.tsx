@@ -5,8 +5,8 @@ import type { Trace } from '../../../src/store.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
-import { ToolBody, toolName, toolSummary } from './tools.tsx';
-import { atLink, type CoreRun, detail, type Session, visitsOf } from './trace.ts';
+import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
+import { atLink, type CoreRun, detail, graphLink, type Line, type Session, visitsOf } from './trace.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
@@ -93,7 +93,6 @@ const From = ({ children }: { children: ReactNode }) => (
   <div className="font-sans text-[10px] text-zinc-500">{children}</div>
 );
 
-type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
 type Event = Line<'event'>['event'];
 
 const kindName = (kind: string) => (kind === 'pull_request' ? 'pull' : kind);
@@ -400,24 +399,18 @@ const Issue = ({ r }: { r: CoreRun }) =>
     <>#{r.run.issue}</>
   );
 
-/** An open run's first line: its try, its graph and its JSON, then why it stopped or what it asks. */
-const RunInfo = ({ r: { run, fixture }, step }: { r: CoreRun; step: string }) => {
+/** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
+const RunInfo = ({ r: { run } }: { r: CoreRun }) => {
   const [raw, setRaw] = useState(false);
   return (
     <>
       <p className="flex gap-x-2 text-zinc-500">
         <span>try {run.tries}</span>
-        <Link
-          href={`/graph?run=${encodeURIComponent(`${fixture}:${run.id}`)}&step=${encodeURIComponent(`${run.workflow}/${step}`)}`}
-          className="underline"
-        >
-          graph
-        </Link>
         <button type="button" aria-pressed={raw} className="underline" onClick={() => setRaw(!raw)}>
           raw
         </button>
       </p>
-      {raw && <RawJson value={run} />}
+      {raw && <Raw value={run} />}
       {run.reason && (
         <p className="max-w-4xl py-0.5 pl-4 break-words whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
           {run.reason}
@@ -488,6 +481,9 @@ export const runRow = (r: CoreRun, open = false, expand = false, target?: Trace)
           )}
         </Col>
         <Col className="w-[16ch] text-zinc-500">at {run.step}</Col>
+        <Link href={graphLink(r, target?.step ?? run.step)} className="shrink-0 underline">
+          graph
+        </Link>
         <Col className="w-[6ch] text-right text-zinc-500">{usd(run.usd)}</Col>
         <Col className="w-[8ch] text-right text-zinc-500">
           {took(run.started, live(r) ? undefined : (run.ended ?? trace.at(-1)?.at))}
@@ -501,7 +497,7 @@ export const runRow = (r: CoreRun, open = false, expand = false, target?: Trace)
         )}
       </span>
     ),
-    body: <RunInfo r={r} step={target?.step ?? run.step} />,
+    body: <RunInfo r={r} />,
     children: visits.map((visit, i) => ({
       open: true,
       summary: (
@@ -531,10 +527,6 @@ const Head = ({ row, full = false, children }: { row: Row; full?: boolean; child
     <span className={cx('min-w-0', full ? 'break-words [&_*]:whitespace-normal' : 'truncate')}>{row.summary}</span>
     {children}
   </span>
-);
-
-const RawJson = ({ value }: { value: unknown }) => (
-  <Code code={JSON.stringify(value, null, 2)} lang="json" compact wrap lines={12} />
 );
 
 /** A quiet button on a row's line, shown on hover, that opens the row and switches one of its views. */
@@ -578,7 +570,7 @@ const LeafView = ({ row }: { row: Row }) => {
           {row.raw !== undefined && <RowButton label="raw" open={raw} onClick={() => setRaw(!raw)} />}
         </Head>
       </span>
-      {raw && <RawJson value={row.raw} />}
+      {raw && <Raw value={row.raw} />}
     </li>
   );
 };
@@ -615,7 +607,7 @@ const RowView = ({ row }: { row: Row }) => {
       >
         {raw && (
           <div className="pl-3">
-            <RawJson value={row.raw} />
+            <Raw value={row.raw} />
           </div>
         )}
         <div

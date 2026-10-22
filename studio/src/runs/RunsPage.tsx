@@ -1,17 +1,15 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { fixtures, served } from 'virtual:fixtures';
-import { storyOfRun, WorkflowGraph } from '../graph/GraphPage.tsx';
-import { trailOf } from '../graph/visits.ts';
-import { pageAtom, live, navigateAtom, queryParam, runsAtom, selectedStepAtom } from '../state.ts';
-import { Combobox, Disclosure, Loading, Muted } from '../ui.tsx';
+import { useEffect, useMemo, useState } from 'react';
+import { served } from 'virtual:fixtures';
+import { pageAtom, navigateAtom, queryParam, runsAtom } from '../state.ts';
+import { Combobox, Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
-import { type CoreRun, isGitHubRef, lineAt, locatedLink } from './trace.ts';
+import { RunPage } from './RunPage.tsx';
+import { type CoreRun, isGitHubRef, locatedLink } from './trace.ts';
 import type { Located } from '../../../src/store.ts';
 
 const issueParam = queryParam('issue');
 const ghParam = queryParam('gh');
-const atParam = queryParam('at');
 
 /** Opens what a GitHub link or comment id names, as the server's `locate` finds it. */
 const Locate = ({ gh }: { gh: string }) => {
@@ -91,87 +89,6 @@ const Runs = () => {
         />
       </div>
       <Rows rows={shown.map(r => runRow(r))} />
-    </>
-  );
-};
-
-/** A yes or no the reader set, kept in local storage under `key` when the browser allows it. */
-const useStored = (key: string, fallback: boolean) => {
-  const [value, setValue] = useState(() => {
-    try {
-      const saved = localStorage.getItem(key);
-      return saved === null ? fallback : saved === 'open';
-    } catch {
-      return fallback;
-    }
-  });
-  const set = (next: boolean) => {
-    setValue(next);
-    try {
-      localStorage.setItem(key, next ? 'open' : 'closed');
-    } catch {
-      // Without storage the default comes back next time.
-    }
-  };
-  return [value, set] as const;
-};
-
-/** The run drawn over its workflow, folded or open as the reader last left it, and resizable from its corner. */
-const RunGraph = ({ r }: { r: CoreRun }) => {
-  const [open, setOpen] = useStored('bothub.runGraph', true);
-  const fixture = fixtures.find(f => f.id === r.fixture);
-  const picked = useMemo(
-    () => fixture && { fixture, run: r.run, trail: trailOf(r.run, r.trace), trace: r.trace },
-    [fixture, r]
-  );
-  if (!picked) return null;
-  return (
-    <Disclosure
-      open={open}
-      onToggle={setOpen}
-      summary={
-        <span className="min-w-0 truncate text-xs text-zinc-500">
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">Graph</span> {storyOfRun(picked)}
-        </span>
-      }
-    >
-      <div className="mt-2 flex h-80 min-h-40 resize-y flex-col overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
-        <WorkflowGraph shown={[picked.fixture]} picked={picked} />
-      </div>
-    </Disclosure>
-  );
-};
-
-const RunPage = ({ id }: { id: string }) => {
-  const one = useMemo(() => live<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`), [id]);
-  const { value: r, failure } = useAtomValue(one);
-  const [expand, setExpand] = useStored('bothub.expandSessions', true);
-  const at = useAtomValue(atParam);
-  const [step, setStep] = useAtom(selectedStepAtom);
-  const target = useMemo(() => (r ? lineAt(r.trace, at) : undefined), [r, at]);
-  const end = useRef<HTMLDivElement>(null);
-  const following = expand && r?.run.status === 'running' && !target;
-  useEffect(() => {
-    if (!r || !target) return;
-    if (!step) setStep(`${r.run.workflow}/${target.step}`);
-    document.querySelector('[data-target]')?.scrollIntoView({ block: 'center' });
-  }, [at, !!target]);
-  useEffect(() => {
-    if (!following) return;
-    for (const box of document.querySelectorAll('[data-scroll]')) box.scrollTop = box.scrollHeight;
-    end.current?.scrollIntoView({ block: 'end' });
-  }, [following, r]);
-  if (r === undefined) return failure ? <Muted>{failure}</Muted> : <Loading />;
-  if (r === null) return <Muted>No run {id} in this data dir.</Muted>;
-  return (
-    <>
-      <RunGraph r={r} />
-      <label className="flex w-fit items-center gap-1.5 text-xs text-zinc-500">
-        <input type="checkbox" checked={expand} onChange={e => setExpand(e.target.checked)} />
-        Open every session{r.run.status === 'running' && ' and follow the newest events'}
-      </label>
-      <Rows rows={[runRow(r, true, expand, target)]} />
-      <div ref={end} />
     </>
   );
 };

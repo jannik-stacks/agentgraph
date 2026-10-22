@@ -185,8 +185,32 @@ describe('a deep link into a run', () => {
     expect(html).toContain(`href="${pr}#issuecomment-5"`);
     expect(html).toContain('copy link');
     expect(renderToStaticMarkup(review.children!.find(c => c.raw === push)!.summary)).toContain('copy link');
-    const info = renderToStaticMarkup(row.body as never);
-    expect(info).toContain(`href="/graph?run=${encodeURIComponent('sk/issue:issue-1')}&amp;step=issue%2Freview"`);
+    const head = renderToStaticMarkup(row.summary as never);
+    expect(head).toContain(`href="/graph?run=${encodeURIComponent('sk/issue:issue-1')}&amp;step=issue%2Freview"`);
+  });
+
+  it('shows the run page without a graph, linking the graph at the deep-linked step instead', async () => {
+    const { createElement } = await dependency<{ createElement: (...args: unknown[]) => unknown }>('react');
+    const jotai = await dependency<{
+      createStore: () => { set: (atom: object, value: unknown) => void };
+      Provider: unknown;
+    }>('jotai');
+    const state = await studioModule<{ locationAtom: object; runAtom: (id: string) => object }>('state.ts');
+    const { RunPage } = await studioModule<{ RunPage: unknown }>('runs/RunPage.tsx');
+    const store = jotai.createStore();
+    const query = new URLSearchParams({ at: '2026-10-16T05:01:59.000Z' });
+    store.set(state.locationAtom, { path: '/runs/issue-1', query });
+    store.set(state.runAtom('issue-1'), {
+      value: { fixture: 'sk/issue', repo: 'o/r', run: { ...run, step: 'merge', status: 'waiting' }, trace: lines },
+    });
+    const html = renderToStaticMarkup(
+      createElement(jotai.Provider, { store }, createElement(RunPage, { id: 'issue-1' }))
+    );
+    expect(html).not.toMatch(/react-flow/);
+    expect(html.match(/href="\/graph\?[^"]*"/g)).toEqual([
+      `href="/graph?run=${encodeURIComponent('sk/issue:issue-1')}&amp;step=issue%2Freview"`,
+    ]);
+    expect(html).toContain('data-target="true"');
   });
 
   it('opens the session that holds a targeted event', () => {

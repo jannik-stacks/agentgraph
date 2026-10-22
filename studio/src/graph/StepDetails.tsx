@@ -7,7 +7,7 @@ import { Code, Markdown } from '../Markdown.tsx';
 import { lineRow, Rows, RunLine } from '../runs/rows.tsx';
 import { runsAtom } from '../state.ts';
 import { accent, cx, Disclosure, Field, Fields, Tooltip } from '../ui.tsx';
-import type { Fixture, Trail } from './scenarios.ts';
+import type { Fixture, Picked, Trail } from './scenarios.ts';
 
 const Section = ({ title, tip, children }: { title: string; tip?: string; children: React.ReactNode }) => (
   <section className="space-y-1.5">
@@ -209,15 +209,7 @@ const RunsHere = ({ fixture, step }: { fixture: string; step: string }) => {
 };
 
 /** A step's doer, checks, tries and way back in plain words, what the picked run did there, and its prompts. */
-export const StepDetails = ({
-  fixture,
-  step,
-  run,
-}: {
-  fixture: Fixture;
-  step: Step;
-  run?: { run: Run; trail: Trail; trace?: Trace[] | undefined } | undefined;
-}) => {
+export const StepDetails = ({ fixture, step, run }: { fixture: Fixture; step: Step; run?: Picked | undefined }) => {
   const { workflow, checks } = fixture;
   const { does } = step;
   const lines = run && (run.trace ?? traceOf(run.trail, run.run)).filter(line => line.step === step.name);

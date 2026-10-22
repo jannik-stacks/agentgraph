@@ -1,8 +1,12 @@
 import type { Agent, Check } from '../../../src/hub.ts';
+import type { Trace } from '../../../src/store.ts';
 import type { Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
 
 /** One outcome a run met, with the run as it stood before it. */
 export type Trail = { at: Run; outcome: Outcome }[];
+
+/** A run drawn over its workflow: a real one carries its trace, a simulated one only its trail. */
+export type Picked = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | undefined };
 
 /** A simulated run: what happened and where it ended. */
 type Simulated = { label: string; trail: Trail; run: Run };

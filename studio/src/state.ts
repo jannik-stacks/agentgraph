@@ -66,3 +66,11 @@ export const live = <T>(path: string) => {
 
 /** Every run of the served hub, with its trace, every text in it cut short. */
 export const runsAtom = live<CoreRun[]>('/core/runs');
+
+const opened = new Map<string, ReturnType<typeof live<CoreRun | null>>>();
+
+/** One run of the served hub with its whole trace, or null when the data dir has no such run. */
+export const runAtom = (id: string) => {
+  if (!opened.has(id)) opened.set(id, live<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`));
+  return opened.get(id)!;
+};
