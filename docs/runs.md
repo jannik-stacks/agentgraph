@@ -1,83 +1,86 @@
 # Runs
 
-What a run records, and where.
-
-A run is one workflow on one issue. Everything agentgraph keeps sits in one data directory, `AGENTGRAPH_DATA`.
+One run is one workflow on one issue. Its records live under `AGENTGRAPH_DATA`:
 
 ```
 $AGENTGRAPH_DATA/
-  <run id>/run.json       where the run stands
-  <run id>/trace.jsonl    one line per thing that happened
-  mirror.git              a bare mirror of the repo
-  work/<id>/              one checkout, removed when it closes
-  index/<id>, news/<id>/  that checkout's git index and its news file
-  homes/<id>/             a session's private home: the harness's own history
-  logs/<sha256>.gz        the full output of a check, stored once per content
-  .locks/                 one lock file per run being driven
+  <run id>/run.json       current state
+  <run id>/trace.jsonl    append-only events
+  mirror.git             bare repo mirror
+  work/<id>/             temporary checkout
+  index/<id>, news/<id>/  checkout index and news file
+  homes/<id>/            private harness history
+  logs/<sha256>.gz        full check output, shared by content
+  .locks/                locks for runs being driven
 ```
 
-A run id is the workflow name, the issue number and a timestamp, so runs sort in the order they began.
+Run ids combine workflow name, issue number and timestamp, sorting by start time.
 
 ## run.json
 
-| Field      | Meaning                                                         |
-| ---------- | --------------------------------------------------------------- |
-| `id`       | The run id                                                      |
-| `workflow` | The workflow it runs                                            |
-| `issue`    | The issue number                                                |
-| `step`     | The step it is on                                               |
-| `status`   | `running`, `waiting`, `done` or `stopped`                       |
-| `tries`    | Tries used on this step                                         |
-| `rounds`   | Times each step has gone back                                   |
-| `sessions` | The session of each step, so a try resumes it                   |
-| `feedback` | The feedback for the next try                                   |
-| `reason`   | Why the run waits or stopped                                    |
-| `comment`  | The id of its status comment on the issue                       |
-| `said`     | Where humans spoke: the issue or PR, and threads to answer       |
-| `base`     | The pull request it stacks on and the head it builds on         |
-| `started`  | When it began                                                   |
-| `usd`      | What its sessions cost                                          |
+| Field | Meaning |
+| --- | --- |
+| `id`, `workflow`, `issue` | Run, workflow and issue identifiers |
+| `step` | Current step |
+| `status` | `running`, `waiting`, `done` or `stopped` |
+| `tries`, `rounds` | Step attempts and return counts |
+| `sessions` | Kept session per step |
+| `feedback`, `reason` | Next-try feedback and wait/stop reason |
+| `answers` | Human answers paired with questions |
+| `comment`, `said` | Status comment id and human reply locations |
+| `base` | Stacked parent pull request and base head |
+| `hub`, `by` | Last checked hub version and dispatching run id |
+| `started`, `usd` | Start time and session cost |
 
-`waiting` means a person is needed: a review at a human step, or an answer to the question in `reason` anywhere else. See [The loop](loop.md#waiting). <!-- code: src/workflow.ts#Run -->
-
-The file is rewritten whole each time, so a run can be picked up on another machine.
+`waiting` can mean human review, a question or a dispatched child; see [Waiting](loop.md#waiting) and [Dispatch](loop.md#dispatch). State is rewritten whole on each save. <!-- code: src/workflow.ts#Run -->
 
 ## The trace
 
-`trace.jsonl` is append-only. Every line has a time and a step, and one of these kinds:
+Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/store.ts#Trace -->
 
-- `prompt`: what a session was opened with: harness, model, system prompt, prompt and tools.
-- `event`: something the session did, as the harness reported it: text, a tool call, usage (with cache reads and writes where the harness reports them) or the end.
-- `session`: how a session ended, whether it resumed one, and what it cost.
-- `check`: one check's result, with its output cut short when it failed. A fan-out also writes one line per item. `log` names the full output in `logs/` by its hash and size.
-- `applied`: a proposal and whether it was applied, with its URL or the reason it was not.
-- `outcome`: how a try ended (pass, failed, back, ask, answer or stop) and where the run went next.
-- `saved`: the fields of `run.json` that a write changed, and `cleared` for fields it removed.
+| Kind | Contents |
+| --- | --- |
+| `prompt` | Harness, model, system prompt, prompt and tools |
+| `event` | Harness text, tool calls, usage and end events; cache tokens where reported |
+| `session` | End reason, resume flag and cost |
+| `check` | Result and shortened findings; fan-outs also record items. `log` identifies full output by hash and size. |
+| `applied` | Proposal, success, URL or failure reason |
+| `outcome` | Pass, failure, back, ask, answer or stop, and next state |
+| `saved` | Changed state fields; `cleared` lists removed fields |
+| `spoken` | CLI-origin event, including its source and reply location |
+| `told` | Forwarded text and sender in `by`, a router run id or `cli` |
 
-The studio reads only these files. `status` reads them too, and asks GitHub which repos the App reaches. Writes go through the file store. <!-- code: src/store.ts#fileStore -->
+Session lines share a `key` to distinguish concurrent sessions. The studio and CLI status read these records; writes use the file store. GitHub status also checks App scope. <!-- code: src/store.ts#fileStore -->
+
+Audit finished runs with:
+
+```sh
+node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push' 'triage=label|issue|ask'
+```
+
+It fails on denied tool calls, zero-cost started sessions, or done workflows lacking any listed applied kind. It also prints wait time before the first session. It reads run data only and is outside precommit.
 
 ## Provenance
 
-Every comment, reply, pull request and issue body agentgraph posts ends in a hidden `<!-- agentgraph run=<id> step=<step> session=<id> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` before it links to `<studio>/runs/<id>?at=<time>`, which opens the run at that write. The engine adds both when it posts, and drops any an agent wrote itself. The `applied` line keeps the same `at`. <!-- code: src/forge.ts#stamp -->
+Posted comments, replies, issues and pull requests end with hidden `<!-- agentgraph run=<id> step=<step> session=<id> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL`, a `⁂` links to `<studio>/runs/<id>?at=<time>`. The engine replaces agent-written markers and records the same `at` on `applied`. <!-- code: src/forge.ts#stamp -->
 
-`/runs?gh=<link or comment id>` goes the other way, and works for runs from before the marker: it finds the newest `applied` line whose URL or comment id matches, and opens the run there. A pull request or issue link opens that issue's runs. Pasting a GitHub link into the issue box on the Runs page does the same. Each write in a run has a `copy link` to its own `?at=` page, and the run's graph link selects the step of that write, else the step the run is at. <!-- code: src/store.ts#locate -->
+`/runs?gh=<link or comment id>` finds the newest matching applied write, including older runs without markers. Issue or pull request links open that issue's runs; the Runs issue box also accepts GitHub links. Writes offer `copy link`; graph links select the write's step, otherwise the current step. <!-- code: src/store.ts#locate -->
 
 ## Check logs
 
-Every script check and every judged check's final reply is kept whole in `logs/`, gzipped and named by its sha256. Output that repeats, such as a passing lint over many runs and tries, is stored once, which is why the folder is shared and not per run. The trace and the forge only see the short findings; the studio opens the full output from a check row. `AGENTGRAPH_CHECK_LOGS` set to `failed` keeps only failing output, and `off` keeps none. It is a runner setting, not a hub one, since what a machine keeps on disk is the runner's choice. `node bin/run.ts prune-logs --data <dir>` counts the logs that no run's trace names any more, and `--apply` deletes them; run it while no run is being driven. <!-- code: src/store.ts#checkLogs --> <!-- code: src/store.ts#Log --> <!-- code: src/store.ts#pruneLogs -->
+Script output and judges' final replies are gzipped in shared `logs/`, deduplicated by sha256. Traces and GitHub show short findings; studio check rows open full output. `AGENTGRAPH_CHECK_LOGS` is a runner setting: `all` by default, `failed` for failures only, `off` for none.
+
+```sh
+node bin/run.ts prune-logs --data <dir>
+node bin/run.ts prune-logs --data <dir> --apply
+```
+
+The first counts unreferenced logs; the second deletes them. Run while no runs are being driven. <!-- code: src/store.ts#checkLogs src/store.ts#Log src/store.ts#pruneLogs -->
 
 ## Checkout
 
-Each run works in a checkout of the mirror, on the branch the workflow names.
-
-When a run's scope closes, its files are kept under `refs/agentgraph/runs/<run id>` in the mirror. A run that waits for a human picks up where it left off. <!-- code: src/docker.ts#docker -->
-
-The mirror's refs are read-only inside the sandbox.
+Runs use mirror checkouts on workflow branches. Scope exit removes the checkout, saving files at `refs/agentgraph/runs/<run id>` for resumption. Mirror refs are read only inside the sandbox. <!-- code: src/docker.ts#docker -->
 
 ## Stopping early
 
-A run stops with a reason when a session runs past its minutes, stalls, hits a provider fault, the sandbox fails, or the run's spend goes over the hub's `usd-per-run` limit.
-
-The engine posts the reason in its status comment. The trace holds the details.
-
-Closing the issue stops a waiting run.
+[Limits and runner errors](loop.md#order-and-limits) determine stopping versus waiting for retry. The status comment carries the reason; the trace carries details. Closing an issue stops its live run.
