@@ -201,6 +201,9 @@ const npmCi = 'npm ci --no-audit --no-fund --ignore-scripts';
  * needs a stacks node and bitcoind, which the sandbox lacks. Newer bases test against a client package with its own
  * lockfile.
  */
+/** Runs `cmd` once plain and once per `test-clarity-v<n>` feature clar2wasm declares, as its CI matrix does. */
+const clarityVersions = (cmd: string) =>
+  `(for f in "" $(sed -n 's/^\\(test-clarity-v[0-9]*\\) *=.*/\\1/p' clar2wasm/Cargo.toml); do ${cmd.replace('cargo test', 'cargo test ${f:+--features $f}')} || exit 1; done)`;
 const blockchainApi = (tests: string[]): Commands => {
   const files = tests.filter(p => /^(src\/)?tests\/.+(\.test|-tests)\.ts$/.test(p) && !p.startsWith('tests/2.5/'));
   const script = (p: string) => (p.startsWith('tests/') ? `test:${p.split('/')[1]}` : 'test');
@@ -269,7 +272,9 @@ const tested = (repo: string, tests: string[]): Commands => {
       test: perPackage(js, 2, 'NODE_ENV=test node --test --import tsx --test-timeout 300000'),
     };
   if (name === 'clarity-wasm' || name === 'stacks-core') {
-    const test = cargoTests(tests);
+    const test = cargoTests(tests).map(t =>
+      name === 'clarity-wasm' && t.includes('clar2wasm/Cargo.toml') ? clarityVersions(t) : t
+    );
     const build = test.map(t => t.replace('cargo test', 'cargo test --no-run'));
     return test.length
       ? {

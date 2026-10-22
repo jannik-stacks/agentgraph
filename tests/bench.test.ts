@@ -669,14 +669,14 @@ describe('plan', () => {
       image: 'agentgraph-sandbox:services',
       toolchain: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install \$RUSTUP_TOOLCHAIN /),
       setup: expect.stringMatching(
-        /^export RUSTUP_TOOLCHAIN=.* && cargo test --no-run --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: && cargo test --no-run --manifest-path tests\/Cargo.toml --test lib_tests$/
+        /^export RUSTUP_TOOLCHAIN=.* && \(for f in "" \$\(sed .*test-clarity-v.* clar2wasm\/Cargo.toml\); do cargo test --no-run \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: \|\| exit 1; done\) && cargo test --no-run --manifest-path tests\/Cargo.toml --test lib_tests$/
       ),
       test: expect.stringMatching(
-        /^export RUSTUP_TOOLCHAIN=.* && cargo test --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/
+        /^export RUSTUP_TOOLCHAIN=.* && \(for f in .*; do cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: \|\| exit 1; done\) && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/
       ),
     });
     expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toMatch(
-      / && cargo test --manifest-path clar2wasm\/Cargo.toml --test oom-checker$/
+      /cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test oom-checker \|\| exit 1; done\)$/
     );
     expect(
       plan('stacks-network/stacks-core', ['stacks-signer/src/tests/chainstate.rs', 'src/vm/tests/mod.rs', 'src/a.rs'])
