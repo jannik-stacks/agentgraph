@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, mkdir, link, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { open, mkdir, link, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
@@ -144,11 +144,43 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     }
   };
 
-  const trace = (id: string, ...lines: Trace[]) =>
-    io(traceFile(id), async () => {
-      await mkdir(join(dir, id), { recursive: true });
-      await appendFile(traceFile(id), lines.map(line => `${JSON.stringify(line)}\n`).join(''));
-    });
+  const writers = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
+  const trace = (id: string, ...lines: Trace[]) => {
+    const writer = writers.get(id) ?? Effect.unsafeMakeSemaphore(1);
+    writers.set(id, writer);
+    return writer.withPermits(1)(
+      io(traceFile(id), async () => {
+        await mkdir(join(dir, id), { recursive: true });
+        const file = await open(traceFile(id), 'a+');
+        try {
+          const { size } = await file.stat();
+          if (size > 0) {
+            const last = Buffer.alloc(1);
+            await file.read(last, 0, 1, size - 1);
+            if (last[0] !== 10) {
+              const content = await file.readFile();
+              const cut = content.lastIndexOf(10) + 1;
+              const tail = content.subarray(cut);
+              let complete = true;
+              try {
+                JSON.parse(tail.toString('utf8'));
+              } catch {
+                complete = false;
+              }
+              if (complete) await file.appendFile('\n');
+              else {
+                await writeFile(`${traceFile(id)}.${randomUUID()}.partial`, tail);
+                await file.truncate(cut);
+              }
+            }
+          }
+          await file.appendFile(lines.map(line => `${JSON.stringify(line)}\n`).join(''));
+        } finally {
+          await file.close();
+        }
+      })
+    );
+  };
 
   const logFile = (hash: string) => join(dir, 'logs', `${hash}.gz`);
   const log = (output: string, pass: boolean) => {
@@ -197,9 +229,16 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
             text =>
               text
                 .split('\n')
-                .filter(Boolean)
-                .slice(from)
-                .map(line => current(JSON.parse(line)) as Trace),
+                .flatMap((line, i, lines): Trace[] => {
+                  if (!line) return [];
+                  try {
+                    return [current(JSON.parse(line)) as Trace];
+                  } catch (e) {
+                    if (i === lines.length - 1) return [];
+                    throw e;
+                  }
+                })
+                .slice(from),
             e => (missing(e) ? [] : Promise.reject(e))
           )
         )

@@ -1114,6 +1114,55 @@ describe('a run branch that moved', () => {
     expect(output).toBe('identical-output');
   }, 30_000);
 
+  it.each([false, true])(
+    'recovers an unterminated last trace record (partial: %s)',
+    async partial => {
+      const where = world();
+      const current = begin(flow, { id: 'run-7', issue: 7, started: fresh().started });
+      await Effect.runPromise(Effect.flatMap(Store, s => s.put(current)).pipe(Effect.provide(fileStore(where.data))));
+      const path = join(where.data, 'run-7', 'trace.jsonl');
+      const good = readFileSync(path, 'utf8');
+      const fragment = '{"at":"unfinished';
+      writeFileSync(path, partial ? good + fragment : good.trimEnd());
+      const { run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+      const done = await run(drive(flow, current, small));
+      expect(done.status).toBe('done');
+      expect(traceOf(where.data, 'run-7').some(t => 'outcome' in t)).toBe(true);
+      const fragments = readdirSync(join(where.data, 'run-7')).filter(name => name.endsWith('.partial'));
+      expect(fragments).toHaveLength(partial ? 1 : 0);
+      if (partial) expect(readFileSync(join(where.data, 'run-7', fragments[0]!), 'utf8')).toBe(fragment);
+      expect(readFileSync(path, 'utf8')).toContain(good.trimEnd());
+    },
+    30_000
+  );
+
+  it('reads an interrupted trace before tick records a new answer', async () => {
+    const where = world();
+    const current = {
+      ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }),
+      status: 'waiting' as const,
+      reason: 'Which?',
+    };
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(current)).pipe(Effect.provide(fileStore(where.data))));
+    appendFileSync(join(where.data, 'run-7', 'trace.jsonl'), '{"at":"unfinished');
+    where.human('/agent this one', '2026-10-16T00:00:05.000Z');
+    const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Follow up?' })]]);
+    await run(tick(small, 7));
+    expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({
+      status: 'waiting',
+      reason: 'Follow up?',
+    });
+  }, 30_000);
+
+  it('continues to reject a complete corrupt trace record', async () => {
+    const where = world();
+    const current = begin(flow, { id: 'run-7', issue: 7, started: fresh().started });
+    await Effect.runPromise(Effect.flatMap(Store, s => s.put(current)).pipe(Effect.provide(fileStore(where.data))));
+    appendFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'broken record\n');
+    const { run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+    await expect(run(drive(flow, current, small))).rejects.toThrow();
+  }, 30_000);
+
   it('returns a refused push to the agent without posting its replies or other writes', async () => {
     const where = world();
     const attempted: Proposal[] = [];
