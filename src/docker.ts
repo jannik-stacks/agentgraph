@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
 import type { Hub } from './hub.ts';
-import { dependencyDirs, discard, envOf, type Layer as Deps, layer, mark, reap, room, sweep } from './env.ts';
+import { dependencyDirs, discard, envOf, type Layer as Deps, layer, mark, reap, room, sweep, unlogged } from './env.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
@@ -80,6 +80,7 @@ export const dockerArgs = (
   size = limits
 ) => [
   'run',
+  ...unlogged,
   '--rm',
   '--init',
   '--pull',
@@ -177,11 +178,11 @@ const start = (args: string[], secrets: Command['secrets'], name: string, on: (c
     child.once('close', code => done(code ?? 137));
   });
   const stop = () =>
-    Effect.promise(() => {
+    Effect.promise(async () => {
       try {
         if (child.pid) process.kill(-child.pid, 'SIGKILL');
       } catch {}
-      execFile('docker', ['rm', '-f', name], () => {});
+      await new Promise(done => execFile('docker', ['rm', '-f', name], () => done(undefined)));
       return closed;
     });
   return { closed, stop };

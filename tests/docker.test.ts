@@ -62,7 +62,7 @@ describe('docker with a stand-in docker client', () => {
       [
         '#!/bin/sh',
         `[ "$1" = network ] && { echo true; exit 0; }`,
-        `[ "$1" = rm ] && exit 0`,
+        `[ "$1" = rm ] && { sleep 0.2; echo "$*" >> ${log}.rm; exit 0; }`,
         `[ "$1" = image ] && case "$*" in *Labels*) exit 1;; *) echo sha256:base; exit 0;; esac`,
         `[ "$1 $2" = "volume inspect" ] && for a; do case $a in agentgraph-*) echo /m/$a;; esac; done`,
         `case "$1" in commit|volume) echo "$*" >> ${log}.all; exit 0;; esac`,
@@ -108,6 +108,28 @@ describe('docker with a stand-in docker client', () => {
     expect(args.join(' ')).not.toContain('sk-value-123456=');
     expect(args.filter(a => a.includes('sk-value'))).toEqual(['secret=sk-value-123456']);
     expect(args.slice(-6, -2)).toEqual(['agentgraph-sandbox:local', 'sh', '-c', 'echo hi']);
+  });
+
+  it('keeps no docker log of any container it runs, since the runner reads the output itself', async () => {
+    await use(layer, s => s.exec(command(tmp('work'))));
+    const args = logged().join(' ');
+    expect(args).toContain('--log-driver none');
+  });
+
+  it('has removed the container by the time a command ends, however it ends', async () => {
+    for (const args of [
+      ['-c', 'echo hi'],
+      ['-c', 'fail'],
+      ['-c', 'exit125'],
+      ['-c', 'sleep'],
+    ]) {
+      await use(layer, s => s.exec(command(tmp('work'), { args, minutes: 0.01 })));
+      const name = logged()[logged().indexOf('--name') + 1];
+      expect(readFileSync(`${log}.rm`, 'utf8')).toContain(`rm -f ${name}\n`);
+    }
+    await use(layer, s => Stream.runDrain(s.lines(command(tmp('work'), { args: ['-c', 'chatty'], minutes: 0.01 }))));
+    const name = logged()[logged().indexOf('--name') + 1];
+    expect(readFileSync(`${log}.rm`, 'utf8')).toContain(`rm -f ${name}\n`);
   });
 
   it('mounts the hub read-only at /hub and names it in AGENTGRAPH_HUB', async () => {
@@ -192,6 +214,7 @@ describe('docker with a stand-in docker client', () => {
       .split('\n')
       .findLast(l => l.includes('agentgraph.envbuild'));
     expect(build).toContain(' acme-rust:1 sh -c ');
+    expect(build).toContain('run --log-driver none ');
   });
 
   it('mounts the cache volume in every container, and none with an empty name', async () => {
@@ -257,6 +280,9 @@ describe('docker with a stand-in docker client', () => {
     expect(all).toContain('type=overlay');
     expect(all).toContain('mkdir -p /u/0/upper /u/0/work');
     expect(all).toMatch(new RegExp(`volume rm -f ${name} ${name!.slice(0, -2)}`));
+    const runs = all.split('\n').filter(l => l.startsWith('run '));
+    expect(runs.length).toBeGreaterThan(2);
+    for (const run of runs) expect(run).toMatch(/^run --log-driver none /);
   });
 
   it('fails the checkout when the toolchain fails', async () => {

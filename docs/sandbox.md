@@ -39,6 +39,8 @@ Each checkout mounts private overlay volumes over cached dependency directories,
 
 Smaller outputs such as `dist` and wasm `pkg` are copied into the checkout so builds can delete and recreate them. Closing the checkout removes its volumes. Base checkouts skip setup when the environment captured all outputs; changed or resumed checkouts, or incomplete environments, run setup again. <!-- code: src/env.ts#layer src/docker.ts#docker -->
 
+Containers keep no Docker log, since the runner reads their output as they run. A command's container is removed before the command returns, however it ends. <!-- code: src/env.ts#unlogged src/docker.ts#docker -->
+
 Runner ids and heartbeat files identify abandoned checkouts and volumes, removed on startup. `AGENTGRAPH_STATE` defaults to `~/.cache/agentgraph` and also holds image last-use stamps. Runners sharing Docker must share this directory; containerized runners need it on persistent storage.
 
 `AGENTGRAPH_ENV_CAP` defaults to `60g`, counting images and dependency volumes. Eviction removes least recently used pairs, excluding live containers and checkouts:

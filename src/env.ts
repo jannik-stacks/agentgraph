@@ -40,6 +40,9 @@ export const toolchainOf = (files: string[]) => {
 export const manifest =
   /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|yarn\.lock|\.npmrc|Cargo\.toml|Cargo\.lock|rust-toolchain(\.toml)?)$/;
 
+/** Containers keep no log on the docker disk; the runner reads their output as they run. */
+export const unlogged = ['--log-driver', 'none'];
+
 const docker = (args: string[], timeout = 600_000) =>
   new Promise<string>((done, fail) =>
     execFile('docker', args, { timeout, maxBuffer: 256 << 20 }, (error, stdout, stderr) =>
@@ -211,6 +214,7 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
       const started = Date.now();
       const args = [
         'run',
+        ...unlogged,
         '--init',
         '--pull',
         'never',
@@ -337,7 +341,21 @@ const overlays = (image: string) =>
   (overlay ??= (async () => {
     const [lower, upper, over] = ['l', 'u', 'o'].map(s => `agentgraph-probe-${self}-${s}`) as [string, string, string];
     const run = (mount: string, ...cmd: string[]) =>
-      docker(['run', '--rm', '--pull', 'never', '--network', 'none', '--user', '0:0', '--mount', mount, image, ...cmd]);
+      docker([
+        'run',
+        ...unlogged,
+        '--rm',
+        '--pull',
+        'never',
+        '--network',
+        'none',
+        '--user',
+        '0:0',
+        '--mount',
+        mount,
+        image,
+        ...cmd,
+      ]);
     try {
       await docker(['volume', 'create', lower]);
       await docker(['volume', 'create', upper]);
@@ -393,6 +411,7 @@ export const layer = async (
     await docker(
       [
         'run',
+        ...unlogged,
         '--rm',
         '--pull',
         'never',
@@ -582,6 +601,7 @@ const dockerFree = (image: string, volume: string) => {
   const free = docker(
     [
       'run',
+      ...unlogged,
       '--rm',
       '--pull',
       'never',
