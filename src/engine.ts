@@ -570,11 +570,14 @@ const sh = (
     )
   );
 
-/** Runs the hub's setup in a checkout, so its checks find what it installs. */
-const setUp = (hub: Hub, work: Checkout) =>
+/** Runs the hub's setup in a checkout, so its checks find what it installs, and traces how long it took. */
+const setUp = (hub: Hub, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
   Effect.gen(function* () {
     if (!hub.setup || work.ready) return;
+    const started = Date.now();
     const out = yield* sh(hub.setup, hub.dir, work.dir, { AGENTGRAPH_BASE: work.base }, hub.limits.minutes, 'proxy');
+    const setup = { ms: Date.now() - started, exit: out.code };
+    yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, setup }));
     if (out.code !== 0)
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
   });
@@ -1542,7 +1545,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
 
       const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
 
-      if (!w.on.feedback) yield* setUp(hub, work);
+      if (!w.on.feedback) yield* setUp(hub, work, current);
       while (current.status === 'running') {
         const tried = yield* attempt(w, current, hub, work);
         yield* settle(tried.outcome, transition(w, tried.run, tried.outcome));
@@ -1681,7 +1684,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       same = before === after;
     } else yield* hostGit(work.git, ['read-tree', '-u', '--reset', pull.head]);
     if (!to) return { run: current };
-    yield* setUp(hub, work);
+    yield* setUp(hub, work, run);
     const t = yield* issuesOf(w, run);
     const left = {
       run: run.id,

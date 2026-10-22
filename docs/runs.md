@@ -41,9 +41,10 @@ Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/store.ts#T
 | Kind | Contents |
 | --- | --- |
 | `prompt` | Harness, model, system prompt, prompt and tools |
-| `event` | Harness text, tool calls, usage and end events; cache tokens where reported |
+| `event` | Harness text, tool calls (with `ms` where the harness reports it), usage and end events; cache tokens where reported |
 | `session` | End reason, resume flag and cost |
 | `check` | Result and shortened findings; fan-outs also record items. `log` identifies full output by hash and size. |
+| `setup` | Hub setup's `ms` and `exit` in a checkout |
 | `applied` | Proposal, success, URL or failure reason |
 | `outcome` | Pass, failure, back, ask, answer or stop, and next state |
 | `saved` | Changed state fields; `cleared` lists removed fields |

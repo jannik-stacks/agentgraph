@@ -536,6 +536,8 @@ describe('setup', () => {
     expect(setups[0]).toMatchObject({ cmd: 'sh', network: 'proxy' });
     expect(commands.length).toBeGreaterThan(1);
     expect(commands.slice(1).every(c => c.network === 'none')).toBe(true);
+    const setup = traceOf(where.data, 'run-7').flatMap(t => ('setup' in t ? [t] : []));
+    expect(setup).toEqual([expect.objectContaining({ step: 'triage', setup: { ms: expect.any(Number), exit: 0 } })]);
   }, 30_000);
 
   it('parks the run as infra with the output when setup fails, before any step', async () => {
@@ -547,6 +549,7 @@ describe('setup', () => {
     expect(specs).toHaveLength(0);
     const stops = traceOf(where.data, 'run-7').flatMap(t => ('outcome' in t ? [t.outcome] : []));
     expect(stops).toContainEqual({ kind: 'ask', question: 'SandboxError: setup exited 3: registry unreachable' });
+    expect(traceOf(where.data, 'run-7').some(t => 'setup' in t && t.setup.exit === 3)).toBe(true);
   }, 30_000);
 
   it('runs nothing with network when the hub has no setup', async () => {
