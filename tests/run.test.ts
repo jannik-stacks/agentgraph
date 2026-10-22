@@ -949,6 +949,51 @@ describe('a run branch that moved', () => {
 describe('tick', () => {
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
 
+  it('leaves a locked run to its driver when another tick sees stop', async () => {
+    const where = world();
+    const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
+    const kit = { ...small, workflows: { issue: flow } };
+    const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin));
+    const turns = scripted([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    let during: Run['status'] | undefined;
+    const session = Layer.effect(
+      Session,
+      Effect.gen(function* () {
+        const f = yield* Forge;
+        const store = yield* Store;
+        const sandbox = yield* Sandbox;
+        const s = yield* Session;
+        let checked = false;
+        return {
+          open: (spec: SessionSpec) =>
+            s.open(spec).pipe(
+              Stream.tap(event => {
+                if (event.type !== 'start' || checked) return Effect.void;
+                checked = true;
+                return Effect.gen(function* () {
+                  where.human('/agent stop', '2026-10-16T00:00:05.000Z');
+                  yield* tick(kit, 7).pipe(
+                    Effect.provideService(Forge, f),
+                    Effect.provideService(Store, store),
+                    Effect.provideService(Sandbox, sandbox),
+                    Effect.provideService(Session, s)
+                  );
+                  during = (yield* store.get('run-7'))?.status;
+                }).pipe(Effect.orDie);
+              })
+            ),
+        };
+      })
+    ).pipe(Layer.provide(Layer.mergeAll(base, turns)));
+    const done = await Effect.runPromise(
+      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
+        Effect.provide(Layer.mergeAll(base, session))
+      )
+    );
+    expect(during).toBe('running');
+    expect(done.status).toBe('stopped');
+  }, 30_000);
+
   it('begins a run from a trusted command, drives it, and begins again only on a new command', async () => {
     const where = world();
     const at = '2026-10-16T00:00:01.000Z';

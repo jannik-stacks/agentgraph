@@ -183,7 +183,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         const line = changes(yield* readRun(run.id), run);
         yield* io(runFile(run.id), async () => {
           await mkdir(join(dir, run.id), { recursive: true });
-          const tmp = `${runFile(run.id)}.tmp`;
+          const tmp = `${runFile(run.id)}.${randomUUID()}.tmp`;
           await writeFile(tmp, `${JSON.stringify(run, null, 2)}\n`);
           await rename(tmp, runFile(run.id));
         });

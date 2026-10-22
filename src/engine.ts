@@ -1589,6 +1589,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       );
     };
     yield* store.lock(run.id);
+    const stored = yield* store.get(run.id);
+    if (stored?.status === 'stopped') return stored;
     do {
       yield* walk.pipe(
         Effect.scoped,
@@ -1629,6 +1631,10 @@ const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: str
     const store = yield* Store;
     const forge = yield* Forge;
     yield* store.lock(run.id);
+    run = (yield* store.get(run.id)) ?? run;
+    if (!live(run)) return;
+    base = run.base ?? base;
+    if (base.sha === head) return;
     const branch = expand(w.branch!, yield* forge.issue(run.issue));
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(base.branch, branch));
     const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch, from: base.sha, onto: head }, work);
@@ -1659,7 +1665,6 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const forge = yield* Forge;
     const step = w.steps.find(s => s.name === run.step)!;
     const to = w.steps.find(s => s.name === step.back?.to);
-    yield* store.lock(run.id);
     const made = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.base, undefined, undefined, hub));
     const work = { ...made, head: pull.head };
     const onto = work.base;
@@ -1767,7 +1772,6 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
     const to = w.steps.find(s => s.name === step.back?.to);
     if (!to || !('agent' in to.does))
       return yield* new SessionStop({ reason: 'provider', detail: 'this wait step has no answering session' });
-    yield* store.lock(run.id);
     const agent = hub.agents[to.does.agent]!;
     const kept = run.sessions[to.name];
     const work = yield* Effect.flatMap(Sandbox, s => s.checkout(pull.branch, undefined, undefined, hub));
@@ -1942,83 +1946,97 @@ export const tick = (
         touched.push(next);
       });
     waiting.sort((a, b) => b.run.started.localeCompare(a.run.started));
-    for (const { run, at } of waiting) {
-      const w = hub.workflows[run.workflow];
-      const tells = w ? yield* tellsOf(run) : [];
-      /** A working run takes only a stop here; what else people say reaches it where it works. */
-      const taken = (m: Event, lined: Event[] = []) => {
-        const o = w && reenter(w, run, tells.includes(m) ? m : heardBy(hub, w, m), lined);
-        return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
-      };
-      const answers =
-        w && !young(run.issue)
-          ? [...events, ...tells].filter(m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m))
-          : [];
-      const m = answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
-      if (!w || !m) continue;
-      /** A stop, pass or merge takes only itself, so what else people asked stays for the comment workflow. */
-      const took = taken(m)!.kind === 'answer' ? answers : [m];
-      for (const a of took) used.add(a);
-      const lined = events.filter(
-        l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
-      );
-      const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
-      const seen = {
-        ...(m.kind === 'comment' && (m.comment?.id || m.source === 'cli') ? yield* eyes(run, m) : run),
-        said: heard([m, ...took.filter(a => a !== m)]),
-      };
-      const step = w.steps.find(s => s.name === run.step);
-      const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
-      const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
-        outcome.kind !== 'answer' || !step || !waits(step)
-          ? undefined
-          : yield* (
-              pull
-                ? aside(w, seen, hub, outcome.text, pull)
-                : step.back
-                  ? Effect.succeed({ run: seen, outcome: { kind: 'back', why: outcome.text } as const })
-                  : Effect.fail(
-                      new SessionStop({ reason: 'provider', detail: 'this wait step has no pull request or way back' })
-                    )
-            ).pipe(
-              Effect.catchAll(e =>
-                Effect.gen(function* () {
-                  yield* Effect.logError(`aside of run ${run.id}`, e);
-                  if (!run.retried)
-                    return {
-                      run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const },
-                      again: true,
-                    };
-                  const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
-                  const landed = yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.orElseSucceed(() => []));
-                  yield* store.trace(run.id, ...landed.map(applied => ({ at: now(), step: run.step, applied })));
-                  if (!landed.some(a => a.ok)) return { run: { ...seen, retried: true as const }, again: true };
-                  if (seen.eyes) yield* forge.apply(seen.eyes.issue, seen.eyes.undo).pipe(Effect.ignore);
-                  const { retried: _retried, eyes: _eyes, ...rest } = seen;
-                  return { run: rest, again: false };
-                })
-              )
-            );
-      if (asked?.again) {
-        yield* store.put(asked.run);
-        continue;
-      }
-      const moved = {
-        ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
-        seen: newest(...took.map(a => a.at))!,
-      };
-      const kept =
-        run.status === 'waiting' && run.reason && moved.status !== 'waiting' ? yield* past(run, moved) : moved;
-      const next = kept.status === 'running' ? kept : yield* show(w, kept);
-      yield* record(run, outcome, next);
-    }
-    for (const parent of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id))) {
-      const w = hub.workflows[parent.workflow];
-      const child = all.find(c => c.by === parent.id && parent.reason === waitingOn(c) && c.status !== 'running');
-      if (!w || !child) continue;
-      const outcome: Outcome = { kind: 'answer', text: settled(child) };
-      yield* record(parent, outcome, transition(w, parent, outcome));
-    }
+    for (const waitingRun of waiting)
+      yield* Effect.gen(function* () {
+        if (Either.isLeft(yield* Effect.either(store.lock(waitingRun.run.id)))) return;
+        const run = yield* store.get(waitingRun.run.id);
+        if (!run || !live(run)) return;
+        const at = run.seen ?? run.started;
+
+        const w = hub.workflows[run.workflow];
+        const tells = w ? yield* tellsOf(run) : [];
+        /** A working run takes only a stop here; what else people say reaches it where it works. */
+        const taken = (m: Event, lined: Event[] = []) => {
+          const o = w && reenter(w, run, tells.includes(m) ? m : heardBy(hub, w, m), lined);
+          return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
+        };
+        const answers =
+          w && !young(run.issue)
+            ? [...events, ...tells].filter(m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m))
+            : [];
+        const m =
+          answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];
+        if (!w || !m) return;
+        /** A stop, pass or merge takes only itself, so what else people asked stays for the comment workflow. */
+        const took = taken(m)!.kind === 'answer' ? answers : [m];
+        for (const a of took) used.add(a);
+        const lined = events.filter(
+          l => l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
+        );
+        const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
+        const seen = {
+          ...(m.kind === 'comment' && (m.comment?.id || m.source === 'cli') ? yield* eyes(run, m) : run),
+          said: heard([m, ...took.filter(a => a !== m)]),
+        };
+        const step = w.steps.find(s => s.name === run.step);
+        const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
+        const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
+          outcome.kind !== 'answer' || !step || !waits(step)
+            ? undefined
+            : yield* (
+                pull
+                  ? aside(w, seen, hub, outcome.text, pull)
+                  : step.back
+                    ? Effect.succeed({ run: seen, outcome: { kind: 'back', why: outcome.text } as const })
+                    : Effect.fail(
+                        new SessionStop({
+                          reason: 'provider',
+                          detail: 'this wait step has no pull request or way back',
+                        })
+                      )
+              ).pipe(
+                Effect.catchAll(e =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError(`aside of run ${run.id}`, e);
+                    if (!run.retried)
+                      return {
+                        run: { ...run, ...(seen.eyes && { eyes: seen.eyes }), retried: true as const },
+                        again: true,
+                      };
+                    const body = `Could not answer: ${(e as { _tag?: string })._tag ?? 'Error'}. Reply again to retry.`;
+                    const landed = yield* land(seen, [{ kind: 'comment', body }]).pipe(Effect.orElseSucceed(() => []));
+                    yield* store.trace(run.id, ...landed.map(applied => ({ at: now(), step: run.step, applied })));
+                    if (!landed.some(a => a.ok)) return { run: { ...seen, retried: true as const }, again: true };
+                    if (seen.eyes) yield* forge.apply(seen.eyes.issue, seen.eyes.undo).pipe(Effect.ignore);
+                    const { retried: _retried, eyes: _eyes, ...rest } = seen;
+                    return { run: rest, again: false };
+                  })
+                )
+              );
+        if (asked?.again) {
+          yield* store.put(asked.run);
+          return;
+        }
+        const moved = {
+          ...transition(w, asked?.run ?? seen, asked?.outcome ?? outcome),
+          seen: newest(...took.map(a => a.at))!,
+        };
+        const kept =
+          run.status === 'waiting' && run.reason && moved.status !== 'waiting' ? yield* past(run, moved) : moved;
+        const next = kept.status === 'running' ? kept : yield* show(w, kept);
+        yield* record(run, outcome, next);
+      }).pipe(Effect.scoped);
+    for (const before of runs.filter(r => r.status === 'waiting' && !touched.some(t => t.id === r.id)))
+      yield* Effect.gen(function* () {
+        if (Either.isLeft(yield* Effect.either(store.lock(before.id)))) return;
+        const parent = yield* store.get(before.id);
+        if (!parent || parent.status !== 'waiting') return;
+        const w = hub.workflows[parent.workflow];
+        const child = all.find(c => c.by === parent.id && parent.reason === waitingOn(c) && c.status !== 'running');
+        if (!w || !child) return;
+        const outcome: Outcome = { kind: 'answer', text: settled(child) };
+        yield* record(parent, outcome, transition(w, parent, outcome));
+      }).pipe(Effect.scoped);
 
     const busy = new Set(
       runs
@@ -2051,13 +2069,15 @@ export const tick = (
           ...(m?.kind === 'comment' && { said: heard([m]) }),
           ...(restart !== undefined && last?.answers && { answers: last.answers }),
         };
+        if (Either.isLeft(yield* Effect.either(store.lock(begun.id)))) return;
+        if (yield* store.get(begun.id)) return;
         const first = begun.status === 'running' ? begun : yield* show(w, begun);
         busy.add(`${w.name}#${issue}`);
         yield* store.put(first);
         const run = m ? yield* eyes(first, m) : first;
         if (run !== first) yield* store.put(run);
         touched.push(run);
-      });
+      }).pipe(Effect.scoped);
     for (const m of events) {
       const words = toBot(m)?.split(/\s+/) ?? [];
       const named = triggered.find(w => w.name === words[0]);
@@ -2139,8 +2159,12 @@ export const tick = (
           ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
           feedback: `## What a person said or pushed\n\n${fresh.map(line).join('\n\n')}`,
         };
-        yield* store.put(begun);
-        touched.push(begun);
+        yield* Effect.gen(function* () {
+          if (Either.isLeft(yield* Effect.either(store.lock(begun.id)))) return;
+          if (yield* store.get(begun.id)) return;
+          yield* store.put(begun);
+          touched.push(begun);
+        }).pipe(Effect.scoped);
       }
     }
 
@@ -2151,19 +2175,23 @@ export const tick = (
       yield* follow(w, r, r.base, head).pipe(Effect.catchAll(e => Effect.logError(`follow run ${r.id}`, e)));
     }
 
-    for (const r of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => r.status === 'waiting')) {
-      const w = hub.workflows[r.workflow];
-      const step = w?.steps.find(s => s.name === r.step);
-      const pull = w && issues.find(t => t.number === pullOf(w, r.issue, issues))?.pull;
-      if (!w || !step || !waits(step) || !pull) continue;
-      const caught = yield* catchUp(w, r, hub, pull).pipe(
-        Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
-      );
-      const next = caught?.outcome && transition(w, caught.run, caught.outcome);
-      if (caught?.outcome && next)
-        yield* record(caught.run, caught.outcome, next.status === 'running' ? next : yield* show(w, next));
-      else if (caught) yield* store.put(caught.run);
-    }
+    for (const before of runs.map(r => touched.find(t => t.id === r.id) ?? r).filter(r => r.status === 'waiting'))
+      yield* Effect.gen(function* () {
+        if (Either.isLeft(yield* Effect.either(store.lock(before.id)))) return;
+        const r = yield* store.get(before.id);
+        if (!r || r.status !== 'waiting') return;
+        const w = hub.workflows[r.workflow];
+        const step = w?.steps.find(s => s.name === r.step);
+        const pull = w && issues.find(t => t.number === pullOf(w, r.issue, issues))?.pull;
+        if (!w || !step || !waits(step) || !pull) return;
+        const caught = yield* catchUp(w, r, hub, pull).pipe(
+          Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
+        );
+        const next = caught?.outcome && transition(w, caught.run, caught.outcome);
+        if (caught?.outcome && next)
+          yield* record(caught.run, caught.outcome, next.status === 'running' ? next : yield* show(w, next));
+        else if (caught) yield* store.put(caught.run);
+      }).pipe(Effect.scoped);
 
     const rank = (r: Run) => {
       const labels = issues.find(t => t.number === r.issue)?.labels ?? [];
