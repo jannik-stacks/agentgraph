@@ -163,6 +163,7 @@ describe('bench helpers', () => {
     expect(invalid(red, { applied: false })).toMatch(/does not apply/);
     expect(invalid(red, { ...ok, setup: { ok: false } })).toMatch(/setup fails/);
     expect(invalid(red, { ...ok, typecheck: { ok: false } })).toMatch(/human fails the typecheck/);
+    expect(invalid({ ...red, typecheck: { ok: false } }, { ...ok, typecheck: { ok: false } })).toBeUndefined();
     expect(invalid({ applied: true }, { applied: true, typecheck: { ok: false } })).toMatch(
       /human fails the typecheck/
     );
@@ -665,17 +666,23 @@ describe('plan', () => {
         'tests/benches/benchmark.rs',
       ])
     ).toEqual({
-      setup:
-        'cargo test --no-run --manifest-path clar2wasm/Cargo.toml --test wasm-generation equal:: && cargo test --no-run --manifest-path tests/Cargo.toml --test lib_tests',
-      test: 'cargo test --manifest-path clar2wasm/Cargo.toml --test wasm-generation equal:: && cargo test --manifest-path tests/Cargo.toml --test lib_tests',
+      image: 'agentgraph-sandbox:services',
+      setup: expect.stringMatching(
+        /^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install .* && cargo test --no-run --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: && cargo test --no-run --manifest-path tests\/Cargo.toml --test lib_tests$/
+      ),
+      test: expect.stringMatching(
+        /^export RUSTUP_TOOLCHAIN=.* && cargo test --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/
+      ),
     });
-    expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toBe(
-      'cargo test --manifest-path clar2wasm/Cargo.toml --test oom-checker'
+    expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toMatch(
+      / && cargo test --manifest-path clar2wasm\/Cargo.toml --test oom-checker$/
     );
     expect(
       plan('stacks-network/stacks-core', ['stacks-signer/src/tests/chainstate.rs', 'src/vm/tests/mod.rs', 'src/a.rs'])
         .test
-    ).toBe('cargo test --manifest-path stacks-signer/Cargo.toml --lib tests::chainstate && cargo test --lib vm::tests');
+    ).toMatch(
+      / && cargo test --manifest-path stacks-signer\/Cargo.toml --lib tests::chainstate && cargo test --lib vm::tests$/
+    );
     expect(plan('stacks-network/stacks-core', ['stackslib/src/net/api/mod.rs'])).toEqual({ hasTests: false });
   });
 

@@ -190,6 +190,9 @@ const tokenEnv = [
   ),
   'STACKS_NODE_RPC_HOST=127.0.0.1 STACKS_NODE_RPC_PORT=24440',
 ].join(' ');
+/** Rust 1.79 for a lockfile without time 0.3.35 or later, whose older time releases fail to build on newer Rust. */
+const oldRust =
+  "export RUSTUP_TOOLCHAIN=$(grep -A1 '^name = \"time\"$' Cargo.lock | grep -qE '\"0[.]3[.](3[5-9]|[4-9][0-9])' && echo stable || echo 1.79)";
 const npmCi = 'npm ci --no-audit --no-fund --ignore-scripts';
 /**
  * The package script whose jest config holds each test file: `test:<dir>` for tests/<dir>/, else `test`. tests/2.5
@@ -250,14 +253,21 @@ const tested = (repo: string, tests: string[]): Commands => {
     };
   if (name === 'api-toolkit' && js.length)
     return { setup: npmCi, test: `node_modules/.bin/jest --runInBand --runTestsByPath ${files}` };
-  if (name === 'connect' && js.length) return { setup: npmCi, test: perPackage(js, 2, 'npx vitest run') };
+  if (name === 'connect' && js.length)
+    return { setup: `${npmCi} && npm run build -w @stacks/connect-ui`, test: perPackage(js, 2, 'npx vitest run') };
   if (name === 'workers' && js.length) return { setup: install('10.33.0'), test: perPackage(js, 2, 'npx vitest run') };
   if (name === 'stacks-mesh-api' && js.length)
     return { setup: npmCi, test: perPackage(js, 2, 'NODE_ENV=test node --test --import tsx --test-timeout 300000') };
   if (name === 'clarity-wasm' || name === 'stacks-core') {
     const test = cargoTests(tests);
     const build = test.map(t => t.replace('cargo test', 'cargo test --no-run'));
-    return test.length ? { setup: build.join(' && '), test: test.join(' && ') } : { hasTests: false };
+    return test.length
+      ? {
+          image: services,
+          setup: [oldRust, 'rustup toolchain install $RUSTUP_TOOLCHAIN --profile minimal', ...build].join(' && '),
+          test: [oldRust, ...test].join(' && '),
+        }
+      : { hasTests: false };
   }
   if (name !== 'clarinet') return { hasTests: false };
   const sdk = js.filter(p => p.startsWith('components/clarinet-sdk/'));
@@ -868,7 +878,7 @@ export const invalid = (base: Tests, human: Tests, tested = false) => {
   if (base.hidden.ok) return 'base already passes the hidden tests';
   if (!human.hidden.ok) return 'the human fails the hidden tests';
   if (human.suite?.ok === false) return 'the human fails the suite';
-  if (human.typecheck?.ok === false) return 'the human fails the typecheck';
+  if (human.typecheck?.ok === false && base.typecheck?.ok !== false) return 'the human fails the typecheck';
   return undefined;
 };
 
