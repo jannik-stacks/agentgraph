@@ -39,9 +39,16 @@ describe('example hubs', () => {
 /** Rows of the BOTS table in keys.sh: bot name and the model aliases its key may call. */
 const keyRows = () => {
   const text = readFileSync(join(infra, 'keys.sh'), 'utf8');
+  const variables = new Map([...text.matchAll(/^([A-Z_]+)=([^\s]+)$/gm)].map(m => [m[1]!, m[2]!]));
   const table = /^BOTS=\(\n([\s\S]*?)^\)/m.exec(text)?.[1] ?? '';
   return new Map(
-    [...table.matchAll(/^\s*"(\S+)\s+(\S+)\s+\d+\s+\d+\s+\d+\s*"/gm)].map(m => [m[1]!, m[2]!.split(',')] as const)
+    [...table.matchAll(/^\s*"(\S+)\s+(\S+)\s+\d+\s+\d+\s+\d+\s*"/gm)].map(
+      m =>
+        [
+          m[1]!,
+          m[2]!.replace(/\$([A-Z_]+)/g, (_, name: string) => variables.get(name) ?? `$${name}`).split(','),
+        ] as const
+    )
   );
 };
 
@@ -59,6 +66,8 @@ describe('models and keys', () => {
   it('reads the keys table and the model list', () => {
     expect(rows.size).toBeGreaterThan(0);
     expect(served.size).toBeGreaterThan(0);
+    expect(rows.get('implementor')).toEqual(expect.arrayContaining(['glm', 'muse-flash']));
+    expect([...rows.values()].flat().filter(alias => alias.includes('$'))).toEqual([]);
   });
 
   it.each(hubDirs)('every agent in %s asks for a model alias LiteLLM serves', async dir => {
