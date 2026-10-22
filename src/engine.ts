@@ -502,6 +502,11 @@ export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[
     const owner = runs.find(
       r => hub.workflows[r.workflow] && pullOf(hub.workflows[r.workflow]!, r.issue, open) === issue.number
     );
+    const target = runs
+      .filter(r => live(r) && r.issue === (owner?.issue ?? issue.number) && hub.workflows[r.workflow]?.on.issue_comment)
+      .sort((a, b) => a.started.localeCompare(b.started))
+      .at(-1);
+    if (target) yield* Effect.flatMap(Store, store => store.trace(target.id, { at, step: target.step, spoken: event }));
     return yield* tick(hub, owner?.issue ?? issue.number, true).pipe(
       Effect.provideService(Forge, {
         ...forge,
@@ -1984,10 +1989,21 @@ export const tick = (
     /** 👀 on the comment that woke a run, or on its issue for a label; the run comes back holding it. */
     const eyes = (run: Run, m: Event): Effect.Effect<Run, StoreError> => {
       if (m.source === 'cli')
-        return Effect.as(
-          store.trace(run.id, { at: m.at, step: run.step, spoken: { ...m, issue: origin.get(m) ?? m.issue } }),
-          run
-        );
+        return Effect.gen(function* () {
+          const spoken = { ...m, issue: origin.get(m) ?? m.issue };
+          const before = yield* Stream.runCollect(store.read(run.id));
+          const recorded = Chunk.some(
+            before,
+            t =>
+              'spoken' in t &&
+              t.spoken.source === 'cli' &&
+              t.spoken.at === spoken.at &&
+              t.spoken.issue === spoken.issue &&
+              t.spoken.comment?.body === spoken.comment?.body
+          );
+          if (!recorded) yield* store.trace(run.id, { at: m.at, step: run.step, spoken });
+          return run;
+        });
       if (m.kind !== 'comment' && m.kind !== 'label') return Effect.succeed(run);
       const issue = origin.get(m) ?? m.issue;
       const react: Extract<Proposal, { kind: 'react' }> = {
@@ -2058,6 +2074,26 @@ export const tick = (
 
         const w = hub.workflows[run.workflow];
         const tells = w ? yield* tellsOf(run) : [];
+        const spoken = Chunk.toArray(yield* Stream.runCollect(store.read(run.id))).flatMap(t =>
+          'spoken' in t ? [t.spoken] : []
+        );
+        const pending = spoken
+          .filter(
+            m =>
+              !events.some(
+                e =>
+                  e.source === 'cli' &&
+                  e.at === m.at &&
+                  (origin.get(e) ?? e.issue) === m.issue &&
+                  e.comment?.body === m.comment?.body
+              )
+          )
+          .map(m => {
+            const moved = { ...m, issue: run.issue };
+            origin.set(moved, m.issue);
+            return moved;
+          });
+
         /** A working run takes only a stop here; what else people say reaches it where it works. */
         const taken = (m: Event, lined: Event[] = []) => {
           const o = w && reenter(w, run, tells.includes(m) ? m : heardBy(hub, w, m), lined);
@@ -2065,7 +2101,9 @@ export const tick = (
         };
         const answers =
           w && !young(run.issue)
-            ? [...events, ...tells].filter(m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m))
+            ? [...events, ...pending, ...tells].filter(
+                m => m.issue === run.issue && m.at > at && !used.has(m) && taken(m)
+              )
             : [];
         const m =
           answers.find(m => m.kind === 'merged') ?? answers.find(a => taken(a)!.kind !== 'answer') ?? answers[0];

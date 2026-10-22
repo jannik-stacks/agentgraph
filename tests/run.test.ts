@@ -28,7 +28,7 @@ import {
 } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
-import { drive, gate, settle, sweep, tick } from '../src/engine.ts';
+import { drive, gate, instruct, settle, sweep, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
 import { start as main, temporary } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
@@ -1344,50 +1344,67 @@ describe('a run branch that moved', () => {
 describe('tick', () => {
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
 
-  it('leaves a locked run to its driver when another tick sees stop', async () => {
-    const where = world();
-    const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
-    const kit = { ...small, workflows: { issue: flow } };
-    const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin));
-    const turns = scripted([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
-    let during: Run['status'] | undefined;
-    const session = Layer.effect(
-      Session,
-      Effect.gen(function* () {
-        const f = yield* Forge;
-        const store = yield* Store;
-        const sandbox = yield* Sandbox;
-        const s = yield* Session;
-        let checked = false;
-        return {
-          open: (spec: SessionSpec) =>
-            s.open(spec).pipe(
-              Stream.tap(event => {
-                if (event.type !== 'start' || checked) return Effect.void;
-                checked = true;
-                return Effect.gen(function* () {
-                  where.human('/agent stop', '2026-10-16T00:00:05.000Z');
-                  yield* tick(kit, 7).pipe(
-                    Effect.provideService(Forge, f),
-                    Effect.provideService(Store, store),
-                    Effect.provideService(Sandbox, sandbox),
-                    Effect.provideService(Session, s)
-                  );
-                  during = (yield* store.get('run-7'))?.status;
-                }).pipe(Effect.orDie);
-              })
-            ),
-        };
-      })
-    ).pipe(Layer.provide(Layer.mergeAll(base, turns)));
-    const done = await Effect.runPromise(
-      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
-        Effect.provide(Layer.mergeAll(base, session))
-      )
-    );
-    expect(during).toBe('running');
-    expect(done.status).toBe('stopped');
-  }, 30_000);
+  it.each(['event', 'cli'])(
+    'leaves a locked run to its driver when another tick sees stop: %s',
+    async source => {
+      const where = world();
+      const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
+      const kit = {
+        ...small,
+        workflows: { issue: flow },
+        agents: {
+          ...small.agents,
+          implementor: {
+            ...small.agents.implementor!,
+            returns: [...small.agents.implementor!.returns, 'tell' as const],
+          },
+        },
+      };
+      const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin));
+      const turns = scripted([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+      let during: Run['status'] | undefined;
+      const session = Layer.effect(
+        Session,
+        Effect.gen(function* () {
+          const f = yield* Forge;
+          const store = yield* Store;
+          const sandbox = yield* Sandbox;
+          const s = yield* Session;
+          let checked = false;
+          return {
+            open: (spec: SessionSpec) =>
+              s.open(spec).pipe(
+                Stream.tap(event => {
+                  if (event.type !== 'start' || checked) return Effect.void;
+                  checked = true;
+                  return Effect.gen(function* () {
+                    if (source === 'event') where.human('/agent stop', '2026-10-16T00:00:05.000Z');
+                    const incoming =
+                      source === 'cli' ? instruct(kit, { kind: 'say', issue: 7, text: 'stop' }) : tick(kit, 7);
+                    yield* incoming.pipe(
+                      Effect.provideService(Forge, f),
+                      Effect.provideService(Store, store),
+                      Effect.provideService(Sandbox, sandbox),
+                      Effect.provideService(Session, s)
+                    );
+                    during = (yield* store.get('run-7'))?.status;
+                  }).pipe(Effect.orDie);
+                })
+              ),
+          };
+        })
+      ).pipe(Layer.provide(Layer.mergeAll(base, turns)));
+      const done = await Effect.runPromise(
+        drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
+          Effect.provide(Layer.mergeAll(base, session))
+        )
+      );
+      expect(during).toBe('running');
+      expect(done.status).toBe('stopped');
+      if (source === 'cli') expect(traceOf(where.data, 'run-7').filter(t => 'spoken' in t)).toHaveLength(1);
+    },
+    30_000
+  );
 
   it('begins a run from a trusted command, drives it, and begins again only on a new command', async () => {
     const where = world();
@@ -1606,6 +1623,64 @@ describe('tick', () => {
     expect(bodies(issue).some(body => body.split('\n\n')[0] === 'Answer only')).toBe(true);
     expect(git(where.origin, 'show', 'refs/agentgraph/runs/run-7:pending.txt')).toBe('pending');
     expect(git(where.origin, 'ls-tree', '--name-only', 'agentgraph/7')).not.toContain('pending.txt');
+  }, 30_000);
+
+  it('takes a queued CLI stop after a locked aside finishes', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    say(where, comment(8, 'morgan', true, '/agent why?', '2026-10-16T00:00:05.000Z'));
+    const kit = {
+      ...merging,
+      agents: {
+        ...merging.agents,
+        implementor: {
+          ...merging.agents.implementor!,
+          returns: [...merging.agents.implementor!.returns, 'tell' as const],
+        },
+      },
+    };
+    const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin));
+    const session = Layer.effect(
+      Session,
+      Effect.gen(function* () {
+        const f = yield* Forge;
+        const store = yield* Store;
+        const sandbox = yield* Sandbox;
+        const s = yield* Session;
+        let sent = false;
+        return {
+          open: (spec: SessionSpec) =>
+            s.open(spec).pipe(
+              Stream.tap(event => {
+                if (event.type !== 'start' || sent) return Effect.void;
+                sent = true;
+                return instruct(kit, { kind: 'say', issue: 8, text: 'stop' }).pipe(
+                  Effect.provideService(Forge, f),
+                  Effect.provideService(Store, store),
+                  Effect.provideService(Sandbox, sandbox),
+                  Effect.provideService(Session, s),
+                  Effect.orDie
+                );
+              })
+            ),
+        };
+      })
+    ).pipe(Layer.provide(Layer.mergeAll(base, scripted([[start('f'), reply({ kind: 'comment', body: 'Answer.' })]]))));
+    const final = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* waiting(where);
+        writeFileSync(
+          join(where.forge, '8', 'pull.json'),
+          JSON.stringify({ branch: 'agentgraph/7', base: 'main', head: git(where.origin, 'rev-parse', 'agentgraph/7') })
+        );
+        yield* tick(kit, 7);
+        expect((yield* Effect.flatMap(Store, store => store.get('run-7')))?.status).toBe('waiting');
+        yield* tick(kit, 7);
+        return yield* Effect.flatMap(Store, store => store.get('run-7'));
+      }).pipe(Effect.provide(Layer.mergeAll(base, session)))
+    );
+    expect(final?.status).toBe('stopped');
+    expect(traceOf(where.data, 'run-7').filter(t => 'spoken' in t && t.spoken.issue === 8)).toHaveLength(1);
   }, 30_000);
 
   it('takes an approval that came before a later trace line of the waiting run, such as a rebase', async () => {
