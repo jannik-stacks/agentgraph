@@ -259,6 +259,7 @@ describe('opencode', () => {
         name: 'read',
         ok: true,
         input: { path: 'a.txt', filePath: 'a.txt' },
+        ms: 61,
       }),
       { type: 'usage', input: 1200, output: 20, unpriced: 'smart' },
       { type: 'text', text: 'done' },

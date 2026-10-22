@@ -48,6 +48,7 @@ const OpencodeLine = Struct({
           ...some(Str, 'status', 'output', 'error'),
           ...some(Unknown, 'input'),
           metadata: opt(Struct(some(Unknown, 'exit'))),
+          time: opt(Struct(some(Num, 'start', 'end'))),
         })
       ),
       tokens: opt(Struct({ ...some(Num, 'input', 'output'), cache: opt(Struct(some(Num, 'read', 'write'))) })),
@@ -216,6 +217,7 @@ const opencode: Adapter = {
           ok: state.status === 'completed',
           ...(output !== undefined && { output }),
           ...(typeof state.metadata?.exit === 'number' && { exit: state.metadata.exit }),
+          ...(state.time?.start && state.time.end && { ms: state.time.end - state.time.start }),
           ...(state.status === 'error' && output?.includes(deniedByOpencode) && { denied: true as const }),
         };
         return [...session, tool];

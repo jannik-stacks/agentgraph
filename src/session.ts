@@ -36,6 +36,8 @@ export type SessionEvent =
       ok?: boolean;
       exit?: number;
       denied?: true;
+      /** How long the tool ran, when the harness says. */
+      ms?: number;
     }
   /** `input` counts every input token, cache reads and writes among them. */
   | {
