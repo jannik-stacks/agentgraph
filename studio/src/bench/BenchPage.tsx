@@ -2,7 +2,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { rowsOf } from '../../../bin/bench.ts';
 import { live, queryParam } from '../state.ts';
-import { Button, cx, Loading, Muted, Select, Tooltip } from '../ui.tsx';
+import { Button, cx, Disclosure, Field, Fields, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaults, frontier, presets, type price, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
 
@@ -26,17 +26,57 @@ const tones: Record<string, string> = {
   'claude-sub': 'text-orange-600 dark:text-orange-400',
 };
 const help: Record<keyof typeof defaults, string> = {
-  test: 'Hidden tests pass: 0 or 1',
-  judge: 'Twice the judges’ mean preference over the human, so parity is 1',
-  suite: 'Suite and typecheck both pass',
-  crit: 'Penalty: critical and high findings above the human’s, a third per finding, at most 1',
-  help: 'Penalty: the run asked the human',
+  test: 'Hidden tests score 1 when they pass and 0 when they fail.',
+  judge: 'Twice the judges’ mean preference over the human. A tie scores 1, always preferring the run scores 2.',
+  suite: 'Scores 1 when both the repo’s suite and typecheck pass.',
+  crit: 'Penalty: a third for each critical or high finding above the human’s count on the same case, at most 1.',
+  help: 'Penalty: the full weight when the run stopped to ask one or more questions.',
 };
+const presetHelp: Record<string, string> = {
+  composite: 'The default mix of hidden tests, judges and suite.',
+  'hidden tests only': 'Only hidden tests count.',
+  'judges only': 'Only judges count.',
+};
+const terms: [string, string][] = [
+  ['point', 'One harness and model on one arm, with an engine commit, hub tree and case set. Each dot is a point.'],
+  [
+    'arm',
+    'Who made the change. human is the merged pull request. v2 is the engine with the repo’s hub, where the implementor must pass the case’s tests and a reviewer can send it back once. floor is one plain session in the same sandbox and budget, without checks or review.',
+  ],
+  ['base', 'The repo at the pull request’s parent commit, before any change.'],
+  ['tree', 'The git tree hash of the hub’s files, part of a point’s key. Changing the hub creates a new point.'],
+  [
+    'case',
+    'One merged pull request. It is valid, and kept, only when the human diff applies to base, setup works, the hidden tests fail on base and pass on the human, and the human passes the suite.',
+  ],
+  ['hidden tests', 'The test files the merged pull request added, placed on top of the arm’s change after it ran.'],
+  ['repeats', 'A repeat runs the same case again on the same point. cases counts distinct cases, runs every kept run.'],
+  [
+    'infra',
+    'The environment broke, or the run left an empty diff, failed setup or never finished. These runs say nothing about the agent and are left out unless they count as 0. Every other failure counts against the agent.',
+  ],
+  [
+    'waiting',
+    'A run that stopped to ask a question. The bench answers once with “No more information. Use your judgment.” and asking at all costs the full help penalty.',
+  ],
+  [
+    'quality',
+    'Per run, the weighted mean of the hidden test, judge and suite scores it has, minus penalties for extra critical or high findings and for asking. 0 is nothing useful, 1 is as good as the human.',
+  ],
+  [
+    'judges',
+    'opus and sonnet (Claude) and sol (a GPT model) compare the run’s diff with the human’s in one or both orders, with names, issue numbers and lockfiles removed. A vote for the run scores 1, a tie 0.5, a vote for the human 0.',
+  ],
+  [
+    'chart',
+    'Crosses are 95 percent intervals from a bootstrap over cases, then repeats. The line steps through points no cheaper point matches and shows once each has 10 cases. A dimmed point has a cheaper match; a hollow one is dimmed but its interval still reaches the line.',
+  ],
+];
 
 const parse = (key: string) => {
-  const [, harness = '', model = '', arm = '', engine = '', set = ''] =
-    /^(.+?):(.+?)\/(\w+)@([^/]*)\/[^/]*\/(.*)$/.exec(key) ?? [];
-  return { harness, model, arm, engine, set };
+  const [, harness = '', model = '', arm = '', engine = '', tree = '', set = ''] =
+    /^(.+?):(.+?)\/(\w+)@([^/]*)\/([^/]*)\/(.*)$/.exec(key) ?? [];
+  return { harness, model, arm, engine, tree, set };
 };
 const fmt = (v: number | undefined, digits = 2) => (v === undefined || Number.isNaN(v) ? '' : v.toFixed(digits));
 const usd = (v: number) => `$${v.toFixed(3)}`;
@@ -95,6 +135,13 @@ export const BenchPage = () => {
     const p = parse(key);
     return `${harnesses.size > 1 ? `${p.harness}:${p.model} ` : ''}${p.arm} ${p.set}`;
   };
+  const describe = (key: string) => {
+    const p = parse(key);
+    return [
+      `${p.harness}:${p.model} on ${p.arm}, set ${p.set}`,
+      `engine ${p.engine.slice(0, 10)}${p.tree ? `, hub tree ${p.tree.slice(0, 10)}` : ''}`,
+    ].join('\n');
+  };
   const xLabel = minutes ? 'minutes per task' : `notional USD per task${cache === 'off' ? ', cache off' : ''}, log`;
   const fx = (v: number) => (minutes ? `${v.toFixed(1)} min` : usd(v));
   const tokens = (rs: Row[]) => {
@@ -106,38 +153,61 @@ export const BenchPage = () => {
   const one = points.find(p => p.key === picked);
   const columns: [
     string,
+    string,
     (p: (typeof points)[number]) => number | string,
     (p: (typeof points)[number]) => ReactNode,
   ][] = [
-    ['point', p => label(p.key), p => label(p.key)],
-    ['cases', p => p.n, p => p.n],
-    ['runs', p => p.repeats, p => p.repeats],
-    ['completion', p => p.completion, p => fmt(p.completion)],
-    ['quality', p => p.y, p => `${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`],
-    [minutes ? 'minutes, interval' : 'usd per task', p => p.x, p => `${fx(p.x)} (${ci(p.xCi, fx)})`],
-    ['minutes', p => p.minutes, p => fmt(p.minutes, 1)],
-    ['hidden pass', p => p.hidden ?? -1, p => fmt(p.hidden)],
-    ['vs human', p => p.vsHuman ?? -1, p => fmt(p.vsHuman)],
+    [
+      'point',
+      'The harness and model, when there are several, followed by the arm and case set.',
+      p => label(p.key),
+      p => (
+        <Tooltip tip={describe(p.key)}>
+          <span>{label(p.key)}</span>
+        </Tooltip>
+      ),
+    ],
+    ['cases', 'Distinct cases with at least one kept run.', p => p.n, p => p.n],
+    ['runs', 'All kept runs, including repeats.', p => p.repeats, p => p.repeats],
+    ['completion', 'The share of runs that were not infra.', p => p.completion, p => fmt(p.completion)],
+    ['quality', 'Mean quality and its 95 percent interval.', p => p.y, p => `${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`],
+    [
+      minutes ? 'minutes, interval' : 'usd per task',
+      minutes
+        ? 'Minutes per task and their 95 percent interval.'
+        : 'Notional USD cost per task and its 95 percent interval.',
+      p => p.x,
+      p => `${fx(p.x)} (${ci(p.xCi, fx)})`,
+    ],
+    ['minutes', 'Mean wall time per run, with time the machine slept removed.', p => p.minutes, p => fmt(p.minutes, 1)],
+    ['hidden pass', 'The share of runs that pass the hidden tests.', p => p.hidden ?? -1, p => fmt(p.hidden)],
+    [
+      'vs human',
+      'Average judge preference. 1 means always preferring the run, 0.5 parity with the human, 0 always preferring the human.',
+      p => p.vsHuman ?? -1,
+      p => fmt(p.vsHuman),
+    ],
   ];
   const sorted = points.toSorted((a, b) => {
-    const [va, vb] = [columns[sort.col]![1](a), columns[sort.col]![1](b)];
+    const [va, vb] = [columns[sort.col]![2](a), columns[sort.col]![2](b)];
     return (va < vb ? -1 : va > vb ? 1 : 0) * (sort.down ? -1 : 1);
   });
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       <aside className="shrink-0 space-y-4 overflow-y-auto border-b border-zinc-200 p-4 text-xs md:w-64 md:border-r md:border-b-0 dark:border-zinc-800">
-        <Control label="Weights" tip="Quality per case: the weighted mean of the parts it has, less the penalties">
+        <Control label="Weights" tip="Each run’s quality is the weighted mean of the parts it has, minus penalties.">
           <div className="flex flex-wrap gap-1">
             {Object.entries(presets).map(([name, p]) => (
-              <Button
-                key={name}
-                aria-pressed={names.every(k => p[k] === weights[k])}
-                className="aria-pressed:border-zinc-500 aria-pressed:text-zinc-900 dark:aria-pressed:text-zinc-100"
-                onClick={() => setW(p === defaults ? null : names.map(k => p[k]).join(','))}
-              >
-                {name}
-              </Button>
+              <Tooltip key={name} tip={presetHelp[name]}>
+                <Button
+                  aria-pressed={names.every(k => p[k] === weights[k])}
+                  className="aria-pressed:border-zinc-500 aria-pressed:text-zinc-900 dark:aria-pressed:text-zinc-100"
+                  onClick={() => setW(p === defaults ? null : names.map(k => p[k]).join(','))}
+                >
+                  {name}
+                </Button>
+              </Tooltip>
             ))}
           </div>
           {names.map(k => (
@@ -158,7 +228,10 @@ export const BenchPage = () => {
             </Tooltip>
           ))}
         </Control>
-        <Control label="Axis">
+        <Control
+          label="Axis"
+          tip="Cost prices each run’s tokens at list price, with their own rates for cache reads and writes, or takes the cost the harness reported when there are no tokens. Cache off prices cache reads and writes as plain input. Minutes are wall time, with time the machine slept removed."
+        >
           <Select
             label="x"
             value={minutes ? 'minutes' : cache === 'off' ? 'off' : 'usd'}
@@ -174,7 +247,7 @@ export const BenchPage = () => {
           />
           {!minutes && value.prices.asOf && <p className="text-zinc-500">Prices as of {value.prices.asOf}.</p>}
         </Control>
-        <Control label="Filter">
+        <Control label="Filter" tip="Show only cases from one repo, and choose how infra runs count.">
           <Select
             label="repo"
             value={repo ?? ''}
@@ -184,16 +257,21 @@ export const BenchPage = () => {
             ]}
             onChange={v => setRepo(v || null)}
           />
-          <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
-            <input
-              type="checkbox"
-              checked={infra === 'zero'}
-              onChange={e => setInfra(e.target.checked ? 'zero' : null)}
-            />
-            infra runs count as 0
-          </label>
+          <Tooltip tip="Give infra runs a quality of 0 instead of leaving them out.">
+            <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+              <input
+                type="checkbox"
+                checked={infra === 'zero'}
+                onChange={e => setInfra(e.target.checked ? 'zero' : null)}
+              />
+              infra runs count as 0
+            </label>
+          </Tooltip>
         </Control>
-        <Control label="Judges" tip="Drop a judge to check for self-preference">
+        <Control
+          label="Judges"
+          tip="Untick a judge to remove its votes, for example to check whether it favours its own model family."
+        >
           {judges.map(j => (
             <label key={j} className="flex items-center gap-1.5 font-mono text-zinc-600 dark:text-zinc-400">
               <input
@@ -214,9 +292,16 @@ export const BenchPage = () => {
             log={!minutes}
             xLabel={xLabel}
             yLabel="quality, human = 1"
+            xTip={
+              minutes
+                ? 'Minutes per task, averaged over repeats within each case, then over cases.'
+                : 'Notional USD cost per task on a log scale, averaged over repeats within each case, then over cases.'
+            }
+            yTip="Quality per task, averaged over repeats within each case, then over cases. 0 means nothing useful, 1 means as good as the human."
+            hTip="The human’s quality is 1 by definition."
             hLine={1}
             line={drawn ? onFront : []}
-            note={drawn ? undefined : 'n too small for a frontier'}
+            note={drawn ? undefined : 'no line until each frontier point has 10 cases'}
             picked={picked ?? undefined}
             onPick={key => setPicked(key === picked ? null : key)}
             dots={points.map(p => {
@@ -248,13 +333,28 @@ export const BenchPage = () => {
             })}
           />
           <p className="mt-1 text-[11px] text-zinc-500">
-            Circles are v2, squares the floor. Crosses are 95% intervals over cases and repeats. Dimmed points are
-            dominated; an open one is within noise of the frontier. Click a point for its cases.
+            Circles are v2, squares floor. Click a point to see its runs.
           </p>
+          <Disclosure summary="What the terms mean" className="mt-2 text-[11px] text-zinc-500">
+            <div className="mt-1 max-w-2xl">
+              <Fields>
+                {terms.map(([term, meaning]) => (
+                  <Field key={term} name={<span className="font-mono">{term}</span>}>
+                    {meaning}
+                  </Field>
+                ))}
+              </Fields>
+            </div>
+          </Disclosure>
         </section>
         {one && (
           <section className="max-w-3xl">
-            <h3 className="text-xs font-medium">{label(one.key)}, per case</h3>
+            <Tooltip
+              tip="Each dot is one run. Green means hidden tests passed, red means they failed, and grey means infra or no hidden tests."
+              focusable
+            >
+              <h3 className="text-xs font-medium">{label(one.key)}, per case</h3>
+            </Tooltip>
             <Scatter
               log={!minutes}
               height={200}
@@ -295,16 +395,18 @@ export const BenchPage = () => {
           <table className="w-full max-w-5xl text-left text-xs whitespace-nowrap tabular-nums">
             <thead className="text-zinc-500">
               <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                {columns.map(([name], i) => (
+                {columns.map(([name, tip], i) => (
                   <th key={name} className="py-1 pr-3 font-medium">
-                    <button
-                      type="button"
-                      onClick={() => setSort({ col: i, down: sort.col === i ? !sort.down : true })}
-                      className="transition-colors duration-150 hover:text-zinc-900 dark:hover:text-zinc-100"
-                    >
-                      {name}
-                      {sort.col === i && (sort.down ? ' ↓' : ' ↑')}
-                    </button>
+                    <Tooltip tip={tip} action="Sort by this column">
+                      <button
+                        type="button"
+                        onClick={() => setSort({ col: i, down: sort.col === i ? !sort.down : true })}
+                        className="transition-colors duration-150 hover:text-zinc-900 dark:hover:text-zinc-100"
+                      >
+                        {name}
+                        {sort.col === i && (sort.down ? ' ↓' : ' ↑')}
+                      </button>
+                    </Tooltip>
                   </th>
                 ))}
               </tr>
@@ -319,7 +421,7 @@ export const BenchPage = () => {
                     p.key === picked && 'bg-zinc-100 dark:bg-zinc-800'
                   )}
                 >
-                  {columns.map(([name, , show]) => (
+                  {columns.map(([name, , , show]) => (
                     <td key={name} className={cx('py-1 pr-3', name === 'point' && 'font-mono')}>
                       {show(p)}
                     </td>
