@@ -5,7 +5,7 @@ import { basename, dirname, join } from 'node:path';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
 import type { Hub } from './hub.ts';
-import { drop, envOf, type Seed, seed, sweep } from './env.ts';
+import { dependencyDirs, drop, envOf, mark, reap, room, type Seed, seed, sweep } from './env.ts';
 import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
@@ -194,7 +194,8 @@ const timeout = (c: Command) => () =>
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
  * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
  * the volume `cache`, `bothub-cache` by default. A checkout for a hub starts from the hub's Env at its base, built once
- * with the toolchain and setup; an empty cache name turns the volume and Envs off.
+ * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
+ * name turns the volume and Envs off.
  */
 export const docker = (o: {
   data: string;
@@ -211,6 +212,9 @@ export const docker = (o: {
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
       if (cache) yield* Effect.promise(() => sweep(30_000).catch(() => 0));
+      reap(o.data);
+      const disk = { dir: o.data, ...(cache && { image, volume: cache }) };
+      const roomy = Effect.tryPromise({ try: () => room(disk), catch: e => infra((e as Error).message) });
       /** Each live checkout as the host made it. */
       const made = new Map<string, Made>();
       const inMirror = (args: string[], env: Record<string, string> = {}) =>
@@ -226,6 +230,7 @@ export const docker = (o: {
 
       const prepare = (c: Command) =>
         Effect.gen(function* () {
+          yield* roomy;
           const box = made.get(c.dir) ?? { mounts: [] };
           if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
           const name = `bothub-${randomBytes(6).toString('hex')}`;
@@ -313,6 +318,7 @@ export const docker = (o: {
           if (!rev) return yield* infra(`no commit for ${ref}`);
           const onto = (yield* verify(ref)) || (yield* verify(`refs/heads/${ref}`));
           const base = onto ? yield* inMirror(['merge-base', rev, onto]).pipe(Effect.orElseSucceed(() => rev)) : rev;
+          yield* roomy;
           const setup = hub?.setup?.includes('BOTHUB_HUB') ? undefined : hub?.setup;
           const env =
             hub && cache
@@ -354,6 +360,7 @@ export const docker = (o: {
           let admin = '';
           let seeds: Seed[] = [];
           const add = Effect.gen(function* () {
+            yield* Effect.try({ try: () => mark(dir), catch: e => infra((e as Error).message) });
             yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
             admin = yield* Effect.tryPromise({
               try: async () => {
@@ -366,9 +373,10 @@ export const docker = (o: {
               catch: e => infra((e as Error).message),
             });
             if (saved) yield* inWork(['read-tree', '-u', '--reset', saved]);
-            if (env)
+            if (hub && cache)
               seeds = yield* Effect.tryPromise({
-                try: () => seed(env, id, dir),
+                try: async () =>
+                  seed(env ?? { image: hub.image ?? image, outputs: [] }, id, dir, await dependencyDirs(mirror, rev)),
                 catch: e => infra((e as Error).message),
               });
             const own = env?.image ?? hub?.image;
@@ -386,7 +394,9 @@ export const docker = (o: {
           const remove = Effect.promise(() => {
             made.delete(dir);
             return Promise.all([
-              ...[dir, index, news, admin].filter(Boolean).map(p => rm(p, { recursive: true, force: true })),
+              ...[dir, `${dir}.owner`, index, news, admin]
+                .filter(Boolean)
+                .map(p => rm(p, { recursive: true, force: true })),
               drop(seeds),
             ]);
           });

@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /**
  * A repo's environment at one base: an image holding the base files plus what the toolchain step and setup made of
@@ -80,14 +80,53 @@ const build = [
 const section = (out: string, name: string) =>
   (out.split(`@@${name}\n`)[1] ?? '').split(/\n@@/)[0]!.split('\n').filter(Boolean);
 
-const used = () => join(homedir(), '.cache', 'bothub', 'envs');
-const touch = (key: string) => {
+/** Where runners keep what must outlive them: Env last-use stamps and owner heartbeats. */
+const state = () => process.env.BOTHUB_STATE || join(homedir(), '.cache', 'bothub');
+const used = () => join(state(), 'envs');
+const owners = () => join(state(), 'owners');
+const stamp = (file: string) => {
   try {
-    mkdirSync(used(), { recursive: true });
-    const file = join(used(), key);
+    mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, '', { flag: 'a' });
     utimesSync(file, new Date(), new Date());
   } catch {}
+};
+const touch = (key: string) => stamp(join(used(), key));
+
+export const ownerId = () => randomBytes(6).toString('hex');
+
+/** This process as an owner of volumes and checkouts; pids repeat across container restarts, so it is random. */
+const self = ownerId();
+let beating: NodeJS.Timeout | undefined;
+
+/** Marks this process alive for other runners' sweeps, every 30 s while it runs; answers its `pid:owner` label. */
+export const beat = () => {
+  stamp(join(owners(), self));
+  if (!beating) (beating = setInterval(() => stamp(join(owners(), self)), 30_000)).unref();
+  return `${process.pid}:${self}`;
+};
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+};
+
+/**
+ * Whether the `pid:owner` label's process still runs: its heartbeat is under two minutes old, or, when this runner
+ * cannot see that heartbeat, its pid lives.
+ */
+export const live = (label: string) => {
+  const [pid, owner = ''] = label.split(':');
+  if (owner === self) return true;
+  try {
+    return Date.now() - statSync(join(owners(), owner || '-')).mtimeMs < 120_000;
+  } catch {
+    return Boolean(Number(pid)) && alive(Number(pid));
+  }
 };
 
 const tagOf = (repo: string, key: string) =>
@@ -221,39 +260,61 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
   return made;
 };
 
-/** A seed: a named volume that holds a copy of the Env's output at `dst`. */
+/** A seed: a named volume at `dst`, holding a copy of the Env's output there or starting empty. */
 export type Seed = { name: string; dst: string };
 
 /** Dependency directories, which setup fills and rarely deletes, so a volume can sit at their path. */
 const deps = /(^|\/)(node_modules|target)$/;
 
+/**
+ * Where setup may put dependencies at `base`: `node_modules` beside each `package.json` and `target` beside each
+ * outermost `Cargo.toml`, the shallowest `limit` of them.
+ */
+export const dependencyDirs = (git: string, base: string, limit = 64) =>
+  new Promise<string[]>((done, fail) =>
+    execFile('git', ['--git-dir', git, 'ls-tree', '-r', '--name-only', base], { maxBuffer: 256 << 20 }, (e, out) => {
+      if (e) return fail(e);
+      const files = out.split('\n').filter(p => p && !/(^|\/)node_modules\//.test(p));
+      const dirsOf = (name: string) =>
+        files.filter(p => p === name || p.endsWith(`/${name}`)).map(p => p.slice(0, -name.length));
+      const crates = dirsOf('Cargo.toml');
+      const found = [
+        ...dirsOf('package.json').map(d => `${d}node_modules`),
+        ...crates.filter(d => !crates.some(o => o !== d && d.startsWith(o))).map(d => `${d}target`),
+      ];
+      done(found.sort((a, b) => a.split('/').length - b.split('/').length).slice(0, limit));
+    })
+  );
+
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
- * Copies the Env's outputs for the checkout at `dir`: dependency directories into fresh volumes for `owner`,
- * labelled with this process so a sweep finds the ones a dead process left, and the rest into `dir`, where a build
- * may delete and remake them.
+ * Volumes for the checkout at `dir` at every dependency directory, so setup never writes one into the checkout: a
+ * copy of the Env's output where it made one, else empty. `more` names directories beyond the Env's outputs. Each
+ * volume carries this process as its owner, so a sweep finds the ones a dead runner left. The Env's other outputs are
+ * copied into `dir`, where a build may delete and remake them. `from.image` runs the copy.
  */
-export const seed = async (env: Env, owner: string, dir: string): Promise<Seed[]> => {
-  const seeds = env.outputs
-    .filter(o => deps.test(o))
-    .map((o, i) => ({ name: `bothub-seed-${owner}-${i}`, dst: `/work/${o}` }));
-  const rest = env.outputs.filter(o => !deps.test(o));
-  if (!env.outputs.length) return seeds;
+export const seed = async (
+  from: Pick<Env, 'image' | 'outputs'>,
+  owner: string,
+  dir: string,
+  more: string[] = []
+): Promise<Seed[]> => {
+  const made = from.outputs.filter(o => deps.test(o));
+  const paths = [...new Set([...made, ...more])];
+  const seeds = paths.map((o, i) => ({ name: `bothub-seed-${owner}-${i}`, dst: `/work/${o}` }));
+  const rest = from.outputs.filter(o => !deps.test(o));
+  if (!seeds.length && !rest.length) return [];
   for (const s of seeds)
-    await docker([
-      'volume',
-      'create',
-      '--label',
-      `bothub.seed=${process.pid}`,
-      '--label',
-      `bothub.owner=${owner}`,
-      s.name,
-    ]);
+    await docker(['volume', 'create', '--label', `bothub.seed=${beat()}`, '--label', `bothub.owner=${owner}`, s.name]);
   const [uid, gid] = user();
   const script = [
     'set -e',
-    ...seeds.map((s, i) => `cp -a ${quote(`${s.dst}/.`)} /seed/${i}/ && chown ${uid}:${gid} /seed/${i}`),
+    ...seeds.map((s, i) =>
+      i < made.length
+        ? `cp -a ${quote(`${s.dst}/.`)} /seed/${i}/ && chown ${uid}:${gid} /seed/${i}`
+        : `chown ${uid}:${gid} /seed/${i}`
+    ),
     ...rest.map(o => {
       const parent = quote(`/dst/${o.split('/').slice(0, -1).join('/')}`);
       return `mkdir -p ${parent} && cp -a ${quote(`/work/${o}`)} ${parent}/`;
@@ -279,7 +340,7 @@ export const seed = async (env: Env, owner: string, dir: string): Promise<Seed[]
         '--mount',
         `type=bind,src=${dir},dst=/dst`,
         ...seeds.flatMap((s, i) => ['--mount', `type=volume,src=${s.name},dst=/seed/${i},volume-nocopy`]),
-        env.image,
+        from.image,
         'sh',
         '-c',
         script,
@@ -301,17 +362,35 @@ export const drop = (seeds: Seed[], timeout?: number) =>
       )
     : Promise.resolve();
 
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
-  }
+/** Marks the checkout `dir` as this process's, so a sweep in another runner leaves it alone while this one lives. */
+export const mark = (dir: string) => {
+  mkdirSync(dirname(dir), { recursive: true });
+  writeFileSync(`${dir}.owner`, beat());
 };
 
-/** Removes seeds whose process is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
+/** Removes the checkouts under `data` whose owner is gone, with their index and news dirs. */
+export const reap = (data: string) => {
+  const work = join(data, 'work');
+  let ids: string[] = [];
+  try {
+    ids = readdirSync(work).filter(n => !n.endsWith('.owner'));
+  } catch {}
+  const gone = ids.filter(id => {
+    try {
+      return !live(readFileSync(join(work, `${id}.owner`), 'utf8').trim());
+    } catch {
+      return true;
+    }
+  });
+  for (const id of gone)
+    for (const p of [join(work, id), join(work, `${id}.owner`), join(data, 'index', id), join(data, 'news', id)])
+      rmSync(p, { recursive: true, force: true });
+  return gone.length;
+};
+
+/** Removes seeds whose owner is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
 export const sweep = async (timeout = 600_000) => {
+  beat();
   const out = await docker(
     ['volume', 'ls', '--filter', 'label=bothub.seed', '--format', '{{.Name}} {{.Label "bothub.seed"}}'],
     timeout
@@ -319,13 +398,20 @@ export const sweep = async (timeout = 600_000) => {
   const dead = out
     .split('\n')
     .map(l => l.split(' '))
-    .filter(([name, pid]) => name && Number(pid) && !alive(Number(pid)))
+    .filter(([name, owner]) => name && owner && !live(owner))
     .map(([name]) => ({ name: name!, dst: '' }));
   await drop(dead, timeout);
   return dead.length;
 };
 
-/** Env images with the time each was last used, the oldest first. */
+/** Bytes of a size like `60g`, `1.2GB` or `512MB`, in powers of 1000 as docker prints them. */
+export const bytes = (size: string) => {
+  const m = /^([\d.]+)\s*([kmgt]?)b?$/i.exec(size.trim());
+  if (!m) throw new Error(`not a size: ${size}`);
+  return Number(m[1]) * 1000 ** ' kmgt'.indexOf(m[2]!.toLowerCase() || ' ');
+};
+
+/** Env images with their size in bytes and the time each was last used, the oldest first. */
 export const envs = async () => {
   const out = await docker([
     'image',
@@ -344,25 +430,91 @@ export const envs = async () => {
     .filter(Boolean)
     .map(l => {
       const [image = '', size = ''] = l.split(' ');
-      return { image, size, used: times.get(image.split(':')[1] ?? '') ?? 0 };
+      return { image, size, bytes: bytes(size), used: times.get(image.split(':')[1] ?? '') ?? 0 };
     })
     .sort((a, b) => a.used - b.used);
 };
 
-/** Removes Env images unused for `days`; docker keeps any a container still uses. */
-export const prune = async (days: number, dry = false) => {
-  const old = (await envs()).filter(e => e.used < Date.now() - days * 86_400_000);
+const cap = () => bytes(process.env.BOTHUB_ENV_CAP || '60g');
+
+/** Removes the least recently used Env images until they fit in `limit` bytes, never one a running container uses. */
+export const evict = async (limit = cap(), dry = false) => {
+  const all = await envs();
+  const running = new Set((await docker(['ps', '--format', '{{.Image}}']).catch(() => '')).split('\n').filter(Boolean));
+  let total = all.reduce((sum, e) => sum + e.bytes, 0);
   const removed: string[] = [];
-  for (const e of old)
+  for (const e of all) {
+    if (total <= limit) break;
+    if (running.has(e.image)) continue;
     if (
       dry ||
       (await docker(['rmi', e.image]).then(
         () => true,
         () => false
       ))
-    )
+    ) {
       removed.push(e.image);
+      total -= e.bytes;
+    }
+  }
   return removed;
 };
 
-export const ownerId = () => randomBytes(6).toString('hex');
+/** Where room() measures: the data dir on this host, and through `volume` and `image`, the disk docker writes to. */
+export type Disk = { dir: string; image?: string; volume?: string };
+
+const inDocker = new Map<string, { at: number; free: Promise<number> }>();
+
+/** Free bytes of the docker disk holding `volume`, measured at most once a minute. */
+const dockerFree = (image: string, volume: string) => {
+  const key = `${image} ${volume}`;
+  const hit = inDocker.get(key);
+  if (hit && Date.now() - hit.at < 60_000) return hit.free;
+  const free = docker(
+    [
+      'run',
+      '--rm',
+      '--pull',
+      'never',
+      '--network',
+      'none',
+      '--read-only',
+      '--cap-drop=ALL',
+      '--mount',
+      `type=volume,src=${volume},dst=/disk,readonly`,
+      image,
+      'df',
+      '-Pk',
+      '/disk',
+    ],
+    60_000
+  ).then(
+    out => Number(out.split('\n').at(-1)?.trim().split(/\s+/)[3] ?? NaN) * 1024 || Infinity,
+    () => Infinity
+  );
+  inDocker.set(key, { at: Date.now(), free });
+  return free;
+};
+
+/** Free gigabytes where `disk` writes, the smaller of the host dir and the docker disk. */
+const freeGb = async ({ dir, image, volume }: Disk) => {
+  let host = Infinity;
+  try {
+    const s = statfsSync(dir);
+    host = s.bavail * s.bsize;
+  } catch {}
+  return Math.min(host, image && volume ? await dockerFree(image, volume) : Infinity) / 1e9;
+};
+
+/**
+ * Makes sure `disk` has `BOTHUB_MIN_FREE_GB` (40) free: below it, sweeps and evicts Envs past `BOTHUB_ENV_CAP`, then
+ * throws `disk low` if that was not enough.
+ */
+export const room = async (disk: Disk, min = Number(process.env.BOTHUB_MIN_FREE_GB || 40)) => {
+  if ((await freeGb(disk)) >= min) return;
+  inDocker.clear();
+  await sweep(60_000);
+  await evict();
+  const gb = await freeGb(disk);
+  if (gb < min) throw new Error(`disk low: ${gb.toFixed(1)} GB free, BOTHUB_MIN_FREE_GB is ${min}`);
+};

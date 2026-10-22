@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
-import { sweep, toolchainOf } from '../src/env.ts';
+import { beat, bytes, dependencyDirs, evict, live, mark, reap, room, seed, sweep, toolchainOf } from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -205,16 +205,17 @@ describe('docker with a stand-in docker client', () => {
       Effect.gen(function* () {
         const hub = { toolchain: 'rustup target add wasm32-unknown-unknown' };
         const work = yield* s.checkout('main', undefined, undefined, hub);
-        const args = logged();
         yield* s.checkout('main', undefined, undefined, hub);
         yield* s.checkout('main');
-        return { args, base: work.base };
+        return work.base;
       })
     );
-    const { args, base } = Exit.isSuccess(exit) ? exit.value : { args: [], base: '' };
-    expect(args[args.indexOf('--network') + 1]).toBe('bridge');
-    const text = args.join('\n');
-    expect(args).toContain(base);
+    const base = Exit.isSuccess(exit) ? exit.value : '';
+    const all = readFileSync(`${log}.all`, 'utf8');
+    const text = all.slice(all.lastIndexOf('bothub.envbuild'));
+    expect(text).toContain('--network bridge');
+    expect(text).toContain(base);
+    expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/volume create .* bothub-seed-\w+-0\n/);
     expect(text).toContain('archive "$2" | tar -x -C /work');
     expect(text.indexOf('flock 9')).toBeLessThan(text.indexOf('sh -ec "$3"'));
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
@@ -529,6 +530,104 @@ describe.runIf(process.env.BOTHUB_LIVE === '1')('opencode for real', () => {
     expect(second.at(-1)).toMatchObject({ type: 'end', ended: 'stop', exit: 0 });
     if (process.env.BOTHUB_LIVE_OUT) writeFileSync(`${process.env.BOTHUB_LIVE_OUT}.2`, JSON.stringify(second, null, 1));
   }, 600_000);
+});
+
+/** Runs `f` with a fake `docker` that logs its arguments and prints `out` for a matching `$1 $2`, and its own state. */
+const faked = async <A>(out: Record<string, string>, f: (log: () => string) => Promise<A>) => {
+  const bin = tmp('bin');
+  const log = join(bin, 'log');
+  const cases = Object.entries(out)
+    .map(([k, v]) => `  "${k}") printf '${v}' ;;`)
+    .join('\n');
+  writeFileSync(join(bin, 'docker'), `#!/bin/sh\necho "$*" >> ${log}\ncase "$1 $2" in\n${cases}\nesac\n`);
+  chmodSync(join(bin, 'docker'), 0o755);
+  const saved = { PATH: process.env.PATH, BOTHUB_STATE: process.env.BOTHUB_STATE };
+  process.env.PATH = `${bin}${delimiter}${saved.PATH}`;
+  process.env.BOTHUB_STATE = tmp('state');
+  try {
+    return await f(() => (existsSync(log) ? readFileSync(log, 'utf8') : ''));
+  } finally {
+    Object.assign(process.env, saved);
+    if (saved.BOTHUB_STATE === undefined) delete process.env.BOTHUB_STATE;
+  }
+};
+
+const put = (dir: string, file: string) => {
+  mkdirSync(join(dir, file, '..'), { recursive: true });
+  writeFileSync(join(dir, file), '');
+};
+
+describe('disk lifecycle', () => {
+  it('finds node_modules beside each package.json and target beside the outermost Cargo.toml', async () => {
+    const dir = tmp('deps');
+    for (const f of ['package.json', 'packages/a/package.json', 'vendor/node_modules/x/package.json', 'Cargo.toml'])
+      put(dir, f);
+    put(dir, 'crates/b/Cargo.toml');
+    git(dir, 'init', '-q', '-b', 'main');
+    git(dir, 'add', '-f', '.');
+    git(dir, 'commit', '-q', '-m', 'base');
+    expect(await dependencyDirs(join(dir, '.git'), 'main')).toEqual([
+      'node_modules',
+      'target',
+      'packages/a/node_modules',
+    ]);
+  });
+
+  it('seeds copies where the Env made a dependency dir and empty volumes elsewhere', async () => {
+    await faked({}, async log => {
+      const seeds = await seed({ image: 'img', outputs: ['node_modules', 'dist'] }, 'own', tmp('work'), [
+        'node_modules',
+        'packages/a/node_modules',
+      ]);
+      expect(seeds.map(s => s.dst)).toEqual(['/work/node_modules', '/work/packages/a/node_modules']);
+      expect(log()).toMatch(
+        /volume create --label bothub\.seed=\d+:[0-9a-f]{12} --label bothub\.owner=own bothub-seed-own-1/
+      );
+      expect(log()).toContain(`cp -a '/work/node_modules/.' /seed/0/`);
+      expect(log()).not.toContain('/seed/1/');
+      expect(log()).toContain(`cp -a '/work/dist' '/dst/'/`);
+    });
+  });
+
+  it('evicts the least recently used Envs past the cap and keeps one a container runs', async () => {
+    await faked(
+      {
+        'image ls': 'bothub-env/r:old 30GB\\nbothub-env/r:mid 30GB\\nbothub-env/r:new 30GB\\n',
+        'ps --format': 'bothub-env/r:mid\\n',
+      },
+      async log => {
+        const envs = join(process.env.BOTHUB_STATE!, 'envs');
+        mkdirSync(envs, { recursive: true });
+        ['old', 'mid', 'new'].forEach((key, i) => {
+          writeFileSync(join(envs, key), '');
+          utimesSync(join(envs, key), 1000 + i, 1000 + i);
+        });
+        expect(await evict(bytes('70g'), true)).toEqual(['bothub-env/r:old']);
+        expect(await evict(bytes('50g'))).toEqual(['bothub-env/r:old', 'bothub-env/r:new']);
+        expect(log()).toContain('rmi bothub-env/r:new');
+        expect(log()).not.toContain('rmi bothub-env/r:mid');
+      }
+    );
+  });
+
+  it('throws disk low when sweeping and evicting leave too little free', async () => {
+    await faked({}, async () => {
+      await expect(room({ dir: tmp('disk') }, 0)).resolves.toBeUndefined();
+      await expect(room({ dir: tmp('disk') }, 1e9)).rejects.toThrow(/disk low/);
+    });
+  });
+
+  it('reaps checkouts whose owner is gone and keeps live ones', async () => {
+    await faked({}, async () => {
+      const data = tmp('data');
+      for (const id of ['mine', 'none', 'gone']) mkdirSync(join(data, 'work', id, 'node_modules'), { recursive: true });
+      mark(join(data, 'work', 'mine'));
+      writeFileSync(join(data, 'work', 'gone.owner'), `${spawnSync('true').pid}:0123456789ab`);
+      expect(reap(data)).toBe(2);
+      expect(readdirSync(join(data, 'work')).sort()).toEqual(['mine', 'mine.owner']);
+      expect(live(beat())).toBe(true);
+    });
+  });
 });
 
 describe('sweep', () => {

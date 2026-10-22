@@ -15,7 +15,7 @@ import { basename, join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
-import { drop, envOf, manifest, ownerId, seed } from '../src/env.ts';
+import { dependencyDirs, drop, envOf, manifest, ownerId, room, seed } from '../src/env.ts';
 import {
   append,
   attic,
@@ -423,7 +423,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     const failed = () =>
       lines(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
     for (let attempt = 0, empty = 0; ; attempt++) {
-      await settle(log);
+      await settle(log, false, net => down(net, { dir: out, ...(cache && { image, volume: cache }) }));
       aside();
       guard(out, false);
       const started = Date.now();
@@ -541,7 +541,7 @@ export const failureClass = (tail: string) => (coupled.test(tail) ? 'coupled' : 
  */
 const check = async (c: Case & Commands, tree: string, diff: string, hidden: string[], repo: string) => {
   sh('git', ['-C', tree, 'checkout', '-q', '-f', c.base]);
-  sh('git', ['-C', tree, 'clean', '-qfdx', '-e', 'target']);
+  sh('git', ['-C', tree, 'clean', '-qfdx']);
   if (
     diff &&
     spawnSync('git', ['-C', tree, 'apply', '--whitespace=nowarn', '-'], {
@@ -554,10 +554,13 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const found = spawnSync('docker', ['image', 'inspect', start], { encoding: 'utf8' });
   if (found.status !== 0)
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
+  if (cache) await room({ dir: tree, image: start, volume: cache });
   const env = cache
     ? await envOf({ repo: c.repo, image: start, git, base: c.base, cache, ...(c.setup && { setup: c.setup }) })
     : undefined;
-  const seeds = env ? await seed(env, ownerId(), tree) : [];
+  const seeds = cache
+    ? await seed(env ?? { image: start, outputs: [] }, ownerId(), tree, await dependencyDirs(git, c.base))
+    : [];
   const box = { mounts: [{ src: git, dst: git, readonly: true }], seeds };
   const from = env?.image ?? start;
   try {
@@ -621,18 +624,32 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
   const human = files(merged).map(f => f.path);
   const hidden = human.filter(p => testPath.test(p) && !noise.test(p));
   const tree = join(root, 'tree');
-  if (!existsSync(tree)) sh('git', ['clone', '-q', '--shared', '--no-checkout', resolve(repo), tree]);
-  for (const arm of which) {
-    const at = join(root, arm);
-    if (!existsSync(join(at, 'diff.patch')) || existsSync(join(at, 'score.json'))) continue;
-    const diff = read(join(at, 'diff.patch'));
-    const meta = JSON.parse(read(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
-    const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
-      (c.test || c.suite) && c.hasTests !== false ? check(c, tree, diff, hidden, resolve(repo)) : {}
-    );
-    const offline = (tests as Tests).setup?.ok === false && (await down(true));
-    if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
-    save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...usage(at), ...meta });
+  while (!claim(tree)) await sleep(5000);
+  try {
+    if (!existsSync(tree)) sh('git', ['clone', '-q', '--shared', '--no-checkout', resolve(repo), tree]);
+    for (const arm of which) {
+      const at = join(root, arm);
+      if (!existsSync(join(at, 'diff.patch')) || existsSync(join(at, 'score.json'))) continue;
+      const diff = read(join(at, 'diff.patch'));
+      const meta = JSON.parse(read(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
+      const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
+        (c.test || c.suite) && c.hasTests !== false ? check(c, tree, diff, hidden, resolve(repo)) : {}
+      );
+      const offline = (tests as Tests).setup?.ok === false && (await down(true));
+      if (offline) throw new Error(`infra: setup failed while ${offline}, ${c.id}/${arm} stays unscored`);
+      save(join(at, 'score.json'), { ...tests, ...stats(diff, human), ...usage(at), ...meta });
+    }
+  } finally {
+    rmSync(tree, { recursive: true, force: true });
+    release(tree);
+  }
+};
+
+/** Removes the scoring trees under `out` that no live process holds. */
+const reapTrees = (out: string) => {
+  for (const id of existsSync(out) ? readdirSync(out) : []) {
+    const tree = join(out, id, 'tree');
+    if (existsSync(tree) && !busy(tree)) rmSync(tree, { recursive: true, force: true });
   }
 };
 
@@ -1289,6 +1306,7 @@ if (import.meta.main) {
     : {};
   for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
   engine = process.env.BENCH_ENGINE ?? engine;
+  if (out && command !== 'judge') reapTrees(resolve(out));
   const point = env.point ?? values.point ?? process.env.BENCH_POINT;
   if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);

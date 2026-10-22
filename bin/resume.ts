@@ -21,6 +21,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { type Disk, room } from '../src/env.ts';
 
 const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
 
@@ -61,9 +62,13 @@ export const jsonl = <T = Record<string, unknown>>(path: string): T[] =>
     }
   });
 
-/** Moves `path` into `.attic/` beside it, never deleting it; answers where it went. */
+/**
+ * Moves `path` into `.attic/` beside it, keeping its records; answers where it went. Its checkouts and scoring tree
+ * are deleted first, since a rerun makes them again.
+ */
 export const attic = (path: string) => {
   if (!existsSync(path)) return undefined;
+  for (const copy of ['data/work', 'tree']) rmSync(join(path, copy), { recursive: true, force: true });
   const stamp = join(dirname(path), '.attic', `${basename(path)}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   let to = stamp;
   for (let n = 2; existsSync(to); n++) to = `${stamp}-${n}`;
@@ -154,8 +159,11 @@ export const probeUrl = (proxy = process.env.BOTHUB_PROXY_URL ?? 'http://litellm
   return process.env.BENCH_PROXY_PROBE ?? url.href;
 };
 
-/** Why runs cannot work now, when they cannot: the proxy, docker or, with `net`, the package registry is out. */
-export const down = async (net = false): Promise<string | undefined> => {
+/**
+ * Why runs cannot work now, when they cannot: the proxy, docker or, with `net`, the package registry is out, or
+ * `disk` stays low after a sweep.
+ */
+export const down = async (net = false, disk?: Disk): Promise<string | undefined> => {
   const reach = (url: string) =>
     fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(10_000) }).then(
       r => r.status < 500,
@@ -165,6 +173,11 @@ export const down = async (net = false): Promise<string | undefined> => {
   if (spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { timeout: 30_000 }).status !== 0)
     return 'docker unreachable';
   if (net && !(await reach('https://registry.npmjs.org/'))) return 'network unreachable';
+  if (disk)
+    return room(disk).then(
+      () => undefined,
+      (e: Error) => e.message
+    );
   return undefined;
 };
 
