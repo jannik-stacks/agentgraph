@@ -691,7 +691,8 @@ describe('plan', () => {
       plan('acme/stacks-blockchain-api', ['src/tests/tx-tests.ts', 'tests/api/a.test.ts', 'tests/utils/b.ts'])
     ).toEqual({
       image: 'agentgraph-sandbox:services',
-      setup: 'npm ci --no-audit --no-fund --ignore-scripts',
+      setup:
+        'npm ci --no-audit --no-fund --ignore-scripts && if [ -f client/package-lock.json ]; then (cd client && npm ci --no-audit --no-fund --ignore-scripts); fi',
       test: "services && npm run test -- --coverage=false --runTestsByPath 'src/tests/tx-tests.ts' && npm run test:api -- --coverage=false --runTestsByPath 'tests/api/a.test.ts'",
     });
     expect(plan('acme/stacks-blockchain-api', ['tests/utils/b.ts', 'tests/2.5/c.test.ts'])).toEqual({

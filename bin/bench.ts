@@ -196,7 +196,8 @@ const oldRust =
 const npmCi = 'npm ci --no-audit --no-fund --ignore-scripts';
 /**
  * The package script whose jest config holds each test file: `test:<dir>` for tests/<dir>/, else `test`. tests/2.5
- * needs a stacks node and bitcoind, which the sandbox lacks.
+ * needs a stacks node and bitcoind, which the sandbox lacks. Newer bases test against a client package with its own
+ * lockfile.
  */
 const blockchainApi = (tests: string[]): Commands => {
   const files = tests.filter(p => /^(src\/)?tests\/.+(\.test|-tests)\.ts$/.test(p) && !p.startsWith('tests/2.5/'));
@@ -209,7 +210,11 @@ const blockchainApi = (tests: string[]): Commands => {
         .join(' ')}`
   );
   return runs.length
-    ? { image: services, setup: npmCi, test: ['services', ...runs].join(' && ') }
+    ? {
+        image: services,
+        setup: `${npmCi} && if [ -f client/package-lock.json ]; then (cd client && ${npmCi}); fi`,
+        test: ['services', ...runs].join(' && '),
+      }
     : { hasTests: false };
 };
 
