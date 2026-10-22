@@ -14,7 +14,7 @@ import {
   type Issue,
 } from './forge.ts';
 import type { Check, Hub } from './hub.ts';
-import { hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
+import { hostGit, mergeOf, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import type { Services } from './services.ts';
 import { Session, SessionStop, type SessionSpec } from './session.ts';
 import { type Aside, Store, type StoreError, type Trace } from './store.ts';
@@ -605,16 +605,6 @@ const markedIn = (diff: string) => {
   }
   return [...files];
 };
-
-/** `head` merged onto `onto` as a tree, conflict markers left in the files that clash, which come back in `files`. */
-const mergeOf = (work: Checkout, onto: string, head: string) =>
-  Effect.map(
-    hostGit(work.git, ['merge-tree', '--write-tree', '--name-only', '--no-messages', onto, head], { codes: [1] }),
-    out => {
-      const [tree = '', ...files] = out.toString('utf8').trim().split('\n');
-      return { tree, files: files.filter(Boolean) };
-    }
-  );
 
 /** The most items a fan-out takes when its check sets no `max`; a step fans out over at most this many. */
 const most = 20;
@@ -1281,9 +1271,15 @@ const attempt = (
     const children = world.filter((p): p is Child => p.kind === 'issue');
     const rest = world.filter(p => p.kind !== 'issue' && p.kind !== 'run' && p.kind !== 'tell');
     const landed = yield* Effect.either(
-      Effect.zipWith(land(tried, rest, work, to), file(w, tried, children), (a, b) => [...a, ...b]).pipe(
-        writing(tried, spoke)
-      )
+      Effect.gen(function* () {
+        const applied = yield* land(tried, rest, work, to);
+        if (applied.some(a => !a.ok && a.proposal.kind === 'push'))
+          return [
+            ...applied,
+            ...children.map(proposal => ({ proposal, ok: false, reason: 'push failed; not applied' })),
+          ];
+        return [...applied, ...(yield* file(w, tried, children))];
+      }).pipe(writing(tried, spoke))
     );
     if (Either.isLeft(landed) && landed.left._tag === 'StoreError') return yield* landed.left;
     if (Either.isLeft(landed))
@@ -1423,24 +1419,35 @@ const land = (
   work?: Checkout,
   to?: number
 ): Effect.Effect<Applied[], ForgeError, Forge> =>
-  Effect.flatMap(Forge, forge => {
-    const threads = proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : []));
-    const open = (run.said ?? []).filter(s => s.under === undefined || !threads.includes(s.under));
-    const places = open.length > 0 ? open : [{ issue: run.said?.[0]?.issue ?? to ?? run.issue }];
-    const place = places.find(s => s.under === undefined) ?? places.at(-1)!;
-    const sent = [...proposals]
-      .sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push'))
-      .flatMap((p): [number, Proposal][] =>
-        p.kind !== 'comment'
-          ? [[run.issue, p]]
-          : p.under !== undefined
-            ? [[to ?? run.issue, p]]
-            : p.edit !== undefined
-              ? [[places[0]!.issue, p]]
-              : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
-      );
-    return Effect.forEach(sent, ([issue, p]) => forge.apply(issue, p, work));
-  }).pipe(writing(run));
+  Effect.flatMap(Forge, forge =>
+    Effect.gen(function* () {
+      const threads = proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : []));
+      const open = (run.said ?? []).filter(s => s.under === undefined || !threads.includes(s.under));
+      const places = open.length > 0 ? open : [{ issue: run.said?.[0]?.issue ?? to ?? run.issue }];
+      const place = places.find(s => s.under === undefined) ?? places.at(-1)!;
+      const sent = [...proposals]
+        .sort((a, b) => Number(b.kind === 'push') - Number(a.kind === 'push'))
+        .flatMap((p): [number, Proposal][] =>
+          p.kind !== 'comment'
+            ? [[run.issue, p]]
+            : p.under !== undefined
+              ? [[to ?? run.issue, p]]
+              : p.edit !== undefined
+                ? [[places[0]!.issue, p]]
+                : [[place.issue, { ...p, ...(place.under !== undefined && { under: place.under }) }]]
+        );
+      const applied: Applied[] = [];
+      let refused = false;
+      for (const [issue, p] of sent) {
+        const a = refused
+          ? { proposal: p, ok: false, reason: 'push failed; not applied' }
+          : yield* forge.apply(issue, p, work);
+        applied.push(a);
+        if (p.kind === 'push' && !a.ok) refused = true;
+      }
+      return applied;
+    })
+  ).pipe(writing(run));
 
 /** The run with no review thread left to answer: what it says next goes to the top of where a human last spoke. */
 const unthreaded = (run: Run): Run =>
@@ -1503,6 +1510,38 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         (issue.pull?.branch ?? current.base?.branch ?? expand(w.base ?? 'main', issue));
       const made = yield* Effect.flatMap(Sandbox, s => s.checkout(ref, own, `refs/agentgraph/runs/${run.id}`, hub));
       const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
+      if (own && made.saved && !current.onto) {
+        const from = yield* text(work, ['rev-parse', `${made.saved}^`]);
+        const onto = work.head ?? work.base;
+        if (from !== onto) {
+          const head = yield* text(work, [
+            '-c',
+            'user.name=agentgraph',
+            '-c',
+            'user.email=agentgraph@localhost',
+            'commit-tree',
+            yield* treeOf(work),
+            '-p',
+            from,
+            '-m',
+            'Saved work',
+          ]);
+          const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, work);
+          yield* store.trace(run.id, { at: now(), step: current.step, applied });
+          if (!applied.ok)
+            current = {
+              ...current,
+              feedback: [
+                current.feedback,
+                `${own} moved: ${applied.reason}.`,
+                'Resolve each conflict so both sides keep working, remove every marker, and push.',
+              ]
+                .filter(Boolean)
+                .join('\n\n'),
+            };
+        }
+      }
+
       if (!w.on.feedback) yield* setUp(hub, work);
       while (current.status === 'running') {
         const tried = yield* attempt(w, current, hub, work);

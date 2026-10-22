@@ -13,7 +13,7 @@ import {
   matches,
   withheld,
 } from './forge.ts';
-import { hostGit, type Checkout } from './sandbox.ts';
+import { hostGit, mergeOf, type Checkout } from './sandbox.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type User = { login: string; type?: string } | null | undefined;
@@ -618,7 +618,7 @@ export const githubForge = (
      * Replays the commits on `branch` after `from` onto `onto` as new commits through the Git data API, then moves the
      * branch there unless it moved meanwhile. Commits that become empty are dropped. The checkout ends on the result.
      */
-    const rebase = (work: Checkout, branch: string, from: string, onto: string) =>
+    const rebase = (work: Checkout, branch: string, from: string, onto: string, local?: string) =>
       Effect.gen(function* () {
         if (!allowed(branch)) return yield* refuse(`a rebase goes to a ${pushable.prefix} branch`);
         const ref = yield* refPath(branch);
@@ -628,23 +628,29 @@ export const githubForge = (
         );
         const tip = yield* tipOf;
         if (!tip) return yield* refuse(`${branch} does not exist`);
-        const commits = (yield* gitText(work, ['rev-list', '--reverse', '--no-merges', `${from}..${tip}`]))
+        if (local && tip !== onto) return yield* refuse(`${branch} moved to ${tip}`);
+        if (local) {
+          pushed.delete(work.dir);
+          work.head = onto;
+        }
+        const commits = (yield* gitText(work, ['rev-list', '--reverse', '--no-merges', `${from}..${local ?? tip}`]))
           .split('\n')
           .filter(Boolean);
         let head = onto;
         let tree = yield* gitText(work, ['rev-parse', `${onto}^{tree}`]);
         for (const commit of commits) {
-          const next = yield* gitText(work, [
-            'merge-tree',
-            '--write-tree',
-            '--no-messages',
-            `--merge-base=${commit}~1^{tree}`,
-            tree,
-            `${commit}^{tree}`,
-          ]).pipe(
-            Effect.mapError(() => refuse(`${commit.slice(0, 7)} on ${branch} conflicts with ${onto.slice(0, 7)}`))
+          const { tree: next, files } = yield* mergeOf(work, tree, `${commit}^{tree}`, `${commit}~1^{tree}`).pipe(
+            Effect.mapError(e => refuse(e.detail ?? e.reason))
           );
+          if (files.length > 0) {
+            if (local) yield* git(work, ['read-tree', '-u', '--reset', next]);
+            return yield* refuse(`${commit.slice(0, 7)} on ${branch} conflicts with ${onto.slice(0, 7)}`);
+          }
           if (next === tree) continue;
+          if (local) {
+            tree = next;
+            continue;
+          }
           yield* upload(work, tree, next);
           const message = yield* gitText(work, ['log', '-1', '--format=%B', commit]);
           head = (yield* gh<{ sha: string }>(
@@ -654,6 +660,10 @@ export const githubForge = (
             'push'
           )).sha;
           tree = next;
+        }
+        if (local) {
+          yield* git(work, ['read-tree', '-u', '--reset', tree]);
+          return onto;
         }
         if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`);
         yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force: true }, 'push');
@@ -793,7 +803,7 @@ export const githubForge = (
           }));
         case 'rebase':
           if (work === undefined) return Effect.fail(refuse('rebase needs a checkout'));
-          return Effect.map(rebase(work, p.branch, p.from, p.onto), head => ({
+          return Effect.map(rebase(work, p.branch, p.from, p.onto, p.head), head => ({
             url: `https://github.com/${app.repo}/commit/${head}`,
           }));
         case 'pull_request':

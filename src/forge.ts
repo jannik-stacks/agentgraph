@@ -2,7 +2,7 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
-import { hostGit, type Checkout } from './sandbox.ts';
+import { hostGit, mergeOf, type Checkout } from './sandbox.ts';
 
 /** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
 export type Issue = {
@@ -49,8 +49,8 @@ export type Event = {
 
 /**
  * What a run may change on the repo, and the three proposals that steer the run. `react` and `rebase` are the runner's
- * own; a rebase moves the commits on `branch` after `from` onto `onto`, and a react with `remove` takes back the
- * reaction of that id. A push with `onto` lands the files as one commit on `onto` and replaces the branch, or with
+ * own; a rebase moves the commits on `branch` after `from` onto `onto`, or replays `head` in the checkout only.
+ * A react with `remove` takes back the reaction of that id. A push with `onto` lands the files as one commit on `onto` and replaces the branch, or with
  * `merge` as a merge of `onto` into it; either refuses when the branch moved past the commit the checkout started from. An issue with a `parent` is filed as its sub-issue.
  */
 export type Proposal =
@@ -58,7 +58,7 @@ export type Proposal =
   | { kind: 'react'; comment?: string; review?: boolean; remove?: string }
   | { kind: 'label'; add?: string[]; remove?: string[] }
   | { kind: 'push'; branch: string; message: string; onto?: string; merge?: true }
-  | { kind: 'rebase'; branch: string; from: string; onto: string }
+  | { kind: 'rebase'; branch: string; from: string; onto: string; head?: string }
   | { kind: 'pull_request'; branch: string; base: string; title: string; body: string }
   | { kind: 'merge'; number: number; head: string }
   | { kind: 'issue'; title: string; body: string; parent?: number; labels?: string[] }
@@ -294,7 +294,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const was = await tip(work, p.branch).catch(() => undefined);
             const onto = last === undefined ? p.onto : undefined;
             if (onto && was !== (work.head ?? was)) return no(`${p.branch} moved to ${was}`);
-            const parent = last ?? was ?? work.head ?? work.base;
+            const parent = last ?? work.head ?? work.base;
+            if (was && was !== parent) return no(`${p.branch} is at ${was}, the checkout builds on ${parent}`);
             const parents = onto ? (p.merge ? [parent, onto] : [onto]) : [parent];
             await git(work, 'add', '-A');
             const tree = await git(work, 'write-tree');
@@ -310,21 +311,37 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
           case 'rebase': {
             if (!work) return no('a rebase needs a worktree');
             const was = await tip(work, p.branch);
+            if (p.head && was !== p.onto) return no(`${p.branch} moved to ${was}`);
+            if (p.head) {
+              pushed.delete(work.dir);
+              work.head = p.onto;
+            }
             let head = p.onto;
             let tree = await git(work, 'rev-parse', `${head}^{tree}`);
-            for (const commit of (await git(work, 'rev-list', '--reverse', '--no-merges', `${p.from}..${was}`))
+            for (const commit of (
+              await git(work, 'rev-list', '--reverse', '--no-merges', `${p.from}..${p.head ?? was}`)
+            )
               .split('\n')
               .filter(Boolean)) {
-              const next = await git(
-                work,
-                ...['merge-tree', '--write-tree', '--no-messages', `--merge-base=${commit}~1^{tree}`, tree],
-                `${commit}^{tree}`
-              ).catch(() => undefined);
-              if (next === undefined) return no(`${p.branch} conflicts with ${p.onto}`);
+              const { tree: next, files } = await Effect.runPromise(
+                mergeOf(work, tree, `${commit}^{tree}`, `${commit}~1^{tree}`)
+              );
+              if (files.length > 0) {
+                if (p.head) await git(work, 'read-tree', '-u', '--reset', next);
+                return no(`${p.branch} conflicts with ${p.onto}`);
+              }
               if (next === tree) continue;
+              if (p.head) {
+                tree = next;
+                continue;
+              }
               const message = await git(work, 'log', '-1', '--format=%B', commit);
               head = await git(work, 'commit-tree', next, '-p', head, '-m', message);
               tree = next;
+            }
+            if (p.head) {
+              await git(work, 'read-tree', '-u', '--reset', tree);
+              return { proposal: p, ok: true };
             }
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was}`;
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);

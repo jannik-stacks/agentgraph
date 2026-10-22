@@ -35,6 +35,7 @@ export type Checkout = {
   dir: string;
   base: string;
   head?: string;
+  saved?: string;
   /** The checkout starts from an Env that already ran the hub's setup on these files. */
   ready?: boolean;
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
@@ -182,10 +183,11 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
             )
           )
       ).pipe(
-        Effect.map(({ dir, base, from, news }) => ({
+        Effect.map(({ dir, base, from, kept, news }) => ({
           dir,
           base,
           ...(from !== base && { head: from }),
+          ...(kept && { saved: kept }),
           git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
           news: join(news, 'news.md'),
         }))
@@ -234,3 +236,25 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
         });
       }),
   });
+
+/** `head` merged onto `onto` as a tree, conflict markers left in the files that clash, which come back in `files`. */
+export const mergeOf = (work: Checkout, onto: string, head: string, base?: string) =>
+  Effect.map(
+    hostGit(
+      work.git,
+      [
+        'merge-tree',
+        '--write-tree',
+        '--name-only',
+        '--no-messages',
+        ...(base ? [`--merge-base=${base}`] : []),
+        onto,
+        head,
+      ],
+      { codes: [1] }
+    ),
+    out => {
+      const [tree = '', ...files] = out.toString('utf8').trim().split('\n');
+      return { tree, files: files.filter(Boolean) };
+    }
+  );

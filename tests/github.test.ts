@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
@@ -888,6 +888,51 @@ describe('githubForge', () => {
       const head = applied.url!.split('/').at(-1);
       expect(f.calls.find(c => c.method === 'PATCH')!.body).toEqual({ sha: head, force: true });
       expect([existsSync(join(dir, 'b.txt')), existsSync(join(dir, 'c.txt'))]).toEqual([true, true]);
+    });
+
+    it.each([false, true])('rebases checkout edits without publishing before a push (conflict: %s)', async conflict => {
+      const { dir, git, base, work } = repo();
+      writeFileSync(join(dir, conflict ? 'a.txt' : 'b.txt'), 'pending\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Pending');
+      const head = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', base);
+      writeFileSync(join(dir, conflict ? 'a.txt' : 'c.txt'), 'upstream\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Other session');
+      const onto = git('rev-parse', 'HEAD');
+      git('reset', '-q', '--hard', head);
+      const f = dataApi(work, {
+        'GET /repos/o/r/git/ref/heads/agentgraph/7': { object: { sha: onto } },
+        'PATCH /repos/o/r/git/refs/heads/agentgraph/7': {},
+      });
+      const applied = await run(
+        f,
+        Effect.flatMap(Forge, forge =>
+          forge.apply(
+            7,
+            {
+              kind: 'rebase',
+              branch: 'agentgraph/7',
+              from: base,
+              onto,
+              head,
+            },
+            work
+          )
+        )
+      );
+      expect(applied.ok).toBe(!conflict);
+      expect(writes(f)).toEqual([]);
+      if (conflict) {
+        expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toMatch(/<<<<<<<[\s\S]*upstream[\s\S]*pending/);
+        writeFileSync(join(dir, 'a.txt'), 'resolved\n');
+      } else {
+        expect(readFileSync(join(dir, 'b.txt'), 'utf8')).toBe('pending\n');
+        expect(readFileSync(join(dir, 'c.txt'), 'utf8')).toBe('upstream\n');
+      }
+      expect((await pushTo(f, work)).ok).toBe(true);
+      expect(f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body.parents).toEqual([onto]);
     });
 
     it('refuses a branch outside agentgraph/ or one that leaves the refs path', async () => {

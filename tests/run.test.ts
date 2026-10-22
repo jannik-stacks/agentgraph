@@ -575,6 +575,96 @@ const pullRequest = (where: ReturnType<typeof world>, base = 'b1') => {
   );
 };
 
+describe('a run branch that moved', () => {
+  const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
+  const flow = {
+    ...small.workflows.issue!,
+    steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: ['types'] })),
+  };
+
+  it.each([false, true])(
+    'rebases saved edits onto the branch tip before the agent starts (conflict: %s)',
+    async conflict => {
+      const where = world();
+      git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+      const first = services(where, [
+        [start('a'), write('hello.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+      ]);
+      const parked = await first.run(
+        drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
+      );
+      const mover = join(where.root, 'mover');
+      git(where.root, 'clone', '-q', where.origin, mover);
+      writeFileSync(join(mover, conflict ? 'hello.txt' : 'other.txt'), 'upstream\n');
+      git(mover, 'add', '-A');
+      git(mover, 'commit', '-qm', 'Other session');
+      git(mover, 'push', '-q', 'origin', 'HEAD:agentgraph/7');
+      const tip = git(mover, 'rev-parse', 'HEAD');
+      let before = '';
+      const next = services(
+        where,
+        [[start('a'), ...(conflict ? [write('hello.txt', 'resolved\n')] : []), reply(push)]],
+        undefined,
+        spec => {
+          before = readFileSync(join(spec.dir, 'hello.txt'), 'utf8');
+          if (!conflict) expect(readFileSync(join(spec.dir, 'other.txt'), 'utf8')).toBe('upstream\n');
+        }
+      );
+      const { reason: _reason, ...resumed } = parked;
+      const done = await next.run(drive(flow, { ...resumed, status: 'running' }, small));
+      expect(done.status).toBe('done');
+      expect(next.specs).toHaveLength(1);
+      expect(before).toMatch(conflict ? /<<<<<<<[\s\S]*upstream[\s\S]*pending/ : /^pending\n$/);
+      if (conflict) expect(next.specs[0]!.prompt).toContain('Resolve each conflict');
+      expect(git(where.origin, 'rev-parse', 'agentgraph/7^')).toBe(tip);
+      expect(git(where.origin, 'show', 'agentgraph/7:hello.txt')).toBe(conflict ? 'resolved' : 'pending');
+      const rebases = traceOf(where.data, 'run-7').flatMap(t =>
+        'applied' in t && t.applied.proposal.kind === 'rebase' ? [t.applied.ok] : []
+      );
+      expect(rebases).toEqual([!conflict]);
+    },
+    30_000
+  );
+
+  it('returns a refused push to the agent without posting its replies or other writes', async () => {
+    const where = world();
+    const attempted: Proposal[] = [];
+    const failing = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) => {
+          attempted.push(p);
+          return p.kind === 'push'
+            ? Effect.succeed({ proposal: p, ok: false, reason: 'branch moved' })
+            : f.apply(n, p, work);
+        },
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const skipped: Proposal[] = [
+      { kind: 'comment', body: 'Fixed', under: 'review-1' },
+      { kind: 'comment', body: 'Changes landed' },
+      { kind: 'label', add: ['done'] },
+      { kind: 'issue', title: 'Follow up', body: '## Done when\nDetails', relation: 'follow-up' } as Proposal,
+    ];
+    const session = scripted([
+      [start('a'), write('hello.txt', 'hello\n'), reply(...skipped, push)],
+      [start('a'), reply({ kind: 'ask', question: 'Retry later' })],
+    ]);
+    const layer = Layer.mergeAll(failing, fileStore(where.data), host(where.origin), session);
+    const done = await Effect.runPromise(
+      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+    );
+    expect(done).toMatchObject({ status: 'waiting', reason: 'Retry later' });
+    expect(attempted.some(p => skipped.some(s => JSON.stringify(s) === JSON.stringify(p)))).toBe(false);
+    const failed = traceOf(where.data, 'run-7').flatMap(t =>
+      'outcome' in t && t.outcome.kind === 'failed' ? [t.outcome] : []
+    );
+    expect(failed[0]!.proposals.map(a => a.proposal)).toEqual([push, ...skipped]);
+    expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).not.toContain('Changes landed');
+  }, 30_000);
+});
+
 describe('tick', () => {
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
 

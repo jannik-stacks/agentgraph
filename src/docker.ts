@@ -346,6 +346,7 @@ export const docker = (o: {
             dir,
             base,
             ...(base !== rev && { head: rev }),
+            ...(saved && { saved }),
             ...(env?.complete && setup && !saved && base === rev && { ready: true }),
             git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
             news: join(news, 'news.md'),
