@@ -638,6 +638,7 @@ const sh = (
 /** Runs the hub's setup in a checkout, so its checks find what it installs, and traces how long it took. */
 const setUp = (hub: Hub, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
   Effect.gen(function* () {
+    if (work.env) yield* Effect.flatMap(Store, s => s.trace(run.id, { at: now(), step: run.step, env: work.env! }));
     if (!hub.setup || work.ready) return;
     const started = Date.now();
     const out = yield* sh(hub.setup, hub.dir, work.dir, { AGENTGRAPH_BASE: work.base }, hub.limits.minutes, 'proxy');

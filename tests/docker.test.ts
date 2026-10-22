@@ -4,7 +4,19 @@ import { basename, delimiter, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker, dockerArgs } from '../src/docker.ts';
-import { beat, dependencyDirs, live, discard, layer, mark, reap, sweep, toolchainOf, written } from '../src/env.ts';
+import {
+  beat,
+  dependencyDirs,
+  live,
+  discard,
+  layer,
+  mark,
+  reap,
+  skeletonOf,
+  sweep,
+  toolchainOf,
+  written,
+} from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -57,7 +69,7 @@ describe('docker with a stand-in docker client', () => {
         `echo "$*" >> ${log}.all`,
         `echo "secret=\${AGENTGRAPH_LLM_API_KEY:-unset}" >> ${log}`,
         `echo line one; echo line two >&2`,
-        `case "$*" in *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
+        `case "$*" in *"skelfail deps"*) exit 98;; *"skelfail tree"*) ;; *exit125*) exit 125;; *chatty*) while :; do echo tick; sleep 0.05; done;; *sleep*) sleep 5;; *toolfail*) exit 97;; *fail*) exit 3;; *withdeps*) printf '@@ignored\\nnode_modules/\\n@@untracked\\n@@lower\\n5\\n';; esac`,
       ].join('\n')
     );
     chmodSync(join(bin, 'docker'), 0o755);
@@ -247,8 +259,12 @@ describe('docker with a stand-in docker client', () => {
       expect(text).toContain(`-e ${env} `);
     expect(text).toContain(base);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(/volume create .* agentgraph-layer-\w+-0\n/);
-    expect(text).toContain('archive "$2" | tar -x -C /work');
+    expect(text).toContain('git checkout-index --stdin');
+    expect(text).toMatch(/ deps Cargo\.toml /);
     expect(text.indexOf('flock 9')).toBeLessThan(text.indexOf('sh -ec "$3"'));
+    expect(text).toContain('RUSTUP_AUTO_INSTALL=0 sh -ec "$4"');
+    expect(text).toContain('type=volume,src=agentgraph-lower-');
+    expect(text).toMatch(/dst=\/work /);
     expect(text.indexOf('cargo fetch')).toBeLessThan(text.indexOf('rustup target add'));
     expect(builds() - before).toBe(1);
     expect(readFileSync(`${log}.all`, 'utf8')).toMatch(
@@ -278,6 +294,37 @@ describe('docker with a stand-in docker client', () => {
     const runs = all.split('\n').filter(l => l.startsWith('run '));
     expect(runs.length).toBeGreaterThan(2);
     for (const run of runs) expect(run).toMatch(/^run --log-driver none /);
+  });
+
+  it('builds on the whole tree when setup fails on the skeleton, and goes there first for that family after', async () => {
+    const saved = process.env.AGENTGRAPH_STATE;
+    process.env.AGENTGRAPH_STATE = tmp('state');
+    try {
+      const repo = origin();
+      const builds = () =>
+        [
+          ...(existsSync(`${log}.all`) ? readFileSync(`${log}.all`, 'utf8') : '').matchAll(
+            /agentgraph\.envbuild[^]*? skelfail (deps|tree) /g
+          ),
+        ].map(m => m[1]);
+      const before = builds().length;
+      const exit = await use(docker({ data: tmp('data'), origin: repo }), s =>
+        Effect.gen(function* () {
+          const first = yield* s.checkout('main', undefined, undefined, { setup: 'skelfail' });
+          const second = yield* s.checkout('feature', undefined, undefined, { setup: 'skelfail' });
+          return [first.env, second.env];
+        })
+      );
+      const made = builds().slice(before);
+      expect(made).toEqual(['deps', 'tree', 'tree']);
+      expect(Exit.isSuccess(exit) && exit.value).toEqual([
+        { key: expect.any(String), mode: 'tree', match: true },
+        { key: expect.any(String), mode: 'tree', match: true },
+      ]);
+    } finally {
+      if (saved === undefined) delete process.env.AGENTGRAPH_STATE;
+      else process.env.AGENTGRAPH_STATE = saved;
+    }
   });
 
   it('fails the checkout when the toolchain fails', async () => {
@@ -653,6 +700,42 @@ describe('disk lifecycle', () => {
     ]);
   });
 
+  it('keys a skeleton by the files a package manager reads and the ignore rules, with stubs for Cargo targets', async () => {
+    const dir = tmp('skeleton');
+    const files = [
+      '.gitignore',
+      'package.json',
+      'pnpm-lock.yaml',
+      '.npmrc',
+      'patches/x.patch',
+      'src/index.ts',
+      'src/main.rs',
+    ];
+    const crate = ['crates/a/Cargo.toml', 'crates/a/src/lib.rs', 'crates/a/build.rs', 'crates/a/src/util.rs'];
+    for (const f of [...files, ...crate, 'vendor/node_modules/y/package.json']) put(dir, f, f);
+    git(dir, 'init', '-q', '-b', 'main');
+    const commit = () => (
+      git(dir, 'add', '-f', '.'),
+      git(dir, 'commit', '-q', '-m', 'x'),
+      skeletonOf(join(dir, '.git'), 'main')
+    );
+    const one = await commit();
+    expect(one.paths.sort()).toEqual([
+      '.gitignore',
+      '.npmrc',
+      'crates/a/Cargo.toml',
+      'package.json',
+      'patches/x.patch',
+      'pnpm-lock.yaml',
+    ]);
+    expect(one.stubs.sort()).toEqual(['crates/a/build.rs', 'crates/a/src/lib.rs']);
+    put(dir, 'src/index.ts', 'changed');
+    put(dir, 'crates/a/src/lib.rs', 'changed');
+    expect((await commit()).digest).toBe(one.digest);
+    put(dir, 'pnpm-lock.yaml', 'changed');
+    expect((await commit()).digest).not.toBe(one.digest);
+  });
+
   it('layers overlays over the Env copy where it made a dependency dir and empty volumes elsewhere', async () => {
     await faked({ 'volume inspect': '/lower\\n/u0\\n' }, async log => {
       const layers = await layer(
@@ -668,10 +751,12 @@ describe('disk lifecycle', () => {
       expect(log()).toMatch(
         /volume create --label agentgraph\.layer=\d+:[0-9a-f]{12} --label agentgraph\.owner=own agentgraph-layer-own-1/
       );
-      expect(log()).toContain('o=lowerdir=/lower/data/0,upperdir=/u0/upper,workdir=/u0/work agentgraph-layer-own-0-o');
+      expect(log()).toContain(
+        'o=lowerdir=/lower/.agentgraph-env/data/0,upperdir=/u0/upper,workdir=/u0/work agentgraph-layer-own-0-o'
+      );
       expect(log()).toContain('type=volume,src=agentgraph-lower-k,dst=/lower,readonly');
       expect(log()).not.toContain('/u/1/upper');
-      expect(log()).toContain(`cp -a '/work/dist' '/dst/'/`);
+      expect(log()).toContain(`cp -a '/lower/.agentgraph-env/rest/dist' '/dst/'/`);
       await discard(layers);
       expect(log()).toContain('volume rm -f agentgraph-layer-own-0-o agentgraph-layer-own-1 agentgraph-layer-own-0');
     });

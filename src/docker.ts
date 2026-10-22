@@ -9,6 +9,7 @@ import {
   dependencyDirs,
   discard,
   envOf,
+  inputsOf,
   type Layer as Deps,
   layer,
   mark,
@@ -348,6 +349,14 @@ export const docker = (o: {
                   catch: e => infra((e as Error).message),
                 })
               : undefined;
+          const match = env
+            ? yield* Effect.promise(() =>
+                inputsOf(mirror, rev, env.mode).then(
+                  i => i === env.inputs,
+                  () => false
+                )
+              )
+            : false;
           const id = randomBytes(6).toString('hex');
           const dir = join(o.data, 'work', id);
           const index = join(o.data, 'index', id);
@@ -357,7 +366,8 @@ export const docker = (o: {
             base,
             ...(base !== rev && { head: rev }),
             ...(saved && { saved }),
-            ...(env?.complete && setup && !saved && base === rev && { ready: true }),
+            ...(env?.complete && setup && !saved && match && { ready: true }),
+            ...(env && { env: { key: env.key, mode: env.mode, match } }),
             git: { GIT_DIR: mirror, GIT_WORK_TREE: dir, GIT_INDEX_FILE: index },
             news: join(news, 'news.md'),
           };

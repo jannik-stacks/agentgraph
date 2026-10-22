@@ -39,6 +39,8 @@ export type Checkout = {
   published?: string;
   /** The checkout starts from an Env that already ran the hub's setup on these files. */
   ready?: boolean;
+  /** The Env the checkout starts from, how it was built, and whether it was built from the checkout's own files. */
+  env?: { key: string; mode: 'deps' | 'tree'; match: boolean };
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
   news: string;
   /** How many files the checkout's commands wrote over the shared cache so far, when the sandbox can tell. */

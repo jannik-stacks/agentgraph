@@ -27,17 +27,19 @@ Build the sandbox from `infra/local/sandbox`; its `smoke.sh` checks container be
 
 ## Environments
 
-An environment caches a repo's dependencies by base files. Its image is `agentgraph-env/<repo>:<key>`. A build container:
+An environment caches a repo's dependencies. Its files live in the volume `agentgraph-lower-<key>`; the image `agentgraph-env/<repo>:<key>` only carries its labels. A build container works straight in that volume at `/work`:
 
-1. Unpacks the base from the read-only mirror into `/work`.
+1. Unpacks the skeleton of the base from the read-only mirror: the files a package manager or toolchain reads (lockfiles, manifests, `.npmrc`, `.nvmrc`, `patches/`, `.yarn/releases` and the like), the ignore rules, and empty stubs for Cargo targets.
 2. Installs [toolchains](#toolchains) and runs hub `setup`.
-3. Moves ignored `node_modules` and `target` directories into `agentgraph-lower-<key>` and commits the image.
+3. Moves ignored `node_modules` and `target` directories to `.agentgraph-env/data`, other ignored directories to `.agentgraph-env/rest`, and drops the source.
 
-The build uses Docker's default network, reaching any host. Its key covers the base image, base files, toolchain commands and setup. Matching environments are reused. Setup referencing `$AGENTGRAPH_HUB` runs per checkout instead. Failed build setup falls back to checkout setup. <!-- code: src/env.ts#envOf -->
+So two bases that differ only in source share one environment. When setup fails on the skeleton, the build runs again on every file of the base, and later bases with the same toolchain and setup go there first. A run's trace says which environment a checkout started from, how it was built, and whether it was built from the checkout's own files (`env`).
+
+The build uses Docker's default network, reaching any host. Its key covers the base image, toolchain commands, setup, and the skeleton or the whole base. Matching environments are reused. Setup referencing `$AGENTGRAPH_HUB` runs per checkout instead. Setup failing on every file falls back to checkout setup. <!-- code: src/env.ts#envOf src/env.ts#skeletonOf -->
 
 Each checkout mounts private overlay volumes over cached dependency directories, or copies where overlays are unsupported. Writes stay local; relative workspace links still resolve against checkout files. Other possible dependency directories get empty volumes: `node_modules` beside each `package.json`, and `target` beside each outermost `Cargo.toml`. Dependencies stay outside checkout folders even without an environment or after failed setup.
 
-Smaller outputs such as `dist` and wasm `pkg` are copied into the checkout so builds can delete and recreate them. Closing the checkout removes its volumes. Base checkouts skip setup when the environment captured all outputs; changed or resumed checkouts, or incomplete environments, run setup again. <!-- code: src/env.ts#layer src/docker.ts#docker -->
+Smaller outputs such as `dist` and wasm `pkg` are copied into the checkout so builds can delete and recreate them. Closing the checkout removes its volumes. Checkouts skip setup when the environment captured all outputs and was built from the same skeleton or files; resumed checkouts, or incomplete environments, run setup again. <!-- code: src/env.ts#layer src/docker.ts#docker -->
 
 Containers keep no Docker log, since the runner reads their output as they run. A command's container is removed before the command returns, however it ends. <!-- code: src/env.ts#unlogged src/docker.ts#docker -->
 
