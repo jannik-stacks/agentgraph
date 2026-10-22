@@ -1,32 +1,25 @@
 # The loop
 
-A run walks a workflow's steps on one issue. An agent step works in a session, its checks judge the result, and the engine applies what the agent proposed once the checks pass.
+A run walks a workflow on one issue. Each agent step works in a session, checks judge the result, and the engine applies its [proposals](proposals.md).
 
 ```
- the run enters an agent step
-   │
+ agent session ends with proposals <─────────────────┐
+   │                                                 │
+   ├──> ask: wait for an answer                       │
+   v                                                 │
+ checks run in parallel                              │
+   ├──> block fails: feedback, next try ──────────────┘
+   ├──> stop fails: stop the run
    v
- the session works, its reply ends with proposals <──────┐
-   │                                                     │
-   ├──> ask: the run waits for an answer                 │
-   v                                                     │
- checks: scripts at once, then agents                    │
-   │                                                     │
-   ├──> a block check fails: feedback, next try ─────────┘
-   ├──> a stop check fails: the run stops
+ checks pass
+   ├──> back: resume an earlier step with the reason
    v
- all pass
-   │
-   ├──> back: an earlier step resumes, with the reason
-   v
- proposals applied, then the next step
+ apply proposals, enter the next step
 ```
-
-When tries or rounds run out, the run waits for a human instead of going on.
 
 ## Workflows
 
-A workflow is a Markdown file in the hub's `workflows/` folder, such as `workflows/issue.md`. Its frontmatter says when it starts and what its steps are. Its body is the description, or the prompt when it has no steps. [Hub files](reference.md) lists every field with its default.
+A workflow is `workflows/<name>.md` in the hub. Its frontmatter defines triggers and steps; its body is the description, or the prompt without steps. [Hub files](reference.md#workflows) lists fields and defaults.
 
 ```yaml
 on: issue_comment
@@ -42,219 +35,161 @@ steps:
   merge: { wait: human, back: implement }
 ```
 
-Steps run in the order written. Each does one thing:
+Steps run in written order. Each names one of `agent`, `run` (a shell command) or `wait: human`. An agent step gets the skill named by `skill`, otherwise the skill matching its step name, if present. Without `steps`, the workflow has one agent step named after its file.
 
-- `agent: implementor` runs the agent in `agents/implementor.md`. It gets the skill `skill` names, or else the one named like the step, here `skills/implement.md`.
-- `run: <command>` runs a script.
-- `wait: human` waits for a person.
+`checks: [tests]` names `checks/tests.md`; a missing check fails hub loading. <!-- code: src/workflow.ts#load -->
 
-`checks: [tests]` names files in `checks/`, here `checks/tests.md`. A name that has no file is an error when the hub loads. <!-- code: src/workflow.ts#load -->
-
-A workflow without `steps` is one agent step named after the file, with the agent `agent` names.
-
-`each` on an agent step opens one fresh session per item: `files` for each changed file, `hunks` for each diff hunk, or `{ run: <command> }` for each line the command prints. Such a step never resumes a session. Past 20 items it opens one session over all of them instead. <!-- code: src/engine.ts#most -->
+`each` on an agent step opens a fresh session per changed file (`files`), diff hunk (`hunks`), or output line (`{ run: <command> }`). These sessions never resume. Past 20 items, one session handles them all. <!-- code: src/engine.ts#most -->
 
 ## Starting a run
 
-Two triggers start runs today:
+- `issue_comment`: a trusted comment containing `/agent` or `@agent` as a word, outside quotes and fenced code. The marker is removed before the agent reads it; a bare marker works.
+- `issues` with `label`: a trusted person adds that label to an open issue.
 
-- `issue_comment`: a comment that says `/agent`.
-- `issues` with `label`: a label added to an issue, such as `triage`.
+`pull_request` and `branches` are accepted but start nothing. Other runs use [dispatch](#dispatch); human feedback can start a [retro](compound.md#the-retro). <!-- code: src/forge.ts#called -->
 
-`pull_request` and `branches` are accepted but start nothing yet. A third way in, `dispatch`, is for runs that other runs start, see [Dispatch](#dispatch).
+With several comment workflows, `/agent` selects the first, or the workflow named by its first word, as in `/agent plan`. With no live run, `/agent stop` and `/agent cancel` start nothing. Other comments start a comment workflow even after earlier runs finish. Comments without the marker are context, never answers. Pull request comments and review comments count for their run's issue; bot comments never count. See [Routing](#routing) when another workflow already holds the issue. <!-- code: src/engine.ts#tick -->
 
-A trusted comment speaks to the bot only when it has `/agent` in it as a word, outside quoted lines and fenced code; `@agent` works the same. No `/agent`, no bot. The bot reads the comment without the `/agent`, so a bare `/agent` starts the workflow too. On an issue with no live run, `/agent stop` or `/agent cancel` starts nothing. <!-- code: src/forge.ts#called -->
+A comment asking for no work can end the run after the first session with comments only, skipping checks and later steps. This requires a workflow without a branch, an open pull request, or a finished run of that workflow on the issue. Otherwise a first session allowed to push fails if it returns comments only. Unpushed file changes also fail such a reply.
 
-The same holds on an issue with a live run: a comment without `/agent` is context the agent may read, never an answer. Comments and review comments on the run's pull request count for its issue, and the bot's own comments never count.
+`/agent restart` stops a live run and starts the workflow again, keeping its human answers. `/agent restart implement` starts at that step. The engine reacts with eyes to a starting or waking comment, or to the issue for a label, and removes the reaction after replying. <!-- code: src/engine.ts#tick -->
 
-With several `issue_comment` workflows, `/agent` starts the first one, or the one whose name is the first word after it, as `/agent plan`. <!-- code: src/engine.ts#tick -->
-
-A waiting run takes the comment as its answer, and a working run takes it as its workflow's `concurrency` says, see [Comments while it works](#comments-while-it-works). When every run there is finished, the comment starts the comment workflow, so a question like "where is the PR?" gets a reply.
-
-A run started by a comment can reply and stop. When the comment asks for no work, the first session is told to reply with comments only, and that reply ends the run without checks or later steps. That holds only where the work the comment asks about exists: a workflow without a branch, an open pull request, or a finished run of the workflow on the issue. Elsewhere, and whenever the reply leaves files changed but not pushed, a first session that may push and replies with comments only fails the try.
-
-`/agent restart` starts the workflow again on an issue whose run is done, stopped or waiting, and `restart implement` starts it at that step. A waiting or working run stops first. The new run keeps the human answers of the last one, so nothing settled is asked again. <!-- code: src/engine.ts#tick -->
-
-The engine puts an eyes reaction on the comment that started or woke a run, or on the issue for a label, and takes it off once it has replied. <!-- code: src/engine.ts#tick -->
-
-A workflow can start on both, as `on: { issue_comment: {}, issues: { label: agent:ready } }` in `examples/sk`. Then triage and the loop build nothing by themselves: work begins when a maintainer adds `agent:ready` or says `/agent`. A label starts a workflow once per issue: once a run of it there is done, adding the label again starts nothing, and `/agent restart` runs it again. <!-- code: src/engine.ts#tick -->
-
-The issue must be open, and one run at a time holds it, whatever started it. A label added while another workflow's run is live there starts nothing; add it again once that run ends. Removing the label from an issue with a live run stops that run. A label added and removed before the engine looks starts nothing. <!-- code: src/workflow.ts#reenter -->
+A workflow can accept both triggers: `on: { issue_comment: {}, issues: { label: agent:ready } }`. A label starts it only once per issue after a completed run; use restart to run it again. One live run holds an issue at a time. A label added while another workflow holds it is ignored; add it again afterward. Removing a live run's trigger label stops it. A label added and removed before polling starts nothing. <!-- code: src/workflow.ts#reenter -->
 
 ## Dispatch
 
-A workflow with `dispatch` under `on` can be started by another run. An agent whose `returns` has `run` proposes `{"kind": "run", "workflow": "triage", "issue": 12}`. With `"step": "implement"` the child begins at that step, which runs a workflow again from there. The engine refuses it, and the try fails, unless the workflow has `dispatch`, #12 is an open issue in scope, no other live run holds it, and it is the try's only `run`. <!-- code: src/engine.ts#undispatchable -->
+An agent allowed to return `run` can propose:
 
-Once the try's other proposals land, the engine begins the child run with `by` set to the parent's id. The parent waits with the reason `waiting on <child id>`, and says nothing on the issue about it. <!-- code: src/engine.ts#dispatch -->
-
-```
- parent run proposes run
-   |
-   v
- child run starts         parent waits on it
-   |
-   v
- child asks, is done or stops
-   |
-   v
- parent resumes its session with what happened, and decides
+```json
+{"kind": "run", "workflow": "triage", "issue": 12, "step": "implement"}
 ```
 
-The parent hears of it as an answer, such as `triage on #12 is done` or `triage on #12 asks: ...`, in its kept session. It decides with the proposals it has: a comment, another `run`, or nothing. A child's question still goes on the child's issue, and a person answers it there. <!-- code: src/engine.ts#settled -->
+`step` is optional. The try fails unless the target workflow accepts `dispatch`, the issue is open and in scope, no other live run holds it, and this is the try's only `run`. <!-- code: src/engine.ts#undispatchable -->
+
+After the other proposals land, the child starts with `by` set to the parent's id. The parent silently waits with `waiting on <child id>`. When the child asks, finishes or stops, the parent's kept session resumes with that result as an answer. It can comment, dispatch again or do nothing. A child's question is posted and answered on the child's issue. <!-- code: src/engine.ts#dispatch src/engine.ts#settled -->
 
 ### Routing
 
-Only a workflow with an `issue_comment` trigger hears `/agent` from people. The runs of other workflows hear what it tells them. So when a hub has one comment workflow whose agent decides, `/agent` always reaches that agent, even beside a live run of another workflow, and the agent picks what happens. <!-- code: src/engine.ts#heardBy -->
+Only `issue_comment` workflows hear people's `/agent` comments directly. A hub can use one as a router, including beside another workflow's live run. Its `returns` controls what it can do: reply with `comment`, file an `issue`, dispatch with `run`, or forward text with `tell`. <!-- code: src/engine.ts#heardBy -->
 
-A router is such a workflow, and what it may do is just its `returns`:
+```json
+{"kind": "tell", "issue": 12, "text": "stop"}
+```
 
-- `comment`: replies where the person spoke.
-- `issue`: files a follow-up.
-- `run`: starts a dispatch workflow on an issue, from its first step or the one `step` names. That is how it starts new work, follows up on a finished run, and runs a workflow again.
-- `tell`: `{"kind": "tell", "issue": 12, "text": "stop"}` passes text to the live run on #12, which hears it as if a maintainer had said `/agent` and the text: feedback, an answer to its question, `stop` or `cancel`. The engine refuses it when no other run is live there. <!-- code: src/engine.ts#tellsOf -->
+The recipient hears the text as a maintainer command: feedback, an answer, `stop` or `cancel`. No other live run on that issue means refusal. The router traces the applied proposal; the recipient records `told` with the router's id. The router keeps the person's original reply location. <!-- code: src/engine.ts#tellsOf -->
 
-Each tell is traced twice: as an applied proposal on the router, and as a `told` line, with the router's id, on the run that hears it. A run the router starts has `by` set to the router's id, and the router keeps where the person spoke.
-
-In `examples/sandbox`, `/agent` starts the router; it starts triage, tells a live run what the person said, files a follow-up, or replies. Building waits for a person to add `agent:ready`.
-
-`node bin/run.ts say --hub <dir> --data <dir> --issue <n> [--comment <review comment id>] "<text>"` runs the router immediately and replies on GitHub where you spoke; its trace marks the CLI source.
-`node bin/run.ts tell --data <dir> --issue <n> "<text>"` tells a live run on its next look, refusing when none is live.
-`node bin/run.ts dispatch --hub <dir> --data <dir> --workflow <name> --issue <n> [--step <step>]` starts a dispatch run with the router's checks; these commands also support `--forge` and `--instance`.
+In `examples/sandbox`, the router triages, forwards, files follow-ups or replies. Building waits for a person to add `agent:ready`. [CLI routing commands](local.md#the-cli) provide the same entry points.
 
 ## Trust and scope
 
-Only trusted people steer the bot. By default those are the repo's owners, members and collaborators, and a label counts when its actor may write. Everyone else is an outsider: their comments and labels start nothing, and their text is withheld from agents.
+By default, owners, members and collaborators steer the bot; label actors must have write access. Outsider comments and labels start nothing, and their text is withheld from agents.
 
-The bot is never trusted either. Its own comments, labels and the issues it files start nothing, so a run begins only on a trusted person's label or command. An agent may not even propose a label that some workflow starts on; that label is a person's call. The one exception is an `XL` part of a split, which the engine triages again, see [Sub-issues and stacks](stacks.md). <!-- code: src/engine.ts#gate -->
+The bot's own comments, labels and issues start nothing. Agents cannot add workflow trigger labels. The exception is an `XL` split part, which the engine [triages again](stacks.md#filing-sub-issues). <!-- code: src/engine.ts#gate -->
 
-`trust: [ana, bob]` in `hub.yaml` narrows that to those logins and the bot itself. A collaborator outside the list is then an outsider too. The runner reads the list when it starts, and a hub that does not load then trusts no one until a restart. <!-- code: src/github.ts#githubForge -->
+`trust: [ana, bob]` narrows trust to those logins and the bot itself, though the bot still cannot trigger runs. The list is read at startup. A hub that fails to load trusts nobody until restart. <!-- code: src/github.ts#githubForge -->
 
-`milestone` in `hub.yaml` limits new runs to open issues in that milestone. Live runs keep going. Issues an agent files are not put in the milestone, so they wait until a person moves them in. <!-- code: src/engine.ts#inScope -->
+`milestone` limits new runs to open issues in that milestone. Live runs continue. Agent-filed issues have no milestone until a person adds one. <!-- code: src/engine.ts#inScope -->
 
 ## The session
 
-The agent's body goes into the session's system prompt. Claude Code and pi add it after their own default prompt. opencode uses it in place of its base prompt and still adds its environment, tools and skills.
+The agent body becomes its system prompt. Claude Code and pi append it to their defaults; opencode replaces its base prompt but keeps environment, tools and skills.
 
-The prompt holds the step's skill and the skills it `uses`, the workflow body, the issue and its comments, the pull request on the run's branch with its reviews, the branch to work on, the `until` sentence, any feedback, and the shape of every proposal the agent may make. The agent ends its reply with a fenced `agentgraph` block of [proposals](proposals.md). <!-- code: src/context.ts#context -->
+The prompt includes the step's skill and its `uses`, workflow body, issue and comments, branch pull request and reviews, target branch, `until`, feedback and allowed proposal shapes. The reply ends with a fenced `agentgraph` block. <!-- code: src/context.ts#context -->
 
-While the session works, the engine writes what is new on the issue and its pull request to a news file every minute. An agent with the `read` tool is told to read it before it finishes. A resumed session gets only the feedback and what is new. <!-- code: src/context.ts#news -->
-
-Each agent names its own harness and model, and the proxy gives each agent its own key. So every step and check can run on a different harness, model and provider. <!-- code: src/hub.ts#Agent -->
+Every minute, the engine writes issue and pull request updates to a news file. Agents with `read` are told to read it before finishing. Resumed sessions receive only feedback and new context. Each agent selects its own [harness and model](sandbox.md#harnesses). <!-- code: src/context.ts#news -->
 
 ## Checks
 
-After a session ends, the step's checks run against the checkout, all at once. Agent checks judge a try even when a script check fails, so every finding of a try goes back to the agent together instead of one check per try. That spends judges on a broken build, and when a `stop` check fails it spends them on a run that is ending; both cost less than the tries they save. <!-- code: src/engine.ts#gate -->
+After a session, all step checks run in parallel, including agent checks when scripts fail. All failed findings return together. <!-- code: src/engine.ts#gate -->
 
-| Mode    | When the check fails                               |
-| ------- | -------------------------------------------------- |
-| `warn`  | It is recorded and never holds the step            |
-| `block` | The try fails and the output goes back as feedback |
-| `stop`  | The run stops                                      |
+| Mode | Failure |
+| --- | --- |
+| `warn` | Record it and continue |
+| `block` | Fail the try and return output as feedback |
+| `stop` | Stop the run |
 
-A check file holds a script, an agent, or both:
+A check names `run`, `agent` or both. Scripts pass on exit 0. Agents judge the diff, fan-out item, or script output, replying `PASS` or `FAIL` first.
 
-- `run`: exit 0 passes, and the output is the feedback.
-- `agent`: the reply must start with `PASS`; `FAIL` is a finding. On its own the agent judges the diff, or the item in a fan-out. A judging session that is killed, crashes, times out or replies without `PASS` or `FAIL` is not a verdict: it is tried once more, and if it fails again, a `block` or `stop` check parks the run with an error saying the check could not be judged, so nothing is fed back to the agent as review feedback. A `warn` check records that error as its finding and the run goes on. A `stop` check that did fail still stops the run when another check could not be judged. <!-- code: src/engine.ts#verdictOf -->
-- Both: the script runs and its output goes to the agent.
+A judging session that crashes, times out, is killed or gives no verdict retries once. A second failure parks the run for `block` or `stop`; it is an error, not review feedback. A `warn` check records it and continues. A genuine failing `stop` check still stops the run if another judge errors. <!-- code: src/engine.ts#verdictOf -->
 
-`each` fans a check out over `files`, `hunks`, or the lines a command prints, and the check fails when any item fails. When there are no items, the check passes marked `empty` with the finding "Judged nothing", so a slicer that lost its input shows up. More items than `max`, 20 unless the check sets it, fail the check as one finding, so no fan-out opens more sessions than that. A command that exits nonzero gives no items: the check fails once with the command's output as the finding.
+Check `each` fans out over `files`, `hunks` or command output lines. Any failed item fails the check. No items passes with `empty` and "Judged nothing". More than `max` items (default 20) fails as one finding. A nonzero slicer command fails once with its output.
 
-Several agent checks on one step judge the same try side by side, each in a fresh session, and the findings of those that fail go back together. A reviewer never sees its own earlier verdict. An item an agent check passed is not judged again in the same run while the diff and the judge's prompt stay the same, so a new human answer or a changed check is judged afresh. A failed item is judged again every try, and every item after the runner restarts. <!-- code: src/engine.ts#passes --> The studio marks such a step with a chip naming the reviewers. <!-- code: src/graph.ts#graphOf -->
+Judges always get fresh sessions without earlier verdicts. Passed items are reused within the run while the diff and judge prompt match; changed checks or human answers trigger judging again. Failed items always rerun, as do all items after runner restart. Judges reading traces are never cached. The studio names reviewers on the step. <!-- code: src/engine.ts#passes src/graph.ts#graphOf -->
 
-```yaml
-implement:
-  agent: implementor
-  checks: [tests, claude-review, gpt-review]
-```
+Scripts run in the checkout with these variables: <!-- code: src/engine.ts#resultOf -->
 
-Scripts run with the checkout as their working directory and get these variables: <!-- code: src/engine.ts#resultOf -->
-
-| Variable           | What it holds                                                | Given to         |
-| ------------------ | ------------------------------------------------------------ | ---------------- |
-| `AGENTGRAPH_BASE`      | Where the change starts: on a branch, where it forks from the base | checks and steps |
-| `AGENTGRAPH_HUB`       | The hub folder, read-only                                    | checks and steps |
-| `AGENTGRAPH_ISSUE`     | The issue number                                             | checks           |
-| `AGENTGRAPH_PROPOSALS` | A JSON file of the proposals the try made                    | checks           |
-| `AGENTGRAPH_CONTEXT`   | A file with the issue and pull request as the agent saw them, then the human answers | checks           |
-| `AGENTGRAPH_REPLY`     | A file with the try's reply                                  | checks           |
-| `AGENTGRAPH_TRACES`    | A file with the traces of the runs on the issue, see [Reading traces](compound.md#reading-traces) | checks |
-| `AGENTGRAPH_ITEM`      | The item, in a fan-out                                       | checks           |
+| Variable | Contents | Given to |
+| --- | --- | --- |
+| `AGENTGRAPH_BASE` | Change's starting commit, or branch fork point | Checks and steps |
+| `AGENTGRAPH_HUB` | Read-only hub folder | Checks and steps |
+| `AGENTGRAPH_ISSUE` | Issue number | Checks |
+| `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals | Checks |
+| `AGENTGRAPH_CONTEXT` | Issue, pull request and human answers | Checks |
+| `AGENTGRAPH_REPLY` | Try's reply | Checks |
+| `AGENTGRAPH_TRACES` | [Run traces](compound.md#reading-traces) | Checks |
+| `AGENTGRAPH_ITEM` | Fan-out item | Checks |
 
 ## Tries and going back
 
-A failed try starts another in the same session, with each failing check's output and each failed proposal as feedback. `tries` counts the first one. When tries run out, the run waits and says why on the issue.
+Failed checks or proposals retry in the same session with findings as feedback. `tries` includes the first attempt; exhaustion makes the run wait and explain why on the issue.
 
-`back: implement` lets a step send the run to an earlier step. An agent step with `back` also needs `until`, a sentence saying when the step is satisfied. While it does not hold, the agent proposes `back` with a reason, and the reason becomes feedback for the earlier step. `rounds` caps how often that happens. When rounds run out, the run waits.
+`back: implement` permits returning to that step. Agent steps also require `until`, the condition for satisfaction. A `back` proposal supplies the reason as feedback. `rounds` caps returns; exhaustion makes the run wait.
 
-A `wait: human` step with `back` goes back when a human requests changes in a review. The line comments that came with or just before the review join its reason. An approving review, an `approved` label or a merge passes it. Anything else a human says to the bot there, in a comment or a line comment with `/agent`, goes to an [aside](#asides). <!-- code: src/workflow.ts#reenter -->
+At `wait: human` with `back`, a review requesting changes returns to that step with its line comments. Approval, an `approved` label or merging passes the step. Other `/agent` comments go to an [aside](#asides). <!-- code: src/workflow.ts#reenter -->
 
-Going forward into a step starts a fresh session. Going back resumes the session that step had. <!-- code: src/workflow.ts#transition -->
+Forward transitions start fresh sessions; going back resumes the earlier session. <!-- code: src/workflow.ts#transition -->
 
 ## Waiting
 
-A run waits when an agent proposes `ask`, when tries or rounds run out, and at a `wait: human` step. The engine posts the question as its own comment on the issue.
+Runs wait at `wait: human`, on `ask`, or when tries or rounds run out. Questions are posted separately on the issue. Answer with `/agent` on the thread to resume the same step. Answers stay paired with their questions and reach every later check: in agent prompts and at the end of `AGENTGRAPH_CONTEXT`. Judges are told not to raise points an answer settled. <!-- code: src/engine.ts#heard -->
 
-A human answers with a comment that says `/agent` on the thread, and the comment becomes feedback for the same step. The run keeps every answer with its question, and every later check reads them: an agent check in its prompt, with the note that a point an answer settles is not a finding, and a script at the end of `AGENTGRAPH_CONTEXT`. <!-- code: src/engine.ts#heard --> `/agent stop` ends the run, waiting or working, and so does closing the issue. The status comment carries that hint while a question waits. <!-- code: src/context.ts#answerWith --> <!-- code: src/workflow.ts#reenter -->
-
-`node bin/run.ts status` lists what waits, with the command that continues each run. <!-- code: src/status.ts#needsYou -->
+The status comment shows how to answer; [CLI status](local.md#the-cli) lists commands to continue. `/agent stop` or closing the issue ends a waiting or working run. <!-- code: src/context.ts#answerWith src/workflow.ts#reenter -->
 
 ## Asides
 
-An aside answers what a human says to a run waiting at a `wait: human` step, without reworking the pull request. Say a maintainer asks under a line of the pull request "so this was already documented elsewhere?". That is a question, not a request for changes.
+An aside answers `/agent` comments at a human wait step. The engine forks the session that `back` targets, copies its home and opens a throwaway checkout of the pull request head with the same agent and tools. Without a kept session it starts fresh. See [harness fork commands](sandbox.md#harnesses). <!-- code: src/engine.ts#aside -->
 
-The engine forks the session of the step `back` leads to, so the fork knows that session's history while the session itself stays as it was. The fork runs in a copy of the session's home, in a throwaway checkout of the pull request head, with the same agent and tools. Without a kept session, a fresh session with that step's agent answers. <!-- code: src/engine.ts#aside --> How each harness forks is in [Harnesses](sandbox.md#harnesses).
-
-The fork answers with a comment, posted under the thread the human wrote in, and the run keeps waiting. When the comment asks for a change, or the fork finds one is needed, it also proposes `back`. Then the run goes back as a request for changes would, with the fork's reason as feedback, and the fork becomes that step's session, so the next try goes on from what the fork read. Nothing else an aside proposes is applied, and whatever it changes in its checkout is thrown away. Its cost counts toward the run, and its session is in the run's trace under the waiting step. With no pull request open there is nothing to check out, and what the human says sends the run back. <!-- code: src/engine.ts#tick -->
+Only comments and `back` proposals apply. Comments answer the human's thread and leave the run waiting. A `back` resumes work with its reason and adopts the fork as the target step's session. Checkout edits are discarded. Aside cost counts toward the run; its trace sits under the waiting step. Without an open pull request, the comment sends the run back directly. <!-- code: src/engine.ts#tick -->
 
 ## Comments while it works
 
-A trusted comment that says `/agent` on the issue or pull request of a working run goes to that run. It never starts a second run there. The workflow's `concurrency` decides when the run takes it in: <!-- code: src/engine.ts#attempt -->
+A trusted `/agent` comment reaches the working run according to `concurrency`: <!-- code: src/engine.ts#attempt -->
 
-- `steer`, the default: the session goes on and finds the comment in its news file. When the session ends, the engine resumes it for one more turn with every comment it has not seen, before the checks run.
-- `queue`: the try ends as if nothing was said. Then the comment applies as an answer would.
-- `cancel`: the engine stops the session and starts the step again at once, in the same session, with the comment as feedback. The cut try does not count.
+- `steer` (default): continue working, expose the comment in news, then resume for one turn with unseen comments before checks. Checks judge that turn's reply.
+- `queue`: finish the try and checks first, then apply the comment as an answer. A failed try receives it with findings; a passing try passes it to the next step; an `ask` receives it as its answer. If the run finishes first, it starts the comment workflow.
+- `cancel`: stop the session and immediately resume the step in the same session with the comment as feedback. The interrupted try does not count.
 
-Say the bot implements #12, and two minutes in a maintainer writes "/agent use the v2 API".
+Explicit `/agent cancel` parks the step and asks how to continue, preserving tries and session. `/agent stop` ends the run. Both release the session slot immediately; the engine checks for them every minute during sessions and checks. <!-- code: src/workflow.ts#reenter -->
 
-- With `steer`, the agent can read it in the news file and switch at once. When it finishes, it gets one more turn that holds the comment, and its reply from that turn is the one the checks judge.
-- With `queue`, the agent finishes on its old plan and the checks run. If the try fails, the next try gets the check findings and the comment. If it passes, the review step gets the comment as feedback. If the agent asked a question, the comment is the answer. If the run is done by then, the comment starts the comment workflow, as on any finished run.
-- With `cancel`, the engine sees the comment within a minute, stops the session and resumes it with "use the v2 API" as feedback.
-
-Two words after `/agent` work at any time:
-
-- `cancel` stops the current session or checks now and parks the run at its step. The engine asks how to go on, and an `/agent` comment resumes the same session with its tries kept.
-- `stop` ends the run, working or waiting.
-
-Both free the session's slot at once. While a session or its checks run, the engine looks for them once a minute. <!-- code: src/workflow.ts#reenter -->
-
-Several comments in a row count once. A run takes in everything said since it last looked as one answer, in order, and when a burst holds `stop` or `cancel`, the first of them decides. <!-- code: src/workflow.ts#fold --> The loop also waits until an issue has been quiet for 30 seconds before what people did there starts or wakes a run. <!-- code: src/engine.ts#settle --> A comment a run has taken in never starts another run later. <!-- code: src/engine.ts#told -->
-
-The setting follows GitHub Actions `concurrency`, where the group is always the issue. `cancel` is its `cancel-in-progress: true`, and `queue` is its pending run that waits for the one in progress. `steer` has no Actions twin: an agent session can take a new message, and a CI job cannot. One value with three words reads simpler than a group plus a flag.
+Bursts become one ordered answer. The first `stop` or `cancel` wins. The polling loop waits for 30 seconds of quiet before starting or waking a run. Consumed comments never start later runs. <!-- code: src/workflow.ts#fold src/engine.ts#settle src/engine.ts#told -->
 
 ## A hub in the repo
 
-The hub can live in the repo it works on, as `.agentgraph/` on the default branch. `AGENTGRAPH_HUB` names it: a relative path, `.agentgraph` by default, is a folder in the repo, and an absolute path, such as the one `--hub <dir>` gives, is a folder on this machine. <!-- code: src/hub.ts#hubAt -->
+`AGENTGRAPH_HUB` selects a repo folder (`.agentgraph` by default) or an absolute local path, as `--hub <dir>` supplies. <!-- code: src/hub.ts#hubAt -->
 
-A hub in the repo is read again at every look, always from the head of the default branch and never from a pull request's branch. A bot can propose a change to its own workflows, agents or checks, but the change counts only once a human merges it. The trust list is read once, when the runner starts. <!-- code: src/main.ts#start -->
+A repo hub reloads on every poll from the default branch head. Pull request changes take effect only after merging. Trust is read only at runner startup. <!-- code: src/main.ts#start -->
 
 ## When the base or the hub moves
 
-A run waiting at a `wait: human` step was checked against two things that can change under it: the head of its pull request's base, and the hub. Every sweep compares both with what is current.
+Every sweep checks runs at human wait steps against their pull request base and hub version.
 
-If the branch is behind its base, for example `gh-pages` got new commits, the engine brings it up to date with no model. `follow` on the wait step says how: `merge` (the default) merges the base into the branch with a plain push, like GitHub's "Update branch" button, and leaves commits people pushed to the branch alone; `rebase` replays the branch onto the base and force-pushes, the same way it rebases a stacked branch. <!-- code: src/workflow.ts#Step -->
+`follow` selects the base update: `merge` (default) merges and pushes normally, preserving branch commits; `rebase` replays and force-pushes. The schema also accepts `none`, intended to disable following, but the current engine treats it as `merge`. <!-- code: src/workflow.ts#Step src/engine.ts#catchUp -->
 
-Then it compares the pull request's own change before and after, by `git patch-id`. When it is the same, only the wait step's `checks` run again. They default to the script checks of the step that `back` leads to, so finding out whether a pull request still holds costs no tokens. `checks: []` follows the base and checks nothing. A judged check in the list runs only once the scripts passed, and reads what moved on the base from `$AGENTGRAPH_REPLY`; that is how a cheap agent can decide whether the pull request needs an update. When the change differs, or the hub changed since the run was last checked, every check of the step that `back` leads to runs, under the current hub. The hub's `setup` runs first, as in any new checkout. If the checks pass, the run keeps waiting. If they fail, the run goes back to that step as a request for changes would, with the failed checks as the reason. <!-- code: src/engine.ts#catchUp -->
+After updating, the engine compares changes with `git patch-id`:
 
-A base that conflicts sends the run back to that step too, with the conflicting files as the reason. Its next try starts on the new base head with the change applied and conflict markers left in those files, and its push lands as one commit on the base (`rebase`) or as a merge of it (`merge`). The agent only edits files; the engine does the git. A try that leaves a conflict marker in the change fails. <!-- code: src/engine.ts#following --> If the run comes back to wait with the same base head still conflicting, that is said once on the issue, for a human to update by hand. A run that is up to date with both is left alone.
+- Same change: rerun the wait step's `checks`. These default to the script checks of its `back` target; `checks: []` skips them. Judged checks run only after scripts pass and receive base changes in `AGENTGRAPH_REPLY`.
+- Different change or new hub: run every check of the `back` target under the current hub.
 
-The hub's version is a hash of `hub.yaml`, the agents, skills, checks, workflows and scripts. Each run records the version it was last checked under. <!-- code: src/engine.ts#catchUp -->
+Setup runs first. Passing leaves the run waiting; failed checks return it with findings as feedback. The hub version hashes `hub.yaml`, agents, skills, checks, workflows and scripts; runs record the version last checked. <!-- code: src/engine.ts#catchUp -->
+
+Conflicts also return the run. Its checkout starts at the new base with the change applied and markers left for the agent to resolve. The engine handles git: the next push is one commit on the base for `rebase`, or a merge for `merge`. Leftover markers fail the try. A repeated conflict at the same base head prompts once for a manual update. Up-to-date runs are left alone. <!-- code: src/engine.ts#following -->
 
 ## Status on the issue
 
-The engine keeps one status comment on the issue up to date: the step and try, a link to the open question, why the run stopped, the cost so far, the pull request and any failing GitHub checks on it. It also keeps one status label: `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. <!-- code: src/context.ts#shown --> Once a question is answered, the status comment above it says it asked the question below, and the next status is a new comment under the answer, so a finished run never reads as asking. <!-- code: src/engine.ts#tick -->
+One status comment shows step, try, open question, stop reason, cost, pull request and failing GitHub checks. One label tracks `agentgraph:working`, `agentgraph:waiting`, `agentgraph:done` or `agentgraph:stopped`. After an answer, the old status marks its question as answered and a new status appears below the answer. <!-- code: src/context.ts#shown src/engine.ts#tick -->
 
 ## Order and limits
 
-Runs sort by priority label: `priority/high` first, then no label or `priority/medium`, then `priority/low`. Within a priority the older run goes first. At most `parallel` runs go at once. <!-- code: src/engine.ts#tick -->
+Runs sort by priority: `priority/high`, then unlabelled or `priority/medium`, then `priority/low`; oldest first within each group. `limits.parallel` caps simultaneous runs, and `limits.sessions` caps sessions including judges. <!-- code: src/engine.ts#tick src/engine.ts#gateOf -->
 
-A session that runs past `minutes` of wall-clock time ends, however steadily it prints, and a run that spends more than `usd-per-run` stops. These are the `limits` in `hub.yaml`. A runner error, such as a session that timed out, a provider that failed, a setup that broke or a check whose command is not found (exit 127), parks the run at its step with the error in the trace instead of stopping it, so a reply on the issue tries that step again with its tries and session kept. <!-- code: src/engine.ts#drive -->
+`minutes` is a wall-clock deadline, even while output continues. Exceeding `usd-per-run` stops the run. Runner errors, including timeouts, provider faults, failed setup and missing check commands (exit 127), retry once automatically, then park at the step with details in the trace. A reply retries with session and tries kept. <!-- code: src/engine.ts#drive -->
