@@ -57,6 +57,8 @@ type Commands = {
   /** The part of setup that builds from the repo's files, run again on every scored diff. */
   build?: string;
   runner?: string;
+  /** The image the score step starts from, in place of the sandbox image. */
+  image?: string;
 };
 type Finding = { severity: string; category: string; text: string };
 type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
@@ -548,15 +550,16 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   )
     return { applied: false };
   const git = existsSync(join(repo, '.git')) ? join(repo, '.git') : repo;
-  const found = spawnSync('docker', ['image', 'inspect', image], { encoding: 'utf8' });
+  const start = c.image ?? image;
+  const found = spawnSync('docker', ['image', 'inspect', start], { encoding: 'utf8' });
   if (found.status !== 0)
-    throw new Error(`score needs docker and the ${image} image: ${found.error?.message ?? found.stderr.trim()}`);
+    throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
   const env = cache
-    ? await envOf({ repo: c.repo, image, git, base: c.base, cache, ...(c.setup && { setup: c.setup }) })
+    ? await envOf({ repo: c.repo, image: start, git, base: c.base, cache, ...(c.setup && { setup: c.setup }) })
     : undefined;
   const seeds = env ? await seed(env, ownerId(), tree) : [];
   const box = { mounts: [{ src: git, dst: git, readonly: true }], seeds };
-  const from = env?.image ?? image;
+  const from = env?.image ?? start;
   try {
     const again = !env?.complete || files(diff).some(f => manifest.test(f.path));
     const prep = again ? c.setup : diff.trim() ? c.build : undefined;
@@ -767,7 +770,17 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     const coupled = couplings(read(join(c.dir, 'merged.diff')), `${c.title}\n${c.body}`, baseOf(repo, c.base));
     if (coupled.length) save(file, { invalid: 'coupled', coupled });
   }
-  const kept = slot('valid', c.id, c.base, c.merged, c.runner, c.setup, c.test, scorer());
+  const kept = slot(
+    'valid',
+    c.id,
+    c.base,
+    c.merged,
+    c.runner,
+    c.setup,
+    c.test,
+    ...(c.image ? [c.image] : []),
+    scorer()
+  );
   if (!existsSync(file) && reusable(kept)) {
     cpSync(kept!, join(out, c.id), { recursive: true, filter: p => !p.endsWith('/valid.json') });
     save(file, read(join(kept!, 'valid.json')));

@@ -34,8 +34,9 @@ judge and prompt, which holds both diffs and their order. `--fresh` ignores the 
 A case is a folder with `case.json`, `issue.md` and `merged.diff`. `case.json` names the repo, the
 `base` (the parent commit) and the `merged` commit. The commands are optional: `test` runs the tests
 the merged change adds, `suite` the whole suite (it falls back to `test`), `typecheck`, and `setup`
-before them. A case with `hasTests: false` gets no test runs, only metrics and judges. Strata fields
-such as `size`, `kind` and `area` group the report.
+before them. `image` names a local image the score step starts from in place of the sandbox image, such as
+`bothub-sandbox:node20` from `infra/local/sandbox/node20` for a repo that needs Node 20. A case with `hasTests: false` gets no test runs, only metrics and judges.
+Strata fields such as `size`, `kind` and `area` group the report.
 
 A case counts only when the hidden tests fail on the base and pass on the human, and the human diff
 applies, its setup works and its suite passes. Otherwise `valid.json` says why, the case's arms are not
