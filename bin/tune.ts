@@ -38,7 +38,7 @@ type Tune = {
   point: string;
   cases: Record<string, Split>;
   preset: 'hidden' | 'composite';
-  keep: Partial<{ runs: number; drops: number }>;
+  keep: Partial<{ runs: number; drops: number; save: number }>;
   clone: string;
 };
 /** A case where the candidate scores half a point off an incumbent whose runs agree; a win or loss once it held. */
@@ -64,6 +64,10 @@ type Eval = {
   flips?: Record<string, Flip>;
   usd: number;
   minutes: number;
+  /** Mean usd and minutes of one run that was not infra, averaged over the cases. */
+  perRun?: { usd: number; minutes: number };
+  /** Against the incumbent: the mean share saved per case and the share of bootstrap draws that saved anything. */
+  saved?: Record<'usd' | 'minutes', { share: number; pDown: number }>;
   codex: number;
   claude5h: number;
 };
@@ -87,10 +91,11 @@ const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
 const pad = (n: number) => String(n).padStart(3, '0');
 
 /** The tune's settings and its steps in order, as `iterations.jsonl` holds them. */
-export const tuneRows = (dir: string) => ({
-  tune: JSON.parse(read(join(dir, 'tune.json'))) as Tune,
-  steps: jsonl<Step>(join(dir, 'iterations.jsonl')),
-});
+export const tuneRows = (dir: string) => {
+  const tune = read(join(dir, 'tune.json'));
+  if (!tune) throw new Error(`${dir} has no tune.json`);
+  return { tune: JSON.parse(tune) as Tune, steps: jsonl<Step>(join(dir, 'iterations.jsonl')) };
+};
 
 const subdirs = (dir: string) =>
   existsSync(dir)
@@ -129,7 +134,7 @@ export const paired = (a: number[], b: number[], n = 2000) => {
   };
 };
 
-const keepOf = (t: Pick<Tune, 'keep'>) => ({ runs: 3, drops: 2, ...t.keep });
+const keepOf = (t: Pick<Tune, 'keep'>) => ({ runs: 3, drops: 2, save: 0.15, ...t.keep });
 
 /**
  * Per case, how the candidate's runs compare with the incumbent's. A case whose incumbent runs disagree is noise and
@@ -151,27 +156,44 @@ export const flipsOf = (inc: Record<string, number[]>, cand: Record<string, numb
 
 const count = (e: Eval | undefined, ...of: Flip[]) => Object.values(e?.flips ?? {}).filter(f => of.includes(f)).length;
 
-/** Out when the screen drops `drops` cases and lifts none; kept when more select cases win than lose. */
+/** The cost the candidate saves for sure: at least `save` of usd or minutes per run, with 95% of draws below. */
+export const cheaper = (t: Pick<Tune, 'keep'>, e: Eval) =>
+  (['usd', 'minutes'] as const).filter(k => (e.saved?.[k].share ?? 0) >= keepOf(t).save && e.saved![k].pDown >= 0.95);
+
+/**
+ * Out when the screen drops `drops` cases and lifts none. Kept when more select cases win than lose, or when no case
+ * drops and it costs less in usd or minutes.
+ */
 export const decide = (t: Pick<Tune, 'keep'>, screen: Eval, full?: Eval): Step['verdict'] =>
   count(screen, 'down', 'loss') >= keepOf(t).drops && !count(screen, 'up', 'win')
     ? 'screened-out'
     : full && count(full, 'win') > count(full, 'loss')
       ? 'kept'
-      : 'discarded';
+      : full && !count(full, 'down', 'loss') && cheaper(t, full).length
+        ? 'kept'
+        : 'discarded';
 
 const ids = (t: Tune, ...splits: Split[]) =>
   Object.keys(t.cases)
     .filter(id => splits.includes(t.cases[id]!))
     .sort();
 
-/** Per case the quality of every v2 run that was not infra, the count of runs, their cost and minutes. */
+/**
+ * Per case the quality, usd and minutes of every v2 run that was not infra, the count of all runs and their total
+ * cost and minutes.
+ */
 const scores = (rows: Row[], preset: Tune['preset']) => {
   const w = preset === 'hidden' ? { ...presets['hidden tests only']!, suite: 0.15 } : presets.composite!;
   const human = new Map(rows.filter(r => r.point.includes('/human@')).map(r => [r.case, r]));
-  const out = new Map<string, { qs: number[]; runs: number; usd: number; min: number; infra: boolean }>();
+  type Case = { qs: number[]; paid: number[]; took: number[]; runs: number; usd: number; min: number; infra: boolean };
+  const out = new Map<string, Case>();
   for (const r of rows.filter(r => r.point.includes('/v2@'))) {
-    const s = out.get(r.case) ?? { qs: [], runs: 0, usd: 0, min: 0, infra: true };
-    if (!r.infra) s.qs.push(quality(r, w, undefined, human.get(r.case)));
+    const s = out.get(r.case) ?? { qs: [], paid: [], took: [], runs: 0, usd: 0, min: 0, infra: true };
+    if (!r.infra) {
+      s.qs.push(quality(r, w, undefined, human.get(r.case)));
+      s.paid.push(r.usd ?? 0);
+      s.took.push(r.minutes);
+    }
     out.set(r.case, { ...s, runs: s.runs + 1, usd: s.usd + (r.usd ?? 0), min: s.min + r.minutes, infra: !s.qs.length });
   }
   return out;
@@ -189,6 +211,16 @@ const evalOf = (
   runs = 3
 ): Eval => {
   const qs = cases.map(c => mean(mine.get(c)?.qs ?? []));
+  const per = (s: Scores, k: 'paid' | 'took') => cases.map(c => mean(s.get(c)?.[k] ?? []));
+  const both = cases.filter(c => mine.get(c)?.paid.length && incumbent?.get(c)?.paid.length);
+  const saving = (k: 'paid' | 'took') => {
+    const s = both.map(c => round(1 - mean(mine.get(c)![k]) / Math.max(1e-9, mean(incumbent!.get(c)![k]))));
+    const p = paired(
+      s.map(() => 0),
+      s
+    );
+    return { share: p.delta, pDown: p.pUp };
+  };
   const p = incumbent && {
     ...paired(
       cases.map(c => mean(incumbent.get(c)?.qs ?? [])),
@@ -208,6 +240,14 @@ const evalOf = (
     ...(p && { delta: p.delta, pUp: p.pUp, flips: p.flips }),
     usd: round(sum(cases.map(c => mine.get(c)?.usd ?? 0))),
     minutes: round(sum(cases.map(c => mine.get(c)?.min ?? 0))),
+    perRun: {
+      usd: round(mean(per(mine, 'paid').filter(Boolean))),
+      minutes: round(mean(per(mine, 'took').filter(Boolean))),
+    },
+    ...(incumbent &&
+      both.length && {
+        saved: { usd: saving('paid'), minutes: saving('took') },
+      }),
     ...usage,
   };
 };
@@ -626,14 +666,23 @@ export const step = async (
   const net = (e: Eval) => count(e, 'win') - count(e, 'loss');
   const best = full
     .filter(r => r.verdict === 'kept')
-    .sort((a, b) => net(b.all) - net(a.all) || (b.all.delta ?? 0) - (a.all.delta ?? 0))[0];
+    .sort(
+      (a, b) =>
+        net(b.all) - net(a.all) ||
+        (b.all.delta ?? 0) - (a.all.delta ?? 0) ||
+        (b.all.saved?.usd.share ?? 0) - (a.all.saved?.usd.share ?? 0)
+    )[0];
   const why = (r: (typeof results)[number] & { all?: Eval }) => {
     const named = (e: Eval, ...of: Flip[]) =>
       Object.keys(e.flips ?? {})
         .filter(k => of.includes(e.flips![k]!))
         .join(', ') || 'none';
+    const cost = ({ saved: s }: Eval) =>
+      s
+        ? `, usd ${round(-s.usd.share)} and minutes ${round(-s.minutes.share)} per run (P ${s.usd.pDown}, ${s.minutes.pDown})`
+        : '';
     const on = (e: Eval) =>
-      `won ${named(e, 'win')}, lost ${named(e, 'loss')}, delta ${e.delta} over ${e.cases.length} cases`;
+      `won ${named(e, 'win')}, lost ${named(e, 'loss')}, delta ${e.delta} over ${e.cases.length} cases${cost(e)}`;
     if (r.verdict === 'infra') return 'most screen runs said nothing (infra)';
     if (r.verdict === 'screened-out') return `screen dropped ${named(r.screen, 'down', 'loss')}`;
     if (!r.all) return 'no select cases beyond the screen';
@@ -783,8 +832,14 @@ if (import.meta.main) {
   const dir =
     target && resolve(command === 'init' ? join(tuneRoot(), target.split('/').pop()!, values.name ?? 't1') : target);
   if (command === 'status' && dir) {
-    console.log(status(dir));
-    process.exit(0);
+    const tunes = existsSync(join(dir, 'tune.json'))
+      ? [dir]
+      : subdirs(dir)
+          .map(n => join(dir, n))
+          .filter(d => existsSync(join(d, 'tune.json')));
+    if (!tunes.length) console.error(`no tune.json in ${dir} or the folders right under it`);
+    console.log(tunes.map(d => `${d}\n${status(d)}`).join('\n\n'));
+    process.exit(tunes.length ? 0 : 1);
   }
   if (dir && ['init', 'step', 'run', 'checkpoint'].includes(command ?? '')) {
     if (!claim(join(dir, 'tune'))) {

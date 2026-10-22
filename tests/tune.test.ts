@@ -2,7 +2,19 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { decide, type Flip, flipsOf, init, paired, propose, run, step, tuneRows, type tunesOf } from '../bin/tune.ts';
+import {
+  cheaper,
+  decide,
+  type Flip,
+  flipsOf,
+  init,
+  paired,
+  propose,
+  run,
+  step,
+  tuneRows,
+  type tunesOf,
+} from '../bin/tune.ts';
 import { fixtures } from '../studio/fixtures.ts';
 import { tmp } from './fixtures.ts';
 
@@ -54,6 +66,44 @@ describe('paired, flips and decide', () => {
     expect(decide(t, evalOf(), evalOf({ a: 'win', b: 'loss' }))).toBe('discarded');
     expect(decide(t, evalOf(), evalOf({ a: 'up' }))).toBe('discarded');
     expect(decide({ keep: {} }, evalOf({ a: 'down', b: 'loss' }))).toBe('screened-out');
+  });
+
+  it('keeps a candidate that drops no case and surely costs less', () => {
+    const t = { keep: {} };
+    const saved = (usd: number, pDown: number) => ({ usd: { share: usd, pDown }, minutes: { share: 0, pDown: 0 } });
+    const full = (flips: Record<string, Flip>, s: ReturnType<typeof saved>) => ({ ...evalOf(flips), saved: s });
+    expect(cheaper(t, full({}, saved(0.2, 0.97)))).toEqual(['usd']);
+    expect(decide(t, evalOf(), full({}, saved(0.2, 0.97)))).toBe('kept');
+    expect(decide(t, evalOf(), full({}, saved(0.1, 0.99)))).toBe('discarded');
+    expect(decide(t, evalOf(), full({}, saved(0.3, 0.8)))).toBe('discarded');
+    expect(decide(t, evalOf(), full({ a: 'down' }, saved(0.3, 0.99)))).toBe('discarded');
+    expect(decide(t, evalOf(), full({ a: 'win', b: 'loss' }, saved(0.3, 0.99)))).toBe('discarded');
+  });
+
+  /** Equal hubs whose per-run cost varies by a lognormal factor of about 35% must almost never pass as cheaper. */
+  it('rarely calls an equal hub cheaper on noisy run costs', () => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+    const noise = () => Math.exp(0.35 * Math.sqrt(-2 * Math.log(rnd() || 1e-9)) * Math.cos(2 * Math.PI * rnd()));
+    const rate = (n: number, factor: number) => {
+      let kept = 0;
+      for (let i = 0; i < 400; i++) {
+        const s = Array.from({ length: n }, () => Math.round((1 - (factor * noise()) / noise()) * 1000) / 1000);
+        const p = paired(
+          s.map(() => 0),
+          s
+        );
+        kept += +(
+          cheaper(
+            { keep: {} },
+            { ...evalOf(), saved: { usd: { share: p.delta, pDown: p.pUp }, minutes: { share: 0, pDown: 0 } } }
+          ).length > 0
+        );
+      }
+      return kept / 400;
+    };
+    for (const n of [6, 10]) expect(rate(n, 1)).toBeLessThan(0.05);
+    expect(rate(10, 0.6)).toBeGreaterThan(0.7);
   });
 
   /**
@@ -216,7 +266,7 @@ describe('tune loop', () => {
     ]);
     expect(retro.diff).toContain('skills/all.md');
     expect(retro.why).toMatch(/won f2, f3, f4, v1, v2, lost none, delta 0.833 over 6 cases/);
-    expect(made[1]!.why).toMatch(/won none, lost none, delta 0 over 6 cases, below the bar/);
+    expect(made[1]!.why).toMatch(/won none, lost none, delta 0 over 6 cases, usd 0 .*, below the bar/);
     expect(JSON.parse(readFileSync(join(dir, 'budget.json'), 'utf8')).claude.week).toEqual({ start: 50, now: 50 });
 
     mkdirSync(join(dir, 'manual'));
