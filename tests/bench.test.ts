@@ -667,8 +667,9 @@ describe('plan', () => {
       ])
     ).toEqual({
       image: 'agentgraph-sandbox:services',
+      toolchain: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install \$RUSTUP_TOOLCHAIN /),
       setup: expect.stringMatching(
-        /^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install .* && cargo test --no-run --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: && cargo test --no-run --manifest-path tests\/Cargo.toml --test lib_tests$/
+        /^export RUSTUP_TOOLCHAIN=.* && cargo test --no-run --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: && cargo test --no-run --manifest-path tests\/Cargo.toml --test lib_tests$/
       ),
       test: expect.stringMatching(
         /^export RUSTUP_TOOLCHAIN=.* && cargo test --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/

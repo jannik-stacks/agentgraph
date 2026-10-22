@@ -56,6 +56,8 @@ type Commands = {
   suite?: string;
   typecheck?: string;
   setup?: string;
+  /** Extra toolchain installs, run before setup under the cache's toolchain lock. */
+  toolchain?: string;
   /** The part of setup that builds from the repo's files, run again on every scored diff. */
   build?: string;
   runner?: string;
@@ -272,7 +274,8 @@ const tested = (repo: string, tests: string[]): Commands => {
     return test.length
       ? {
           image: services,
-          setup: [oldRust, 'rustup toolchain install $RUSTUP_TOOLCHAIN --profile minimal', ...build].join(' && '),
+          toolchain: `${oldRust} && rustup toolchain install $RUSTUP_TOOLCHAIN --profile minimal`,
+          setup: [oldRust, ...build].join(' && '),
           test: [oldRust, ...test].join(' && '),
         }
       : { hasTests: false };
@@ -462,7 +465,7 @@ const hubOf = (c: Pick<Case, 'repo'>) =>
 
 /** Where an arm run is kept: by case, arm, engine, hub (`BENCH_HUB` when set) and commands, and the point and repeat when given. */
 export const armSlot = (
-  c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup'>,
+  c: Pick<Case & Commands, 'id' | 'base' | 'repo' | 'runner' | 'setup' | 'toolchain'>,
   arm: string,
   {
     point,
@@ -480,6 +483,7 @@ export const armSlot = (
     arm === 'floor' ? treeText(here('bench/floor')) : '',
     c.runner,
     c.setup,
+    ...(c.toolchain ? [c.toolchain] : []),
     ...(point || repeat > 1 ? [point ?? '', repeat] : [])
   );
 
@@ -705,7 +709,15 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
   if (cache) await room({ dir: tree, image: start, volume: cache });
   const env = cache
-    ? await envOf({ repo: c.repo, image: start, git, base: c.base, cache, ...(c.setup && { setup: c.setup }) })
+    ? await envOf({
+        repo: c.repo,
+        image: start,
+        git,
+        base: c.base,
+        cache,
+        ...(c.setup && { setup: c.setup }),
+        ...(c.toolchain && { toolchain: c.toolchain }),
+      })
     : undefined;
   const layers = cache
     ? await layer(env ?? { image: start, outputs: [] }, ownerId(), tree, await dependencyDirs(git, c.base), cache)
@@ -1020,6 +1032,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     c.runner,
     c.setup,
     c.test,
+    ...(c.toolchain ? [c.toolchain] : []),
     ...[read(join(c.dir, 'hidden.relaxed.diff'))].filter(Boolean),
     ...(c.image ? [c.image] : []),
     ...(c.typecheck ? [c.typecheck] : []),
