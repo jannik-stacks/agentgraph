@@ -93,6 +93,16 @@ describe('bench helpers', () => {
     expect(out).toContain('+// see #N from someone');
   });
 
+  it('drops build info and git hooks from both sides of a judged pair', () => {
+    const extra = ['tsconfig.tsbuildinfo', '.husky/pre-commit', 'pnpm-lock.yaml', 'bun.lock']
+      .map(f => `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -1 +1 @@\n-old\n+new\n`)
+      .join('');
+    const out = scrub(diff + extra);
+    expect(out).not.toMatch(/tsbuildinfo|husky|pnpm-lock|bun\.lock/);
+    expect(out).toContain('src/a.test.ts');
+    expect(out).toContain('+// see #N from someone');
+  });
+
   it('reads the last JSON block of a judge answer and needs a preference', () => {
     expect(verdict('x\n```json\n{"prefer":"B"}\n```\nmore\n```json\n{"prefer":"A","A":{"findings":[]}}\n```')).toEqual({
       prefer: 'A',

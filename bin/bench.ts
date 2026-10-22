@@ -86,7 +86,7 @@ const limits = { codex: 30, claude: 60 };
 const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
 let panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_tests?\.\w+$/;
-const noise = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|CHANGELOG[^/]*)$/;
+const noise = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|Cargo\.lock|CHANGELOG[^/]*|[^/]*\.tsbuildinfo)$|(^|\/)\.husky\//;
 const caseStart = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|#\[(?:tokio::)?test\]|def test_|func Test)/;
 const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
 const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
@@ -939,7 +939,7 @@ export const pad = (diff: string) => {
   return `${diff.trimEnd()}\n${head}@@ -0,0 +1,${body.length} @@\n${body.map(l => `+${l}`).join('\n')}\n`;
 };
 
-/** A diff for a judge: no lockfiles or changelogs, no index lines, issue numbers and the given names masked. */
+/** A diff for a judge: no lockfiles, changelogs, build info or git hooks, no index lines, issue numbers and the given names masked. */
 export const scrub = (text: string, names: string[] = []) => {
   const who = new RegExp(`\\b(${['agentgraph', ...names.filter(n => /^[\w-]+$/.test(n))].join('|')})\\b`, 'gi');
   const kept = text.startsWith('diff --git')
