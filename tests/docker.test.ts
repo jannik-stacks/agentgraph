@@ -742,6 +742,24 @@ describe('disk lifecycle', () => {
     );
   });
 
+  it('keeps an Env another live runner used lately, even with no container on it', async () => {
+    await faked(
+      {
+        'image ls': 'agentgraph-env/r:old\nagentgraph-env/r:new\n',
+        'image inspect': 'agentgraph-env/r:old 30000000000 0\nagentgraph-env/r:new 30000000000 0\n',
+        'ps --format': '',
+        'volume ls': '',
+      },
+      async () => {
+        const at = (dir: string) => join(process.env.AGENTGRAPH_STATE!, dir);
+        for (const f of ['envs/old', 'envs/new', 'holds/old/gone', 'holds/new/other', 'owners/other']) put(at(''), f);
+        utimesSync(at('envs/old'), 1000, 1000);
+        expect(await evict(bytes('10g'), true)).toEqual(['agentgraph-env/r:old']);
+        expect(existsSync(at('holds/old/gone'))).toBe(false);
+      }
+    );
+  });
+
   it('throws disk low when sweeping and evicting leave too little free', async () => {
     await faked({}, async () => {
       await expect(room({ dir: tmp('disk') }, 0)).resolves.toBeUndefined();

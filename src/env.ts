@@ -103,9 +103,10 @@ const build = [
 const section = (out: string, name: string) =>
   (out.split(`@@${name}\n`)[1] ?? '').split(/^@@/m)[0]!.split('\n').filter(Boolean);
 
-/** Where runners keep what must outlive them: Env last-use stamps and owner heartbeats. */
+/** Where runners keep what must outlive them: Env last-use stamps, holds per runner and owner heartbeats. */
 const state = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
 const used = () => join(state(), 'envs');
+const holds = () => join(state(), 'holds');
 const owners = () => join(state(), 'owners');
 const stamp = (file: string) => {
   try {
@@ -114,7 +115,24 @@ const stamp = (file: string) => {
     utimesSync(file, new Date(), new Date());
   } catch {}
 };
-const touch = (key: string) => stamp(join(used(), key));
+const touch = (key: string) => {
+  stamp(join(used(), key));
+  beat();
+  stamp(join(holds(), key, self));
+};
+const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
+
+/** Whether another live runner used the Env `key` within the hold window; dead runners' holds are dropped. */
+const held = (key: string) => {
+  const dir = join(holds(), key);
+  let owners: string[] = [];
+  try {
+    owners = readdirSync(dir);
+  } catch {}
+  const [alive, dead] = [owners.filter(o => live(`0:${o}`)), owners.filter(o => !live(`0:${o}`))];
+  for (const owner of dead) rmSync(join(dir, owner), { force: true });
+  return alive.some(o => o !== self && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
+};
 
 export const ownerId = () => randomBytes(6).toString('hex');
 
@@ -574,7 +592,7 @@ const cap = () => bytes(process.env.AGENTGRAPH_ENV_CAP || '60g');
 
 /**
  * Removes the least recently used Env images and their dependency volumes until they fit in `limit` bytes, never one
- * a running container or a live checkout uses, then any dependency volume whose image is gone and no checkout uses.
+ * a running container, a live checkout or a live runner's recent use holds, then any dependency volume whose image is gone and no checkout uses.
  */
 export const evict = async (limit = cap(), dry = false) => {
   const all = await envs();
@@ -586,7 +604,8 @@ export const evict = async (limit = cap(), dry = false) => {
   const removed: string[] = [];
   for (const e of all) {
     if (total <= limit) break;
-    if (running.has(e.image) || inUse(e.image.split(':')[1] ?? '')) continue;
+    const key = e.image.split(':')[1] ?? '';
+    if (running.has(e.image) || inUse(key) || held(key)) continue;
     if (
       dry ||
       (await docker(['rmi', e.image]).then(

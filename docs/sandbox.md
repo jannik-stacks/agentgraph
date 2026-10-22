@@ -43,7 +43,7 @@ Containers keep no Docker log, since the runner reads their output as they run. 
 
 Runner ids and heartbeat files identify abandoned checkouts and volumes, removed on startup. `AGENTGRAPH_STATE` defaults to `~/.cache/agentgraph` and also holds image last-use stamps. Runners sharing Docker must share this directory; containerized runners need it on persistent storage.
 
-`AGENTGRAPH_ENV_CAP` defaults to `60g`, counting images and dependency volumes. Eviction removes least recently used pairs, excluding live containers and checkouts:
+`AGENTGRAPH_ENV_CAP` defaults to `60g`, counting images and dependency volumes. Eviction removes least recently used pairs, excluding live containers and checkouts, and any Env another live runner (a second bench on the same daemon, say) used in the last `AGENTGRAPH_ENV_HOLD_HOURS` (2):
 
 ```sh
 node bin/env.ts list
