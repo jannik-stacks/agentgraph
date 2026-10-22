@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   armSlot,
   bootstrap,
+  family,
   infra,
   invalid,
   orders,
@@ -17,6 +18,7 @@ import {
   rowsOf,
   scrub,
   stats,
+  unbiased,
   verdict,
 } from '../bin/bench.ts';
 import { git, tmp } from './fixtures.ts';
@@ -138,6 +140,22 @@ describe('bench helpers', () => {
     expect(new Set(picks)).toEqual(new Set([0, 1]));
     expect(() => parsePanel('opus:3')).toThrow(/bad --judges/);
     expect(() => parsePanel('gpt:1')).toThrow(/bad --judges/);
+  });
+
+  it('swaps a judge of the contestant family for one of another family', () => {
+    const aliases = {
+      smart: 'chatgpt/gpt-6.1-sol',
+      luna: 'chatgpt/gpt-6-luna',
+      gemini: 'openrouter/google/gemini-4-argon',
+      glm: 'openrouter/z-ai/glm-5.3',
+    };
+    expect(family('luna', aliases)).toBe('openai');
+    expect(family('glm', aliases)).toBe('z-ai');
+    expect(family('claude-opus', aliases)).toBe('anthropic');
+    expect(unbiased({ sol: 1 }, 'glm', aliases)).toEqual({ sol: 1 });
+    expect(unbiased({ sol: 1 }, 'luna', aliases)).toEqual({ gemini: 1 });
+    expect(unbiased({ opus: 1, sonnet: 2, sol: 2 }, 'smart', aliases)).toEqual({ opus: 1, sonnet: 2, gemini: 2 });
+    expect(unbiased({ opus: 1, sol: 2 }, 'claude-sonnet', aliases)).toEqual({ gemini: 1, sol: 2 });
   });
 
   it('gives a bootstrap interval around the mean', () => {

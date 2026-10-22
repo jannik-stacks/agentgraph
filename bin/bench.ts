@@ -68,7 +68,7 @@ const strataKeys = ['repo', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'is
 const answer = '/bothub No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };
 const options = { point: process.env.BENCH_POINT, repeat: 1, pairs: 'all' };
-const panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
+let panel: Record<string, number> = { opus: 1, sonnet: 2, sol: 2 };
 const testPath = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.\w+$|_tests?\.\w+$/;
 const noise = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|CHANGELOG[^/]*)$/;
 const caseStart = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|#\[(?:tokio::)?test\]|def test_|func Test)/;
@@ -736,18 +736,42 @@ const claude = (model: string) => (prompt: string, cwd: string) =>
     );
     child.stdin?.end(prompt);
   });
-const sol = async (prompt: string) => {
+const proxied = (model: string) => async (prompt: string) => {
   const r = await fetch('http://127.0.0.1:4000/v1/chat/completions', {
     method: 'POST',
     headers: { authorization: `Bearer ${process.env.BOTHUB_LLM_API_KEY_REVIEWER}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'smart', messages: [{ role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
   });
   return ((await r.json()) as { choices?: { message: { content: string } }[] }).choices?.[0]?.message.content ?? '';
 };
 const judges: Record<string, (prompt: string, cwd: string) => Promise<string>> = {
   opus: claude('opus'),
   sonnet: claude('sonnet'),
-  sol,
+  sol: proxied('smart'),
+  gemini: proxied('gemini'),
+};
+const judgeModels: Record<string, string> = { opus: 'claude-opus', sonnet: 'claude-sonnet', sol: 'smart', gemini: 'gemini' };
+const upstream = (JSON.parse(read(here('infra/local/prices.json')) || '{}') as { aliases?: Record<string, string> })
+  .aliases;
+
+/** The maker of a proxy alias or model, from its upstream name: openai, anthropic, google, z-ai, x-ai and so on. */
+export const family = (model: string, aliases = upstream ?? {}) => {
+  const name = (aliases[model] ?? model).replace(/^openrouter\//, '');
+  if (/^(chatgpt|openai)\/|^gpt-/.test(name)) return 'openai';
+  if (/^(anthropic\/)?claude/.test(name)) return 'anthropic';
+  return name.includes('/') ? name.split('/')[0]! : name;
+};
+
+/** The panel with each judge of the contestant's family swapped for the first of sol, gemini, opus from another one. */
+export const unbiased = (chosen: Record<string, number>, contestant: string, aliases = upstream ?? {}) => {
+  const own = family(contestant, aliases);
+  const other = (name: string) => family(judgeModels[name]!, aliases) !== own;
+  const out: Record<string, number> = {};
+  for (const [name, n] of Object.entries(chosen)) {
+    const judge = other(name) ? name : ['sol', 'gemini', 'opus'].find(j => other(j) && !(j in chosen) && !(j in out));
+    if (judge) out[judge] = n;
+  }
+  return out;
 };
 
 /** The orders (0 is first-then-second, 1 the reverse) a judge reads a pair in; with one, it is picked by the pair's key. */
@@ -793,13 +817,14 @@ const judge = async (caseDir: string, out: string) => {
         const dir = join(root, 'judge', `${a}-${b}`);
         save(join(dir, 'prompt.md'), prompt);
         await Promise.all(
-          Object.entries(judges)
-            .filter(([name]) => orders(panel[name] ?? 2, `${c.id}/${x}-${y}`).includes(at))
-            .map(async ([name, ask]) => {
+          Object.entries(unbiased(panel, options.point?.split(':')[1] ?? 'smart'))
+            .filter(([, n]) => orders(n, `${c.id}/${x}-${y}`).includes(at))
+            .map(async ([name]) => {
+              const ask = judges[name]!;
               const kept = slot('judge', name, prompt);
               for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
                 const hit = reusable(kept);
-                if (!hit) guard(out, name !== 'sol');
+                if (!hit) guard(out, family(judgeModels[name]!) === 'anthropic');
                 const raw = hit
                   ? read(kept!)
                   : await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
@@ -1132,7 +1157,7 @@ if (import.meta.main) {
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);
   Object.assign(options, { point, repeat: Number(values.repeat), pairs: values.pairs });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
-  Object.assign(panel, parsePanel(values.judges));
+  panel = parsePanel(values.judges);
   loadKeys(env.keys ?? values.keys ?? here('infra/local/.keys.env'));
   if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
   else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo);

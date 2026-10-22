@@ -87,7 +87,10 @@ node bin/bench.ts report <out>
   cost and answers from `usage.json`, else the traces.
 - `judge` hands every pair of arms to three judges (Opus and Sonnet through `claude -p`, sol through
   LiteLLM's `smart`). `--judges opus:1,sonnet:2,sol:2` sets how many orders each reads; a judge with
-  one reads the order picked by the case and pair, so a pair costs three Claude calls. `--pairs human`
+  one reads the order picked by the case and pair, so a pair costs three Claude calls. The panel given
+  replaces the default, so `--judges sol:1` runs sol alone. A judge from the same maker as the point's model
+  (by its upstream name in `infra/local/prices.json`) is swapped for the first of sol, `gemini` (through
+  LiteLLM's `gemini`) and Opus from another maker, so luna is judged by gemini. `--pairs human`
   judges only the pairs with the human in them. The diffs are blinded: no lockfiles or changelogs, no index
   lines, issue numbers and names masked. The prompt is `bench/judge.md`: correctness against the issue
   first, then scope, and more tests or lines are not better in themselves. Each verdict lists findings
