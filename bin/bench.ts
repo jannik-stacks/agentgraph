@@ -1194,8 +1194,9 @@ export const rowsOf = (out: string) => {
     .filter(id => existsSync(join(out, id, 'human')))
     .map(id => loadScored(out, id))
     .filter(c => !c.invalid)
-    .flatMap(c =>
-      ['human', ...bots].flatMap(arm => {
+    .flatMap(c => {
+      const base = JSON.parse(read(join(out, c.id, 'base', 'score.json')) || '{}') as Record<string, unknown>;
+      return ['human', ...bots].flatMap(arm => {
         const s = JSON.parse(read(join(out, c.id, arm, 'score.json')) || 'null') as Record<string, unknown> | null;
         if (!s) return [];
         const seen = c.verdicts.filter(v => v.order.includes(arm));
@@ -1211,7 +1212,8 @@ export const rowsOf = (out: string) => {
               )
             : 0;
         const spent = { ...s, ...usage(join(out, c.id, arm)) };
-        const [hidden, suite, typecheck] = [ok(s.hidden), ok(s.suite), ok(s.typecheck)];
+        const [hidden, typecheck] = [ok(s.hidden), ok(s.typecheck)];
+        const suite = ok(base.suite) === 0 ? undefined : ok(s.suite);
         return [
           {
             point: `${p.harness}:${p.model}/${arm}@${p.engine}/${p.hubs[arm] ?? ''}/${p.set}`,
@@ -1231,8 +1233,8 @@ export const rowsOf = (out: string) => {
             ...costOf(spent, p.harness),
           },
         ];
-      })
-    );
+      });
+    });
 };
 
 const summary = (cases: Scored[]) => {

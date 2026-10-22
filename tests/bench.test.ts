@@ -329,6 +329,8 @@ describe('bin/bench.ts score and report', () => {
     const point = { harness: 'pi', model: 'luna', engine: 'abc', hubs: { v2: 'h2' }, set: 'core@1', repeat: 2 };
     writeFileSync(join(out, 'point.json'), JSON.stringify(point));
     expect(rowsOf(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
+    writeFileSync(join(out, 'demo', 'base', 'score.json'), JSON.stringify({ ...score('base'), suite: { ok: false } }));
+    expect(rowsOf(out)[1]).not.toHaveProperty('suite');
   });
 });
 
