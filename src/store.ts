@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
 import { beat, live } from './env.ts';
-import type { Applied, Event } from './forge.ts';
+import type { Applied, Event } from './event.ts';
 import type { Checkout } from './sandbox.ts';
 import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
 import type { CheckResult, Outcome, Run } from './workflow.ts';

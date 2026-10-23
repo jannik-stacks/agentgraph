@@ -3,7 +3,8 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { fileForge, type Proposal } from '../src/forge.ts';
+import { fileForge } from '../src/forge.ts';
+import type { Proposal } from '../src/proposal.ts';
 import { instanceAt } from '../src/instance.ts';
 import { sweep, tick, type Instruction } from '../src/engine.ts';
 import { loadHub } from '../src/hub.ts';

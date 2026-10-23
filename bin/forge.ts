@@ -20,7 +20,9 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { stringify } from 'yaml';
-import { fileForge, Forge, type Event, type Proposal } from '../src/forge.ts';
+import { fileForge, Forge } from '../src/forge.ts';
+import type { Event } from '../src/event.ts';
+import type { Proposal } from '../src/proposal.ts';
 import { instanceAt } from '../src/instance.ts';
 
 const { values, positionals } = parseArgs({

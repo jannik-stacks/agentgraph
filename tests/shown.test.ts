@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { shown, type Issues } from '../src/context.ts';
-import type { Issue } from '../src/forge.ts';
+import type { Issue } from '../src/event.ts';
 import type { Run } from '../src/workflow.ts';
 
 const run: Run = {

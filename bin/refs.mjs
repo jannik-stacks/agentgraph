@@ -10,6 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Proposal, Said } from '../src/proposal.ts';
 
 const root = join(import.meta.dirname, '..');
 const read = path => readFileSync(join(root, path), 'utf8');
@@ -164,7 +165,7 @@ const strings = text => [...text.matchAll(/'([^']+)'/g)].map(m => m[1]);
 const userFacing = () => {
   const items = [];
   const add = (what, from, names) => names.forEach(name => items.push({ what, from, name }));
-  for (const file of ['src/hub.ts', 'src/workflow.ts', 'src/engine.ts']) {
+  for (const file of ['src/hub.ts', 'src/workflow.ts']) {
     const text = read(file);
     for (const m of text.matchAll(/Schema\.Struct\(\{/g)) {
       for (const piece of topLevel(balanced(text, m.index + m[0].length - 1))) {
@@ -176,12 +177,17 @@ const userFacing = () => {
     }
     for (const lit of text.matchAll(/EventName = Schema\.Literal\(([^)]*)\)/g)) add('value', file, strings(lit[1]));
   }
-  const forge = read('src/forge.ts');
-  const proposal = /export type Proposal =([\s\S]*?);\n\n/.exec(forge)?.[1] ?? '';
+  const literals = ast =>
+    ast._tag === 'Literal' ? [ast.literal] : ast._tag === 'Union' ? ast.types.flatMap(literals) : [];
+  for (const { propertySignatures } of Said.ast.types)
+    for (const p of propertySignatures) {
+      add('field', 'src/proposal.ts', [p.name]);
+      add('value', 'src/proposal.ts', literals(p.type));
+    }
   add(
     'proposal kind',
-    'src/forge.ts',
-    [...proposal.matchAll(/kind: '(\w+)'/g)].map(m => m[1])
+    'src/proposal.ts',
+    Proposal.ast.types.flatMap(m => literals(m.propertySignatures.find(p => p.name === 'kind').type))
   );
   add('status', 'src/workflow.ts', strings(/status: ([^;]+);/.exec(read('src/workflow.ts'))?.[1] ?? ''));
   const context = read('src/context.ts');

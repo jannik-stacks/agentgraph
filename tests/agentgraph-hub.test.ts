@@ -3,7 +3,8 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, tmp, write } from './kit.ts';
 import { context } from '../src/context.ts';
-import type { Event, Proposal } from '../src/forge.ts';
+import type { Event } from '../src/event.ts';
+import type { Proposal } from '../src/proposal.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
 const modules = resolve(import.meta.dirname, '../node_modules');

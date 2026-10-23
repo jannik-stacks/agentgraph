@@ -1,7 +1,8 @@
 import { basename } from 'node:path';
 import { Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
-import type { Applied, Event, Proposal } from './forge.ts';
+import type { Applied, Event } from './event.ts';
+import type { Proposal } from './proposal.ts';
 
 /** A check's verdict; `empty` when its `each` found nothing to judge. */
 export type CheckResult = { check: string; pass: boolean; empty?: true; findings?: string; ms: number };

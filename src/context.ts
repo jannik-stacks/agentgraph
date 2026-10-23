@@ -1,4 +1,5 @@
-import { studioRun, unstamped, type Event, type Proposal, type Issue } from './forge.ts';
+import { studioRun, unstamped, type Event, type Issue } from './event.ts';
+import type { Proposal } from './proposal.ts';
 import type { Trace } from './store.ts';
 import { failure, type Run, type Seen } from './workflow.ts';
 

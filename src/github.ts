@@ -1,21 +1,8 @@
 import { createPrivateKey, sign } from 'node:crypto';
 import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
-import {
-  addressed,
-  allowed,
-  pushable,
-  unpushable,
-  Forge,
-  ForgeError,
-  type Applied,
-  type Comment,
-  type Event,
-  type Proposal,
-  type Issue,
-  marked,
-  matches,
-  withheld,
-} from './forge.ts';
+import { addressed, allowed, pushable, unpushable, Forge, ForgeError, marked, matches, withheld } from './forge.ts';
+import type { Applied, Comment, Event, Issue } from './event.ts';
+import type { Proposal } from './proposal.ts';
 import { hostGit, mergeOf, published, type Checkout } from './sandbox.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;

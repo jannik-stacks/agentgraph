@@ -3,29 +3,16 @@ import { readdir, readFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
-import type { Proposal } from './forge.ts';
+import { Kind } from './proposal.ts';
 import { Sandbox } from './sandbox.ts';
 import { exact, load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
-
-const kinds = [
-  'comment',
-  'label',
-  'push',
-  'pull_request',
-  'merge',
-  'issue',
-  'ask',
-  'back',
-  'run',
-  'tell',
-] as const satisfies readonly Proposal['kind'][];
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
   harness: Schema.Literal('claude', 'opencode', 'pi'),
   model: Schema.optionalWith(Schema.String, { exact: true }),
   tools: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { default: () => [] }),
-  returns: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Literal(...kinds))), { default: () => ['comment'] }),
+  returns: Schema.optionalWith(Schema.mutable(Schema.Array(Kind)), { default: () => ['comment'] }),
   reads: Schema.optionalWith(Schema.Literal('traces'), { exact: true }),
 });
 export type Agent = typeof Agent.Type;
@@ -110,10 +97,11 @@ const reads = (texts: string[], name: string) =>
 /** Reports each `"kind"` value a body names that the engine does not know. */
 const unknownKinds = (body: string, say: (message: string) => void) => {
   const seen = new Set<string>();
-  for (const [, name] of body.matchAll(/"kind":\s*"([\w-]+)"/g)) {
-    if (seen.has(name!) || kinds.some(k => k === name)) continue;
-    seen.add(name!);
-    say(`names the proposal kind ${name}, which the engine does not have`);
+  for (const [, word, kind] of body.matchAll(/`(\w[\w-]*)`|"kind":\s*"([\w-]+)"/g)) {
+    const name = word ?? kind!;
+    if (seen.has(name) || Schema.is(Kind)(name) || (word !== undefined && !(name in returns))) continue;
+    seen.add(name);
+    say(`names the proposal kind ${name}, which the engine does not have${returns[name] ? `: ${returns[name]}` : ''}`);
   }
 };
 

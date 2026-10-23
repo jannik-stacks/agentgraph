@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 
 import { join } from 'node:path';
 import { Deferred, Effect, Fiber, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { Forge, provenance, type Proposal } from '../src/forge.ts';
+import { Forge, provenance } from '../src/forge.ts';
+import type { Proposal } from '../src/proposal.ts';
 import { githubForge } from '../src/github.ts';
 import type { Checkout } from '../src/sandbox.ts';
 import { tmp } from './kit.ts';

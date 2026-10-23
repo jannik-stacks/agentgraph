@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { news, type Issues } from '../src/context.ts';
-import type { Comment, Event, Issue } from '../src/forge.ts';
+import type { Comment, Event, Issue } from '../src/event.ts';
 
 const said = (actor: string, at: string, comment: Omit<Comment, 'author' | 'at'>): Event => ({
   issue: 17,

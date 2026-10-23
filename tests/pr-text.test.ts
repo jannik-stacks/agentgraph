@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { Proposal } from '../src/forge.ts';
+import type { Proposal } from '../src/proposal.ts';
 
 const script = join(import.meta.dirname, '..', 'examples');
 const hubs = readdirSync(script).filter(hub => existsSync(join(script, hub, 'scripts', 'pr-text.mjs')));

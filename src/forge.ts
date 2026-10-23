@@ -2,102 +2,15 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
+import { studioRun, unstamped, type Applied, type Comment, type Event, type Issue, type Mark } from './event.ts';
+import type { Proposal } from './proposal.ts';
 import { hostGit, mergeOf, published, type Checkout } from './sandbox.ts';
-
-/** An issue or a pull request, as GitHub returns it. `pull` is set on pull requests. */
-export type Issue = {
-  number: number;
-  title: string;
-  body: string;
-  state: 'open' | 'closed' | 'merged';
-  labels: string[];
-  milestone?: string;
-  author: string;
-  parent?: number;
-  pull?: { branch: string; base: string; head: string; baseSha?: string };
-  url: string;
-};
-
-/**
- * A comment; `path` and `line` place a review comment, `under` is the review comment it answers. `said` is what it
- * says to the bot: its text without the `/agent` that calls the bot, when it has one.
- */
-export type Comment = {
-  id: string;
-  author: string;
-  body: string;
-  at: string;
-  said?: string;
-  path?: string;
-  line?: number;
-  under?: string;
-};
-
-/** Something a person or a bot said or did on an issue. */
-export type Event = {
-  source?: 'cli';
-  issue: number;
-  kind: 'comment' | 'approved' | 'changes_requested' | 'merged' | 'closed' | 'label' | 'unlabel' | 'commit' | 'check';
-  actor: string;
-  trusted: boolean;
-  at: string;
-  comment?: Comment;
-  label?: string;
-  commit?: { sha: string; title: string };
-  check?: { name: string; conclusion: string };
-};
-
-/**
- * What a run may change on the repo, and the three proposals that steer the run. `react` and `rebase` are the runner's
- * own; a rebase moves the commits on `branch` after `from` onto `onto`, or replays `head` in the checkout only.
- * A react with `remove` takes back the reaction of that id. A push with `onto` lands the files as one commit on `onto` and replaces the branch, or with
- * `merge` as a merge of `onto` into it; either refuses when the branch moved past the commit the checkout started from. An issue with a `parent` is filed as its sub-issue.
- */
-export type Proposal =
-  | { kind: 'comment'; body: string; edit?: string; under?: string }
-  | { kind: 'react'; comment?: string; review?: boolean; remove?: string }
-  | { kind: 'label'; add?: string[]; remove?: string[] }
-  | { kind: 'push'; branch: string; message: string; onto?: string; merge?: true }
-  | { kind: 'rebase'; branch: string; from: string; onto: string; head?: string }
-  | { kind: 'pull_request'; branch: string; base: string; title: string; body: string }
-  | { kind: 'merge'; number: number; head: string }
-  | { kind: 'issue'; title: string; body: string; parent?: number; labels?: string[] }
-  | { kind: 'ask'; question: string }
-  | { kind: 'back'; why: string }
-  | { kind: 'run'; workflow: string; issue: number; step?: string }
-  | { kind: 'tell'; issue: number; text: string };
-
-/**
- * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
- * given. `at` is when its body was stamped with the run it came from.
- */
-export type Applied = {
-  operation?: string;
-  issue?: number;
-  proposal: Proposal;
-  ok: boolean;
-  url?: string;
-  id?: string;
-  reason?: string;
-  at?: string;
-};
-
-/** The run, step and session a write to the forge comes from. */
-export type Mark = { run: string; step: string; session?: string };
 
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
 export const provenance = FiberRef.unsafeMake<Mark | undefined>(undefined);
 
-/** The studio page of a run. */
-export const studioRun = (studio: string, run: string) =>
-  `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}`;
-
 /** The studio page of a run, opened at the trace line written at or after `at`. */
 const runLink = (studio: string, run: string, at: string) => `${studioRun(studio, run)}?at=${at}`;
-
-/** The body without any provenance marker or ⁂ link in it. */
-export const unstamped = (body: string) =>
-  body.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
 
 /**
  * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any

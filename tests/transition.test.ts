@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addressed, type Event } from '../src/forge.ts';
+import { addressed } from '../src/forge.ts';
+import type { Event } from '../src/event.ts';
 import { begin, cancelled, fold, reenter, transition, type Outcome, type Run } from '../src/workflow.ts';
 import { fixture } from './fixtures.ts';
 
