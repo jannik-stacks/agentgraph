@@ -70,9 +70,9 @@ const current = (value: unknown, key = ''): unknown => {
 const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
 
 /**
- * A run is `<dir>/<id>/run.json` and its trace `<dir>/<id>/trace.jsonl`; every put that changes the run also traces
- * what changed. Locks carry a process owner and an acquisition id. Check output is gzipped once per content at
- * `<dir>/logs/<sha256>.gz`, as `logs` says.
+ * A run is `<dir>/<id>/run.json` and its trace `<dir>/<id>/trace.jsonl`; every put that changes the run first traces
+ * what changed, so a trace may hold a change its run.json missed. Locks carry a process owner and an acquisition id.
+ * Check output is gzipped once per content at `<dir>/logs/<sha256>.gz`, as `logs` says.
  */
 export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all'): Layer.Layer<Store> => {
   const io = <A>(path: string, f: () => Promise<A>) =>
@@ -203,13 +203,13 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     put: run =>
       Effect.gen(function* () {
         const line = changes(yield* readRun(run.id), run);
+        if (line) yield* trace(run.id, line);
         yield* io(runFile(run.id), async () => {
           await mkdir(join(dir, run.id), { recursive: true });
           const tmp = `${runFile(run.id)}.${randomUUID()}.tmp`;
           await writeFile(tmp, `${JSON.stringify(run, null, 2)}\n`);
           await rename(tmp, runFile(run.id));
         });
-        if (line) yield* trace(run.id, line);
       }),
     trace,
     read: (id, from = 0) =>

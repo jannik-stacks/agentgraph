@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
@@ -53,6 +53,23 @@ describe('fileStore', () => {
       { saved: { status: 'waiting', reason: 'why' } },
       { saved: {}, cleared: ['reason'] },
     ]);
+  });
+
+  it('traces a put before it saves the run, and lists only runs that were saved', async () => {
+    const dir = temp();
+    const run = begin(w, { id: 'r1', issue: 3, started: '2026-10-16T00:00:00Z' });
+    const store = <A, E>(effect: Effect.Effect<A, E, Store>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(fileStore(dir))));
+    await store(Effect.flatMap(Store, s => s.put(run)));
+    chmodSync(join(dir, 'r1'), 0o555);
+    const failed = await store(Effect.either(Effect.flatMap(Store, s => s.put({ ...run, status: 'waiting' }))));
+    chmodSync(join(dir, 'r1'), 0o755);
+    expect(failed._tag).toBe('Left');
+    const lines = await store(Effect.flatMap(Store, s => Stream.runCollect(s.read('r1'))));
+    expect(Chunk.toArray(lines).at(-1)).toMatchObject({ saved: { status: 'waiting' } });
+    mkdirSync(join(dir, 'r2'));
+    writeFileSync(join(dir, 'r2', 'trace.jsonl'), `${JSON.stringify({ at: 'a', step: 'triage', saved: run })}\n`);
+    expect((await store(Effect.flatMap(Store, s => s.list()))).map(r => r.id)).toEqual(['r1']);
   });
 
   it('reads a run.json and trace lines written with older names under the current ones', async () => {

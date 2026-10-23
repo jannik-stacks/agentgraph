@@ -142,7 +142,7 @@ const failing = (runs: string, id: string) => {
 const traces = (at: string, budget: number) => {
   const data = join(at, 'data');
   const runs = (existsSync(data) ? readdirSync(data) : [])
-    .filter(n => n.startsWith('issue-') && existsSync(join(data, n, 'trace.jsonl')))
+    .filter(n => n.startsWith('issue-') && existsSync(join(data, n, 'run.json')))
     .sort()
     .map(n => ({
       run: JSON.parse(read(join(data, n, 'run.json'))) as Run,
