@@ -1,6 +1,6 @@
 # Bench
 
-The bench replays merged pull requests from their parent commit and issue text. Tests and blind judges score each arm against the merged change.
+The bench replays merged pull requests from their parent commit and issue text. Hidden tests and blind judges score each arm against the merged change.
 
 ## Run it at a commit
 
@@ -10,44 +10,52 @@ ln -s "$PWD/node_modules" <dir>/<sha>/engine/agentgraph/node_modules
 SHA=<sha> POINTS=opencode:luna REPEATS=3 KEYS=<keys file> node bench/drive.ts <dir>
 ```
 
-A bench dir holds `set.json` (a copy of `bench/sets/<set>.json`) and the set's case dirs under `cases/`. The driver runs validity, v2, floor, scoring and judging for every case at each point and repeat with the engine checked out at `<dir>/<sha>/engine`, and writes `report.md` in each run dir `<dir>/<sha>/<harness>-<model>/r<k>`. Points take aliases such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)). [Long runs](#long-runs) covers settings, budgets, pause and resume.
+This checks the commit out at `runs/<sha>/engine` and runs validity, v2, floor, scoring and judging for the cases in `bench/sets/<set>.json`. It writes `runs/<sha>/report.md`, and `compare.md` against the newest other `runs/<sha>/report.md`; pointed and repeat runs are not compared. Cases whose base differs from the set's pinned base are skipped.
 
-Each run dir's `point.json` records harness, model, engine, hub trees, set and repeat. For arm commands run by hand, `BENCH_POINT` selects the model and `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key.
+| Option | Effect |
+| --- | --- |
+| `--cases-dir`, `--repos-dir` | Instead of `BENCH_CASES`, `BENCH_REPOS` |
+| `--out` | Output root, default `runs` |
+| `--parallel` | Cases at once, default 3 |
+| `--point harness:model` | Point every hub agent at one harness and model, such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)) |
+| `--repeat k` | A separate repeat instead of reusing results |
+| `--pairs human` | Judge only pairs with the human |
+| `--judges` | Another [judge panel](#commands) |
+| `--fresh` | Ignore shared caches |
 
-Shared results live in `<dir>/.cache` (`BENCH_CACHE`): validity keys include case, scoring code and sandbox image; arm keys include case, arm, hub, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped; `BENCH_FRESH=1` ignores the cache.
+With a point or repeat, results go under `runs/<sha>/<harness>-<model>/r<k>`, and `point.json` records harness, model, engine, hub trees, set and repeat. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key. `BENCH_HUB=<dir>` replaces the v2 hub.
+
+Results are shared through `runs/.cache`, keyed by everything that shapes them (case, arm, hub, the engine's `src` tree, point, repeat, judge and prompt), and existing outputs are skipped.
 
 ## Cases
 
-Each case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden.relaxed.diff` edits the merged test files after they reach the tree, for cases whose tests pin more than the issue states; such a case skips the coupling check.
+A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden.relaxed.diff` loosens merged tests that pin more than the issue states; such a case skips the coupling check.
 
 | Case field | Meaning |
 | --- | --- |
 | `repo`, `base`, `merged` | Repo and commits to replay |
-| `test`, `suite`, `typecheck`, `setup` | Optional commands; suite defaults to test |
-| `image` | Local scoring base image, e.g. `agentgraph-sandbox:node20` from `infra/local/sandbox/node20`, or `agentgraph-sandbox:services` from `infra/local/sandbox/services` |
+| `test`, `suite`, `typecheck`, `setup`, `build` | Optional commands; `suite` defaults to `test` |
+| `image` | Local scoring image, such as `agentgraph-sandbox:node20` or `agentgraph-sandbox:services` from `infra/local/sandbox/` |
 | `hasTests: false` | Metrics and judges only |
 | `size`, `kind`, `area` | Report strata |
 | `control` | `bug` flips an added comparison; `padded` adds trivial tests |
 
-Mined cases list test files in `tests`; `plan` in `bin/bench.ts` derives repo commands, and a per-repo typecheck for explorer, stacks.js and clarinet that runs on every case. `bucket: no-tests` disables hidden tests, not the typecheck. It also plans stacks-blockchain-api, token-metadata-api, clarity-wasm, stacks-core, api-toolkit, connect, workers and stacks-mesh-api:
+Mined cases list their test files in `tests`, and `plan` in `bin/bench.ts` derives the commands per repo, with a typecheck for some repos on every case. `bucket: no-tests` turns off hidden tests but not the typecheck. Repos whose tests start their own containers have no plan, since the sandbox has no Docker socket.
 
-- Rust repos run one `cargo test` per hidden file: an integration target, a module of a target directory or a test module in src. Setup is the same for every case of a repo, so Envs are shared per lockfile: it fetches all crates, then builds the workspace tests where they compile; each case builds its own targets on top at score. clarity-wasm runs its clar2wasm tests once per `test-clarity-v*` feature, as its CI does.
-- The API repos score in `agentgraph-sandbox:services`, whose `services` command starts PostgreSQL (on the `PG_PORT` from `.env`, else 5432, trust auth for `postgres`, sorting as en_US.UTF-8 like the postgres image CI uses) and Redis inside the container. stacks-blockchain-api runs each file through the package script whose jest config holds it, `test:<dir>` for `tests/<dir>/`.
-- Repos whose tests start their own containers through the Docker API (signer-metrics-api, stacks-node-publisher, blockchain-api's `tests/2.5`) have no plan; the sandbox has no Docker socket.
-
-Tested cases are valid only if hidden tests fail on base and pass on human, the human diff applies, setup works and the human passes the suite and the typecheck. A case without hidden tests is invalid only when the human fails the typecheck. A row counts the suite only where base passes it. Invalid cases record reasons in `valid.json` and skip arms and judges. Before containers run, a coupling check rejects tests importing human-only paths or names absent from the issue, or checking snapshots. Controls compare the human with its mutated copy; preferring the copy measures judge mistakes.
+A tested case is valid only if its hidden tests fail on base and pass on the human change, the human diff applies, setup works, and the human passes the suite and, where base does, the typecheck. A case without hidden tests is invalid only when the human fails the typecheck. Before any container runs, a coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json` and skip arms and judges.
 
 ## Arms
 
-| Arm | Behavior |
+| Arm | What runs |
 | --- | --- |
-| `human` | Merged change |
-| `v2` | Repo hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), otherwise `examples/bench`: implement, check tests, review with one return, then human merge. Small single-source edits skip review in the fallback hub. |
+| `human` | The merged change |
+| `v2` | The repo's hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
+| `v1` | Not available |
 
-Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers one question with "No more information. Use your judgment."; answers are counted.
+Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers any question with "No more information. Use your judgment.", and answers are counted.
 
-Unfinished arms retry once, then become infra in `meta.json`, excluded from win rates and means. An arm that changed nothing is the agent's result: it is not rerun, its row says `outcome: no-change`, and it scores 0. Scoring setup failures also count as infra. Environment failures retry with backoff across restarts, logging `infra` in `log.jsonl`; after six failures they remain infra. Unreachable registries leave scores unwritten.
+An unfinished arm retries once, then counts as infra in `meta.json` and stays out of win rates and means. An arm that changed nothing scores 0 with `outcome: no-change`. Scoring setup failures also count as infra.
 
 ## Commands
 
@@ -59,12 +67,12 @@ node bin/bench.ts judge <case> <out>
 node bin/bench.ts report <out>
 ```
 
-- `run` writes forge, data, hub copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage sums sessions, reported costs, tokens by model and class, and minutes over every attempt, set-aside ones included, and lists each attempt. `split` divides the time into session, tool, hub setup and check ms, plus the minutes of attempts lost to infra. A model without a list price stops `run` before it spends. Cached arms retain usage, not data; every arm, floor included, is keyed by the engine's `src` tree, and a reused arm's `meta.json` names its slot in `reusedFrom`. `--point` and `--repeat` also work here.
-- `score` applies each diff to a shared base checkout, runs suite and typecheck, overlays human test files and runs hidden tests. A base row checks pre-change failure. Metrics count source/test lines, files, human-file overlap, added tests, branch-token changes, sessions, cost and answers. Usage comes from `usage.json`, otherwise traces. `--drop-env` removes scoring environments afterward; tunes retain environments for reuse.
-- `judge` compares pairs with Opus and Sonnet via `claude -p`, and sol via proxy alias `smart`. Default `--judges opus:1,sonnet:2` sets one or both diff orders, the same panel for every row; a single order is chosen by case and pair. Add `sol:2` to widen it, or `--judges sol:1` to replace it. The studio unticks sol by default. Judges sharing the contestant's maker are replaced by another maker from sol, gemini, Opus, using upstream names in `infra/local/prices.json`. Prompts omit lockfiles, changelogs, `.tsbuildinfo` files, `.husky/` hooks, `.changeset/` notes and index lines, on both sides of a pair, and mask names and issue numbers. `bench/judge.md` prioritizes correctness, then scope, without rewarding size. JSON verdicts keep severity, category and preference beside raw replies. Each uncached call writes `<judge>.<n>.cost.json` with ms, tokens and usd (a list-price estimate for `claude -p` on a subscription); `report` sums them.
-- `report` reprices from tokens at today's list price where a run recorded no cost, and rows say whether cost was recorded, list price or a subscription's list-price estimate. It writes valid/invalid/infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables.
+- `run` writes the forge, data, hub copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage sums cost, tokens and time over every attempt. A model without a list price stops `run` before it spends.
+- `score` applies each diff to a base checkout, runs the suite and typecheck, then adds the human test files and runs the hidden tests. It also counts lines, files, overlap with the human change, added tests, sessions, cost and answers. `--drop-env` removes the scoring environments afterward.
+- `judge` compares pairs blind, with names and issue numbers masked, using Opus and Sonnet through `claude -p` and sol through the `smart` alias. The default `--judges opus:1,sonnet:2` gives each judge one or both diff orders; add `sol:2`, or replace the panel with `--judges sol:1`. A judge from the contestant's maker is swapped for another maker. `bench/judge.md` puts correctness first, then scope, and does not reward size.
+- `report` writes valid, invalid and infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables. Cost is recorded, or estimated at list price, and each row says which.
 
-Scoring commands run only in [Docker environments](sandbox.md#environments), offline except setup; missing Docker or images produces no score. Setup reruns for manifest changes or incomplete environments; otherwise case `build` runs on nonempty diffs. Progress appends to `<out>/log.jsonl`. Model keys use `--keys`, default `infra/local/.keys.env`. Paid steps stop above `--max-codex` weekly-use points since the first reading (30), or `--max-claude-calls` judge calls (60).
+Scoring runs only in [Docker environments](sandbox.md#environments), offline except setup. Progress goes to `<out>/log.jsonl`. Model keys come from `--keys`, default `infra/local/.keys.env`. Paid steps stop past `--max-codex` weekly Codex points since the first reading (30) or `--max-claude-calls` judge calls (60).
 
 ## Cost against quality
 
@@ -72,15 +80,15 @@ Scoring commands run only in [Docker environments](sandbox.md#environments), off
 cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
-The Bench tab reads runs under these directories. Without `point.json`, it assumes opencode, `smart`, repeat 1 and directory name as set. Click a point for cases.
+The Bench tab plots the runs under these directories. Without `point.json` it assumes opencode, `smart`, repeat 1 and the directory name as set. Click a point for its cases.
 
-Quality combines hidden tests (the share of the tests base fails that the run passes, read from jest, vitest, cargo or node counts, else pass or fail), twice judge preference over human capped at one, and suite scores with slider weights, minus extra findings and question penalties. Zero means nothing useful; one matches human. The cap keeps every part on that scale, so a run judged better than the human cannot outscore one that passes the hidden tests. Cases whose human has no hidden tests form their own `judge-only` point per setup and never enter the tested mean; the report splits them as stratum `tests`. This is leaner than scoring each case on only the parts all its rows share: each row keeps one score, whatever it is compared with. Cost uses token list prices or elapsed minutes. Crosses show 95% bootstrap intervals over cases, then repeats. The staircase connects points no cheaper point beats; it stays dashed while any has fewer than ten valid cases.
+Quality is 0 for nothing useful and 1 for matching the human. It combines hidden tests (the share of the tests base fails that the run passes), judge preference over the human (doubled and capped at 1), and suite scores, weighted by sliders, minus extra findings and question penalties. The cap means a run judged better than the human cannot outscore one that passes the hidden tests. Cases without hidden tests form their own `judge-only` point. Cost is list-price tokens or elapsed minutes. Crosses show 95% bootstrap intervals over cases, then repeats. The staircase joins the points no cheaper point beats, dashed while any has fewer than ten valid cases.
 
 ## Long runs
 
-Rerun the same command after interruption. Atomic renames protect results; `diff.patch` is written last to mark completion. Live `<arm>.lock` holders are skipped. Abandoned work moves to `<case>/.attic/` without checkouts; its containers are removed. Completed records remain, scoring trees are removed, and dependencies stay in Docker volumes. Low disk space [holds work](sandbox.md#environments).
+Rerun the same command after an interruption. `diff.patch` is written last and marks an arm as done, live `<arm>.lock` holders are skipped, and abandoned work moves to `<case>/.attic/`. Low disk [holds work](sandbox.md#disk).
 
-Tunes live in `<root>/<repo>/<name>`, where the root is `AGENTGRAPH_TUNE`, by default `~/.agentgraph/tune`. A tune's `run --until <iteration>` survives restarts. Unfinished phases wait and retry before giving up without a decision. First startup pins `BENCH_*`, `--keys`, `--point` and the sandbox image's id in `env.json`; every later arm and score runs that exact image, and a rebuilt tag stops the bench instead of mixing sandboxes. Restarts restore missing settings and reject changed values or missing paths. Edit that file for deliberate changes.
+The first `run` or `score` into an output directory pins `BENCH_*`, `--keys`, `--point` and the sandbox image id in `env.json`. Later runs use that exact image and stop if the tag was rebuilt; restarts reject changed values. Edit the file to change them on purpose. Tunes live in `<root>/<repo>/<name>`, the root being `AGENTGRAPH_TUNE` (default `~/.agentgraph/tune`).
 
 ```sh
 node bin/bench.ts status <out>
@@ -89,9 +97,11 @@ sh bin/overnight.sh <queue>
 sh bin/overnight.sh status <queue>
 ```
 
-Status shows progress, infra, running work, retries, waits and estimates; tune status includes its phase. Queues contain shell commands, one per line, with `#` comments. Success appends to `<queue>.done` and is skipped thereafter. Failures retry three times with backoff, then wait for rerun. Output appends to `<queue>.log`; macOS uses `caffeinate`. Keep queues and outputs in a persistent directory, outside `/tmp`.
+`status` shows progress, infra, running work, retries, waits and estimates. A queue is a file of shell commands, one per line, with `#` comments. Each command runs up to three times with backoff; a success goes to `<queue>.done` and is not run again. Output goes to `<queue>.log`. Keep queues and outputs out of `/tmp`.
 
-`bench/drive.ts` runs a whole set at one or more points with repeats. A bench dir holds `set.json`, `cases/` and the engine checked out at `<dir>/<SHA>/engine/agentgraph` (or `ENGINE`). For each job it scores validity, runs v2 and floor, scores again and judges (`JUDGES`, default `opus:1,sonnet:2` on human pairs; `none` skips). The first start records its settings in `drive.json`; later starts need none and refuse a changed `SHA`, `POINTS`, `REPEATS`, `JUDGES` or `KEYS`. Budgets (`MAX_CODEX` weekly Codex percent, `CAP` OpenRouter dollars with `ORENV`) may change on any start. A dir from before `drive.json` takes its settings from the env assignments in its `queue.txt`.
+### Driving a whole set
+
+`bench/drive.ts` runs a set at one or more points with repeats. A bench dir holds `set.json`, `cases/` and the engine at `<dir>/<SHA>/engine/agentgraph` (or `ENGINE`). For each job it checks validity, runs v2 and floor, scores and judges (`JUDGES`, default `opus:1,sonnet:2`; `none` skips).
 
 ```sh
 SHA=<sha> POINTS=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> node bench/drive.ts <dir>
@@ -99,9 +109,10 @@ node bench/drive.ts resume <dir>
 MAX_CODEX=60 node bench/drive.ts resume <dir>
 ```
 
-- Pause: `touch <dir>/PAUSE` takes no new job and lets running jobs finish; `rm <dir>/PAUSE` goes on. `parallel` sets the worker count live.
-- Stop: Ctrl-C or `kill <pid in drive.lock>` stops the running jobs. A budget stop takes no new job and lets running ones finish.
-- Resume: `resume <dir>` rebuilds the queue from the results on disk. A job is finished when its case is invalid, or both arms have `diff.patch` and `score.json` (and a done marker says it was judged, when a panel judges). Finished jobs are never rerun or rewritten. Partial jobs run again; their finished arms and judge calls are reused, and an unfinished arm moves to `<case>/.attic/` with its records before the rerun; only its checkouts are dropped.
-- One driver per dir: `drive.lock` holds its pid. A second driver exits 1. A lock whose pid is dead, or older than the last boot, is taken over.
-- Log: `events.jsonl` appends `start`, `resume`, `pause`, `unpause`, `stop` with its reason, `finish`, `crash` and each job's start, done and fail with its reason. `budget-log.jsonl` keeps budget readings, `logs/` each job's output. The studio Bench tab lists every bench dir as running, paused, stopped, crashed or finished with done/total and the reason.
-- Disk cleanup never enters a bench dir's results, `.attic`, `.cache`, engine, cases or logs; it only removes scoring trees no live process holds.
+The first start records its settings in `drive.json`. Later starts need none and refuse a changed `SHA`, `POINTS`, `REPEATS`, `REPEAT`, `JUDGES`, `KEYS`, `SET`, `ENGINE` or `REPOS`. Budgets (`MAX_CODEX`, `CAP` and `PER` for OpenRouter dollars with `ORENV`) may change on any start.
+
+- Pause: `touch <dir>/PAUSE` takes no new job and lets running ones finish; `rm <dir>/PAUSE` goes on. The `parallel` file sets the worker count live.
+- Stop: Ctrl-C or `kill <pid in drive.lock>` stops running jobs. A budget stop takes no new job.
+- Resume: `resume <dir>` rebuilds the queue from results on disk. Finished jobs are never rerun; partial jobs reuse their finished arms and judge calls.
+- One driver per dir: a second exits 1. The driver also exits 1 while jobs are left, so a queue tries again later.
+- Log: `events.jsonl` records starts, stops, pauses and each job, `budget-log.jsonl` the budget readings, and `logs/` each job's output. The studio's Bench tab lists every bench dir with its state and progress.
