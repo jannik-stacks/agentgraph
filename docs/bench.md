@@ -10,22 +10,11 @@ ln -s "$PWD/node_modules" <dir>/<sha>/engine/agentgraph/node_modules
 SHA=<sha> POINTS=opencode:luna REPEATS=3 KEYS=<keys file> node bench/drive.ts <dir>
 ```
 
-This checks the commit out at `runs/<sha>/engine` and runs validity, v2, floor, scoring and judging for the cases in `bench/sets/<set>.json`. It writes `report.md`, and `compare.md` against the newest `report.md` of another commit directly under `runs/`. Cases whose base differs from the set's pinned base are skipped.
+A bench dir holds `set.json` (a copy of `bench/sets/<set>.json`) and the set's case dirs under `cases/`. The driver runs validity, v2, floor, scoring and judging for every case at each point and repeat with the engine checked out at `<dir>/<sha>/engine`, and writes `report.md` in each run dir `<dir>/<sha>/<harness>-<model>/r<k>`. Points take aliases such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)). [Long runs](#long-runs) covers settings, budgets, pause and resume.
 
-| Option | Effect |
-| --- | --- |
-| `--cases-dir`, `--repos-dir` | Instead of `BENCH_CASES`, `BENCH_REPOS` |
-| `--out` | Output root, default `runs` |
-| `--parallel` | Cases at once, default 3 |
-| `--point harness:model` | Point every hub agent at one harness and model, such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)) |
-| `--repeat k` | A separate repeat instead of reusing results |
-| `--pairs human` | Judge only pairs with the human |
-| `--judges` | Another [judge panel](#commands) |
-| `--fresh` | Ignore shared caches |
+Each run dir's `point.json` records harness, model, engine, hub trees, set and repeat. For arm commands run by hand, `BENCH_POINT` selects the model and `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key.
 
-With a point or repeat, results go under `runs/<sha>/<harness>-<model>/r<k>`, and `point.json` records harness, model, engine, hub trees, set and repeat. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key. `BENCH_HUB=<dir>` replaces the v2 hub.
-
-Results are shared through `runs/.cache`, keyed by everything that shapes them (case, arm, hub, the engine's `src` tree, point, repeat, judge and prompt), and existing outputs are skipped.
+Shared results live in `<dir>/.cache` (`BENCH_CACHE`): validity keys include case, scoring code and sandbox image; arm keys include case, arm, hub, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped; `BENCH_FRESH=1` ignores the cache.
 
 ## Cases
 
@@ -51,7 +40,6 @@ A tested case is valid only if its hidden tests fail on base and pass on the hum
 | `human` | The merged change |
 | `v2` | The repo's hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
-| `v1` | Not available |
 
 Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second question ends the arm where it waits. Answers are counted.
 
@@ -88,7 +76,7 @@ Quality is 0 for nothing useful and 1 for matching the human. It combines hidden
 
 Rerun the same command after an interruption. `diff.patch` is written last and marks an arm as done, live `<arm>.lock` holders are skipped, and abandoned work moves to `<case>/.attic/`. Low disk [holds work](sandbox.md#disk).
 
-The first `run` or `score` into an output directory pins `BENCH_*`, `--keys`, `--point` and the sandbox image id in `env.json`. Later runs use that exact image and stop if the tag was rebuilt; restarts reject changed values. Edit the file to change them on purpose. Tunes live in `<root>/<repo>/<name>`, the root being `AGENTGRAPH_TUNE` (default `~/.agentgraph/tune`).
+The first `run` or `score` into an output directory pins `BENCH_*`, `--keys`, `--point` and the sandbox image id in `env.json`. Later runs use that exact image and stop if the tag was rebuilt; restarts reject changed values. To change them, edit `env.json`. Tunes live in `<root>/<repo>/<name>`, the root being `AGENTGRAPH_TUNE` (default `~/.agentgraph/tune`).
 
 ```sh
 node bin/bench.ts status <out>

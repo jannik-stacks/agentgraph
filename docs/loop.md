@@ -37,7 +37,7 @@ steps:
 
 Steps run in written order. Each is an `agent` step, a `run` step (a shell command) or a `wait: human` step. An agent step gets the skill named by `skill`, else the skill named like the step. A workflow without `steps` is one agent step named after its file, and its body is the prompt. <!-- code: src/workflow.ts#load -->
 
-`each` on an agent step opens, for up to 20 items, one fresh session per changed file (`files`), diff hunk (`hunks`) or output line of a command (`{ run: <command> }`). These sessions never resume. <!-- code: src/engine.ts#most -->
+`each` on an agent step opens one fresh session per changed file (`files`), diff hunk (`hunks`) or output line of a command (`{ run: <command> }`). These sessions never resume. Past 20 items, one session gets them all. <!-- code: src/engine.ts#most -->
 
 ## Starting a run
 
@@ -68,7 +68,7 @@ The child starts with `by` set to the parent's id, and the parent waits with `wa
 
 ### Routing
 
-An `issue_comment` workflow whose agent may `tell` is a router: it runs beside another workflow's live run, and from then on only the router hears people's `/agent` comments. Its `returns` decides what it can do: reply with `comment`, file an `issue`, dispatch with `run`, or forward text with `tell`. <!-- code: src/engine.ts#heardBy -->
+An `issue_comment` workflow whose agent may `tell` is a router, and it runs beside another workflow's live run. In a hub with a router, only `issue_comment` workflows hear people's `/agent` comments; the others hear what the router tells them. Its `returns` decides what it can do: reply with `comment`, file an `issue`, dispatch with `run`, or forward text with `tell`. <!-- code: src/engine.ts#heardBy -->
 
 ```json
 {"kind": "tell", "issue": 12, "text": "stop"}
@@ -190,4 +190,4 @@ One status comment shows the step, whether a question is open, the stop reason, 
 
 `limits.parallel` caps how many issues a pass handles at once, and `limits.sessions` caps sessions, judges included. Runs that one look drives together go by priority: `priority/high`, then unlabelled or `priority/medium`, then `priority/low`, oldest first in each group. <!-- code: src/engine.ts#tick src/engine.ts#gateOf -->
 
-`minutes` is a wall-clock deadline. A run still working after a try that took it over `usd-per-run` stops. Runner errors (timeouts, provider faults, failed setup, a missing check command with exit 127) retry once, then park the run at its step with details in the trace. Any reply retries with the session and tries kept. <!-- code: src/engine.ts#drive -->
+`minutes` is a wall-clock deadline. After each try, a run that is still working stops if it spent more than `usd-per-run`. Runner errors (timeouts, provider faults, failed setup, a missing check command with exit 127) retry once, then park the run at its step with details in the trace. Any reply retries with the session and tries kept. <!-- code: src/engine.ts#drive -->

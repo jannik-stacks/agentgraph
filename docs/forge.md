@@ -1,6 +1,6 @@
 # Without GitHub
 
-A forge folder stands in for GitHub, and an instance bundles one with a hub copy and data for one repo. Both need no App, but sessions still need Docker and [the model stack](local.md#the-model-stack).
+A forge folder stands in for GitHub. An instance bundles one with a hub copy, data and optional keys for one repo. Neither needs a GitHub App. Sessions still need Docker and [the model stack](local.md#the-model-stack).
 
 ## The forge folder
 
@@ -27,7 +27,7 @@ Actions run as `--as <name>`, the instance owner or `git config user.name`, and 
 
 ## Instances
 
-An instance bundles a hub copy, a forge, data and optional keys for one repo. Your repo stays untouched until you `export`. Both CLIs find the instance around the working directory when no hub, forge or data flag is given. <!-- code: src/instance.ts#instanceAt -->
+Your repo stays untouched until you `export`. `bin/forge.ts` finds the instance at or above the folder it is given. `npx agentgraph` without a hub, forge or data flag uses the instance around the working directory. <!-- code: src/instance.ts#instanceAt -->
 
 ```
 ~/agentgraph/kit/

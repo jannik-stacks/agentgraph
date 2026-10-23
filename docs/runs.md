@@ -70,9 +70,9 @@ In the studio, `/runs?gh=<link or comment id>` opens the run that made a write, 
 
 ## Check logs
 
-Check output, up to its last 64 KiB, is gzipped in `logs/`, one file per distinct content; for a check with a judge it is the judge's final reply. Traces and GitHub show short findings, and the studio's check rows open the full output. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`.
+The output of each check is gzipped in `logs/`, one file per distinct content: the last 64K characters of a script's output, or a judge's whole final reply. Traces and GitHub show short findings, and the studio's check rows open the full output. `AGENTGRAPH_CHECK_LOGS` keeps `all` (default), only `failed`, or `off`.
 
-`npx agentgraph prune-logs --data <dir>` counts logs no trace names, and `--apply` deletes them. Run it while no run is being driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
+`npx agentgraph prune-logs --data <dir>` counts logs no trace refers to; `--apply` deletes them. Run it while no run is being driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
 
 ## Checkout
 
