@@ -22,6 +22,7 @@ import {
 } from 'node:fs';
 import { uptime } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, room } from '../src/disk.ts';
 
 const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
@@ -192,10 +193,13 @@ export const down = async (net = false, disk?: Disk): Promise<string | undefined
   return undefined;
 };
 
-export const sleep = (ms: number) => new Promise(done => setTimeout(done, ms));
-
 /** Waits while `down()` has a reason, logging each wait and the recovery; backs off from 15 s to 5 min. */
-export const settle = async (log: (e: object) => void, net = false, check = down, pause = sleep) => {
+export const settle = async (
+  log: (e: object) => void,
+  net = false,
+  check = down,
+  pause: (ms: number) => Promise<unknown> = sleep
+) => {
   let waited = false;
   for (let wait = 15_000; ; wait = Math.min(wait * 2, 300_000)) {
     const why = await check(net);

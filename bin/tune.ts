@@ -12,23 +12,12 @@ import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_pr
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { presets, quality } from '../studio/src/bench/score.ts';
 import { propose as proposeWith } from '../tune/propose.ts';
 import { codexUsed, plan, progress, rowsOf, statusText } from './bench.ts';
-import {
-  append as appendLine,
-  benchEnv,
-  busy,
-  claim,
-  jsonl,
-  onStop,
-  pin,
-  release,
-  settle,
-  sleep,
-  write,
-} from './resume.ts';
+import { append as appendLine, benchEnv, busy, claim, jsonl, onStop, pin, release, settle, write } from './resume.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {

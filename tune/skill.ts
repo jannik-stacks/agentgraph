@@ -158,14 +158,12 @@ const session = (
   live: Live
 ) =>
   new Promise<string>((done, fail) => {
+    const deadline = AbortSignal.timeout(60 * 60_000);
     const child = spawn(process.env.AGENTGRAPH_CLAUDE ?? 'claude', args, {
       cwd: w,
       env: { ...process.env, NODE_OPTIONS: '' },
+      signal: deadline,
     });
-    const timer = setTimeout(() => {
-      live.stopped = 'the session ran past 60 minutes';
-      child.kill();
-    }, 60 * 60_000);
     let out = '';
     let partial = '';
     child.stdout.on('data', (d: Buffer) => {
@@ -187,9 +185,9 @@ const session = (
     });
     let err = '';
     child.stderr.on('data', (d: Buffer) => (err += d.toString()));
-    child.on('error', fail);
+    child.on('error', e => deadline.aborted || fail(e));
     child.on('close', code => {
-      clearTimeout(timer);
+      if (deadline.aborted) live.stopped = 'the session ran past 60 minutes';
       if (out.includes('"type":"result"') || live.stopped) done(out);
       else fail(new Error(`claude exited ${code}: ${err.slice(-500)}`));
     });

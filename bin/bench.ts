@@ -12,6 +12,7 @@ import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
 import { dockerArgs, type Made } from '../src/docker.ts';
@@ -32,7 +33,6 @@ import {
   publish,
   release,
   settle,
-  sleep,
   sweep,
   write,
 } from './resume.ts';

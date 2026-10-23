@@ -7,7 +7,8 @@ import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { append, busy, claim, jsonl, onStop, pin, release, sleep, write } from '../bin/resume.ts';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { append, busy, claim, jsonl, onStop, pin, release, write } from '../bin/resume.ts';
 
 /** The node on PATH now, so a toolchain upgrade during a long bench does not break later spawns. */
 export const nodePath = (fallback = process.execPath) =>

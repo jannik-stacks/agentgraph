@@ -32,6 +32,10 @@ Agent keys pass by environment name and are masked in output; see [Models](sandb
 
 Compose harnesses, LiteLLM, Docker and git with a few [libraries](../package.json).
 
+## Built-ins before helpers
+
+Engine code in `src/` uses Effect's own combinators: `Effect.timeoutFail` for timeouts, and interruption kills the child. Scripts in `bin/` and `tune/` use Node's: `node:timers/promises` to wait, spawn's `timeout` or `signal` option to stop a child, `util.parseEnv` for env files. Nobody writes their own sleep, timer pair or parser. <!-- code: tune/skill.ts#session -->
+
 ## Strict TypeScript
 
 `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` and erasable syntax let Node run source without a build. See [tsconfig.json](../tsconfig.json).

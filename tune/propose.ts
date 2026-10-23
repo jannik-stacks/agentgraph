@@ -294,8 +294,8 @@ const claude = (args: string[], prompt: string, cwd: string, log: string) =>
     const child = spawn(process.env.AGENTGRAPH_CLAUDE ?? 'claude', args, {
       cwd,
       env: { ...process.env, NODE_OPTIONS: '' },
+      timeout: 30 * 60_000,
     });
-    const timer = setTimeout(() => child.kill(), 30 * 60_000);
     let out = '';
     let err = '';
     child.stdout.on('data', (d: Buffer) => {
@@ -305,7 +305,6 @@ const claude = (args: string[], prompt: string, cwd: string, log: string) =>
     child.stderr.on('data', (d: Buffer) => (err += d.toString()));
     child.on('error', fail);
     child.on('close', code => {
-      clearTimeout(timer);
       if (out.includes('"type":"result"')) done(out);
       else fail(new Error(`claude exited ${code}: ${tail(err, 500)}`));
     });
