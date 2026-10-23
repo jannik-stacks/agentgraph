@@ -49,7 +49,7 @@ Cache is collected by unique bytes: an image counts only the layer its build add
 
 ```sh
 node bin/env.ts list
-node bin/env.ts collect --dry-run --root ~/bothub-data/tune
+node bin/env.ts collect --dry-run --root <tune root>
 node bin/env.ts pin luna-full 'bothub-env/*' bothub-cache --days 14
 node bin/env.ts unpin luna-full
 ```

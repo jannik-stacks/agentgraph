@@ -19,7 +19,7 @@ docker build -t agentgraph-sandbox:local sandbox
 For GitHub, create an App with `node bin/setup-app.ts` ([App setup](../infra/github/README.md)). Set `AGENTGRAPH_APP_ENV` to its `app.env`. From `infra/local`, prepare a persistent data directory:
 
 ```sh
-./e2e.sh ~/bothub-data ../../examples/sandbox
+./e2e.sh ~/agentgraph-data ../../examples/sandbox
 ```
 
 The script converts agent keys to `AGENTGRAPH_PROXY_KEYS` in the data directory's `.env` and prints commands. Source that file as instructed; the runner does not load it automatically. Instances load their own `keys.env` instead.
@@ -28,10 +28,10 @@ The script converts agent keys to `AGENTGRAPH_PROXY_KEYS` in the data directory'
 
 ```sh
 node bin/run.ts check --hub examples/sandbox
-node bin/run.ts --hub examples/sandbox --issue 3 --data ~/bothub-data
-node bin/run.ts --hub examples/sandbox --all --data ~/bothub-data
-node bin/run.ts loop --hub examples/sandbox --data ~/bothub-data
-node bin/run.ts status --hub examples/sandbox --data ~/bothub-data
+node bin/run.ts --hub examples/sandbox --issue 3 --data ~/agentgraph-data
+node bin/run.ts --hub examples/sandbox --all --data ~/agentgraph-data
+node bin/run.ts loop --hub examples/sandbox --data ~/agentgraph-data
+node bin/run.ts status --hub examples/sandbox --data ~/agentgraph-data
 ```
 
 | Command | Behavior |
@@ -81,7 +81,7 @@ A forge folder replaces GitHub; no App is needed. It contains `<n>.md` issues, `
 node bin/forge.ts /tmp/forge init ../path/to/repo
 node bin/forge.ts /tmp/forge issue "Reject a negative count" --body issue.md
 node bin/forge.ts /tmp/forge comment 1 /agent
-node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/bothub-data
+node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/agentgraph-data
 ```
 
 `--forge` also works with `loop` and `status`; sessions still use Docker and proxy keys. Use a persistent forge folder for lasting work. <!-- code: src/status.ts#needsYou -->

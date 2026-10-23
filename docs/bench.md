@@ -79,7 +79,7 @@ Scoring commands run only in [Docker environments](sandbox.md#environments), off
 ## Cost against quality
 
 ```sh
-cd studio && npm run dev -- --bench ~/bothub-data/bench/runs-2 ~/bothub-data/bench/runs-3
+cd studio && npm run dev -- --bench <runs dir> <runs dir>
 ```
 
 The Bench tab reads runs under these directories. Without `point.json`, it assumes opencode, `smart`, repeat 1 and directory name as set. Click a point for cases.
@@ -90,7 +90,7 @@ Quality combines hidden tests (the share of the tests base fails that the run pa
 
 Rerun the same command after interruption. Atomic renames protect results; `diff.patch` is written last to mark completion. Live `<arm>.lock` holders are skipped. Abandoned work moves to `<case>/.attic/` without checkouts; its containers are removed. Completed records remain, scoring trees are removed, and dependencies stay in Docker volumes. Low disk space [holds work](sandbox.md#environments).
 
-A tune's `run --until <iteration>` survives restarts. Unfinished phases wait and retry before giving up without a decision. First startup pins `BENCH_*`, `--keys`, `--point` and the sandbox image's id in `env.json`; every later arm and score runs that exact image, and a rebuilt tag stops the bench instead of mixing sandboxes. Restarts restore missing settings and reject changed values or missing paths. Edit that file for deliberate changes.
+Tunes live in `<root>/<repo>/<name>`, where the root is `AGENTGRAPH_TUNE`, by default `~/bothub-data/tune`. A tune's `run --until <iteration>` survives restarts. Unfinished phases wait and retry before giving up without a decision. First startup pins `BENCH_*`, `--keys`, `--point` and the sandbox image's id in `env.json`; every later arm and score runs that exact image, and a rebuilt tag stops the bench instead of mixing sandboxes. Restarts restore missing settings and reject changed values or missing paths. Edit that file for deliberate changes.
 
 ```sh
 node bin/bench.ts status <out>
@@ -99,11 +99,11 @@ sh bin/overnight.sh <queue>
 sh bin/overnight.sh status <queue>
 ```
 
-Status shows progress, infra, running work, retries, waits and estimates; tune status includes its phase. Queues contain shell commands, one per line, with `#` comments. Success appends to `<queue>.done` and is skipped thereafter. Failures retry three times with backoff, then wait for rerun. Output appends to `<queue>.log`; macOS uses `caffeinate`. Keep queues and outputs under `~/bothub-data`, outside `/tmp`.
+Status shows progress, infra, running work, retries, waits and estimates; tune status includes its phase. Queues contain shell commands, one per line, with `#` comments. Success appends to `<queue>.done` and is skipped thereafter. Failures retry three times with backoff, then wait for rerun. Output appends to `<queue>.log`; macOS uses `caffeinate`. Keep queues and outputs in a persistent directory, outside `/tmp`.
 
 `bench/drive.ts` runs a whole set at one point with repeats, the way the luna and OpenRouter benches ran: `OUT` holds `set.json`, `cases/` and the engine checked out at `<OUT>/<SHA>/engine/agentgraph` (or `ENGINE`). It scores, runs v2 and floor, scores again and judges each job as it finishes (`JUDGES`, default `opus:1,sonnet:2` on human pairs; `none` skips). It spawns the node on `PATH` for every job, so a toolchain upgrade does not break later jobs, and a log write or spawn error fails that job, not the driver. `parallel` and `PAUSE` in `OUT` steer it live; `jobs.jsonl` records each job's start and end with the active count and host load.
 
 ```sh
-OUT=~/bothub-data/bench/<name> SHA=<sha> POINT=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> \
+OUT=<bench dir> SHA=<sha> POINT=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> \
   node bench/drive.ts
 ```
