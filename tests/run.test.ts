@@ -3559,6 +3559,18 @@ describe('a base that moved', () => {
     expect(diff).not.toContain('other.txt');
   }, 60_000);
 
+  it('leaves the branch behind its base when the step follows it not at all', async () => {
+    const where = await moved('other.txt');
+    const before = git(where.origin, 'rev-parse', 'agentgraph/7');
+    const { specs, run } = services(where, []);
+    await run(tick(merging({ follow: 'none' })));
+    expect(git(where.origin, 'rev-parse', 'agentgraph/7')).toBe(before);
+    expect(behind(where)).toBe('1');
+    expect(specs).toHaveLength(0);
+    const [stored] = await run(Effect.flatMap(Store, s => s.list()));
+    expect(stored).toMatchObject({ step: 'merge', status: 'waiting' });
+  }, 60_000);
+
   it('judges after the script checks pass when the step names a judged check, and only then', async () => {
     const where = await moved('other.txt');
     const { specs, run } = services(where, [judged]);

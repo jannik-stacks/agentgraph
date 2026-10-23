@@ -1711,11 +1711,12 @@ const follow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: 
 
 /**
  * Brings a run waiting on a human up to what is current: the head of its pull request's base, and the hub. A branch
- * behind its base follows it with no model, by a merge or a rebase as the step's `follow` says. When the change stays
- * the same, the step's own checks run again, scripts first and judged ones only once those pass; a changed change or a
- * new hub runs every check of the step it goes back to. A failed check sends the run back as a request for changes
- * would. A conflict sends it back too, to start on the new base with markers left; when that already happened for
- * this base head, it is said on the issue once. Undefined when nothing moved.
+ * behind its base follows it with no model, by a merge or a rebase as the step's `follow` says, or stays where it is
+ * when that says none. When the change stays the same, the step's own checks run again, scripts first and judged ones
+ * only once those pass; a changed change or a new hub runs every check of the step it goes back to. A failed check
+ * sends the run back as a request for changes would. A conflict sends it back too, to start on the new base with
+ * markers left; when that already happened for this base head, it is said on the issue once. Undefined when nothing
+ * moved.
  */
 const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull']>) =>
   Effect.gen(function* () {
@@ -1727,7 +1728,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const work = { ...made, head: pull.head };
     const onto = work.base;
     const from = yield* text(work, ['merge-base', pull.head, onto]);
-    const moved = !run.base && from !== onto;
+    const moved = step.follow !== 'none' && !run.base && from !== onto;
     const renewed = (run.hub ?? hub.sha) !== hub.sha;
     const current = { ...unthreaded(run), hub: hub.sha };
     if (!moved && !renewed) return run.hub ? undefined : { run: current };
