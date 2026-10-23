@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript"],
+  "plugins": ["typescript", "import"],
   "categories": {
     "correctness": "error"
   },
@@ -8,7 +8,220 @@
     "no-var": "error",
     "prefer-const": "error",
     "no-new-wrappers": "error",
-    "no-unused-vars": ["error", { "caughtErrors": "none", "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
+    "no-unused-vars": ["error", { "caughtErrors": "none", "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "import/no-cycle": ["error", { "ignoreTypes": false }]
   },
+  "overrides": [
+    {
+      "files": ["src/**"],
+      "rules": {
+        "import/no-relative-parent-imports": "error",
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(workflow|hub|context|graph|env|disk|forge|store|session|sandbox|docker|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "message": "values import values only"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/workflow.ts", "src/hub.ts", "src/context.ts", "src/graph.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(env|disk|forge|store|session|sandbox|docker|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "message": "logic imports values and logic only"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/env.ts", "src/disk.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(forge|store|session|sandbox|docker|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "message": "libs import logic and below"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/forge.ts", "src/store.ts", "src/session.ts", "src/sandbox.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(docker|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "message": "ports import libs and below"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/docker.ts", "src/github.ts", "src/harnesses.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(engine|services|main|instance|status)\\.ts$",
+                "message": "adapters import ports and below"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/engine.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(docker|github|harnesses|services|main|instance|status)\\.ts$",
+                "message": "engine imports ports and below, never adapters"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/services.ts", "src/main.ts", "src/instance.ts", "src/status.ts"],
+      "rules": { "no-restricted-imports": "off" }
+    },
+    {
+      "files": ["bench/**", "tune/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          { "patterns": [{ "group": ["../bin/**", "../studio/**"], "message": "bench and tune import src only" }] }
+        ]
+      }
+    },
+    {
+      "files": ["src/workflow.ts", "src/hub.ts", "src/forge.ts", "src/sandbox.ts"],
+      "rules": { "import/no-cycle": "off" }
+    },
+    {
+      "files": ["src/workflow.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(env|disk|store|session|sandbox|docker|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "message": "logic imports values and logic only"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/hub.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(env|disk|store|session|docker|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "message": "logic imports values and logic only"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/context.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(env|disk|session|sandbox|docker|github|harnesses|engine|services|main|instance|status)\\.ts$",
+                "message": "logic imports values and logic only"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/engine.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\./(docker|github|harnesses|main|instance|status)\\.ts$",
+                "message": "engine imports ports and below, never adapters"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["bench/drive.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["../bin/**", "!../bin/resume.ts", "../studio/**"],
+                "message": "bench and tune import src only"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["tune/propose.ts", "tune/skill.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["../bin/**", "!../bin/bench.ts", "!../bin/tune.ts", "../studio/**"],
+                "message": "bench and tune import src only"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "ignorePatterns": ["**/node_modules/**", "studio-lab/**", "research/**"]
 }
