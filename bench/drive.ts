@@ -16,7 +16,10 @@ export const nodePath = (fallback = process.execPath) =>
 
 const children = new Set<ChildProcess>();
 
-/** Runs `args` with node into `logFile`; a spawn or log write error ends it with exit 1 instead of the driver. */
+/**
+ * Runs `args` with node into `logFile` in its own process group; a spawn or log write error ends it with exit 1
+ * instead of the driver.
+ */
 export const runLogged = (
   args: string[],
   logFile: string,
@@ -27,7 +30,7 @@ export const runLogged = (
     const stream = createWriteStream(logFile, { flags: 'a' });
     stream.on('error', e => log(`log ${logFile}: ${e.message}`));
     stream.write(`\n### ${new Date().toISOString()} ${args.slice(1, 3).join(' ')}\n`);
-    const child = spawn(nodePath(), args, { env });
+    const child = spawn(nodePath(), args, { env, detached: true });
     children.add(child);
     child.stdout.pipe(stream, { end: false });
     child.stderr.pipe(stream, { end: false });
@@ -336,7 +339,10 @@ if (import.meta.main) {
     log(`${total - queue.length}/${total} done, ${partial.length} partial: ${partial.join(', ') || 'none'}`);
     onStop(signal => {
       event('stop', { reason: `signal ${signal}`, done: done(), total, active });
-      for (const child of children) child.kill('SIGTERM');
+      for (const child of children)
+        try {
+          process.kill(-Number(child.pid), 'SIGTERM');
+        } catch {}
       release(lock);
     });
 

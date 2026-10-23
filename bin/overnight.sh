@@ -28,14 +28,16 @@ echo $$ >"$lock"
 : >"$failed"
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 child=
-trap 'echo "$(now) paused" >>"$log"; [ -n "$child" ] && { pkill -TERM -P "$child"; kill -TERM "$child"; wait "$child"; }; rm -f "$lock"; exit 130' INT TERM HUP
+# Each line runs in its own process group, so a stop reaches all it started.
+if command -v setsid >/dev/null; then group=setsid; else group=; set -m; fi
+trap 'echo "$(now) paused" >>"$log"; [ -n "$child" ] && { kill -s TERM -- "-$child"; wait "$child"; }; rm -f "$lock"; exit 130' INT TERM HUP
 command -v caffeinate >/dev/null && caffeinate -i -w $$ &
 
 next() { lines | while IFS= read -r l; do grep -qxF -- "$l" "$finished" "$failed" || { printf '%s\n' "$l"; break; }; done; }
 while line=$(next) && [ -n "$line" ]; do
   for try in 1 2 3; do
     echo "$(now) start $try: $line" >>"$log"
-    sh -c "$line" >>"$log" 2>&1 </dev/null &
+    $group sh -c "$line" >>"$log" 2>&1 </dev/null &
     child=$!
     wait "$child"
     code=$?

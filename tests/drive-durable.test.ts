@@ -9,7 +9,8 @@ import { tmp } from './kit.ts';
 
 const driver = resolve(import.meta.dirname, '../bench/drive.ts');
 
-const fake = `import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+const fake = `import { spawn } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 export const codexUsed = () => Number(process.env.FAKE_CODEX ?? 10);
 if (import.meta.main) {
@@ -27,7 +28,8 @@ if (import.meta.main) {
   }
   if (cmd === 'run' && !existsSync(join(at, a, 'diff.patch'))) {
     if (fail.includes('hang')) {
-      writeFileSync(process.env.FAKE_CALLS + '.hang', String(process.pid));
+      const worker = fail.includes('worker') && spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+      writeFileSync(process.env.FAKE_CALLS + '.hang', String(worker ? worker.pid : process.pid));
       setInterval(() => {}, 1000);
     } else if (fail.includes(id + '/' + a)) process.exitCode = 1;
     else {
@@ -160,6 +162,18 @@ describe('bench driver durability', () => {
     expect(existsSync(join(dir, 'drive.lock'))).toBe(false);
     await until(() => !alive(pid));
     expect(stateOf(dir)).toMatchObject({ status: 'stopped', reason: 'signal SIGTERM' });
+  });
+
+  it('on SIGTERM stops what its jobs started too', async () => {
+    const dir = bench(['c1']);
+    const { child, exit } = start(dir, { ...settings(dir), FAKE_FAIL: 'hang,worker' });
+    const hang = join(dir, 'calls.jsonl.hang');
+    await until(() => existsSync(hang));
+    const pid = Number(readFileSync(hang, 'utf8'));
+    orphans.push(pid);
+    child.kill('SIGTERM');
+    expect((await exit).code).toBe(143);
+    await until(() => !alive(pid));
   });
 
   it('after SIGKILL shows crashed, and a resume takes over the dead lock', async () => {
