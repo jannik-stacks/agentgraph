@@ -11,7 +11,7 @@ From `agentgraph/`:
 cp infra/local/.env.example infra/local/.env   # once: set LITELLM_MASTER_KEY and provider keys
 npm run up       # build the sandbox image, start LiteLLM, Postgres, egress and the Ollama relay, wait until healthy
 npm run keys     # one proxy key per agent, in infra/local/.keys.env
-npm run down     # stop everything, keep volumes; npm run down -- -v also drops keys, spend, the ChatGPT login and models
+npm run down     # stop everything, keep volumes
 ```
 
 `npm run up` again after changing `.env` or `litellm.config.yaml` recreates what changed.
@@ -29,10 +29,27 @@ create instead of sharing the login.
 ## Moving from the bothub project
 
 A stack still running as compose project `bothub` moves once with `infra/local/migrate-from-bothub.sh`
-(`--dry-run` prints the steps). It stops the old project, copies `bothub_pgdata` and
-`bothub_chatgpt-auth` into the new volumes, compares them, and starts `agentgraph`. Nothing is
-deleted; the script prints the commands that remove the stopped old project later. Run no agents
-while it runs.
+(`--dry-run` runs only the read-only checks). It refuses while agent, bench, tune or `overnight.sh`
+processes or sandbox containers run, and lists them; it never kills them (`--force-agents` goes ahead
+anyway). Then it:
+
+1. stops the old project gracefully, waiting up to 600 seconds, the proxy's request timeout;
+2. writes a snapshot of `bothub_pgdata` and `bothub_chatgpt-auth` to
+   `~/.agentgraph/migrate/backup/<volume>-<utc>.tar.gz`, with its sha256 and a manifest of every
+   file, checks that each archive restores to the same manifest, and makes those files read-only;
+3. copies both volumes into `agentgraph-pgdata` and `agentgraph-chatgpt-auth` and compares them
+   with the manifest;
+4. starts `agentgraph` and checks health, row counts and an existing virtual key.
+
+The snapshot is the permanent backup. The `bothub` volumes are not promised to stay untouched: a
+rollback starts bothub on them again. Nothing is deleted. Progress is kept in `~/.agentgraph/migrate`;
+a rerun resumes, and before copying or starting it refuses if a `bothub` volume changed since its
+snapshot.
+
+`infra/local/rollback-to-bothub.sh` stops `agentgraph` gracefully and starts the old containers
+again. It is only for right after a failed or unhappy migration, before agents run: keys, spend and
+a refreshed ChatGPT login written through `agentgraph` stay in its volumes. Migration and rollback
+share one lock, so they never run at the same time.
 
 ## ChatGPT login for smart, writer and luna
 
