@@ -107,83 +107,13 @@ const folders = ['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures
 const reads = (texts: string[], name: string) =>
   texts.some(text => new RegExp(`AGENTGRAPH_HUB[^\\n]*['"\`/]${name.replace(/\W/g, '\\$&')}['"\`/]`).test(text));
 
-const rest = 'a step starts a fresh session and a retry resumes it';
-
-/** Removed keys, each with its replacement. */
-const gone = {
-  hub: {
-    issues: 'the forge lists them',
-    merge: 'a workflow step merges or waits for a human',
-    'merge-request': 'the pull_request proposal carries the body',
-    deps: 'name the install command as setup',
-    sandbox: '',
-    loads: '',
-    context: rest,
-    history: rest,
-    'time-kinds': '',
-    human: '',
-  },
-  agent: {
-    session: rest,
-    resume: rest,
-    context: rest,
-    history: rest,
-    summarizer: rest,
-    skills: 'a step names its skill',
-    budget: 'set limits in hub.yaml',
-    concurrency: 'set limits.parallel in hub.yaml',
-    'max-turns': 'limits.minutes in hub.yaml ends a session that hangs',
-    preload: '',
-    loads: '',
-    decider: '',
-    human: '',
-  },
-  check: {
-    type: 'name run for a script check and agent for a judged one',
-    bot: 'name it as agent',
-    judge: 'name it as agent',
-    over: 'use each: files, hunks or a command that prints one item per line',
-    paths: 'filter files in the each command',
-    description: 'write it as the body',
-    threshold: '',
-    'timeout-minutes': '',
-    human: '',
-  },
-  workflow: {
-    jobs: 'rewrite it as steps: each job becomes a step in needs order, until.checks becomes checks, over: each-hunk becomes each: hunks',
-    name: 'the file name is the workflow name',
-    into: 'name the branch as base',
-    bot: 'name it as agent',
-    description: 'write it as the body',
-    human: '',
-  },
-  trigger: {
-    command: 'a trusted comment with /agent in it starts the run',
-    types: '',
-    guard: 'only owners, members and collaborators reach agents',
-    labels: '',
-    tools: '',
-    cron: '',
-  },
-} satisfies Record<string, Record<string, string>>;
-
-const returns: Record<string, string> = {
-  'merge-request': 'merge-request is now pull_request',
-  reply: 'reply is now comment',
-  pull: 'pull is now pull_request',
-  note: 'note is gone; memory is docs in the repo, written by a push',
-  close: 'close is gone; a lone comment that answers the issue ends the run',
-  hub: 'hub is gone; remove it',
-};
-
-/** Reports each retired kind a body names in backticks and each `"kind"` value the engine does not know. */
+/** Reports each `"kind"` value a body names that the engine does not know. */
 const unknownKinds = (body: string, say: (message: string) => void) => {
   const seen = new Set<string>();
-  for (const [, word, kind] of body.matchAll(/`(\w[\w-]*)`|"kind":\s*"([\w-]+)"/g)) {
-    const name = word ?? kind!;
-    if (seen.has(name) || kinds.some(k => k === name) || (word !== undefined && !(name in returns))) continue;
-    seen.add(name);
-    say(`names the proposal kind ${name}, which the engine does not have${returns[name] ? `: ${returns[name]}` : ''}`);
+  for (const [, name] of body.matchAll(/"kind":\s*"([\w-]+)"/g)) {
+    if (seen.has(name!) || kinds.some(k => k === name)) continue;
+    seen.add(name!);
+    say(`names the proposal kind ${name}, which the engine does not have`);
   }
 };
 
@@ -211,17 +141,6 @@ export const retiredIn = (text: string, say: (message: string) => void) => {
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-/** Reports and strips the removed keys in `table`. */
-const strip = (data: unknown, table: Record<string, string>, say: (message: string) => void, prefix = '') => {
-  if (!isRecord(data)) return data;
-  const kept: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (!(key in table)) kept[key] = value;
-    else say(`${prefix}${key} is gone; ${table[key] || 'remove it'}`);
-  }
-  return kept;
-};
 
 const decode = <A, I>(schema: Schema.Schema<A, I>, data: unknown, say: (message: string) => void): A | undefined => {
   const decoded = Schema.decodeUnknownEither(schema, { onExcessProperty: 'error', errors: 'all' })(data);
@@ -274,7 +193,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   } catch (e) {
     say(`yaml: ${(e as Error).message}`);
   }
-  const hub = decode(HubFile, strip(hubData, gone.hub, say), say);
+  const hub = decode(HubFile, hubData, say);
 
   const docs = <T>(files: File[], read: (data: unknown, say: (m: string) => void) => T | undefined) => {
     const out: Record<string, Doc<T>> = {};
@@ -289,13 +208,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   };
 
   const agents = docs(groups.agents, (data, say) => {
-    const kept = strip(data, gone.agent, say);
-    if (isRecord(kept) && Array.isArray(kept.returns)) {
-      for (const kind of kept.returns)
-        if (typeof kind === 'string' && kind in returns) say(`returns: ${returns[kind]}`);
-      kept.returns = kept.returns.filter(kind => !(kind in returns));
-    }
-    const agent = decode(Agent, kept, say);
+    const agent = decode(Agent, data, say);
     if (agent?.reads && !agent.tools.includes('read')) say('reads: traces needs read in tools');
     return agent;
   });
@@ -313,7 +226,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   for (const skill of Object.values(skills))
     for (const name of skill.uses ?? []) if (!(name in skills)) sayer(skill.path)(`uses: unknown skill ${name}`);
   const checks = docs(groups.checks, (data, say): Check | undefined => {
-    const check = decode(Check, strip(data, gone.check, say), say);
+    const check = decode(Check, data, say);
     if (!check) return;
     if (check.run === undefined && check.agent === undefined) say('name run, agent or both');
     if (check.agent !== undefined && !(check.agent in agents)) say(`agent: unknown agent ${check.agent}`);
@@ -332,15 +245,6 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   };
   const workflows: Record<string, Workflow> = {};
   for (const file of groups.workflows) {
-    const parsed = front(file);
-    if (!parsed) continue;
-    const say = sayer(file.path);
-    const before = problems.length;
-    const kept = strip(parsed.data, gone.workflow, say);
-    if (isRecord(kept) && isRecord(kept.on)) {
-      for (const [event, trigger] of Object.entries(kept.on)) strip(trigger, gone.trigger, say, `on.${event}.`);
-    }
-    if (problems.length > before) continue;
     const loaded = load(file.path, file.text, names);
     problems.push(...loaded.problems);
     if (loaded.workflow) workflows[loaded.workflow.name] = loaded.workflow;
@@ -375,10 +279,10 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
     const read = yield* Effect.tryPromise({
       try: async () => {
         const hubText = await readFile(join(dir, 'hub.yaml'), 'utf8').catch(() => undefined);
-        const [agents, skills, checks, workflows, bots] = await Promise.all(
-          (['agents', 'skills', 'checks', 'workflows', 'bots'] as const).map(sub => markdown(dir, sub))
+        const [agents, skills, checks, workflows] = await Promise.all(
+          (['agents', 'skills', 'checks', 'workflows'] as const).map(sub => markdown(dir, sub))
         );
-        const groups = { agents: [...agents!, ...bots!], skills: skills!, checks: checks!, workflows: workflows! };
+        const groups = { agents: agents!, skills: skills!, checks: checks!, workflows: workflows! };
         const scripts = await Promise.all(
           (await readdir(join(dir, 'scripts'), { recursive: true, withFileTypes: true }).catch(() => []))
             .filter(e => e.isFile())
@@ -389,15 +293,14 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
         const texts = [hubText ?? '', ...scripts.map(f => f.text)];
         texts.push(...Object.values(groups).flatMap(files => files.map(f => f.text)));
         const unread = (await readdir(dir, { withFileTypes: true }).catch(() => []))
-          .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'bots' && !folders.includes(e.name))
+          .filter(e => e.isDirectory() && !e.name.startsWith('.') && !folders.includes(e.name))
           .map(e => e.name)
           .filter(name => !reads(texts, name));
-        return { hubText, groups, scripts, renamed: bots!.length > 0, unread };
+        return { hubText, groups, scripts, unread };
       },
       catch: e => new HubError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
     });
     const { hub, problems, ...parts } = compile(read.hubText, read.groups);
-    if (read.renamed) problems.push({ path: 'bots', message: 'bots/ is now agents/; rename the folder' });
     for (const name of read.unread)
       problems.push({
         path: name,

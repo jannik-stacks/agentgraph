@@ -6,7 +6,7 @@
  *        node bin/tune.ts run <tune dir> --iterations 8 [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  *        node bin/tune.ts checkpoint <tune dir>
  *        node bin/tune.ts propose <tune dir> --from <hub dir> --why <text> [--as manual|skill]
- * Tunes live in <root>/<repo>/<name>; the root is AGENTGRAPH_TUNE, by default ~/bothub-data/tune.
+ * Tunes live in <root>/<repo>/<name>; the root is AGENTGRAPH_TUNE, by default ~/.agentgraph/tune.
  */
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -71,7 +71,7 @@ type Reading = { start: number; now: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
 
 const agentgraph = join(import.meta.dirname, '..');
-const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), 'bothub-data/tune');
+const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), '.agentgraph/tune');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const save = write;
 const round = (n: number) => Math.round(n * 1000) / 1000;

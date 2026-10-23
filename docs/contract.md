@@ -1,6 +1,6 @@
 # The hub contract
 
-The 0.2.0 contract preserves names and meanings across 0.x releases. Renames and removals must appear in `CHANGELOG.md`; `check` reports retired keys with replacements. <!-- code: src/hub.ts#gone -->
+The 0.2.0 contract preserves names and meanings across 0.x releases. Renames and removals must appear in `CHANGELOG.md`; `check` fails on any key the hub no longer has. <!-- code: src/hub.ts#loadHub -->
 
 ## Engine
 

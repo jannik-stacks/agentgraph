@@ -1,6 +1,6 @@
 # Hub files
 
-Hub fields, types and defaults. Unknown keys fail validation; retired keys name their replacements. See [hub location](loop.md#a-hub-in-the-repo) and [version changes](loop.md#when-the-base-or-the-hub-moves). <!-- code: src/hub.ts#gone src/hub.ts#loadHub -->
+Hub fields, types and defaults. Unknown keys fail validation. See [hub location](loop.md#a-hub-in-the-repo) and [version changes](loop.md#when-the-base-or-the-hub-moves). <!-- code: src/hub.ts#loadHub -->
 
 ## hub.yaml
 

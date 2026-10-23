@@ -17,6 +17,11 @@
   environments are built once more.
 - A bench run that drops a case's environment image also drops its dependency volume, and a bench
   command removes the dependency volumes of runners that are gone when it starts.
+- `check` no longer names a replacement for a removed hub key, a retired proposal kind or a `bots/`
+  folder; each fails like any unknown key or folder.
+- The runner data dir defaults to `~/.agentgraph`, tunes to `~/.agentgraph/tune` and the bench
+  driver's repos to `~/.agentgraph/tune/repos`. The cache collector no longer lists `bothub-*`
+  docker objects.
 
 ## 0.2.0
 

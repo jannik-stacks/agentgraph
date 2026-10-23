@@ -2371,9 +2371,9 @@ describe('temporary', () => {
     dirs.push(home);
     const linked = join(home, 'data');
     symlinkSync('/tmp', linked);
-    expect(temporary('/tmp/bothub-data')).toEqual(['/tmp/bothub-data', '/tmp/bothub-data/mirror.git']);
+    expect(temporary('/tmp/agentgraph-data')).toEqual(['/tmp/agentgraph-data', '/tmp/agentgraph-data/mirror.git']);
     expect(temporary(linked)).toEqual([linked, join(linked, 'mirror.git')]);
-    expect(temporary(join(homedir(), 'bothub-data'))).toEqual([]);
+    expect(temporary(join(homedir(), '.agentgraph'))).toEqual([]);
   });
 });
 

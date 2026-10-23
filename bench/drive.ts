@@ -80,14 +80,17 @@ const queued = (dir: string) =>
       .flatMap(l => [...l.matchAll(/\b([A-Z_]+)=(\S+)/g)].map(m => [m[1]!, m[2]!]))
   ) as Settings;
 
-const defaults = (dir: string, sha = '') => ({
-  POINTS: 'opencode:luna',
-  REPEATS: '3',
-  JUDGES: 'opus:1,sonnet:2',
-  SET: basename(dir),
-  ENGINE: ['agentgraph', 'bothub'].map(n => join(dir, sha, 'engine', n)).find(p => existsSync(p)) ?? '',
-  REPOS: join(process.env.HOME ?? '', 'bothub-data/tune/repos'),
-});
+const defaults = (dir: string, sha = '') => {
+  const engine = join(dir, sha, 'engine', 'agentgraph');
+  return {
+    POINTS: 'opencode:luna',
+    REPEATS: '3',
+    JUDGES: 'opus:1,sonnet:2',
+    SET: basename(dir),
+    ENGINE: existsSync(engine) ? engine : '',
+    REPOS: join(process.env.HOME ?? '', '.agentgraph/tune/repos'),
+  };
+};
 
 /** The settings `dir` was driven with, from drive.json or its queue, without writing anything. */
 export const recorded = (dir: string): Settings => {
@@ -217,7 +220,7 @@ if (import.meta.main) {
     const s = configure(dir);
     const engine = s.ENGINE!;
     if (!existsSync(join(engine, 'bin/bench.ts')))
-      throw new Error(`no engine at ${engine || join(dir, s.SHA!, 'engine')}`);
+      throw new Error(`no engine at ${engine || join(dir, s.SHA!, 'engine', 'agentgraph')}`);
     const judges = s.JUDGES!;
     const maxCodex = s.MAX_CODEX ? Number(s.MAX_CODEX) : undefined;
     const cap = s.CAP ? Number(s.CAP) : undefined;

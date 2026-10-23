@@ -63,7 +63,7 @@ The runner reads these settings: <!-- code: src/services.ts#settings -->
 | `AGENTGRAPH_IMAGE` | Default [environment image](sandbox.md#environments) |
 | `AGENTGRAPH_STUDIO_URL` | Optional [provenance links](runs.md#provenance) |
 
-App credentials also work directly in the environment. `--logs` or instance `logs` sets `AGENTGRAPH_CHECK_LOGS`. The CLI requires `--data` outside an instance. The underlying runner setting defaults to `.bothub-data`; `~/.agentgraph` is the studio's default.
+App credentials also work directly in the environment. `--logs` or instance `logs` sets `AGENTGRAPH_CHECK_LOGS`. The CLI requires `--data` outside an instance. The runner and the studio both default to `~/.agentgraph`.
 
 Routing commands use the same engine rules as [router proposals](loop.md#routing):
 

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, type Redacted } from 'effect';
@@ -36,7 +37,7 @@ const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.u
 export const settings: Config.Config<Settings> = Config.all({
   repo: Config.string('AGENTGRAPH_REPO'),
   hub: Config.string('AGENTGRAPH_HUB').pipe(Config.withDefault('.agentgraph')),
-  data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault('.bothub-data')),
+  data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
   every: Config.number('AGENTGRAPH_EVERY').pipe(Config.withDefault(5)),
   proxy: Config.all({
     url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://litellm:4000/v1')),

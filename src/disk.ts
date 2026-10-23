@@ -13,11 +13,8 @@ import {
 import { basename, join } from 'node:path';
 import { alive, docker, envVersion, held, live, lowerOf, state, sweep, unlogged, used } from './env.ts';
 
-/**
- * What a cache item is: an Env image with its dependency volume, a dependency volume no image uses, an object the old
- * engine left, or a host build dir.
- */
-type Kind = 'env' | 'lower' | 'legacy' | 'tree';
+/** What a cache item is: an Env image with its dependency volume, a dependency volume no image uses, or a host build dir. */
+type Kind = 'env' | 'lower' | 'tree';
 
 /**
  * One deletable cache thing. `refs` are what removing it names: image tags, volume names or one host path. `bytes` are
@@ -134,9 +131,7 @@ const usage = async () => {
   };
 };
 
-const legacyVolume = /^bothub-(layer-.+|lower-.+|cache|cache-envtest|build-cache|npm-cache)$/;
-const isData = (name: string, labels: Record<string, string>) =>
-  name.startsWith('bothub_') || Object.keys(labels).some(k => k.startsWith('com.docker.compose.'));
+const isData = (labels: Record<string, string>) => Object.keys(labels).some(k => k.startsWith('com.docker.compose.'));
 const labelsOf = (text = '') =>
   Object.fromEntries(
     text
@@ -146,9 +141,8 @@ const labelsOf = (text = '') =>
   ) as Record<string, string>;
 
 /**
- * Every cache item agentgraph and the old engine left in docker, and the host build dirs under `roots`. Only our names
- * count; compose objects and `bothub_*` volumes are data and never appear. Volumes without a recorded size count 0
- * bytes unless `measure`.
+ * Every cache item agentgraph left in docker, and the host build dirs under `roots`. Only our names count; compose
+ * objects are data and never appear. Volumes without a recorded size count 0 bytes unless `measure`.
  */
 export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<Item[]> => {
   const df = usage();
@@ -156,7 +150,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   const others = new Set<string>();
   for (const l of lines(await ask(['image', 'ls', '--no-trunc', '--format', '{{.ID}} {{.Repository}}:{{.Tag}}']))) {
     const [id = '', tag = ''] = l.split(' ');
-    if (/^(agentgraph|bothub)-env\//.test(tag)) tagsOf.set(id, [...(tagsOf.get(id) ?? []), tag]);
+    if (tag.startsWith('agentgraph-env/')) tagsOf.set(id, [...(tagsOf.get(id) ?? []), tag]);
     else if (!tag.includes('<none>')) others.add(id);
   }
   const bases = others.size
@@ -180,7 +174,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       const [name = '', labels] = l.split('\t');
       return { name, labels: labelsOf(labels) };
     })
-    .filter(v => !isData(v.name, v.labels));
+    .filter(v => !isData(v.labels));
   const overlaid = (key: string) =>
     vols.some(
       v => v.labels['agentgraph.lower'] === key && v.labels['agentgraph.layer'] && live(v.labels['agentgraph.layer'])
@@ -202,40 +196,35 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   for (const l of inspected) {
     const [id = '', created = '', layers = '[]', ...rest] = l.split(' ');
     const labels = (JSON.parse(rest.join(' ') || 'null') ?? {}) as Record<string, string>;
-    const why = labels['agentgraph.env'] ? gone(labels, JSON.parse(layers) as string[]) : undefined;
-    const tags = tagsOf.get(id) ?? [];
-    if (!tags.length || isData('', labels)) continue;
-    const unique = (await df).images.get(id) ?? 0;
     const key = labels['agentgraph.env'];
-    const stamp = key && existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
-    if (key) keys.add(key);
+    const tags = tagsOf.get(id) ?? [];
+    if (!key || !tags.length || isData(labels)) continue;
+    const why = gone(labels, JSON.parse(layers) as string[]);
+    const unique = (await df).images.get(id) ?? 0;
+    const stamp = existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
+    keys.add(key);
     items.push({
-      kind: key ? 'env' : 'legacy',
-      refs: [...tags, ...(key && names.has(lowerOf(key)) ? [lowerOf(key)] : [])],
+      kind: 'env',
+      refs: [...tags, ...(names.has(lowerOf(key)) ? [lowerOf(key)] : [])],
       bytes: unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
       used: stamp,
       ...(why && { always: true, gone: why }),
       ...((tags.some(t => runImages.has(t)) || runImages.has(id)) && { held: 'container' }),
-      ...(key && overlaid(key) && { held: 'live checkout' }),
-      ...(key && held(key, false) && { held: 'recent use' }),
+      ...(overlaid(key) && { held: 'live checkout' }),
+      ...(held(key, false) && { held: 'recent use' }),
     });
   }
-  const loose = vols.filter(
-    v =>
-      (v.name.startsWith('agentgraph-lower-') && !keys.has(v.name.slice('agentgraph-lower-'.length))) ||
-      legacyVolume.test(v.name)
-  );
   const measured = o.measure ? (await df).volumes : new Map<string, number>();
-  for (const v of loose) {
+  for (const v of vols) {
     const key = v.name.slice('agentgraph-lower-'.length);
-    const lower = v.name === lowerOf(key);
+    if (v.name !== lowerOf(key) || keys.has(key)) continue;
     items.push({
-      kind: lower ? 'lower' : 'legacy',
+      kind: 'lower',
       refs: [v.name],
       bytes: measured.get(v.name) ?? 0,
       used: 0,
-      ...((lower || v.name.startsWith('bothub-layer-')) && { always: true }),
-      ...(mounted.has(v.name) ? { held: 'container' } : lower && overlaid(key) && { held: 'live checkout' }),
+      always: true,
+      ...(mounted.has(v.name) ? { held: 'container' } : overlaid(key) && { held: 'live checkout' }),
     });
   }
   for (const path of (o.roots ?? []).flatMap(root => trees(root))) {
@@ -257,8 +246,8 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
 };
 
 /**
- * Which items to remove: every unheld `always` item, then unheld items oldest first, the old engine's first, while the
- * counted cache is over `limit` or free space is under `floor`.
+ * Which items to remove: every unheld `always` item, then unheld items oldest first, while the counted cache is over
+ * `limit` or free space is under `floor`.
  * @internal
  */
 export const plan = (items: Item[], o: { limit: number; free: number; floor: number }) => {
@@ -266,9 +255,7 @@ export const plan = (items: Item[], o: { limit: number; free: number; floor: num
   const chosen = open.filter(i => i.always);
   let total = items.filter(i => !i.always).reduce((n, i) => n + i.bytes, 0);
   let free = o.free + chosen.reduce((n, i) => n + i.bytes, 0);
-  const rest = open
-    .filter(i => !i.always)
-    .sort((a, b) => Number(b.kind === 'legacy') - Number(a.kind === 'legacy') || a.used - b.used);
+  const rest = open.filter(i => !i.always).sort((a, b) => a.used - b.used);
   for (const i of rest) {
     if (total <= o.limit && free >= o.floor) break;
     chosen.push(i);

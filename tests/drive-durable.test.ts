@@ -221,7 +221,7 @@ describe('bench driver settings', () => {
     const dir = bench(['c1']);
     writeFileSync(
       join(dir, 'queue.txt'),
-      `# old\ncd ${dir} && OUT=${dir} SHA=abc POINTS=m1,m2 REPEAT=1 JUDGES=none CAP=6 ENGINE=${join(dir, 'eng')} node tools/drive.mjs\n`
+      `# old\ncd ${dir} && OUT=${dir} SHA=abc POINTS=m1,m2 REPEAT=1 JUDGES=none CAP=6 ENGINE=${join(dir, 'eng')} REPOS=${dir} node tools/drive.mjs\n`
     );
     expect(configure(dir, {})).toMatchObject({ SHA: 'abc', POINTS: 'm1,m2', REPEAT: '1', CAP: '6' });
     expect(configure(dir, { CAP: '9' }).CAP).toBe('9');

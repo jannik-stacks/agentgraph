@@ -29,7 +29,7 @@ only difference is who proposes the candidates.
 - Bump the version when `SKILL.md` changes in a way that could move the score.
 
 ```sh
-node tune/skill.ts ~/bothub-data/tune/stacks.js/t1 --version 1 --rounds 6 --k 4 --parallel 2 \
+node tune/skill.ts ~/.agentgraph/tune/stacks.js/t1 --version 1 --rounds 6 --k 4 --parallel 2 \
   --max-codex 25 --max-claude-5h 40 --max-claude-week 12 --keys infra/local/.keys.env
 ```
 

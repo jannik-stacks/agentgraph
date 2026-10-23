@@ -24,9 +24,9 @@ Forge, store, session and sandbox are Effect services with [test doubles](archit
 
 `src` holds only production code. A test double lives in `tests/doubles/` under the name of the `src` file it stands in for, so the host sandbox is in `tests/doubles/sandbox.ts`. `npm run knip` runs `knip --production`, which fails on a `src` export only tests use; production code exported just for a unit test says so with `@internal`. <!-- code: tests/doubles/sandbox.ts#host tests/doubles/session.ts#scripted -->
 
-## Unknown keys name their replacement
+## Hub files decode strictly
 
-Retired keys report what to write instead. <!-- code: src/hub.ts#gone -->
+An unknown or removed key fails `check` with its path. Nothing reads an older hub shape. <!-- code: src/hub.ts#loadHub -->
 
 ## Secrets stay out of argv and logs
 

@@ -90,7 +90,7 @@ Quality combines hidden tests (the share of the tests base fails that the run pa
 
 Rerun the same command after interruption. Atomic renames protect results; `diff.patch` is written last to mark completion. Live `<arm>.lock` holders are skipped. Abandoned work moves to `<case>/.attic/` without checkouts; its containers are removed. Completed records remain, scoring trees are removed, and dependencies stay in Docker volumes. Low disk space [holds work](sandbox.md#environments).
 
-Tunes live in `<root>/<repo>/<name>`, where the root is `AGENTGRAPH_TUNE`, by default `~/bothub-data/tune`. A tune's `run --until <iteration>` survives restarts. Unfinished phases wait and retry before giving up without a decision. First startup pins `BENCH_*`, `--keys`, `--point` and the sandbox image's id in `env.json`; every later arm and score runs that exact image, and a rebuilt tag stops the bench instead of mixing sandboxes. Restarts restore missing settings and reject changed values or missing paths. Edit that file for deliberate changes.
+Tunes live in `<root>/<repo>/<name>`, where the root is `AGENTGRAPH_TUNE`, by default `~/.agentgraph/tune`. A tune's `run --until <iteration>` survives restarts. Unfinished phases wait and retry before giving up without a decision. First startup pins `BENCH_*`, `--keys`, `--point` and the sandbox image's id in `env.json`; every later arm and score runs that exact image, and a rebuilt tag stops the bench instead of mixing sandboxes. Restarts restore missing settings and reject changed values or missing paths. Edit that file for deliberate changes.
 
 ```sh
 node bin/bench.ts status <out>

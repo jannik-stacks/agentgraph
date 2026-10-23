@@ -82,60 +82,6 @@ describe('loadHub', () => {
     expect((await Effect.runPromise(loadHub(dir))).sha).toBe(hub.sha);
   });
 
-  it('names what replaces each key of the previous format', async () => {
-    const found = await problems(
-      hubDir({
-        'hub.yaml': 'issues: local\ndeps: { install: npm ci }\n',
-        'bots/implementor.md':
-          '---\nharness: opencode\nreturns: [reply, merge-request, note]\nskills: [implement]\n---\n',
-        'checks/tests.md': '---\ntype: script\nrun: npm test\nmode: block\n---\n',
-        'checks/docs-tone.md': '---\ntype: bot\nbot: implementor\nmode: warn\n---\n',
-        'workflows/issue.md':
-          '---\non: { issue_comment: { command: /fix, guard: { associations: [OWNER] } } }\nsteps:\n  a: { agent: implementor }\n---\n',
-      })
-    );
-    expect(found).toEqual(
-      expect.arrayContaining([
-        'hub.yaml: issues is gone; the forge lists them',
-        'hub.yaml: deps is gone; name the install command as setup',
-        'bots/implementor.md: skills is gone; a step names its skill',
-        'bots/implementor.md: returns: merge-request is now pull_request',
-        'bots/implementor.md: returns: note is gone; memory is docs in the repo, written by a push',
-        'bots: bots/ is now agents/; rename the folder',
-        'checks/tests.md: type is gone; name run for a script check and agent for a judged one',
-        'checks/docs-tone.md: bot is gone; name it as agent',
-        'workflows/issue.md: on.issue_comment.command is gone; a trusted comment with /agent in it starts the run',
-        'workflows/issue.md: on.issue_comment.guard is gone; only owners, members and collaborators reach agents',
-      ])
-    );
-    expect(found.filter(p => p.startsWith('workflows/issue.md')).every(p => p.includes(' is gone; '))).toBe(true);
-  });
-
-  it('names the bots folder, max-turns on an agent and jobs in a workflow', async () => {
-    const dir = hubDir({
-      'bots/a.md': '---\nharness: opencode\nmax-turns: 40\n---\n',
-      'workflows/w.md': '---\njobs: { a: { type: bot, bot: a } }\n---\n',
-    });
-    expect(await problems(dir)).toEqual(
-      expect.arrayContaining([
-        'bots: bots/ is now agents/; rename the folder',
-        'bots/a.md: max-turns is gone; limits.minutes in hub.yaml ends a session that hangs',
-        'workflows/w.md: jobs is gone; rewrite it as steps: each job becomes a step in needs order, until.checks becomes checks, over: each-hunk becomes each: hunks',
-      ])
-    );
-  });
-
-  it('names session and resume on an agent', async () => {
-    const dir = hubDir({
-      'agents/a.md': '---\nharness: claude\nsession: { resume: attempts }\nresume: true\n---\n',
-      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
-    });
-    expect(await problems(dir)).toEqual([
-      'agents/a.md: session is gone; a step starts a fresh session and a retry resumes it',
-      'agents/a.md: resume is gone; a step starts a fresh session and a retry resumes it',
-    ]);
-  });
-
   it('reports wrong values, unknown keys, unknown agents and checks without a command or agent', async () => {
     const dir = hubDir({
       'hub.yaml': 'limits: { parallel: many }\n',
@@ -197,13 +143,11 @@ describe('loadHub', () => {
       'agents/judge.md': '---\nharness: opencode\n---\n',
       'checks/used.md': '---\nmode: warn\nagent: judge\n---\n',
       'checks/idle.md': '---\nmode: warn\nrun: "true"\n---\n',
-      'skills/s.md': 'End with one `reply`, a `close` or {"kind": "merge-request"}, never a `comment`.\n',
+      'skills/s.md': 'End with {"kind": "merge-request"}, never a `comment`.\n',
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a, skill: s, checks: [used] }\n---\n',
     });
     expect(await problems(dir)).toEqual([
-      'skills/s.md: names the proposal kind reply, which the engine does not have: reply is now comment',
-      'skills/s.md: names the proposal kind close, which the engine does not have: close is gone; a lone comment that answers the issue ends the run',
-      'skills/s.md: names the proposal kind merge-request, which the engine does not have: merge-request is now pull_request',
+      'skills/s.md: names the proposal kind merge-request, which the engine does not have',
       'checks/idle.md: no step names idle in its checks; name it in a step or remove it',
       'agents/idle.md: no step or check names idle as its agent; name it in a step or remove it',
     ]);

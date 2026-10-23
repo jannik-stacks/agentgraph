@@ -1,6 +1,6 @@
 /**
- * Lists and collects the cache Envs, dependency volumes, the old engine's objects and score trees hold, pins what a
- * paused bench still needs, and removes dependency volumes of dead runners.
+ * Lists and collects the cache Envs, dependency volumes and score trees hold, pins what a paused bench still needs,
+ * and removes dependency volumes of dead runners.
  *
  *   node bin/env.ts list [--root <dir>]...
  *   node bin/env.ts collect [--cap 60g] [--root <dir>]... [--dry-run]

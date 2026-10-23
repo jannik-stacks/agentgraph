@@ -16,9 +16,9 @@ runs out or nothing wins three rounds in a row. Then you explain the final hub t
 ## Rules
 
 - Never write to the user's checkout. Read it at most. Every clone, case, hub and run lives under
-  `~/bothub-data/` or in docker. Before you start and before you finish, run `git status` in the user's
+  `~/.agentgraph/` or in docker. Before you start and before you finish, run `git status` in the user's
   checkout and say so if anything changed.
-- Mining is read-only: GitHub GET calls and fresh clones under `~/bothub-data/`. No GitHub writes.
+- Mining is read-only: GitHub GET calls and fresh clones under `~/.agentgraph/`. No GitHub writes.
 - The user approves the plan (repo, model point, budget) before the first run, and approves the final
   hub before it goes anywhere. You hand over a folder and a diff; the user puts it in `.agentgraph/`.
 - Never change the engine. Only hub files: agents, skills, checks, scripts, workflows, `hub.yaml` limits.
@@ -26,7 +26,7 @@ runs out or nothing wins three rounds in a row. Then you explain the final hub t
 - Keep everything. Drafts, candidates and runs stay on disk.
 
 Run every command from a agentgraph checkout. `S` is this skill's folder and `T` is the tune dir,
-`~/bothub-data/tune/<repo>/<name>`.
+`~/.agentgraph/tune/<repo>/<name>`.
 
 ## 1. Plan with the user
 
@@ -36,12 +36,12 @@ a round costs: about 30 case runs, 25 minutes with 6 in parallel. Wait for a yes
 
 ## 2. Gather the history
 
-Reuse cases if `~/bothub-data/bench/cases` or `~/bothub-data/tune-repos/cases` already has the repo:
-copy them with their `splits.json` into `~/bothub-data/tune/<repo>/`. Otherwise mine:
+Reuse cases if `~/.agentgraph/bench/cases` or `~/.agentgraph/tune-repos/cases` already has the repo:
+copy them with their `splits.json` into `~/.agentgraph/tune/<repo>/`. Otherwise mine:
 
 ```sh
-node ~/bothub-data/bench/tools/mine.mjs <owner/name> ~/bothub-data/tune/<repo>
-node ~/bothub-data/bench/tools/finalize.mjs ~/bothub-data/tune/<repo>
+node ~/.agentgraph/bench/tools/mine.mjs <owner/name> ~/.agentgraph/tune/<repo>
+node ~/.agentgraph/bench/tools/finalize.mjs ~/.agentgraph/tune/<repo>
 ```
 
 That gives one case per merged PR with a linked issue (`case.json`, `issue.md`, `merged.diff`,
@@ -49,7 +49,7 @@ That gives one case per merged PR with a linked issue (`case.json`, `issue.md`, 
 test. Gate the cases with tests, no model calls:
 
 ```sh
-node bin/bench.ts score ~/bothub-data/tune/<repo>/cases/<id> ~/bothub-data/tune/<repo>/gate --repo ~/bothub-data/tune/<repo>/repos/<repo>
+node bin/bench.ts score ~/.agentgraph/tune/<repo>/cases/<id> ~/.agentgraph/tune/<repo>/gate --repo ~/.agentgraph/tune/<repo>/repos/<repo>
 ```
 
 Keep a case only when its `valid.json` says the hidden tests fail on the base and pass on the human.
@@ -59,7 +59,7 @@ With fewer, tell the user the numbers will be noisy and ask whether to go on.
 ## 3. Start from a minimal hub
 
 ```sh
-node bin/tune.ts init <repo> --cases ~/bothub-data/tune/<repo>/cases --splits ~/bothub-data/tune/<repo>/splits.gated.json --repos ~/bothub-data/tune/<repo>/repos --point opencode:luna --name <name>
+node bin/tune.ts init <repo> --cases ~/.agentgraph/tune/<repo>/cases --splits ~/.agentgraph/tune/<repo>/splits.gated.json --repos ~/.agentgraph/tune/<repo>/repos --point opencode:luna --name <name>
 ```
 
 `init` writes the minimal hub (implement with `tries: 2` and a tests check, then a human merge), scores
@@ -132,7 +132,7 @@ Tell the user, in plain short sentences:
 - The held-out test score with its interval, from the last checkpoint. Only the judged composite from a
   checkpoint can pass 1; say "beats the human" only when it does, and only on that number.
 - What it cost: Codex and Claude points, dollars and minutes, from `status.sh`.
-- Where to look: the Compound tab (`npm --prefix studio run dev -- --tune ~/bothub-data/tune`, then
+- Where to look: the Compound tab (`npm --prefix studio run dev -- --tune ~/.agentgraph/tune`, then
   `/compound`).
 
 Ask whether to adopt it. If yes, write `T/adopt.patch` against the user's current `.agentgraph/` and tell

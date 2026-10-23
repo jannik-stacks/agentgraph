@@ -10,37 +10,28 @@ const GB = 1e9;
 const item = (id: string, more: Partial<Item> = {}): Item => ({ kind: 'env', refs: [id], bytes: GB, used: 0, ...more });
 
 describe('plan', () => {
-  it('takes orphans always, then the oldest unheld items, legacy first, until under the limit', () => {
+  it('takes orphans always, then the oldest unheld items, until under the limit', () => {
     const items = [
       item('a:new', { used: 3 }),
       item('a:old', { used: 1 }),
       item('a:held', { used: 0, held: 'container' }),
-      item('bothub-env/x:1', { kind: 'legacy', used: 9 }),
       item('agentgraph-lower-gone', { kind: 'lower', always: true }),
       item('busy-tree', { kind: 'tree', always: true, held: 'busy' }),
     ];
     const ids = (o: Parameters<typeof plan>[1]) => plan(items, o).map(i => i.refs[0]);
     expect(ids({ limit: 10 * GB, free: Infinity, floor: 0 })).toEqual(['agentgraph-lower-gone']);
-    expect(ids({ limit: 2.5 * GB, free: Infinity, floor: 0 })).toEqual([
-      'agentgraph-lower-gone',
-      'bothub-env/x:1',
-      'a:old',
-    ]);
-    expect(ids({ limit: 10 * GB, free: 1 * GB, floor: 3.5 * GB })).toEqual([
-      'agentgraph-lower-gone',
-      'bothub-env/x:1',
-      'a:old',
-    ]);
+    expect(ids({ limit: 2.5 * GB, free: Infinity, floor: 0 })).toEqual(['agentgraph-lower-gone', 'a:old']);
+    expect(ids({ limit: 10 * GB, free: 1 * GB, floor: 3.5 * GB })).toEqual(['agentgraph-lower-gone', 'a:old', 'a:new']);
   });
 });
 
-/** A docker holding two current Envs, one legacy pair, an orphan lower, and volumes that are data. */
+/** A docker holding two current Envs, an unlabeled and a compose image, an orphan lower, and volumes that are data. */
 const box = {
   'image ls': [
     'sha256:e1 agentgraph-env/r:k1',
     'sha256:e2 agentgraph-env/r:k2',
-    'sha256:l1 bothub-env/acme-explorer:abc',
-    'sha256:l2 bothub-env/bench-any:abc',
+    'sha256:l1 agentgraph-env/unlabeled:abc',
+    'sha256:l2 agentgraph-env/bench-any:abc',
     'sha256:s0 agentgraph-sandbox:local',
     'sha256:p0 postgres:17-alpine',
     '',
@@ -48,8 +39,8 @@ const box = {
   'image inspect --format {{.Id}}': [
     `sha256:e1 2026-10-01T00:00:00Z [] ${'{"agentgraph.env":"k1","agentgraph.lowerkb":"1000"}'}`,
     `sha256:e2 2026-10-02T00:00:00Z [] ${'{"agentgraph.env":"k2","agentgraph.lowerkb":"0"}'}`,
-    'sha256:l1 2026-10-22T00:00:00Z [] {"bothub.env":"abc"}',
-    'sha256:l2 2026-10-22T00:00:00Z [] {"bothub.env":"abc","com.docker.compose.project":"x"}',
+    'sha256:l1 2026-10-22T00:00:00Z [] {}',
+    'sha256:l2 2026-10-22T00:00:00Z [] {"agentgraph.env":"abc","com.docker.compose.project":"x"}',
     '',
   ].join('\\n'),
   'system df': JSON.stringify({
@@ -63,14 +54,12 @@ const box = {
     'agentgraph-lower-k1\tagentgraph.lower=k1',
     'agentgraph-lower-gone\tagentgraph.lower=gone',
     'agentgraph-cache\t',
-    'bothub-layer-aa-0\t',
-    'bothub-cache\t',
-    'bothub_pgdata\tcom.docker.compose.project=bothub',
-    'bothub-lower-x\tcom.docker.compose.project=bothub',
+    'pgdata\tcom.docker.compose.project=x',
+    'agentgraph-lower-x\tcom.docker.compose.project=x',
     'mine\t',
     '',
   ].join('\\n'),
-  'ps -a': 'agentgraph-env/r:k2|agentgraph-cache\\npostgres:17-alpine|bothub_pgdata\\n',
+  'ps -a': 'agentgraph-env/r:k2|agentgraph-cache\\npostgres:17-alpine|pgdata\\n',
 };
 
 describe('inventory', () => {
@@ -78,25 +67,14 @@ describe('inventory', () => {
     await faked(box, async () => {
       const items = await inventory();
       const by = Object.fromEntries(items.map(i => [i.refs[0], i]));
-      expect(Object.keys(by).sort()).toEqual([
-        'agentgraph-env/r:k1',
-        'agentgraph-env/r:k2',
-        'agentgraph-lower-gone',
-        'bothub-cache',
-        'bothub-env/acme-explorer:abc',
-        'bothub-layer-aa-0',
-      ]);
+      expect(Object.keys(by).sort()).toEqual(['agentgraph-env/r:k1', 'agentgraph-env/r:k2', 'agentgraph-lower-gone']);
       expect(by['agentgraph-env/r:k1']).toMatchObject({
         kind: 'env',
         refs: ['agentgraph-env/r:k1', 'agentgraph-lower-k1'],
         bytes: 3000000 + 1000 * 1024,
       });
       expect(by['agentgraph-env/r:k2']?.held).toBe('container');
-      expect(by['bothub-env/acme-explorer:abc']).toMatchObject({ kind: 'legacy', bytes: 3.5e9 });
       expect(by['agentgraph-lower-gone']).toMatchObject({ kind: 'lower', always: true });
-      expect(by['bothub-layer-aa-0']).toMatchObject({ kind: 'legacy', always: true });
-      expect(by['bothub-cache']).toMatchObject({ kind: 'legacy' });
-      expect(by['bothub-cache']?.always).toBeUndefined();
     });
   });
 
@@ -113,7 +91,7 @@ describe('inventory', () => {
           'agentgraph-lower-8955f4891bdf3f555b0dffc9\\tagentgraph.lower=8955f4891bdf3f555b0dffc9',
           'agentgraph-lower-67b09dcfc491777cfdbd7fd2\\tagentgraph.lower=67b09dcfc491777cfdbd7fd2',
           'agentgraph-cache\\t',
-          'bothub_pgdata\\tcom.docker.compose.project=bothub',
+          'pgdata\\tcom.docker.compose.project=x',
           '',
         ].join('\\n'),
       },
@@ -166,10 +144,10 @@ describe('inventory', () => {
 
   it('holds what a pin names until the pin expires', async () => {
     await faked(box, async () => {
-      pin('luna', ['bothub-env/acme-explorer:*', 'bothub-cache'], 14);
+      pin('luna', ['agentgraph-env/r:*', 'agentgraph-lower-gone'], 14);
       const held = (await inventory()).filter(i => i.held?.startsWith('pin')).map(i => i.refs[0]);
-      expect(held.sort()).toEqual(['bothub-cache', 'bothub-env/acme-explorer:abc']);
-      pin('luna', ['bothub-cache'], -1);
+      expect(held.sort()).toEqual(['agentgraph-env/r:k1', 'agentgraph-lower-gone']);
+      pin('luna', ['agentgraph-lower-gone'], -1);
       expect((await inventory()).some(i => i.held?.startsWith('pin'))).toBe(false);
       unpin('luna');
     });
@@ -180,7 +158,7 @@ describe('collect', () => {
   it('only reports in a dry run, and removes without force otherwise, never data volumes', async () => {
     await faked(box, async log => {
       const dry = await collect({ dry: true, limit: 0 });
-      expect(dry.removed.map(i => i.refs[0])).toContain('bothub-env/acme-explorer:abc');
+      expect(dry.removed.map(i => i.refs[0])).toContain('agentgraph-env/r:k1');
       expect(log()).not.toMatch(/^(rmi|volume rm)/m);
       await collect({ limit: 0 });
       expect(log()).toContain('rmi agentgraph-env/r:k1\n');
@@ -188,7 +166,7 @@ describe('collect', () => {
       expect(log()).toContain('volume rm agentgraph-lower-gone\n');
       expect(log()).not.toContain('agentgraph-env/r:k2\n');
       expect(log()).not.toMatch(
-        / -f\b|bothub_pgdata\n|bothub-lower-x|rmi bothub-env\/bench-any|volume rm (mine|agentgraph-cache)/
+        / -f\b|pgdata\n|agentgraph-lower-x|agentgraph-env\/(bench-any|unlabeled)|volume rm (mine|agentgraph-cache)/
       );
     });
   });
@@ -242,7 +220,7 @@ describe('room', () => {
   it('collects, then refuses with the held cache and the command that frees it', async () => {
     await faked(box, async () => {
       await expect(room({ dir: tmp('disk') }, 0)).resolves.toBeUndefined();
-      pin('luna', ['bothub-env/*'], 14);
+      pin('luna', ['agentgraph-env/*'], 14);
       const low = await room({ dir: tmp('disk') }, 1e9).catch((e: unknown) => e);
       expect(low).toBeInstanceOf(DiskLow);
       expect(String((low as Error).message)).toMatch(/^disk low: [\d.]+ GB free, need 1000000000 GB/);
