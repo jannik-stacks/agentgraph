@@ -175,7 +175,7 @@ const scopes = {
   merge: { contents: 'write', pull_requests: 'write' },
   repos: { metadata: 'read' },
 } as const;
-export type Scope = keyof typeof scopes;
+type Scope = keyof typeof scopes;
 
 /** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
 export const appToken = (

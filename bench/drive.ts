@@ -93,7 +93,7 @@ const defaults = (dir: string, sha = '') => {
 };
 
 /** The settings `dir` was driven with, from drive.json or its queue, without writing anything. */
-export const recorded = (dir: string): Settings => {
+const recorded = (dir: string): Settings => {
   const was = existsSync(join(dir, 'drive.json'))
     ? json<Settings>(join(dir, 'drive.json'), {})
     : pick(queued(dir), [...fixed, ...budgets]);
@@ -118,7 +118,7 @@ type Entry = { id: string; repo: string; split?: string; use?: boolean };
 type Job = { point: string; k: number; c: Entry };
 const arms = ['v2', 'floor'];
 
-export const jobsOf = (dir: string, s: Settings): Job[] => {
+const jobsOf = (dir: string, s: Settings): Job[] => {
   const cases = json<{ cases: Entry[] }>(join(dir, 'set.json'), { cases: [] }).cases.filter(
     c => c.split !== 'gate' || c.use
   );
@@ -128,7 +128,7 @@ export const jobsOf = (dir: string, s: Settings): Job[] => {
 };
 
 const slot = (j: Job) => j.point.replace(':', '-');
-export const runDir = (dir: string, s: Settings, j: Job) => join(dir, s.SHA!, slot(j), `r${j.k}`);
+const runDir = (dir: string, s: Settings, j: Job) => join(dir, s.SHA!, slot(j), `r${j.k}`);
 const nameOf = (j: Job) => `${slot(j)}/r${j.k}/${j.c.id}`;
 const marker = (dir: string, j: Job) => join(dir, 'done', slot(j), `r${j.k}`, j.c.id);
 /** Done markers older drivers wrote: by engine for one point, by model for several. */
@@ -142,7 +142,7 @@ const markers = (dir: string, s: Settings, j: Job) => [
  * Whether a job's results are all on disk: its case is invalid, or both arms ran and were scored, and, when a panel
  * judges, a done marker says it judged them.
  */
-export const finished = (dir: string, s: Settings, j: Job) => {
+const finished = (dir: string, s: Settings, j: Job) => {
   const at = join(runDir(dir, s, j), j.c.id);
   const valid = json<{ invalid?: string } | null>(join(at, 'valid.json'), null);
   if (!valid) return false;

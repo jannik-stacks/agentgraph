@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
  * In `deps` mode setup saw only the skeleton and `inputs` is its digest; in `tree` mode it saw every file and `inputs`
  * is the base tree.
  */
-export type Env = {
+type Env = {
   image: string;
   outputs: string[];
   complete: boolean;
@@ -23,7 +23,7 @@ export type Env = {
 };
 
 /** What an Env is built from: `git` is a repo dir holding `base`, `image` the image it starts from. */
-export type EnvSpec = {
+type EnvSpec = {
   repo: string;
   image: string;
   git: string;
@@ -54,7 +54,7 @@ export const manifest =
   /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.pnpmfile\.cjs|yarn\.lock|\.yarnrc(\.yml)?|\.npmrc|\.nvmrc|\.node-version|Cargo\.toml|Cargo\.lock|rust-toolchain(\.toml)?)$|^(patches|\.yarn\/(patches|releases))\//;
 
 /** The files setup sees in `deps` mode: `paths` from the base, `stubs` made empty, and a digest over both. */
-export type Skeleton = { paths: string[]; stubs: string[]; digest: string };
+type Skeleton = { paths: string[]; stubs: string[]; digest: string };
 
 const git = (dir: string, ...args: string[]) =>
   new Promise<string>((done, fail) =>

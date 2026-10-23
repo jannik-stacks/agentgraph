@@ -607,7 +607,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
 };
 
 /** The changed files of a unified diff, each with its part of the diff. */
-export const files = (diff: string) =>
+const files = (diff: string) =>
   diff.split(/^(?=diff --git )/m).flatMap(part => {
     const path = /^diff --git a\/\S+ b\/(\S+)/.exec(part)?.[1];
     return path ? [{ path, part }] : [];
@@ -924,7 +924,7 @@ export const invalid = (base: Tests, human: Tests, tested = false) => {
 };
 
 /** The base commit's file list, a file's text, and whether a word occurs anywhere in it. */
-export type Base = { files: string[]; text: (path: string) => string; has: (word: string) => boolean };
+type Base = { files: string[]; text: (path: string) => string; has: (word: string) => boolean };
 
 const baseOf = (repo: string, base: string): Base => {
   const at = (...args: string[]) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer: 1 << 28 });
@@ -1033,7 +1033,7 @@ export const couplings = (diff: string, issue: string, base: Base) => {
 
 let tools: string | undefined;
 /** The bench's scoring code and the image the score step starts from, which a validity verdict depends on. */
-export const scorer = () =>
+const scorer = () =>
   (tools ??= hash(
     [check, invalid, exec, image].join('\0') +
       spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', image], { encoding: 'utf8' }).stdout

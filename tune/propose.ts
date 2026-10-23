@@ -26,7 +26,7 @@ import type { Run } from '../src/workflow.ts';
 
 export type Proposer = 'retro' | 'history' | 'structure';
 /** One file edit: `content` writes the file, `old` with `new` replaces one unique snippet, `delete` removes it. */
-export type Change = { path: string; content?: string; old?: string; new?: string; delete?: boolean };
+type Change = { path: string; content?: string; old?: string; new?: string; delete?: boolean };
 export type Usage = { fiveHour: number; week: number };
 type Answer = {
   verdict: 'change' | 'nothing';
@@ -36,7 +36,7 @@ type Answer = {
   changes: Change[];
 };
 /** A proposer's answer; `hub` is set only when the answer is a change and the patched hub passes the hub check. */
-export type Proposal = Answer & {
+type Proposal = Answer & {
   id: string;
   proposer: Proposer;
   hub?: string;
@@ -46,7 +46,7 @@ export type Proposal = Answer & {
 };
 
 /** The structure proposer's menu, taken round-robin by iteration. */
-export const edits = ['reviewer', 'drop', 'tries', 'scout', 'warn'] as const;
+const edits = ['reviewer', 'drop', 'tries', 'scout', 'warn'] as const;
 
 /** The edits of the menu that can change this hub: nothing added twice, nothing dropped or softened that is not there. */
 export const fitting = (hub: Hub) => {

@@ -740,7 +740,7 @@ export const run = async (
 };
 
 /** One screen on a tune: its steps, whether a process runs it, and where the current phase of runs stands. */
-export const status = (dir: string) => {
+const status = (dir: string) => {
   const { tune: t, steps } = tuneRows(dir);
   const pid = Number(read(join(dir, 'tune.lock')) || 0);
   const phase = JSON.parse(read(join(dir, 'phase.json')) || 'null') as {

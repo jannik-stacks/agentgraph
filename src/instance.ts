@@ -8,7 +8,7 @@ import type { checkLogs } from './store.ts';
  * `hub/`, the forge folder in `forge/`, the data dir in `data/` and an optional `keys.env`. `logs` says which check
  * output the data dir keeps.
  */
-export type Instance = {
+type Instance = {
   dir: string;
   repo: string;
   base: string;

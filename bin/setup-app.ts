@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 /** The one agentgraph App: private, no webhook, and only the permissions the engine uses. */
-export const manifest = (name: string, base: string) => ({
+const manifest = (name: string, base: string) => ({
   name,
   url: 'https://github.com',
   redirect_url: `${base}/created`,

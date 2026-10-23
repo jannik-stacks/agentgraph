@@ -16,7 +16,7 @@ const root = resolve(import.meta.dirname, '..');
 const git = (...args: string[]) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
 
 /** The headline numbers of a report: table rows with a numeric last cell, keyed by section and first cell. */
-export const numbers = (report: string) => {
+const numbers = (report: string) => {
   const out: Record<string, string> = {};
   let section = '';
   for (const line of report.split('\n')) {

@@ -42,7 +42,7 @@ const cells = line => {
 };
 
 /** Returns the `{ line, col, message }` problems of the fenced diagrams in markdown `text`, and the diagram count. */
-export function checkDiagrams(text) {
+function checkDiagrams(text) {
   const problems = [];
   let diagrams = 0;
   const lines = text.split('\n');
