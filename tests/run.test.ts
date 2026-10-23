@@ -40,9 +40,8 @@ import { Session, type SessionEvent, type SessionSpec } from '../src/session.ts'
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import type { Hub } from '../src/hub.ts';
 import { begin, cancelled, reenter, transition, type Run, type Step } from '../src/workflow.ts';
-import { host } from './doubles/sandbox.ts';
-import { scripted } from './doubles/session.ts';
-import { git, hubOf } from './fixtures.ts';
+import { hubOf, reply, seeded, start, wrote } from './fixtures.ts';
+import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
 
 const foot = (...lines: string[]) =>
@@ -62,15 +61,11 @@ afterEach(() => {
 
 /** A bare origin with one commit on main, a forge with issue #7 and its `/agent` comment, and a data dir. */
 const world = () => {
-  const root = mkdtempSync(join(tmpdir(), 'agentgraph-run-'));
+  const { root, seed, data } = seeded('run', {
+    'README.md': 'demo\n',
+    'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
+  });
   dirs.push(root);
-  const seed = join(root, 'seed');
-  mkdirSync(seed);
-  git(seed, 'init', '-q', '-b', 'main');
-  writeFileSync(join(seed, 'README.md'), 'demo\n');
-  writeFileSync(join(seed, 'package.json'), JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }));
-  git(seed, 'add', '-A');
-  git(seed, 'commit', '-q', '-m', 'init');
   git(root, 'clone', '-q', '--bare', seed, 'origin.git');
   const forge = join(root, 'forge');
   mkdirSync(forge);
@@ -84,23 +79,9 @@ const world = () => {
       `${JSON.stringify({ issue: 7, kind: 'comment', actor: 'morgan', trusted: true, at, comment: { id: at, author: 'morgan', body, at } } satisfies Event)}\n`
     );
   human('/agent', '2026-10-16T00:00:00.000Z');
-  return { root, origin: join(root, 'origin.git'), forge, data: join(root, 'data'), human };
+  return { root, origin: join(root, 'origin.git'), forge, data, human };
 };
 
-const start = (session: string): SessionEvent => ({ type: 'start', session, model: 'test', home: `/homes/${session}` });
-const write = (path: string, content: string): SessionEvent => ({
-  type: 'tool',
-  id: path,
-  name: 'write',
-  input: { path, content },
-  ok: true,
-});
-const reply = (...proposals: Proposal[]): SessionEvent => ({
-  type: 'end',
-  final: `Done.\n\n\`\`\`agentgraph\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
-  ended: 'stop',
-  exit: 0,
-});
 const push: Proposal = { kind: 'push', branch: 'agentgraph/7', message: 'Add hello' };
 const pull: Proposal = {
   kind: 'pull_request',
@@ -206,7 +187,7 @@ describe('drive', () => {
         fileForge(where.forge),
         fileStore(where.data),
         sandbox,
-        scripted([[start('a'), write('pending.txt', 'keep me\n'), reply({ kind: 'ask', question: 'Continue?' })]])
+        scripted([[start('a'), wrote('pending.txt', 'keep me\n'), reply({ kind: 'ask', question: 'Continue?' })]])
       );
       const exit = await Effect.runPromiseExit(
         drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
@@ -372,15 +353,15 @@ describe('drive', () => {
     const where = world();
     const { specs, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
-      [start('i1'), write('hello.txt', 'TODO\n'), { type: 'usage', input: 10, output: 5, usd: 0.5 }, reply(push, pull)],
+      [start('i1'), wrote('hello.txt', 'TODO\n'), { type: 'usage', input: 10, output: 5, usd: 0.5 }, reply(push, pull)],
       judged,
-      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
       [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
-      [start('i1'), write('hello.txt', 'hello world\n'), reply(push)],
+      [start('i1'), wrote('hello.txt', 'hello world\n'), reply(push)],
       judged,
       [start('r2'), reply({ kind: 'back', why: 'add a newline' })],
-      [start('i1'), write('hello.txt', 'hello world\n\n'), reply(push)],
+      [start('i1'), wrote('hello.txt', 'hello world\n\n'), reply(push)],
       judged,
       [start('r3'), reply({ kind: 'back', why: 'still not right' })],
       [start('r4'), reply({ kind: 'comment', body: 'Ready to merge.' })],
@@ -490,7 +471,7 @@ describe('drive', () => {
     const where = world();
     const { marks, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
-      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
       [start('r1'), reply({ kind: 'back', why: 'say hello world' })],
     ]);
@@ -536,7 +517,7 @@ describe('drive', () => {
     const where = world();
     const { specs, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-      [start('i1'), write('.gitattributes', '* -diff\n'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      [start('i1'), wrote('.gitattributes', '* -diff\n'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
       [start('r1'), reply({ kind: 'ask', question: 'Done?' })],
     ]);
@@ -550,7 +531,7 @@ describe('drive', () => {
     const where = world();
     const { specs, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-      [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
+      [start('i1'), wrote('hello.txt', 'hello\n'), wrote('secret.txt', 'key\n'), reply(push, pull)],
       judged,
     ]);
     const stopped = await run(drive(w, fresh(), hub));
@@ -569,7 +550,7 @@ describe('drive', () => {
     const where = world();
     const { run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
     ]);
     const loud = hubOf('kit', {
@@ -609,7 +590,7 @@ describe('drive', () => {
     );
     const { run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-      [start('i1'), write('hello.txt', 'hello\n'), reply({ ...push, branch: 'agentgraph/8' })],
+      [start('i1'), wrote('hello.txt', 'hello\n'), reply({ ...push, branch: 'agentgraph/8' })],
     ]);
     const scoped = hubOf('kit', {
       safety: { run: '! git diff --name-only $AGENTGRAPH_BASE | grep -qx CHAT.md' },
@@ -623,7 +604,7 @@ describe('drive', () => {
     const where = world();
     const { specs, run } = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
-      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
     ]);
     const reads = hubOf('kit', {
       safety: { run: 'cat "$AGENTGRAPH_CONTEXT"; echo "issue $AGENTGRAPH_ISSUE"; cat "$AGENTGRAPH_REPLY"; exit 1' },
@@ -735,7 +716,7 @@ describe('drive', () => {
 describe('setup', () => {
   const stopping = (): SessionEvent[][] => [
     [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-    [start('i1'), write('hello.txt', 'hello\n'), write('secret.txt', 'key\n'), reply(push, pull)],
+    [start('i1'), wrote('hello.txt', 'hello\n'), wrote('secret.txt', 'key\n'), reply(push, pull)],
   ];
 
   it('runs once per checkout with network before the first step', async () => {
@@ -835,7 +816,7 @@ describe('a run branch that moved', () => {
       const where = world();
       git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
       const first = services(where, [
-        [start('a'), write('hello.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+        [start('a'), wrote('hello.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
       ]);
       const parked = await first.run(
         drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
@@ -850,7 +831,7 @@ describe('a run branch that moved', () => {
       let before = '';
       const next = services(
         where,
-        [[start('a'), ...(conflict ? [write('hello.txt', 'resolved\n')] : []), reply(push)]],
+        [[start('a'), ...(conflict ? [wrote('hello.txt', 'resolved\n')] : []), reply(push)]],
         undefined,
         spec => {
           before = readFileSync(join(spec.dir, 'hello.txt'), 'utf8');
@@ -881,7 +862,7 @@ describe('a run branch that moved', () => {
     git(seed, 'commit', '-qm', 'Greeting');
     git(seed, 'push', '-q', where.origin, 'HEAD:agentgraph/7');
     const first = services(where, [
-      [start('a'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+      [start('a'), wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
     ]);
     const parked = await first.run(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small)
@@ -913,7 +894,7 @@ describe('a run branch that moved', () => {
       git(seed, 'commit', '-qm', 'Greeting');
       git(seed, 'push', '-q', where.origin, 'HEAD:agentgraph/7');
       const first = services(where, [
-        [start('a'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+        [start('a'), wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
       ]);
       const parked = await first.run(
         drive(flow, { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), tries }, small)
@@ -970,7 +951,7 @@ describe('a run branch that moved', () => {
       git(join(where.root, 'seed'), 'push', '-q', where.origin, `main:${branch}`);
       const before = git(where.origin, 'rev-parse', branch);
       const { run } = services(where, [
-        [start('a'), write('hello.txt', 'hello\n'), reply({ ...push, branch }, { ...pull, branch })],
+        [start('a'), wrote('hello.txt', 'hello\n'), reply({ ...push, branch }, { ...pull, branch })],
         [start('a'), reply({ kind: 'ask', question: 'Use my own branch?' })],
       ]);
       await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
@@ -994,7 +975,7 @@ describe('a run branch that moved', () => {
       JSON.stringify({ branch: 'agentgraph/8', base: 'main', head: 'foreign' })
     );
     const { run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'foreign' })],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'foreign' })],
       [start('a'), reply({ kind: 'ask', question: 'My own PR?' })],
     ]);
     await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
@@ -1011,7 +992,7 @@ describe('a run branch that moved', () => {
       pullRequest(where);
       writeFileSync(join(where.forge, '8', 'pull.json'), JSON.stringify({ branch, base: 'main', head: 'own' }));
       const { run } = services(where, [
-        [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'own' })],
+        [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'merge', number: 8, head: 'own' })],
       ]);
       await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
       expect((await run(Effect.flatMap(Forge, f => f.issue(8)))).state).toBe('merged');
@@ -1026,7 +1007,7 @@ describe('a run branch that moved', () => {
       const { run } = services(
         where,
         [
-          [start('a'), write('hello.txt', 'hello\n'), reply(push)],
+          [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
           [start('a'), reply({ kind: 'ask', question: 'Cannot publish?' })],
         ],
         undefined,
@@ -1058,7 +1039,7 @@ describe('a run branch that moved', () => {
         exit: kind === 'nonzero' ? 2 : 0,
       };
       const { specs, run } = services(where, [
-        [start('a'), write('hello.txt', 'hello\n'), ended],
+        [start('a'), wrote('hello.txt', 'hello\n'), ended],
         [start('a'), reply({ kind: 'ask', question: 'Try later?' })],
       ]);
       const done = await run(drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small));
@@ -1078,7 +1059,7 @@ describe('a run branch that moved', () => {
     const { specs, run } = services(
       where,
       [
-        [start('a'), write('hello.txt', 'pending\n'), reply(push)],
+        [start('a'), wrote('hello.txt', 'pending\n'), reply(push)],
         [start('a'), reply(push)],
       ],
       undefined,
@@ -1136,7 +1117,7 @@ describe('a run branch that moved', () => {
       fileStore(where.data),
       host(where.origin),
       scripted([
-        [start('a'), write('hello.txt', 'hello\n'), reply(...proposals)],
+        [start('a'), wrote('hello.txt', 'hello\n'), reply(...proposals)],
         [start('a'), reply(...proposals)],
       ])
     );
@@ -1270,7 +1251,7 @@ describe('a run branch that moved', () => {
       fileForge(where.forge),
       fileStore(where.data),
       sandbox,
-      scripted([[start('a'), write('hello.txt', 'hi'), reply({ kind: 'comment', body: 'Checked.' })]])
+      scripted([[start('a'), wrote('hello.txt', 'hi'), reply({ kind: 'comment', body: 'Checked.' })]])
     );
     const done = await Effect.runPromise(
       drive(checked, begin(checked, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
@@ -1296,7 +1277,7 @@ describe('a run branch that moved', () => {
       const good = readFileSync(path, 'utf8');
       const fragment = '{"at":"unfinished';
       writeFileSync(path, partial ? good + fragment : good.trimEnd());
-      const { run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+      const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
       const done = await run(drive(flow, current, small));
       expect(done.status).toBe('done');
       expect(traceOf(where.data, 'run-7').some(t => 'outcome' in t)).toBe(true);
@@ -1331,15 +1312,15 @@ describe('a run branch that moved', () => {
     const current = begin(flow, { id: 'run-7', issue: 7, started: fresh().started });
     await Effect.runPromise(Effect.flatMap(Store, s => s.put(current)).pipe(Effect.provide(fileStore(where.data))));
     appendFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'broken record\n');
-    const { run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+    const { run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
     await expect(run(drive(flow, current, small))).rejects.toThrow();
   }, 30_000);
 
   it('keeps the human answer in a fresh session after a failed try', async () => {
     const where = world();
     const { specs, run } = services(where, [
-      [write('hello.txt', 'TODO\n'), reply(push)],
-      [write('hello.txt', 'hello\n'), reply(push)],
+      [wrote('hello.txt', 'TODO\n'), reply(push)],
+      [wrote('hello.txt', 'hello\n'), reply(push)],
     ]);
     const current = {
       ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }),
@@ -1376,7 +1357,7 @@ describe('a run branch that moved', () => {
       { kind: 'issue', title: 'Follow up', body: '## Done when\nDetails', relation: 'follow-up' } as Proposal,
     ];
     const session = scripted([
-      [start('a'), write('hello.txt', 'hello\n'), reply(...skipped, push)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(...skipped, push)],
       [start('a'), reply({ kind: 'ask', question: 'Retry later' })],
     ]);
     const layer = Layer.mergeAll(failing, fileStore(where.data), host(where.origin), session);
@@ -1470,7 +1451,7 @@ describe('tick', () => {
       comment: { id: 'x', author: 'mallory[bot]', body: '/agent', at },
     });
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply(push)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
       [start('b'), reply({ kind: 'comment', body: 'Nothing left to do.' })],
     ]);
     const first = await run(tick(small));
@@ -1501,7 +1482,7 @@ describe('tick', () => {
     async (edits, why) => {
       const where = world();
       const { specs, run } = services(where, [
-        [start('a'), ...(edits ? [write('hello.txt', 'hello\n')] : []), reply({ kind: 'comment', body: 'Looked.' })],
+        [start('a'), ...(edits ? [wrote('hello.txt', 'hello\n')] : []), reply({ kind: 'comment', body: 'Looked.' })],
         [start('a'), reply({ kind: 'ask', question: 'Push it?' })],
       ]);
       const [asked] = await run(tick(small));
@@ -1540,7 +1521,7 @@ describe('tick', () => {
   it('applies nothing from a reply with an invented reply kind and asks for every proposal again', async () => {
     const where = world();
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply(push, pull, { kind: 'reply', body: 'Done.' } as never)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull, { kind: 'reply', body: 'Done.' } as never)],
       [start('a'), reply({ kind: 'ask', question: 'Again?' })],
     ]);
     await run(tick(small));
@@ -1553,8 +1534,8 @@ describe('tick', () => {
     const where = world();
     const flow = small.workflows.issue!;
     const { run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Hello or hi?' })],
-      [start('a'), write('bye.txt', 'bye\n'), reply(push)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Hello or hi?' })],
+      [start('a'), wrote('bye.txt', 'bye\n'), reply(push)],
     ]);
     const kept = 'refs/agentgraph/runs/run-7';
     const [asked, done, saved] = await run(
@@ -1617,9 +1598,9 @@ describe('tick', () => {
         : merging.workflows.issue;
       const kit = { ...merging, workflows: { issue: flow } };
       const first = services(where, [
-        [start('a'), write('hello.txt', 'published\n'), reply(push, pull)],
+        [start('a'), wrote('hello.txt', 'published\n'), reply(push, pull)],
         ...(pending
-          ? [[start('d'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })]]
+          ? [[start('d'), wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })]]
           : []),
       ]);
       const parked = await first.run(
@@ -1654,7 +1635,7 @@ describe('tick', () => {
     pullRequest(where);
     const flow = small.workflows.issue!;
     const { specs, run } = services(where, [
-      [write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+      [wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
       [reply({ kind: 'comment', body: 'Answer only' })],
       [reply({ kind: 'ask', question: 'Unexpected edit?' })],
     ]);
@@ -1799,7 +1780,7 @@ describe('tick', () => {
       failing,
       fileStore(where.data),
       host(where.origin),
-      scripted([[start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push)]])
+      scripted([[start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push)]])
     );
     const asked = await Effect.runPromise(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
@@ -1821,7 +1802,7 @@ describe('tick', () => {
       at: '2026-10-16T00:00:05.000Z',
       comment: { id: 'review', author: 'morgan', body: 'Trusted request', at: '2026-10-16T00:00:05.000Z' },
     });
-    const { specs, run } = services(where, [[start('i'), write('hello.txt', 'hello\n'), reply(push)]]);
+    const { specs, run } = services(where, [[start('i'), wrote('hello.txt', 'hello\n'), reply(push)]]);
     await run(waiting(where));
     await run(tick(merging, 7));
     expect(specs[0]!.prompt).toContain('Trusted request');
@@ -1838,7 +1819,7 @@ describe('tick', () => {
     say(where, comment(8, 'morgan', true, '/agent please undo the greeting', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
       [start('f'), reply({ kind: 'comment', body: 'Will undo.' }, { kind: 'back', why: 'undo the greeting' })],
-      [start('f'), write('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
+      [start('f'), wrote('hello.txt', 'hello\n'), reply(push, { kind: 'comment', body: 'Undone.' })],
     ]);
     const touched = await run(Effect.zipRight(waiting(where), tick(merging, 7)));
     expect(touched.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'waiting']]);
@@ -1961,7 +1942,7 @@ describe('tick', () => {
     const both = { ...merging, workflows: { ...merging.workflows, triage } };
     say(where, comment(7, 'morgan', true, '/agent the second one', '2026-10-16T00:00:05.000Z'));
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Thanks.' })],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'Thanks.' })],
     ]);
     await run(
       Effect.flatMap(Store, s =>
@@ -1997,7 +1978,7 @@ describe('tick', () => {
 
   it('waits for an issue to settle before a burst starts work, and never starts again on what a run took in', async () => {
     const where = world();
-    const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push, pull)]]);
+    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     where.human('/agent hello', new Date().toISOString());
     expect(await run(tick(small, undefined, false, settle))).toEqual([]);
     const [done] = await run(tick(small));
@@ -2160,7 +2141,7 @@ describe('stacks', () => {
   const run9 = () => begin(flow, { id: 'run-9', issue: 9, started: '2026-10-16T00:00:01.000Z' });
   const child = (content = 'bye\n', file = 'bye.txt') => [
     start('a'),
-    write(file, content),
+    wrote(file, content),
     reply(
       { kind: 'push', branch: 'agentgraph/9', message: 'Add bye' },
       { kind: 'pull_request', branch: 'agentgraph/9', base: 'main', title: 'Add bye', body: 'Stacks on #7. Closes #9' }
@@ -2241,7 +2222,7 @@ describe('stacks', () => {
     const { move } = parent(where);
     const first = services(where, [
       child(),
-      [start('a'), write('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
+      [start('a'), wrote('pending.txt', 'pending\n'), reply({ kind: 'ask', question: 'Continue?' })],
     ]);
     const parked = await first.run(
       Effect.gen(function* () {
@@ -2342,8 +2323,8 @@ describe('start with one issue', () => {
     const seen: Settings[] = [];
     const fix: Proposal = { ...push, message: 'feat: add hello' };
     const turns = [
-      [start('i'), write('hello.txt', 'TODO\n'), reply(fix)],
-      [start('i'), write('hello.txt', 'hello\n'), reply(fix)],
+      [start('i'), wrote('hello.txt', 'TODO\n'), reply(fix)],
+      [start('i'), wrote('hello.txt', 'hello\n'), reply(fix)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ];
     const doubles = (s: Settings) => {
@@ -2445,8 +2426,8 @@ describe('sweep', () => {
       comment: { id: 'a', author: 'morgan', body: '/agent hi', at: answer },
     });
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
-      [start('b'), write('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
+      [start('b'), wrote('hello.txt', 'hello\n'), reply({ kind: 'ask', question: 'Done?' })],
     ]);
     for (const r of [parked(8, 'waiting'), parked(9, 'waiting')]) {
       mkdirSync(join(where.data, r.id), { recursive: true });
@@ -2524,7 +2505,7 @@ describe('coworker', () => {
     pullRequest(where);
     say(where, comment(8, 'ana', true, 'mind the edge case', '2026-10-16T00:00:02.000Z'));
     say(where, check(8, 'test', 'failure', '2026-10-16T00:00:03.000Z'));
-    const { specs, run } = services(where, [[start('a'), write('hello.txt', 'hello\n'), reply(push)]]);
+    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
     await run(drive(flow, begun(), small));
     expect(specs[0]!.prompt).toContain('## Pull request #8 Add hello');
     expect(specs[0]!.prompt).toContain('#7 @morgan: /agent');
@@ -2665,7 +2646,7 @@ describe('coworker', () => {
     return { specs, go };
   };
   const bye = comment(7, 'ana', true, '/agent say bye too', later(1));
-  const greet = [start('a'), write('hello.txt', 'hello\n'), reply(push)];
+  const greet = [start('a'), wrote('hello.txt', 'hello\n'), reply(push)];
 
   it('steer: a comment made while the session works reaches it in one more turn of the same session', async () => {
     const where = world();
@@ -2792,7 +2773,7 @@ describe('coworker', () => {
   it('keeps one status comment through two tries and an ask, with the question in its own comment', async () => {
     const where = world();
     const { run } = services(where, [
-      [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
+      [start('a'), wrote('hello.txt', 'TODO\n'), reply(push)],
       [start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })],
     ]);
     const asked = await run(drive(flow, begun(), small));
@@ -2829,9 +2810,9 @@ describe('coworker', () => {
         steps: [{ name: 'implement', does: { agent: 'implementor' }, checks: ['types'], tries: 3 }],
       };
       const { specs, run } = services(where, [
-        [start('a'), write('hello.txt', 'TODO\n'), reply(push)],
+        [start('a'), wrote('hello.txt', 'TODO\n'), reply(push)],
         [start('a'), reply(push)],
-        [start('a'), ...(fixed ? [write('hello.txt', 'hello\n')] : []), reply(push)],
+        [start('a'), ...(fixed ? [wrote('hello.txt', 'hello\n')] : []), reply(push)],
       ]);
       const done = await run(drive(typed, begin(typed, { id: 'run-7', issue: 7, started: fresh().started }), checked));
       expect(specs).toHaveLength(3);
@@ -2861,7 +2842,7 @@ describe('coworker', () => {
       ],
     };
     const { specs, run } = services(where, [
-      [start('a'), write('hello.txt', 'hello\n'), reply(push)],
+      [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
       [start('r'), reply({ kind: 'comment', body: 'Fine.' })],
     ]);
     await run(drive(reviewed, begin(reviewed, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' }), small));
@@ -3382,7 +3363,7 @@ describe('a base that moved', () => {
     const where = world();
     const first = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-      [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
+      [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
       [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
@@ -3555,7 +3536,7 @@ describe('a base that moved', () => {
     const { specs, run } = services(
       where,
       [
-        [start('i1'), write('hello.txt', 'hello upstream\n'), reply(push)],
+        [start('i1'), wrote('hello.txt', 'hello upstream\n'), reply(push)],
         judged,
         [start('r2'), reply({ kind: 'comment', body: 'Fine.' })],
       ],

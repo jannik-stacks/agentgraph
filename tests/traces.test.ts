@@ -1,14 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { temp, write } from './kit.ts';
+import { tmp, write } from './kit.ts';
 
 const script = join(resolve(import.meta.dirname, '..'), 'bin/traces.mjs');
 const session = (step: string, s: object) => JSON.stringify({ at: '', step, session: { resumed: false, ...s } });
 
 describe('traces', () => {
   it('fails on a started session that cost nothing, and skips one that never started', () => {
-    const data = temp('traces');
+    const data = tmp('traces');
     write(data, {
       'run-1/trace.jsonl': [
         JSON.stringify({ at: '', step: 'implement', event: { type: 'start', session: 's1', model: 'm', home: '/h' } }),
@@ -27,7 +27,7 @@ describe('traces', () => {
   });
 
   it('fails on denied tool calls and on a done run without its required proposal, and shows waits', () => {
-    const data = temp('traces');
+    const data = tmp('traces');
     const tool = (ok: boolean, extra: object) =>
       JSON.stringify({
         at: '2026-10-16T00:05:00.000Z',

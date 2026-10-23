@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-export const temp = (prefix: string) => mkdtempSync(join(tmpdir(), `agentgraph-${prefix}-`));
+export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `agentgraph-${name}-`));
 
 /** Runs git in `cwd` with a fixed identity and no signing. */
 export const git = (cwd: string, ...args: string[]) =>
@@ -30,7 +30,7 @@ export const commit = (cwd: string, files: Record<string, string>) => {
 
 /** A repository with `before` committed as the base, then `after` written on top without committing and `remove` deleted. */
 export const change = (before: Record<string, string>, after: Record<string, string> = {}, remove: string[] = []) => {
-  const dir = temp('change');
+  const dir = tmp('change');
   git(dir, 'init', '-q', '-b', 'main');
   write(dir, { '.gitignore': 'node_modules/\n', ...before });
   git(dir, 'add', '.');

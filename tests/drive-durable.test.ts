@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configure, stateOf } from '../bench/drive.ts';
 import { alive, jsonl } from '../bin/resume.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const driver = resolve(import.meta.dirname, '../bench/drive.ts');
 

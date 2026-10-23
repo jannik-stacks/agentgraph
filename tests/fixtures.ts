@@ -1,20 +1,11 @@
-import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import type { Check } from '../src/hub.ts';
 import type { Hub } from '../src/hub.ts';
+import type { SessionEvent } from '../src/session.ts';
 import { load, type Problem, type Workflow } from '../src/workflow.ts';
-
-export const tmp = (name: string) => mkdtempSync(join(tmpdir(), `agentgraph-${name}-`));
-
-/** Runs the tool in `cwd` with a committer identity and no signing. */
-export const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
-    cwd,
-    encoding: 'utf8',
-  }).trim();
+import { git, tmp, write } from './kit.ts';
 
 /**
  * What a session could leave in its worktree to steer host git: a `.git` pointing at its own repo whose config runs a
@@ -137,7 +128,37 @@ export const faked = async <A>(out: Record<string, string>, f: (log: () => strin
   }
 };
 
-export const put = (dir: string, file: string, text = '') => {
-  mkdirSync(join(dir, file, '..'), { recursive: true });
-  writeFileSync(join(dir, file), text);
+/** A temp root holding `seed`, a repo with `files` committed on main, and the path of a `data` dir. */
+export const seeded = (name: string, files: Record<string, string>) => {
+  const root = tmp(name);
+  const seed = join(root, 'seed');
+  git(root, 'init', '-q', '-b', 'main', seed);
+  write(seed, files);
+  git(seed, 'add', '-A');
+  git(seed, 'commit', '-q', '-m', 'init');
+  return { root, seed, data: join(root, 'data') };
 };
+
+export const start = (session: string): SessionEvent => ({
+  type: 'start',
+  session,
+  model: 'test',
+  home: `/homes/${session}`,
+});
+
+/** A session writing `content` to `path`. */
+export const wrote = (path: string, content: string): SessionEvent => ({
+  type: 'tool',
+  id: path,
+  name: 'write',
+  input: { path, content },
+  ok: true,
+});
+
+/** A session ending with `proposals` in its agentgraph block. */
+export const reply = (...proposals: unknown[]): SessionEvent => ({
+  type: 'end',
+  final: `Done.\n\n\`\`\`agentgraph\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
+  ended: 'stop',
+  exit: 0,
+});

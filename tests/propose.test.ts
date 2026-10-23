@@ -5,7 +5,7 @@ import { Effect, Either } from 'effect';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadHub } from '../src/hub.ts';
 import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const root = join(import.meta.dirname, '..');
 const save = (path: string, text: string) => {

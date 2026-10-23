@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { collect, DiskLow, inventory, type Item, pin, plan, room, trees, unpin } from '../src/disk.ts';
 import { envVersion } from '../src/env.ts';
-import { faked, put, tmp } from './fixtures.ts';
+import { faked } from './fixtures.ts';
+import { tmp, write } from './kit.ts';
 
 const GB = 1e9;
 const item = (id: string, more: Partial<Item> = {}): Item => ({ kind: 'env', refs: [id], bytes: GB, used: 0, ...more });
@@ -195,10 +196,10 @@ describe('collect', () => {
   it('removes a score tree nobody holds, and a tagged target dir only past the limit', async () => {
     await faked({}, async () => {
       const root = tmp('runs');
-      put(root, 'r/i0/case-1/case.json', '{}');
-      put(root, 'r/i0/case-1/tree/target/x', 'x'.repeat(5000));
-      put(root, 'r/i0/case-1/v2/diff.patch');
-      put(root, 'target-shared/CACHEDIR.TAG', 'x'.repeat(5000));
+      write(root, { 'r/i0/case-1/case.json': '{}' });
+      write(root, { 'r/i0/case-1/tree/target/x': 'x'.repeat(5000) });
+      write(root, { 'r/i0/case-1/v2/diff.patch': '' });
+      write(root, { 'target-shared/CACHEDIR.TAG': 'x'.repeat(5000) });
       const { removed } = await collect({ roots: [root] });
       expect(removed.map(i => i.refs[0])).toEqual([join(root, 'r/i0/case-1/tree')]);
       expect((await collect({ roots: [root], limit: 0 })).removed.map(i => i.refs[0])).toEqual([
@@ -211,14 +212,14 @@ describe('collect', () => {
 describe('trees', () => {
   it('finds score trees beside a case and tagged target dirs, never inside records', () => {
     const root = tmp('runs');
-    put(root, 'a/case.json');
+    write(root, { 'a/case.json': '' });
     mkdirSync(join(root, 'a/tree'));
-    put(root, 'x/y/z/case.json');
+    write(root, { 'x/y/z/case.json': '' });
     mkdirSync(join(root, 'x/y/z/tree'));
     mkdirSync(join(root, 'b/tree'), { recursive: true });
-    put(root, '.attic/a/case.json');
+    write(root, { '.attic/a/case.json': '' });
     mkdirSync(join(root, '.attic/a/tree'));
-    put(root, 't/target-shared/CACHEDIR.TAG');
+    write(root, { 't/target-shared/CACHEDIR.TAG': '' });
     mkdirSync(join(root, 'u/target-shared'), { recursive: true });
     expect(trees(root).sort()).toEqual(['a/tree', 't/target-shared', 'x/y/z/tree'].map(p => join(root, p)));
   });
@@ -227,10 +228,10 @@ describe('trees', () => {
     const root = tmp('bench');
     const run = 'sha/opencode-luna/r1/c1';
     for (const f of ['case.json', 'v2/diff.patch', 'v2/score.json', 'v2/hub/case.json', 'valid.json'])
-      put(root, `${run}/${f}`);
+      write(root, { [`${run}/${f}`]: '' });
     for (const d of [`${run}/tree`, `${run}/v2/hub/tree`]) mkdirSync(join(root, d), { recursive: true });
     for (const d of ['.cache/slot', 'sha/engine/agentgraph/x', 'cases/c1', 'done/x', 'logs/x']) {
-      put(root, `${d}/case.json`);
+      write(root, { [`${d}/case.json`]: '' });
       mkdirSync(join(root, d, 'tree'));
     }
     expect(trees(root)).toEqual([join(root, run, 'tree')]);

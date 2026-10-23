@@ -2,7 +2,7 @@ import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { fileStore, locate, Store, type Trace } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const pr = 'https://github.com/o/r/pull/23';
 const run = (id: string, issue: number) =>

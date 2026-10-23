@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { setupApp } from '../bin/setup-app.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 describe('setupApp', () => {
   it('creates the App from the manifest and saves its id and key 0600', async () => {

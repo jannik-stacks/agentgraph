@@ -2,7 +2,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { nodePath, runLogged } from '../bench/drive.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {

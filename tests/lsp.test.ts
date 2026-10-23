@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'lsp.ts');
 const dir = tmp('lsp');

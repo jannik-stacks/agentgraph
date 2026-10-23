@@ -2,13 +2,13 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { commit, git, temp, write } from './kit.ts';
+import { commit, git, tmp, write } from './kit.ts';
 
 const root = resolve(import.meta.dirname, '..');
 
 /** A repository holding the precommit script and the agentgraph hub, with `files` committed and `after` written on top. */
 const repo = (files: Record<string, string>, after: Record<string, string>) => {
-  const dir = temp('precommit');
+  const dir = tmp('precommit');
   for (const path of ['bin/precommit.sh', 'examples/agentgraph/checks', 'examples/agentgraph/scripts'])
     cpSync(join(root, path), join(dir, path), { recursive: true });
   git(dir, 'init', '-q', '-b', 'main');
@@ -42,7 +42,7 @@ describe('precommit', () => {
 
 describe('commit-msg', () => {
   const message = (text: string) => {
-    const file = join(temp('commit-msg'), 'COMMIT_EDITMSG');
+    const file = join(tmp('commit-msg'), 'COMMIT_EDITMSG');
     writeFileSync(file, text);
     return spawnSync('node', [join(root, 'bin/commit-msg.mjs'), file], { encoding: 'utf8' });
   };

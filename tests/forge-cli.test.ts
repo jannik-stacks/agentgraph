@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Layer } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,9 +14,8 @@ import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import type { SessionEvent } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
-import { host } from './doubles/sandbox.ts';
-import { scripted } from './doubles/session.ts';
-import { git, tmp } from './fixtures.ts';
+import { reply, seeded, start, wrote } from './fixtures.ts';
+import { git } from './kit.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'forge.ts');
 const sandboxHub = join(import.meta.dirname, '..', 'examples', 'sandbox');
@@ -28,33 +27,13 @@ afterEach(() => {
   delete process.env.AGENTGRAPH_PROXY_KEYS;
 });
 
-const start = (session: string): SessionEvent => ({ type: 'start', session, model: 'test', home: `/homes/${session}` });
-const write = (path: string, content: string): SessionEvent => ({
-  type: 'tool',
-  id: path,
-  name: 'write',
-  input: { path, content },
-  ok: true,
-});
-const reply = (...proposals: Proposal[]): SessionEvent => ({
-  type: 'end',
-  final: `Done.\n\n\`\`\`agentgraph\n${proposals.map(p => JSON.stringify(p)).join('\n')}\n\`\`\``,
-  ended: 'stop',
-  exit: 0,
-});
-
 /** A repo to seed from, a forge folder and a data dir; `forge` runs bin/forge.ts as morgan, `run` sweeps once. */
 const world = () => {
-  const root = tmp('forge-cli');
+  const { root, seed, data } = seeded('forge-cli', {
+    'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
+  });
   dirs.push(root);
-  const seed = join(root, 'seed');
-  mkdirSync(seed);
-  git(seed, 'init', '-q', '-b', 'main');
-  writeFileSync(join(seed, 'package.json'), JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }));
-  git(seed, 'add', '-A');
-  git(seed, 'commit', '-q', '-m', 'init');
   const dir = join(root, 'forge');
-  const data = join(root, 'data');
   const forge = (...args: string[]) => {
     const r = spawnSync(process.execPath, [cli, dir, ...args, '--as', 'morgan'], { encoding: 'utf8' });
     expect(r.status, r.stderr).toBe(0);
@@ -104,7 +83,7 @@ describe('bin/forge.ts with run --forge', () => {
       body: 'Adds hello.txt.',
     };
     const first = await w.run([
-      [start('i'), write('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
+      [start('i'), wrote('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     expect(w.seen[0]!.forge).toBe(w.dir);
@@ -119,7 +98,7 @@ describe('bin/forge.ts with run --forge', () => {
     expect(routed.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     const second = await w.run([
       [start('a'), reply({ kind: 'comment', body: 'On it.' }, { kind: 'back', why: 'say hello world' })],
-      [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
+      [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     expect(second.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
@@ -151,13 +130,13 @@ describe('bin/forge.ts with run --forge', () => {
       body: 'Adds it.',
     };
     const [waiting] = await w.run([
-      [start('i'), write('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
+      [start('i'), wrote('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     w.forge('comment', '2', 'say hello world', '--line', 'hello.txt:1');
     w.forge('review', '2', 'changes', 'see the line note');
     await w.run([
-      [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
+      [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     const backs = readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')
@@ -179,7 +158,7 @@ describe('bin/forge.ts with run --forge', () => {
     const turn = (n: number, file: string): SessionEvent[][] => [
       [
         start(`i${n}`),
-        write(file, `${file}\n`),
+        wrote(file, `${file}\n`),
         reply(
           { kind: 'push', branch: `agentgraph/${n}`, message: `feat: add ${file}` },
           { kind: 'pull_request', branch: `agentgraph/${n}`, base: 'main', title: `Add ${file}`, body: `Adds ${file}.` }
@@ -224,7 +203,7 @@ describe('bin/forge.ts with run --forge', () => {
       const [waiting] = await w.run([
         [
           start('i'),
-          write('hello.txt', 'hello\n'),
+          wrote('hello.txt', 'hello\n'),
           reply(
             { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
             { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
@@ -411,7 +390,7 @@ describe('bin/forge.ts with run --forge', () => {
     const [waiting] = await w.run([
       [
         start('i'),
-        write('hello.txt', 'hello\n'),
+        wrote('hello.txt', 'hello\n'),
         reply(
           { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
           { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
@@ -502,7 +481,7 @@ describe('an instance', () => {
     const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });
     const pull: Proposal = { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Add hello', body: '' };
     const first = await run([
-      [start('i'), write('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
+      [start('i'), wrote('hello.txt', 'hello\n'), reply(push('feat: add hello'), pull)],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     expect(first.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);
@@ -514,7 +493,7 @@ describe('an instance', () => {
     bh(at, 'comment', '2', 'say world', '--line', 'hello.txt:1');
     bh(at, 'review', '2', 'changes', 'not quite');
     const second = await run([
-      [start('i'), write('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
+      [start('i'), wrote('hello.txt', 'hello world\n'), reply(push('fix: say hello world'))],
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     expect(second.map(r => [r.step, r.status])).toEqual([['merge', 'waiting']]);

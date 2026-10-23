@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { change, runScript, temp, write } from './kit.ts';
+import { change, runScript, tmp, write } from './kit.ts';
 
 const script = resolve(import.meta.dirname, '../examples/agentgraph/scripts/note-pairs.mjs');
 
@@ -9,7 +9,7 @@ const note = (title: string, body: string, status = 'accepted') =>
 
 describe('note-pairs', () => {
   it('pairs each hunk with the notes that share its words and carries the files the change touches', () => {
-    const hub = temp('hub');
+    const hub = tmp('hub');
     write(hub, {
       'notes/caveat/ids.md': note('Ids live in a field', 'Never parse a step marker back from an issue body.'),
       'notes/style/icons.md': note('Every icon has a tooltip', 'An icon button explains itself on hover.'),

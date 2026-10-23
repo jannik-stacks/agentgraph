@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { Forge, provenance, type Proposal } from '../src/forge.ts';
 import { githubForge } from '../src/github.ts';
 import type { Checkout } from '../src/sandbox.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,

@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { change, git, runScript, temp, write } from './kit.ts';
+import { change, git, runScript, tmp, write } from './kit.ts';
 import { context } from '../src/context.ts';
 import type { Event, Proposal } from '../src/forge.ts';
 
@@ -27,7 +27,7 @@ const noBrief = 'test-guards: no triage brief found for this run, so no criterio
 const guardsOk = { ok: true, out: `${noBrief}\ntest-guards: ok` };
 /** Runs test-guards with an empty hub, so the criteria part finds no brief unless `env` points at one. */
 const guards = (repo: { dir: string; base: string }, env: Record<string, string> = {}) => {
-  const { ok, out } = run('test-guards.mjs', repo, [], { AGENTGRAPH_HUB: temp('empty'), ...env });
+  const { ok, out } = run('test-guards.mjs', repo, [], { AGENTGRAPH_HUB: tmp('empty'), ...env });
   return { ok, out, found: findings(out).filter(line => line !== noBrief) };
 };
 const items = (out: string) => (out ? out.split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []);
@@ -414,7 +414,7 @@ describe('old-tests', () => {
   it('names an old test the change edited to pass, and leaves the worktree alone', () => {
     const repo = edited('adds a negative sum');
     const status = git(repo.dir, 'status', '--porcelain');
-    expect(run('old-tests.mjs', repo, [], { AGENTGRAPH_HUB: temp('empty') })).toEqual({
+    expect(run('old-tests.mjs', repo, [], { AGENTGRAPH_HUB: tmp('empty') })).toEqual({
       ok: false,
       out: "tests/add.test.ts: the base's 'adds a negative sum' fails against the change: AssertionError: expected +0 to be -2 // Object.is equality\nold-tests: 1 finding",
     });
@@ -433,7 +433,7 @@ describe('old-tests', () => {
 
 describe('fast', () => {
   it('runs each check with its own command and fails only on a finding of a block check', () => {
-    const hub = temp('fast-hub');
+    const hub = tmp('fast-hub');
     const check = (run: string, mode: string) => `---\nrun: ${run}\nmode: ${mode}\n---\n`;
     write(hub, {
       'checks/clean.md': check('echo "clean: ok"', 'block'),
@@ -773,7 +773,7 @@ const brief = [
 
 describe('triage-brief', () => {
   const check = (text: string) => {
-    const dir = temp('brief');
+    const dir = tmp('brief');
     writeFileSync(join(dir, 'reply.md'), text);
     return run('triage-brief.mjs', { dir, base: '' }, [join(dir, 'reply.md')]);
   };
@@ -829,7 +829,7 @@ describe('triage-brief', () => {
   });
 
   it('fails a file outside the roots the change may touch', () => {
-    const dir = temp('brief');
+    const dir = tmp('brief');
     const text = brief.replace(
       '- `tests/labels.test.ts`',
       '- `studio/src/App.tsx`: the view\n- `tests/labels.test.ts`'
@@ -885,11 +885,11 @@ describe('triage-brief', () => {
   });
 
   it("fails a path the issue's Done when names outside the bounds, unless the brief leaves it out of scope", () => {
-    const hub = temp('brief-hub');
+    const hub = tmp('brief-hub');
     write(hub, {
       'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- `infra/compose.yaml` runs it.\n- `src/a.ts` too.\n',
     });
-    const dir = temp('brief');
+    const dir = tmp('brief');
     const env = { AGENTGRAPH_HUB: hub, AGENTGRAPH_ISSUE: '7' };
     const at = (text: string) => {
       writeFileSync(join(dir, 'reply.md'), text);
@@ -905,9 +905,9 @@ describe('triage-brief', () => {
   });
 
   it('with --width, flags only a brief naming more than twice as many files outside tests/ as Done when rows', () => {
-    const hub = temp('brief-hub');
+    const hub = tmp('brief-hub');
     write(hub, { 'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- One.\n- Two.\n- Three.\n' });
-    const dir = temp('brief');
+    const dir = tmp('brief');
     const named = (n: number) => Array.from({ length: n }, (_, i) => `- \`src/f${i}.ts\``).join('\n');
     const width = (n: number) => {
       writeFileSync(join(dir, 'reply.md'), brief.replace(/## Files\n[\s\S]*?\n\n/, `## Files\n${named(n)}\n\n`));
@@ -923,9 +923,9 @@ describe('triage-brief', () => {
   });
 
   it('with --width, flags a brief with more criteria than Done when rows', () => {
-    const hub = temp('brief-hub');
+    const hub = tmp('brief-hub');
     write(hub, { 'issues/7-x.md': '---\ntitle: x\n---\n## Done when\n\n- One.\n- Two.\n' });
-    const dir = temp('brief');
+    const dir = tmp('brief');
     writeFileSync(join(dir, 'reply.md'), brief);
     const { out } = run('triage-brief.mjs', { dir, base: '' }, ['--width', join(dir, 'reply.md')], {
       AGENTGRAPH_HUB: hub,
@@ -947,8 +947,8 @@ describe('triage-brief', () => {
   });
 
   it("reads the reply and the issue's Done when from the files the engine writes", () => {
-    const hub = temp('brief-hub');
-    const { out } = run('triage-brief.mjs', { dir: temp('brief'), base: '' }, ['--width'], {
+    const hub = tmp('brief-hub');
+    const { out } = run('triage-brief.mjs', { dir: tmp('brief'), base: '' }, ['--width'], {
       AGENTGRAPH_HUB: hub,
       AGENTGRAPH_CONTEXT: contextWith('Working on it.'),
       AGENTGRAPH_REPLY: replyFile(brief),
@@ -957,7 +957,7 @@ describe('triage-brief', () => {
   });
 
   it('passes with a note when there is no reply to read', () => {
-    expect(run('triage-brief.mjs', { dir: temp('brief'), base: '' })).toEqual({
+    expect(run('triage-brief.mjs', { dir: tmp('brief'), base: '' })).toEqual({
       ok: true,
       out: 'triage-brief: no reply to check; it is read from AGENTGRAPH_REPLY',
     });
@@ -974,7 +974,7 @@ const contextWith = (text: string) => {
     at,
     comment: { id: at, author: actor, body, at },
   });
-  const file = join(temp('context'), 'context.md');
+  const file = join(tmp('context'), 'context.md');
   writeFileSync(
     file,
     context({
@@ -999,14 +999,14 @@ const contextWith = (text: string) => {
 
 /** A reply file, as the engine writes it for checks. */
 const replyFile = (text: string) => {
-  const file = join(temp('reply'), 'reply.md');
+  const file = join(tmp('reply'), 'reply.md');
   writeFileSync(file, text);
   return file;
 };
 
 /** A hub with one ready local issue whose last bot comment is `brief`. */
 const hubWith = (text: string) => {
-  const hub = temp('hubdir');
+  const hub = tmp('hubdir');
   write(hub, {
     'issues/1-labels.md': [
       '---',
@@ -1331,13 +1331,13 @@ describe('removed', () => {
   const found = (before: string, after: string, extra: Record<string, string> = {}) =>
     items(
       run('removed.mjs', change({ 'src/a.ts': before, ...extra }, { 'src/a.ts': after }), [], {
-        AGENTGRAPH_HUB: temp('empty'),
+        AGENTGRAPH_HUB: tmp('empty'),
       }).out
     ).map(i => [i.kind, i.removed]);
 
   it('names a removed argument, with the hunk that replaces it', () => {
     const repo = change({ 'src/a.ts': 'send(task, next.summary);\n' }, { 'src/a.ts': 'send(task);\n' });
-    const [item] = items(run('removed.mjs', repo, [], { AGENTGRAPH_HUB: temp('empty') }).out);
+    const [item] = items(run('removed.mjs', repo, [], { AGENTGRAPH_HUB: tmp('empty') }).out);
     expect(item).toMatchObject({ kind: 'argument', file: 'src/a.ts', line: 1, removed: ['send(task, next.summary);'] });
     expect(item!.replacing).toContain('+send(task);');
   });
@@ -1360,7 +1360,7 @@ describe('removed', () => {
       { 'src/a.ts': 'export const f = 1;\n' },
       { 'src/a.ts': '', 'src/b.ts': 'export const f = 1;\n' }
     );
-    expect(run('removed.mjs', moved, [], { AGENTGRAPH_HUB: temp('empty') }).out).toBe('');
+    expect(run('removed.mjs', moved, [], { AGENTGRAPH_HUB: tmp('empty') }).out).toBe('');
     expect(found('const a = x ?? y;\n', 'const a = x ?? z;\n')).toEqual([]);
   });
 
@@ -1369,7 +1369,7 @@ describe('removed', () => {
       { 'src/a.ts': '// a ?? b\n', 'tests/a.test.ts': 'send(a, b.c);\n' },
       { 'src/a.ts': '', 'tests/a.test.ts': 'send(a);\n' }
     );
-    expect(run('removed.mjs', repo, [], { AGENTGRAPH_HUB: temp('empty') }).out).toBe('');
+    expect(run('removed.mjs', repo, [], { AGENTGRAPH_HUB: tmp('empty') }).out).toBe('');
   });
 });
 

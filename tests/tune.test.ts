@@ -16,7 +16,7 @@ import {
   type tunesOf,
 } from '../bin/tune.ts';
 import { fixtures } from '../studio/fixtures.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {

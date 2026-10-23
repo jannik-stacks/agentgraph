@@ -3,7 +3,7 @@ import { rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { context } from '../src/context.ts';
-import { change, runScript, temp } from './kit.ts';
+import { change, runScript, tmp } from './kit.ts';
 
 const scripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
 const bin = resolve(import.meta.dirname, '../node_modules/.bin');
@@ -91,7 +91,7 @@ describe('lint check', () => {
 
   it('fails when the linters are missing from the sandbox instead of passing', () => {
     const repo = change({ 'kit/a.ts': 'export const a = 1;\n' }, { 'kit/a.ts': 'export const a = 2;\n' });
-    const onlyNode = temp('only-node');
+    const onlyNode = tmp('only-node');
     symlinkSync(process.execPath, join(onlyNode, 'node'));
     const result = spawnSync(process.execPath, [join(scripts, 'lint.mjs')], {
       cwd: repo.dir,
@@ -186,7 +186,7 @@ describe('safety check, repository hygiene', () => {
 
 describe('clarinet reach check', () => {
   it('reads the brief from the issue context and the excuses from the reply, the files the engine writes', () => {
-    const dir = temp('engine-files');
+    const dir = tmp('engine-files');
     const brief = '## Title\nfeat(cli): x\n\n## Reach\n- CLI: `components/a.rs`';
     const at = '2026-10-13T09:01:00.000Z';
     const comment = { id: at, author: 'agentgraph[bot]', body: brief, at };
@@ -213,7 +213,7 @@ describe('clarinet reach check', () => {
 
 describe('clarinet toolchain checks', () => {
   const scripts = resolve(import.meta.dirname, '../examples/clarinet/scripts');
-  const bare = { PATH: '/usr/bin:/bin', HOME: temp('bare-home'), TMPDIR: temp('bare-tmp') };
+  const bare = { PATH: '/usr/bin:/bin', HOME: tmp('bare-home'), TMPDIR: tmp('bare-tmp') };
 
   it('exits 127 with the spawn error when cargo cannot start, so the run stops as an environment fault', () => {
     const r = spawnSync(process.execPath, [join(scripts, 'cargo.mjs'), 'fmt'], { encoding: 'utf8', env: bare });
@@ -222,7 +222,7 @@ describe('clarinet toolchain checks', () => {
   });
 
   it('exits 127 naming the missing tool before the SDK build starts', () => {
-    const r = spawnSync('sh', [join(scripts, 'sdk.sh')], { encoding: 'utf8', env: bare, cwd: temp('sdk-tree') });
+    const r = spawnSync('sh', [join(scripts, 'sdk.sh')], { encoding: 'utf8', env: bare, cwd: tmp('sdk-tree') });
     expect(r.status).toBe(127);
     expect(r.stdout).toMatch(/^sdk: \S+ not found$/m);
   });

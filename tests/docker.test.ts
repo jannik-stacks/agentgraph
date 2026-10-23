@@ -20,7 +20,8 @@ import {
 import { harnesses } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
-import { faked, git, plant, put, tmp } from './fixtures.ts';
+import { faked, plant } from './fixtures.ts';
+import { git, tmp, write } from './kit.ts';
 
 /** A repo with one commit on `main` and a `feature` branch one commit ahead. */
 const origin = () => {
@@ -702,8 +703,8 @@ describe('disk lifecycle', () => {
   it('finds node_modules beside each package.json and target beside the outermost Cargo.toml', async () => {
     const dir = tmp('deps');
     for (const f of ['package.json', 'packages/a/package.json', 'vendor/node_modules/x/package.json', 'Cargo.toml'])
-      put(dir, f);
-    put(dir, 'crates/b/Cargo.toml');
+      write(dir, { [f]: '' });
+    write(dir, { 'crates/b/Cargo.toml': '' });
     git(dir, 'init', '-q', '-b', 'main');
     git(dir, 'add', '-f', '.');
     git(dir, 'commit', '-q', '-m', 'base');
@@ -736,7 +737,7 @@ describe('disk lifecycle', () => {
       'crates/a/tests/d/main.rs',
       'crates/a/tests/d/util.rs',
     ];
-    for (const f of [...files, ...crate, 'vendor/node_modules/y/package.json']) put(dir, f, f);
+    for (const f of [...files, ...crate, 'vendor/node_modules/y/package.json']) write(dir, { [f]: f });
     git(dir, 'init', '-q', '-b', 'main');
     const commit = () => (
       git(dir, 'add', '-f', '.'),
@@ -760,10 +761,10 @@ describe('disk lifecycle', () => {
       'crates/a/tests/d/main.rs',
       'crates/a/tests/t.rs',
     ]);
-    put(dir, 'src/index.ts', 'changed');
-    put(dir, 'crates/a/src/lib.rs', 'changed');
+    write(dir, { 'src/index.ts': 'changed' });
+    write(dir, { 'crates/a/src/lib.rs': 'changed' });
     expect((await commit()).digest).toBe(one.digest);
-    put(dir, 'pnpm-lock.yaml', 'changed');
+    write(dir, { 'pnpm-lock.yaml': 'changed' });
     expect((await commit()).digest).not.toBe(one.digest);
   });
 

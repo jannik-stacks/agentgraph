@@ -2,13 +2,13 @@ import { spawnSync } from 'node:child_process';
 import { cpSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { temp, write } from './kit.ts';
+import { tmp, write } from './kit.ts';
 
 const root = resolve(import.meta.dirname, '..');
 
 describe('commands', () => {
   it('fails a missing bin file, command, flag, npm script and agentgraph binary, one line each', () => {
-    const dir = temp('commands');
+    const dir = tmp('commands');
     for (const path of ['bin/commands.mjs', 'bin/run.ts', 'bin/forge.ts', 'package.json', 'studio/package.json'])
       cpSync(join(root, path), join(dir, path));
     write(dir, {

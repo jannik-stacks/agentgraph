@@ -28,7 +28,7 @@ import {
   unpriced,
   verdict,
 } from '../bin/bench.ts';
-import { git, tmp } from './fixtures.ts';
+import { git, tmp } from './kit.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'bench.ts');
 

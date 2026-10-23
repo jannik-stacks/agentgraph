@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { harnessError, progress, runnerError, statusText } from '../bin/bench.ts';
 import { append, attic, busy, claim, jsonl, pin, probeUrl, publish, release, settle, write } from '../bin/resume.ts';
 import { tuneRows } from '../bin/tune.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {

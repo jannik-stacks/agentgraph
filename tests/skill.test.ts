@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { init, type step, tuneRows } from '../bin/tune.ts';
 import { skill } from '../tune/skill.ts';
-import { tmp } from './fixtures.ts';
+import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
 afterEach(() => {

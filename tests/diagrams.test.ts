@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { temp, write } from './kit.ts';
+import { tmp, write } from './kit.ts';
 
 const script = resolve(import.meta.dirname, '../bin/diagrams.mjs');
 
 const check = (diagram: string) => {
-  const dir = temp('diagrams');
+  const dir = tmp('diagrams');
   write(dir, { 'a.md': `text\n\n\`\`\`\n${diagram}\`\`\`\n` });
   const { status, stdout } = spawnSync('node', [script, join(dir, 'a.md')], { encoding: 'utf8' });
   return {
