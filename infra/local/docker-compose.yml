@@ -20,6 +20,8 @@ services:
     ports: ["127.0.0.1:4000:4000"]
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in infra/local/.env}
+      # Unset unless .env sets it; LiteLLM then encrypts with the master key.
+      LITELLM_SALT_KEY:
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:-litellm-local}@postgres:5432/litellm
       STORE_MODEL_IN_DB: "False"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
