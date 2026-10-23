@@ -51,7 +51,7 @@ export type Hub = {
   trust?: string[];
 };
 
-class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {
+export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[] }> {
   override get message() {
     return this.problems.map(p => `${p.path}: ${p.message}`).join('\n');
   }

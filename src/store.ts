@@ -22,9 +22,6 @@ const changes = (before: Run | undefined, next: Run): Trace | undefined => {
   };
 };
 
-/** A check's full output in the store: its sha256 and its length in bytes. */
-type Log = { hash: string; bytes: number };
-
 /** Which check output the store keeps: every run's, only failing ones', or none. */
 export const checkLogs = ['all', 'failed', 'off'] as const;
 

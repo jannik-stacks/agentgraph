@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync 
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configure, stateOf } from '../bench/drive.ts';
-import { alive, jsonl } from '../bin/resume.ts';
+import { jsonl } from '../bin/resume.ts';
+import { alive } from '../src/env.ts';
 import { tmp } from './kit.ts';
 
 const driver = resolve(import.meta.dirname, '../bench/drive.ts');

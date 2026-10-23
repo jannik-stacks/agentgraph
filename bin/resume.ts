@@ -24,6 +24,7 @@ import { uptime } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, room } from '../src/disk.ts';
+import { alive } from '../src/env.ts';
 
 const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
 
@@ -86,15 +87,6 @@ export const publish = (src: string, dst: string, filter?: (path: string) => boo
   cpSync(src, tmp, { recursive: true, ...(filter && { filter }) });
   if (existsSync(dst)) rmSync(tmp, { recursive: true, force: true });
   else renameSync(tmp, dst);
-};
-
-export const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
-  }
 };
 
 const owner = (path: string) => Number((existsSync(`${path}.lock`) && readFileSync(`${path}.lock`, 'utf8')) || 0);
