@@ -541,7 +541,7 @@ export const githubForge = (
     const pushed = new Map<string, { sha: string; tree: string }>();
     /** The `.github/` files each branch's pushes left out, for its pull request to name. */
     const held = new Map<string, Set<string>>();
-    const refuse = (message: string) => new ForgeError({ status: 422, message });
+    const refuse = (message: string, moved?: true) => new ForgeError({ status: 422, message, ...(moved && { moved }) });
     let repositoryId: string | undefined;
     const rewrite = (branch: string, before: string, after: string) =>
       Effect.gen(function* () {
@@ -563,7 +563,7 @@ export const githubForge = (
         if (result.errors?.length || !result.data?.updateRefs) {
           const ref = yield* refPath(branch);
           const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
-          if (tip !== before) return yield* refuse(`${branch} moved while its ref was updated`);
+          if (tip !== before) return yield* refuse(`${branch} moved while its ref was updated`, true);
           return yield* new ForgeError({
             message: `GitHub updateRefs ${branch}: ${result.errors?.map(e => e.message).join('; ') ?? 'no update returned'}`,
           });
@@ -582,7 +582,8 @@ export const githubForge = (
         const last = pushed.get(work.dir);
         const parent = last?.sha ?? work.head ?? work.base;
         const tip = (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha;
-        if (tip && tip !== parent) return yield* refuse(`${branch} is at ${tip}, the checkout builds on ${parent}`);
+        if (tip && tip !== parent)
+          return yield* refuse(`${branch} is at ${tip}, the checkout builds on ${parent}`, true);
         const follow = last ? undefined : onto;
         const parents = follow ? (merge ? [parent, follow] : [follow]) : [parent];
         const from = last?.tree ?? (yield* gitText(work, ['rev-parse', `${parents[0]}^{tree}`]));
@@ -617,7 +618,7 @@ export const githubForge = (
           force &&
           (yield* missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)))?.object.sha !== tip
         )
-          return yield* refuse(`${branch} moved while the commit was built`);
+          return yield* refuse(`${branch} moved while the commit was built`, true);
         if (tip) {
           if (force) yield* rewrite(branch, tip, head);
           else yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
@@ -649,7 +650,7 @@ export const githubForge = (
         );
         const tip = yield* tipOf;
         if (!tip) return yield* refuse(`${branch} does not exist`);
-        if (local && tip !== onto) return yield* refuse(`${branch} moved to ${tip}`);
+        if (local && tip !== onto) return yield* refuse(`${branch} moved to ${tip}`, true);
         if (local) {
           pushed.delete(work.dir);
           work.head = onto;
@@ -688,7 +689,7 @@ export const githubForge = (
           yield* git(work, ['read-tree', '-u', '--reset', tree]);
           return onto;
         }
-        if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`);
+        if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`, true);
         yield* rewrite(branch, tip, head);
         yield* git(work, ['read-tree', '-u', '--reset', tree]);
         yield* published(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
@@ -890,7 +891,7 @@ export const githubForge = (
       ).pipe(
         Effect.catchIf(
           e => e.status !== undefined && refusals.has(e.status),
-          e => Effect.succeed<Applied>({ proposal, ok: false, reason: e.message })
+          e => Effect.succeed<Applied>({ proposal, ok: false, reason: e.message, ...(e.moved && { moved: e.moved }) })
         )
       );
 

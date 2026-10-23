@@ -34,7 +34,7 @@ export const marked = (p: Proposal, studio?: string) =>
     return { posted: { ...p, body: stamp(p.body, mark, at, studio) }, at };
   });
 
-export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string }> {}
+export class ForgeError extends Data.TaggedError('ForgeError')<{ status?: number; message: string; moved?: true }> {}
 
 /** The repo as the state: GitHub in production, a JSON file in tests. */
 export class Forge extends Context.Tag('agentgraph/Forge')<
@@ -223,7 +223,12 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
       };
 
       const apply = async (n: number, p: Proposal, work?: Checkout): Promise<Applied> => {
-        const no = (reason: string): Applied => ({ proposal: p, ok: false, reason });
+        const no = (reason: string, away?: true): Applied => ({
+          proposal: p,
+          ok: false,
+          reason,
+          ...(away && { moved: away }),
+        });
         const t = await must(n);
         switch (p.kind) {
           case 'comment': {
@@ -255,9 +260,9 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const last = pushed.get(work.dir);
             const was = await tip(work, p.branch).catch(() => undefined);
             const onto = last === undefined ? p.onto : undefined;
-            if (onto && was !== (work.head ?? was)) return no(`${p.branch} moved to ${was}`);
+            if (onto && was !== (work.head ?? was)) return no(`${p.branch} moved to ${was}`, true);
             const parent = last ?? work.head ?? work.base;
-            if (was && was !== parent) return no(`${p.branch} is at ${was}, the checkout builds on ${parent}`);
+            if (was && was !== parent) return no(`${p.branch} is at ${was}, the checkout builds on ${parent}`, true);
             const parents = onto ? (p.merge ? [parent, onto] : [onto]) : [parent];
             await git(work, 'add', '-A');
             const tree = await git(work, 'write-tree');
@@ -277,7 +282,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             if (!allowed(p.branch)) return no(`a rebase goes to a ${pushable.prefix} branch`);
             if (!work) return no('a rebase needs a worktree');
             const was = await tip(work, p.branch);
-            if (p.head && was !== p.onto) return no(`${p.branch} moved to ${was}`);
+            if (p.head && was !== p.onto) return no(`${p.branch} moved to ${was}`, true);
             if (p.head) {
               pushed.delete(work.dir);
               work.head = p.onto;

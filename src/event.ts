@@ -45,7 +45,8 @@ export type Event = {
 
 /**
  * How a proposal landed; `id` is the comment a reply posted or edited, the number of an issue opened, or the reaction
- * given. `at` is when its body was stamped with the run it came from.
+ * given. `at` is when its body was stamped with the run it came from. `moved` marks a push or rebase refused because
+ * its branch is no longer where the checkout builds on.
  */
 export type Applied = {
   operation?: string;
@@ -55,6 +56,7 @@ export type Applied = {
   url?: string;
   id?: string;
   reason?: string;
+  moved?: true;
   at?: string;
 };
 

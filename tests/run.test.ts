@@ -877,6 +877,35 @@ describe('a run branch that moved', () => {
     30_000
   );
 
+  it('walks again from the branch tip when the forge refuses a push as moved, whatever its reason says', async () => {
+    const where = world();
+    let refused = false;
+    const forge = Layer.effect(
+      Forge,
+      Effect.map(Forge, f => ({
+        ...f,
+        apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
+          p.kind === 'push' && !refused
+            ? Effect.sync(() => ((refused = true), { proposal: p, ok: false, moved: true as const, reason: 'gone' }))
+            : f.apply(n, p, work),
+      }))
+    ).pipe(Layer.provide(fileForge(where.forge)));
+    const layer = Layer.mergeAll(
+      forge,
+      fileStore(where.data),
+      host(where.origin),
+      scripted([
+        [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
+        [start('a'), reply(push)],
+      ])
+    );
+    const done = await Effect.runPromise(
+      drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
+    );
+    expect(done.status).toBe('done');
+    expect(traceOf(where.data, 'run-7').filter(t => 'outcome' in t && t.outcome.kind === 'failed')).toEqual([]);
+  });
+
   it('keeps restored edits when following a new base on the first try', async () => {
     const where = world();
     const seed = join(where.root, 'seed');

@@ -229,6 +229,14 @@ describe('fileForge push', () => {
     expect(git(dir, '--git-dir', origin, 'show', 'agentgraph/1:hello.txt')).toBe('hello');
   });
 
+  it('refuses a push onto a branch that moved away from what the checkout builds on, as moved', async () => {
+    const { dir, origin, push } = setup();
+    git(dir, '--git-dir', origin, 'branch', 'agentgraph/1', 'main');
+    git(join(dir, 'seed'), 'commit', '-q', '--allow-empty', '-m', 'elsewhere');
+    git(join(dir, 'seed'), 'push', '-q', '-f', 'origin', 'HEAD:agentgraph/1');
+    expect(await push()).toMatchObject({ ok: false, moved: true });
+  });
+
   it('runs no code a session planted in its worktree', async () => {
     const { dir, work, origin, push } = setup();
     const { marker } = plant(work);

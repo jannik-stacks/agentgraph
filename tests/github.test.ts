@@ -1006,7 +1006,7 @@ describe('githubForge', () => {
           forge.apply(7, { kind: 'push', branch: 'agentgraph/7', message: 'Rewrite', onto: base }, work)
         )
       );
-      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/moved/) });
+      expect(applied).toMatchObject({ ok: false, moved: true, reason: expect.stringMatching(/moved/) });
       expect(f.calls.filter(c => c.method === 'PATCH')).toEqual([]);
     });
 
@@ -1015,7 +1015,11 @@ describe('githubForge', () => {
       writeFileSync(join(dir, 'a.txt'), 'two\n');
       const f = dataApi(work, { 'GET /repos/o/r/git/ref/heads/agentgraph/7': { object: { sha: 'elsewhere' } } });
       const applied = await pushTo(f, work);
-      expect(applied).toMatchObject({ ok: false, reason: expect.stringMatching(/agentgraph\/7 is at elsewhere/) });
+      expect(applied).toMatchObject({
+        ok: false,
+        moved: true,
+        reason: expect.stringMatching(/agentgraph\/7 is at elsewhere/),
+      });
       expect(writes(f)).toEqual([]);
     });
 

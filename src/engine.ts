@@ -1604,12 +1604,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         const tried = yield* attempt(w, current, hub, work, own);
         if (
           tried.outcome.kind === 'failed' &&
-          tried.outcome.proposals.some(
-            a =>
-              !a.ok &&
-              a.proposal.kind === 'push' &&
-              (a.reason?.includes(', the checkout builds on ') || a.reason?.startsWith(`${a.proposal.branch} moved `))
-          )
+          tried.outcome.proposals.some(a => !a.ok && a.proposal.kind === 'push' && a.moved)
         ) {
           current = tried.run;
           yield* store.put(current);
