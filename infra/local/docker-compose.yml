@@ -13,7 +13,7 @@ services:
   litellm:
     # The PyPI releases 1.82.7 and 1.82.8 were malicious (2026-03-24); the official image was
     # reported unaffected. Only ever run the image, pinned by digest.
-    image: ghcr.io/berriai/litellm-database:v1.105.0@sha256:f99e4cc55ce8a1c6888504ac6eff147868979d37363a7246cf804bbabdc27e88
+    image: ghcr.io/berriai/litellm-database:v1.106.2@sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     ports: ["127.0.0.1:4000:4000"]
     environment:
