@@ -32,7 +32,7 @@ A run id is the workflow name, the issue number and a timestamp.
 | `hub`, `by` | Hub version last checked, and the run that dispatched this one |
 | `started`, `ended`, `usd` | Times and session cost |
 
-The file is rewritten whole on each save. <!-- code: src/workflow.ts#Run -->
+<!-- code: src/workflow.ts#Run -->
 
 ## The trace
 

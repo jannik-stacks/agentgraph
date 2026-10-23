@@ -86,7 +86,7 @@ An agent's `harness` picks the session program:
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
 | `opencode` | Allowlists with patterns, such as `bash(git diff*)` | `--session <id> --fork` |
-| `pi` | Plain tool names only, so best for read-only agents | `--fork <id>` |
+| `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` is dropped, so best for read-only agents | `--fork <id>` |
 | `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work | `--resume <id> --fork-session` |
 
 Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnesses -->

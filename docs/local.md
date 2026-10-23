@@ -1,6 +1,6 @@
 # Running it locally
 
-You need Node 22.18 or later and Docker. Commands run from `agentgraph/`.
+You need Node 22.18 or later, Docker and `jq`. Commands run from `agentgraph/`.
 
 ## The model stack
 
@@ -8,8 +8,9 @@ You need Node 22.18 or later and Docker. Commands run from `agentgraph/`.
 cp infra/local/.env.example infra/local/.env   # once: set LITELLM_MASTER_KEY and provider keys
 npm run up                                     # sandbox image, proxy and egress, waits until healthy
 npm run keys                                   # one proxy key per agent, in infra/local/.keys.env
-npm run down
 ```
+
+Runs need the stack up. `npm run down` stops it and keeps its volumes.
 
 [Local infrastructure](../infra/local/README.md) covers providers, the ChatGPT login for `smart` and moving a stack from the old `bothub` compose project.
 
@@ -51,8 +52,8 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 
 | Variable | Meaning and default |
 | --- | --- |
-| `AGENTGRAPH_APP_ENV` | Env file with `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`; the variables also work directly |
-| `AGENTGRAPH_APP_KEY_FILE` | Path to the App's private key, loaded as `AGENTGRAPH_APP_KEY` |
+| `AGENTGRAPH_APP_ENV` | Env file with `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`, the path of the App's private key |
+| `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY` | The App id and private key, when set directly instead |
 | `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
 | `AGENTGRAPH_PROXY_URL` | Model proxy, `http://litellm:4000/v1` |
 | `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models) |
@@ -115,6 +116,8 @@ An instance bundles a hub copy, a forge, data and optional keys for one repo. Yo
 ```sh
 node bin/forge.ts ~/agentgraph/kit init ~/code/acme-app --hub examples/sandbox --base main
 ```
+
+`examples/sandbox` is written for its own small JavaScript package: its checks run `npm test` and its prompts name its files. For another repo, edit the hub copy in `hub/` first: `setup`, the checks and the skills. `check --hub ~/agentgraph/kit/hub` validates it.
 
 Then turn the proxy keys into `keys.env`. Its values apply only where the environment has none.
 

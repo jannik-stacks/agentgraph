@@ -18,7 +18,7 @@ Bad hub references fail before execution. Missing required proposals fail the tr
 
 ## Services with doubles
 
-Forge, store, session and sandbox are Effect services. Tests swap in a scripted session, a host sandbox, the file forge and the file store, so whole runs test without network access. <!-- code: src/forge.ts#fileForge -->
+The engine reaches the outside only through the [four services](architecture.md#where-everything-lives), so whole runs test without network access. <!-- code: src/forge.ts#fileForge -->
 
 ## Test code stays out of src
 
@@ -30,7 +30,7 @@ An unknown or removed key fails `check` with its path, except in skill frontmatt
 
 ## Secrets stay out of argv and logs
 
-Agent keys pass by environment name and are masked in output; see [Models](sandbox.md#models). <!-- code: src/docker.ts#dockerArgs -->
+See [Models](sandbox.md#models) for how agent keys travel. <!-- code: src/docker.ts#dockerArgs -->
 
 ## Few dependencies
 

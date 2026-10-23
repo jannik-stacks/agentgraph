@@ -10,7 +10,7 @@ ln -s "$PWD/node_modules" <dir>/<sha>/engine/agentgraph/node_modules
 SHA=<sha> POINTS=opencode:luna REPEATS=3 KEYS=<keys file> node bench/drive.ts <dir>
 ```
 
-This checks the commit out at `runs/<sha>/engine` and runs validity, v2, floor, scoring and judging for the cases in `bench/sets/<set>.json`. It writes `runs/<sha>/report.md`, and `compare.md` against the newest other `runs/<sha>/report.md`; pointed and repeat runs are not compared. Cases whose base differs from the set's pinned base are skipped.
+This checks the commit out at `runs/<sha>/engine` and runs validity, v2, floor, scoring and judging for the cases in `bench/sets/<set>.json`. It writes `report.md`, and `compare.md` against the newest `report.md` of another commit directly under `runs/`. Cases whose base differs from the set's pinned base are skipped.
 
 | Option | Effect |
 | --- | --- |
@@ -42,7 +42,7 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 
 Mined cases list their test files in `tests`, and `plan` in `bin/bench.ts` derives the commands per repo, with a typecheck for some repos on every case. `bucket: no-tests` turns off hidden tests but not the typecheck. Repos whose tests start their own containers have no plan, since the sandbox has no Docker socket.
 
-A tested case is valid only if its hidden tests fail on base and pass on the human change, the human diff applies, setup works, and the human passes the suite and, where base does, the typecheck. A case without hidden tests is invalid only when the human fails the typecheck. Before any container runs, a coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json` and skip arms and judges.
+A tested case is valid only if its hidden tests fail on base and pass on the human change, the human diff applies, setup works, and the human passes the suite and, where base does, the typecheck. A case without hidden tests needs only the diff to apply, setup to work and the human to pass the typecheck. Before any container runs, a coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json` and skip arms and judges.
 
 ## Arms
 
@@ -53,7 +53,7 @@ A tested case is valid only if its hidden tests fail on base and pass on the hum
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
 | `v1` | Not available |
 
-Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers any question with "No more information. Use your judgment.", and answers are counted.
+Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second question ends the arm where it waits. Answers are counted.
 
 An unfinished arm retries once, then counts as infra in `meta.json` and stays out of win rates and means. An arm that changed nothing scores 0 with `outcome: no-change`. Scoring setup failures also count as infra.
 
@@ -69,7 +69,7 @@ node bin/bench.ts report <out>
 
 - `run` writes the forge, data, hub copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage sums cost, tokens and time over every attempt. A model without a list price stops `run` before it spends.
 - `score` applies each diff to a base checkout, runs the suite and typecheck, then adds the human test files and runs the hidden tests. It also counts lines, files, overlap with the human change, added tests, sessions, cost and answers. `--drop-env` removes the scoring environments afterward.
-- `judge` compares pairs blind, with names and issue numbers masked, using Opus and Sonnet through `claude -p` and sol through the `smart` alias. The default `--judges opus:1,sonnet:2` gives each judge one or both diff orders; add `sol:2`, or replace the panel with `--judges sol:1`. A judge from the contestant's maker is swapped for another maker. `bench/judge.md` puts correctness first, then scope, and does not reward size.
+- `judge` compares pairs blind, with names and issue numbers masked, using Opus and Sonnet through `claude -p` on the host (so it needs a logged-in Claude CLI) and sol through the `smart` alias. The default `--judges opus:1,sonnet:2` gives each judge one or both diff orders; add `sol:2`, or replace the panel with `--judges sol:1`. A judge from the contestant's maker is swapped for another maker. `bench/judge.md` puts correctness first, then scope, and does not reward size.
 - `report` writes valid, invalid and infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables. Cost is recorded, or estimated at list price, and each row says which.
 
 Scoring runs only in [Docker environments](sandbox.md#environments), offline except setup. Progress goes to `<out>/log.jsonl`. Model keys come from `--keys`, default `infra/local/.keys.env`. Paid steps stop past `--max-codex` weekly Codex points since the first reading (30) or `--max-claude-calls` judge calls (60).
