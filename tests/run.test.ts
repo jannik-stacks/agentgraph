@@ -34,12 +34,14 @@ import { answerWith } from '../src/context.ts';
 import { appEnv, start as main, temporary } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { fileForge, Forge, ForgeError, provenance, type Event, type Mark, type Proposal } from '../src/forge.ts';
-import { host, Sandbox, type Command } from '../src/sandbox.ts';
+import { Sandbox, type Command } from '../src/sandbox.ts';
 import { settings, type Settings } from '../src/services.ts';
-import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
+import { Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import type { Hub } from '../src/hub.ts';
 import { begin, cancelled, reenter, transition, type Run, type Step } from '../src/workflow.ts';
+import { host } from './doubles/sandbox.ts';
+import { scripted } from './doubles/session.ts';
 import { git, hubOf } from './fixtures.ts';
 import { startTime } from './setup/global.ts';
 

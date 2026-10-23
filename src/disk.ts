@@ -272,6 +272,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
 /**
  * Which items to remove: every unheld `always` item, then unheld items oldest first, the old engine's first, while the
  * counted cache is over `limit` or free space is under `floor`.
+ * @internal
  */
 export const plan = (items: Item[], o: { limit: number; free: number; floor: number }) => {
   const open = items.filter(i => !i.held);
@@ -379,7 +380,10 @@ const reasonOf = (free: number, need: number, kept: Item[]) => {
   ].join(' ');
 };
 
-/** Too little free disk to start more work, with what holds the cache that is left. */
+/**
+ * Too little free disk to start more work, with what holds the cache that is left.
+ * @internal
+ */
 export class DiskLow extends Error {
   readonly held: Item[];
   constructor(free: number, need: number, held: Item[]) {

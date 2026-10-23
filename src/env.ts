@@ -33,7 +33,10 @@ export type EnvSpec = {
   toolchain?: string;
 };
 
-/** Shell lines that install the toolchain a repo's root `files` name, run from the repo root with network. */
+/**
+ * Shell lines that install the toolchain a repo's root `files` name, run from the repo root with network.
+ * @internal
+ */
 export const toolchainOf = (files: string[]) => {
   const has = (...names: string[]) => names.some(name => files.includes(name));
   const pinned = has('rust-toolchain', 'rust-toolchain.toml');
@@ -62,6 +65,7 @@ const git = (dir: string, ...args: string[]) =>
  * The skeleton of `rev`: its `manifest` files and ignore rules outside `node_modules`, and the Cargo target files beside
  * a `Cargo.toml` (lib, bins, build script, benches, examples and tests) that setup gets as stubs, so a fetch or
  * dependency build works without the source.
+ * @internal
  */
 export const skeletonOf = async (dir: string, rev: string): Promise<Skeleton> => {
   const entries = (await git(dir, 'ls-tree', '-r', rev))

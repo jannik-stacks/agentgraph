@@ -63,7 +63,10 @@ const random = (seed: number) => () => {
 const group = <T>(xs: T[], key: (x: T) => string) =>
   xs.reduce((m, x) => m.set(key(x), [...(m.get(key(x)) ?? []), x]), new Map<string, T[]>());
 
-/** Mean over cases of the mean over repeats, of `y` and `x`, and their 95% interval from a two-level bootstrap. */
+/**
+ * Mean over cases of the mean over repeats, of `y` and `x`, and their 95% interval from a two-level bootstrap.
+ * @internal
+ */
 export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, seed = 1) => {
   const stat = (cs: { y: number; x: number }[][]) => {
     const per = cs.map(rs => [mean(rs.map(r => r.y)), mean(rs.map(r => r.x))] as const);

@@ -10,10 +10,12 @@ import { loadHub } from '../src/hub.ts';
 import { Effect } from 'effect';
 import { Store } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
-import { host, Sandbox, SandboxError } from '../src/sandbox.ts';
+import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
-import { scripted, type SessionEvent } from '../src/session.ts';
+import type { SessionEvent } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
+import { host } from './doubles/sandbox.ts';
+import { scripted } from './doubles/session.ts';
 import { git, tmp } from './fixtures.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'forge.ts');

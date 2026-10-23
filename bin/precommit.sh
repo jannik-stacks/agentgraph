@@ -17,7 +17,7 @@ if [ $# -eq 0 ]; then
   [ -z "$rechecks" ] || printf 'docs refs, re-check the other side:\n%s\n' "$rechecks"
   node bin/diagrams.mjs || echo 'diagrams: misaligned (warning only for now)'
   node bin/commands.mjs >/dev/null || exit 1
-  npx --no-install knip >/dev/null || { npx --no-install knip; exit 1; }
+  npm run -s knip >/dev/null || { npm run -s knip; exit 1; }
   npx --no-install oxfmt --check src tests bin >/dev/null || { echo 'not formatted: npx oxfmt src tests bin'; exit 1; }
   set -- $(node --input-type=module -e "import { fast } from './examples/agentgraph/scripts/fast.mjs'; console.log(fast.filter(c => c !== 'safety').join(' '))")
 fi

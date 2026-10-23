@@ -201,7 +201,10 @@ const retiredWords: [RegExp, string][] = [
   [/## Resuming|main-worktree|\/hub\/scripts|criteria table|adds the Closes/, 'nothing; the engine no longer has it'],
 ];
 
-/** Reports each retired word a hub or notes file still uses. */
+/**
+ * Reports each retired word a hub or notes file still uses.
+ * @internal
+ */
 export const retiredIn = (text: string, say: (message: string) => void) => {
   for (const [word, now] of retiredWords) {
     const found = word.exec(text);

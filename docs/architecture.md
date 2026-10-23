@@ -43,8 +43,8 @@ The engine talks to the outside through four services. Each has a test double:
 
 - The forge reads and writes GitHub, or a folder when run locally. <!-- code: src/forge.ts#Forge -->
 - The store keeps runs and traces. <!-- code: src/store.ts#Store -->
-- The sandbox runs commands in docker, or on the host in tests. <!-- code: src/sandbox.ts#Sandbox -->
-- The session talks to a harness, or plays a script in tests. <!-- code: src/session.ts#Session -->
+- The sandbox runs commands in docker, or on the host in tests. <!-- code: src/sandbox.ts#Sandbox tests/doubles/sandbox.ts#host -->
+- The session talks to a harness, or plays a script in tests. <!-- code: src/session.ts#Session tests/doubles/session.ts#scripted -->
 
 ## One run through the state machine
 

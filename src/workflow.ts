@@ -385,7 +385,10 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
 export const toBot = (m: Event) => (m.kind === 'comment' ? m.comment?.said : undefined);
 
-/** The question a run parks with when a human cancels the try it is on. */
+/**
+ * The question a run parks with when a human cancels the try it is on.
+ * @internal
+ */
 export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /agent stop to end the run.';
 
 /**

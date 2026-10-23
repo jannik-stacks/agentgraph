@@ -5,7 +5,7 @@ import { Effect, Either } from 'effect';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { hubAt, loadHub } from '../src/hub.ts';
-import { host } from '../src/sandbox.ts';
+import { host } from './doubles/sandbox.ts';
 import { git } from './fixtures.ts';
 
 /** A hub directory with `files` written into it. */

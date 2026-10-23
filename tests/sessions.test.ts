@@ -4,9 +4,9 @@ import { join } from 'node:path';
 import { Duration, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gate } from '../src/engine.ts';
-import { host } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
+import { host } from './doubles/sandbox.ts';
 import { git, hubOf } from './fixtures.ts';
 
 const dirs: string[] = [];

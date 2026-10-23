@@ -20,6 +20,10 @@ Bad hub references fail before execution. Missing required proposals fail the tr
 
 Forge, store, session and sandbox are Effect services with [test doubles](architecture.md#where-everything-lives). Whole runs test without network access; the file forge also supports local use. <!-- code: src/forge.ts#fileForge -->
 
+## Test code stays out of src
+
+`src` holds only production code. A test double lives in `tests/doubles/` under the name of the `src` file it stands in for, so the host sandbox is in `tests/doubles/sandbox.ts`. `npm run knip` runs `knip --production`, which fails on a `src` export only tests use; production code exported just for a unit test says so with `@internal`. <!-- code: tests/doubles/sandbox.ts#host tests/doubles/session.ts#scripted -->
+
 ## Unknown keys name their replacement
 
 Retired keys report what to write instead. <!-- code: src/hub.ts#gone -->

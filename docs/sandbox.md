@@ -94,7 +94,7 @@ image: acme-node:agentgraph
 network: models
 ```
 
-Tests use a host sandbox that runs directly in a clone without network rules. <!-- code: src/sandbox.ts#host -->
+Tests use a host sandbox that runs directly in a clone without network rules. <!-- code: tests/doubles/sandbox.ts#host -->
 
 ## Harnesses
 

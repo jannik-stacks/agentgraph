@@ -1410,7 +1410,10 @@ const attempt = (
     );
   });
 
-/** The step's checks over what a try left behind, all at once, so every finding of a try comes back together. `usd` is what the agent checks cost. */
+/**
+ * The step's checks over what a try left behind, all at once, so every finding of a try comes back together. `usd` is what the agent checks cost.
+ * @internal
+ */
 export const gate = (
   step: Step,
   left: Left,
@@ -1562,6 +1565,7 @@ const unthreaded = (run: Run): Run =>
 /**
  * Runs the hub's setup, then tries until the run stops running. A runner error is retried once, then parks the run at its step, so an
  * answer tries that step again with the feedback it had. Files are kept under `refs/agentgraph/runs/<run id>`.
+ * @internal
  */
 export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, StoreError, Services> =>
   Effect.gen(function* () {

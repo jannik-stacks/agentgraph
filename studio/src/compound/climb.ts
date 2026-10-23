@@ -7,7 +7,10 @@ export type TuneRows = ReturnType<typeof tunesOf>[number];
 const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
 const mean = (xs: number[]) => (xs.length ? sum(xs) / xs.length : 0);
 
-/** The case-weighted quality of a step's evals on `splits`; select (fit and validate) by default. */
+/**
+ * The case-weighted quality of a step's evals on `splits`; select (fit and validate) by default.
+ * @internal
+ */
 export const score = (step: Step, splits: Split[] = ['fit', 'validate']) => {
   const evals = step.evals.filter(e => splits.includes(e.split));
   const n = sum(evals.map(e => e.cases.length));

@@ -4,9 +4,10 @@ import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fileForge, Forge } from '../src/forge.ts';
-import { host, Sandbox } from '../src/sandbox.ts';
+import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
+import { host } from './doubles/sandbox.ts';
 import { fixture, git, plant } from './fixtures.ts';
 
 const dirs: string[] = [];

@@ -278,6 +278,7 @@ export type Located = { run: string; step: string; at: string } | { issue: numbe
  * The write a GitHub link or comment id names: the newest `applied` line whose URL is the link or whose comment id is
  * the id, as its run, its step and the time the studio opens it at. A link with no comment in it, or a comment no run
  * wrote, names an issue instead: the one whose run opened it, else the number in the link.
+ * @public
  */
 export const locate = (input: unknown) =>
   Effect.gen(function* () {

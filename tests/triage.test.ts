@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { sweep, tick } from '../src/engine.ts';
 import { fileForge, Forge, type Event } from '../src/forge.ts';
 import { loadHub } from '../src/hub.ts';
-import { host, type Sandbox } from '../src/sandbox.ts';
-import { scripted, type Session, type SessionEvent } from '../src/session.ts';
+import type { Sandbox } from '../src/sandbox.ts';
+import type { Session, SessionEvent } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
+import { host } from './doubles/sandbox.ts';
+import { scripted } from './doubles/session.ts';
 import { git, tmp } from './fixtures.ts';
 
 const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));

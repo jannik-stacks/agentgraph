@@ -1,17 +1,25 @@
 {
   "entry": [
-    "src/main.ts",
-    "bin/*.{ts,mjs}",
-    "bench/*.ts",
-    "tune/*.ts",
+    "src/main.ts!",
+    "bin/*.{ts,mjs}!",
+    "bench/*.ts!",
+    "tune/*.ts!",
     "tests/**/*.test.ts",
     "tests/setup/*.ts",
     "examples/*/scripts/**/*.mjs",
-    "studio/dev.ts",
-    "studio/src/main.tsx",
-    "studio/vite.config.ts"
+    "studio/dev.ts!",
+    "studio/src/main.tsx!",
+    "studio/vite.config.ts!"
   ],
-  "project": ["src/**/*.ts", "bin/**", "bench/*.ts", "tune/**", "studio/**/*.{ts,tsx}", "examples/*/scripts/**"],
+  "project": [
+    "src/**/*.ts!",
+    "bin/**!",
+    "bench/*.ts!",
+    "tune/**!",
+    "studio/src/**/*.{ts,tsx}!",
+    "studio/*.ts!",
+    "examples/*/scripts/**"
+  ],
   "vitest": false,
   "ignoreBinaries": ["continue", "codex", "du"],
   "ignoreDependencies": [
