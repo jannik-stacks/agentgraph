@@ -80,11 +80,12 @@ const unexpired = () => {
   });
 };
 
-const skipped = new Set(['.attic', 'data', 'forge', '.git', 'node_modules']);
+const skipped = new Set(['data', 'forge', 'hub', 'engine', 'cases', 'done', 'logs', 'node_modules']);
 
 /**
  * Score trees beside a `case.json` and `target-shared` dirs holding `CACHEDIR.TAG`, at most `depth` levels under
- * `root`. Records, run data and git dirs are never entered.
+ * `root`. Records, run data, hidden dirs (attic, result cache, git) and a bench's engine, cases and logs are never
+ * entered.
  */
 export const trees = (root: string, depth = 5): string[] => {
   let entries: Dirent[] = [];
@@ -95,7 +96,7 @@ export const trees = (root: string, depth = 5): string[] => {
   }
   const here = new Set(entries.map(e => e.name));
   return entries
-    .filter(e => e.isDirectory() && !skipped.has(e.name) && !e.name.endsWith('.git'))
+    .filter(e => e.isDirectory() && !skipped.has(e.name) && !e.name.startsWith('.') && !e.name.endsWith('.git'))
     .flatMap(e => {
       const at = join(root, e.name);
       if (e.name === 'tree') return here.has('case.json') ? [at] : [];
@@ -290,7 +291,7 @@ export const plan = (items: Item[], o: { limit: number; free: number; floor: num
 };
 
 const remove = async (i: Item) => {
-  if (i.kind === 'tree') return (rmSync(i.refs[0]!, { recursive: true, force: true }), true);
+  if (i.kind === 'tree') return !busy(i.refs[0]!) && (rmSync(i.refs[0]!, { recursive: true, force: true }), true);
   const ok = (args: string[]) =>
     docker(args).then(
       () => true,

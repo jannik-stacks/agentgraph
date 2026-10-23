@@ -20,6 +20,7 @@ import {
   statSync,
   writeSync,
 } from 'node:fs';
+import { uptime } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { type Disk, room } from '../src/disk.ts';
 
@@ -97,10 +98,20 @@ export const alive = (pid: number) => {
 
 const owner = (path: string) => Number((existsSync(`${path}.lock`) && readFileSync(`${path}.lock`, 'utf8')) || 0);
 
+/** Since when this machine runs, so a lock from before a reboot is stale even when its pid was reused. */
+const booted = () => Date.now() - uptime() * 1000;
+const mtime = (path: string) => {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
+
 /** Whether a live process other than this one holds the unit at `path`. */
 export const busy = (path: string) => {
   const pid = owner(path);
-  return pid > 0 && pid !== process.pid && alive(pid);
+  return pid > 0 && pid !== process.pid && alive(pid) && mtime(`${path}.lock`) > booted() - 60_000;
 };
 
 /** Takes the unit at `path` for this process, unless a live one holds it; a dead holder's lock is taken over. */

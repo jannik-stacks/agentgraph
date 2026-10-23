@@ -189,6 +189,19 @@ describe('trees', () => {
     mkdirSync(join(root, 'u/target-shared'), { recursive: true });
     expect(trees(root).sort()).toEqual(['a/tree', 't/target-shared', 'x/y/z/tree'].map(p => join(root, p)));
   });
+
+  it('never enters the results, cache, engine, cases or logs of a bench dir', () => {
+    const root = tmp('bench');
+    const run = 'sha/opencode-luna/r1/c1';
+    for (const f of ['case.json', 'v2/diff.patch', 'v2/score.json', 'v2/hub/case.json', 'valid.json'])
+      put(root, `${run}/${f}`);
+    for (const d of [`${run}/tree`, `${run}/v2/hub/tree`]) mkdirSync(join(root, d), { recursive: true });
+    for (const d of ['.cache/slot', 'sha/engine/agentgraph/x', 'cases/c1', 'done/x', 'logs/x']) {
+      put(root, `${d}/case.json`);
+      mkdirSync(join(root, d, 'tree'));
+    }
+    expect(trees(root)).toEqual([join(root, run, 'tree')]);
+  });
 });
 
 describe('room', () => {

@@ -7,7 +7,7 @@
  * <out>/.cache unless --fresh; see docs/bench.md.
  */
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { claim, onStop, release, write } from './resume.ts';
@@ -112,8 +112,7 @@ if (import.meta.main) {
     parallel: Number(values.parallel),
     units: set.cases.flatMap(c => ['v2', 'floor'].map(arm => ({ case: c.id, arm }))),
   });
-  if (pointed && !existsSync(join(dir, 'point.json')))
-    writeFileSync(join(dir, 'point.json'), `${JSON.stringify(point, null, 2)}\n`);
+  if (pointed && !existsSync(join(dir, 'point.json'))) write(join(dir, 'point.json'), point);
   const pointArgs = [
     ...(values.point ? ['--point', values.point] : []),
     ...(values.repeat ? ['--repeat', values.repeat] : []),
@@ -150,7 +149,7 @@ if (import.meta.main) {
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   if (earlier) {
     const lines = compare(readFileSync(earlier, 'utf8'), readFileSync(join(dir, 'report.md'), 'utf8'));
-    writeFileSync(
+    write(
       join(dir, 'compare.md'),
       `# Compared with ${basename(join(earlier, '..'))}\n\n${lines.length ? lines.join('\n') : 'No headline number changed.'}\n`
     );
