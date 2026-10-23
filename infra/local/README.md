@@ -14,11 +14,24 @@ throwaway container per agent run. Every port binds to 127.0.0.1. Commands run f
 3. `docker compose up -d` (LiteLLM and Postgres), then `docker compose --profile sandbox up -d`.
 4. `docker build -t agentgraph-sandbox:local sandbox` (opencode and pi).
 
+The compose project is always `agentgraph`; never pass `-p`. Volumes, networks and the two stateful
+containers have fixed names (`agentgraph-pgdata`, `agentgraph-chatgpt-auth`, `agentgraph-db`,
+`agentgraph-egress`, `agentgraph-postgres`, `agentgraph-litellm`), so a second project on the same
+volumes fails at create instead of sharing the login.
+
+## Moving from the bothub project
+
+A stack still running as compose project `bothub` moves once with `./migrate-from-bothub.sh`
+(`--dry-run` prints the steps). It stops the old project, copies `bothub_pgdata` and
+`bothub_chatgpt-auth` into the new volumes, compares them, and starts `agentgraph`. Nothing is
+deleted; the script prints the commands that remove the stopped old project later. Run no agents
+while it runs.
+
 ## ChatGPT login for smart, writer and luna
 
 The admin UI has no ChatGPT login, so it runs once from the CLI, before the proxy starts: with
 `chatgpt/` models configured and no token, LiteLLM startup waits for the login. The tokens
-persist in the `chatgpt-auth` volume.
+persist in the `agentgraph-chatgpt-auth` volume.
 
 1. `docker compose run --rm --no-deps --entrypoint python3 litellm -c "from litellm.llms.chatgpt.authenticator import Authenticator; Authenticator().get_access_token()"`
 2. Open the URL it prints, sign in to ChatGPT, enter the code. Device-code login must be enabled

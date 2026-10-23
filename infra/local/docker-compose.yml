@@ -10,7 +10,9 @@
 name: agentgraph
 
 services:
+  # Fixed container names make a second project on the same volumes fail at create.
   litellm:
+    container_name: agentgraph-litellm
     # The PyPI releases 1.82.7 and 1.82.8 were malicious (2026-03-24); the official image was
     # reported unaffected. Only ever run the image, pinned by digest.
     image: ghcr.io/berriai/litellm-database:v1.106.2@sha256:35f2cec3a14bb297e08bfab56c1fc377432bc4071aaf71978fdff043a5d91e79
@@ -46,6 +48,7 @@ services:
     restart: unless-stopped
 
   postgres:
+    container_name: agentgraph-postgres
     image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
       POSTGRES_USER: litellm
@@ -103,8 +106,10 @@ services:
 
 networks:
   db:
+    name: agentgraph-db
     internal: true
-  egress: {}
+  egress:
+    name: agentgraph-egress
   sandbox:
     name: agentgraph-sandbox
     internal: true
@@ -115,7 +120,8 @@ networks:
 
 volumes:
   pgdata:
-    name: bothub_pgdata
+    name: agentgraph-pgdata
   chatgpt-auth:
-    name: bothub_chatgpt-auth
-  ollama-models: {}
+    name: agentgraph-chatgpt-auth
+  ollama-models:
+    name: agentgraph-ollama-models

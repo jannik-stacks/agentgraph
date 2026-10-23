@@ -14,6 +14,8 @@ docker build -t agentgraph-sandbox:local sandbox
 ./keys.sh                         # virtual keys in .keys.env
 ```
 
+The compose project is always `agentgraph`. A stack still running as project `bothub` moves once with `./migrate-from-bothub.sh` ([Moving from the bothub project](../infra/local/README.md#moving-from-the-bothub-project)).
+
 [Local infrastructure](../infra/local/README.md) covers provider setup, including the ChatGPT login for `smart`. Rust toolchains warm a shared cache on first use; see [Toolchains](sandbox.md#toolchains).
 
 For GitHub, create an App with `node bin/setup-app.ts` ([App setup](../infra/github/README.md)). Set `AGENTGRAPH_APP_ENV` to its `app.env`. From `infra/local`, prepare a persistent data directory:
