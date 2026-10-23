@@ -18,6 +18,7 @@
     "lint": "oxlint",
     "knip": "knip && knip --production --exports --files",
     "format": "oxfmt src tests bin bench studio tune",
+    "bench": "node bench/drive.ts",
     "hooks": "git config core.hooksPath agentgraph/bin/hooks"
   },
   "dependencies": {
