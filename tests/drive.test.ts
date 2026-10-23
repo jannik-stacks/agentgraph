@@ -63,4 +63,32 @@ describe('spend guard', () => {
     f.clock.now = 61_000;
     expect(await guard(3, 4)).toMatch(/run spend \$4\.00 .* would pass \$5/);
   });
+
+  it('takes no new job when a reading fails after a good one', async () => {
+    const f = fake(100, new Error('timeout'));
+    const guard = await spendGuard(5, 0.3, f.usage, f.at);
+    f.clock.now = 61_000;
+    expect(await guard(0, 0)).toMatch(/OpenRouter usage unreadable: Error: timeout/);
+  });
+
+  it('takes no new job on a reading older than two minutes', async () => {
+    const f = fake(100, 100);
+    const guard = await spendGuard(5, 0.3, f.usage, f.at);
+    f.clock.now = 61_000;
+    const slow = f.usage;
+    const late = async () => {
+      const total = await slow();
+      f.clock.now += 120_001;
+      return total;
+    };
+    const stale = await spendGuard(5, 0.3, late, f.at);
+    expect(await guard(0, 0)).toBeUndefined();
+    expect(await stale(0, 0)).toMatch(/OpenRouter usage is \d+s old/);
+  });
+
+  it('takes no new job without a baseline', async () => {
+    const f = fake(new Error('down'), 100);
+    const guard = await spendGuard(5, 0.3, f.usage, f.at);
+    expect(await guard(0, 0)).toMatch(/unreadable: Error: down/);
+  });
 });

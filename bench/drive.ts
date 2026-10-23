@@ -200,23 +200,32 @@ export const stateOf = (dir: string): DriveState => {
 };
 
 /**
- * Takes this run's baseline from `usage` and answers a check that says why no new job may start: this run's spend,
- * plus a job for each in flight and the next, would pass `cap`.
+ * Takes this run's baseline from `usage` and answers a check that says why no new job may start: a failed or
+ * over two minutes old reading, or this run's spend, plus a job for each in flight and the next, passing `cap`.
  */
 export const spendGuard = async (cap: number, per: number, usage: () => Promise<number>, clock = Date.now) => {
-  let last: { at: number; total?: number } = { at: -Infinity };
-  const spent = async () => {
-    if (clock() - last.at < 60_000) return last.total;
+  let last: { at: number; total: number } | undefined;
+  let failed: unknown;
+  const read = async () => {
+    if (last && !failed && clock() - last.at < 60_000) return;
+    const at = clock();
     try {
-      last = { at: clock(), total: await usage() };
-    } catch {}
-    return last.total;
+      last = { at, total: await usage() };
+      failed = undefined;
+    } catch (e) {
+      failed = e ?? 'no reason';
+    }
   };
-  const baseline = await spent();
+  await read();
+  const baseline = last?.total;
+  const unreadable = () => `OpenRouter usage unreadable: ${String(failed)}`;
+  if (baseline === undefined) return async () => unreadable();
   return async (active: number, started: number) => {
-    const now = await spent();
-    if (now === undefined || baseline === undefined) return 'OpenRouter usage unreadable';
-    const run = now - baseline;
+    await read();
+    if (failed || !last) return unreadable();
+    const age = clock() - last.at;
+    if (age > 120_000) return `OpenRouter usage is ${Math.round(age / 1000)}s old`;
+    const run = last.total - baseline;
     const each = Math.max(per, started ? run / started : 0);
     if (run + (active + 1) * each > cap)
       return `run spend $${run.toFixed(2)} with ${active} in flight at ~$${each.toFixed(2)} a job would pass $${cap}`;
@@ -295,8 +304,12 @@ if (import.meta.main) {
           .replace(/^"|"$/g, '')
       : undefined;
     const usage = async () => {
-      const r = await fetch('https://openrouter.ai/api/v1/credits', { headers: { authorization: `Bearer ${orKey}` } });
-      const d = ((await r.json()) as { data: { total_usage: number; total_credits: number } }).data;
+      const r = await fetch('https://openrouter.ai/api/v1/credits', {
+        headers: { authorization: `Bearer ${orKey}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+      const d = ((await r.json()) as { data?: { total_usage?: number; total_credits?: number } }).data;
+      if (typeof d?.total_usage !== 'number') throw new Error(`credits answered ${r.status} without usage`);
       append(budgetLog, {
         at: new Date().toISOString(),
         label: 'spend',
