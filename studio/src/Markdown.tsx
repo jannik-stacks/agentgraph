@@ -1,5 +1,6 @@
 import { createMarkdownRenderer } from 'fumadocs-core/content/md';
 import { remarkGfm } from 'fumadocs-core/mdx-plugins/remark-gfm';
+import { remarkHeading } from 'fumadocs-core/mdx-plugins/remark-heading';
 import {
   type ComponentProps,
   memo,
@@ -14,7 +15,9 @@ import { useHighlighted } from './source/highlight.tsx';
 import { Icon } from './icons.tsx';
 import { cx, IconButton, Link } from './ui.tsx';
 
-const { Markdown: Render } = createMarkdownRenderer({ remarkPlugins: [remarkGfm] });
+const { Markdown: Render } = createMarkdownRenderer({
+  remarkPlugins: [remarkGfm, [remarkHeading, { generateToc: false }]],
+});
 
 /** The one surface every code block sits on: close to the page, a hairline border, no shadow. */
 export const codeSurface =
@@ -122,6 +125,7 @@ const pre = ({ children }: ComponentProps<'pre'>) => {
 const a = ({ href = '', ...props }: ComponentProps<'a'>) => {
   const page = /^([\w-]+)\.md(#.*)?$/.exec(href);
   if (page) return <Link {...props} href={`/docs/${page[1]}${page[2] ?? ''}`} />;
+  if (href.startsWith('#')) return <a href={href} {...props} />;
   return <a href={href} {...props} target="_blank" rel="noreferrer" />;
 };
 

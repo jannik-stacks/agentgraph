@@ -1,4 +1,5 @@
 import { useAtomValue } from 'jotai';
+import { useEffect, useRef } from 'react';
 import { Markdown } from '../Markdown.tsx';
 import { pageAtom } from '../state.ts';
 import { cx, Link, Muted } from '../ui.tsx';
@@ -39,6 +40,12 @@ const title = (name: string) => /^# (.+)$/m.exec(pages[name]!)?.[1] ?? name;
 export const DocsPage = () => {
   const { id: name } = useAtomValue(pageAtom);
   const text = name ? pages[name] : undefined;
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const target = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (target) target.scrollIntoView();
+    else scroller.current?.scrollTo(0, 0);
+  }, [name]);
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       <nav className="max-h-32 shrink-0 overflow-y-auto border-b md:max-h-none md:w-48 md:border-r md:border-b-0 border-zinc-200 p-3 text-[13px] dark:border-zinc-800">
@@ -62,7 +69,7 @@ export const DocsPage = () => {
           </div>
         ))}
       </nav>
-      <div className="min-w-0 flex-1 overflow-y-auto p-6">
+      <div ref={scroller} className="min-w-0 flex-1 overflow-y-auto p-6">
         {name && !text ? (
           <Muted>No docs page named {name}.</Muted>
         ) : (

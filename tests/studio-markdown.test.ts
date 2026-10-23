@@ -30,6 +30,15 @@ describe('Markdown in the studio', () => {
     expect(html).toMatch(/<a href="https:\/\/example.com" target="_blank" rel="noreferrer">docs<\/a>/);
   });
 
+  it('gives headings GitHub anchors and keeps anchor links in the page', () => {
+    const html = render({
+      text: '## Tries and going back\n\nSee [waiting](#waiting) and [the loop](loop.md#waiting).',
+    });
+    expect(html).toContain('<h2 id="tries-and-going-back">');
+    expect(html).toContain('<a href="#waiting">waiting</a>');
+    expect(html).toContain('href="/docs/loop#waiting"');
+  });
+
   it('renders GitHub tables', () => {
     expect(render({ text: '| a | b |\n| - | - |\n| `x` | 2 |' })).toContain('<table>');
   });
