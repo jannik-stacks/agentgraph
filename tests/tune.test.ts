@@ -12,6 +12,7 @@ import {
   paired,
   propose,
   run,
+  status,
   step,
   tuneRows,
   type tunesOf,
@@ -356,6 +357,16 @@ describe('usage', () => {
     const limits = { codex: 100, claude5h: 100, claudeWeek: 100 };
     await step(dir, { k: 1, proposers: ['manual'], limits }, io);
     expect(spent('i001-manual')).toBe(12);
+  });
+});
+
+describe('status', () => {
+  it('sums a tune up on one screen', () => {
+    const text = status(join(import.meta.dirname, 'fixtures/tune/clarinet/skill@0.1.0'));
+    expect(text).toContain('incumbent i006-skill-1');
+    expect(text).toContain('quality, human = 1: select 0.655 on 14, validate 0.657 on 4, test 0.924 on 5');
+    expect(text).toContain('points used: Codex - of 25, Claude 5h - of 40, Claude week - of 12');
+    expect(text).toContain('no log yet');
   });
 });
 

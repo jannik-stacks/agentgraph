@@ -1,8 +1,8 @@
 # tune-graph
 
-A Claude Code skill that tunes a agentgraph hub on one repo. `SKILL.md` is the skill; `scripts/status.sh`
-prints one screen on a tune: the incumbent, the last 5 steps and the budget left. Copy the folder into
-`~/.claude/skills/` or a repo's `.claude/skills/` to install it.
+A Claude Code skill that tunes a agentgraph hub on one repo. `SKILL.md` is the skill; it reads a tune
+on one screen with `node bin/tune.ts status`: the incumbent's scores, the last 5 steps and the budget
+used. Copy the folder into `~/.claude/skills/` or a repo's `.claude/skills/` to install it.
 
 ## Benchmark
 

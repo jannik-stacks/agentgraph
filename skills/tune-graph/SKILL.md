@@ -25,7 +25,7 @@ runs out or nothing wins three rounds in a row. Then you explain the final hub t
 - Subagents never read validate or test cases, their traces or their scores. Only fit and mine cases.
 - Keep everything. Drafts, candidates and runs stay on disk.
 
-Run every command from a agentgraph checkout. `S` is this skill's folder and `T` is the tune dir,
+Run every command from a agentgraph checkout. `T` is the tune dir,
 `~/.agentgraph/tune/<repo>/<name>`.
 
 ## 1. Plan with the user
@@ -64,7 +64,7 @@ node bin/tune.ts init <repo> --cases ~/.agentgraph/tune/<repo>/cases --splits ~/
 
 `init` writes the minimal hub (implement with `tries: 2` and a tests check, then a human merge), scores
 it on fit and validate, and records it as the incumbent. Train is split in two: mine (oldest half,
-never run, read for history) and fit (run every round). Run `S/scripts/status.sh T` and show the user
+never run, read for history) and fit (run every round). Run `node bin/tune.ts status T` and show the user
 the starting score.
 
 ## 4. One round
@@ -105,7 +105,7 @@ A case where the incumbent's own runs disagree never counts.
 
 ## 5. Read and choose
 
-Run `S/scripts/status.sh T` with the caps from step 1, and read the new lines of `T/iterations.jsonl`:
+Run `node bin/tune.ts status T` with the caps from step 1 (`--max-codex` and the others), and read the new lines of `T/iterations.jsonl`:
 verdict, why (the cases won and lost) and delta. Use them for the next round:
 
 - Kept: the next round builds on it. A neighbour of the winning direction is a good next try.
@@ -116,7 +116,7 @@ After every third kept change, run `node bin/tune.ts checkpoint T` (test split p
 
 ## 6. Stop
 
-Stop when any of these holds: the round count from step 1 is reached, `status.sh` shows a cap used up
+Stop when any of these holds: the round count from step 1 is reached, `status` shows a cap used up
 or too little left for one more round, or three rounds in a row kept nothing. Then run
 `node bin/tune.ts checkpoint T` once more.
 
@@ -129,9 +129,9 @@ Tell the user, in plain short sentences:
   miss it fixed.
 - The score on fit plus validate, where 1 is the human, and the score on validate alone. A big gap
   between them means the hub fits the cases it was tuned on and may not carry over.
-- The held-out test score with its interval, from the last checkpoint. Only the judged composite from a
-  checkpoint can pass 1; say "beats the human" only when it does, and only on that number.
-- What it cost: Codex and Claude points, dollars and minutes, from `status.sh`.
+- The held-out test score with its interval, from the last checkpoint. No score passes 1, the human's
+  level; say "as good as the human" only when that interval reaches 1.
+- What it cost: Codex and Claude points, dollars and minutes, from `status`.
 - Where to look: the Compound tab (`npm --prefix studio run dev -- --tune ~/.agentgraph/tune`, then
   `/compound`).
 

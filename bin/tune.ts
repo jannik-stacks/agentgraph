@@ -755,9 +755,22 @@ export const run = async (
   if (due(tuneRows(dir).steps)) await checkpoint(dir, o, io);
 };
 
-/** One screen on a tune: its steps, whether a process runs it, and where the current phase of runs stands. */
-const status = (dir: string) => {
+/**
+ * One screen on a tune: the incumbent's scores, its last steps, the budget used against `limits`, whether a process
+ * runs it, and where the current phase of runs stands.
+ * @internal
+ */
+export const status = (dir: string, limits = limitsDefault) => {
   const { tune: t, steps } = tuneRows(dir);
+  const inc = incumbentOf(steps);
+  const q = (es: Eval[]) => {
+    const n = sum(es.map(e => e.cases.length));
+    return n ? `${round(sum(es.map(e => e.quality * e.cases.length)) / n)} on ${n}` : '-';
+  };
+  const on = (...splits: Split[]) => q(inc?.evals.filter(e => splits.includes(e.split)) ?? []);
+  const b = JSON.parse(read(join(dir, 'budget.json')) || '{}') as Budget;
+  const used = (name: string, r: Reading | undefined, max: number) => `${name} ${r?.used ?? '-'} of ${max}`;
+  const live = Boolean(read(join(dir, 'tune.lock'))) && busy(join(dir, 'tune'));
   const pid = Number(read(join(dir, 'tune.lock')) || 0);
   const phase = JSON.parse(read(join(dir, 'phase.json')) || 'null') as {
     at: string;
@@ -772,23 +785,23 @@ const status = (dir: string) => {
       .filter(existsSync)
       .map(f => statSync(f).mtimeMs)
   );
+  const ofPhase = (p: { parallel: number; jobs: Job[] }) => {
+    const { eta, ...rest } = progress(
+      p.jobs.map(j => unitOf(dir, j)),
+      p.parallel
+    );
+    return live && eta !== undefined ? { ...rest, eta } : rest;
+  };
   return [
-    `${t.repo} on ${t.point}: ${steps.length} steps over ${nextIteration(steps) - 1} iterations, incumbent ${incumbentOf(steps)?.id}`,
+    `${t.repo} on ${t.point}: ${steps.length} steps over ${nextIteration(steps) - 1} iterations, incumbent ${inc?.id ?? 'none yet'}`,
+    `  quality, human = 1: select ${on('fit', 'validate')}, validate ${on('validate')}, test ${on('test')}`,
+    `  points used: ${used('Codex', b.codex, limits.codex)}, ${used('Claude 5h', b.claude?.fiveHour, limits.claude5h)}, ${used('Claude week', b.claude?.week, limits.claudeWeek)}`,
+    `  bench runs: $${round(sum(steps.flatMap(s => s.evals.map(e => e.usd))))}, ${Math.round(sum(steps.flatMap(s => s.evals.map(e => e.minutes))))} min`,
     ...steps.slice(-5).map(s => `  ${s.id} ${s.verdict}: ${s.why}`),
-    pid && busy(join(dir, 'tune')) ? `running as pid ${pid}` : 'no live lock',
-    `last log write ${Math.round((Date.now() - written) / 60_000)} min ago`,
+    live ? `running as pid ${pid}` : 'no live lock',
+    written ? `last log write ${Math.round((Date.now() - written) / 60_000)} min ago` : 'no log yet',
     ...(last ? [`last event: ${JSON.stringify(last)}`] : []),
-    ...(phase
-      ? [
-          `phase since ${phase.at}:`,
-          statusText(
-            progress(
-              phase.jobs.map(j => unitOf(dir, j)),
-              phase.parallel
-            )
-          ),
-        ]
-      : []),
+    ...(phase ? [`phase since ${phase.at}:`, statusText(ofPhase(phase))] : []),
   ].join('\n');
 };
 
@@ -831,13 +844,11 @@ if (import.meta.main) {
   const dir =
     target && resolve(command === 'init' ? join(tuneRoot(), target.split('/').pop()!, values.name ?? 't1') : target);
   if (command === 'status' && dir) {
-    const tunes = existsSync(join(dir, 'tune.json'))
-      ? [dir]
-      : subdirs(dir)
-          .map(n => join(dir, n))
-          .filter(d => existsSync(join(d, 'tune.json')));
-    if (!tunes.length) console.error(`no tune.json in ${dir} or the folders right under it`);
-    console.log(tunes.map(d => `${d}\n${status(d)}`).join('\n\n'));
+    const under = (d: string, depth: number): string[] =>
+      existsSync(join(d, 'tune.json')) ? [d] : depth ? subdirs(d).flatMap(n => under(join(d, n), depth - 1)) : [];
+    const tunes = under(dir, 2);
+    if (!tunes.length) console.error(`no tune.json in ${dir} or two folders under it`);
+    console.log(tunes.map(d => `${d}\n${status(d, o.limits)}`).join('\n\n'));
     process.exit(tunes.length ? 0 : 1);
   }
   if (dir && ['init', 'step', 'run', 'checkpoint'].includes(command ?? '')) {
