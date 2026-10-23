@@ -101,9 +101,17 @@ sh bin/overnight.sh status <queue>
 
 Status shows progress, infra, running work, retries, waits and estimates; tune status includes its phase. Queues contain shell commands, one per line, with `#` comments. Success appends to `<queue>.done` and is skipped thereafter. Failures retry three times with backoff, then wait for rerun. Output appends to `<queue>.log`; macOS uses `caffeinate`. Keep queues and outputs in a persistent directory, outside `/tmp`.
 
-`bench/drive.ts` runs a whole set at one point with repeats, the way the luna and OpenRouter benches ran: `OUT` holds `set.json`, `cases/` and the engine checked out at `<OUT>/<SHA>/engine/agentgraph` (or `ENGINE`). It scores, runs v2 and floor, scores again and judges each job as it finishes (`JUDGES`, default `opus:1,sonnet:2` on human pairs; `none` skips). It spawns the node on `PATH` for every job, so a toolchain upgrade does not break later jobs, and a log write or spawn error fails that job, not the driver. `parallel` and `PAUSE` in `OUT` steer it live; `jobs.jsonl` records each job's start and end with the active count and host load.
+`bench/drive.ts` runs a whole set at one or more points with repeats. A bench dir holds `set.json`, `cases/` and the engine checked out at `<dir>/<SHA>/engine/agentgraph` (or `ENGINE`). For each job it scores validity, runs v2 and floor, scores again and judges (`JUDGES`, default `opus:1,sonnet:2` on human pairs; `none` skips). The first start records its settings in `drive.json`; later starts need none and refuse a changed `SHA`, `POINTS`, `REPEATS`, `JUDGES` or `KEYS`. Budgets (`MAX_CODEX` weekly Codex percent, `CAP` OpenRouter dollars with `ORENV`) may change on any start. A dir from before `drive.json` takes its settings from the env assignments in its `queue.txt`.
 
 ```sh
-OUT=<bench dir> SHA=<sha> POINT=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> \
-  node bench/drive.ts
+SHA=<sha> POINTS=opencode:luna REPEATS=3 MAX_CODEX=45 KEYS=<keys file> node bench/drive.ts <dir>
+node bench/drive.ts resume <dir>
+MAX_CODEX=60 node bench/drive.ts resume <dir>
 ```
+
+- Pause: `touch <dir>/PAUSE` takes no new job and lets running jobs finish; `rm <dir>/PAUSE` goes on. `parallel` sets the worker count live.
+- Stop: Ctrl-C or `kill <pid in drive.lock>` stops the running jobs. A budget stop takes no new job and lets running ones finish.
+- Resume: `resume <dir>` rebuilds the queue from the results on disk. A job is finished when its case is invalid, or both arms have `diff.patch` and `score.json` (and a done marker says it was judged, when a panel judges). Finished jobs are never rerun or rewritten. Partial jobs run again; their finished arms and judge calls are reused, and an unfinished arm moves to `<case>/.attic/` with its records before the rerun; only its checkouts are dropped.
+- One driver per dir: `drive.lock` holds its pid. A second driver exits 1. A lock whose pid is dead, or older than the last boot, is taken over.
+- Log: `events.jsonl` appends `start`, `resume`, `pause`, `unpause`, `stop` with its reason, `finish`, `crash` and each job's start, done and fail with its reason. `budget-log.jsonl` keeps budget readings, `logs/` each job's output. The studio Bench tab lists every bench dir as running, paused, stopped, crashed or finished with done/total and the reason.
+- Disk cleanup never enters a bench dir's results, `.attic`, `.cache`, engine, cases or logs; it only removes scoring trees no live process holds.
