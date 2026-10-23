@@ -11,7 +11,7 @@ const markdownHome = path =>
   path === 'studio/src/Markdown.tsx' || /^studio\/src\/(docs|code|source)\//.test(path);
 
 const interactive = new Set(['button', 'a', 'summary']);
-const isIcon = tag => tag === 'Icon' || tag === 'svg' || /Icon$/.test(tag);
+const isIcon = tag => tag === 'Icon' || tag === 'svg' || tag.endsWith('Icon');
 const arrowIcon = /^(in|out|up|down|arrow[-\w]*|[-\w]*-arrow)$/;
 const loud = /\banimate-(spin|pulse|ping|bounce)\b/;
 const entering = /\b(agi-enter|animate-in|fade-in|slide-in[-\w]*|zoom-in|animate-\[)/;

@@ -418,12 +418,12 @@ describe('drive', () => {
     expect(prompts).toEqual(specs);
     const first = trace.findIndex(t => 'prompt' in t && t.step === 'implement');
     expect(trace[first + 1]).toMatchObject({ step: 'implement', event: { type: 'start', session: 'i1' } });
-    const replayed = trace.reduce<Partial<Run>>((run, t) => {
-      if (!('saved' in t)) return run;
-      const next: Partial<Run> = { ...run, ...t.saved };
-      for (const k of t.cleared ?? []) delete next[k];
-      return next;
-    }, {});
+    const replayed: Partial<Run> = {};
+    for (const t of trace) {
+      if (!('saved' in t)) continue;
+      Object.assign(replayed, t.saved);
+      for (const k of t.cleared ?? []) delete replayed[k];
+    }
     expect(replayed).toEqual(asked);
     const resumed = trace.flatMap(t => ('saved' in t && t.saved.sessions ? [t.saved.sessions] : []));
     expect(resumed).toContainEqual(

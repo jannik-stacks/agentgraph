@@ -45,7 +45,7 @@ const fileText = (output: string) => {
   const content = /<content>\n?([\s\S]*?)<\/content>/.exec(output)?.[1] ?? output;
   return content
     .split('\n')
-    .filter(line => !/^\(End of file/.test(line))
+    .filter(line => !line.startsWith('(End of file'))
     .map(line => line.replace(/^\s*\d+(?::|\t|→) ?/, ''))
     .join('\n')
     .trimEnd();
@@ -264,7 +264,7 @@ const Diff = ({ lines }: { lines: { sign: string; text: string }[] }) => (
 const Edit = ({ input, output, ok }: ToolProps) => (
   <>
     <Diff lines={diffLines(str(pick(input, 'oldString', 'old_string')), str(pick(input, 'newString', 'new_string')))} />
-    {(ok === false || (output && !/^Edit applied/.test(output))) && <Output output={output} ok={ok} />}
+    {(ok === false || (output && !output.startsWith('Edit applied'))) && <Output output={output} ok={ok} />}
   </>
 );
 

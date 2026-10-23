@@ -72,7 +72,7 @@ const check = (at, line, own) => {
 
 for (const page of pages) {
   const own = page.startsWith('bin/') ? page.slice(4) : undefined;
-  const inHeader = own && /\.mjs$/.test(own) ? line => line.startsWith('//') : line => /^\s*(\/\*\*|\*)/.test(line);
+  const inHeader = own && own.endsWith('.mjs') ? line => line.startsWith('//') : line => /^\s*(\/\*\*|\*)/.test(line);
   read(page)
     .split('\n')
     .forEach((line, i) => {

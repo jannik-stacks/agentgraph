@@ -294,7 +294,9 @@ describe('tune loop', () => {
     expect(ran.length).toBe(before);
     const down = {
       ...io,
-      propose: async () => Promise.reject(new Error('claude unreachable')),
+      propose: async () => {
+        throw new Error('claude unreachable');
+      },
     } as unknown as typeof io;
     await expect(step(dir, { k: 1, proposers: ['retro'] }, down)).rejects.toThrow(/every proposer failed/);
     expect(ran.length).toBe(before);

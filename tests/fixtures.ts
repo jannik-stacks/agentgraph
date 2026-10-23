@@ -1,9 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
-import type { Check } from '../src/hub.ts';
-import type { Hub } from '../src/hub.ts';
-import type { SessionEvent } from '../src/session.ts';
+import type { Check, Hub } from '../src/hub.ts';
 import { load, type Problem, type Workflow } from '../src/workflow.ts';
 import { git, tmp, write } from './kit.ts';
 

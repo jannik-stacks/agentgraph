@@ -62,7 +62,7 @@ const grep = token => {
 };
 
 const sha = base();
-const changed = changedFiles(sha).filter(({ path }) => !path.startsWith('tests/') && !/lock\.json$/.test(path));
+const changed = changedFiles(sha).filter(({ path }) => !path.startsWith('tests/') && !path.endsWith('lock.json'));
 const paths = new Set(changed.map(({ path }) => path));
 const now = changed.filter(({ deleted }) => !deleted).map(({ path }) => readFileSync(path, 'utf8'));
 const candidates = new Map();

@@ -33,7 +33,7 @@ const decoding = <A, I>(schema: Schema.Schema<A, I>, parse: (line: A) => Piece[]
 
 /** Optional fields of one schema, by name. */
 const some = <S extends Schema.Schema.Any, K extends string>(schema: S, ...keys: K[]) =>
-  Object.fromEntries(keys.map(key => [key, Schema.optional(schema)])) as { [P in K]: Schema.optional<S> };
+  Object.fromEntries(keys.map(key => [key, Schema.optional(schema)])) as Record<K, Schema.optional<S>>;
 const { String: Str, Number: Num, Boolean: Bool, Unknown, Struct, optional: opt } = Schema;
 
 const OpencodeLine = Struct({
@@ -124,12 +124,18 @@ const permission = (tools: string[], read: string[] = []) => {
 const numeric = /^(?:-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+)$/i;
 
 /** Space-free words; a number is glued to the word before it with a tab, because the CLI would read it as a number. */
-const words = (prompt: string) =>
-  prompt.split(' ').reduce<string[]>((out, word) => {
-    if (!numeric.test(word)) return [...out, word];
+const words = (prompt: string) => {
+  const out: string[] = [];
+  for (const word of prompt.split(' ')) {
+    if (!numeric.test(word)) {
+      out.push(word);
+      continue;
+    }
     const last = out.pop();
-    return [...out, last === undefined ? `${word}\t` : `${last}\t${word}`];
-  }, []);
+    out.push(last === undefined ? `${word}\t` : `${last}\t${word}`);
+  }
+  return out;
+};
 
 const deniedByOpencode = 'prevents you from using this specific tool call';
 

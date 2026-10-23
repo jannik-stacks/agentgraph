@@ -209,8 +209,12 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         Effect.runPromise(
           Effect.mapError(
             hostGit(work.git, [
-              ...['-c', `user.name=${who}`, '-c', 'user.email=agentgraph@localhost'],
-              ...['-c', 'remote.origin.mirror=false'],
+              '-c',
+              `user.name=${who}`,
+              '-c',
+              'user.email=agentgraph@localhost',
+              '-c',
+              'remote.origin.mirror=false',
               ...args,
             ]),
             e => new ForgeError({ message: e.detail })
