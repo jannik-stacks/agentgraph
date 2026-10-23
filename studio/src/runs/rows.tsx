@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from 'react';
 import type { Proposal } from '../../../src/proposal.ts';
 import type { Run } from '../../../src/workflow.ts';
-import type { Trace } from '../../../src/store.ts';
+import type { Trace } from '../../../src/trace.ts';
 import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';

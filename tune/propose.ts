@@ -21,7 +21,7 @@ import { Effect } from 'effect';
 import { failureClass, infra } from '../bin/bench.ts';
 import { transcript } from '../src/context.ts';
 import { type Hub, loadHub } from '../src/hub.ts';
-import type { Trace } from '../src/store.ts';
+import type { Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 
 export type Proposer = 'retro' | 'history' | 'structure';

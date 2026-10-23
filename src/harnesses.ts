@@ -5,7 +5,8 @@ import { basename, dirname, join } from 'node:path';
 import { Effect, Layer, Option, Redacted, Schema, Stream } from 'effect';
 import type { Agent } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
-import { type SessionEvent, Session, type SessionSpec, SessionStop } from './session.ts';
+import { Session } from './session.ts';
+import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
 
 type Ended = Extract<SessionEvent, { type: 'end' }>['ended'];
 type Tool = Extract<SessionEvent, { type: 'tool' }>;

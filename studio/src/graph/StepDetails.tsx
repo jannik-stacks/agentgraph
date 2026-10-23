@@ -1,7 +1,7 @@
 import { useAtomValue } from 'jotai';
 import { useState } from 'react';
 import { graphOf } from '../../../src/graph.ts';
-import type { Trace } from '../../../src/store.ts';
+import type { Trace } from '../../../src/trace.ts';
 import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
 import { lineRow, Rows, RunLine } from '../runs/rows.tsx';

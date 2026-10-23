@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Chunk, Effect, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { fileStore, Store, type Trace } from '../src/store.ts';
+import { fileStore, Store } from '../src/store.ts';
+import type { Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 import { studioDir, studioModule } from './studio.ts';
 

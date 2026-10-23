@@ -4,7 +4,8 @@ import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
 import { studioRun, unstamped, type Applied, type Comment, type Event, type Issue, type Mark } from './event.ts';
 import type { Proposal } from './proposal.ts';
-import { hostGit, mergeOf, published, type Checkout } from './sandbox.ts';
+import type { Checkout } from './sandbox.ts';
+import { hostGit, mergeOf, published } from './git.ts';
 
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
 export const provenance = FiberRef.unsafeMake<Mark | undefined>(undefined);

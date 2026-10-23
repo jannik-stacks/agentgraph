@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
-import { Sandbox } from './sandbox.ts';
-import { exact, load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
+import { load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
@@ -318,15 +317,3 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       ...parts,
     };
   });
-
-/**
- * The hub at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
- * default branch, so only a merged pull request changes it.
- */
-export const hubAt = (path: string) =>
-  isAbsolute(path)
-    ? loadHub(path)
-    : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
-        Effect.mapError(e => new HubError({ problems: [{ path, message: e.detail }] })),
-        Effect.flatMap(work => loadHub(join(work.dir, path)))
-      );

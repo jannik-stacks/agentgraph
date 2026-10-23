@@ -1,6 +1,7 @@
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { fileStore, locate, Store, type Trace } from '../src/store.ts';
+import { fileStore, locate, Store } from '../src/store.ts';
+import type { Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 import { tmp } from './kit.ts';
 

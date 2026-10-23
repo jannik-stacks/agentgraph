@@ -5,43 +5,8 @@ import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
 import { beat, live } from './env.ts';
-import type { Applied, Event } from './event.ts';
-import type { Checkout } from './sandbox.ts';
-import type { SessionEvent, SessionSpec, SessionStop } from './session.ts';
-import type { CheckResult, Outcome, Run } from './workflow.ts';
-
-/** The comment an aside answered, when the run noted it. */
-export type Aside = { issue?: number; comment?: string; review?: true };
-
-/**
- * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
- * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed. A session's prompt,
- * event and session lines share its `key`, so sessions running at once stay apart.
- */
-export type Trace = { at: string; step: string } & (
-  | { prompt: SessionSpec; key?: string; item?: string; aside?: Aside }
-  | { event: SessionEvent; key?: string }
-  | {
-      key?: string;
-      session: {
-        id?: string;
-        resumed: boolean;
-        aside?: true;
-        ended: Extract<SessionEvent, { type: 'end' }>['ended'] | SessionStop['reason'];
-        exit?: number;
-        usd: number;
-      };
-    }
-  | { check: CheckResult; item?: string; exit?: number; log?: Log }
-  | { setup: { ms: number; exit: number } }
-  | { cache: { files: number } }
-  | { env: NonNullable<Checkout['env']> }
-  | { applied: Applied }
-  | { outcome: Outcome; run: Pick<Run, 'step' | 'status' | 'tries' | 'rounds'> }
-  | { saved: Partial<Run>; cleared?: (keyof Run)[] }
-  | { spoken: Event }
-  | { told: { text: string; by: string } }
-);
+import type { Log, Trace } from './trace.ts';
+import type { Run } from './workflow.ts';
 
 /** The trace line for a put of `next` over `before`, or none when nothing changed. */
 const changes = (before: Run | undefined, next: Run): Trace | undefined => {
@@ -56,9 +21,6 @@ const changes = (before: Run | undefined, next: Run): Trace | undefined => {
     ...(cleared.length > 0 && { cleared }),
   };
 };
-
-/** A check's full output in the store: its sha256 and its length in bytes. */
-export type Log = { hash: string; bytes: number };
 
 /** Which check output the store keeps: every run's, only failing ones', or none. */
 export const checkLogs = ['all', 'failed', 'off'] as const;

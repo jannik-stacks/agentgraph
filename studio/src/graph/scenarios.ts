@@ -1,5 +1,5 @@
 import type { Agent, Check } from '../../../src/hub.ts';
-import type { Trace } from '../../../src/store.ts';
+import type { Trace } from '../../../src/trace.ts';
 import type { Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
 
 /** One outcome a run met, with the run as it stood before it. */

@@ -36,7 +36,7 @@ Run ids combine workflow name, issue number and timestamp, sorting by start time
 
 ## The trace
 
-Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/store.ts#Trace -->
+Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/trace.ts#Trace -->
 
 | Kind | Contents |
 | --- | --- |
@@ -76,7 +76,7 @@ node bin/run.ts prune-logs --data <dir>
 node bin/run.ts prune-logs --data <dir> --apply
 ```
 
-The first counts unreferenced logs; the second deletes them. Run while no runs are being driven. <!-- code: src/store.ts#checkLogs src/store.ts#Log src/store.ts#pruneLogs -->
+The first counts unreferenced logs; the second deletes them. Run while no runs are being driven. <!-- code: src/store.ts#checkLogs src/trace.ts#Log src/store.ts#pruneLogs -->
 
 ## Checkout
 

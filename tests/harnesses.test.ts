@@ -14,7 +14,8 @@ import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { harnesses, priceOf } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
-import { type SessionEvent, Session, type SessionSpec } from '../src/session.ts';
+import { Session } from '../src/session.ts';
+import type { SessionEvent, SessionSpec } from '../src/trace.ts';
 
 const sample = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8').split('\n');
 

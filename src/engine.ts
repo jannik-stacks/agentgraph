@@ -7,10 +7,11 @@ import { Forge, ForgeError, provenance, withheld } from './forge.ts';
 import type { Applied, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import type { Check, Hub } from './hub.ts';
-import { hostGit, mergeOf, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import type { Services } from './services.ts';
-import { Session, SessionStop, type SessionSpec } from './session.ts';
-import { type Aside, Store, type StoreError, type Trace } from './store.ts';
+import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
+import { hostGit, mergeOf } from './git.ts';
+import { Session } from './session.ts';
+import { Store, type StoreError } from './store.ts';
+import { type Aside, type Trace, SessionStop, type SessionSpec } from './trace.ts';
 import {
   begin,
   failure,
@@ -28,6 +29,8 @@ import {
   waits,
   toBot,
 } from './workflow.ts';
+
+export type Services = Forge | Store | Session | Sandbox;
 
 const now = () => new Date().toISOString();
 

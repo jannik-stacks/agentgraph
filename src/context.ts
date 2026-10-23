@@ -1,6 +1,6 @@
 import { studioRun, unstamped, type Event, type Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
-import type { Trace } from './store.ts';
+import type { Trace } from './trace.ts';
 import { failure, type Run, type Seen } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */

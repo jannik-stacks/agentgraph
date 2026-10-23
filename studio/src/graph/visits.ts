@@ -1,5 +1,5 @@
 import type { Graph } from '../../../src/graph.ts';
-import type { Trace } from '../../../src/store.ts';
+import type { Trace } from '../../../src/trace.ts';
 import type { Run } from '../../../src/workflow.ts';
 import { kindOf } from './chips.ts';
 import type { Trail } from './scenarios.ts';

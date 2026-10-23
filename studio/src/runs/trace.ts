@@ -1,4 +1,5 @@
-import type { Located, Trace } from '../../../src/store.ts';
+import type { Located } from '../../../src/store.ts';
+import type { Trace } from '../../../src/trace.ts';
 import type { Outcome, Run } from '../../../src/workflow.ts';
 
 /** What an outcome says beyond its kind. */

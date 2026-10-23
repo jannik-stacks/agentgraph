@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 import { Effect, Either } from 'effect';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
-import { hubAt, loadHub } from '../src/hub.ts';
+import { loadHub } from '../src/hub.ts';
+import { hubAt } from '../src/services.ts';
 import { host } from './doubles/sandbox.ts';
 import { git } from './kit.ts';
 

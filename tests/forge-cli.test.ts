@@ -12,7 +12,8 @@ import { fileStore, Store } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
-import type { SessionEvent } from '../src/session.ts';
+import type { SessionEvent } from '../src/trace.ts';
+import { fileStore } from '../src/store.ts';
 import { host } from './doubles/sandbox.ts';
 import { scripted } from './doubles/session.ts';
 import { reply, seeded, start, wrote } from './fixtures.ts';
@@ -401,7 +402,7 @@ describe('bin/forge.ts with run --forge', () => {
     ]);
     w.forge('comment', '2', '/agent explain this line', '--line', 'hello.txt:1');
     const hub = await Effect.runPromise(loadHub(sandboxHub));
-    const run = <A, E>(effect: Effect.Effect<A, E, import('../src/services.ts').Services>) =>
+    const run = <A, E>(effect: Effect.Effect<A, E, import('../src/engine.ts').Services>) =>
       Effect.runPromise(
         effect.pipe(
           Effect.provide(

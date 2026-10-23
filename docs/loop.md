@@ -165,7 +165,7 @@ Bursts become one ordered answer. The first `stop` or `cancel` wins. The polling
 
 ## A hub in the repo
 
-`AGENTGRAPH_HUB` selects a repo folder (`.agentgraph` by default) or an absolute local path, as `--hub <dir>` supplies. <!-- code: src/hub.ts#hubAt -->
+`AGENTGRAPH_HUB` selects a repo folder (`.agentgraph` by default) or an absolute local path, as `--hub <dir>` supplies. <!-- code: src/services.ts#hubAt -->
 
 A repo hub reloads on every poll from the default branch head. Pull request changes take effect only after merging. Trust is read only at runner startup. <!-- code: src/main.ts#start -->
 

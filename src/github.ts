@@ -3,7 +3,8 @@ import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import { addressed, allowed, pushable, unpushable, Forge, ForgeError, marked, matches, withheld } from './forge.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
-import { hostGit, mergeOf, published, type Checkout } from './sandbox.ts';
+import type { Checkout } from './sandbox.ts';
+import { hostGit, mergeOf, published } from './git.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type User = { login: string; type?: string } | null | undefined;

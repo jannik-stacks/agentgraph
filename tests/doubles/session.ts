@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Effect, Layer, Stream } from 'effect';
-import { Session, SessionStop, type SessionEvent } from '../../src/session.ts';
+import { Session } from '../../src/session.ts';
+import { SessionStop, type SessionEvent } from '../../src/trace.ts';
 
 const written = (dir: string, event: SessionEvent) =>
   event.type === 'tool' && event.name === 'write'

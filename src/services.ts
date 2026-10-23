@@ -1,17 +1,14 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, type Redacted } from 'effect';
-import { fileForge, type Forge } from './forge.ts';
+import { fileForge } from './forge.ts';
 import { docker } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
+import type { Services } from './engine.ts';
 import { harnesses } from './harnesses.ts';
-import { hubAt } from './hub.ts';
-import type { Sandbox } from './sandbox.ts';
-import type { Session } from './session.ts';
-import { checkLogs, fileStore, Store } from './store.ts';
-
-export type Services = Forge | Store | Session | Sandbox;
+import { HubError, loadHub } from './hub.ts';
+import { Sandbox } from './sandbox.ts';
+import { checkLogs, fileStore } from './store.ts';
 
 /** Everything the runner reads from the environment. */
 export type Settings = {
@@ -71,6 +68,18 @@ const where = (s: Settings) => {
     origin: { origin: `https://github.com/${app.repo}.git`, token: token('read') },
   };
 };
+
+/**
+ * The hub at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
+ * default branch, so only a merged pull request changes it.
+ */
+export const hubAt = (path: string) =>
+  isAbsolute(path)
+    ? loadHub(path)
+    : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
+        Effect.mapError(e => new HubError({ problems: [{ path, message: e.detail }] })),
+        Effect.flatMap(work => loadHub(join(work.dir, path)))
+      );
 
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
 export const layers = (s: Settings): Layer.Layer<Services> => {

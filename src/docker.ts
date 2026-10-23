@@ -20,7 +20,8 @@ import {
   written,
 } from './env.ts';
 import { room } from './disk.ts';
-import { type Command, type Exit, hostGit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
+import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
+import { hostGit } from './git.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
