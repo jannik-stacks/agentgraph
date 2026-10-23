@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
-import { Context, Data, Effect, Layer, Redacted, Stream, type Scope } from 'effect';
+import { Context, Data, Duration, Effect, Layer, Redacted, Stream, type Scope } from 'effect';
 import type { Hub } from './hub.ts';
 
 /** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given. */
@@ -118,10 +118,6 @@ export const hostGit = (
         child.kill('SIGKILL');
       }
     };
-    const timer = setTimeout(() => {
-      problem = 'git timed out';
-      stop();
-    }, 600_000).unref();
     const output: Buffer[] = [];
     const errors: Buffer[] = [];
     const lengths = { stdout: 0, stderr: 0 };
@@ -140,7 +136,6 @@ export const hostGit = (
     const ending = new Promise<void>(resolve =>
       child.once('close', (code, signal) => {
         closed = true;
-        clearTimeout(timer);
         resume(
           problem || (code !== 0 && !codes.includes(code ?? -1))
             ? Effect.fail(
@@ -162,7 +157,13 @@ export const hostGit = (
         await ending;
       }
     });
-  });
+  }).pipe(
+    Effect.timeoutFail({
+      duration: '10 minutes',
+      onTimeout: () =>
+        new SandboxError({ reason: 'infra', detail: `git ${args.slice(0, 3).join(' ')}: git timed out` }),
+    })
+  );
 
 const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
@@ -185,7 +186,7 @@ const spawned = (command: Command) =>
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-const late = (command: Command) =>
+const late = (command: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `${command.cmd} ran past ${command.minutes} minutes` });
 
 /** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules; for tests. */
@@ -264,41 +265,22 @@ export const host = (repo: string): Layer.Layer<Sandbox> =>
         const collect = (chunk: Buffer) => void (output += chunk.toString());
         child.stdout.on('data', collect);
         child.stderr.on('data', collect);
-        const timer = setTimeout(() => {
-          child.kill('SIGKILL');
-          resume(Effect.fail(late(command)));
-        }, command.minutes * 60_000);
-        child.on('error', e => {
-          clearTimeout(timer);
-          resume(Effect.fail(new SandboxError({ reason: 'infra', detail: e.message })));
-        });
-        child.on('close', code => {
-          clearTimeout(timer);
-          resume(Effect.succeed({ code: code ?? 1, output }));
-        });
-        return Effect.sync(() => {
-          clearTimeout(timer);
-          child.kill('SIGKILL');
-        });
-      }),
+        child.on('error', e => resume(Effect.fail(new SandboxError({ reason: 'infra', detail: e.message }))));
+        child.on('close', code => resume(Effect.succeed({ code: code ?? 1, output })));
+        return Effect.sync(() => child.kill('SIGKILL'));
+      }).pipe(Effect.timeoutFail({ duration: Duration.minutes(command.minutes), onTimeout: late(command) })),
     lines: command =>
       Stream.async<string, SandboxError>(emit => {
         const child = spawned(command);
         createInterface({ input: child.stdout }).on('line', line => void emit.single(line));
-        const timer = setTimeout(() => {
-          child.kill('SIGKILL');
-          void emit.fail(late(command));
-        }, command.minutes * 60_000);
         child.on('error', e => void emit.fail(new SandboxError({ reason: 'infra', detail: e.message })));
-        child.on('close', () => {
-          clearTimeout(timer);
-          void emit.end();
-        });
-        return Effect.sync(() => {
-          clearTimeout(timer);
-          child.kill('SIGKILL');
-        });
-      }),
+        child.on('close', () => void emit.end());
+        return Effect.sync(() => child.kill('SIGKILL'));
+      }).pipe(
+        Stream.interruptWhen(
+          Effect.zipRight(Effect.sleep(Duration.minutes(command.minutes)), Effect.failSync(late(command)))
+        )
+      ),
   });
 
 /** `head` merged onto `onto` as a tree, conflict markers left in the files that clash, which come back in `files`. */

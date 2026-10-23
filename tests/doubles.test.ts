@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Stream } from 'effect';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fileForge, Forge } from '../src/forge.ts';
 import { host, Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -238,5 +238,27 @@ describe('host', () => {
       }).pipe(Effect.scoped, Effect.provide(host(dir)))
     );
     expect(out).toEqual({ exit: { code: 3, output: 'bot\n' }, lines: ['a', 'b'], late: 'timeout' });
+  });
+
+  it('kills a command that runs past its minutes', async () => {
+    const dir = temp();
+    const command = { cmd: 'sh', dir, env: {}, network: 'none' as const, minutes: 0.005 };
+    const killed = async (pid: string) => {
+      const n = Number(readFileSync(join(dir, pid), 'utf8'));
+      await vi.waitFor(() => expect(() => process.kill(n, 0)).toThrow());
+    };
+    const out = await Effect.runPromise(
+      Effect.gen(function* () {
+        const sandbox = yield* Sandbox;
+        const exec = yield* Effect.flip(sandbox.exec({ ...command, args: ['-c', 'echo $$ > exec; exec sleep 5'] }));
+        const lines = yield* Effect.flip(
+          Stream.runDrain(sandbox.lines({ ...command, args: ['-c', 'echo $$ > lines; exec sleep 5'] }))
+        );
+        return [exec, lines].map(e => [e.reason, e.detail]);
+      }).pipe(Effect.scoped, Effect.provide(host(dir)))
+    );
+    expect(out).toEqual(Array(2).fill(['timeout', 'sh ran past 0.005 minutes']));
+    await killed('exec');
+    await killed('lines');
   });
 });
