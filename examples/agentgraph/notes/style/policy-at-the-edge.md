@@ -1,7 +1,7 @@
 ---
 title: Policy at the edge
 status: accepted
-check: principle-named
+skill: principles
 human: pstack principle 4a
 ---
 A rule about one hub's workflow goes in a skill or a check, never in `src/` or a prompt every agent sees.

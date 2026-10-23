@@ -1,7 +1,7 @@
 ---
 title: Wire both sides
 status: accepted
-check: principle-named
+skill: principles
 human: pstack principle 4a
 ---
 A new export, field or event: name its reader and its writer outside tests before pushing.

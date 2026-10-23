@@ -1,7 +1,7 @@
 ---
 title: Attack the premise
 status: accepted
-check: principle-named
+skill: principles
 human: pstack principle 4a
 ---
 The same check failed twice on the same hunk: write the premise both fixes share, then change the input or call the existing helper instead of extending the fix.

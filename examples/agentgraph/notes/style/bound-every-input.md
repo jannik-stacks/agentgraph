@@ -1,7 +1,7 @@
 ---
 title: Bound every input
 status: accepted
-check: principle-named
+skill: principles
 human: pstack principle 4a
 ---
 Text or a list enters a prompt, a file or a loop: clip or cap it where it enters.

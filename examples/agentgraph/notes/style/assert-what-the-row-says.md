@@ -1,7 +1,7 @@
 ---
 title: Assert what the row says
 status: accepted
-check: principle-named
+skill: principles
 human: pstack principle 4a
 ---
 Writing a test: assert the value the row names. A test that pins wording the issue removes is wrong.

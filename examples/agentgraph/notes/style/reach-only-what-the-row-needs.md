@@ -1,7 +1,7 @@
 ---
 title: Reach only what the row needs
 status: accepted
-check: principle-named
+skill: principles
 human: pstack principle 4a
 ---
 The brief names one case: touch one case. Grep every match only when the brief says every.

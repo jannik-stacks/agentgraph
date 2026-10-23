@@ -1,7 +1,6 @@
 ---
 title: The triage brief has one template
 status: accepted
-check: triage-brief
 human: narrow-bots W3 triage checks
 ---
 The template itself lives in the triage skill; this note says why it is fixed. Scripts read the

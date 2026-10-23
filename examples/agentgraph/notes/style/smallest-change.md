@@ -1,7 +1,7 @@
 ---
 title: Smallest change
 status: accepted
-check: principle-named
+skill: principles
 human: pstack principle 4a
 ---
 Tempted to edit a shared function: change the one call site, or add a parameter whose default keeps the other callers.

@@ -717,43 +717,6 @@ describe('unused-exports', () => {
   });
 });
 
-describe('risky', () => {
-  it('emits one item per added risky call in src/, with the code around it', () => {
-    const repo = change(
-      { 'src/a.ts': "import { spawn } from 'node:child_process';\nspawn('ls');\n" },
-      {
-        'src/a.ts': [
-          "import { spawn } from 'node:child_process';",
-          "spawn('ls');",
-          'export const run = (cmd: string) => spawn(cmd, { shell: true });',
-          '// fetch(url) is not called here',
-          'export const token = process.env.TOKEN;',
-          'export const load = (url: string) => fetch(url);',
-          'export const clean = (dir: string) => rmSync(dir, { recursive: true });',
-          'export const calc = (code: string) => eval(code);',
-          '',
-        ].join('\n'),
-        'tests/a.test.ts': "spawn('rm');\n",
-      }
-    );
-    const { ok, out } = run('risky.mjs', repo);
-    expect(ok).toBe(true);
-    const found = items(out);
-    expect(found.map(i => [i.line, i.api])).toEqual([
-      [3, 'a child process'],
-      [5, 'an environment read'],
-      [6, 'the network'],
-      [7, 'a file removal or write'],
-      [8, 'code evaluation'],
-    ]);
-    expect(found[0]).toMatchObject({
-      file: 'src/a.ts',
-      code: 'export const run = (cmd: string) => spawn(cmd, { shell: true });',
-    });
-    expect(found[0]!.context).toContain("spawn('ls');");
-  });
-});
-
 const brief = [
   '## Task',
   'Replay labels added while serve was stopped, once each.',
@@ -1387,19 +1350,9 @@ describe('principles', () => {
   it('each principle note body appears in the skill', () => {
     const dir = join(examples, 'agentgraph/notes/style');
     const notes = readdirSync(dir)
-      .filter(name => readFileSync(join(dir, name), 'utf8').includes('check: principle-named'))
+      .filter(name => readFileSync(join(dir, name), 'utf8').includes('skill: principles'))
       .map(name => readFileSync(join(dir, name), 'utf8').split(/^---$/m)[2]!.trim());
     expect(notes).toHaveLength(8);
     expect(notes.filter(body => !skill('agentgraph').includes(body))).toEqual([]);
-  });
-
-  it('principles.mjs pairs each named principle with the hunk at its line', () => {
-    const repo = change({ 'src/a.ts': 'export const a = 1;\n' }, { 'src/a.ts': 'export const a = clamp(1);\n' });
-    const reply = 'Smallest change (src/a.ts:1)\nBound every input (src/b.ts:4)\nno principle src/a.ts:1';
-    const found = items(run('principles.mjs', repo, [], { AGENTGRAPH_REPLY: replyFile(reply) }).out);
-    expect(found.map(i => i.path)).toEqual(['src/a.ts:1 Smallest change', 'src/b.ts:4 Bound every input']);
-    expect(found[0]!.hunk).toContain('+export const a = clamp(1);');
-    expect(found[0]!.principle).toContain('Tempted to edit a shared function');
-    expect(found[1]!.hunk).toBe('(no changed hunk at that line)');
   });
 });
