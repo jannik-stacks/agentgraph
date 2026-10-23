@@ -15,7 +15,7 @@ import {
 } from './climb.ts';
 import { type Band, Bars, Climb, type Dot, type Line } from './Climb.tsx';
 
-const compoundAtom = live<TuneRows[]>('/core/compound');
+const compoundAtom = live<TuneRows[]>('/api/compound');
 const params = {
   repo: queryParam('repo'),
   x: queryParam('x'),
@@ -532,7 +532,7 @@ const Data = ({ onReload }: { onReload: () => void }) => {
     return failure ? (
       <Muted>
         {/ 404$|JSON|token/.test(failure)
-          ? 'No tune data: this studio does not serve /core/compound yet.'
+          ? 'No tune data: this studio does not serve /api/compound yet.'
           : `Could not load tunes: ${failure}`}
       </Muted>
     ) : (

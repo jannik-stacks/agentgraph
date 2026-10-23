@@ -53,18 +53,18 @@ const bodies = (docs: Record<string, { body: string }>) =>
 
 /**
  * Serves the fixture workflows, each with runs replayed through the engine's begin and transition, as
- * `virtual:fixtures`, plus the served hub's workflows. `GET /core/runs` answers that hub's runs in the data dir with
- * their traces, every text in them cut short; `GET /core/runs/<id>` answers one run with every trace line, and
- * `GET /core/logs/<hash>` the full output of a check, and `GET /core/locate?gh=<link or comment id>` what `locate` finds.
- * `GET /core/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, and the price table.
- * `GET /core/compound` answers every tune under `VITE_AGI_TUNE` (default ~/bothub-data/tune): its folder name, settings and steps.
- * `GET /core/events` is a server-sent event stream that says `changed` when anything in the data dir does.
+ * `virtual:fixtures`, plus the served hub's workflows. `GET /api/runs` answers that hub's runs in the data dir with
+ * their traces, every text in them cut short; `GET /api/runs/<id>` answers one run with every trace line, and
+ * `GET /api/logs/<hash>` the full output of a check, and `GET /api/locate?gh=<link or comment id>` what `locate` finds.
+ * `GET /api/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, and the price table.
+ * `GET /api/compound` answers every tune under `VITE_AGI_TUNE` (default: the `bin/tune.ts` root): its folder name, settings and steps.
+ * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
 export const fixtures = (): Plugin => ({
   name: 'agentgraph:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
-    server.middlewares.use('/core/events', (req, res) => {
+    server.middlewares.use('/api/events', (req, res) => {
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -83,7 +83,7 @@ export const fixtures = (): Plugin => ({
         watcher.close();
       });
     });
-    server.middlewares.use('/core/bench', async (_req, res) => {
+    server.middlewares.use('/api/bench', async (_req, res) => {
       const { rowsOf }: typeof import('../bin/bench.ts') = await from('bin/bench.ts');
       const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
@@ -91,11 +91,11 @@ export const fixtures = (): Plugin => ({
         prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
     });
-    server.middlewares.use('/core/compound', async (_req, res) => {
+    server.middlewares.use('/api/compound', async (_req, res) => {
       const { tunesOf }: typeof import('../bin/tune.ts') = await from('bin/tune.ts');
       json(res, tunesOf(process.env.VITE_AGI_TUNE));
     });
-    server.middlewares.use('/core/logs', async (req, res) => {
+    server.middlewares.use('/api/logs', async (req, res) => {
       const data = process.env.VITE_AGI_DATA;
       const { Effect } = await import('effect');
       const { Store, fileStore }: typeof import('../src/store.ts') = await from('src/store.ts');
@@ -107,7 +107,7 @@ export const fixtures = (): Plugin => ({
       res.setHeader('content-type', 'text/plain; charset=utf-8');
       res.end(text || '');
     });
-    server.middlewares.use('/core/locate', async (req, res) => {
+    server.middlewares.use('/api/locate', async (req, res) => {
       const data = process.env.VITE_AGI_DATA;
       const { Effect, Either } = await import('effect');
       const { fileStore, locate }: typeof import('../src/store.ts') = await from('src/store.ts');
@@ -117,7 +117,7 @@ export const fixtures = (): Plugin => ({
       if (Either.isLeft(found)) return json(res, { error: found.left.message }, 400);
       json(res, found.right ?? null, found.right ? 200 : 404);
     });
-    server.middlewares.use('/core/runs', async (req, res) => {
+    server.middlewares.use('/api/runs', async (req, res) => {
       const served = await servedHub();
       const data = process.env.VITE_AGI_DATA;
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));

@@ -321,14 +321,14 @@ describe('tune loop', () => {
 
 const tuneRoot = (dir: string) => join(dir, '..', '..');
 
-describe('/core/compound', () => {
+describe('/api/compound', () => {
   it('answers every tune under VITE_AGI_TUNE with its steps', async () => {
     const routes: Record<string, (req: unknown, res: unknown) => Promise<void>> = {};
     const plugin = fixtures().configureServer as (server: unknown) => void;
     plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
     process.env.VITE_AGI_TUNE = join(import.meta.dirname, 'fixtures/tune');
     let body = '';
-    await routes['/core/compound']!({}, { setHeader: () => {}, end: (b: string) => (body = b) });
+    await routes['/api/compound']!({}, { setHeader: () => {}, end: (b: string) => (body = b) });
     const tunes = JSON.parse(body) as ReturnType<typeof tunesOf>;
     expect(tunes.map(t => [t.name, t.tune.repo, t.steps.length])).toEqual([
       ['skill@0.1.0', 'acme/clarinet', 25],

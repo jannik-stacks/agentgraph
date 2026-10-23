@@ -35,7 +35,7 @@ export const linksOf = (trace: Trace[]): { pull?: string; branch?: string } => {
 };
 
 /** A run as the dev server answers it: the run, its trace, where it lives, and its pull request and branch. */
-export type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[] } & ReturnType<typeof linksOf>;
+export type ServedRun = { fixture: string; repo: string; run: Run; trace: Trace[] } & ReturnType<typeof linksOf>;
 
 export type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
 
@@ -104,7 +104,7 @@ export const lineAt = (trace: Trace[], at: string | null) =>
 export const atLink = (run: string, at: string) => `/runs/${encodeURIComponent(run)}?at=${at}`;
 
 /** The graph page with the run picked and `step` selected. */
-export const graphLink = (r: CoreRun, step: string) =>
+export const graphLink = (r: ServedRun, step: string) =>
   `/graph?run=${encodeURIComponent(`${r.fixture}:${r.run.id}`)}&step=${encodeURIComponent(`${r.run.workflow}/${step}`)}`;
 
 /** Where a `locate` answer opens: the run at that write, or the runs of an issue. */

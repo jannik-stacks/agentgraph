@@ -11,16 +11,16 @@ import { studioDir, studioModule } from './studio.ts';
 type Row = {
   at?: string;
   summary?: unknown;
-  body?: { props: { r: CoreRun } };
+  body?: { props: { r: ServedRun } };
   children?: Row[];
   raw?: unknown;
   open?: boolean;
   target?: boolean;
 };
-type CoreRun = { fixture: string; repo: string; run: Run; trace: Trace[]; pull?: string; branch?: string };
+type ServedRun = { fixture: string; repo: string; run: Run; trace: Trace[]; pull?: string; branch?: string };
 Object.assign(globalThis, { location: new URL('http://localhost/runs') });
 const { runRow } = await studioModule<{
-  runRow: (r: CoreRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
+  runRow: (r: ServedRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
 }>('runs/rows.tsx');
 const { lineAt, linksOf, locatedLink, isGitHubRef } =
   await studioModule<typeof import('../studio/src/runs/trace.ts')>('runs/trace.ts');

@@ -1,5 +1,5 @@
 import { atom } from 'jotai';
-import type { CoreRun } from './runs/trace.ts';
+import type { ServedRun } from './runs/trace.ts';
 
 export const routes = ['graph', 'runs', 'docs', 'bench', 'compound'] as const;
 const readLocation = () => ({ path: location.pathname, query: new URLSearchParams(location.search) });
@@ -52,7 +52,7 @@ export const live = <T>(path: string) => {
           v => set({ value: v as T }),
           (e: Error) => set(previous => ({ ...previous, failure: e.message }))
         );
-    const events = new EventSource('/core/events');
+    const events = new EventSource('/api/events');
     events.onmessage = load;
     events.onopen = load;
     return () => events.close();
@@ -61,12 +61,12 @@ export const live = <T>(path: string) => {
 };
 
 /** Every run of the served hub, with its trace, every text in it cut short. */
-export const runsAtom = live<CoreRun[]>('/core/runs');
+export const runsAtom = live<ServedRun[]>('/api/runs');
 
-const opened = new Map<string, ReturnType<typeof live<CoreRun | null>>>();
+const opened = new Map<string, ReturnType<typeof live<ServedRun | null>>>();
 
 /** One run of the served hub with its whole trace, or null when the data dir has no such run. */
 export const runAtom = (id: string) => {
-  if (!opened.has(id)) opened.set(id, live<CoreRun | null>(`/core/runs/${encodeURIComponent(id)}`));
+  if (!opened.has(id)) opened.set(id, live<ServedRun | null>(`/api/runs/${encodeURIComponent(id)}`));
   return opened.get(id)!;
 };

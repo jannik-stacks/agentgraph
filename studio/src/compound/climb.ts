@@ -1,7 +1,7 @@
 import type { Split, Step, tunesOf } from '../../../bin/tune.ts';
 
 export type { Split, Step };
-/** One tune as `/core/compound` answers it; `name` is its folder. */
+/** One tune as `/api/compound` answers it; `name` is its folder. */
 export type TuneRows = ReturnType<typeof tunesOf>[number];
 
 const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);

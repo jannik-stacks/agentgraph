@@ -6,7 +6,7 @@ import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
-import { atLink, type CoreRun, detail, graphLink, type Line, type Session, visitsOf } from './trace.ts';
+import { atLink, type ServedRun, detail, graphLink, type Line, type Session, visitsOf } from './trace.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
@@ -78,7 +78,7 @@ const FullLog = ({ log }: { log: NonNullable<Line<'check'>['log']> }) => {
       type="button"
       className="font-sans text-[10px] text-sky-600 underline"
       onClick={() =>
-        fetch(`/core/logs/${log.hash}`)
+        fetch(`/api/logs/${log.hash}`)
           .then(r => (r.ok ? r.text() : `not in the data dir (${r.status})`))
           .then(setText, (e: Error) => setText(e.message))
       }
@@ -390,7 +390,7 @@ const sessionRow = (
   };
 };
 
-const live = (r: CoreRun) => r.run.status === 'running';
+const live = (r: ServedRun) => r.run.status === 'running';
 
 /** What a run is doing or waiting for, in a sentence or two. */
 export const statusTip = (run: Run) => {
@@ -409,7 +409,7 @@ const Col = ({ className, children }: { className: string; children: ReactNode }
 );
 
 /** A run's issue as a link to it on the forge. */
-const Issue = ({ r }: { r: CoreRun }) =>
+const Issue = ({ r }: { r: ServedRun }) =>
   r.repo ? (
     <Url url={`https://github.com/${r.repo}/issues/${r.run.issue}`} text={`#${r.run.issue}`} />
   ) : (
@@ -417,7 +417,7 @@ const Issue = ({ r }: { r: CoreRun }) =>
   );
 
 /** An open run's first line: its try and its JSON, then why it stopped or what it asks. */
-const RunInfo = ({ r: { run } }: { r: CoreRun }) => {
+const RunInfo = ({ r: { run } }: { r: ServedRun }) => {
   const [raw, setRaw] = useState(false);
   return (
     <>
@@ -438,7 +438,7 @@ const RunInfo = ({ r: { run } }: { r: CoreRun }) => {
 };
 
 /** A run on one line that opens it on the Runs page. */
-export const RunLine = ({ r }: { r: CoreRun }) => (
+export const RunLine = ({ r }: { r: ServedRun }) => (
   <Link
     href={`/runs/${encodeURIComponent(r.run.id)}`}
     className="flex min-w-0 items-baseline gap-x-2 rounded px-1 py-0.5 font-mono transition-colors text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -450,7 +450,7 @@ export const RunLine = ({ r }: { r: CoreRun }) => (
 );
 
 /** A run as a row: where it stands, what it cost and left on the forge; open, the steps it visited. */
-export const runRow = (r: CoreRun, open = false, expand = false, target?: Trace): Row => {
+export const runRow = (r: ServedRun, open = false, expand = false, target?: Trace): Row => {
   const { run, trace } = r;
   const visits = visitsOf(trace);
   let by: string | undefined;

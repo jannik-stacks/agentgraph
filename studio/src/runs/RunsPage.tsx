@@ -5,7 +5,7 @@ import { Problems } from '../Problems.tsx';
 import { Combobox, Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 import { RunPage } from './RunPage.tsx';
-import { type CoreRun, isGitHubRef, locatedLink } from './trace.ts';
+import { type ServedRun, isGitHubRef, locatedLink } from './trace.ts';
 import type { Located } from '../../../src/store.ts';
 
 const issueParam = queryParam('issue');
@@ -17,7 +17,7 @@ const Locate = ({ gh }: { gh: string }) => {
   const [failure, setFailure] = useState<string>();
   useEffect(() => {
     let current = true;
-    fetch(`/core/locate?gh=${encodeURIComponent(gh)}`)
+    fetch(`/api/locate?gh=${encodeURIComponent(gh)}`)
       .then(r => r.json() as Promise<Located | { error: string } | null>)
       .then(
         found => {
@@ -36,7 +36,7 @@ const Locate = ({ gh }: { gh: string }) => {
 };
 
 /** Each issue the runs worked on, newest first, as a filter option with its title and body, else its workflows. */
-const issuesOf = (runs: CoreRun[]) => {
+const issuesOf = (runs: ServedRun[]) => {
   const byIssue = new Map<number, { workflows: Set<string>; title?: string | undefined; body?: string | undefined }>();
   for (const { run } of runs.toSorted((a, b) => a.run.started.localeCompare(b.run.started))) {
     const seen = byIssue.get(run.issue) ?? { workflows: new Set() };

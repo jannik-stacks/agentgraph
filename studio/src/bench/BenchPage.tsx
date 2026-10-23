@@ -8,7 +8,7 @@ import { Scatter } from './Scatter.tsx';
 
 type Row = ReturnType<typeof rowsOf>[number];
 
-const benchAtom = live<{ rows: Row[]; prices: Parameters<typeof price>[1] }>('/core/bench');
+const benchAtom = live<{ rows: Row[]; prices: Parameters<typeof price>[1] }>('/api/bench');
 const params = {
   w: queryParam('w'),
   x: queryParam('x'),
