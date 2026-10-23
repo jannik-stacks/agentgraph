@@ -1,34 +1,32 @@
 # Compound engineering
 
-A retro examines human feedback for recurring misses and proposes hub or documentation changes. People review and merge those changes.
+A retro reads human feedback for recurring misses and proposes hub or docs changes, which people review and merge.
 
 ## The retro
 
-`on: feedback` starts a retro on trusted comments, change-request reviews, approvals with comments, or commits pushed where another run worked. Pull request feedback counts for its issue after merge or closure too. Bare `/agent stop`, `/agent cancel` and `/agent restart` are excluded. <!-- code: src/engine.ts#feedback -->
+`on: feedback` starts a retro on trusted comments, change requests, approvals with a comment, and commits people push where a run worked. Feedback on a pull request counts for its issue, also after it is merged or closed. A bare `/agent stop`, `/agent cancel` or `/agent restart` is not feedback. <!-- code: src/engine.ts#feedback -->
 
-New feedback since the previous retro is batched after 30 seconds of quiet. Its text becomes run feedback. Events arriving during a retro start another without waiting for it. <!-- code: src/engine.ts#tick -->
+Feedback since the last retro is batched after 30 seconds of quiet and becomes the run's feedback. Feedback that arrives during a retro starts another one right away. <!-- code: src/engine.ts#tick -->
 
-Retros never hold an issue, consume another run's answers or post status. They skip setup and stop wherever another workflow would wait. <!-- code: src/workflow.ts#transition -->
+A retro never holds an issue, takes another run's answers or posts a status. It skips setup and stops where another workflow would wait. <!-- code: src/workflow.ts#transition -->
 
-The retro chooses:
+It ends with one of:
 
-- Nothing, with a short reason, for taste, one-off wording or decisions requiring a person.
-- A hub issue (`relation: hub`) for a recurring miss preventable by a check, lint, prompt or doc edit. Include the miss class, run/trace evidence and smallest change.
-- A follow-up for uncovered repo work.
-
-[Issue filing](stacks.md#follow-ups) handles duplicate titles and lists existing follow-up and hub issues for the agent.
+- Nothing, with a short reason, for taste, one-off wording or a call only a person can make.
+- A [hub change](stacks.md#hub-changes) for a recurring miss that a check, lint, prompt or docs edit would prevent, with the kind of miss, run and trace evidence, and the smallest change.
+- A [follow-up](stacks.md#follow-ups) for repo work nobody covered.
 
 ## Reading traces
 
-`reads: traces` gives an agent a read-only `traces.md` beside its news file and points to it in the prompt. It contains non-retro runs on that issue, oldest first: system prompts once per agent, session prompts, thinking, tool inputs/outputs, replies, checks, proposals and outcomes. Entries retain run trace line numbers for citations. <!-- code: src/context.ts#transcript -->
+`reads: traces` gives an agent a read-only `traces.md` beside its news file. It holds the issue's other runs, retros left out, oldest first: system prompts once per agent, session prompts, thinking, tool calls and results, replies, checks, proposals and outcomes. Entries keep their trace line numbers so the agent can cite them. <!-- code: src/context.ts#transcript -->
 
-Long text is cut in the middle, secrets redacted, and long sessions keep first and last entries with an omitted count. Beyond about 60,000 characters, oldest runs retain only session endings and outcomes.
+Long text is cut in the middle and secrets are redacted. Long sessions keep their first and last entries. Past about 60,000 characters, the oldest runs keep only session endings and outcomes.
 
-Checks receive the same file as `AGENTGRAPH_TRACES`; scripts can inspect it without a model, for example to check whether tests ran after the last edit. <!-- code: src/engine.ts#traced -->
+Checks get the same file as `AGENTGRAPH_TRACES`, so a script can, for example, check that tests ran after the last edit. <!-- code: src/engine.ts#traced -->
 
 ## Super review
 
-Trace-reading judges inspect how work was done. The sk hub's `claims` check compares an implementor's claims with its tool calls:
+A judge that reads traces checks how the work was done. The `claims` check in `examples/sk` compares what the implementor says it did with its tool calls:
 
 ```yaml
 # checks/claims.md

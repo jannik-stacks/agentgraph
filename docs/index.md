@@ -1,29 +1,23 @@
 # What agentgraph is
 
-agentgraph runs coding agents on repositories. People start and steer workflows with `/agent` comments or labels. Agents work on branches, scripts and judges check results, and humans merge.
+agentgraph runs coding agents on a repository's issues. People start and steer workflows with `/agent` comments or labels. Agents work on branches in sandboxes, scripts and judge agents check the result, and people merge.
 
-## How data flows
+The runner on the host polls GitHub, starts sandbox sessions and records each run. Sessions reach models through a proxy and return [proposals](proposals.md). Only the runner holds a GitHub token, and it applies proposals after the checks pass. The studio shows the hub and the recorded runs. [Architecture](architecture.md) has the diagram.
 
-The host runner polls GitHub, opens sandbox sessions and records runs. Sessions call models through a proxy and return [proposals](proposals.md). After checks, the runner applies writes to GitHub. Only the runner holds a GitHub token. The studio reads the hub and recorded runs. See [Architecture](architecture.md#where-everything-lives) for the diagram.
+## The hub
 
-## Config as code
-
-A hub holds machine-readable frontmatter and prose for agents:
+A hub is a folder of Markdown files with frontmatter. The engine reads the frontmatter, and agents read the prose.
 
 ```
 hub/
   hub.yaml
-  agents/implementor.md    role and permissions
-  skills/implement.md     instructions
-  checks/tests.md         acceptance checks
-  workflows/issue.md      triggers and steps
+  agents/implementor.md    role, harness, model, allowed proposals
+  skills/implement.md      instructions
+  checks/tests.md          a script or a judge
+  workflows/issue.md       triggers and steps
 ```
 
-`check` rejects unknown keys, missing agents or checks, unused skills and folders neither loaded by the engine nor read through `$AGENTGRAPH_HUB`. <!-- code: src/hub.ts#loadHub -->
-
-## Ways in
-
-Use the [CLI](local.md#the-cli) to validate hubs, drive issues, poll or inspect waits. Use the studio to view workflow graphs and runs.
+`npx agentgraph check --hub <dir>` validates one; [Hub files](reference.md) lists every field. <!-- code: src/hub.ts#loadHub -->
 
 ## Guide
 
@@ -35,18 +29,18 @@ Use the [CLI](local.md#the-cli) to validate hubs, drive issues, poll or inspect 
 ## Reference
 
 - [Hub files](reference.md): fields and defaults.
-- [Hub contract](contract.md): compatibility and tuning boundaries.
-- [Sub-issues and stacks](stacks.md): splitting and dependencies.
+- [Hub contract](contract.md): what stays stable and what tunes may change.
+- [Sub-issues and stacks](stacks.md): splitting work and dependencies.
 - [Runs](runs.md): records, traces and debugging.
-- [Sandbox and models](sandbox.md): containers, networks and harnesses.
-- [Compound engineering](compound.md): retros and trace-reading agents.
+- [Sandbox and models](sandbox.md): containers, networks, caches and harnesses.
+- [Compound engineering](compound.md): retros and agents that read traces.
 
 ## Examples
 
-[Triage](triage.md) sizes and splits issues with hub configuration.
+- [Triage](triage.md): sizing and splitting issues with hub config only.
 
 ## Meta
 
-- [Architecture](architecture.md): services and state machine.
-- [Patterns](patterns.md): code conventions.
+- [Architecture](architecture.md): services and the state machine.
+- [Patterns](patterns.md): code conventions and checks before committing.
 - [Bench](bench.md): replaying and scoring merged pull requests.

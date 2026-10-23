@@ -37,9 +37,7 @@ The engine is the runner code in `src/`.
 
 <!-- code: src/main.ts#start -->
 
-See [sandbox isolation](sandbox.md#the-sandbox), [network rules](sandbox.md#the-network) and [checkout storage](runs.md#checkout).
-
-The engine talks to the outside through four services. Each has a test double:
+The engine talks to the outside through four services, each with a stand-in for tests:
 
 - The forge reads and writes GitHub, or a folder when run locally. <!-- code: src/forge.ts#Forge -->
 - The store keeps runs and traces. <!-- code: src/store.ts#Store -->
@@ -57,10 +55,8 @@ The engine talks to the outside through four services. Each has a test double:
 | Proposal validation and application | Whether `until` holds |
 | Push safety, triggers and trust | Questions for humans |
 
-Judgment supplies proposals and verdicts; engine code decides transitions. Malformed replies fail the try. `transition` is pure and testable without I/O; `drive` performs the surrounding reads and writes. <!-- code: src/workflow.ts#transition src/engine.ts#land src/engine.ts#tick src/engine.ts#drive -->
+Models supply proposals and verdicts; engine code decides the transitions, and a malformed reply fails the try. `transition` is pure and testable without I/O; `drive` does the reads and writes around it. <!-- code: src/workflow.ts#transition src/engine.ts#land src/engine.ts#tick src/engine.ts#drive -->
 
-## Bundling for hosting
+## Hosting
 
-`infra/local/docker-compose.yml` runs LiteLLM, its database, the egress proxy and Ollama relay. Runner and studio run as Node processes on the host.
-
-The runner needs Docker access to start sandboxes and keeps App credentials. The studio is optional and can run anywhere with read-only access to the hub and data directory. An existing proxy can serve the runner through `AGENTGRAPH_PROXY_URL` and per-agent keys.
+`infra/local/docker-compose.yml` runs the proxy and its database, the egress proxy and the Ollama relay. The runner and the studio are Node processes on the host. The runner needs Docker and the App credentials. The studio is optional and needs only read access to the hub and the data directory. An existing proxy works through `AGENTGRAPH_PROXY_URL` and per-agent keys.
