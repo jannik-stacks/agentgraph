@@ -284,8 +284,7 @@ const bench = {
         mkdirSync(out, { recursive: true });
         await call(['run', 'v2', caseDir, out, '--repo', t.clone], j.id, j.repeat);
         await call(['score', caseDir, out, '--repo', t.clone], j.id, j.repeat);
-        if (o.judged)
-          await call(['judge', caseDir, out, '--judges', 'opus:1,sol:1', '--pairs', 'human'], j.id, j.repeat);
+        if (o.judged) await call(['judge', caseDir, out, '--pairs', 'human'], j.id, j.repeat);
       }
     };
     save(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
@@ -448,7 +447,16 @@ const append = (dir: string, s: Step) => appendLine(join(dir, 'iterations.jsonl'
 /** Writes tune.json, the cases and the minimal hub, then evaluates that hub as the first incumbent. */
 export const init = async (
   repo: string,
-  o: { cases: string; splits: string; repos: string; point: string; name?: string; parallel?: number; keys?: string },
+  o: {
+    cases: string;
+    splits: string;
+    repos: string;
+    point: string;
+    name?: string;
+    parallel?: number;
+    keys?: string;
+    limits?: Limits;
+  },
   io: Io = bench
 ) => {
   const short = repo.split('/').pop()!;
@@ -502,14 +510,14 @@ export const init = async (
     : enqueue(dir, { id: 'i000-init', iteration: 0, parent: '', proposer: 'manual', rationale: 'The minimal hub.' });
   git(dir, ['update-ref', 'refs/heads/main', cand.hub]);
   const select = ids(t, 'fit', 'validate');
-  const before = guard(dir, io, limitsDefault);
+  const before = guard(dir, io, o.limits ?? limitsDefault);
   await io.run(
     dir,
     t,
     select.map(c => ({ id: cand.id, case: c })),
     { parallel: o.parallel ?? 6, ...(o.keys && { keys: o.keys }) }
   );
-  const after = guard(dir, io, limitsDefault);
+  const after = guard(dir, io, o.limits ?? limitsDefault);
   const mine = scores(io.rows(dir, cand.id), t.preset);
   const usage = { codex: spent(before, after, 'codex'), claude5h: 0 };
   const evals = (['fit', 'validate'] as const)

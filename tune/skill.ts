@@ -8,7 +8,7 @@
  */
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { codexUsed } from '../bin/bench.ts';
@@ -24,6 +24,7 @@ import {
   step,
   tuneRows,
 } from '../bin/tune.ts';
+import { write } from '../bin/resume.ts';
 import { claudeUsed, events, hubProblems, type Usage } from './propose.ts';
 
 type Io = Parameters<typeof step>[2];
@@ -56,11 +57,6 @@ type Round = {
 const agentgraph = join(import.meta.dirname, '..');
 const skillDir = join(agentgraph, 'skills/tune-graph');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
-const save = (path: string, v: unknown) => {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(`${path}.tmp`, typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
-  renameSync(`${path}.tmp`, path);
-};
 const pad = (n: number) => String(n).padStart(3, '0');
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const fence = (text: string, lang = '') => `\`\`\`${lang}\n${text.replaceAll('```', "'''")}\n\`\`\``;
@@ -75,7 +71,7 @@ const skillSha = () =>
     .slice(0, 12);
 
 /** Copies the loop tune's settings, cases and minimal hub into `skill@<version>` and scores that hub as the start. */
-const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parallel' | 'keys'>, io?: Io) => {
+const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parallel' | 'keys' | 'limits'>, io?: Io) => {
   const { tune: t, steps } = tuneRows(like);
   const first = steps.find(s => s.iteration === 0);
   if (!first) throw new Error(`${like} has no starting hub yet`);
@@ -90,11 +86,20 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
         filter: src => !skipped.has(basename(src)),
       });
     spawnSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
-    save(join(dir, 'tune.json'), t);
+    write(join(dir, 'tune.json'), t);
   }
   const made = await init(
     t.repo.split('/').pop()!,
-    { cases: '', splits: '', repos: '', point: t.point, name, parallel: o.parallel, ...(o.keys && { keys: o.keys }) },
+    {
+      cases: '',
+      splits: '',
+      repos: '',
+      point: t.point,
+      name,
+      parallel: o.parallel,
+      limits: o.limits,
+      ...(o.keys && { keys: o.keys }),
+    },
     io
   );
   if (resolve(made) !== resolve(dir)) throw new Error(`${like} is not under the tune root ${dirname(dirname(made))}`);
@@ -112,7 +117,7 @@ const workspace = (dir: string, w: string, k: number) => {
   const redact = (text: string) => hidden.reduce((s, id) => s.replaceAll(id, 'a held-out case'), text);
   cpSync(join(dir, 'cands', inc.id, 'hub'), join(w, 'hub'), { recursive: true });
   for (const id of seen) cpSync(join(dir, 'cases', id), join(w, 'cases', id), { recursive: true });
-  save(join(w, 'cases.json'), Object.fromEntries(seen.map(id => [id, t.cases[id]])));
+  write(join(w, 'cases.json'), Object.fromEntries(seen.map(id => [id, t.cases[id]])));
   for (const id of idsOf(t.cases, 'fit')) {
     const from = join(dir, 'runs', inc.id, id);
     if (existsSync(from))
@@ -128,7 +133,7 @@ const workspace = (dir: string, w: string, k: number) => {
         ...(s.diff ? [fence(s.diff, 'diff')] : []),
       ].join('\n\n')
     );
-  save(
+  write(
     join(w, 'tried.md'),
     `# Tried before\n\nThe incumbent is ${inc.id}.\n\n${tried.join('\n\n') || 'Nothing yet.'}\n`
   );
@@ -223,7 +228,7 @@ const leaksOf = (stream: string, dir: string, w: string, hidden: string[]) =>
 
 const pluginOf = (dir: string) => {
   const plugin = join(dir, 'skill', 'plugin');
-  save(join(plugin, '.claude-plugin/plugin.json'), { name: 'agentgraph' });
+  write(join(plugin, '.claude-plugin/plugin.json'), { name: 'agentgraph' });
   cpSync(skillDir, join(plugin, 'skills/tune-graph'), { recursive: true });
   return plugin;
 };
@@ -310,7 +315,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
   const first = before ?? live.first;
   r.claude = { ...(first && { before: first }), ...(after && { after }) };
   if (live.stopped) {
-    save(join(w, 'stopped.json'), { ...r, stopped: live.stopped });
+    write(join(w, 'stopped.json'), { ...r, stopped: live.stopped });
     throw new Error(`round ${iteration} stopped: ${live.stopped}`);
   }
   if (r.leaks.length) console.error(`round ${iteration}: tool calls outside the workspace\n${r.leaks.join('\n')}`);
@@ -323,7 +328,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
     r.slots.push({ slot: s.slot, id: c.id });
   }
   if (after) guard(dir, { codex: io?.codex ?? codexUsed }, o.limits, after);
-  save(join(w, 'round.json'), r);
+  write(join(w, 'round.json'), r);
   return r;
 };
 

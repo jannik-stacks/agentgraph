@@ -311,6 +311,7 @@
                 "group": [
                   "../bin/**",
                   "!../bin/bench.ts",
+                  "!../bin/resume.ts",
                   "!../bin/tune.ts",
                   "../studio/**"
                 ],
