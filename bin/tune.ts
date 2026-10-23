@@ -75,7 +75,6 @@ type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading }
 const agentgraph = join(import.meta.dirname, '..');
 const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), '.agentgraph/tune');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
-const save = write;
 const round = (n: number) => Math.round(n * 1000) / 1000;
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : 0);
 const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
@@ -287,7 +286,7 @@ const bench = {
         if (o.judged) await call(['judge', caseDir, out, '--pairs', 'human'], j.id, j.repeat);
       }
     };
-    save(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
+    write(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
     const log = tuneLog(dir);
     for (let round = 0, left = jobs; ;) {
       queue = [...left];
@@ -344,9 +343,9 @@ const enqueue = (dir: string, c: Omit<Candidate, 'hub' | 'diff'>) => {
   const sha = git(dir, ['commit-tree', tree, ...(c.parent ? ['-p', c.parent] : []), '-m', c.id]);
   git(dir, ['update-ref', `refs/cand/${c.id}`, sha]);
   const cand: Candidate = { ...c, hub: sha, diff: c.parent ? git(dir, ['diff', c.parent, sha]) : '' };
-  save(join(dir, 'cands', c.id, 'candidate.json'), cand);
+  write(join(dir, 'cands', c.id, 'candidate.json'), cand);
   if (!existsSync(join(dir, 'cands', c.id, 'proposal.md')))
-    save(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n`);
+    write(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n`);
   return cand;
 };
 
@@ -429,7 +428,7 @@ export const guard = (
   const fiveHour = mark(b.claude?.fiveHour, claude?.fiveHour);
   const week = mark(b.claude?.week, claude?.week);
   const next: Budget = { ...(codex && { codex }), claude: { ...(fiveHour && { fiveHour }), ...(week && { week }) } };
-  save(file, next);
+  write(file, next);
   const over = overOf(next, limits);
   if (over) throw new Error(over);
   return next;
@@ -501,7 +500,7 @@ export const init = async (
       read(join(agentgraph, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
-    save(join(dir, 'tune.json'), t);
+    write(join(dir, 'tune.json'), t);
   }
   const { tune: t, steps } = tuneRows(dir);
   if (steps.length) return dir;
@@ -535,7 +534,7 @@ const minimal = (hub: string, commands: ReturnType<typeof plan>, toolchain?: str
   cpSync(join(agentgraph, 'examples/bench'), hub, { recursive: true });
   rmSync(join(hub, 'agents/reviewer.md'), { force: true });
   rmSync(join(hub, 'scripts/review.mjs'), { force: true });
-  save(
+  write(
     join(hub, 'workflows/issue.md'),
     `---
 on: issue_comment
@@ -550,7 +549,7 @@ steps:
 One issue becomes one pull request. The implementor changes the repo until the tests check passes. A human merges.
 `
   );
-  save(
+  write(
     join(hub, 'checks/tests.md'),
     read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
   );
@@ -562,13 +561,13 @@ One issue becomes one pull request. The implementor changes the repo until the t
   if grep -q '"jest"' "$d/package.json"; then (cd "$d" && npx jest --runTestsByPath "\${f#"$d"/}") || exit 1
   else (cd "$d" && npx vitest run "\${f#"$d"/}") || exit 1; fi
 done`;
-  save(
+  write(
     join(hub, 'scripts/tests.sh'),
     `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n${each}\n`
   );
-  if (toolchain) save(join(hub, 'hub.yaml'), `${toolchain}\n${read(join(hub, 'hub.yaml'))}`);
+  if (toolchain) write(join(hub, 'hub.yaml'), `${toolchain}\n${read(join(hub, 'hub.yaml'))}`);
   else if (commands.setup)
-    save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
+    write(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
 };
 
 /** One iteration: proposals, a screen on a few fit cases, the survivors on the rest of select, at most one kept. */
@@ -722,7 +721,7 @@ export const checkpoint = async (dir: string, o: { parallel?: number; keys?: str
   );
   const e = evalOf(inc.id, 'test', test, scores(io.rows(dir, inc.id), 'composite'), { codex: 0, claude5h: 0 });
   const lines = steps.map(s => (s === inc ? { ...s, evals: [...s.evals, e] } : s));
-  save(join(dir, 'iterations.jsonl'), lines.map(s => `${JSON.stringify(s)}\n`).join(''));
+  write(join(dir, 'iterations.jsonl'), lines.map(s => `${JSON.stringify(s)}\n`).join(''));
   return e;
 };
 
