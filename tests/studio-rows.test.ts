@@ -100,9 +100,9 @@ describe("a run's pull request and branch", () => {
     const head = renderToStaticMarkup(row.summary as never);
     expect(head).toContain(`href="${pr}"`);
     expect(head).toContain('href="https://github.com/o/r/tree/agentgraph/1"');
-    expect(renderToStaticMarkup(runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace }).summary as never)).not.toMatch(
-      /pull\/|tree\//
-    );
+    expect(
+      renderToStaticMarkup(runRow({ fixture: 'kit/issue', repo: 'o/r', run, trace }).summary as never)
+    ).not.toMatch(/pull\/|tree\//);
   });
 });
 
@@ -214,7 +214,7 @@ describe('a deep link into a run', () => {
     expect(html).toContain('copy link');
     expect(renderToStaticMarkup(review.children!.find(c => c.raw === push)!.summary)).toContain('copy link');
     const head = renderToStaticMarkup(row.summary as never);
-    expect(head).toContain(`href="/graph?run=${encodeURIComponent('sk/issue:issue-1')}&amp;step=issue%2Freview"`);
+    expect(head).toContain(`href="/graph?run=${encodeURIComponent('kit/issue:issue-1')}&amp;step=issue%2Freview"`);
   });
 
   it('shows the run page without a graph, linking the graph at the deep-linked step instead', async () => {
@@ -236,7 +236,7 @@ describe('a deep link into a run', () => {
     );
     expect(html).not.toMatch(/react-flow/);
     expect(html.match(/href="\/graph\?[^"]*"/g)).toEqual([
-      `href="/graph?run=${encodeURIComponent('sk/issue:issue-1')}&amp;step=issue%2Freview"`,
+      `href="/graph?run=${encodeURIComponent('kit/issue:issue-1')}&amp;step=issue%2Freview"`,
     ]);
     expect(html).toContain('data-target="true"');
   });

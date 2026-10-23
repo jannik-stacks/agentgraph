@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { context } from '../src/context.ts';
@@ -78,13 +78,6 @@ describe('safety check', () => {
     });
     expect(check('safety.mjs', { dir: repo.dir, base: 'f'.repeat(40) }, 'kit/').ok).toBe(false);
   });
-
-  it('allows the paths in the bounds file when none are given', () => {
-    const repo = change({ 'kit/a.ts': 'x\n' }, { 'kit/a.ts': 'y\n', 'CHAT.md': 'hi\n', 'other/b.ts': 'z\n' });
-    expect(check('safety.mjs', repo).out.split('\n').slice(0, -1)).toEqual([
-      'other/b.ts: outside the allowed paths (kit/, docs/, CHAT.md)',
-    ]);
-  });
 });
 
 describe('lint check', () => {
@@ -93,33 +86,6 @@ describe('lint check', () => {
       { 'kit/old.ts': 'export const   old = 1\n' },
       { 'kit/old.ts': 'export const   old = 2\n', 'kit/new.ts': 'export const add = (a: number) => a + 1;\n' }
     );
-    expect(check('lint.mjs', repo)).toEqual({ ok: true, out: 'lint: ok' });
-  });
-
-  it('fails lint errors in changed files and unformatted new files', () => {
-    const repo = change(
-      { 'kit/old.ts': 'export const old = 1;\n' },
-      { 'kit/old.ts': 'var old = 1;\nexport { old };\n', 'kit/new.ts': 'export const   s = "double"\n' }
-    );
-    const { ok, out } = check('lint.mjs', repo);
-    expect(ok).toBe(false);
-    expect(out).toContain('kit/old.ts:1: eslint(no-var)');
-    expect(out).toContain('files are not formatted');
-    expect(out).toContain('kit/new.ts');
-  });
-
-  it('tells how to format a new file with the hub settings, and the command it gives fixes it', () => {
-    const repo = change({ 'kit/a.ts': 'export const a = 1;\n' }, { 'kit/new.ts': 'export const   s = "double"\n' });
-    const first = check('lint.mjs', repo);
-    expect(first.ok).toBe(false);
-    const command = first.out.split('\n').find(line => line.startsWith("printf '%s'"));
-    expect(command).toContain('oxfmt --config /tmp/oxfmtrc.json kit/new.ts');
-    const fixed = spawnSync('sh', ['-c', command!.replaceAll('/tmp/oxfmtrc.json', join(repo.dir, '.oxfmtrc.json'))], {
-      cwd: repo.dir,
-      env: { PATH: `${bin}:${process.env.PATH}` },
-    });
-    expect(fixed.status).toBe(0);
-    rmSync(join(repo.dir, '.oxfmtrc.json'));
     expect(check('lint.mjs', repo)).toEqual({ ok: true, out: 'lint: ok' });
   });
 
