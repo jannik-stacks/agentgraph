@@ -73,9 +73,10 @@ const terms: [string, ReactNode][] = [
     'chart',
     <>
       Higher and further left is better. The line joins setups whose quality no cheaper setup matches. It is faint and
-      dashed if any setup on it has fewer than 10 cases. Dimmed points have a cheaper match. Hollow points are dimmed
-      but their quality interval still reaches the line. Crosses show 95 percent intervals from a bootstrap over cases,
-      then repeats. This chart compares setups. The{' '}
+      dashed if any setup on it has fewer than 10 cases. Dimmed points have a cheaper match or are judge-only, which
+      judges alone score, so they stay off the line. Hollow points are dimmed but their quality interval still reaches
+      the line. Crosses show 95 percent intervals from a bootstrap over cases, then repeats. This chart compares setups.
+      The{' '}
       <Link href="/compound" className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-100">
         Compound
       </Link>{' '}
@@ -163,7 +164,7 @@ export const BenchPage = () => {
   const [infra, setInfra] = useAtom(params.infra);
   const [drop, setDrop] = useAtom(params.drop);
   const [picked, setPicked] = useAtom(params.point);
-  const [sort, setSort] = useState<{ col: number; down: boolean }>({ col: 4, down: true });
+  const [sort, setSort] = useState({ col: 'quality', down: true });
   const weights = useMemo(() => {
     const given = w?.split(',').map(Number) ?? [];
     return Object.fromEntries(names.map((k, i) => [k, given[i] ?? defaults[k]])) as typeof defaults;
@@ -219,12 +220,8 @@ export const BenchPage = () => {
     return `tokens per run: ${kilo(Math.round(sum.input))} in, ${kilo(Math.round(sum.cacheRead))} cache read, ${kilo(Math.round(sum.cacheWrite))} cache write, ${kilo(Math.round(sum.output))} out`;
   };
   const one = points.find(p => p.key === picked);
-  const columns: [
-    string,
-    string,
-    (p: (typeof points)[number]) => number | string,
-    (p: (typeof points)[number]) => ReactNode,
-  ][] = [
+  type Point = (typeof points)[number];
+  const all: [string, string, (p: Point) => number | string, (p: Point) => ReactNode][] = [
     [
       'point',
       'Each dot is one harness and model on one arm, with an engine commit, hub tree and case set. Labels show the arm and case set, plus the harness and model when there are several.',
@@ -261,8 +258,10 @@ export const BenchPage = () => {
       p => fmt(p.vsHuman),
     ],
   ];
+  const columns = all.filter(([name]) => !(minutes && name === 'minutes'));
+  const by = (columns.find(([name]) => name === sort.col) ?? columns.find(([name]) => name === 'quality')!)[2];
   const sorted = points.toSorted((a, b) => {
-    const [va, vb] = [columns[sort.col]![2](a), columns[sort.col]![2](b)];
+    const [va, vb] = [by(a), by(b)];
     return (va < vb ? -1 : va > vb ? 1 : 0) * (sort.down ? -1 : 1);
   });
 
@@ -401,7 +400,7 @@ export const BenchPage = () => {
                 tone: tones[harness] ?? 'text-zinc-600 dark:text-zinc-400',
                 square: arm === 'floor',
                 dim: dominated,
-                open: dominated && p.yCi[1] >= stair(p.x),
+                open: dominated && !p.judgeOnly && p.yCi[1] >= stair(p.x),
                 tip: [
                   label(p.key),
                   `quality ${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`,
@@ -412,7 +411,11 @@ export const BenchPage = () => {
                   p.perCase.some(s => s.row.usdSource === 'list-price estimate')
                     ? 'paid by a subscription: the cost is a list-price estimate'
                     : '',
-                  dominated && p.yCi[1] >= stair(p.x) ? 'within noise of the frontier' : '',
+                  p.judgeOnly
+                    ? 'judges alone score these cases, so the point stays off the line'
+                    : dominated && p.yCi[1] >= stair(p.x)
+                      ? 'within noise of the frontier'
+                      : '',
                 ]
                   .filter(Boolean)
                   .join('\n'),
@@ -480,16 +483,16 @@ export const BenchPage = () => {
           <table className="w-full max-w-5xl text-left text-xs whitespace-nowrap tabular-nums">
             <thead className="text-zinc-500">
               <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                {columns.map(([name, tip], i) => (
+                {columns.map(([name, tip]) => (
                   <th key={name} className="py-1 pr-3 font-medium">
                     <Tooltip tip={tip} action="Sort by this column">
                       <button
                         type="button"
-                        onClick={() => setSort({ col: i, down: sort.col === i ? !sort.down : true })}
+                        onClick={() => setSort({ col: name, down: sort.col === name ? !sort.down : true })}
                         className="transition-colors duration-150 hover:text-zinc-900 dark:hover:text-zinc-100"
                       >
                         {name}
-                        {sort.col === i && (sort.down ? ' ↓' : ' ↑')}
+                        {sort.col === name && (sort.down ? ' ↓' : ' ↑')}
                       </button>
                     </Tooltip>
                   </th>

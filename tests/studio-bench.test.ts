@@ -110,5 +110,10 @@ describe('bench score', () => {
       ['opencode:smart/v2@unknown//runs-3', 1, 1],
       ['opencode:smart/v2@unknown//runs-3, judge-only', 1, 0],
     ]);
+    expect(s.map(p => p.judgeOnly)).toEqual([false, true]);
+    expect(frontier([...s.map(p => ({ ...p, x: 2 })), { key: 'cheap', x: 1, y: 0.5 }])).toEqual([
+      'cheap',
+      'opencode:smart/v2@unknown//runs-3',
+    ]);
   });
 });

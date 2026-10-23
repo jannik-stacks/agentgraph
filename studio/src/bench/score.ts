@@ -112,6 +112,7 @@ export const summarise = (
     const tested = kept.flatMap(r => (r.hidden === undefined ? [] : [r.hidden]));
     return {
       key,
+      judgeOnly: all[0]!.strata.tests === 'judge-only',
       n: cases.length,
       repeats: kept.length,
       completion: all.filter(r => !r.infra).length / all.length,
@@ -124,8 +125,14 @@ export const summarise = (
   });
 };
 
-/** The keys of the points no cheaper point matches in quality, cheapest first. */
-export const frontier = (points: { key: string; x: number; y: number }[]) => {
+/**
+ * The keys of the points no cheaper point matches in quality, cheapest first. Judge-only points stay off it: judges
+ * alone score them, so they do not compare with tested points.
+ */
+export const frontier = (points: { key: string; x: number; y: number; judgeOnly?: boolean }[]) => {
   let best = -Infinity;
-  return points.toSorted((a, b) => a.x - b.x || b.y - a.y).flatMap(p => (p.y > best ? ((best = p.y), [p.key]) : []));
+  return points
+    .filter(p => !p.judgeOnly)
+    .toSorted((a, b) => a.x - b.x || b.y - a.y)
+    .flatMap(p => (p.y > best ? ((best = p.y), [p.key]) : []));
 };
