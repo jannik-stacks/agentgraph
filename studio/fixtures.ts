@@ -36,6 +36,16 @@ const outsOf = (dir: string, depth = 3): string[] => [
     : []),
 ];
 
+/** The driven bench dirs at or right under `dir`: those with a `set.json`. */
+const drivenOf = (dir: string): string[] => [
+  ...(existsSync(join(dir, 'set.json')) ? [dir] : []),
+  ...(existsSync(dir)
+    ? readdirSync(dir, { withFileTypes: true })
+        .filter(e => e.isDirectory() && existsSync(join(dir, e.name, 'set.json')))
+        .map(e => join(dir, e.name))
+    : []),
+];
+
 /** A JSON value with every string longer than a line cut to one. */
 const cut = (value: unknown): unknown =>
   typeof value === 'string'
@@ -56,7 +66,8 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * `virtual:fixtures`, plus the served hub's workflows. `GET /api/runs` answers that hub's runs in the data dir with
  * their traces, every text in them cut short; `GET /api/runs/<id>` answers one run with every trace line, and
  * `GET /api/logs/<hash>` the full output of a check, and `GET /api/locate?gh=<link or comment id>` what `locate` finds.
- * `GET /api/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, and the price table.
+ * `GET /api/bench` answers the rows of every bench out dir under the dirs `VITE_AGI_BENCH` names, where each driven
+ * bench dir stands, and the price table.
  * `GET /api/compound` answers every tune under `VITE_AGI_TUNE` (default: the `bin/tune.ts` root): its folder name, settings and steps.
  * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
@@ -85,9 +96,11 @@ export const fixtures = (): Plugin => ({
     });
     server.middlewares.use('/api/bench', async (_req, res) => {
       const { rowsOf }: typeof import('../bin/bench.ts') = await from('bin/bench.ts');
+      const { stateOf }: typeof import('../bench/drive.ts') = await from('bench/drive.ts');
       const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
         rows: dirs.flatMap(dir => outsOf(dir)).flatMap(out => rowsOf(out)),
+        drives: [...new Set(dirs.flatMap(drivenOf))].map(stateOf),
         prices: JSON.parse(readFileSync(new URL('infra/local/prices.json', root), 'utf8')),
       });
     });

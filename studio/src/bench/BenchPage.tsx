@@ -1,5 +1,6 @@
 import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
+import type { DriveState } from '../../../bench/drive.ts';
 import type { rowsOf } from '../../../bin/bench.ts';
 import { live, queryParam } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
@@ -8,7 +9,7 @@ import { Scatter } from './Scatter.tsx';
 
 type Row = ReturnType<typeof rowsOf>[number];
 
-const benchAtom = live<{ rows: Row[]; prices: Parameters<typeof price>[1] }>('/api/bench');
+const benchAtom = live<{ rows: Row[]; drives?: DriveState[]; prices: Parameters<typeof price>[1] }>('/api/bench');
 const params = {
   w: queryParam('w'),
   x: queryParam('x'),
@@ -96,6 +97,54 @@ const usd = (v: number) => `$${v.toFixed(3)}`;
 const ci = ([lo, hi]: [number, number], f: (v: number) => string) => `${f(lo)} to ${f(hi)}`;
 const kilo = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : `${n}`);
 
+const statusTones: Record<DriveState['status'], string> = {
+  running: 'text-sky-600 dark:text-sky-400',
+  paused: 'text-amber-600 dark:text-amber-400',
+  stopped: 'text-zinc-600 dark:text-zinc-400',
+  crashed: 'text-rose-600 dark:text-rose-400',
+  finished: 'text-emerald-600 dark:text-emerald-400',
+};
+
+/** Every driven bench dir with its progress and, when it is not running, why. */
+const Benches = ({ drives }: { drives: DriveState[] }) =>
+  drives.length ? (
+    <section className="max-w-5xl overflow-x-auto">
+      <Tooltip
+        tip="Bench dirs a driver runs. Resume a paused, stopped or crashed one with node bench/drive.ts resume <dir>; finished jobs are kept and never rerun."
+        focusable
+      >
+        <h3 className="mb-1 text-xs font-medium">Benches</h3>
+      </Tooltip>
+      <table className="w-full text-left text-xs tabular-nums">
+        <thead className="text-zinc-500">
+          <tr className="border-b border-zinc-200 dark:border-zinc-800">
+            {['bench', 'status', 'done', 'partial', 'since', 'reason'].map(h => (
+              <th key={h} className="py-1 pr-3 font-medium">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {drives.map(d => (
+            <tr key={d.dir} className="border-b border-zinc-100 dark:border-zinc-900">
+              <td className="py-1 pr-3 font-mono whitespace-nowrap" title={d.dir}>
+                {d.dir.split('/').pop()}
+              </td>
+              <td className={cx('py-1 pr-3', statusTones[d.status])}>{d.status}</td>
+              <td className="py-1 pr-3 whitespace-nowrap">
+                {d.done}/{d.total}
+              </td>
+              <td className="py-1 pr-3">{d.partial || ''}</td>
+              <td className="py-1 pr-3 whitespace-nowrap">{d.at?.slice(0, 16).replace('T', ' ') ?? ''}</td>
+              <td className="py-1 pr-3 text-zinc-600 dark:text-zinc-400">{d.reason ?? ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  ) : null;
+
 const Control = ({ label, tip, children }: { label: string; tip?: string; children: ReactNode }) => (
   <div className="space-y-1">
     <Tooltip tip={tip} focusable={!!tip}>
@@ -137,7 +186,13 @@ export const BenchPage = () => {
 
   if (!value) return failure ? <Muted>{failure}</Muted> : <Loading />;
   if (!value.rows.length)
-    return <Muted>No bench rows. Start the studio with --bench and one or more bench out dirs.</Muted>;
+    return value.drives?.length ? (
+      <div className="p-4">
+        <Benches drives={value.drives} />
+      </div>
+    ) : (
+      <Muted>No bench rows. Start the studio with --bench and one or more bench out dirs.</Muted>
+    );
 
   const front = frontier(points);
   const onFront = points.filter(p => front.includes(p.key));
@@ -310,6 +365,7 @@ export const BenchPage = () => {
         </Control>
       </aside>
       <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <Benches drives={value.drives ?? []} />
         <section className="max-w-3xl">
           <p className="mb-2 text-xs text-pretty text-zinc-600 dark:text-zinc-400">
             Each point is a harness and model running one arm <Help tip={arm} /> on one case set <Help tip={set} />. The
