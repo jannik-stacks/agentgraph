@@ -42,7 +42,7 @@ hub/
 ```sh
 npm run up                   # model proxy and sandbox, see infra/local/README.md
 npm run keys                 # one proxy key per agent
-npx agentgraph <command>     # check, --all, loop, status, say, tell, dispatch
+npx agentgraph <command>     # check, --issue, --all, loop, status, say, tell, dispatch, prune-logs
 npm run check                # everything CI and the precommit hook run
 npm run down
 ```
@@ -113,8 +113,8 @@ npm run check         # everything: formatting, lint, unused code, docs, hubs, t
 `bin/lsp.ts` gives you the editor's find references and rename from the shell. It talks to the TypeScript language server that ships with the `typescript` dev dependency, so there is nothing extra to install. Positions are `file:line:col`, counted from 1, and paths are relative to the directory you run it in.
 
 ```sh
-node bin/lsp.ts refs src/disk.ts:396:14
-node bin/lsp.ts rename src/disk.ts:396:14 roomLeft --dry   # print the edits, change nothing
+node bin/lsp.ts refs src/disk.ts:374:14
+node bin/lsp.ts rename src/disk.ts:374:14 roomLeft --dry   # print the edits, change nothing
 node bin/lsp.ts rename-symbol inventory listItems          # find the declaration by name; fails if the name is ambiguous
 ```
 
