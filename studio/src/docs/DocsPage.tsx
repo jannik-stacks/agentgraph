@@ -10,13 +10,14 @@ const files = import.meta.glob<string>('../../../docs/*.md', {
 });
 const pages = Object.fromEntries(Object.entries(files).map(([path, text]) => [/([^/]+)\.md$/.exec(path)![1]!, text]));
 
-/** The sidebar: the index, then each index section with the pages it links, then the rest alphabetically. */
+/** The sidebar: the index, then each index section with the pages its list items link, then the rest alphabetically. */
 const sections = (() => {
   const out: { label: string; names: string[] }[] = [{ label: '', names: ['index'] }];
   const seen = new Set(['index']);
   for (const line of (pages.index ?? '').split('\n')) {
     const heading = /^## (.+)$/.exec(line)?.[1];
     if (heading) out.push({ label: heading, names: [] });
+    if (!/^\s*(?:[-*]|\d+\.)\s/.test(line)) continue;
     for (const m of line.matchAll(/\]\(([\w-]+)\.md\)/g)) {
       const n = m[1]!;
       if (!(n in pages) || seen.has(n)) continue;
