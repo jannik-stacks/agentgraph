@@ -47,7 +47,7 @@
     "claude-haiku-4-5": { "input": 1, "cached": 0.1, "output": 5, "cacheWrite": 1.25, "source": "anthropic" },
     "qwen3.5:4b": { "input": 0, "cached": 0, "output": 0, "source": "local" },
     "glm-5.3": { "input": 0.7, "cached": 0.13, "output": 2.2, "source": "openrouter" },
-    "glm-5.3-flash": { "input": 0.0052, "cached": 0.0052, "output": 0.1985, "source": "openrouter" },
+    "glm-5.3-flash": { "input": 0.15, "cached": 0.03, "output": 0.5, "source": "openrouter" },
     "deepseek-v4-pro-0813": { "input": 0.66, "cached": 0.022, "output": 1.98, "source": "openrouter", "note": "twice this on weekdays 01:00-04:00 and 06:00-10:00 UTC" },
     "deepseek-v4.1-flash": { "input": 0.3, "cached": 0.006, "output": 1.2, "source": "openrouter" },
     "minimax-m3": { "input": 0.3, "cached": 0.06, "output": 1.2, "source": "openrouter" },

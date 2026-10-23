@@ -105,6 +105,19 @@ describe('the session loop', () => {
     expect(priceOf(prices, ['mystery', 'luna'])).toEqual({ input: 0.1, output: 0.5 });
   });
 
+  it('prices the OpenRouter bench models at their OpenRouter list prices', () => {
+    const prices = JSON.parse(readFileSync(join(import.meta.dirname, '../infra/local/prices.json'), 'utf8'));
+    const list = {
+      'glm-flash': [0.15, 0.03, 0.5],
+      'qwen-flash': [0.15, 0.016, 0.47],
+      'deepseek-flash': [0.3, 0.006, 1.2],
+      minimax: [0.3, 0.06, 1.2],
+      'grok-build': [1, 0.2, 2],
+    };
+    for (const [model, [input, cached, output]] of Object.entries(list))
+      expect(priceOf(prices, [model]), model).toMatchObject({ input, cached, output, source: 'openrouter' });
+  });
+
   it('runs the harness in a shell that reports its exit code, with only the agent key, by name', async () => {
     const { command, data } = await events(spec, sample('opencode-run.jsonl'));
     expect(command.cmd).toBe('sh');
