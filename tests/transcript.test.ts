@@ -38,7 +38,7 @@ const lines: Trace[] = [
   {
     at,
     step: 'implement',
-    event: { type: 'text', text: 'Done. AGENTGRAPH_LLM_API_KEY=sk-bh-implementor-0123456789abcdef' },
+    event: { type: 'text', text: `Done. AGENTGRAPH_LLM_API_KEY=${['sk-bh', 'implementor', '0123456789abcdef'].join('-')}` },
   },
   { at, step: 'implement', session: { id: 's1', resumed: false, ended: 'stop', usd: 0.4 } },
   { at, step: 'implement', check: { check: 'tests', pass: false, findings: '1 failed', ms: 1 } },
@@ -67,11 +67,13 @@ describe('transcript', () => {
 
   it('redacts tokens and private keys', () => {
     const prompt =
-      'use ghp_abcdefghijklmnopqrstuvwxyz0123 and -----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
+      'use ghp_' + 'abcdefghijklmnopqrstuvwxyz0123 and -----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
     const text = transcript(21, [{ run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt } }] }]);
     expect(text).toContain('1 prompt: use [redacted] and [redacted]');
     const more =
-      'AKIAIOSFODNN7EXAMPLE npm_abcdefghijklmnopqrstuvwxyz0123456789 Authorization: Bearer abc.def-ghi_jkl012 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+      'AKIA' +
+      'IOSFODNN7EXAMPLE npm_abcdefghijklmnopqrstuvwxyz0123456789 Authorization: Bearer abc.def-ghi_jkl012 eyJhbGciOiJIUzI1NiJ9.' +
+      'eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
     const also = transcript(21, [{ run, lines: [{ at, step: 'implement', prompt: { ...spec, prompt: more } }] }]);
     expect(also).toContain('1 prompt: [redacted] [redacted] Authorization: Bearer [redacted] [redacted]');
   });

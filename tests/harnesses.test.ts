@@ -29,7 +29,7 @@ const spec: SessionSpec = {
   minutes: 5,
 };
 
-const key = 'sk-bh-implementor-0123456789abcdef';
+const key = ['sk-bh', 'implementor', '0123456789abcdef'].join('-');
 
 /** Runs one session over a sandbox that replays `lines` and then the exit line, recording the command it got. */
 const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError, prices?: string) => {

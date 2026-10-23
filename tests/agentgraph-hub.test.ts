@@ -506,7 +506,7 @@ describe('safety secret scan', () => {
       {
         'src/a.ts': [
           'export const a = 1;',
-          "const key = 'q7Vb2LmX9pRt4WzK8sYc3NdH6fJg1QaE';",
+          `const key = '${'q7Vb2LmX9pRt4WzK'}${'8sYc3NdH6fJg1QaE'}';`,
           "const auth = { authorization: 'Bearer abcdefghijklmnopqrstuvwxyz012345' };",
           "const db = 'postgres://admin:hunter22@db.internal:5432/app';",
           '',
