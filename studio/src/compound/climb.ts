@@ -17,16 +17,6 @@ export const score = (step: Step, splits: Split[] = ['fit', 'validate']) => {
   return n ? sum(evals.map(e => e.quality * e.cases.length)) / n : undefined;
 };
 
-/** The staircase of the best kept score so far, one corner per kept point, running on to the last `x`. */
-export const runningBest = (points: { x: number; y?: number | undefined; kept: boolean }[]) => {
-  let best = -Infinity;
-  const corners = points.flatMap(p =>
-    p.kept && p.y !== undefined && p.y > best ? ((best = p.y), [{ x: p.x, y: p.y }]) : []
-  );
-  const end = Math.max(...points.map(p => p.x));
-  return corners.length && end > corners.at(-1)!.x ? [...corners, { x: end, y: best }] : corners;
-};
-
 /**
  * A step's usd and minutes per run, case-weighted over its select evals. An eval without `perRun` counts its total
  * spread over its cases.
@@ -79,24 +69,23 @@ export const seriesOf = (tunes: TuneRows[]) =>
         skill: name.startsWith('skill@'),
         tune,
         points,
-        init: points.find(p => p.step.iteration === 0)?.y,
       };
     })
     .toSorted((a, b) => Number(a.skill) - Number(b.skill) || a.key.localeCompare(b.key));
 
 export type Series = ReturnType<typeof seriesOf>[number];
 
-/** Per iteration: the best kept score so far, undefined before the first, and the usd spent by its end. */
+/** Per iteration: the kept hub's score by its end, undefined before the first, and the usd spent by then. */
 export const byIteration = (s: Series) => {
   const last = Math.max(0, ...s.points.map(p => p.step.iteration));
-  let best: number | undefined;
+  let kept: number | undefined;
   return Array.from({ length: last + 1 }, (_, i) => {
     const at = s.points.filter(p => p.step.iteration === i);
-    for (const p of at) if (p.step.verdict === 'kept' && p.y !== undefined) best = Math.max(best ?? p.y, p.y);
+    for (const p of at) if (p.step.verdict === 'kept' && p.y !== undefined) kept = p.y;
     const cum = at.at(-1)?.cum ?? s.points.filter(p => p.step.iteration < i).at(-1)?.cum ?? 0;
     return {
       iteration: i,
-      best,
+      kept,
       cum,
       usd: sum(at.map(p => p.usd)),
       minutes: sum(at.map(p => p.minutes)),
@@ -107,9 +96,9 @@ export const byIteration = (s: Series) => {
 };
 
 /**
- * Per tune name, per iteration: the mean over repos of the running best, the lowest and highest repo, and the mean
- * usage. A tune that stopped early holds its last best; a repo with no kept score yet counts in none of them, and an
- * iteration where no repo has one has no `best`.
+ * Per tune name, per iteration: the mean over repos of the kept hub's score, the lowest and highest repo, and the mean
+ * usage. A tune that stopped early holds its last kept hub; a repo with no kept score yet counts in none of them, and
+ * an iteration where no repo has one has no `kept`.
  */
 export const average = (series: Series[]) =>
   [...new Set(series.map(s => s.name))].map(name => {
@@ -122,11 +111,11 @@ export const average = (series: Series[]) =>
       rows: Array.from({ length: last }, (_, i) => {
         const at = rows.map(r => ({ repo: r.repo, ...r.rows[Math.min(i, r.rows.length - 1)]! }));
         const ran = at.filter(a => a.iteration === i);
-        const bests = at.flatMap(a => a.best ?? []);
+        const kept = at.flatMap(a => a.kept ?? []);
         return {
           iteration: i,
-          ...(bests.length > 0 && { best: mean(bests), lo: Math.min(...bests), hi: Math.max(...bests) }),
-          per: at.map(a => ({ repo: a.repo, best: a.best })),
+          ...(kept.length > 0 && { kept: mean(kept), lo: Math.min(...kept), hi: Math.max(...kept) }),
+          per: at.map(a => ({ repo: a.repo, kept: a.kept })),
           cum: mean(at.map(a => a.cum)),
           usd: mean(ran.map(a => a.usd)),
           minutes: mean(ran.map(a => a.minutes)),

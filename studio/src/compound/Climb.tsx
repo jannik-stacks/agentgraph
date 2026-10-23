@@ -14,7 +14,7 @@ export type Dot = {
 export type Line = { key: string; tone: string; points: { x: number; y: number }[]; thin?: boolean };
 export type Band = { key: string; tone: string; points: { x: number; lo: number; hi: number }[] };
 
-const [width, left, right, top, bottom] = [640, 40, 56, 14, 30];
+const [width, left, right, top, bottom] = [640, 40, 56, 24, 30];
 
 const stairs = (points: { x: number; y: number }[], x: (v: number) => number, y: (v: number) => number) =>
   points.map((p, i) => `${i ? `H${x(p.x)}V` : `M${x(p.x)},`}${y(p.y)}`).join('');
@@ -36,7 +36,7 @@ export const Climb = ({
   dots: Dot[];
   lines?: Line[];
   bands?: Band[];
-  levels?: { y: number; label: string; dashed?: boolean }[];
+  levels?: { y: number; label: string }[];
   xLabel: string;
   yLabel: string;
   xTick?: ((t: number) => string) | undefined;
@@ -58,8 +58,10 @@ export const Climb = ({
     .domain(integerX ? [Math.min(0, ...xs) - 0.5, Math.max(1, ...xs) + 0.5] : [0, Math.max(...xs, 0) * 1.04 || 1])
     .range([left, width - right]);
   if (!integerX) x.nice();
+  const [lo, hi] = [Math.min(...ys), Math.max(...ys)];
+  const pad = (hi - lo) * 0.06 || 0.04;
   const y = scaleLinear()
-    .domain([Math.min(...ys) - 0.04, Math.max(...ys) + 0.04])
+    .domain([lo < 0 ? lo - pad : Math.max(0, lo - pad), hi + pad])
     .nice()
     .range([height - bottom, top]);
   const xTicks = integerX ? x.ticks(Math.min(12, xs.length)).filter(Number.isInteger) : x.ticks(6);
@@ -98,7 +100,7 @@ export const Climb = ({
               x2={width - right}
               y1={y(l.y)}
               y2={y(l.y)}
-              strokeDasharray={l.dashed ? '2 3' : '5 3'}
+              strokeDasharray="5 3"
               className="stroke-current"
             />
             <text x={width - right + 4} y={y(l.y)} dy="0.32em" className="fill-current">

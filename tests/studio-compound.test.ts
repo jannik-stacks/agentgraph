@@ -66,19 +66,16 @@ describe('compound climb', () => {
     expect(c.score({ ...s, evals: [] })).toBeUndefined();
   });
 
-  it('draws the running best through kept points only, never down, on to the last point', () => {
-    const best = c.runningBest([
-      { x: 0, y: 0.4, kept: true },
-      { x: 1, y: 0.9, kept: false },
-      { x: 2, y: 0.5, kept: true },
-      { x: 3, y: 0.45, kept: true },
-      { x: 4, y: undefined, kept: false },
+  it('holds the kept hub per iteration, also when a cheaper keep scores lower', () => {
+    const [s] = c.seriesOf([
+      tune('me/a', 't1', [
+        step(0, 'kept', 0.5),
+        step(1, 'kept', 0.45, 'a'),
+        step(1, 'discarded', 0.9, 'b'),
+        step(2, 'discarded', 0.3),
+      ]),
     ]);
-    expect(best).toEqual([
-      { x: 0, y: 0.4 },
-      { x: 2, y: 0.5 },
-      { x: 4, y: 0.5 },
-    ]);
+    expect(c.byIteration(s!).map(r => r.kept)).toEqual([0.5, 0.45, 0.45]);
   });
 
   it('builds one series per tune, steps in order, with cumulative usd, loop tunes before skill ones', () => {
@@ -93,14 +90,13 @@ describe('compound climb', () => {
     const [t1] = series;
     expect(t1!.points.map(p => p.step.id)).toEqual(['i0-0', 'i1-a', 'i1-b']);
     expect(t1!.points.map(p => p.cum)).toEqual([1, 2, 3]);
-    expect(t1!.init).toBe(0.4);
-    expect(c.byIteration(t1!).map(r => [r.best, r.usd, r.cum])).toEqual([
+    expect(c.byIteration(t1!).map(r => [r.kept, r.usd, r.cum])).toEqual([
       [0.4, 1, 1],
       [0.5, 2, 3],
     ]);
   });
 
-  it('averages the running best over repos per iteration, holding a tune that stopped early', () => {
+  it('averages the kept hub over repos per iteration, holding a tune that stopped early', () => {
     const series = c.seriesOf([
       tune('me/a', 't1', [step(0, 'kept', 0.4), step(1, 'kept', 0.6), step(2, 'kept', 0.8)]),
       tune('me/b', 't1', [step(0, 'kept', 0.6), step(1, 'discarded', 0.9)]),
@@ -109,23 +105,23 @@ describe('compound climb', () => {
     const [loop, skill] = c.average(series);
     expect(loop!.name).toBe('t1');
     expect(loop!.repos).toBe(2);
-    expect(loop!.rows.map(r => [r.best, r.lo, r.hi].map(v => Math.round(v! * 100) / 100))).toEqual([
+    expect(loop!.rows.map(r => [r.kept, r.lo, r.hi].map(v => Math.round(v! * 100) / 100))).toEqual([
       [0.5, 0.4, 0.6],
       [0.6, 0.6, 0.6],
       [0.7, 0.6, 0.8],
     ]);
     expect(loop!.rows[2]!.usd).toBe(1);
-    expect(skill!.rows.map(r => r.best)).toEqual([0.4]);
+    expect(skill!.rows.map(r => r.kept)).toEqual([0.4]);
   });
 
-  it('leaves the best out until a repo keeps a score, so no point is drawn from nothing', () => {
+  it('leaves the kept score out until a repo keeps a score, so no point is drawn from nothing', () => {
     const series = c.seriesOf([
       tune('me/a', 't1', [step(0, 'discarded', 0.4), step(1, 'kept', 0.6)]),
       tune('me/b', 't1', [step(0, 'discarded', 0.5), step(1, 'discarded', 0.7)]),
     ]);
-    expect(c.byIteration(series[0]!).map(r => r.best)).toEqual([undefined, 0.6]);
+    expect(c.byIteration(series[0]!).map(r => r.kept)).toEqual([undefined, 0.6]);
     const [loop] = c.average(series);
-    expect(loop!.rows.map(r => [r.best, r.lo, r.hi])).toEqual([
+    expect(loop!.rows.map(r => [r.kept, r.lo, r.hi])).toEqual([
       [undefined, undefined, undefined],
       [0.6, 0.6, 0.6],
     ]);
@@ -162,7 +158,7 @@ describe('compound climb', () => {
     expect(series.some(s => s.skill)).toBe(true);
     for (const s of series) {
       const rows = c.byIteration(s);
-      expect(rows.at(-1)!.best).toBeGreaterThan(s.init!);
+      expect(rows.at(-1)!.kept).toBeGreaterThan(rows[0]!.kept!);
     }
   });
 });

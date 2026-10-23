@@ -7,7 +7,6 @@ import {
   byIteration,
   incumbent,
   type Point,
-  runningBest,
   type Series,
   seriesOf,
   type Step,
@@ -29,6 +28,8 @@ const palette = [
   'text-sky-600 dark:text-sky-400',
   'text-violet-600 dark:text-violet-400',
   'text-amber-600 dark:text-amber-400',
+  'text-emerald-600 dark:text-emerald-400',
+  'text-rose-600 dark:text-rose-400',
 ];
 const verdicts: Record<Step['verdict'], string> = {
   kept: 'Cleared the keep rule against the incumbent on the select cases, so it became the incumbent.',
@@ -239,72 +240,63 @@ const axes = [
 /** Quality, usd and minutes per run over hours since the starting hub, one line per tune: the incumbent's value. */
 const TimeCharts = ({
   series,
+  tone,
   picked,
   onPick,
 }: {
   series: Series[];
+  tone: (name: string) => string;
   picked: string | undefined;
   onPick: (key: string) => void;
-}) => {
-  const tone = (s: Series) => palette[series.indexOf(s) % palette.length]!;
-  return (
-    <>
-      <div className="flex flex-wrap gap-3 text-[11px] text-zinc-500">
-        {series.map(s => (
-          <span key={s.key} className="inline-flex items-center gap-1.5 font-mono">
-            <Swatch tone={tone(s)} />
-            {s.key}
-          </span>
-        ))}
-      </div>
-      {axes.map(a => (
-        <section key={a.key} className="max-w-3xl">
-          <Climb
-            height={a.key === 'quality' ? 260 : 180}
-            dots={series.flatMap(s =>
-              s.points.flatMap(p => {
-                const y = a.of(p);
-                return y === undefined
-                  ? []
-                  : [
-                      {
-                        key: `${s.key}#${p.step.id}`,
-                        x: p.hours,
-                        y,
-                        tone: tone(s),
-                        shape:
-                          p.step.verdict === 'kept' ? 'kept' : p.step.verdict === 'discarded' ? 'discarded' : 'small',
-                        tip: [
-                          `${s.key} ${p.step.id}, ${p.step.verdict}, ${fmt(p.hours, 1)} h in`,
-                          `quality ${fmt(p.y)}, ${p.run.usd === undefined ? '' : usd(p.run.usd)} and ${fmt(p.run.minutes, 0)} min per run`,
-                          p.step.why,
-                        ].join('\n'),
-                      } satisfies Dot,
-                    ];
-              })
-            )}
-            lines={series.map(s => ({
-              key: s.key,
-              tone: tone(s),
-              points: incumbent(s.points.map(p => ({ x: p.hours, y: a.of(p), kept: p.step.verdict === 'kept' }))),
-            }))}
-            levels={a.key === 'quality' ? [{ y: 1, label: 'human' }] : []}
-            xTick={t => `${t}h`}
-            xLabel="hours since the starting hub"
-            yLabel={a.label}
-            picked={picked}
-            onPick={onPick}
-          />
-        </section>
-      ))}
-      <p className="max-w-3xl text-[11px] text-zinc-500">
-        Each line is the kept hub of one tune; it steps when a candidate is kept, for better quality or for the same
-        quality at less usd or fewer minutes. Filled points were kept, hollow ones discarded. Cost is the mean over the
-        select cases of one run that was not infra.
-      </p>
-    </>
-  );
-};
+}) => (
+  <>
+    {axes.map(a => (
+      <section key={a.key} className="max-w-3xl">
+        <Climb
+          height={a.key === 'quality' ? 260 : 180}
+          dots={series.flatMap(s =>
+            s.points.flatMap(p => {
+              const y = a.of(p);
+              return y === undefined
+                ? []
+                : [
+                    {
+                      key: `${s.key}#${p.step.id}`,
+                      x: p.hours,
+                      y,
+                      tone: tone(s.name),
+                      shape:
+                        p.step.verdict === 'kept' ? 'kept' : p.step.verdict === 'discarded' ? 'discarded' : 'small',
+                      tip: [
+                        `${s.key} ${p.step.id}, ${p.step.verdict}, ${fmt(p.hours, 1)} h in`,
+                        `quality ${fmt(p.y)}, ${p.run.usd === undefined ? '' : usd(p.run.usd)} and ${fmt(p.run.minutes, 0)} min per run`,
+                        p.step.why,
+                      ].join('\n'),
+                    } satisfies Dot,
+                  ];
+            })
+          )}
+          lines={series.map(s => ({
+            key: s.key,
+            tone: tone(s.name),
+            points: incumbent(s.points.map(p => ({ x: p.hours, y: a.of(p), kept: p.step.verdict === 'kept' }))),
+          }))}
+          levels={a.key === 'quality' ? [{ y: 1, label: 'human' }] : []}
+          xTick={t => `${t}h`}
+          xLabel="hours since the starting hub"
+          yLabel={a.label}
+          picked={picked}
+          onPick={onPick}
+        />
+      </section>
+    ))}
+    <p className="max-w-3xl text-[11px] text-zinc-500">
+      Each line is the kept hub of one tune; it steps when a candidate is kept, for better quality or for the same
+      quality at less usd or fewer minutes. Filled points were kept, hollow ones discarded. Cost is the mean over the
+      select cases of one run that was not infra.
+    </p>
+  </>
+);
 
 const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) => {
   const [repoParam, setRepo] = useAtom(params.repo);
@@ -312,12 +304,12 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
   const [barParam, setBar] = useAtom(params.bar);
   const [hideParam, setHide] = useAtom(params.hide);
   const [pick, setPick] = useAtom(params.pick);
-  const all = useMemo(() => seriesOf(tunes), [tunes]);
+  const all = useMemo(() => seriesOf(tunes).filter(s => s.points.length), [tunes]);
   const repos = [...new Set(all.map(s => s.repo))].sort();
-  const names = [...new Set(all.map(s => s.name))];
-  const tone = (name: string) => palette[names.indexOf(name) % palette.length]!;
   const hidden = hideParam?.split(',').filter(Boolean) ?? [];
   const repo = repoParam && repos.includes(repoParam) ? repoParam : repos.length > 1 ? 'average' : repos[0]!;
+  const names = [...new Set(all.filter(s => repo === 'average' || s.repo === repo).map(s => s.name))];
+  const tone = (name: string) => palette[names.indexOf(name) % palette.length]!;
   const spend = xParam === 'usd';
   const time = !spend && xParam !== 'iteration';
   const bar = (barParam ?? 'usd') as keyof typeof metrics;
@@ -331,23 +323,23 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
   if (repo === 'average')
     for (const a of avg) {
       const at = (r: (typeof a.rows)[number]) => (spend ? r.cum : r.iteration);
-      const scored = a.rows.flatMap(({ best, lo, hi, ...r }) =>
-        best === undefined ? [] : [{ ...r, best, lo: lo ?? best, hi: hi ?? best }]
+      const scored = a.rows.flatMap(({ kept, lo, hi, ...r }) =>
+        kept === undefined ? [] : [{ ...r, kept, lo: lo ?? kept, hi: hi ?? kept }]
       );
-      lines.push({ key: a.name, tone: tone(a.name), points: scored.map(r => ({ x: at(r), y: r.best })) });
+      lines.push({ key: a.name, tone: tone(a.name), points: scored.map(r => ({ x: at(r), y: r.kept })) });
       if (a.repos > 1)
         bands.push({ key: a.name, tone: tone(a.name), points: scored.map(r => ({ x: at(r), lo: r.lo, hi: r.hi })) });
       for (const r of scored)
         dots.push({
           key: `${a.name}#${r.iteration}`,
           x: at(r),
-          y: r.best,
+          y: r.kept,
           tone: tone(a.name),
           shape: 'mean',
           tip: [
             `${a.name}, iteration ${r.iteration}`,
-            `mean best ${fmt(r.best)} over ${a.repos} repo${a.repos > 1 ? 's' : ''}`,
-            ...r.per.map(p => `${p.repo} ${fmt(p.best)}`),
+            `mean kept ${fmt(r.kept)} over ${a.repos} repo${a.repos > 1 ? 's' : ''}`,
+            ...r.per.map(p => `${p.repo} ${fmt(p.kept)}`),
             `${usd(r.cum)} spent so far, mean`,
           ].join('\n'),
         });
@@ -367,7 +359,7 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
       lines.push({
         key: s.key,
         tone: tone(s.name),
-        points: runningBest(placed.map(({ p, x }) => ({ x, y: p.y, kept: p.step.verdict === 'kept' }))),
+        points: incumbent(placed.map(({ p, x }) => ({ x, y: p.y, kept: p.step.verdict === 'kept' }))),
       });
       lines.push({
         key: `${s.key}/validate`,
@@ -408,7 +400,6 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
         });
       }
     }
-  const init = repo === 'average' ? undefined : shown.find(s => !s.skill)?.init;
 
   const groups =
     repo === 'average'
@@ -475,7 +466,12 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
       </aside>
       <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto p-4">
         {time ? (
-          <TimeCharts series={shown} picked={pick ?? undefined} onPick={key => setPick(key === pick ? null : key)} />
+          <TimeCharts
+            series={shown}
+            tone={tone}
+            picked={pick ?? undefined}
+            onPick={key => setPick(key === pick ? null : key)}
+          />
         ) : (
           <>
             <section className="max-w-3xl">
@@ -483,10 +479,7 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
                 dots={dots}
                 lines={lines}
                 bands={bands}
-                levels={[
-                  { y: 1, label: 'human' },
-                  ...(init === undefined ? [] : [{ y: init, label: 'init', dashed: true }]),
-                ]}
+                levels={[{ y: 1, label: 'human' }]}
                 integerX={!spend}
                 xTick={spend ? t => `$${t}` : undefined}
                 xLabel={spend ? 'cumulative usd' : 'iteration'}
@@ -498,8 +491,8 @@ const View = ({ tunes, onReload }: { tunes: TuneRows[]; onReload: () => void }) 
               />
               <p className="mt-1 text-[11px] text-zinc-500">
                 {repo === 'average'
-                  ? 'Each line is the mean over repos of the running best; the band runs from the lowest repo to the highest. Pick a repo to see its candidates.'
-                  : 'Filled points were kept, hollow ones discarded, small grey ones screened out. The line is the running best, the dotted line the kept hubs on validate alone. Diamonds are test checkpoints with judges, the only score that can pass the human. Click a point for its diff.'}
+                  ? 'Each line is the mean over repos of the kept hub; the band runs from the lowest repo to the highest. Pick a repo to see its candidates.'
+                  : 'Filled points were kept, hollow ones discarded, small grey ones screened out. The line is the kept hub, the dotted line the kept hubs on validate alone. Diamonds are test checkpoints, scored with judges. Click a point for its diff.'}
               </p>
             </section>
             <section className="max-w-3xl space-y-1">

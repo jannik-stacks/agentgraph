@@ -36,7 +36,7 @@ node tune/skill.ts ~/.agentgraph/tune/stacks.js/t1 --version 1 --rounds 6 --k 4 
 `--stop-claude-5h` and `--stop-claude-week` also stop at an absolute reading, in percent.
 
 The Compound tab shows each tune as a series, `<repo>/<name>`. Pick "average" and the series `skill@1`
-and the loop's tune: per iteration, the mean over repos of the running best, with the per-repo range as
+and the loop's tune: per iteration, the mean over repos of the kept hub's score, with the per-repo range as
 a band. Compare at equal iterations and at equal spend (toggle the x axis to cumulative usd).
 
 What counts: the select score after 6 rounds, the test score at the last checkpoint, and the spend to
