@@ -3366,7 +3366,7 @@ describe('gate', () => {
 
   describe('a judge session that did not end normally', () => {
     const judged = async (
-      ends: Extract<SessionEvent, { type: 'end' }>[],
+      ends: (SessionEvent | SessionEvent[])[],
       mode: 'block' | 'warn' | 'stop' = 'block',
       more: Hub['checks'] = {}
     ) => {
@@ -3398,7 +3398,8 @@ describe('gate', () => {
       };
       let opened = 0;
       const judges = Layer.succeed(Session, {
-        open: (spec: SessionSpec) => Stream.fromIterable<SessionEvent>([start(spec.agent), ends[opened++]!]),
+        open: (spec: SessionSpec) =>
+          Stream.fromIterable<SessionEvent>([start(spec.agent), ...[ends[opened++]!].flat()]),
       });
       const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
       const left = {
@@ -3450,6 +3451,24 @@ describe('gate', () => {
       const red = { name: 'red', path: 'r.md', body: '', mode: 'stop' as const, run: 'exit 1' };
       const { exit } = await judged([killed, killed], 'block', { red });
       expect(Exit.isSuccess(exit) && exit.value.outcome).toMatchObject({ kind: 'stop' });
+    });
+
+    it('counts a stream that ends without its end line as an error', async () => {
+      const cut: SessionEvent[] = [{ type: 'text', text: 'PASS fine' }];
+      const { exit, data } = await judged([cut, cut]);
+      expect(Exit.isFailure(exit)).toBe(true);
+      const sessions = traceOf(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+      expect(sessions.map(s => s.ended)).toEqual(['error', 'error']);
+    });
+
+    it('counts a non-zero exit as an error even after a clean stop', async () => {
+      const { exit, data } = await judged([{ ...pass, exit: 1 }, pass]);
+      expect(Exit.isSuccess(exit) && exit.value.outcome).toEqual({ kind: 'pass' });
+      const sessions = traceOf(data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
+      expect(sessions).toMatchObject([
+        { ended: 'error', exit: 1 },
+        { ended: 'stop', exit: 0 },
+      ]);
     });
 
     it('treats a clean stop without a verdict line the same way', async () => {

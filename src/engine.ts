@@ -684,7 +684,7 @@ const converse = <A = never, R = never>(
       text: '',
       usd: 0,
     };
-    let end: Ended = { ended: 'stop' };
+    let end: Ended = { ended: 'error' };
     const key = randomUUID().slice(0, 8);
     const ended = (how: Ended) =>
       store.trace(run, {
@@ -714,7 +714,7 @@ const converse = <A = never, R = never>(
         if (event.type === 'usage') seen.usd += event.usd ?? 0;
         if (event.type === 'end') {
           seen.final = event.final;
-          end = { ended: event.ended, exit: event.exit };
+          end = { ended: event.exit === 0 ? event.ended : 'error', exit: event.exit };
         }
         return store.trace(run, { at: now(), step, event, key });
       }),
@@ -745,7 +745,7 @@ const converse = <A = never, R = never>(
 const verdictOf = (...args: Parameters<typeof converse<never>>) =>
   converse(...args).pipe(
     Effect.filterOrFail(
-      j => j.ended === 'stop' && (j.exit ?? 0) === 0 && /^\W*(PASS|FAIL)\b/.test(j.final),
+      j => j.ended === 'stop' && /^\W*(PASS|FAIL)\b/.test(j.final),
       j =>
         new SessionStop({
           reason: 'provider',
@@ -1144,7 +1144,7 @@ const attempt = (
                 sessions: { ...tried.sessions, [step.name]: { id: r.id, home: r.home, seen } },
               }),
           };
-          if (!r.cut && (r.ended !== 'stop' || (r.exit ?? 0) !== 0))
+          if (!r.cut && r.ended !== 'stop')
             return yield* new SessionStop({
               reason: 'provider',
               detail: `session ended ${r.ended} (exit ${r.exit ?? 0})`,
@@ -1864,7 +1864,7 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
         ...(run.eyes?.undo.review && { review: true as const }),
       }
     );
-    if (r.ended !== 'stop' || (r.exit ?? 0) !== 0)
+    if (r.ended !== 'stop')
       return yield* new SessionStop({ reason: 'provider', detail: `aside ended ${r.ended} (exit ${r.exit ?? 0})` });
     const { proposals } = proposalsOf(r.final, false);
     const back = proposals.find(p => p.kind === 'back');
