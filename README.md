@@ -95,7 +95,6 @@ The studio opens on port 5182 and shows the workflow graph and every run.
 | `examples/sandbox` | A small JavaScript package; the place to start |
 | `examples/agentgraph` | agentgraph itself |
 | `examples/clarinet` | A Rust workspace |
-| `examples/acme-app` | acme-app triage, implementation, review and plans |
 | `examples/sk` | A Acme App twin |
 | `examples/bench` | The hub the bench replays pull requests with |
 

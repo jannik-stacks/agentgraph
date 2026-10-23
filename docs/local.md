@@ -164,7 +164,7 @@ npm install
 npm run dev -- --instance ~/agentgraph/kit
 ```
 
-The default port is 5182, overridden by `AGI_PORT`. Without an instance, `-- --hub <dir> --data <dir>` selects inputs. Otherwise the studio reads `examples/acme-app` and `AGENTGRAPH_DATA`, falling back to `~/.agentgraph`. It only reads hub and run data.
+The default port is 5182, overridden by `AGI_PORT`. Without an instance, `-- --hub <dir> --data <dir>` selects inputs. Otherwise the studio reads `examples/sandbox` and `AGENTGRAPH_DATA`, falling back to `~/.agentgraph`. It only reads hub and run data.
 
 ## Before you commit
 
