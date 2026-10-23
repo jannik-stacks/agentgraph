@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { nodePath, runLogged } from '../bench/drive.ts';
+import { nodePath, runLogged, spendGuard } from '../bench/drive.ts';
 import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
@@ -35,5 +35,32 @@ describe('bench driver', () => {
     const code = await runLogged([script], join(dir, 'missing', 'job.log'), process.env, m => said.push(m));
     expect(code).toBe(0);
     expect(said.join('\n')).toMatch(/ENOENT/);
+  });
+});
+
+/** A usage source that answers `totals` in turn, and a clock the test moves. */
+const fake = (...totals: (number | Error)[]) => {
+  const clock = { now: 0 };
+  const usage = async () => {
+    const next = totals.length > 1 ? totals.shift()! : totals[0]!;
+    if (next instanceof Error) throw next;
+    return next;
+  };
+  return { clock, usage, at: () => clock.now };
+};
+
+describe('spend guard', () => {
+  it('counts only this run, not what the account spent before', async () => {
+    const f = fake(100, 101);
+    const guard = await spendGuard(5, 0.3, f.usage, f.at);
+    f.clock.now = 61_000;
+    expect(await guard(0, 1)).toBeUndefined();
+  });
+
+  it('stops when this run with the jobs in flight would pass the cap', async () => {
+    const f = fake(100, 104);
+    const guard = await spendGuard(5, 0.3, f.usage, f.at);
+    f.clock.now = 61_000;
+    expect(await guard(3, 4)).toMatch(/run spend \$4\.00 .* would pass \$5/);
   });
 });

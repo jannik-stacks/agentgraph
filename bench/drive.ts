@@ -199,6 +199,31 @@ export const stateOf = (dir: string): DriveState => {
   };
 };
 
+/**
+ * Takes this run's baseline from `usage` and answers a check that says why no new job may start: this run's spend,
+ * plus a job for each in flight and the next, would pass `cap`.
+ */
+export const spendGuard = async (cap: number, per: number, usage: () => Promise<number>, clock = Date.now) => {
+  let last: { at: number; total?: number } = { at: -Infinity };
+  const spent = async () => {
+    if (clock() - last.at < 60_000) return last.total;
+    try {
+      last = { at: clock(), total: await usage() };
+    } catch {}
+    return last.total;
+  };
+  const baseline = await spent();
+  return async (active: number, started: number) => {
+    const now = await spent();
+    if (now === undefined || baseline === undefined) return 'OpenRouter usage unreadable';
+    const run = now - baseline;
+    const each = Math.max(per, started ? run / started : 0);
+    if (run + (active + 1) * each > cap)
+      return `run spend $${run.toFixed(2)} with ${active} in flight at ~$${each.toFixed(2)} a job would pass $${cap}`;
+    return undefined;
+  };
+};
+
 if (import.meta.main) {
   const dir = resolve(process.argv.slice(2).find(a => a !== 'resume') ?? process.env.OUT ?? '');
   if (!existsSync(join(dir, 'set.json'))) {
@@ -269,25 +294,16 @@ if (import.meta.main) {
           .trim()
           .replace(/^"|"$/g, '')
       : undefined;
-    let usage: { at: number; total?: number } = { at: 0 };
-    const spent = async () => {
-      if (Date.now() - usage.at < 60_000) return usage.total;
-      try {
-        const r = await fetch('https://openrouter.ai/api/v1/credits', {
-          headers: { authorization: `Bearer ${orKey}` },
-        });
-        const d = ((await r.json()) as { data: { total_usage: number; total_credits: number } }).data;
-        usage = { at: Date.now(), total: d.total_usage };
-        append(budgetLog, {
-          at: new Date().toISOString(),
-          label: 'spend',
-          usage: d.total_usage,
-          credits: d.total_credits,
-        });
-      } catch (e) {
-        log('spend read failed', String(e));
-      }
-      return usage.total;
+    const usage = async () => {
+      const r = await fetch('https://openrouter.ai/api/v1/credits', { headers: { authorization: `Bearer ${orKey}` } });
+      const d = ((await r.json()) as { data: { total_usage: number; total_credits: number } }).data;
+      append(budgetLog, {
+        at: new Date().toISOString(),
+        label: 'spend',
+        usage: d.total_usage,
+        credits: d.total_credits,
+      });
+      return d.total_usage;
     };
 
     let active = 0;
@@ -329,20 +345,13 @@ if (import.meta.main) {
     // The bench guard counts points over a dir's first reading; this keeps its stop at MAX_CODEX absolute.
     const codexCap = (at: string) =>
       maxCodex === undefined ? '100' : String(Math.max(0, maxCodex - (budget(at).start ?? first ?? maxCodex - 10)));
-    const startUsage = cap === undefined ? undefined : await spent();
-    const perJob = (now: number) =>
-      Math.max(Number(s.PER ?? 0.3), started && startUsage !== undefined ? (now - startUsage) / started : 0);
+    const spend = cap === undefined ? undefined : await spendGuard(cap, Number(s.PER ?? 0.3), usage);
 
     const overBudget = async () => {
       const codex = maxCodex === undefined ? undefined : latest();
       if (maxCodex !== undefined && codex !== undefined && codex > maxCodex)
         return `Codex weekly ${codex}% is over ${maxCodex}%`;
-      if (cap === undefined) return undefined;
-      const now = await spent();
-      if (now === undefined) return 'OpenRouter usage unreadable';
-      if (now + (active + 1) * perJob(now) > cap)
-        return `usage $${now.toFixed(2)} with ${active} in flight at ~$${perJob(now).toFixed(2)} a job would pass $${cap}`;
-      return undefined;
+      return spend?.(active, started);
     };
 
     const runJob = async (j: Job): Promise<string | undefined> => {
