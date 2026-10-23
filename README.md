@@ -110,6 +110,14 @@ npm run verify        # everything, including formatting, unused code, studio bu
 
 `npm run verify:docs` checks that docs references and documented commands match the code. `npm run hooks` enables the git hooks in `bin/hooks`, which run the precommit checks and commit message rules. Undo with `git config --unset core.hooksPath`.
 
+`bin/lsp.ts` gives you the editor's find references and rename from the shell. It talks to the TypeScript language server that ships with the `typescript` dev dependency, so there is nothing extra to install. Positions are `file:line:col`, counted from 1, and paths are relative to the directory you run it in.
+
+```sh
+node bin/lsp.ts refs src/disk.ts:396:14
+node bin/lsp.ts rename src/disk.ts:396:14 roomLeft --dry   # print the edits, change nothing
+node bin/lsp.ts rename-symbol inventory listItems          # find the declaration by name; fails if the name is ambiguous
+```
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
