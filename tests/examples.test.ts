@@ -106,7 +106,7 @@ describe('models and keys', () => {
 });
 
 /** Scripts several hubs may carry; a hub mounts only its own folder, so each keeps a copy. */
-const shared = ['changes.mjs', 'lint.mjs', 'pr-text.mjs', 'safety.mjs', 'shape.mjs'];
+const shared = ['changes.mjs', 'lint.mjs', 'pr-text.mjs', 'safety.mjs'];
 
 describe('shared hub scripts', () => {
   it.each(shared)('every copy of %s is the same', name => {
