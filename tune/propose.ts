@@ -184,9 +184,10 @@ const failures = (cases: string, runs: string, ids: string[], small: boolean): M
 /** A seeded shuffle, so an iteration samples the same cases again on resume. */
 const shuffle = <T>(xs: T[], seed: number) => {
   const out = [...xs];
+  let state = seed;
   for (let i = out.length - 1; i > 0; i--) {
-    seed = (seed * 1103515245 + 12345) % 2 ** 31;
-    const j = seed % (i + 1);
+    state = (state * 1103515245 + 12345) % 2 ** 31;
+    const j = state % (i + 1);
     [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;

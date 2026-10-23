@@ -1677,14 +1677,14 @@ const following = (work: Checkout, onto: string, first: boolean) =>
   });
 
 /** Rebases a stacked run's branch onto `head`, the new head of the pull request it stacks on; a conflict is said on the issue. */
-const follow = (w: Workflow, run: Run, base: NonNullable<Run['base']>, head: string) =>
+const follow = (w: Workflow, given: Run, known: NonNullable<Run['base']>, head: string) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const forge = yield* Forge;
-    yield* store.lock(run.id);
-    run = (yield* store.get(run.id)) ?? run;
+    yield* store.lock(given.id);
+    const run = (yield* store.get(given.id)) ?? given;
     if (!live(run)) return;
-    base = run.base ?? base;
+    const base = run.base ?? known;
     if (base.sha === head && !base.from) return;
     const from = base.from ?? base.sha;
     const branch = expand(w.branch!, yield* forge.issue(run.issue));

@@ -42,8 +42,9 @@ const world = () => {
   };
   Object.assign(process.env, { AGENTGRAPH_FORGE: dir, AGENTGRAPH_PROXY_KEYS: 'implementor=k1,reviewer=k2' });
   const seen: Settings[] = [];
-  const run = (turns: SessionEvent[][], issue: number | 'all' = 'all', instruction?: Instruction, failures = 0) =>
-    main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, s => {
+  const run = (turns: SessionEvent[][], issue: number | 'all' = 'all', instruction?: Instruction, failures = 0) => {
+    let left = failures;
+    return main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, s => {
       seen.push(s);
       const forgeDir = s.forge as string;
       return Layer.mergeAll(
@@ -55,7 +56,7 @@ const world = () => {
             ...sandbox,
             checkout: (...args) =>
               Effect.suspend(() =>
-                failures-- > 0
+                left-- > 0
                   ? Effect.fail(new SandboxError({ reason: 'infra', detail: 'no commit for main' }))
                   : sandbox.checkout(...args)
               ),
@@ -64,6 +65,7 @@ const world = () => {
         scripted(turns)
       );
     });
+  };
   return { root, seed, dir, origin: join(dir, 'origin.git'), forge, run, seen };
 };
 
