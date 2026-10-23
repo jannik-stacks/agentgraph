@@ -12,7 +12,18 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, w
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { codexUsed } from '../bin/bench.ts';
-import { checkpoint, guard, init, propose, type Split, type Step, step, tuneRows } from '../bin/tune.ts';
+import {
+  checkpoint,
+  guard,
+  init,
+  overOf,
+  propose,
+  reading,
+  type Split,
+  type Step,
+  step,
+  tuneRows,
+} from '../bin/tune.ts';
 import { claudeUsed, events, hubProblems, type Usage } from './propose.ts';
 
 type Io = Parameters<typeof step>[2];
@@ -222,18 +233,13 @@ const promptOf = (iteration: number, o: Options) =>
   `The workspace is the current folder: start with tried.md and cases.json. Fill at most ${o.k} slots ` +
   `(out/d1 to out/d${o.k}), each a different direction, and answer with one line per slot.`;
 
-/** Readings past a cap: the loop's caps as points over the tune's first reading, and the absolute stops. */
-const overOf = (dir: string, o: Options) => (u: Usage) => {
-  const b = JSON.parse(read(join(dir, 'budget.json')) || '{}') as {
-    claude?: { fiveHour?: { start: number }; week?: { start: number } };
-  };
-  const start5 = b.claude?.fiveHour?.start ?? u.fiveHour;
-  const startW = b.claude?.week?.start ?? u.week;
+/** Readings past a cap: the loop's caps on the points used so far, and the absolute stops. */
+const stopOf = (dir: string, o: Options) => (u: Usage) => {
+  const b = JSON.parse(read(join(dir, 'budget.json')) || '{}') as Parameters<typeof overOf>[0];
   if (u.fiveHour >= o.stop.fiveHour) return `Claude 5h at ${u.fiveHour}%, the stop is ${o.stop.fiveHour}%`;
   if (u.week >= o.stop.week) return `Claude week at ${u.week}%, the stop is ${o.stop.week}%`;
-  if (u.fiveHour - start5 > o.limits.claude5h) return `Claude 5h ${u.fiveHour}% is past ${o.limits.claude5h} points`;
-  if (u.week - startW > o.limits.claudeWeek) return `Claude week ${u.week}% is past ${o.limits.claudeWeek} points`;
-  return undefined;
+  const claude = { fiveHour: reading(b.claude?.fiveHour, u.fiveHour), week: reading(b.claude?.week, u.week) };
+  return overOf({ claude }, o.limits);
 };
 
 /** One round: the skill session in a fresh workspace, its hubs checked and queued as `skill` candidates. */
@@ -243,7 +249,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
     budget.claude?.fiveHour && budget.claude.week
       ? { fiveHour: budget.claude.fiveHour.now, week: budget.claude.week.now }
       : undefined;
-  const over = overOf(dir, o);
+  const over = stopOf(dir, o);
   const pre = before && over(before);
   if (pre) throw new Error(pre);
   const w = join(dir, 'skill', `r${pad(iteration)}`);
@@ -324,7 +330,8 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
 /** Claude 5h points of a round, shared evenly by the candidates it queued. */
 const claudeOf = (r: Round) => {
   const queued = r.slots.flatMap(s => (s.id ? [s.id] : []));
-  const used = r.claude.before && r.claude.after ? Math.max(0, r.claude.after.fiveHour - r.claude.before.fiveHour) : 0;
+  const { before, after } = r.claude;
+  const used = before && after ? reading({ now: before.fiveHour, used: 0 }, after.fiveHour).used : 0;
   return Object.fromEntries(queued.map(id => [id, round3(used / queued.length)]));
 };
 

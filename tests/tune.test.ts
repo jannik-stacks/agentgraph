@@ -7,6 +7,7 @@ import {
   decide,
   type Flip,
   flipsOf,
+  guard,
   init,
   paired,
   propose,
@@ -267,7 +268,7 @@ describe('tune loop', () => {
     expect(retro.diff).toContain('skills/all.md');
     expect(retro.why).toMatch(/won f2, f3, f4, v1, v2, lost none, delta 0.833 over 6 cases/);
     expect(made[1]!.why).toMatch(/won none, lost none, delta 0 over 6 cases, usd 0 .*, below the bar/);
-    expect(JSON.parse(readFileSync(join(dir, 'budget.json'), 'utf8')).claude.week).toEqual({ start: 50, now: 50 });
+    expect(JSON.parse(readFileSync(join(dir, 'budget.json'), 'utf8')).claude.week).toEqual({ now: 50, used: 0 });
 
     mkdirSync(join(dir, 'manual'));
     const patch = spawnSync('git', ['--git-dir', join(dir, 'hub.git'), 'diff', retro.hub, retro.parent], {
@@ -318,6 +319,43 @@ describe('tune loop', () => {
     await run(dir, { iterations: 5, proposers: ['retro'] }, broken);
     expect(tuneRows(dir).steps.at(-1)!.verdict).toBe('infra');
     expect(asked).toBe(1);
+  });
+});
+
+describe('usage', () => {
+  it('counts usage across a window reset and stops past a cap', () => {
+    const dir = tmp('guard');
+    dirs.push(dir);
+    const limits = { codex: 100, claude5h: 100, claudeWeek: 100 };
+    const at = (codex: number, fiveHour: number) => guard(dir, { codex: () => codex }, limits, { fiveHour, week: 10 });
+    at(10, 50);
+    at(30, 80);
+    const b = at(5, 10);
+    expect(b.codex).toEqual({ now: 5, used: 25 });
+    expect(b.claude?.fiveHour).toEqual({ now: 10, used: 40 });
+    expect(b.claude?.week).toEqual({ now: 10, used: 0 });
+    expect(() => guard(dir, { codex: () => 30 }, { ...limits, codex: 40 })).toThrow(/Codex weekly used 50 points/);
+  });
+
+  it('books every Codex point a step or the start spends once, on one of its evals', async () => {
+    const ran: Parameters<typeof fakeBench>[0] = [];
+    let codex = 0;
+    const io = { ...fakeBench(ran), codex: () => (codex += 4) } as unknown as Parameters<typeof step>[2];
+    const dir = await init('demo', setup(), io);
+    const spent = (id: string) =>
+      tuneRows(dir)
+        .steps.filter(s => s.id === id)
+        .flatMap(s => s.evals)
+        .reduce((a, e) => a + e.codex, 0);
+    expect(spent('i000-init')).toBe(4);
+    const hub = join(dir, '..', 'draft');
+    spawnSync('cp', ['-R', join(dir, 'cands/i000-init/hub'), hub]);
+    mkdirSync(join(hub, 'skills'));
+    writeFileSync(join(hub, 'skills', 'f1.md'), 'Mind f1.\n');
+    propose(dir, hub, 'f1 needs care');
+    const limits = { codex: 100, claude5h: 100, claudeWeek: 100 };
+    await step(dir, { k: 1, proposers: ['manual'], limits }, io);
+    expect(spent('i001-manual')).toBe(12);
   });
 });
 

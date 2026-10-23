@@ -67,7 +67,8 @@ export type Step = Candidate & {
   at: string;
 };
 type Row = ReturnType<typeof rowsOf>[number];
-type Reading = { start: number; now: number };
+/** The latest reading of a usage window in percent, and the points used since the first, across window resets. */
+type Reading = { now: number; used: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
 
 const agentgraph = join(import.meta.dirname, '..');
@@ -398,6 +399,22 @@ const pending = (dir: string, steps: Step[]) => {
     .sort((a, b) => a.id.localeCompare(b.id));
 };
 
+/** `r` after reading `now`: a drop means the window reset, so everything read since counts as used. */
+export const reading = (r: Reading | undefined, now: number): Reading => ({
+  now,
+  used: round((r?.used ?? 0) + (!r ? 0 : now >= r.now ? now - r.now : now)),
+});
+
+/** The first cap the budget is past, in words. */
+export const overOf = (b: Budget, limits: Limits) =>
+  (
+    [
+      ['Codex weekly', b.codex, limits.codex],
+      ['Claude 5h', b.claude?.fiveHour, limits.claude5h],
+      ['Claude weekly', b.claude?.week, limits.claudeWeek],
+    ] as const
+  ).flatMap(([name, r, max]) => (r && r.used > max ? [`${name} used ${r.used} points, more than ${max}`] : []))[0];
+
 /** Reads the guards, records them, and throws past a cap. */
 export const guard = (
   dir: string,
@@ -407,24 +424,23 @@ export const guard = (
 ) => {
   const file = join(dir, 'budget.json');
   const b = JSON.parse(read(file) || '{}') as Budget;
-  const mark = (r: Reading | undefined, now: number | undefined) =>
-    now === undefined ? r : { start: r?.start ?? now, now };
+  const mark = (r: Reading | undefined, now: number | undefined) => (now === undefined ? r : reading(r, now));
   const codex = mark(b.codex, io.codex());
   const fiveHour = mark(b.claude?.fiveHour, claude?.fiveHour);
   const week = mark(b.claude?.week, claude?.week);
   const next: Budget = { ...(codex && { codex }), claude: { ...(fiveHour && { fiveHour }), ...(week && { week }) } };
   save(file, next);
-  const used = (r?: Reading) => (r ? r.now - r.start : 0);
-  for (const [name, r, max] of [
-    ['Codex weekly', codex, limits.codex],
-    ['Claude 5h', fiveHour, limits.claude5h],
-    ['Claude weekly', week, limits.claudeWeek],
-  ] as const)
-    if (used(r) > max) throw new Error(`${name} use is ${r!.now}%, more than ${max} points over ${r!.start}%`);
+  const over = overOf(next, limits);
+  if (over) throw new Error(over);
   return next;
 };
 type Limits = { codex: number; claude5h: number; claudeWeek: number };
 const limitsDefault: Limits = { codex: 25, claude5h: 40, claudeWeek: 12 };
+
+const spent = (before: Budget, after: Budget, k: 'codex' | 'fiveHour') => {
+  const of = (b: Budget) => (k === 'codex' ? b.codex : b.claude?.fiveHour)?.used ?? 0;
+  return round(of(after) - of(before));
+};
 
 const append = (dir: string, s: Step) => appendLine(join(dir, 'iterations.jsonl'), s);
 
@@ -494,10 +510,10 @@ export const init = async (
   );
   const after = guard(dir, io, limitsDefault);
   const mine = scores(io.rows(dir, cand.id), t.preset);
-  const usage = { codex: round((after.codex?.now ?? 0) - (before.codex?.now ?? 0)), claude5h: 0 };
-  const evals = (['fit', 'validate'] as const).flatMap(s =>
-    ids(t, s).length ? [evalOf(cand.id, s, ids(t, s), mine, usage)] : []
-  );
+  const usage = { codex: spent(before, after, 'codex'), claude5h: 0 };
+  const evals = (['fit', 'validate'] as const)
+    .filter(s => ids(t, s).length)
+    .map((s, i) => evalOf(cand.id, s, ids(t, s), mine, i ? { codex: 0, claude5h: 0 } : usage));
   append(dir, { ...cand, evals, verdict: 'kept', why: 'the starting hub', at: new Date().toISOString() });
   return dir;
 };
@@ -578,8 +594,7 @@ export const step = async (
       .catch((e: unknown) => void failed.push(`${id}: ${String(e)}`));
     if (!made?.hub) continue;
     const after = guard(dir, io, limits, made.usage);
-    const was = before.claude?.fiveHour?.now ?? after.claude?.fiveHour?.now ?? 0;
-    claude[id] = round((after.claude?.fiveHour?.now ?? 0) - was);
+    claude[id] = spent(before, after, 'fiveHour');
     queued.push(enqueue(dir, { id, iteration, parent: inc.hub, proposer, rationale: made.rationale }));
   }
   for (const f of failed) console.error(f);
@@ -596,8 +611,7 @@ export const step = async (
     if (!jobs.length) return 0;
     const before = guard(dir, io, limits);
     await io.run(dir, t, jobs, { parallel: o.parallel ?? 6, ...(o.keys && { keys: o.keys }) });
-    const after = guard(dir, io, limits);
-    return round(((after.codex?.now ?? 0) - (before.codex?.now ?? 0)) / Math.max(1, per));
+    return round(spent(before, guard(dir, io, limits), 'codex') / Math.max(1, per));
   };
   const cross = (cands: Candidate[], cases: string[]) => cands.flatMap(c => cases.map(k => ({ id: c.id, case: k })));
   const usage = (c: Candidate, codex: number) => ({ codex, claude5h: claude[c.id] ?? 0 });
@@ -638,10 +652,12 @@ export const step = async (
   const full = survivors.map(r => {
     const mine = scores(io.rows(dir, r.c.id), t.preset);
     const codex = fullCodex + (flipped.some(f => f.id === r.c.id) ? confirmCodex : 0);
-    const splits = (['fit', 'validate'] as const).flatMap(s => {
-      const cases = rest.filter(k => t.cases[k] === s);
-      return cases.length ? [evalOf(r.c.id, s, cases, mine, { codex: codex / 2, claude5h: 0 }, after, runs)] : [];
-    });
+    const parts = (['fit', 'validate'] as const)
+      .map(s => [s, rest.filter(k => t.cases[k] === s)] as const)
+      .filter(([, cases]) => cases.length);
+    const splits = parts.map(([s, cases]) =>
+      evalOf(r.c.id, s, cases, mine, { codex: round(codex / parts.length), claude5h: 0 }, after, runs)
+    );
     const all = evalOf(r.c.id, 'fit', select, mine, usage(r.c, 0), after, runs);
     const screen = evalOf(r.c.id, 'fit', screened, mine, usage(r.c, screenCodex), after, runs);
     return { ...r, evals: [screen, ...splits], all, verdict: decide(t, r.screen, all) };
