@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,6 +110,38 @@ describe('fileStore', () => {
       }).pipe(Effect.provide(fileStore(temp())))
     );
     expect(result).toEqual({ second: 'Left', again: 'Right' });
+  });
+
+  it('lets exactly one of many racing stores take over a stale lock', async () => {
+    const dir = temp();
+    for (let round = 0; round < 10; round++) {
+      mkdirSync(join(dir, '.locks'), { recursive: true });
+      writeFileSync(join(dir, '.locks', 'run.lock'), `999999999:gone-${round}`);
+      const takers = Array.from({ length: 8 }, () =>
+        Effect.either(
+          Effect.scoped(
+            Effect.zipRight(
+              Effect.flatMap(Store, s => s.lock('run')),
+              Effect.sleep('50 millis')
+            ).pipe(Effect.provide(fileStore(dir)))
+          )
+        )
+      );
+      const taken = await Effect.runPromise(Effect.all(takers, { concurrency: 'unbounded' }));
+      expect(taken.filter(t => t._tag === 'Right')).toHaveLength(1);
+    }
+  });
+
+  it('takes over a stale lock whose last claimer died mid takeover', async () => {
+    const dir = temp();
+    const lock = join(dir, '.locks', 'run.lock');
+    mkdirSync(join(dir, '.locks'), { recursive: true });
+    writeFileSync(lock, '999999999:gone');
+    writeFileSync(`${lock}.${createHash('sha256').update('999999999:gone').digest('hex')}.next`, '999999998:died');
+    const taken = await Effect.runPromise(
+      Effect.either(Effect.scoped(Effect.flatMap(Store, s => s.lock('run')))).pipe(Effect.provide(fileStore(dir)))
+    );
+    expect(taken._tag).toBe('Right');
   });
 });
 

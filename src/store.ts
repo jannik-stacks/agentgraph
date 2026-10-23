@@ -86,6 +86,29 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
         e => (missing(e) ? undefined : Promise.reject(e))
       )
     );
+  const exists = (e: unknown) => (e as NodeJS.ErrnoException).code === 'EEXIST';
+  /** Replaces the stale lock `before` with `candidate` when this process wins the one claim on `before`; a dead claimer passes its claim on. */
+  const succeed = async (path: string, before: string, candidate: string) => {
+    let claim = `${path}.${createHash('sha256').update(before).digest('hex')}.next`;
+    for (;;) {
+      try {
+        await link(candidate, claim);
+        break;
+      } catch (e) {
+        if (!exists(e)) throw e;
+        const other = await readFile(claim, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
+        if (other === undefined || live(other)) return false;
+        claim = `${path}.${createHash('sha256').update(`${claim}\0${other}`).digest('hex')}.next`;
+      }
+    }
+    try {
+      if ((await readFile(path, 'utf8').catch(() => undefined)) !== before) return false;
+      await rename(candidate, path);
+      return true;
+    } finally {
+      await rm(claim, { force: true });
+    }
+  };
   const take = async (path: string) => {
     const holder = `${beat()}:${randomUUID()}`;
     const candidate = `${path}.${randomUUID()}`;
@@ -96,11 +119,13 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
           await link(candidate, path);
           return holder;
         } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-          const before = await readFile(path, 'utf8');
+          if (!exists(e)) throw e;
+          const before = await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
+          if (before === undefined) continue;
           if (before ? live(before) : Date.now() - (await stat(path)).mtimeMs < 120_000)
             throw new Error(`held by ${before || 'an initializing owner'}`, { cause: e });
-          if ((await readFile(path, 'utf8')) === before) await rm(path, { force: true });
+          if (await succeed(path, before, candidate)) return holder;
+          break;
         }
       }
       throw new Error('lock contended');
