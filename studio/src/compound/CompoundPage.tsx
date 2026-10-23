@@ -207,7 +207,7 @@ const Detail = ({ series, point, onClose }: { series: Series; point: Point; onCl
           <tbody>
             {step.evals.map((e, i) => (
               <tr key={i} className="border-b border-zinc-100 dark:border-zinc-900">
-                <td className="py-1 pr-3">{e.split}</td>
+                <td className="py-1 pr-3">{step.iteration > 0 && i === 0 ? 'fit screen' : e.split}</td>
                 <td className="py-1 pr-3">{e.cases.length}</td>
                 <td className="py-1 pr-3">
                   <Tooltip tip={`95% interval ${fmt(e.ci[0])} to ${fmt(e.ci[1])}`}>
