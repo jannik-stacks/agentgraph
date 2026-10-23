@@ -90,7 +90,7 @@ The bot's own comments, labels and issues start nothing, and agents cannot add t
 
 The agent body becomes the system prompt. Claude Code and pi append it to their own; opencode replaces its base prompt but keeps environment, tools and skills.
 
-The prompt holds the step's skill and its `uses`, the workflow body, the issue and comments, the branch's pull request and reviews, the target branch, `until`, feedback and the allowed proposal shapes. A step with `back` also sees the branch diff and its checks. <!-- code: src/context.ts#context -->
+The prompt holds the step's skill and its `uses`, the workflow body, the issue and comments, the branch's pull request and reviews, the target branch, `until`, the step's checks, feedback and the allowed proposal shapes. A fresh session of a step with `back` also sees the branch diff. <!-- code: src/context.ts#context -->
 
 Every minute the engine writes new issue and pull request activity to a news file, and agents with the `read` tool are told to read it before finishing. A resumed session gets only feedback and new context. <!-- code: src/context.ts#news -->
 
