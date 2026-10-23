@@ -53,7 +53,6 @@ Tested cases are valid only if hidden tests fail on base and pass on human, the 
 | `human` | Merged change |
 | `v2` | Repo hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), otherwise `examples/bench`: implement, check tests, review with one return, then human merge. Small single-source edits skip review in the fallback hub. |
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
-| `v1` | Unavailable; needs a separate image, environment and leak-free seed |
 
 Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers one question with "No more information. Use your judgment."; answers are counted.
 

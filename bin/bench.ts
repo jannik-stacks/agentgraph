@@ -1,6 +1,6 @@
 /**
- * Replays merged pull requests on v2, on a plain single session (floor) and on v1, then scores and judges them blind.
- * Usage: node bin/bench.ts run (v2|floor|v1) <case dir> <out> --repo <clone> [--point harness:model] [--repeat k]
+ * Replays merged pull requests on v2 and on a plain single session (floor), then scores and judges them blind.
+ * Usage: node bin/bench.ts run (v2|floor) <case dir> <out> --repo <clone> [--point harness:model] [--repeat k]
  *        node bin/bench.ts score <case dir> <out> --repo <clone> [--drop-env]
  *        node bin/bench.ts judge <case dir> <out> [--pairs all|human]
  *        node bin/bench.ts report <out>
@@ -68,7 +68,7 @@ type Commands = {
 type Finding = { severity: string; category: string; text: string };
 type Verdict = { A?: { findings?: Finding[] }; B?: { findings?: Finding[] }; prefer: 'A' | 'B' | 'tie'; why?: string };
 
-const bots = ['v2', 'floor', 'v1'];
+const bots = ['v2', 'floor'];
 /** Repos a bench never runs or reports. */
 const excluded = new Set(['billing']);
 const benched = (repo = '') => !excluded.has(repo.split('/').pop() ?? '');
@@ -536,8 +536,6 @@ const patience = 6;
 const runArm = async (arm: string, caseDir: string, out: string, repo: string) => {
   const c = loadCase(caseDir);
   const at = join(out, c.id, arm);
-  if (arm === 'v1')
-    throw new Error('not yet: v1 needs its own sandbox image, env and a leak-free seed (docs/bench.md)');
   if (!benched(c.repo)) throw new Error(`${c.repo} is never benched`);
   if (existsSync(join(at, 'diff.patch'))) return;
   const missing = unpriced(arm, hubOf(c));
@@ -1727,7 +1725,7 @@ if (import.meta.main) {
     const { units, parallel } = unitsOf(resolve(a));
     console.log(statusText(progress(units, parallel)));
   } else {
-    console.error('usage: node bin/bench.ts (run (v2|floor|v1) <case> <out> | score <case> <out>) --repo <clone>');
+    console.error('usage: node bin/bench.ts (run (v2|floor) <case> <out> | score <case> <out>) --repo <clone>');
     console.error('       node bin/bench.ts judge <case> <out> | report <out> | status <out>');
     process.exit(2);
   }
