@@ -115,37 +115,23 @@ const du = (path: string) =>
     execFile('du', ['-sk', path], { timeout: 600_000 }, (e, out) => done(e ? 0 : Number(out.split('\t')[0]) * 1024))
   );
 
-/** Sizes of docker volumes, read by one container that mounts them all read-only. */
-const sizes = async (names: string[]) => {
-  if (!names.length) return new Map<string, number>();
-  const out = await ask(
-    [
-      'run',
-      ...unlogged,
-      '--rm',
-      '--pull',
-      'never',
-      '--network',
-      'none',
-      '--read-only',
-      '--user',
-      '0:0',
-      '--cap-drop=ALL',
-      '--cap-add=DAC_READ_SEARCH',
-      ...names.flatMap((n, i) => ['--mount', `type=volume,src=${n},dst=/v/${i},readonly`]),
-      process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local',
-      'du',
-      '-sk',
-      ...names.map((_, i) => `/v/${i}`),
-    ],
-    1_800_000
-  );
-  return new Map(
-    lines(out).map(l => {
-      const [kb = '0', path = ''] = l.split('\t');
-      return [names[Number(path.slice(3))] ?? '', Number(kb) * 1024] as const;
-    })
-  );
+/** Unique bytes of each image by id and bytes of each volume by name, as `docker system df` counts them. */
+const usage = async () => {
+  const size = (s = '') => {
+    try {
+      return bytes(s);
+    } catch {
+      return 0;
+    }
+  };
+  let df: { Images?: { ID: string; UniqueSize: string }[]; Volumes?: { Name: string; Size: string }[] } = {};
+  try {
+    df = JSON.parse((await ask(['system', 'df', '-v', '--format', 'json'])) || '{}');
+  } catch {}
+  return {
+    images: new Map((df.Images ?? []).map(i => [i.ID, size(i.UniqueSize)])),
+    volumes: new Map((df.Volumes ?? []).map(v => [v.Name, size(v.Size)])),
+  };
 };
 
 const legacyVolume = /^bothub-(layer-.+|lower-.+|cache|cache-envtest|build-cache|npm-cache)$/;
@@ -161,10 +147,11 @@ const labelsOf = (text = '') =>
 
 /**
  * Every cache item agentgraph and the old engine left in docker, and the host build dirs under `roots`. Only our names
- * count; compose objects and `bothub_*` volumes are data and never appear. With `measure`, volumes without a recorded
- * size are measured; otherwise they count 0 bytes.
+ * count; compose objects and `bothub_*` volumes are data and never appear. Volumes without a recorded size count 0
+ * bytes unless `measure`.
  */
 export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<Item[]> => {
+  const df = usage();
   const tagsOf = new Map<string, string[]>();
   const others = new Set<string>();
   for (const l of lines(await ask(['image', 'ls', '--no-trunc', '--format', '{{.ID}} {{.Repository}}:{{.Tag}}']))) {
@@ -218,14 +205,14 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
     const why = labels['agentgraph.env'] ? gone(labels, JSON.parse(layers) as string[]) : undefined;
     const tags = tagsOf.get(id) ?? [];
     if (!tags.length || isData('', labels)) continue;
-    const top = Number(lines(await ask(['history', '--human=false', '--format', '{{.Size}}', id]))[0]) || 0;
+    const unique = (await df).images.get(id) ?? 0;
     const key = labels['agentgraph.env'];
     const stamp = key && existsSync(join(used(), key)) ? statSync(join(used(), key)).mtimeMs : Date.parse(created) || 0;
     if (key) keys.add(key);
     items.push({
       kind: key ? 'env' : 'legacy',
       refs: [...tags, ...(key && names.has(lowerOf(key)) ? [lowerOf(key)] : [])],
-      bytes: top + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
+      bytes: unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
       used: stamp,
       ...(why && { always: true, gone: why }),
       ...((tags.some(t => runImages.has(t)) || runImages.has(id)) && { held: 'container' }),
@@ -238,7 +225,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       (v.name.startsWith('agentgraph-lower-') && !keys.has(v.name.slice('agentgraph-lower-'.length))) ||
       legacyVolume.test(v.name)
   );
-  const measured = o.measure ? await sizes(loose.map(v => v.name)) : new Map<string, number>();
+  const measured = o.measure ? (await df).volumes : new Map<string, number>();
   for (const v of loose) {
     const key = v.name.slice('agentgraph-lower-'.length);
     const lower = v.name === lowerOf(key);

@@ -1,4 +1,4 @@
-import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { collect, DiskLow, inventory, type Item, pin, plan, room, trees, unpin } from '../src/disk.ts';
@@ -51,9 +51,13 @@ const box = {
     'sha256:l2 2026-10-22T00:00:00Z [] {"bothub.env":"abc","com.docker.compose.project":"x"}',
     '',
   ].join('\\n'),
-  'history --human=false --format {{.Size}} sha256:e1': '3000000\\n0\\n',
-  'history --human=false --format {{.Size}} sha256:e2': '5000000\\n0\\n',
-  'history --human=false --format {{.Size}} sha256:l1': '3500000000\\n0\\n',
+  'system df': JSON.stringify({
+    Images: [
+      { ID: 'sha256:e1', UniqueSize: '3MB' },
+      { ID: 'sha256:e2', UniqueSize: '5MB' },
+      { ID: 'sha256:l1', UniqueSize: '3.5GB' },
+    ],
+  }),
   'volume ls --format': [
     'agentgraph-lower-k1\tagentgraph.lower=k1',
     'agentgraph-lower-gone\tagentgraph.lower=gone',
@@ -93,6 +97,35 @@ describe('inventory', () => {
       expect(by['bothub-cache']).toMatchObject({ kind: 'legacy' });
       expect(by['bothub-cache']?.always).toBeUndefined();
     });
+  });
+
+  it('reads sizes from docker system df, and volume sizes only when measuring', async () => {
+    const df = readFileSync(join(import.meta.dirname, 'fixtures/docker-df.json'), 'utf8').trim();
+    const id = 'sha256:fdecf296d1b113717213c2eefc8bff182d0394d8e206553e4827e41a95fdad6b';
+    const env = 'agentgraph-env/acme-token-metadata-api:8955f4891bdf3f555b0dffc9';
+    await faked(
+      {
+        'system df': df,
+        'image ls': `${id} ${env}\\nsha256:63538dfe497cc29dfafdda25ada09b46db68a3f4cc205abf1f5d6bf0913f3384 node:22\\n`,
+        'image inspect --format {{.Id}}': `${id} 2026-10-23T00:00:00Z [] {"agentgraph.env":"8955f4891bdf3f555b0dffc9","agentgraph.lowerkb":"375220"}\\n`,
+        'volume ls --format': [
+          'agentgraph-lower-8955f4891bdf3f555b0dffc9\\tagentgraph.lower=8955f4891bdf3f555b0dffc9',
+          'agentgraph-lower-67b09dcfc491777cfdbd7fd2\\tagentgraph.lower=67b09dcfc491777cfdbd7fd2',
+          'agentgraph-cache\\t',
+          'bothub_pgdata\\tcom.docker.compose.project=bothub',
+          '',
+        ].join('\\n'),
+      },
+      async () => {
+        const by = async (measure: boolean) =>
+          Object.fromEntries((await inventory({ measure })).map(i => [i.refs[0], i.bytes]));
+        expect(await by(true)).toEqual({
+          [env]: 418.4e3 + 375220 * 1024,
+          'agentgraph-lower-67b09dcfc491777cfdbd7fd2': 281.5e6,
+        });
+        expect((await by(false))['agentgraph-lower-67b09dcfc491777cfdbd7fd2']).toBe(0);
+      }
+    );
   });
 
   it('takes an Env of an old family version or a replaced base image whatever the cap, unless held', async () => {
