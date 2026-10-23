@@ -87,7 +87,7 @@ const SkillFile = Schema.Struct({
 type SkillFile = typeof SkillFile.Type;
 
 /** The folders a hub holds besides those a hub file reads through `$AGENTGRAPH_HUB`: the four it loads, scripts and fixtures. */
-const folders = ['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures'];
+const folders = new Set(['agents', 'skills', 'checks', 'workflows', 'scripts', 'fixtures']);
 
 /** Whether a hub file reads the hub folder `name` through `$AGENTGRAPH_HUB`. */
 const reads = (texts: string[], name: string) =>
@@ -279,7 +279,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
         const texts = [hubText ?? '', ...scripts.map(f => f.text)];
         texts.push(...Object.values(groups).flatMap(files => files.map(f => f.text)));
         const unread = (await readdir(dir, { withFileTypes: true }).catch(() => []))
-          .filter(e => e.isDirectory() && !e.name.startsWith('.') && !folders.includes(e.name))
+          .filter(e => e.isDirectory() && !e.name.startsWith('.') && !folders.has(e.name))
           .map(e => e.name)
           .filter(name => !reads(texts, name));
         return { hubText, groups, scripts, unread };

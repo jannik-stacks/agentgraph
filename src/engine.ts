@@ -1389,12 +1389,12 @@ export const gate = (
     const error = settled.find(Either.isLeft);
     if (error) return yield* error.left;
     const returns = 'agent' in step.does ? hub.agents[step.does.agent]?.returns : undefined;
-    const marks = Object.values(hub.workflows).flatMap(w => w.on.issues?.label ?? []);
+    const marks = new Set(Object.values(hub.workflows).flatMap(w => w.on.issues?.label ?? []));
     const refusal = (p: Proposal) =>
       returns && !returns.some(k => k === p.kind)
         ? `${step.name} may not propose ${p.kind}`
-        : p.kind === 'label' && p.add?.some(l => marks.includes(l))
-          ? `only a human adds ${p.add.filter(l => marks.includes(l)).join(', ')}`
+        : p.kind === 'label' && p.add?.some(l => marks.has(l))
+          ? `only a human adds ${p.add.filter(l => marks.has(l)).join(', ')}`
           : undefined;
     const proposals: Applied[] = left.proposals.flatMap(p => {
       const reason = refusal(p);
@@ -1455,8 +1455,8 @@ const land = (
 ): Effect.Effect<Applied[], ForgeError | StoreError, Forge | Store> =>
   Effect.flatMap(Forge, forge =>
     Effect.gen(function* () {
-      const threads = proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : []));
-      const open = (run.said ?? []).filter(s => s.under === undefined || !threads.includes(s.under));
+      const threads = new Set(proposals.flatMap(p => (p.kind === 'comment' && p.under !== undefined ? [p.under] : [])));
+      const open = (run.said ?? []).filter(s => s.under === undefined || !threads.has(s.under));
       const places = open.length > 0 ? open : [{ issue: run.said?.[0]?.issue ?? to ?? run.issue }];
       const place = places.find(s => s.under === undefined) ?? places.at(-1)!;
       const sent = [...proposals]

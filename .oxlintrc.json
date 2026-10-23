@@ -95,6 +95,7 @@
     "unicorn/prefer-logical-operator-over-ternary": "error",
     "unicorn/prefer-node-protocol": "error",
     "unicorn/prefer-optional-catch-binding": "error",
+    "unicorn/prefer-set-has": "error",
     "unicorn/prefer-structured-clone": "error",
     "unicorn/throw-new-error": "error",
     "oxc/branches-sharing-code": "error",
