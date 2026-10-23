@@ -25,6 +25,7 @@ hub/
 2. [The loop](loop.md)
 3. [Proposals](proposals.md)
 4. [Running locally](local.md)
+5. [Without GitHub](forge.md)
 
 ## Reference
 

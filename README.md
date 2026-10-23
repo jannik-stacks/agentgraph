@@ -69,7 +69,7 @@ node bin/forge.ts ~/agentgraph/demo show
 npx agentgraph status --instance ~/agentgraph/demo
 ```
 
-To let agents work on that issue, run `npm run up` and `npm run keys`, copy the keys into the instance as [Set one up](docs/local.md#set-one-up) shows, then run every open issue once and look at the result:
+To let agents work on that issue, run `npm run up` and `npm run keys`, copy the keys into the instance as [Set one up](docs/forge.md#set-one-up) shows, then run every open issue once and look at the result:
 
 ```sh
 npx agentgraph --instance ~/agentgraph/demo --all
@@ -85,7 +85,8 @@ The studio opens on port 5182 and shows the workflow graph and every run.
 - [Vocabulary](docs/vocabulary.md)
 - [The loop](docs/loop.md): workflows, checks, retries and waiting for people
 - [Proposals](docs/proposals.md): what agents may ask the engine to do
-- [Running locally](docs/local.md): the CLI, instances, GitHub App and studio
+- [Running locally](docs/local.md): the model stack, the CLI, the GitHub App and the studio
+- [Without GitHub](docs/forge.md): forge folders and instances
 - [Hub files](docs/reference.md): every field and default
 - [Architecture](docs/architecture.md)
 
