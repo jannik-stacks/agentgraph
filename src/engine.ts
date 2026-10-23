@@ -1639,8 +1639,8 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       );
     };
     yield* store.lock(run.id);
-    const stored = yield* store.get(run.id);
-    if (stored?.status === 'stopped') return stored;
+    current = (yield* store.get(run.id)) ?? run;
+    if (current.status !== 'running') return current;
     do {
       yield* walk.pipe(
         Effect.scoped,

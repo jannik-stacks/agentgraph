@@ -157,6 +157,13 @@ const reactions = (data: string, id: string) =>
 
 const bodies = (t: { events: Event[] }) => t.events.flatMap(m => (m.comment ? [m.comment.body] : []));
 
+/** Drives `r` as tick does: from the store, so a run the test changed in memory is saved first. */
+const driveStored = (flow: typeof w, r: Run, h: Hub) =>
+  Effect.zipRight(
+    Effect.flatMap(Store, s => s.put(r)),
+    drive(flow, r, h)
+  );
+
 const fresh = (): Run => begin(w, { id: 'run-7', issue: 7, started: '2026-10-16T00:00:01.000Z' });
 
 describe('drive', () => {
@@ -354,6 +361,17 @@ describe('drive', () => {
     expect(readFileSync(lock, 'utf8')).toBe('replacement');
   });
 
+  it('drives the run as stored once it holds the lock, not the snapshot it was given', async () => {
+    const where = world();
+    const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+    const advanced: Run = { ...fresh(), step: 'review', status: 'waiting', reason: 'Ready?', usd: 2 };
+    await run(Effect.flatMap(Store, s => s.put(advanced)));
+    const driven = await run(drive(w, fresh(), hub));
+    expect(driven).toMatchObject({ step: 'review', status: 'waiting', reason: 'Ready?', usd: 2 });
+    expect(specs).toEqual([]);
+    expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({ step: 'review', usd: 2 });
+  });
+
   it('walks a whole run: retry in the same session, a fresh review sending it back, a round cap, an answer, a merge', async () => {
     const where = world();
     const { specs, run } = services(where, [
@@ -458,7 +476,7 @@ describe('drive', () => {
     );
     const answer = said.flatMap(m => reenter(w, asked, m) ?? [])[0]!;
     expect(answer).toEqual({ kind: 'answer', text: 'it is fine, ship it' });
-    const waiting = await run(drive(w, transition(w, asked, answer), hub));
+    const waiting = await run(driveStored(w, transition(w, asked, answer), hub));
     expect(waiting).toMatchObject({ step: 'merge', status: 'waiting', rounds: { review: 1 } });
     expect(specs.at(-1)!.prompt).toContain('it is fine, ship it');
 
@@ -672,7 +690,7 @@ describe('drive', () => {
     const sessions = traceOf(where.data, 'run-7').flatMap(t => ('session' in t ? [t.session] : []));
     expect(sessions[0]).toEqual({ resumed: false, ended: 'provider', usd: 0 });
     const again = services(where, [[start('t1'), reply({ kind: 'ask', question: 'Which file?' })]]);
-    const resumed = await again.run(drive(w, transition(w, parked, { kind: 'answer', text: 'go on' }), hub));
+    const resumed = await again.run(driveStored(w, transition(w, parked, { kind: 'answer', text: 'go on' }), hub));
     expect(resumed).toMatchObject({ step: 'triage', status: 'waiting', reason: 'Which file?' });
     expect(again.specs[0]!.prompt).toContain('go on');
     expect(again.specs[0]!.prompt).toContain('fix the typo');
@@ -844,7 +862,7 @@ describe('a run branch that moved', () => {
         }
       );
       const { reason: _reason, ...resumed } = parked;
-      const done = await next.run(drive(flow, { ...resumed, status: 'running' }, small));
+      const done = await next.run(driveStored(flow, { ...resumed, status: 'running' }, small));
       expect(done.status).toBe('done');
       expect(next.specs).toHaveLength(1);
       expect(before).toMatch(conflict ? /<<<<<<<[\s\S]*upstream[\s\S]*pending/ : /^pending\n$/);
@@ -882,7 +900,9 @@ describe('a run branch that moved', () => {
     const next = services(where, [[start('a'), reply(push)]], undefined, spec => {
       pending = existsSync(join(spec.dir, 'pending.txt'));
     });
-    const done = await next.run(drive(flow, { ...parked, status: 'running', tries: 0, onto: { sha: onto } }, small));
+    const done = await next.run(
+      driveStored(flow, { ...parked, status: 'running', tries: 0, onto: { sha: onto } }, small)
+    );
     expect(pending).toBe(true);
     expect(done.status).toBe('done');
     expect(git(where.origin, 'show', 'agentgraph/7:pending.txt')).toBe('pending');
@@ -928,7 +948,7 @@ describe('a run branch that moved', () => {
         expect(readFileSync(join(spec.dir, 'other.txt'), 'utf8')).toBe('upstream\n');
         expect(readFileSync(join(spec.dir, 'pending.txt'), 'utf8')).toBe('pending\n');
       });
-      const done = await next.run(drive(flow, { ...parked, status: 'running', onto: { sha: onto } }, small));
+      const done = await next.run(driveStored(flow, { ...parked, status: 'running', onto: { sha: onto } }, small));
       expect(done.status).toBe('done');
       expect(next.specs).toHaveLength(1);
       const pushes = traceOf(where.data, 'run-7').flatMap(t =>
@@ -1145,7 +1165,7 @@ describe('a run branch that moved', () => {
               t.applied.proposal.body === 'First'
           )
         ).toBe(true);
-        const done = yield* drive(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), kit);
+        const done = yield* driveStored(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), kit);
         return [done, yield* Effect.flatMap(Forge, f => f.issue(7))] as const;
       }).pipe(Effect.provide(layer))
     );
@@ -1167,7 +1187,7 @@ describe('a run branch that moved', () => {
     const issue = await run(
       Effect.gen(function* () {
         const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
-        yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'This one' }), small);
+        yield* driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'This one' }), small);
         return yield* Effect.flatMap(Forge, f => f.issue(7));
       })
     );
@@ -1216,7 +1236,7 @@ describe('a run branch that moved', () => {
     const [done, issues] = await Effect.runPromise(
       Effect.gen(function* () {
         const parked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
-        const done = yield* drive(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), small);
+        const done = yield* driveStored(flow, transition(flow, parked, { kind: 'answer', text: 'Retry' }), small);
         return [done, yield* Effect.flatMap(Forge, f => f.issues())] as const;
       }).pipe(Effect.provide(layer))
     );
@@ -1547,7 +1567,11 @@ describe('tick', () => {
       Effect.gen(function* () {
         const asked = yield* drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small);
         const saved = git(where.origin, 'show', `${kept}:hello.txt`);
-        return [asked, yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small), saved];
+        return [
+          asked,
+          yield* driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small),
+          saved,
+        ];
       })
     );
     expect(asked).toMatchObject({ step: 'implement', status: 'waiting', reason: 'Hello or hi?' });
@@ -1623,7 +1647,7 @@ describe('tick', () => {
         resurrected = existsSync(join(spec.dir, 'hello.txt'));
         if (pending) kept = existsSync(join(spec.dir, 'pending.txt'));
       });
-      await next.run(drive(flow, { ...parked, step: pending ? 'draft' : 'implement', status: 'running' }, kit));
+      await next.run(driveStored(flow, { ...parked, step: pending ? 'draft' : 'implement', status: 'running' }, kit));
       expect(resurrected).toBe(false);
       expect(kept).toBe(true);
     },
@@ -1651,7 +1675,7 @@ describe('tick', () => {
           { ...begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), said: [{ issue: 7 }] },
           small
         );
-        const done = yield* drive(flow, transition(flow, asked, { kind: 'answer', text: 'Just answer' }), small);
+        const done = yield* driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'Just answer' }), small);
         return [done, yield* Effect.flatMap(Forge, f => f.issue(7))] as const;
       })
     );
@@ -2232,7 +2256,7 @@ describe('stacks', () => {
     const parked = await first.run(
       Effect.gen(function* () {
         const waiting = yield* drive(flow, run9(), merging);
-        return yield* drive(flow, { ...waiting, step: 'implement', status: 'running' }, merging);
+        return yield* driveStored(flow, { ...waiting, step: 'implement', status: 'running' }, merging);
       })
     );
     expect(git(where.origin, 'show', 'refs/agentgraph/runs/run-9:pending.txt')).toBe('pending');
@@ -2242,7 +2266,7 @@ describe('stacks', () => {
     ]);
     await next.run(tick(merging, 9));
     expect(git(where.origin, 'show', 'refs/agentgraph/runs/run-9:pending.txt')).toBe('pending');
-    await next.run(drive(flow, { ...parked, status: 'running' }, merging));
+    await next.run(driveStored(flow, { ...parked, status: 'running' }, merging));
     expect(git(where.origin, 'show', 'agentgraph/9:pending.txt')).toBe('pending');
     expect(git(where.origin, 'show', 'agentgraph/9:more.txt')).toBe('more');
   }, 30_000);
@@ -2542,7 +2566,7 @@ describe('coworker', () => {
       at: later(2),
       commit: { sha: 'abcdef123', title: 'Tweak the greeting' },
     });
-    await run(drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
+    await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
     expect(specs[1]!.resume?.id).toBe('a');
     expect(specs[1]!.prompt).toBe(
       'hello\n\n## New since you last looked\n\n#7 @morgan: /agent hello\n\n#8 @ana pushed abcdef1 Tweak the greeting'
@@ -2556,11 +2580,11 @@ describe('coworker', () => {
       [start('a'), reply({ kind: 'ask', question: 'And now?' })],
       [start('a'), reply({ kind: 'comment', body: 'ok' })],
     ]);
-    const again = await run(drive(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
+    const again = await run(driveStored(flow, transition(flow, asked, { kind: 'answer', text: 'hello' }), small));
     expect(specs[1]!.prompt).toBe('hello');
     pullRequest(where, 'b2');
     say(where, check(8, 'test', 'success', later(3)));
-    await run(drive(flow, transition(flow, again, { kind: 'answer', text: 'go on' }), small));
+    await run(driveStored(flow, transition(flow, again, { kind: 'answer', text: 'go on' }), small));
     expect(specs[2]!.prompt).toBe(
       'go on\n\n## New since you last looked\n\nThe base main moved to b2.\n\n#8 check test: success'
     );
