@@ -7,6 +7,7 @@ import { fileForge, Forge } from '../src/forge.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
+import { host } from './doubles/sandbox.ts';
 import { fixture, plant } from './fixtures.ts';
 import { git } from './kit.ts';
 

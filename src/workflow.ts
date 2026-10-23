@@ -98,7 +98,7 @@ export type Run = {
   usd: number;
 };
 
-const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
+export const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 const Count = Schema.Int.pipe(Schema.positive());
 const Names = Schema.mutable(Schema.Array(Schema.String));
 const Trigger = Schema.NullOr(Schema.Struct({ label: exact(Schema.String), branches: exact(Names) }));

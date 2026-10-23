@@ -14,6 +14,8 @@ import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import type { SessionEvent } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
+import { host } from './doubles/sandbox.ts';
+import { scripted } from './doubles/session.ts';
 import { reply, seeded, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 

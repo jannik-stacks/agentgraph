@@ -53,7 +53,7 @@ export const quality = (row: Row, w: typeof defaults, judges?: string[], human?:
 };
 
 /** A seeded generator, so a redraw resamples the same way. */
-const random = (seed: number) => () => {
+export const random = (seed: number) => () => {
   seed = (seed + 0x6d2b79f5) | 0;
   let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;

@@ -9,6 +9,8 @@ import type { Sandbox } from '../src/sandbox.ts';
 import type { Session, SessionEvent } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
+import { host } from './doubles/sandbox.ts';
+import { scripted } from './doubles/session.ts';
 import { reply, seeded, start } from './fixtures.ts';
 import { git } from './kit.ts';
 

@@ -5,7 +5,7 @@ import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import type { Proposal } from './forge.ts';
 import { Sandbox } from './sandbox.ts';
-import { load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
+import { exact, load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 const kinds = [
   'comment',
@@ -70,8 +70,6 @@ export class HubError extends Data.TaggedError('HubError')<{ problems: Problem[]
     return this.problems.map(p => `${p.path}: ${p.message}`).join('\n');
   }
 }
-
-const exact = <S extends Schema.Schema.All>(schema: S) => Schema.optionalWith(schema, { exact: true });
 
 const HubFile = Schema.Struct({
   repo: exact(Schema.String),

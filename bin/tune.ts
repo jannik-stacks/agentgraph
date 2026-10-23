@@ -14,7 +14,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
-import { presets, quality } from '../studio/src/bench/score.ts';
+import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { propose as proposeWith } from '../tune/propose.ts';
 import { codexUsed, plan, progress, rowsOf, statusText } from './bench.ts';
 import { append as appendLine, benchEnv, busy, claim, jsonl, onStop, pin, release, settle, write } from './resume.ts';
@@ -100,13 +100,6 @@ export const tunesOf = (root = tuneRoot()) =>
       .filter(name => existsSync(join(root, repo, name, 'tune.json')))
       .map(name => ({ name, ...tuneRows(join(root, repo, name)) }))
   );
-
-const random = (seed: number) => () => {
-  seed = (seed + 0x6d2b79f5) | 0;
-  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
 
 /** The mean gain of `b` over `a` case by case, the share of bootstrap draws above 0 and its 95% interval. */
 export const paired = (a: number[], b: number[], n = 2000) => {

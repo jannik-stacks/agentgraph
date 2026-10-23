@@ -40,6 +40,8 @@ import { Session, type SessionEvent, type SessionSpec } from '../src/session.ts'
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import type { Hub } from '../src/hub.ts';
 import { begin, cancelled, reenter, transition, type Run, type Step } from '../src/workflow.ts';
+import { host } from './doubles/sandbox.ts';
+import { scripted } from './doubles/session.ts';
 import { hubOf, reply, seeded, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
