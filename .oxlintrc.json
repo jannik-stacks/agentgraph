@@ -12,6 +12,7 @@
     "import/no-cycle": ["error", { "ignoreTypes": false }],
     "eqeqeq": "error",
     "no-else-return": "error",
+    "no-empty": ["error", { "allowEmptyCatch": true }],
     "no-lonely-if": "error",
     "no-lone-blocks": "error",
     "no-new": "error",
@@ -73,6 +74,7 @@
       "files": ["src/**"],
       "rules": {
         "import/no-relative-parent-imports": "error",
+        "no-console": ["error", { "allow": ["error"] }],
         "no-restricted-imports": [
           "error",
           {
