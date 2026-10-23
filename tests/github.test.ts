@@ -18,8 +18,20 @@ const { privateKey, publicKey } = generateKeyPairSync('rsa', {
 const app = { repo: 'o/r', id: '42', key: Redacted.make(privateKey) };
 
 type Reply = { status?: number; body?: unknown; headers?: Record<string, string> };
-type Route = unknown | ((body: any, headers: Headers, path: string) => Reply);
-type Call = { method: string; path: string; body?: any; headers: Headers };
+type RefUpdate = { name: string; beforeOid: string; afterOid: string; force: boolean };
+type Body = {
+  body?: string;
+  force?: boolean;
+  message?: string;
+  parents?: string[];
+  permissions?: Record<string, string>;
+  ref?: string;
+  sha?: string;
+  tree?: string;
+  variables?: { input: { refUpdates: RefUpdate[] } };
+};
+type Route = unknown | ((body: Body, headers: Headers, path: string) => Reply);
+type Call = { method: string; path: string; body?: Body; headers: Headers };
 
 /** A fetch that answers from `routes`, keyed `METHOD /path?query` or `METHOD /path`, and records every call. */
 const fake = (routes: Record<string, Route>) => {
@@ -336,8 +348,8 @@ describe('githubForge', () => {
 
   it('reads an issue without its checks when the installation may not read them', async () => {
     const f = fake({
-      'POST /app/installations/9/access_tokens': (body: any) =>
-        body.permissions.checks
+      'POST /app/installations/9/access_tokens': (body: Body) =>
+        body.permissions?.checks
           ? { status: 422, body: { message: 'The permissions requested are not granted to this installation.' } }
           : { body: { token: 'tok', expires_at: '2999-01-01T00:00:00Z' } },
       'GET /repos/o/r/issues/8': issue(8, { pull_request: {} }),
@@ -593,7 +605,7 @@ describe('githubForge', () => {
     expect(at).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(applied[0]!.proposal).toEqual({ kind: 'comment', body: forged });
     expect(applied[2]!.at).toBeUndefined();
-    const posted = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body.body as string);
+    const posted = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
     expect(posted[0]).toBe(
       `Done.\n\n[⁂](http://studio:5492/runs/issue-2-1?at=${at}) <!-- agentgraph run=issue-2-1 step=review session=ses_1 at=${at} -->`
     );
@@ -607,7 +619,7 @@ describe('githubForge', () => {
     const say = (body: string) => Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'comment', body }));
     await run(f, Effect.locally(say('Hi.'), provenance, { run: 'r', step: 's' }));
     await run(f, say('Plain. <!-- agentgraph run=fake -->'));
-    const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body.body as string);
+    const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
     expect(marked).toMatch(/^Hi\.\n\n<!-- agentgraph run=r step=s at=\S+ -->$/);
     expect(plain).toBe('Plain.');
   });
@@ -678,7 +690,7 @@ describe('githubForge', () => {
 
   it('mints each token for the one repository and the permissions of its call', async () => {
     const f = fake({
-      'POST /app/installations/9/access_tokens': (body: any) => ({
+      'POST /app/installations/9/access_tokens': (body: Body) => ({
         body: { token: `tok-${JSON.stringify(body.permissions)}`, expires_at: '2999-01-01T00:00:00Z' },
       }),
       'GET /repos/o/r/issues/7': issue(7),
@@ -859,8 +871,8 @@ describe('githubForge', () => {
           remote(['update-ref', body.ref, body.sha]);
           return { status: 201, body: {} };
         },
-        'POST /graphql': (body: any) => {
-          const update = body.variables.input.refUpdates[0];
+        'POST /graphql': (body: Pick<Required<Body>, 'variables'>) => {
+          const update = body.variables.input.refUpdates[0]!;
           try {
             remote(['update-ref', update.name, update.afterOid, update.beforeOid]);
           } catch {
@@ -896,7 +908,7 @@ describe('githubForge', () => {
       const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body;
       git('add', '-A');
       expect(commit).toEqual({ message: 'Fix the typo', tree: git('write-tree'), parents: [base] });
-      const head = f.calls.find(c => c.path === '/repos/o/r/git/refs')!.body;
+      const head = f.calls.find(c => c.path === '/repos/o/r/git/refs')!.body!;
       expect(head.ref).toBe('refs/heads/agentgraph/7');
       expect(applied).toMatchObject({ ok: true, url: `https://github.com/o/r/commit/${head.sha}` });
       expect(f.calls.filter(c => c.path === '/repos/o/r/git/blobs')).toHaveLength(2);
@@ -918,8 +930,8 @@ describe('githubForge', () => {
       );
       expect([first.ok, second.ok]).toEqual([true, true]);
       const [one, two] = f.calls.filter(c => c.path === '/repos/o/r/git/commits').map(c => c.body);
-      expect(one.parents).toEqual([base]);
-      expect(two.parents).toEqual([first.url!.split('/').at(-1)]);
+      expect(one?.parents).toEqual([base]);
+      expect(two?.parents).toEqual([first.url!.split('/').at(-1)]);
       const patch = f.calls.find(c => c.method === 'PATCH')!.body;
       expect(patch).toEqual({ sha: second.url!.split('/').at(-1), force: false });
     });
@@ -944,10 +956,10 @@ describe('githubForge', () => {
       writeFileSync(join(dir, 'base.txt'), 'base\n');
       writeFileSync(join(dir, 'pending.txt'), 'pending\n');
       work.head = tip;
-      const raced = (body: any, _: Headers, path: string): Reply => {
+      const raced = (body: Body, _: Headers, path: string): Reply => {
         f.remote(['update-ref', 'refs/heads/agentgraph/7', human]);
         if (path === '/graphql') {
-          const update = body.variables.input.refUpdates[0];
+          const update = body.variables!.input.refUpdates[0]!;
           try {
             f.remote(['update-ref', update.name, update.afterOid, update.beforeOid]);
           } catch {
@@ -955,7 +967,7 @@ describe('githubForge', () => {
           }
           return { body: { data: { updateRefs: { clientMutationId: null } } } };
         }
-        f.remote(['update-ref', 'refs/heads/agentgraph/7', body.sha]);
+        f.remote(['update-ref', 'refs/heads/agentgraph/7', body.sha!]);
         return { body: {} };
       };
       const f: ReturnType<typeof dataApi> = dataApi(work, {
@@ -1028,11 +1040,11 @@ describe('githubForge', () => {
         )
       );
       expect(applied.ok).toBe(true);
-      const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body;
+      const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body!;
       expect(commit).toMatchObject({ message: 'Child', parents: [onto] });
-      expect(git('ls-tree', '--name-only', commit.tree)).toBe('a.txt\nb.txt\nc.txt');
+      expect(git('ls-tree', '--name-only', commit.tree!)).toBe('a.txt\nb.txt\nc.txt');
       const head = applied.url!.split('/').at(-1);
-      expect(f.calls.find(c => c.path === '/graphql')!.body.variables.input.refUpdates[0]).toEqual({
+      expect(f.calls.find(c => c.path === '/graphql')!.body?.variables?.input.refUpdates[0]).toEqual({
         name: 'refs/heads/agentgraph/9',
         beforeOid: tip,
         afterOid: head,
@@ -1117,7 +1129,7 @@ describe('githubForge', () => {
         expect(readFileSync(join(dir, 'c.txt'), 'utf8')).toBe('upstream\n');
       }
       expect((await pushTo(f, work)).ok).toBe(true);
-      expect(f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body.parents).toEqual([onto]);
+      expect(f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body?.parents).toEqual([onto]);
     });
 
     it('refuses a branch outside agentgraph/ or one that leaves the refs path', async () => {
@@ -1193,9 +1205,9 @@ describe('githubForge', () => {
         )
       );
       expect([pushed.ok, opened.ok]).toEqual([true, true]);
-      const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body;
-      expect(git('ls-tree', '-r', '--name-only', commit.tree)).toBe('a.txt');
-      const body = f.calls.find(c => c.path === '/repos/o/r/pulls')!.body.body;
+      const commit = f.calls.find(c => c.path === '/repos/o/r/git/commits')!.body!;
+      expect(git('ls-tree', '-r', '--name-only', commit.tree!)).toBe('a.txt');
+      const body = f.calls.find(c => c.path === '/repos/o/r/pulls')!.body?.body;
       expect(body).toMatch(/^Closes #7\n\nNot pushed: `\.github\/workflows\/x\.yml`\..*Workflows permission/);
     });
 
