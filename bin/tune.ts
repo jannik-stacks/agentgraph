@@ -6,6 +6,7 @@
  *        node bin/tune.ts run <tune dir> --iterations 8 [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  *        node bin/tune.ts checkpoint <tune dir>
  *        node bin/tune.ts propose <tune dir> --from <hub dir> --why <text> [--as manual|skill]
+ *        node bin/tune.ts status <tune dir or root> [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  * Tunes live in <root>/<repo>/<name>; the root is AGENTGRAPH_TUNE, by default ~/.agentgraph/tune.
  */
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
