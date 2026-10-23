@@ -735,13 +735,3 @@ describe('plan', () => {
     });
   });
 });
-
-describe('run comparison', () => {
-  const report = (rate: number) =>
-    `# Bench report\n\n3 valid cases.\n\nHidden tests passed\n\n| arm | passed | of | rate |\n|---|---|---|---|\n| v2 | 1 | 3 | ${rate} |\n\n## All\n`;
-  it('lists only the headline rows that changed', async () => {
-    const { compare } = await import('../bin/bench-run.ts');
-    expect(compare(report(0.33), report(0.33))).toEqual([]);
-    expect(compare(report(0.33), report(0.67))).toEqual(['- Hidden tests passed / v2: 1 | 3 | 0.33 -> 1 | 3 | 0.67']);
-  });
-});

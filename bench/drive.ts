@@ -1,6 +1,6 @@
 // node bench/drive.ts [resume] <dir>: runs every case of <dir>/set.json on v2 and floor at each point and repeat,
-// through bin/bench.ts of the engine checked out at <dir>/<SHA>/engine. Layout as bin/bench-run.ts:
-// <dir>/<sha>/<harness>-<model>/r<k>. The first start records its settings in drive.json; `resume <dir>` needs none.
+// through bin/bench.ts of the engine checked out at <dir>/<SHA>/engine, into <dir>/<sha>/<harness>-<model>/r<k>.
+// The first start records its settings in drive.json; `resume <dir>` needs none.
 // Live knobs in <dir>: `parallel` (worker count), `PAUSE` (take no new job). events.jsonl logs every start, stop,
 // pause and job. Exits 1 while jobs are left, so a queue tries again later.
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';

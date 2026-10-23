@@ -22,6 +22,8 @@
 - The runner data dir defaults to `~/.agentgraph`, tunes to `~/.agentgraph/tune` and the bench
   driver's repos to `~/.agentgraph/tune/repos`. The cache collector no longer lists `bothub-*`
   docker objects.
+- `node bench/drive.ts` is the one bench runner; `bin/bench-run.ts`, `npm run bench` and its
+  `compare.md` are gone. The `v1` arm, which never ran, is gone too.
 
 ## 0.2.0
 

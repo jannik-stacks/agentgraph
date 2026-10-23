@@ -5,25 +5,16 @@ The bench replays merged pull requests from their parent commit and issue text. 
 ## Run it at a commit
 
 ```sh
-BENCH_CASES=<miner cases> BENCH_REPOS=<clones> npm run bench -- --at <engine-commit> [--set smoke] [--fresh]
+git worktree add --detach <dir>/<sha>/engine <sha>
+ln -s "$PWD/node_modules" <dir>/<sha>/engine/agentgraph/node_modules
+SHA=<sha> POINTS=opencode:luna REPEATS=3 KEYS=<keys file> node bench/drive.ts <dir>
 ```
 
-The command checks out `runs/<sha>/engine`, then runs validity, v2, floor, scoring and judging for `bench/sets/<set>.json`. It writes `report.md` and `compare.md` against the newest earlier report. Cases whose base differs from the set's pinned base are skipped.
+A bench dir holds `set.json` (a copy of `bench/sets/<set>.json`) and the set's case dirs under `cases/`. The driver runs validity, v2, floor, scoring and judging for every case at each point and repeat with the engine checked out at `<dir>/<sha>/engine`, and writes `report.md` in each run dir `<dir>/<sha>/<harness>-<model>/r<k>`. Points take aliases such as `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)). [Long runs](#long-runs) covers settings, budgets, pause and resume.
 
-| Option | Effect |
-| --- | --- |
-| `--cases-dir`, `--repos-dir` | Override `BENCH_CASES`, `BENCH_REPOS` |
-| `--out` | Output root, default `runs` |
-| `--parallel` | Concurrent cases, default 3 |
-| `--point harness:model` | Repoint every hub agent; aliases include `opencode:glm` ([OpenRouter setup](../infra/local/README.md#openrouter-models)) |
-| `--repeat k` | Separate repeat instead of reuse |
-| `--pairs human` | Judge only pairs containing the human |
-| `--judges` | Replace the [judge panel](#commands) |
-| `--fresh` | Ignore shared caches |
+Each run dir's `point.json` records harness, model, engine, hub trees, set and repeat. For arm commands run by hand, `BENCH_POINT` selects the model and `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key.
 
-Point or repeat options write under `runs/<sha>/<harness>-<model>/r<k>`. `point.json` records harness, model, engine, hub trees, set and repeat. `BENCH_POINT` also selects the model for arm commands; use explicit `--point` for matching commit-run metadata. `AGENTGRAPH_LLM_API_KEY_PT_<HARNESS>_<MODEL>` overrides every agent's key. `BENCH_HUB=<dir>` replaces the v2 hub and joins its cache key.
-
-Shared results live in `runs/.cache`: validity keys include case, scoring code and sandbox image; arm keys include case, arm, hub, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped.
+Shared results live in `<dir>/.cache` (`BENCH_CACHE`): validity keys include case, scoring code and sandbox image; arm keys include case, arm, hub, engine `src` tree (except floor), point and repeat; judge keys include judge and the ordered diff prompt. Existing outputs are skipped; `BENCH_FRESH=1` ignores the cache.
 
 ## Cases
 
@@ -69,7 +60,7 @@ node bin/bench.ts report <out>
 ```
 
 - `run` writes forge, data, hub copy, `diff.patch`, `meta.json` and `usage.json` under `<out>/<case>/<arm>`. Usage sums sessions, reported costs, tokens by model and class, and minutes over every attempt, set-aside ones included, and lists each attempt. `split` divides the time into session, tool, hub setup and check ms, plus the minutes of attempts lost to infra. A model without a list price stops `run` before it spends. Cached arms retain usage, not data; every arm, floor included, is keyed by the engine's `src` tree, and a reused arm's `meta.json` names its slot in `reusedFrom`. `--point` and `--repeat` also work here.
-- `score` applies each diff to a shared base checkout, runs suite and typecheck, overlays human test files and runs hidden tests. A base row checks pre-change failure. Metrics count source/test lines, files, human-file overlap, added tests, branch-token changes, sessions, cost and answers. Usage comes from `usage.json`, otherwise traces. `--drop-env` removes scoring environments afterward; commit runs use it after the last arm, tunes retain environments for reuse.
+- `score` applies each diff to a shared base checkout, runs suite and typecheck, overlays human test files and runs hidden tests. A base row checks pre-change failure. Metrics count source/test lines, files, human-file overlap, added tests, branch-token changes, sessions, cost and answers. Usage comes from `usage.json`, otherwise traces. `--drop-env` removes scoring environments afterward; tunes retain environments for reuse.
 - `judge` compares pairs with Opus and Sonnet via `claude -p`, and sol via proxy alias `smart`. Default `--judges opus:1,sonnet:2` sets one or both diff orders, the same panel for every row; a single order is chosen by case and pair. Add `sol:2` to widen it, or `--judges sol:1` to replace it. The studio unticks sol by default. Judges sharing the contestant's maker are replaced by another maker from sol, gemini, Opus, using upstream names in `infra/local/prices.json`. Prompts omit lockfiles, changelogs, `.tsbuildinfo` files, `.husky/` hooks, `.changeset/` notes and index lines, on both sides of a pair, and mask names and issue numbers. `bench/judge.md` prioritizes correctness, then scope, without rewarding size. JSON verdicts keep severity, category and preference beside raw replies. Each uncached call writes `<judge>.<n>.cost.json` with ms, tokens and usd (a list-price estimate for `claude -p` on a subscription); `report` sums them.
 - `report` reprices from tokens at today's list price where a run recorded no cost, and rows say whether cost was recorded, list price or a subscription's list-price estimate. It writes valid/invalid/infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables.
 
