@@ -37,13 +37,25 @@ hub/
   workflows/issue.md     trigger and steps
 ```
 
+## Commands
+
+```sh
+npm run up                   # model proxy and sandbox, see infra/local/README.md
+npm run keys                 # one proxy key per agent
+npx agentgraph <command>     # check, --all, loop, status, say, tell, dispatch
+npm run check                # everything CI and the precommit hook run
+npm run down
+```
+
+Before the first `npm run up`, copy `infra/local/.env.example` to `infra/local/.env` and set `LITELLM_MASTER_KEY` and your provider keys.
+
 ## Quickstart
 
 You need Node 22.18 or later. Running agents also needs Docker.
 
 ```sh
 npm install
-node bin/run.ts check --hub examples/sandbox
+npx agentgraph check --hub examples/sandbox
 ```
 
 `check` validates a hub. It needs no model and no container, and prints `ok` or the problems it found.
@@ -54,24 +66,13 @@ To try a repo without GitHub, create a local instance. It holds a copy of the hu
 node bin/forge.ts ~/agentgraph/demo init /path/to/your/repo --hub examples/sandbox
 node bin/forge.ts ~/agentgraph/demo issue "Add a greet function" --label agent:ready
 node bin/forge.ts ~/agentgraph/demo show
-node bin/run.ts status --instance ~/agentgraph/demo
+npx agentgraph status --instance ~/agentgraph/demo
 ```
 
-To let agents work on that issue, start the model proxy and build the sandbox image:
+To let agents work on that issue, run `npm run up` and `npm run keys`, copy the keys into the instance as [Set one up](docs/local.md#set-one-up) shows, then run every open issue once and look at the result:
 
 ```sh
-cd infra/local
-cp .env.example .env            # set LITELLM_MASTER_KEY and provider keys
-docker compose up -d
-docker compose --profile sandbox up -d
-docker build -t agentgraph-sandbox:local sandbox
-./keys.sh                       # one proxy key per agent, in .keys.env
-```
-
-Copy the keys into the instance as [Set one up](docs/local.md#set-one-up) shows, then run every open issue once and look at the result:
-
-```sh
-node bin/run.ts --instance ~/agentgraph/demo --all
+npx agentgraph --instance ~/agentgraph/demo --all
 node bin/forge.ts ~/agentgraph/demo show 2
 cd studio && npm install && npm run dev -- --instance ~/agentgraph/demo
 ```
@@ -101,13 +102,13 @@ The studio opens on port 5182 and shows the workflow graph and every run.
 ## Development
 
 ```sh
-npm run typecheck
-npm run lint
 npm test
-npm run verify        # everything, including formatting, unused code, studio build and docs checks
+npm run lint
+npm run format
+npm run check         # everything: formatting, lint, unused code, docs, hubs, types, coverage, studio build
 ```
 
-`npm run verify:docs` checks that docs references and documented commands match the code. `npm run hooks` enables the git hooks in `bin/hooks`, which run the precommit checks and commit message rules. Undo with `git config --unset core.hooksPath`.
+`npm run check:docs` checks that docs references and documented commands match the code. `npm run hooks` enables the git hooks in `bin/hooks`, which run `npm run check` and the commit message rules. Undo with `git config --unset core.hooksPath`.
 
 `bin/lsp.ts` gives you the editor's find references and rename from the shell. It talks to the TypeScript language server that ships with the `typescript` dev dependency, so there is nothing extra to install. Positions are `file:line:col`, counted from 1, and paths are relative to the directory you run it in.
 

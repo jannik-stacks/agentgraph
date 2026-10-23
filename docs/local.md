@@ -4,24 +4,21 @@ Requires Node 22.18 or later and Docker. Commands run from `agentgraph/` unless 
 
 ## The model stack
 
-From `infra/local`:
-
 ```sh
-cp .env.example .env              # set LITELLM_MASTER_KEY and provider keys
-docker compose up -d
-docker compose --profile sandbox up -d
-docker build -t agentgraph-sandbox:local sandbox
-./keys.sh                         # virtual keys in .keys.env
+cp infra/local/.env.example infra/local/.env   # once: set LITELLM_MASTER_KEY and provider keys
+npm run up                                     # sandbox image, proxy and egress, waits until healthy
+npm run keys                                   # virtual keys in infra/local/.keys.env
+npm run down
 ```
 
-The compose project is always `agentgraph`. A stack still running as project `bothub` moves once with `./migrate-from-bothub.sh` ([Moving from the bothub project](../infra/local/README.md#moving-from-the-bothub-project)).
+The compose project is always `agentgraph`. A stack still running as project `bothub` moves once with `infra/local/migrate-from-bothub.sh` ([Moving from the bothub project](../infra/local/README.md#moving-from-the-bothub-project)).
 
 [Local infrastructure](../infra/local/README.md) covers provider setup, including the ChatGPT login for `smart`. Rust toolchains warm a shared cache on first use; see [Toolchains](sandbox.md#toolchains).
 
-For GitHub, create an App with `node bin/setup-app.ts` ([App setup](../infra/github/README.md)). Set `AGENTGRAPH_APP_ENV` to its `app.env`. From `infra/local`, prepare a persistent data directory:
+For GitHub, create an App with `node bin/setup-app.ts` ([App setup](../infra/github/README.md)). Set `AGENTGRAPH_APP_ENV` to its `app.env`. Prepare a persistent data directory:
 
 ```sh
-./e2e.sh ~/agentgraph-data ../../examples/sandbox
+infra/local/e2e.sh ~/agentgraph-data examples/sandbox
 ```
 
 The script converts agent keys to `AGENTGRAPH_PROXY_KEYS` in the data directory's `.env` and prints commands. Source that file as instructed; the runner does not load it automatically. Instances load their own `keys.env` instead.
@@ -29,11 +26,11 @@ The script converts agent keys to `AGENTGRAPH_PROXY_KEYS` in the data directory'
 ## The CLI
 
 ```sh
-node bin/run.ts check --hub examples/sandbox
-node bin/run.ts --hub examples/sandbox --issue 3 --data ~/agentgraph-data
-node bin/run.ts --hub examples/sandbox --all --data ~/agentgraph-data
-node bin/run.ts loop --hub examples/sandbox --data ~/agentgraph-data
-node bin/run.ts status --hub examples/sandbox --data ~/agentgraph-data
+npx agentgraph check --hub examples/sandbox
+npx agentgraph --hub examples/sandbox --issue 3 --data ~/agentgraph-data
+npx agentgraph --hub examples/sandbox --all --data ~/agentgraph-data
+npx agentgraph loop --hub examples/sandbox --data ~/agentgraph-data
+npx agentgraph status --hub examples/sandbox --data ~/agentgraph-data
 ```
 
 | Command | Behavior |
@@ -68,9 +65,9 @@ App credentials also work directly in the environment. `--logs` or instance `log
 Routing commands use the same engine rules as [router proposals](loop.md#routing):
 
 ```sh
-node bin/run.ts say --hub <dir> --data <dir> --issue <n> [--comment <review comment id>] "<text>"
-node bin/run.ts tell --data <dir> --issue <n> "<text>"
-node bin/run.ts dispatch --hub <dir> --data <dir> --workflow <name> --issue <n> [--step <step>]
+npx agentgraph say --hub <dir> --data <dir> --issue <n> [--comment <review comment id>] "<text>"
+npx agentgraph tell --data <dir> --issue <n> "<text>"
+npx agentgraph dispatch --hub <dir> --data <dir> --workflow <name> --issue <n> [--step <step>]
 ```
 
 `say` runs the router immediately and replies at the source location. `tell` queues text for a live run's next look, refusing if none exists. `dispatch` starts an eligible workflow. These also accept `--forge` and `--instance`.
@@ -83,7 +80,7 @@ A forge folder replaces GitHub; no App is needed. It contains `<n>.md` issues, `
 node bin/forge.ts /tmp/forge init ../path/to/repo
 node bin/forge.ts /tmp/forge issue "Reject a negative count" --body issue.md
 node bin/forge.ts /tmp/forge comment 1 /agent
-node bin/run.ts --forge /tmp/forge --hub examples/sandbox --all --data ~/agentgraph-data
+npx agentgraph --forge /tmp/forge --hub examples/sandbox --all --data ~/agentgraph-data
 ```
 
 `--forge` also works with `loop` and `status`; sessions still use Docker and proxy keys. Use a persistent forge folder for lasting work. <!-- code: src/status.ts#needsYou -->
@@ -129,14 +126,14 @@ sed -n 's/^AGENTGRAPH_LLM_API_KEY_\([A-Z_]*\)=\(.*\)$/\1=\2/p' infra/local/.keys
 
 ### A loop by hand
 
-Both CLIs find an instance from any folder inside it. `run.ts` also searches its working directory when no hub, forge or data flags are given.
+Both CLIs find an instance from any folder inside it. `npx agentgraph` also searches its working directory when no hub, forge or data flags are given.
 
 ```sh
 node bin/forge.ts ~/agentgraph/kit issue "Reject a negative count" --body issue.md --label agent:ready
-node bin/run.ts --instance ~/agentgraph/kit --all
+npx agentgraph --instance ~/agentgraph/kit --all
 node bin/forge.ts ~/agentgraph/kit show 2
 node bin/forge.ts ~/agentgraph/kit review 2 changes "also cover zero"
-node bin/run.ts --instance ~/agentgraph/kit --all
+npx agentgraph --instance ~/agentgraph/kit --all
 node bin/forge.ts ~/agentgraph/kit review 2 approve
 node bin/forge.ts ~/agentgraph/kit merge 2
 node bin/forge.ts ~/agentgraph/kit export 2
@@ -151,8 +148,8 @@ Answer questions with `/agent` comments as [Waiting](loop.md#waiting) describes.
 Each instance has its own mirror and data:
 
 ```sh
-node bin/run.ts loop --instance ~/agentgraph/kit &
-node bin/run.ts loop --instance ~/agentgraph/clarinet &
+npx agentgraph loop --instance ~/agentgraph/kit &
+npx agentgraph loop --instance ~/agentgraph/clarinet &
 ```
 
 Open one studio per instance, using a different `AGI_PORT` for each.
@@ -170,7 +167,7 @@ The default port is 5182, overridden by `AGI_PORT`. Without an instance, `-- --h
 
 ## Before you commit
 
-`npm run precommit` validates example hubs, schema usage, docs refs and name coverage, documented commands, unused code and formatting. It also runs the agentgraph hub's fast checks over uncommitted changes against `HEAD` or `AGENTGRAPH_BASE`. Hub loading rejects retired terms. `npm run verify` runs the full checks, including types, coverage and studio build.
+`npm run check` is the one command CI and the precommit hook run. It checks formatting, lint, unused code, docs refs and name coverage, documented commands, schema usage, example hubs, types, coverage and the studio build. It also runs the agentgraph hub's fast checks over uncommitted changes against `HEAD` or `AGENTGRAPH_BASE` (`sh bin/precommit.sh` alone). Hub loading rejects retired terms.
 
 Docs bind claims to code with hidden comments such as `<!-- code: src/engine.ts#land -->`:
 
@@ -181,4 +178,4 @@ node bin/refs.mjs --diff main        # show the other side needing review
 node bin/refs.mjs --coverage         # find undocumented names and uncited exports
 ```
 
-`--diff HEAD --staged` checks staged changes; precommit prints these warnings. Pairs changed on both sides are omitted; unchanged sections citing the same symbol are included. Coverage requires user-facing fields, values, statuses, labels, proposal kinds, CLI names and `AGENTGRAPH_` variables in docs code spans. Uncited exports are listed only.
+`--diff HEAD --staged` checks staged changes; `npm run check` prints these warnings. Pairs changed on both sides are omitted; unchanged sections citing the same symbol are included. Coverage requires user-facing fields, values, statuses, labels, proposal kinds, CLI names and `AGENTGRAPH_` variables in docs code spans. Uncited exports are listed only.

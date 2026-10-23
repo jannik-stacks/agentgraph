@@ -59,7 +59,7 @@ Audit finished runs with:
 node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push' 'triage=label|issue|ask'
 ```
 
-It fails on denied tool calls, zero-cost started sessions, or done workflows lacking any listed applied kind. It also prints wait time before the first session. It reads run data only and is outside precommit.
+It fails on denied tool calls, zero-cost started sessions, or done workflows lacking any listed applied kind. It also prints wait time before the first session. It reads run data only and is outside `npm run check`.
 
 ## Provenance
 
