@@ -53,4 +53,4 @@ Pushes allow regular files outside `.github/` and `.git/`, at most 200 files and
 
 ## Engine kinds
 
-Agents cannot propose `react` (eyes reactions) or `rebase` (stack and base updates). The engine owns these kinds. <!-- code: src/proposal.ts#Proposal -->
+Agents cannot propose `react` (eyes reactions) or `rebase` (stack and base updates). The engine owns these kinds. <!-- code: src/proposal.ts#React src/proposal.ts#Rebase src/proposal.ts#Said -->

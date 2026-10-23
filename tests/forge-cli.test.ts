@@ -13,7 +13,6 @@ import { start as main } from '../src/main.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import type { SessionEvent } from '../src/trace.ts';
-import { fileStore } from '../src/store.ts';
 import { host } from './doubles/sandbox.ts';
 import { scripted } from './doubles/session.ts';
 import { reply, seeded, start, wrote } from './fixtures.ts';

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, type Redacted } from 'effect';

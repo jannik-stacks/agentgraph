@@ -67,4 +67,4 @@ export const studioRun = (studio: string, run: string) =>
 
 /** The body without any provenance marker or ⁂ link in it. */
 export const unstamped = (body: string) =>
-  body.replace(/<!--\s*(?:agentgraph|bothub)\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();
+  body.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();

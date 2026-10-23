@@ -4,7 +4,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
-import { load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
+import { exact, load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
@@ -96,11 +96,10 @@ const reads = (texts: string[], name: string) =>
 /** Reports each `"kind"` value a body names that the engine does not know. */
 const unknownKinds = (body: string, say: (message: string) => void) => {
   const seen = new Set<string>();
-  for (const [, word, kind] of body.matchAll(/`(\w[\w-]*)`|"kind":\s*"([\w-]+)"/g)) {
-    const name = word ?? kind!;
-    if (seen.has(name) || Schema.is(Kind)(name) || (word !== undefined && !(name in returns))) continue;
-    seen.add(name);
-    say(`names the proposal kind ${name}, which the engine does not have${returns[name] ? `: ${returns[name]}` : ''}`);
+  for (const [, name] of body.matchAll(/"kind":\s*"([\w-]+)"/g)) {
+    if (seen.has(name!) || Schema.is(Kind)(name)) continue;
+    seen.add(name!);
+    say(`names the proposal kind ${name}, which the engine does not have`);
   }
 };
 
