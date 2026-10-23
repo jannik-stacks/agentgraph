@@ -822,7 +822,7 @@ type Item = {
   output?: string;
 };
 
-/** The judge prompts that passed per data dir, run, check and diff; the same prompt on the same diff is not judged again. */
+/** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
 const passes = new WeakMap<object, Set<string>>();
 
 /** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
@@ -879,7 +879,9 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           .filter(Boolean)
           .join('\n\n');
         const key = createHash('sha256')
-          .update([run, check.name, check.agent, agent.model, prompt, diff].join('\0'))
+          .update(
+            [run, check.name, check.agent, agent.model, agent.harness, agent.body, agent.tools, prompt, diff].join('\0')
+          )
           .digest('hex');
         if (!agent.reads && passed.has(key)) return { item, pass: true, findings: '', ...exit };
         const judged = yield* verdictOf(

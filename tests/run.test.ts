@@ -3290,6 +3290,51 @@ describe('gate', () => {
     expect(judgedItems.sort()).toEqual(['a', 'b']);
   });
 
+  it('judges a kept pass again when the judge system prompt, harness or tools change', async () => {
+    const where = world();
+    const dir = join(where.root, 'work');
+    mkdirSync(dir);
+    mkdirSync(join(where.root, 'news'));
+    git(dir, 'init', '-q');
+    git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
+    const small = hubOf('kit', { claims: { agent: 'claim-checker' } });
+    const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
+    const specs: SessionSpec[] = [];
+    const judges = Layer.succeed(Session, {
+      open: (spec: SessionSpec) => (
+        specs.push(spec),
+        Stream.fromIterable<SessionEvent>([start('j'), { type: 'end', final: 'PASS', ended: 'stop', exit: 0 }])
+      ),
+    });
+    const left = {
+      run: 'run-7',
+      issue: 7,
+      context: '',
+      reply: '',
+      dir,
+      base: 'HEAD',
+      git: { GIT_DIR: join(dir, '.git'), GIT_WORK_TREE: dir },
+      news: join(where.root, 'news', 'news.md'),
+      proposals: [],
+    };
+    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const judge = small.agents['claim-checker']!;
+    const as = (agent: Partial<typeof judge>) => ({
+      ...small,
+      agents: { ...small.agents, 'claim-checker': { ...judge, ...agent } },
+    });
+    const once = (h: Hub) => Effect.runPromise(gate(step, left, h).pipe(Effect.provide(layer)));
+    await once(small);
+    await once(small);
+    expect(specs).toHaveLength(1);
+    await once(as({ body: `${judge.body}\nBe stricter.` }));
+    expect(specs).toHaveLength(2);
+    await once(as({ harness: judge.harness === 'pi' ? 'claude' : 'pi' }));
+    expect(specs).toHaveLength(3);
+    await once(as({ tools: [...judge.tools, 'WebFetch'] }));
+    expect(specs).toHaveLength(4);
+  });
+
   describe('a judge session that did not end normally', () => {
     const judged = async (
       ends: Extract<SessionEvent, { type: 'end' }>[],
