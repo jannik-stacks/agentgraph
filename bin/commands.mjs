@@ -1,6 +1,6 @@
 // Fails when the README, the docs, a hub README or a usage header in bin/ names a command that does not exist: a
-// `node bin/` file, its subcommand, a flag it does not read, an npm script, or a `agentgraph <command>`, which has no
-// binary. Usage: node bin/commands.mjs
+// `node bin/` file, its subcommand, a flag it does not read, or an npm script. `npx agentgraph` stands for
+// `node bin/run.ts`. Usage: node bin/commands.mjs
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -49,7 +49,8 @@ const everyFlag = new Set(Object.values(known).flatMap(k => [...k.flags]));
 
 const bad = [];
 const check = (at, line, own) => {
-  for (const [, file, rest] of line.matchAll(/node bin\/([\w.-]+)([^`]*)/g)) {
+  for (const [, path, rest] of line.matchAll(/(node bin\/[\w.-]+|npx agentgraph)([^`]*)/g)) {
+    const file = path === 'npx agentgraph' ? 'run.ts' : path.slice('node bin/'.length);
     if (!known[file]) {
       bad.push(`${at}: bin/${file} does not exist`);
       continue;
@@ -66,7 +67,7 @@ const check = (at, line, own) => {
   }
   if (own)
     for (const [, flag] of line.matchAll(/(?:^|[\s`(])--([a-z][\w-]*)/g))
-      if (!known[own].flags.has(flag) && !/node bin\//.test(line))
+      if (!known[own].flags.has(flag) && !/node bin\/|npx agentgraph/.test(line))
         bad.push(`${at}: bin/${own} has no --${flag} option`);
 };
 
@@ -83,8 +84,6 @@ for (const page of pages) {
           if (!everyFlag.has(flag)) bad.push(`${at}: no bin file reads --${flag}`);
       for (const [, script] of line.matchAll(/npm (?:--prefix \w+ )?run(?: -s)? ([\w:-]+)/g))
         if (!npm.has(script)) bad.push(`${at}: there is no npm script ${script}`);
-      for (const [, word] of line.matchAll(/`agentgraph ([a-z][\w-]*)/g))
-        bad.push(`${at}: \`agentgraph ${word}\` names a binary that does not exist; say node bin/run.ts`);
     });
 }
 if (bad.length) {

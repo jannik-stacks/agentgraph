@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Looks at one issue once: reenters its parked run, or begins one, and drives it until it parks or ends.
  * Usage: node bin/run.ts --hub <dir> --issue <n> --data <dir>
