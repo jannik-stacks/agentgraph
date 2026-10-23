@@ -1,4 +1,4 @@
-import { Context, Stream, type Scope } from 'effect';
+import { Context, type Stream, type Scope } from 'effect';
 import type { SessionEvent, SessionSpec, SessionStop } from './trace.ts';
 
 /** Runs one harness session in the sandbox and streams what it does. The harness exiting ends it. */

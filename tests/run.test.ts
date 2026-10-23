@@ -36,7 +36,7 @@ import { harnesses } from '../src/harnesses.ts';
 import { fileForge, Forge, ForgeError, provenance } from '../src/forge.ts';
 import type { Event, Mark } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
-import { Sandbox, type Command } from '../src/sandbox.ts';
+import { Sandbox, type Checkout, type Command } from '../src/sandbox.ts';
 import { settings, type Settings } from '../src/services.ts';
 import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
@@ -166,7 +166,7 @@ describe('drive', () => {
       const where = world();
       const small = hubOf('hub');
       const flow = { ...small.workflows.issue!, steps: small.workflows.issue!.steps.map(s => ({ ...s, checks: [] })) };
-      let work: import('../src/sandbox.ts').Checkout | undefined;
+      let work: Checkout | undefined;
       const sandbox = Layer.effect(
         Sandbox,
         Effect.map(Sandbox, s => ({

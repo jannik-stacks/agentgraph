@@ -19,6 +19,7 @@ import { dockerArgs, type Made } from '../src/docker.ts';
 import { priceOf, type Prices } from '../src/harnesses.ts';
 import { dependencyDirs, discard, envOf, layer, manifest, ownerId, sweep as sweepLayers, written } from '../src/env.ts';
 import { collect, room, trees } from '../src/disk.ts';
+import type * as MainModule from '../src/main.ts';
 import {
   append,
   attic,
@@ -396,7 +397,7 @@ export const repoint = (hub: string, point: string) => {
 };
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
-  const { start } = (await import(join(engine, 'src/main.ts'))) as typeof import('../src/main.ts');
+  const { start } = (await import(join(engine, 'src/main.ts'))) as typeof MainModule;
   const own = process.env.BENCH_HUB ?? `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
   cpSync(resolve(engine, own), hub, { recursive: true });

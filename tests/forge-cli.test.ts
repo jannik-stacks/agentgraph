@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fileForge } from '../src/forge.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { instanceAt } from '../src/instance.ts';
-import { sweep, tick, type Instruction } from '../src/engine.ts';
+import { sweep, tick, type Instruction, type Services } from '../src/engine.ts';
 import { loadHub } from '../src/hub.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
@@ -403,7 +403,7 @@ describe('bin/forge.ts with run --forge', () => {
     ]);
     w.forge('comment', '2', '/agent explain this line', '--line', 'hello.txt:1');
     const hub = await Effect.runPromise(loadHub(sandboxHub));
-    const run = <A, E>(effect: Effect.Effect<A, E, import('../src/engine.ts').Services>) =>
+    const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
       Effect.runPromise(
         effect.pipe(
           Effect.provide(

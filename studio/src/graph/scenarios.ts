@@ -1,6 +1,7 @@
 import type { Agent, Check } from '../../../src/hub.ts';
 import type { Trace } from '../../../src/trace.ts';
 import type { Outcome, Run, Step, Workflow } from '../../../src/workflow.ts';
+import type * as WorkflowModule from '../../../src/workflow.ts';
 
 /** One outcome a run met, with the run as it stood before it. */
 export type Trail = { at: Run; outcome: Outcome }[];
@@ -112,7 +113,7 @@ export const scenarios = (w: Workflow, checks: Fixture['checks']): Scenario[] =>
 export const simulate = (
   w: Workflow,
   next: Policy,
-  engine: Pick<typeof import('../../../src/workflow.ts'), 'begin' | 'transition'>
+  engine: Pick<typeof WorkflowModule, 'begin' | 'transition'>
 ): { trail: Trail; run: Run } => {
   let run = engine.begin(w, { id: 'sim', issue: 1, started: '2026-10-16T00:00:00Z' });
   const trail: Trail = [];

@@ -1,4 +1,4 @@
-import { Effect, Redacted } from 'effect';
+import { Effect, type Redacted } from 'effect';
 import { appToken } from './github.ts';
 import { Store } from './store.ts';
 

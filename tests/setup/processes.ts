@@ -1,15 +1,16 @@
 import { appendFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
+import type * as ChildProcessModule from 'node:child_process';
 import { startTime } from './global.ts';
 
 /** Appends the pid and start time of every process a test worker spawns to the file in AGENTGRAPH_TEST_PROCESSES. */
-const childProcess = createRequire(import.meta.url)('node:child_process') as typeof import('node:child_process');
+const childProcess = createRequire(import.meta.url)('node:child_process') as typeof ChildProcessModule;
 const log = process.env.AGENTGRAPH_TEST_PROCESSES;
 const marker = Symbol.for('agentgraph.recordedSpawn');
 
 if (log && !(marker in childProcess.spawn)) {
   for (const name of ['spawn', 'fork'] as const) {
-    const original = childProcess[name] as (...args: unknown[]) => import('node:child_process').ChildProcess;
+    const original = childProcess[name] as (...args: unknown[]) => ChildProcessModule.ChildProcess;
     const recorded = (...args: unknown[]) => {
       const child = original(...args);
       const started = child.pid && startTime(child.pid);

@@ -1,8 +1,16 @@
 import { existsSync, readdirSync, readFileSync, watch } from 'node:fs';
+import type { ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
 import { linksOf } from './src/runs/trace.ts';
+import type * as BenchModule from '../bin/bench.ts';
+import type * as TuneModule from '../bin/tune.ts';
+import type * as DriveModule from '../bench/drive.ts';
+import type * as HubModule from '../src/hub.ts';
+import type * as StoreModule from '../src/store.ts';
+import type * as WorkflowModule from '../src/workflow.ts';
+import type * as FixturesModule from '../tests/fixtures.ts';
 
 const id = 'virtual:fixtures';
 const root = new URL('../', import.meta.url);
@@ -13,14 +21,14 @@ const servedHub = async () => {
   const dir = process.env.VITE_AGI_HUB;
   if (!dir) return;
   const { Effect, Either } = await import('effect');
-  const { loadHub }: typeof import('../src/hub.ts') = await from('src/hub.ts');
+  const { loadHub }: typeof HubModule = await from('src/hub.ts');
   const loaded = await Effect.runPromise(Effect.either(loadHub(dir)));
   return Either.isRight(loaded)
     ? { name: basename(dir), hub: loaded.right, problems: [] }
     : { name: basename(dir), hub: undefined, problems: loaded.left.problems };
 };
 
-const json = (res: import('node:http').ServerResponse, value: unknown, status = 200) => {
+const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify(value));
@@ -95,8 +103,8 @@ export const fixtures = (): Plugin => ({
       });
     });
     server.middlewares.use('/api/bench', async (_req, res) => {
-      const { rowsOf }: typeof import('../bin/bench.ts') = await from('bin/bench.ts');
-      const { stateOf }: typeof import('../bench/drive.ts') = await from('bench/drive.ts');
+      const { rowsOf }: typeof BenchModule = await from('bin/bench.ts');
+      const { stateOf }: typeof DriveModule = await from('bench/drive.ts');
       const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {
         rows: dirs.flatMap(dir => outsOf(dir)).flatMap(out => rowsOf(out)),
@@ -105,13 +113,13 @@ export const fixtures = (): Plugin => ({
       });
     });
     server.middlewares.use('/api/compound', async (_req, res) => {
-      const { tunesOf }: typeof import('../bin/tune.ts') = await from('bin/tune.ts');
+      const { tunesOf }: typeof TuneModule = await from('bin/tune.ts');
       json(res, tunesOf(process.env.VITE_AGI_TUNE));
     });
     server.middlewares.use('/api/logs', async (req, res) => {
       const data = process.env.VITE_AGI_DATA;
       const { Effect } = await import('effect');
-      const { Store, fileStore }: typeof import('../src/store.ts') = await from('src/store.ts');
+      const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
       const hash = (req.url ?? '/').split('?')[0]!.slice(1);
       const text =
         data &&
@@ -123,7 +131,7 @@ export const fixtures = (): Plugin => ({
     server.middlewares.use('/api/locate', async (req, res) => {
       const data = process.env.VITE_AGI_DATA;
       const { Effect, Either } = await import('effect');
-      const { fileStore, locate }: typeof import('../src/store.ts') = await from('src/store.ts');
+      const { fileStore, locate }: typeof StoreModule = await from('src/store.ts');
       if (!data) return json(res, null, 404);
       const gh = new URL(req.url ?? '/', 'http://studio').searchParams.get('gh');
       const found = await Effect.runPromise(Effect.either(locate({ gh })).pipe(Effect.provide(fileStore(data))));
@@ -136,12 +144,12 @@ export const fixtures = (): Plugin => ({
       const one = decodeURIComponent((req.url ?? '/').split('?')[0]!.slice(1));
       if (one && !/^(?!\.+$)[\w.-]+$/.test(one)) return json(res, { error: 'bad run id' }, 400);
       const { Effect, Stream, Chunk } = await import('effect');
-      const { Store, fileStore }: typeof import('../src/store.ts') = await from('src/store.ts');
+      const { Store, fileStore }: typeof StoreModule = await from('src/store.ts');
       if (!served || !data) return json(res, one ? null : []);
       const answer = await Effect.runPromise(
         Effect.gen(function* () {
           const store = yield* Store;
-          const entry = (run: import('../src/workflow.ts').Run, all: boolean) =>
+          const entry = (run: WorkflowModule.Run, all: boolean) =>
             Stream.runCollect(store.read(run.id)).pipe(
               Effect.map(Chunk.toArray),
               Effect.map(trace => ({
@@ -162,8 +170,8 @@ export const fixtures = (): Plugin => ({
   },
   async load(source) {
     if (source !== `\0${id}`) return;
-    const { hubs, fixture }: typeof import('../tests/fixtures.ts') = await from('tests/fixtures.ts');
-    const engine: typeof import('../src/workflow.ts') = await from('src/workflow.ts');
+    const { hubs, fixture }: typeof FixturesModule = await from('tests/fixtures.ts');
+    const engine: typeof WorkflowModule = await from('src/workflow.ts');
     const all: Fixture[] = hubs.flatMap(hub => {
       const { checks, workflows } = fixture(hub);
       return Object.values(workflows).map(workflow => ({

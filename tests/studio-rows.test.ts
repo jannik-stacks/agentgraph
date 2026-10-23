@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { fileStore, Store } from '../src/store.ts';
 import type { Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
+import type * as TraceModule from '../studio/src/runs/trace.ts';
 import { studioDir, studioModule } from './studio.ts';
 
 type Row = {
@@ -23,8 +24,7 @@ Object.assign(globalThis, { location: new URL('http://localhost/runs') });
 const { runRow } = await studioModule<{
   runRow: (r: ServedRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
 }>('runs/rows.tsx');
-const { lineAt, linksOf, locatedLink, isGitHubRef } =
-  await studioModule<typeof import('../studio/src/runs/trace.ts')>('runs/trace.ts');
+const { lineAt, linksOf, locatedLink, isGitHubRef } = await studioModule<typeof TraceModule>('runs/trace.ts');
 const dependency = <T>(name: string) =>
   import(
     /* @vite-ignore */ pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href

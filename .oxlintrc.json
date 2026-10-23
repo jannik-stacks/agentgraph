@@ -72,6 +72,12 @@
     "typescript/ban-ts-comment": "error",
     "typescript/no-explicit-any": "error",
     "typescript/consistent-indexed-object-style": "error",
+    "typescript/consistent-type-imports": [
+      "error",
+      {
+        "fixStyle": "inline-type-imports"
+      }
+    ],
     "typescript/no-confusing-non-null-assertion": "error",
     "typescript/no-empty-interface": "error",
     "typescript/no-empty-object-type": "error",

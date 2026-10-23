@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
-import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
+import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker, dockerArgs } from '../src/docker.ts';
 import {
@@ -37,10 +37,8 @@ const origin = () => {
   return dir;
 };
 
-const use = <A, E>(
-  layer: Layer.Layer<Sandbox>,
-  f: (s: Sandbox['Type']) => Effect.Effect<A, E, import('effect').Scope.Scope>
-) => Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
+const use = <A, E>(layer: Layer.Layer<Sandbox>, f: (s: Sandbox['Type']) => Effect.Effect<A, E, Scope.Scope>) =>
+  Effect.runPromiseExit(Sandbox.pipe(Effect.flatMap(f), Effect.scoped, Effect.provide(layer)));
 
 const command = (dir: string, more: Partial<Command> = {}): Command => ({
   cmd: 'sh',

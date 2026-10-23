@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Redacted, Stream, type Scope } from 'effect';
+import { Context, Data, type Effect, type Redacted, type Stream, type Scope } from 'effect';
 import type { Hub } from './hub.ts';
 
 /** One command in the sandbox: `dir` is its working directory, `home` its `HOME` when given. */
