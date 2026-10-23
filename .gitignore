@@ -2,3 +2,10 @@ node_modules
 dist/
 coverage/
 /runs/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+auth.json
+.bothub-data/
