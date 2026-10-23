@@ -1,4 +1,4 @@
-import { chmodSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, git, runScript, temp, write } from './kit.ts';
@@ -1377,9 +1377,10 @@ describe('principles', () => {
   const examples = resolve(scripts, '../..');
   const skill = (hub: string) => readFileSync(join(examples, hub, 'skills/principles.md'), 'utf8');
 
-  it('the three hubs carry the same principles skill', () => {
-    expect(skill('acme-app')).toBe(skill('agentgraph'));
-    expect(skill('clarinet')).toBe(skill('agentgraph'));
+  it('every hub with a principles skill carries the same one', () => {
+    const hubs = readdirSync(examples).filter(hub => existsSync(join(examples, hub, 'skills/principles.md')));
+    expect(hubs).toEqual(expect.arrayContaining(['agentgraph', 'clarinet']));
+    for (const hub of hubs) expect(skill(hub)).toBe(skill('agentgraph'));
   });
 
   it('each principle note body appears in the skill', () => {

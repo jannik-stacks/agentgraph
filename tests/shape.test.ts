@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { change, runScript } from './kit.ts';
@@ -114,10 +113,5 @@ describe('shape', () => {
   it('passes a change with no TypeScript under the roots', () => {
     const repo = change({ 'src/a.ts': 'export const a = 1;\n' }, { 'README.md': 'hi\n' });
     expect(run(repo)).toEqual({ ok: true, out: 'shape: no TypeScript change under src core' });
-  });
-
-  it('is the same script in every hub that runs it', () => {
-    const copy = resolve(import.meta.dirname, '../examples/acme-app/scripts/shape.mjs');
-    expect(readFileSync(copy, 'utf8')).toBe(readFileSync(script, 'utf8'));
   });
 });

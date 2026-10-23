@@ -5,9 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { context } from '../src/context.ts';
 import { change, runScript, temp } from './kit.ts';
 
-const hub = resolve(import.meta.dirname, '../examples/acme-app');
-const scripts = join(hub, 'scripts');
-const agentgraphScripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
+const scripts = resolve(import.meta.dirname, '../examples/agentgraph/scripts');
 const bin = resolve(import.meta.dirname, '../node_modules/.bin');
 
 const check = (script: string, repo: { dir: string; base?: string }, ...args: string[]) =>
@@ -89,57 +87,6 @@ describe('safety check', () => {
   });
 });
 
-describe('rules check', () => {
-  it('passes plain prose and plain comments', () => {
-    const repo = change(
-      { 'docs/a.mdx': '# Title\n' },
-      {
-        'docs/a.mdx': '# Title\n\nThe kit sends a call and waits for the result.\n',
-        'kit/a.ts': '/** Sends a call. */\nexport const send = () => 1; // returns one\n',
-      }
-    );
-    expect(check('rules.mjs', repo)).toEqual({ ok: true, out: 'rules: ok' });
-  });
-
-  it('flags the written rules on added lines only', () => {
-    const repo = change(
-      { 'docs/old.mdx': '# Old · page\n', 'kit/old.ts': '// 2026-01-01 ruling\nexport const x = 1;\n' },
-      {
-        'docs/old.mdx': '# Old · page\n\nA centerpiece of the kit.\n',
-        'docs/new.mdx': [
-          '# Sending a call: golden path',
-          '## Retries — the honest version',
-          '## C-001 — numbered items keep their dash',
-          'A ⊃ B, and the value is inert.',
-          '```ts',
-          'const a = b · c;',
-          '```',
-        ].join('\n'),
-        'kit/old.ts': '// 2026-01-01 ruling\nexport const x = 1;\n// renamed from y per decision 0008\n',
-        'kit/new.ts': '/**\n * Added for Morgan on 2026-09-22.\n */\nexport const s = "a · b";\n',
-      }
-    );
-    const { ok, out } = check('rules.mjs', repo);
-    expect(ok).toBe(false);
-    expect(out.split('\n').slice(0, -1)).toEqual(
-      expect.arrayContaining([
-        'docs/old.mdx:3: a marketing word',
-        'docs/new.mdx:1: a heading with a colon prefix or suffix',
-        'docs/new.mdx:2: a marketing word',
-        'docs/new.mdx:2: a heading with an em-dash tagline',
-        'docs/new.mdx:4: a middle dot or math symbol; write the words instead',
-        'docs/new.mdx:4: the word "inert"',
-        'kit/old.ts:3: a ruling or decision reference in a comment',
-        'kit/old.ts:3: history in a comment',
-        'kit/new.ts:2: a date in a comment',
-        'kit/new.ts:2: a name in a comment',
-      ])
-    );
-    expect(out).not.toMatch(/docs\/old\.mdx:1|kit\/old\.ts:1|docs\/new\.mdx:3|docs\/new\.mdx:6|kit\/new\.ts:4/);
-    expect(out).toContain('rules: 10 findings');
-  });
-});
-
 describe('lint check', () => {
   it('passes clean changed files and leaves the formatting of existing files alone', () => {
     const repo = change(
@@ -191,7 +138,7 @@ describe('lint check', () => {
 });
 
 describe('agentgraph hub checks', () => {
-  const at = (script: string) => join(agentgraphScripts, script);
+  const at = (script: string) => join(scripts, script);
 
   it('flags dated or historical comments and symbol-laden docs lines a change adds', () => {
     const repo = change(
@@ -228,11 +175,6 @@ describe('agentgraph hub checks', () => {
     const tidy = change(config, { 'src/a.ts': "export const a = 'b';\n", 'src/b.ts': 'export const b = 2;\n' });
     expect(check(at('lint.mjs'), tidy)).toEqual({ ok: true, out: 'lint: ok' });
   }, 30_000);
-
-  it('ships the same safety, lint and changes scripts in both hubs', () => {
-    for (const script of ['safety.mjs', 'lint.mjs', 'changes.mjs'])
-      expect(readFileSync(at(script), 'utf8')).toBe(readFileSync(join(scripts, script), 'utf8'));
-  });
 });
 
 describe('safety check, repository hygiene', () => {

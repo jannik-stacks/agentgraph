@@ -13,8 +13,8 @@ describe('load', () => {
     expect(Object.keys(workflows).length).toBeGreaterThan(0);
   });
 
-  it('fills the defaults of the acme-app issue workflow', () => {
-    const w = fixture('acme-app').workflows.issue!;
+  it('fills the defaults of the kit issue workflow', () => {
+    const w = fixture('kit').workflows.issue!;
     expect(w.name).toBe('issue');
     expect(w.on).toEqual({ issue_comment: {} });
     expect(w.branch).toBe('agentgraph/{issue}');
@@ -60,7 +60,7 @@ describe('load', () => {
   });
 
   it('reads a script step and branch filters', () => {
-    const w = fixture('acme-app').workflows.merge!;
+    const w = fixture('kit').workflows.merge!;
     expect(w.on).toEqual({ pull_request: { branches: ['agentgraph/*'] } });
     expect(w.steps).toEqual([
       {

@@ -51,7 +51,7 @@ export const plant = (dir: string, admin?: string) => {
 
 const root = join(import.meta.dirname, 'fixtures');
 
-export const hubs = ['agentgraph', 'clarinet', 'acme-app', 'hub', 'loop'];
+export const hubs = ['agentgraph', 'clarinet', 'kit', 'hub', 'loop'];
 
 /** A fixture hub: the names its workflows may use, each check's mode and agent, and every workflow loaded. */
 export const fixture = (hub: string) => {

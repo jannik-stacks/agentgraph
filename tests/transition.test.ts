@@ -3,9 +3,9 @@ import { addressed, type Event } from '../src/forge.ts';
 import { begin, cancelled, fold, reenter, transition, type Outcome, type Run } from '../src/workflow.ts';
 import { fixture } from './fixtures.ts';
 
-// acme-app issue: triage (1 try), implement (4 tries), review (back to implement, 2 rounds), merge (wait, back to implement)
-const w = fixture('acme-app').workflows.issue!;
-const merge = fixture('acme-app').workflows.merge!;
+// kit issue: triage (1 try), implement (4 tries), review (back to implement, 2 rounds), merge (wait, back to implement)
+const w = fixture('kit').workflows.issue!;
+const merge = fixture('kit').workflows.merge!;
 const session = (id: string) => ({ id, home: `/runs/${id}` });
 const start = begin(w, { id: 'r1', issue: 7, started: '2026-10-16T00:00:00Z' });
 const at = (step: string, more: Partial<Run> = {}): Run => ({

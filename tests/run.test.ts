@@ -45,7 +45,7 @@ import { startTime } from './setup/global.ts';
 const foot = (...lines: string[]) =>
   `<details><summary><sub>agentgraph</sub></summary>\n<sub>${lines.join(' ')}</sub>\n</details>`;
 const replyHint = answerWith;
-const hub = hubOf('acme-app', {
+const hub = hubOf('kit', {
   types: { run: '! grep -q TODO hello.txt' },
   safety: { run: '! test -e secret.txt' },
   claims: { agent: 'claim-checker' },
@@ -569,7 +569,7 @@ describe('drive', () => {
       [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
       judged,
     ]);
-    const loud = hubOf('acme-app', {
+    const loud = hubOf('kit', {
       types: { run: 'echo types ok' },
       safety: { run: 'echo secret.txt found; exit 1' },
       claims: { agent: 'claim-checker' },
@@ -608,7 +608,7 @@ describe('drive', () => {
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
       [start('i1'), write('hello.txt', 'hello\n'), reply({ ...push, branch: 'agentgraph/8' })],
     ]);
-    const scoped = hubOf('acme-app', {
+    const scoped = hubOf('kit', {
       safety: { run: '! git diff --name-only $AGENTGRAPH_BASE | grep -qx CHAT.md' },
     });
     const stopped = await run(drive(w, begin(w, { id: 'run-8', issue: 8, started: fresh().started }), scoped));
@@ -622,7 +622,7 @@ describe('drive', () => {
       [start('t1'), reply({ kind: 'comment', body: 'Brief: add hello.txt' })],
       [start('i1'), write('hello.txt', 'hello\n'), reply(push, pull)],
     ]);
-    const reads = hubOf('acme-app', {
+    const reads = hubOf('kit', {
       safety: { run: 'cat "$AGENTGRAPH_CONTEXT"; echo "issue $AGENTGRAPH_ISSUE"; cat "$AGENTGRAPH_REPLY"; exit 1' },
     });
     const stopped = await run(drive(w, fresh(), reads));
@@ -2978,7 +2978,7 @@ describe('gate', () => {
     const dir = join(where.root, 'work');
     mkdirSync(dir);
     mkdirSync(join(where.root, 'news'));
-    const small = hubOf('acme-app', { claims: { each: 'seq 21', agent: 'claim-checker' } });
+    const small = hubOf('kit', { claims: { each: 'seq 21', agent: 'claim-checker' } });
     const kit = { ...small, checks: { ...small.checks, claims: { ...small.checks.claims!, mode: 'block' as const } } };
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const { specs, run } = services(where, []);
@@ -3129,7 +3129,7 @@ describe('gate', () => {
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
     const seen = join(where.root, 'seen.md');
-    const small = hubOf('acme-app', {
+    const small = hubOf('kit', {
       types: { run: `cp "$AGENTGRAPH_CONTEXT" ${seen}` },
       claims: { agent: 'claim-checker' },
     });
@@ -3168,7 +3168,7 @@ describe('gate', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const kit = hubOf('acme-app', {
+    const kit = hubOf('kit', {
       types: { run: 'echo x.ts:1 error; exit 1' },
       claims: { agent: 'claim-checker' },
     });
@@ -3207,7 +3207,7 @@ describe('gate', () => {
     mkdirSync(join(where.root, 'news'));
     git(dir, 'init', '-q');
     git(dir, 'commit', '-q', '--allow-empty', '-m', 'base');
-    const small = hubOf('acme-app', { claims: { each: 'echo a; echo b', agent: 'claim-checker' } });
+    const small = hubOf('kit', { claims: { each: 'echo a; echo b', agent: 'claim-checker' } });
     const step = { name: 'implement', does: { agent: 'claim-checker' }, checks: ['claims'], tries: 3 };
     const judgedItems: string[] = [];
     const judges = Layer.succeed(Session, {
@@ -3679,7 +3679,7 @@ describe('compound engineering', () => {
     writeFileSync(join(where.data, 'run-7', 'run.json'), JSON.stringify(fresh()));
     writeFileSync(join(where.data, 'run-7', 'trace.jsonl'), lines.map(l => `${JSON.stringify(l)}\n`).join(''));
     const seen = join(where.root, 'seen.md');
-    const kit = hubOf('acme-app', {
+    const kit = hubOf('kit', {
       types: { run: `cp "$AGENTGRAPH_TRACES" ${seen}` },
       claims: { agent: 'claim-checker' },
     });

@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Proposal } from '../src/forge.ts';
 
 const script = join(import.meta.dirname, '..', 'examples');
+const hubs = readdirSync(script).filter(hub => existsSync(join(script, hub, 'scripts', 'pr-text.mjs')));
 
 const check = (hub: string, proposals: Proposal[]) => {
   const file = join(mkdtempSync(join(tmpdir(), 'pr-text-')), 'proposals.json');
@@ -25,7 +26,7 @@ const pull = (body: string): Proposal => ({
   body,
 });
 
-describe.each(['agentgraph', 'sk', 'sandbox'])('pr-text bounds in %s', hub => {
+describe.each(hubs)('pr-text bounds in %s', hub => {
   it('fails a body over 120 words', () => {
     const { lines } = check(hub, [pull(Array(121).fill('word').join(' '))]);
     expect(lines).toEqual(['pull request body is 121 words, over 120']);
@@ -44,7 +45,7 @@ describe.each(['agentgraph', 'sk', 'sandbox'])('pr-text bounds in %s', hub => {
   });
 });
 
-describe.each(['agentgraph', 'sk', 'sandbox'])('pr-text in %s', hub => {
+describe.each(hubs)('pr-text in %s', hub => {
   it('fails one line per hit on the real long body and a loose commit', () => {
     const body =
       'Validation: new regressions failed without the fix. Each touched test file passes individually; npm --prefix kit run typecheck passes; npm --prefix kit test passes all 897 tests in 37 files. No docs generators run.\n\nNothing left open for this issue. Human review and merge required.';

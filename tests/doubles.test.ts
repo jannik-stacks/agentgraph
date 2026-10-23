@@ -19,7 +19,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-const w = fixture('acme-app').workflows.issue!;
+const w = fixture('kit').workflows.issue!;
 
 describe('fileStore', () => {
   it('puts, lists and reads back runs and their trace, tracing what each put changed', async () => {

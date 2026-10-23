@@ -333,7 +333,7 @@ describe('/api/compound', () => {
     expect(tunes.map(t => [t.name, t.tune.repo, t.steps.length])).toEqual([
       ['skill@0.1.0', 'acme/clarinet', 25],
       ['t1', 'acme/clarinet', 25],
-      ['t1', 'acme/app', 25],
+      ['t1', 'example-org/kit', 25],
     ]);
     expect(tunes[0]!.steps[0]!.verdict).toBe('kept');
   });

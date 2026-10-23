@@ -88,7 +88,7 @@ describe('studio graph', () => {
   });
 
   it('shows one chip with the GitHub writes of an agent step, naming the agent file that sets them', () => {
-    const { workflows, checks } = fixture('acme-app');
+    const { workflows, checks } = fixture('kit');
     const agents = {
       triager: { returns: ['back' as const] },
       implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const] },

@@ -53,7 +53,7 @@ const problems = async (dir: string) => {
 };
 
 describe('loadHub', () => {
-  it.each(['agentgraph', 'clarinet', 'acme-app', 'hub', 'loop'])('loads a hub around the %s fixture', async name => {
+  it.each(['agentgraph', 'clarinet', 'kit', 'hub', 'loop'])('loads a hub around the %s fixture', async name => {
     const { dir, names } = fromFixture(name);
     const hub = await Effect.runPromise(loadHub(dir));
     expect(Object.keys(hub.agents).sort()).toEqual([...names.agents].sort());
@@ -63,7 +63,7 @@ describe('loadHub', () => {
   });
 
   it('fills the defaults and keeps each file as a doc', async () => {
-    const { dir } = fromFixture('acme-app');
+    const { dir } = fromFixture('kit');
     const hub = await Effect.runPromise(loadHub(dir));
     expect(hub.repo).toBe('o/r');
     expect(hub.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2, sessions: 4 });

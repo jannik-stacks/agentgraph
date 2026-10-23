@@ -22,7 +22,7 @@ if (values.instance && !instance) {
   console.error(`no instance.yaml at or above ${values.instance}`);
   process.exit(2);
 }
-const hubDir = resolve(values.hub ?? instance?.hub ?? join(import.meta.dirname, '..', 'examples', 'acme-app'));
+const hubDir = resolve(values.hub ?? instance?.hub ?? join(import.meta.dirname, '..', 'examples', 'sandbox'));
 const dataDir = resolve(values.data ?? instance?.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;
 console.log(`hub    ${hubDir}\ndata   ${dataDir}${real !== dataDir ? ` -> ${real}` : ''}`);

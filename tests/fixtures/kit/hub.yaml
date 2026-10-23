@@ -1,0 +1,18 @@
+agents: [claim-checker, implementor, reviewer, triager]
+skills: [implement, review-hunk, triage]
+checks:
+  api-fresh: warn
+  callouts: warn
+  claims: { mode: warn, agent: claim-checker }
+  comment-weight: { mode: warn, agent: reviewer }
+  dash-taglines: warn
+  docs-tone: { mode: warn, agent: reviewer }
+  early-names: block
+  export-names: { mode: warn, agent: reviewer }
+  kit-types: block
+  lint: block
+  names: block
+  rules: block
+  safety: stop
+  tests: block
+  types: block

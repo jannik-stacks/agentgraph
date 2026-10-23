@@ -15,7 +15,7 @@ const agentsOf = async (dir: string) => Object.values((await Effect.runPromise(l
 describe('example hubs', () => {
   it('finds every example hub', () => {
     expect(hubDirs.map(dir => dir.slice(examples.length + 1))).toEqual(
-      expect.arrayContaining(['agentgraph', 'clarinet', 'sandbox', 'sk', 'acme-app'])
+      expect.arrayContaining(['agentgraph', 'clarinet', 'sandbox'])
     );
   });
 
@@ -77,8 +77,8 @@ describe('models and keys', () => {
     expect(unknown).toEqual([]);
   });
 
-  it('gives every acme-app agent a key that allows its model', async () => {
-    const problems = (await agentsOf(join(examples, 'acme-app'))).flatMap(bot => {
+  it.each(hubDirs)('gives every agent in %s a key that allows its model', async dir => {
+    const problems = (await agentsOf(dir)).flatMap(bot => {
       const allowed = rows.get(bot.name);
       if (!allowed) return [`${bot.name} has no row in keys.sh`];
       if (bot.model && !allowed.includes(bot.model))
@@ -105,7 +105,7 @@ describe('models and keys', () => {
   });
 });
 
-/** Scripts more than one hub carries; a hub mounts only its own folder, so each keeps a copy. */
+/** Scripts several hubs may carry; a hub mounts only its own folder, so each keeps a copy. */
 const shared = ['changes.mjs', 'lint.mjs', 'pr-text.mjs', 'safety.mjs', 'shape.mjs'];
 
 describe('shared hub scripts', () => {
@@ -114,20 +114,7 @@ describe('shared hub scripts', () => {
       const path = join(dir, 'scripts', name);
       return existsSync(path) ? [readFileSync(path, 'utf8')] : [];
     });
-    expect(copies.length).toBeGreaterThan(1);
+    expect(copies.length).toBeGreaterThan(0);
     expect(new Set(copies).size).toBe(1);
-  });
-});
-
-describe('sk hub', () => {
-  it('has the implementor file follow-ups and leave hub issues to a retro that reads traces', async () => {
-    const hub = await Effect.runPromise(loadHub(join(examples, 'sk')));
-    const implementor = hub.agents.implementor!;
-    expect(implementor.returns).toContain('issue');
-    expect(implementor.body).toContain('"relation":"follow-up"');
-    expect(implementor.body).not.toContain('"relation":"hub"');
-    expect(implementor.body).toContain('Fix it here');
-    expect(hub.workflows.retro!.on).toEqual({ feedback: {} });
-    expect(hub.agents.retro).toMatchObject({ reads: 'traces', returns: ['issue'] });
   });
 });

@@ -18,7 +18,7 @@ describe('graphOf', () => {
   );
 
   it('says a feedback workflow starts on what people say, and marks the steps and checks whose agent reads traces', () => {
-    const { workflows, checks } = fixture('acme-app');
+    const { workflows, checks } = fixture('kit');
     const issue = workflows.issue!;
     expect(graphOf({ ...issue, on: { feedback: {} } }, checks).trigger).toBe("a person's review, comment or push");
     const agents = {
@@ -33,7 +33,7 @@ describe('graphOf', () => {
   });
 
   it("lists what each agent step may write to GitHub from its agent's returns, and nothing on other steps", () => {
-    const { workflows, checks } = fixture('acme-app');
+    const { workflows, checks } = fixture('kit');
     const agents = {
       triager: { returns: ['label' as const, 'back' as const, 'run' as const] },
       implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const, 'ask' as const] },
@@ -49,7 +49,7 @@ describe('graphOf', () => {
   });
 
   it("names the model alias of each agent step's agent, and none where the agent sets none", () => {
-    const { workflows, checks } = fixture('acme-app');
+    const { workflows, checks } = fixture('kit');
     const agents = { triager: { returns: [], model: 'gemini' }, implementor: { returns: [] } };
     const [triage, implement] = graphOf(workflows.issue!, checks, undefined, agents).nodes;
     expect(triage!.model).toBe('gemini');
@@ -70,7 +70,7 @@ describe('graphOf', () => {
   });
 
   it('leaves a wait step out of the worst case and its way back uncapped', () => {
-    const { workflows, checks } = fixture('acme-app');
+    const { workflows, checks } = fixture('kit');
     const g = graphOf(workflows.issue!, checks);
     // triage 1, then implement 4 tries and review 1 try, each visited 3 times (1 + 2 rounds)
     expect(g.worst).toBe(1 + 3 * 4 + 3 * 1);
@@ -78,7 +78,7 @@ describe('graphOf', () => {
   });
 
   it('names the trigger, the doer, the checks with their modes and kinds, the tries and the fan-out', () => {
-    const { workflows, checks } = fixture('acme-app');
+    const { workflows, checks } = fixture('kit');
     const g = graphOf(workflows.issue!, checks);
     expect(g.trigger).toBe('a /agent comment');
     const [triage, implement, review, merge] = g.nodes;
@@ -100,7 +100,7 @@ describe('graphOf', () => {
   });
 
   it('draws a run over the graph: the current step, its tries, what was visited and the rounds taken', () => {
-    const { workflows, checks } = fixture('acme-app');
+    const { workflows, checks } = fixture('kit');
     const w = workflows.issue!;
     const run: Run = {
       ...begin(w, { id: 'r1', issue: 7, started: 'now' }),
