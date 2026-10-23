@@ -209,7 +209,7 @@ export const stateOf = (dir: string): DriveState => {
  */
 export const spendGuard = async (cap: number, per: number, usage: () => Promise<number>, clock = Date.now) => {
   let last: { at: number; total: number } | undefined;
-  let failed: unknown;
+  let failed: string | undefined;
   let done = 0;
   const read = async () => {
     if (last && !failed && clock() - last.at < 60_000) return;
@@ -218,17 +218,16 @@ export const spendGuard = async (cap: number, per: number, usage: () => Promise<
       last = { at, total: await usage() };
       failed = undefined;
     } catch (e) {
-      failed = e ?? 'no reason';
+      failed = String(e);
     }
   };
   await read();
   const baseline = last?.total;
-  const unreadable = () => `OpenRouter usage unreadable: ${String(failed)}`;
-  const finished = () => void done++;
-  if (baseline === undefined) return { check: async (_: number) => unreadable(), finished };
+  const first = failed;
   const check = async (active: number) => {
+    if (baseline === undefined) return `OpenRouter usage unreadable: ${first}`;
     await read();
-    if (failed || !last) return unreadable();
+    if (failed || !last) return `OpenRouter usage unreadable: ${failed}`;
     const age = clock() - last.at;
     if (age > 120_000) return `OpenRouter usage is ${Math.round(age / 1000)}s old`;
     const run = last.total - baseline;
@@ -237,7 +236,7 @@ export const spendGuard = async (cap: number, per: number, usage: () => Promise<
       return `run spend $${run.toFixed(2)} with ${active} in flight at ~$${each.toFixed(2)} a job would pass $${cap}`;
     return undefined;
   };
-  return { check, finished };
+  return { check, finished: () => void done++ };
 };
 
 if (import.meta.main) {
