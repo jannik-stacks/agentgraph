@@ -37,7 +37,7 @@ steps:
 
 Steps run in written order. Each is an `agent` step, a `run` step (a shell command) or a `wait: human` step. An agent step gets the skill named by `skill`, else the skill named like the step. A workflow without `steps` is one agent step named after its file, and its body is the prompt. <!-- code: src/workflow.ts#load -->
 
-`each` on an agent step opens one fresh session per changed file (`files`), diff hunk (`hunks`) or output line of a command (`{ run: <command> }`). These sessions never resume. <!-- code: src/engine.ts#most -->
+`each` on an agent step opens, for up to 20 items, one fresh session per changed file (`files`), diff hunk (`hunks`) or output line of a command (`{ run: <command> }`). These sessions never resume. <!-- code: src/engine.ts#most -->
 
 ## Starting a run
 
@@ -48,7 +48,7 @@ Steps run in written order. Each is an `agent` step, a `run` step (a shell comma
 
 With several comment workflows, `/agent` starts the first, or the one its first word names, as in `/agent plan`. With no live run, `/agent stop` and `/agent cancel` start nothing. Comments without the marker are context, never answers. Comments on the issue's pull request count for the issue; bot comments never count. <!-- code: src/engine.ts#tick -->
 
-A comment that asks for no work can end the run after the first session with only comments. That needs a workflow without a branch, an open pull request, or a finished run of that workflow on the issue. Otherwise a first session that may push fails when it changed nothing.
+A comment that asks for no work can end the run after the first session with only comments, skipping checks and later steps. That needs a workflow without a branch, an open pull request, or a finished run of that workflow on the issue. Otherwise a first session that may push fails when it changed nothing.
 
 `/agent restart` stops the live run and starts the workflow again, keeping its human answers. `/agent restart implement` starts at that step. The engine puts an eyes reaction on the comment (or the issue, for a label) and removes it after replying. <!-- code: src/engine.ts#tick -->
 
@@ -68,7 +68,7 @@ The child starts with `by` set to the parent's id, and the parent waits with `wa
 
 ### Routing
 
-Only `issue_comment` workflows hear `/agent` comments. A hub can make one a router that runs beside another workflow's live run. Its `returns` decides what it can do: reply with `comment`, file an `issue`, dispatch with `run`, or forward text with `tell`. <!-- code: src/engine.ts#heardBy -->
+An `issue_comment` workflow whose agent may `tell` is a router: it runs beside another workflow's live run, and from then on only the router hears people's `/agent` comments. Its `returns` decides what it can do: reply with `comment`, file an `issue`, dispatch with `run`, or forward text with `tell`. <!-- code: src/engine.ts#heardBy -->
 
 ```json
 {"kind": "tell", "issue": 12, "text": "stop"}
@@ -104,7 +104,7 @@ After a session, all the step's checks run in parallel. All findings come back t
 | `block` | Fail the try; the output is feedback |
 | `stop` | Stop the run |
 
-A check has a `run` script, an `agent` judge or both. A script passes on exit 0. A judge reads the diff, the fan-out item or the script output and answers `PASS` or `FAIL` first.
+A check has a `run` script, an `agent` judge or both. A script alone passes on exit 0; with a judge, the judge decides. A judge reads the diff, the fan-out item or the script output and answers `PASS` or `FAIL` first.
 
 A judge that crashes, times out or gives no verdict is retried. If it keeps failing, a `block` or `stop` check parks the run as a runner error, not as review feedback, and a `warn` check records it. <!-- code: src/engine.ts#verdictOf -->
 
@@ -188,6 +188,6 @@ One status comment shows the step, whether a question is open, the stop reason, 
 
 ## Order and limits
 
-Runs start by priority: `priority/high`, then unlabelled or `priority/medium`, then `priority/low`, oldest first in each group. `limits.parallel` caps runs and `limits.sessions` caps sessions, judges included. <!-- code: src/engine.ts#tick src/engine.ts#gateOf -->
+`limits.parallel` caps how many issues a pass handles at once, and `limits.sessions` caps sessions, judges included. Runs that one look drives together go by priority: `priority/high`, then unlabelled or `priority/medium`, then `priority/low`, oldest first in each group. <!-- code: src/engine.ts#tick src/engine.ts#gateOf -->
 
-`minutes` is a wall-clock deadline. Going over `usd-per-run` stops the run. Runner errors (timeouts, provider faults, failed setup, a missing check command with exit 127) retry once, then park the run at its step with details in the trace. Any reply retries with the session and tries kept. <!-- code: src/engine.ts#drive -->
+`minutes` is a wall-clock deadline. A run still working after a try that took it over `usd-per-run` stops. Runner errors (timeouts, provider faults, failed setup, a missing check command with exit 127) retry once, then park the run at its step with details in the trace. Any reply retries with the session and tries kept. <!-- code: src/engine.ts#drive -->

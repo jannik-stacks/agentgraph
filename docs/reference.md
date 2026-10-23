@@ -88,7 +88,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | Field   | Type                          | Default  | Meaning                                             |
 | ------- | ----------------------------- | -------- | --------------------------------------------------- |
 | `mode`  | `warn`, `block` or `stop`     | required | What a failure does, see [The loop](loop.md#checks) |
-| `run`   | shell command                 | none     | A script; exit 0 passes                             |
+| `run`   | shell command                 | none     | A script; alone, exit 0 passes                      |
 | `agent` | agent name                    | none     | Judge replies `PASS` or `FAIL` first                |
 | `each`  | `files`, `hunks` or a command | none     | Judges each item on its own                         |
 | `max`   | positive integer              | 20       | Fan-out item cap; exceeding fails                   |
@@ -104,7 +104,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## instance.yaml
 
-Written by `node bin/forge.ts <dir> init <repo> --hub <hub>`; see [instance layout and setup](local.md#instances). <!-- code: src/instance.ts#Instance -->
+Written by `node bin/forge.ts <dir> init <repo> --hub <hub>`; see [instance layout and setup](forge.md#instances). <!-- code: src/instance.ts#Instance -->
 
 | Field   | Type                     | Default                | Meaning                                                           |
 | ------- | ------------------------ | ---------------------- | ----------------------------------------------------------------- |

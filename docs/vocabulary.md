@@ -29,8 +29,6 @@
 
 ## Agent terms
 
-Model, tool, prompt, skill and session keep their usual meanings.
-
 A skill is a file a step hands to its agent; see [skill fields](reference.md#skills). A session is one harness conversation and its history.
 
 ## GitHub terms

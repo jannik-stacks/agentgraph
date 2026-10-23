@@ -6,7 +6,7 @@ Sessions, script steps, checks and checkout setup run in throwaway Docker contai
 
 A container has a read-only root, a tmpfs `/tmp`, the operator's non-root uid, no capabilities, `no-new-privileges`, 4g of memory, 1.5 CPUs, 512 pids and a timeout watchdog. Images are never pulled.
 
-`/work` (the checkout) and the session home `/home/agent` are writable. `/hub` (`AGENTGRAPH_HUB`) and the mirror are read only. The shared cache is at `/cache`, where a checkout's writes stay with that checkout. No Docker socket or GitHub token enters a session; it gets only its agent's model key. <!-- code: src/docker.ts#dockerArgs -->
+`/work` (the checkout) and the session home `/home/agent` are writable. The mirror is read only, and so is `/hub` (`AGENTGRAPH_HUB`), which scripts and setup get but sessions do not. The shared cache is at `/cache`, where a checkout's writes stay with that checkout. No Docker socket or GitHub token enters a session; it gets only its agent's model key. <!-- code: src/docker.ts#dockerArgs -->
 
 `infra/local/sandbox` builds the image, and its `smoke.sh` checks how containers behave. Tests use a host sandbox instead, which runs in a clone without network rules. <!-- code: tests/doubles/sandbox.ts#host -->
 

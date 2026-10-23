@@ -32,7 +32,7 @@ The engine owns two more kinds that agents cannot propose: `react` for eyes reac
 
 ## Applying
 
-1. `ask` waits at once. Checks and the other proposals are skipped.
+1. `ask` waits at once, even beside invalid proposals. Checks and the other proposals are skipped.
 2. Checks run. A blocking failure fails the try and nothing applies.
 3. `back` returns to its step and nothing else applies.
 4. Otherwise `tell` is delivered, then pushes land, then the other writes in order, then `issue` filings. A failed push skips the filings. `run` dispatches last, and only when nothing failed.
