@@ -2,21 +2,17 @@ import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { parseEnv } from 'node:util';
 import { ConfigProvider, Effect, Layer } from 'effect';
 import { instruct, settle, sweep, tick, type Instruction } from './engine.ts';
 import { hubAt, loadHub, type Hub } from './hub.ts';
 import { layers, settings, type Services, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
-/** `KEY=value` lines of an env file, with the key file it names read in as `AGENTGRAPH_APP_KEY`. */
+/** The variables of an env file, with the key file it names read in as `AGENTGRAPH_APP_KEY`. */
 export const appEnv = async (file: string | undefined): Promise<Record<string, string>> => {
   if (!file) return {};
-  const vars = Object.fromEntries(
-    (await readFile(file, 'utf8')).split('\n').flatMap(line => {
-      const m = /^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-      return m ? [[m[1]!, m[2]!.replace(/^(['"])(.*)\1$/, '$2')]] : [];
-    })
-  );
+  const vars = parseEnv(await readFile(file, 'utf8')) as Record<string, string>;
   const keyFile = vars.AGENTGRAPH_APP_KEY_FILE?.replace(/^~(?=\/|$)/, homedir());
   return { ...vars, ...(keyFile && { AGENTGRAPH_APP_KEY: await readFile(keyFile, 'utf8') }) };
 };

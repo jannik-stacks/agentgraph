@@ -15,6 +15,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, delimiter, join } from 'node:path';
 import {
   Chunk,
+  ConfigProvider,
   Deferred,
   Effect,
   Exit,
@@ -30,11 +31,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
 import { drive, gate, instruct, settle, sweep, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
-import { start as main, temporary } from '../src/main.ts';
+import { appEnv, start as main, temporary } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
 import { fileForge, Forge, ForgeError, provenance, type Event, type Mark, type Proposal } from '../src/forge.ts';
 import { host, Sandbox, type Command } from '../src/sandbox.ts';
-import type { Settings } from '../src/services.ts';
+import { settings, type Settings } from '../src/services.ts';
 import { scripted, Session, type SessionEvent, type SessionSpec } from '../src/session.ts';
 import { fileStore, Store, type Trace } from '../src/store.ts';
 import type { Hub } from '../src/hub.ts';
@@ -2388,6 +2389,32 @@ describe('temporary', () => {
     expect(temporary('/tmp/bothub-data')).toEqual(['/tmp/bothub-data', '/tmp/bothub-data/mirror.git']);
     expect(temporary(linked)).toEqual([linked, join(linked, 'mirror.git')]);
     expect(temporary(join(homedir(), 'bothub-data'))).toEqual([]);
+  });
+});
+
+describe('appEnv', () => {
+  const file = (text: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'agentgraph-env-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'key.pem'), 'PEM');
+    writeFileSync(join(dir, 'app.env'), text.replaceAll('$DIR', dir));
+    return join(dir, 'app.env');
+  };
+
+  it('reads quotes, comments, export and the named key file', async () => {
+    const env = await appEnv(
+      file(
+        '# app\nexport AGENTGRAPH_APP_ID=42\nAGENTGRAPH_REPO="o/r" # inline\nAGENTGRAPH_APP_KEY_FILE=\'$DIR/key.pem\'\n'
+      )
+    );
+    expect(env).toMatchObject({ AGENTGRAPH_APP_ID: '42', AGENTGRAPH_REPO: 'o/r', AGENTGRAPH_APP_KEY: 'PEM' });
+    expect(await appEnv(undefined)).toEqual({});
+  });
+
+  it('leaves a missing required setting to fail by name', async () => {
+    const env = await appEnv(file('AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY_FILE=$DIR/key.pem\n'));
+    const read = Effect.withConfigProvider(settings, ConfigProvider.fromMap(new Map(Object.entries(env))));
+    await expect(Effect.runPromise(read)).rejects.toThrow(/AGENTGRAPH_REPO/);
   });
 });
 
