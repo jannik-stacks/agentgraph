@@ -47,7 +47,6 @@
     "unicorn/error-message": "error",
     "unicorn/no-abusive-eslint-disable": "error",
     "unicorn/no-instanceof-builtins": "error",
-    "unicorn/no-static-only-class": "error",
     "unicorn/no-typeof-undefined": "error",
     "unicorn/no-unreadable-iife": "error",
     "unicorn/no-useless-promise-resolve-reject": "error",
