@@ -42,7 +42,7 @@ no more and no fewer, and fold any extra case into the row it belongs to. Withou
 only when the issue clearly needs it. A one-line fix gets one criterion and one small test.
 
 Name under `## Files` only what the `Done when` rows need, about two files outside `tests/` per
-row; the triage-width check flags more.
+row.
 
 When the issue is several tasks, because it needs more than five criteria or more files than the
 cap below, brief the first one. It delivers what the issue's title asks for and at least one row of the issue's "Done when" end to end
@@ -63,9 +63,7 @@ read the code: one plain sentence on what needs deciding, then each option in pl
 question under 80 characters.
 
 The change may touch only the paths the safety check allows. The hub keeps them in its own
-`scripts/bounds.mjs`, which is not in this repository; triage-brief lists them when the brief names
-a file elsewhere or the issue's `Done when` names a path elsewhere, and says when the safety check
-would fail a file the brief names. The files section names at most 8 files outside `tests/`, the
+`scripts/bounds.mjs`, which is not in this repository. The files section names at most 8 files outside `tests/`, the
 size check's file cap; test files never count. For a rename, name the files that do more than the
 rename and say in the task that the rename reaches every use.
 
