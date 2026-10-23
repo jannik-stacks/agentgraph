@@ -30,7 +30,9 @@
     "no-restricted-properties": [
       "error",
       { "object": "Reflect", "property": "apply" },
-      { "object": "Reflect", "property": "get" }
+      { "object": "Reflect", "property": "get" },
+      { "object": "vi", "property": "mock" },
+      { "object": "vi", "property": "doMock" }
     ],
     "typescript/ban-ts-comment": "error",
     "typescript/consistent-indexed-object-style": "error",
