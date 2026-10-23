@@ -6,7 +6,7 @@
  *        node bin/tune.ts run <tune dir> --iterations 8 [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  *        node bin/tune.ts checkpoint <tune dir>
  *        node bin/tune.ts propose <tune dir> --from <hub dir> --why <text> [--as manual|skill]
- * Tunes live in ~/bothub-data/tune/<repo>/<name> (AGENTGRAPH_TUNE moves the root).
+ * Tunes live in <root>/<repo>/<name>; the root is AGENTGRAPH_TUNE, by default ~/bothub-data/tune.
  */
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';

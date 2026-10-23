@@ -4,8 +4,8 @@
 # next rerun. Output appends to <queue>.log. The queue is read again before each line, so it can be edited while it
 # runs. Stop with Ctrl-C or kill <pid in <queue>.pid>; rerun the same command to continue.
 #
-#   sh bin/overnight.sh ~/bothub-data/overnight/queue.txt
-#   sh bin/overnight.sh status ~/bothub-data/overnight/queue.txt
+#   sh bin/overnight.sh <dir>/queue.txt
+#   sh bin/overnight.sh status <dir>/queue.txt
 set -u
 [ "$1" = status ] && { show=1; shift; } || show=
 queue=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
