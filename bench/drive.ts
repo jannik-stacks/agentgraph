@@ -200,12 +200,14 @@ export const stateOf = (dir: string): DriveState => {
 };
 
 /**
- * Takes this run's baseline from `usage` and answers a check that says why no new job may start: a failed or
- * over two minutes old reading, or this run's spend, plus a job for each in flight and the next, passing `cap`.
+ * Takes this run's baseline from `usage`. `check` says why no new job may start: a failed or over two minutes old
+ * reading, or this run's spend, plus a job for each in flight and the next, passing `cap`. A job costs this run's
+ * spend over the jobs `finished` in it, at least `per`.
  */
 export const spendGuard = async (cap: number, per: number, usage: () => Promise<number>, clock = Date.now) => {
   let last: { at: number; total: number } | undefined;
   let failed: unknown;
+  let done = 0;
   const read = async () => {
     if (last && !failed && clock() - last.at < 60_000) return;
     const at = clock();
@@ -219,18 +221,20 @@ export const spendGuard = async (cap: number, per: number, usage: () => Promise<
   await read();
   const baseline = last?.total;
   const unreadable = () => `OpenRouter usage unreadable: ${String(failed)}`;
-  if (baseline === undefined) return async () => unreadable();
-  return async (active: number, started: number) => {
+  const finished = () => void done++;
+  if (baseline === undefined) return { check: async (_: number) => unreadable(), finished };
+  const check = async (active: number) => {
     await read();
     if (failed || !last) return unreadable();
     const age = clock() - last.at;
     if (age > 120_000) return `OpenRouter usage is ${Math.round(age / 1000)}s old`;
     const run = last.total - baseline;
-    const each = Math.max(per, started ? run / started : 0);
+    const each = Math.max(per, done ? run / done : 0);
     if (run + (active + 1) * each > cap)
       return `run spend $${run.toFixed(2)} with ${active} in flight at ~$${each.toFixed(2)} a job would pass $${cap}`;
     return undefined;
   };
+  return { check, finished };
 };
 
 if (import.meta.main) {
@@ -320,7 +324,6 @@ if (import.meta.main) {
     };
 
     let active = 0;
-    let started = 0;
     const partial = queue.filter(j => existsSync(join(runDir(dir, s, j), j.c.id))).map(nameOf);
     const again = jsonl<{ event: string }>(join(dir, 'events.jsonl')).some(e => ['start', 'resume'].includes(e.event));
     event(again || existsSync(join(dir, 'drive.log')) ? 'resume' : 'start', {
@@ -364,7 +367,7 @@ if (import.meta.main) {
       const codex = maxCodex === undefined ? undefined : latest();
       if (maxCodex !== undefined && codex !== undefined && codex > maxCodex)
         return `Codex weekly ${codex}% is over ${maxCodex}%`;
-      return spend?.(active, started);
+      return spend?.check(active);
     };
 
     const runJob = async (j: Job): Promise<string | undefined> => {
@@ -423,7 +426,6 @@ if (import.meta.main) {
           const j = queue.shift()!;
           if (finished(dir, s, j)) continue;
           active++;
-          started++;
           event('job-start', { job: nameOf(j), active, load: loadavg()[0] });
           log(`start ${nameOf(j)} (active ${active}, queued ${queue.length})`);
           const t0 = Date.now();
@@ -437,6 +439,7 @@ if (import.meta.main) {
                 event('job-fail', { job: nameOf(j), reason: why, min, active });
                 return log(`${nameOf(j)} not done: ${why}`);
               }
+              spend?.finished();
               const n = done();
               event('job-done', { job: nameOf(j), min, done: n, total, active });
               log(`done ${n}/${total}`);

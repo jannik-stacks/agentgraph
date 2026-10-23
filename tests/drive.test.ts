@@ -54,41 +54,50 @@ describe('spend guard', () => {
     const f = fake(100, 101);
     const guard = await spendGuard(5, 0.3, f.usage, f.at);
     f.clock.now = 61_000;
-    expect(await guard(0, 1)).toBeUndefined();
+    expect(await guard.check(0)).toBeUndefined();
   });
 
   it('stops when this run with the jobs in flight would pass the cap', async () => {
     const f = fake(100, 104);
     const guard = await spendGuard(5, 0.3, f.usage, f.at);
+    for (let n = 0; n < 4; n++) guard.finished();
     f.clock.now = 61_000;
-    expect(await guard(3, 4)).toMatch(/run spend \$4\.00 .* would pass \$5/);
+    expect(await guard.check(3)).toMatch(/run spend \$4\.00 with 3 in flight at ~\$1\.00 a job would pass \$5/);
+  });
+
+  it('estimates a job from the jobs finished in this run', async () => {
+    const f = fake(100, 103);
+    const guard = await spendGuard(5, 0.3, f.usage, f.at);
+    f.clock.now = 61_000;
+    expect(await guard.check(0)).toBeUndefined();
+    guard.finished();
+    expect(await guard.check(0)).toMatch(/at ~\$3\.00 a job/);
   });
 
   it('takes no new job when a reading fails after a good one', async () => {
     const f = fake(100, new Error('timeout'));
     const guard = await spendGuard(5, 0.3, f.usage, f.at);
     f.clock.now = 61_000;
-    expect(await guard(0, 0)).toMatch(/OpenRouter usage unreadable: Error: timeout/);
+    expect(await guard.check(0)).toMatch(/OpenRouter usage unreadable: Error: timeout/);
   });
 
   it('takes no new job on a reading older than two minutes', async () => {
-    const f = fake(100, 100);
-    const guard = await spendGuard(5, 0.3, f.usage, f.at);
-    f.clock.now = 61_000;
-    const slow = f.usage;
-    const late = async () => {
-      const total = await slow();
-      f.clock.now += 120_001;
+    const f = fake(100);
+    let slow = false;
+    const usage = async () => {
+      const total = await f.usage();
+      if (slow) f.clock.now += 120_001;
       return total;
     };
-    const stale = await spendGuard(5, 0.3, late, f.at);
-    expect(await guard(0, 0)).toBeUndefined();
-    expect(await stale(0, 0)).toMatch(/OpenRouter usage is \d+s old/);
+    const guard = await spendGuard(5, 0.3, usage, f.at);
+    f.clock.now = 61_000;
+    slow = true;
+    expect(await guard.check(0)).toMatch(/OpenRouter usage is 120s old/);
   });
 
   it('takes no new job without a baseline', async () => {
     const f = fake(new Error('down'), 100);
     const guard = await spendGuard(5, 0.3, f.usage, f.at);
-    expect(await guard(0, 0)).toMatch(/unreadable: Error: down/);
+    expect(await guard.check(0)).toMatch(/unreadable: Error: down/);
   });
 });
