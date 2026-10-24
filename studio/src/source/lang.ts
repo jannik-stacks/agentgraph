@@ -27,7 +27,7 @@ const byExtension: Record<string, string> = {
 };
 
 /** The shiki language for a file path, or `text`. */
-export const langOf = (path: string) => {
+export const getFileHighlightLanguage = (path: string) => {
   const name = path.split('/').pop() ?? path;
   if (name === 'Dockerfile') return 'dockerfile';
   if (name.startsWith('.env')) return 'dotenv';

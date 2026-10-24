@@ -24,7 +24,7 @@ Object.assign(globalThis, { location: new URL('http://localhost/runs') });
 const { runRow } = await studioModule<{
   runRow: (r: ServedRun, open?: boolean, expand?: boolean, target?: Trace) => Row;
 }>('runs/rows.tsx');
-const { lineAt, linksOf, locatedLink, isGitHubRef } = await studioModule<typeof TraceModule>('runs/trace.ts');
+const { lineAt, findTraceLinks, locatedLink, isGitHubRef } = await studioModule<typeof TraceModule>('runs/trace.ts');
 const dependency = <T>(name: string) =>
   import(
     /* @vite-ignore */ pathToFileURL(createRequire(join(studioDir, 'package.json')).resolve(name)).href
@@ -86,14 +86,14 @@ describe("a run's pull request and branch", () => {
 
   it('is the pull request the run opened, else the one its status comment names, and the branch it last wrote', () => {
     const opened = wrote({ kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 't', body: 'b' }, pr);
-    expect(linksOf([...trace, opened])).toEqual({ pull: pr, branch: 'agentgraph/1' });
+    expect(findTraceLinks([...trace, opened])).toEqual({ pull: pr, branch: 'agentgraph/1' });
     const status = wrote({ kind: 'comment', body: `Waiting for a human at merge.\n\nPull request: ${pr}` });
     const pushed = wrote({ kind: 'push', branch: 'agentgraph/2', message: 'm' }, 'https://github.com/o/r/commit/1');
-    expect(linksOf([status, pushed])).toEqual({ pull: pr, branch: 'agentgraph/2' });
+    expect(findTraceLinks([status, pushed])).toEqual({ pull: pr, branch: 'agentgraph/2' });
     expect(
-      linksOf([{ ...pushed, applied: { ...(pushed as { applied: object }).applied, ok: false } } as Trace])
+      findTraceLinks([{ ...pushed, applied: { ...(pushed as { applied: object }).applied, ok: false } } as Trace])
     ).toEqual({});
-    expect(linksOf(trace)).toEqual({});
+    expect(findTraceLinks(trace)).toEqual({});
   });
 
   it('links both from the run line, on the list and the run page', () => {

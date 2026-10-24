@@ -1,11 +1,11 @@
 import type { Graph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
 import type { Run } from '../../../src/workflow.ts';
-import { kindOf } from './chips.ts';
+import { getStepDoerKind } from './chips.ts';
 import type { Trail } from './scenarios.ts';
 
 /** Rebuilds a real run's trail from the outcome lines of its trace, each with the run as it stood before. */
-export const trailOf = (run: Run, trace: Trace[]): Trail => {
+export const makeRunTrail = (run: Run, trace: Trace[]): Trail => {
   let before: Pick<Run, 'status' | 'tries' | 'rounds'> = { status: 'running', tries: 0, rounds: {} };
   return trace.flatMap(line => {
     if (!('outcome' in line)) return [];
@@ -37,10 +37,10 @@ export type End =
   | { kind: 'waiting' }
   | { kind: 'running'; try: number };
 
-const isAgent = (n: Node) => kindOf(n.doer) === 'agent';
+const isAgent = (n: Node) => getStepDoerKind(n.doer) === 'agent';
 
 /** Unrolls a run into the visits it made, in order. */
-export function visitsOf(graph: Graph, trail: Trail, run: Run): { visits: Visit[]; end: End } {
+export function makeWorkflowRunVisits(graph: Graph, trail: Trail, run: Run): { visits: Visit[]; end: End } {
   const node = (step: string) => graph.nodes.find(n => n.step === step)!;
   const visits: Visit[] = [];
   const enter = (step: string, previous?: Trail[number]) => {
@@ -116,7 +116,7 @@ const collapse = (groups: string[][]): string[] => {
 };
 
 /** The run told in one sentence, the way a person would say it. */
-export function storyOf({ visits, end }: { visits: Visit[]; end: End }): string {
+export function makeRunStory({ visits, end }: { visits: Visit[]; end: End }): string {
   const groups = visits.map((v, i): string[] => {
     const step = v.node.step;
     const failed = v.failed.length > 0 ? [`${step} failed its checks ${times(v.failed.length)}`] : [];

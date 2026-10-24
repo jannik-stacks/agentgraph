@@ -1,6 +1,6 @@
 import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
-import { live, queryParam } from '../state.ts';
+import { makeLiveJsonAtom, queryParam } from '../state.ts';
 import { Badge, Button, cx, Field, Fields, Help, IconButton, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import {
   average,
@@ -14,7 +14,7 @@ import {
 } from './climb.ts';
 import { type Band, Bars, Climb, type Dot, type Line } from './Climb.tsx';
 
-const compoundAtom = live<TuneRows[]>('/api/compound');
+const compoundAtom = makeLiveJsonAtom<TuneRows[]>('/api/compound');
 const params = {
   repo: queryParam('repo'),
   x: queryParam('x'),

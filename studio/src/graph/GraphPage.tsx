@@ -20,9 +20,9 @@ import {
   StepCard,
   type StepFlowNode,
 } from './nodes.tsx';
-import type { Fixture, Picked } from './scenarios.ts';
+import type { Fixture, RunDrawnOnWorkflow } from './scenarios.ts';
 import { StepDetails, WorkflowDetails } from './StepDetails.tsx';
-import { storyOf, trailOf, visitsOf } from './visits.ts';
+import { makeRunStory, makeRunTrail, makeWorkflowRunVisits } from './visits.ts';
 
 const hubParam = queryParam('hub');
 const runParam = queryParam('run');
@@ -51,7 +51,7 @@ const usePanelWidth = () => {
  * The workflows of `shown` as one canvas, with the picked run drawn over its workflow, and a side panel for the
  * selected step or workflow.
  */
-const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefined }) => {
+const WorkflowGraph = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOnWorkflow | undefined }) => {
   const selected = useAtomValue(selectedStepAtom);
   const [workflowName, stepName] = selected?.split('/') ?? [];
   const fixture = shown.find(f => f.workflow.name === workflowName);
@@ -128,7 +128,7 @@ const hereLine = (counts: Record<string, number> | undefined) =>
     .join(', ');
 
 /** Draws the workflows, each with its run overlay when it holds the picked run. */
-const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefined }) => {
+const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: RunDrawnOnWorkflow | undefined }) => {
   const [selected, select] = useAtom(selectedStepAtom);
   const here = useHere();
   const graphs = useMemo(
@@ -143,7 +143,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
           heard: f.workflow.on.feedback !== undefined,
           graph,
           run,
-          visits: run && visitsOf(graph, run.trail, run.run).visits,
+          visits: run && makeWorkflowRunVisits(graph, run.trail, run.run).visits,
         };
       }),
     [shown, picked]
@@ -299,7 +299,7 @@ export const GraphPage = () => {
             label: `#${r.run.issue} ${fixture.workflow.name}, ${r.run.status} at ${r.run.step}, ${r.run.id}`,
             fixture,
             run: r.run,
-            trail: trailOf(r.run, r.trace),
+            trail: makeRunTrail(r.run, r.trace),
             trace: r.trace,
           })),
         ...fixture.runs.map(s => ({
@@ -347,8 +347,8 @@ export const GraphPage = () => {
                 {'trace' in picked ? `Live, run ${picked.run.id}` : 'Simulated run'}, {picked.run.status} at{' '}
                 {picked.run.step}.
               </span>{' '}
-              {storyOf(
-                visitsOf(
+              {makeRunStory(
+                makeWorkflowRunVisits(
                   makeWorkflowGraph(picked.fixture.workflow, picked.fixture.checks, picked.run, picked.fixture.roles),
                   picked.trail,
                   picked.run

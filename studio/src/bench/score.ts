@@ -3,9 +3,9 @@ import type { readBenchRows } from '../../../bin/bench.ts';
 type Row = ReturnType<typeof readBenchRows>[number];
 type Tokens = Row['tokens'][string];
 
-export const defaults = { test: 0.5, judge: 0.35, suite: 0.15, crit: 0.1, help: 0.1 };
-export const presets: Record<string, typeof defaults> = {
-  composite: defaults,
+export const defaultBenchScoreWeights = { test: 0.5, judge: 0.35, suite: 0.15, crit: 0.1, help: 0.1 };
+export const presets: Record<string, typeof defaultBenchScoreWeights> = {
+  composite: defaultBenchScoreWeights,
   'hidden tests only': { test: 1, judge: 0, suite: 0, crit: 0, help: 0 },
   'judges only': { test: 0, judge: 1, suite: 0, crit: 0, help: 0 },
 };
@@ -35,7 +35,7 @@ export const cost = (row: Row, prices: Prices, cacheOff = false) =>
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : 0);
 
 /** Quality on a fixed scale where 0 is nothing useful and 1 is the human; `human` is the human row of the same case. */
-export const quality = (row: Row, w: typeof defaults, judges?: string[], human?: Row) => {
+export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[], human?: Row) => {
   if (row.outcome === 'no-change') return 0;
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
   const parts: [number, number][] = [
@@ -89,7 +89,7 @@ export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, see
 /** One summary per point of the bot rows, judge-only cases apart: quality and x with their intervals, cases, repeats and completion. */
 export const summarise = (
   rows: Row[],
-  o: { w: typeof defaults; x: (row: Row) => number; judges?: string[]; infraZero?: boolean }
+  o: { w: typeof defaultBenchScoreWeights; x: (row: Row) => number; judges?: string[]; infraZero?: boolean }
 ) => {
   const humans = new Map(rows.filter(r => r.point.includes('/human@')).map(r => [`${r.point}|${r.case}`, r]));
   const humanOf = (r: Row) => humans.get(`${r.point.replace(/\/\w+@/, '/human@')}|${r.case}`);

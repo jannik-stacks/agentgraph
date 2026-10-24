@@ -7,15 +7,15 @@ export type Chip = {
   tip: string;
 };
 
-export const kindOf = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
+export const getStepDoerKind = (doer: string) => (doer === 'script' || doer === 'human' ? doer : 'agent');
 
 /** The badges a step shows under its name, in the order they read. */
-export const chipsOf = (node: Graph['nodes'][number]): Chip[] => {
+export const makeStepChips = (node: Graph['nodes'][number]): Chip[] => {
   const chips: Chip[] = [];
   const n = node.checks.length;
   const judges = [...new Set(node.checks.flatMap(c => c.agent ?? []))];
   const readers = [...(node.traces ? [node.doer] : []), ...node.checks.filter(c => c.traces).map(c => c.agent)];
-  if (kindOf(node.doer) === 'human')
+  if (getStepDoerKind(node.doer) === 'human')
     chips.push({
       glyph: 'hand',
       label: 'you decide',
@@ -85,7 +85,7 @@ const chipGap = 6;
 const maxLines = 3;
 
 /** The chips packed into lines of `width`, at most three; what does not fit becomes a last "+N more" chip. */
-export const linesOf = (chips: Chip[], width: number): Chip[][] => {
+export const splitStepChipsIntoRows = (chips: Chip[], width: number): Chip[][] => {
   const lines: Chip[][] = [];
   let used = Infinity;
   for (const [i, chip] of chips.entries()) {

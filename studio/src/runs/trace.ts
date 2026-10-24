@@ -22,7 +22,7 @@ export const detail = (o: Outcome) =>
  * The pull request a run opened, else the one its status comment names, and the branch it last wrote; read from the
  * whole trace, since the run list cuts long texts short.
  */
-export const linksOf = (trace: Trace[]): { pull?: string; branch?: string } => {
+export const findTraceLinks = (trace: Trace[]): { pull?: string; branch?: string } => {
   let pull: string | undefined;
   let branch: string | undefined;
   for (const line of trace) {
@@ -36,30 +36,34 @@ export const linksOf = (trace: Trace[]): { pull?: string; branch?: string } => {
 };
 
 /** A run as the dev server answers it: the run, its trace, where it lives, and its pull request and branch. */
-export type ServedRun = { fixture: string; repo: string; run: Run; trace: Trace[] } & ReturnType<typeof linksOf>;
+export type ServedRun = { fixture: string; repo: string; run: Run; trace: Trace[] } & ReturnType<typeof findTraceLinks>;
 
-export type Line<K extends string> = Extract<Trace, Record<K, unknown>>;
+export type TraceLineWithKey<K extends string> = Extract<Trace, Record<K, unknown>>;
 
 /** One harness session: its prompt when the trace has one, its events, and how it ended. */
-export type Session = { prompt?: Line<'prompt'>; events: Line<'event'>[]; end?: Line<'session'> };
+export type SessionTraceLines = {
+  prompt?: TraceLineWithKey<'prompt'>;
+  events: TraceLineWithKey<'event'>[];
+  end?: TraceLineWithKey<'session'>;
+};
 
 /**
  * A run's trace as the steps it visited in order, each a list of sessions and the other lines. Lines with a `key` join
  * the session that key opened. Older lines without one join the session opened last, and an end joins the session
  * that started with its id.
  */
-export const visitsOf = (trace: Trace[]) => {
-  const visits: { step: string; parts: (Session | Trace)[] }[] = [];
-  const keyed = new Map<string, Session>();
-  let open: Session | undefined;
+export const splitTraceIntoVisitedSteps = (trace: Trace[]) => {
+  const visits: { step: string; parts: (SessionTraceLines | Trace)[] }[] = [];
+  const keyed = new Map<string, SessionTraceLines>();
+  let open: SessionTraceLines | undefined;
   for (const line of trace) {
     if (visits.at(-1)?.step !== line.step) {
       visits.push({ step: line.step, parts: [] });
       open = undefined;
     }
     const parts = visits.at(-1)!.parts;
-    const fresh = (): Session => {
-      const made: Session = { events: [] };
+    const fresh = (): SessionTraceLines => {
+      const made: SessionTraceLines = { events: [] };
       parts.push(made);
       return made;
     };
@@ -83,7 +87,7 @@ export const visitsOf = (trace: Trace[]) => {
     } else {
       const id = line.session.id;
       const same = parts.findLast(
-        (p): p is Session =>
+        (p): p is SessionTraceLines =>
           'events' in p && !p.end && p.events.some(e => e.event.type === 'start' && e.event.session === id)
       );
       (same ?? open ?? fresh()).end = line;

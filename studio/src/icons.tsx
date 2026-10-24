@@ -2,7 +2,7 @@ import { useId } from 'react';
 import { cx } from './ui.tsx';
 
 /** The agentgraph mark: a bot head with an antenna, in the current text color with see-through eyes. */
-export const Mark = ({ className }: { className?: string }) => {
+export const AgentgraphLogo = ({ className }: { className?: string }) => {
   const mask = useId();
   return (
     <svg viewBox="0 0 16 16" className={className} aria-hidden="true">

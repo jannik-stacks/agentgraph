@@ -6,7 +6,15 @@ import { Pulse } from '../icons.tsx';
 import { Code, Markdown } from '../Markdown.tsx';
 import { accent, Badge, cx, Disclosure, Link, Tooltip } from '../ui.tsx';
 import { Raw, ToolBody, toolName, toolSummary } from './tools.tsx';
-import { atLink, type ServedRun, detail, graphLink, type Line, type Session, visitsOf } from './trace.ts';
+import {
+  atLink,
+  type ServedRun,
+  detail,
+  graphLink,
+  type TraceLineWithKey,
+  type SessionTraceLines,
+  splitTraceIntoVisitedSteps,
+} from './trace.ts';
 
 /** One row of a run: a summary line, and what opens under it: a body, child rows and the JSON it came from. */
 export type Row = {
@@ -70,7 +78,7 @@ const CopyLink = ({ href }: { href: string }) => {
 };
 
 /** A check's full output, fetched from the data dir when asked for. */
-const FullLog = ({ log }: { log: NonNullable<Line<'check'>['log']> }) => {
+const FullLog = ({ log }: { log: NonNullable<TraceLineWithKey<'check'>['log']> }) => {
   const [text, setText] = useState<string>();
   if (text !== undefined) return <Pre text={text} />;
   return (
@@ -93,7 +101,7 @@ const From = ({ children }: { children: ReactNode }) => (
   <div className="font-sans text-[10px] text-zinc-500">{children}</div>
 );
 
-type Event = Line<'event'>['event'];
+type Event = TraceLineWithKey<'event'>['event'];
 
 const kindName = (kind: string) => (kind === 'pull_request' ? 'pull' : kind);
 
@@ -225,7 +233,7 @@ const events: { [T in Event['type']]: (e: Extract<Event, { type: T }>) => Row } 
 /** How each kind of trace line reads as a row. */
 const lines: {
   [K in 'prompt' | 'event' | 'session' | 'check' | 'applied' | 'outcome' | 'saved' | 'spoken' | 'told']: (
-    l: Line<K>,
+    l: TraceLineWithKey<K>,
     by: string
   ) => Row;
 } = {
@@ -336,7 +344,7 @@ export const lineRow = (line: Trace, by = 'agentgraph'): Row => {
 
 /** A session folded to who ran, on what, how it ended and what it cost, its end line as its raw; open, its prompt and every event in order. */
 const sessionRow = (
-  { prompt, events, end }: Session,
+  { prompt, events, end }: SessionTraceLines,
   running: boolean,
   expand: boolean,
   repo?: string,
@@ -452,9 +460,9 @@ export const RunLine = ({ r }: { r: ServedRun }) => (
 /** A run as a row: where it stands, what it cost and left on the forge; open, the steps it visited. */
 export const runRow = (r: ServedRun, open = false, expand = false, target?: Trace): Row => {
   const { run, trace } = r;
-  const visits = visitsOf(trace);
+  const visits = splitTraceIntoVisitedSteps(trace);
   let by: string | undefined;
-  const partRow = (part: Session | Trace): Row => {
+  const partRow = (part: SessionTraceLines | Trace): Row => {
     if ('events' in part) {
       by ??= part.prompt?.prompt.agent ?? 'the agent';
       return sessionRow(part, live(r), expand, r.repo, target);

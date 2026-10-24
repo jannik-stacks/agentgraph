@@ -7,7 +7,7 @@ import type * as WorkflowModule from '../../../src/workflow.ts';
 export type Trail = { at: Run; outcome: Outcome }[];
 
 /** A run drawn over its workflow: a real one carries its trace, a simulated one only its trail. */
-export type Picked = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | undefined };
+export type RunDrawnOnWorkflow = { fixture: Fixture; run: Run; trail: Trail; trace?: Trace[] | undefined };
 
 /** A simulated run: what happened and where it ended. */
 type Simulated = { label: string; trail: Trail; run: Run };

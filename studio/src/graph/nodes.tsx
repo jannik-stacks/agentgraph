@@ -15,8 +15,8 @@ import type { Run } from '../../../src/workflow.ts';
 import { statusTip } from '../runs/rows.tsx';
 import { selectedStepAtom } from '../state.ts';
 import { accent, cx, TipBubble, Tooltip, useTip } from '../ui.tsx';
-import { chipsOf, kindOf, linesOf } from './chips.ts';
-import { chipRoom, type Point } from './layout.ts';
+import { makeStepChips, getStepDoerKind, splitStepChipsIntoRows } from './chips.ts';
+import { chipRoom, type CanvasPoint } from './layout.ts';
 
 type GraphNode = Graph['nodes'][number];
 type GraphEdge = Graph['edges'][number];
@@ -124,7 +124,7 @@ const statusLine = (node: GraphNode, run: Run) =>
 
 /** A step: what it does, its checks and its tries, with the run's position when one is drawn. */
 export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<StepFlowNode>) => {
-  const kind = kindOf(node.doer);
+  const kind = getStepDoerKind(node.doer);
   const here = overlay?.here;
   const refused = !!here && !!node.run && node.run.tries > 0;
   const status = here ? statusLine(node, here) : live;
@@ -165,7 +165,7 @@ export const StepCard = ({ data: { node, overlay, live, selected } }: NodeProps<
         <div className="mb-1 truncate text-zinc-500">{kind === 'human' ? 'waits for you' : node.doer}</div>
       )}
       <div className="flex flex-col gap-0.5">
-        {linesOf(chipsOf(node), chipRoom).map((line, i) => (
+        {splitStepChipsIntoRows(makeStepChips(node), chipRoom).map((line, i) => (
           <div key={i} className="flex items-center gap-1.5">
             {line.map((chip, j) => (
               <Chip key={j} tip={chip.tip} count={chip.count}>
@@ -267,10 +267,10 @@ export const Frame = ({ data: { workflow, trigger, worst, selected } }: NodeProp
   );
 };
 
-export type RouteFlowEdge = Edge<{ points: Point[]; tip?: string; back?: GraphEdge }, 'route'>;
+export type RouteFlowEdge = Edge<{ points: CanvasPoint[]; tip?: string; back?: GraphEdge }, 'route'>;
 
 /** An orthogonal polyline through `points` with rounded corners. */
-const pathOf = (points: Point[], radius = 8) =>
+const pathOf = (points: CanvasPoint[], radius = 8) =>
   points
     .map((p, i) => {
       const before = points[i - 1];
@@ -282,7 +282,7 @@ const pathOf = (points: Point[], radius = 8) =>
         Math.hypot(p.x - before.x, p.y - before.y) / 2,
         Math.hypot(after.x - p.x, after.y - p.y) / 2
       );
-      const toward = (q: Point) => {
+      const toward = (q: CanvasPoint) => {
         const d = Math.hypot(q.x - p.x, q.y - p.y) || 1;
         return `${p.x + ((q.x - p.x) / d) * r} ${p.y + ((q.y - p.y) / d) * r}`;
       };

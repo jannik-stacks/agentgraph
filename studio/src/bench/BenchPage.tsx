@@ -2,14 +2,16 @@ import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
 import type { readBenchRows } from '../../../bin/bench.ts';
-import { live, queryParam } from '../state.ts';
+import { makeLiveJsonAtom, queryParam } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
-import { cost, defaults, frontier, presets, type price, summarise } from './score.ts';
+import { cost, defaultBenchScoreWeights, frontier, presets, type price, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 
-const benchAtom = live<{ rows: Row[]; drives?: DriveState[]; prices: Parameters<typeof price>[1] }>('/api/bench');
+const benchAtom = makeLiveJsonAtom<{ rows: Row[]; drives?: DriveState[]; prices: Parameters<typeof price>[1] }>(
+  '/api/bench'
+);
 const params = {
   w: queryParam('w'),
   x: queryParam('x'),
@@ -19,14 +21,14 @@ const params = {
   drop: queryParam('drop'),
   point: queryParam('point'),
 };
-const names = Object.keys(defaults) as (keyof typeof defaults)[];
+const names = Object.keys(defaultBenchScoreWeights) as (keyof typeof defaultBenchScoreWeights)[];
 const tones: Record<string, string> = {
   opencode: 'text-sky-600 dark:text-sky-400',
   pi: 'text-violet-600 dark:text-violet-400',
   claude: 'text-amber-600 dark:text-amber-400',
   'claude-sub': 'text-orange-600 dark:text-orange-400',
 };
-const help: Record<keyof typeof defaults, string> = {
+const help: Record<keyof typeof defaultBenchScoreWeights, string> = {
   test: 'Test files added by the merged pull request, run on the arm’s finished change. Passing scores 1, failing scores 0.',
   judge:
     'LLM judges compare the run’s diff with the human’s merged diff, blind. For quality, always preferring the human scores 0 and a tie scores 1, the human’s level. Preferring the run counts no higher than a tie, so judged and tested parts share one scale. Cases without hidden tests show as their own judge-only point.',
@@ -34,7 +36,7 @@ const help: Record<keyof typeof defaults, string> = {
   crit: 'Penalty: a third for each critical or high finding above the human’s count on the same case, at most 1.',
   help: 'Penalty: the full weight when the run stopped to ask one or more questions.',
 };
-const labels: Record<keyof typeof defaults, string> = {
+const labels: Record<keyof typeof defaultBenchScoreWeights, string> = {
   test: 'hidden tests',
   judge: 'LLM judges',
   suite: 'CI',
@@ -167,7 +169,9 @@ export const BenchPage = () => {
   const [sort, setSort] = useState({ col: 'quality', down: true });
   const weights = useMemo(() => {
     const given = w?.split(',').map(Number) ?? [];
-    return Object.fromEntries(names.map((k, i) => [k, given[i] ?? defaults[k]])) as typeof defaults;
+    return Object.fromEntries(
+      names.map((k, i) => [k, given[i] ?? defaultBenchScoreWeights[k]])
+    ) as typeof defaultBenchScoreWeights;
   }, [w]);
   const dropped = useMemo(() => (drop ?? unpanelled).split(',').filter(Boolean), [drop]);
   const minutes = xAxis === 'minutes';
@@ -275,7 +279,7 @@ export const BenchPage = () => {
                 <Button
                   aria-pressed={names.every(k => p[k] === weights[k])}
                   className="aria-pressed:border-zinc-500 aria-pressed:text-zinc-900 dark:aria-pressed:text-zinc-100"
-                  onClick={() => setW(p === defaults ? null : names.map(k => p[k]).join(','))}
+                  onClick={() => setW(p === defaultBenchScoreWeights ? null : names.map(k => p[k]).join(','))}
                 >
                   {name}
                 </Button>

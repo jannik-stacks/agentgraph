@@ -2,7 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { builtinModules } from 'node:module';
 import { defineConfig, type Plugin } from 'vite';
-import { fixtures } from './fixtures.ts';
+import { makeStudioDevApiPlugin } from './fixtures.ts';
 
 const builtins = new Set(builtinModules);
 
@@ -23,7 +23,7 @@ const server = { port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
 
 export default defineConfig({
   appType: 'spa',
-  plugins: [noNodeInBrowser(), fixtures(), react(), tailwindcss()],
+  plugins: [noNodeInBrowser(), makeStudioDevApiPlugin(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
   server: { ...server, fs: { allow: ['..'] }, warmup: { clientFiles: ['./src/main.tsx'] } },
   preview: server,

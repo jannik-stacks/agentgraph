@@ -42,7 +42,7 @@ export const queryParam = (key: string) =>
 export const selectedStepAtom = queryParam('step');
 
 /** Answers `path` as JSON while something reads it, and again whenever the server reports the data dir changed. */
-export const live = <T>(path: string) => {
+export const makeLiveJsonAtom = <T>(path: string) => {
   const value = atom<{ value?: T; failure?: string }>({});
   value.onMount = set => {
     const load = () =>
@@ -61,12 +61,12 @@ export const live = <T>(path: string) => {
 };
 
 /** Every run of the served hub, with its trace, every text in it cut short. */
-export const runsAtom = live<ServedRun[]>('/api/runs');
+export const runsAtom = makeLiveJsonAtom<ServedRun[]>('/api/runs');
 
-const opened = new Map<string, ReturnType<typeof live<ServedRun | null>>>();
+const opened = new Map<string, ReturnType<typeof makeLiveJsonAtom<ServedRun | null>>>();
 
 /** One run of the served hub with its whole trace, or null when the data dir has no such run. */
 export const runAtom = (id: string) => {
-  if (!opened.has(id)) opened.set(id, live<ServedRun | null>(`/api/runs/${encodeURIComponent(id)}`));
+  if (!opened.has(id)) opened.set(id, makeLiveJsonAtom<ServedRun | null>(`/api/runs/${encodeURIComponent(id)}`));
   return opened.get(id)!;
 };

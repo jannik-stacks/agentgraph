@@ -18,9 +18,9 @@ const { layout } = await studioModule<{
   layout: (graphs: { workflow: string; graph: Graph }[], starts: []) => { rows: Row[] };
 }>('graph/layout.ts');
 type Chip = { glyph?: string; label: string; tip: string };
-const { chipsOf, linesOf } = await studioModule<{
-  chipsOf: (node: Graph['nodes'][number]) => Chip[];
-  linesOf: (chips: Chip[], width: number) => Chip[][];
+const { makeStepChips, splitStepChipsIntoRows } = await studioModule<{
+  makeStepChips: (node: Graph['nodes'][number]) => Chip[];
+  splitStepChipsIntoRows: (chips: Chip[], width: number) => Chip[][];
 }>('graph/chips.ts');
 
 const SHOWN = fixtureHubs.map(hub => {
@@ -74,14 +74,14 @@ describe('studio graph', () => {
   it('wraps chips into at most three lines, folding the rest into a last chip that lists them', () => {
     const chips = Array.from({ length: 12 }, (_, i) => ({ label: `chip number ${i}`, tip: `tip ${i}` }));
     const width = 200;
-    const lines = linesOf(chips, width);
+    const lines = splitStepChipsIntoRows(chips, width);
     expect(lines).toHaveLength(3);
     const more = lines[2]!.at(-1)!;
     const shown = lines.flat().length - 1;
     expect(more.label).toBe(`+${12 - shown} more`);
     expect(more.tip).toContain('chip number 11');
     expect(
-      linesOf(chips.slice(0, 2), width)
+      splitStepChipsIntoRows(chips.slice(0, 2), width)
         .flat()
         .map(c => c.label)
     ).toEqual(['chip number 0', 'chip number 1']);
@@ -94,7 +94,7 @@ describe('studio graph', () => {
       implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const] },
     };
     const nodes = makeWorkflowGraph(workflows.issue!, checks, undefined, agents).nodes;
-    const writes = (step: string) => chipsOf(nodes.find(n => n.step === step)!).filter(c => c.glyph === 'writes');
+    const writes = (step: string) => makeStepChips(nodes.find(n => n.step === step)!).filter(c => c.glyph === 'writes');
     expect(writes('implement')).toEqual([
       {
         glyph: 'writes',

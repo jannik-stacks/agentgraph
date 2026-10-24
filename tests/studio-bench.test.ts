@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { readBenchRows } from '../bin/bench.ts';
-import { bootstrap, cost, defaults, frontier, presets, price, quality, summarise } from '../studio/src/bench/score.ts';
+import { bootstrap, cost, defaultBenchScoreWeights, frontier, presets, price, quality, summarise } from '../studio/src/bench/score.ts';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 
@@ -26,23 +26,23 @@ describe('bench score', () => {
   it('puts nothing useful at 0 and the human at 1', () => {
     const nothing = row({ hidden: 0, suite: 0, vsHuman: { opus: 0 } });
     const parity = row({ hidden: 1, suite: 1, vsHuman: { opus: 0.5, sol: 0.5 } });
-    expect(quality(nothing, defaults)).toBe(0);
-    expect(quality(parity, defaults)).toBeCloseTo(1);
+    expect(quality(nothing, defaultBenchScoreWeights)).toBe(0);
+    expect(quality(parity, defaultBenchScoreWeights)).toBeCloseTo(1);
   });
 
   it('scores a run that changed nothing 0, whatever else it has', () => {
-    expect(quality(row({ outcome: 'no-change', hidden: 0, suite: 1, vsHuman: { opus: 0.5 } }), defaults)).toBe(0);
+    expect(quality(row({ outcome: 'no-change', hidden: 0, suite: 1, vsHuman: { opus: 0.5 } }), defaultBenchScoreWeights)).toBe(0);
   });
 
   it('weights the parts a case has, drops judges and charges findings above the human', () => {
     const judged = row({ vsHuman: { opus: 1, sol: 0 } });
-    expect(quality(judged, defaults)).toBeCloseTo(1);
-    expect(quality(judged, defaults, ['sol'])).toBe(0);
+    expect(quality(judged, defaultBenchScoreWeights)).toBeCloseTo(1);
+    expect(quality(judged, defaultBenchScoreWeights, ['sol'])).toBe(0);
     expect(quality(row({ hidden: 1, vsHuman: { opus: 0 } }), presets['hidden tests only']!)).toBe(1);
     const found = row({ hidden: 1, suite: 1, findings: { critical: 1, high: 2 } });
     const human = row({ findings: { critical: 0, high: 1 } });
-    expect(quality(found, defaults, undefined, human)).toBeCloseTo(1 - 0.1 * (2 / 3));
-    expect(quality(row({ hidden: 1, answers: 3 }), defaults)).toBeCloseTo(0.9);
+    expect(quality(found, defaultBenchScoreWeights, undefined, human)).toBeCloseTo(1 - 0.1 * (2 / 3));
+    expect(quality(row({ hidden: 1, answers: 3 }), defaultBenchScoreWeights)).toBeCloseTo(0.9);
   });
 
   it('takes the share of hidden tests passed over pass or fail when there is one', () => {
@@ -50,8 +50,8 @@ describe('bench score', () => {
   });
 
   it('caps the judge part at the human, so judged and tested parts share one scale', () => {
-    expect(quality(row({ vsHuman: { opus: 1, sonnet: 1 } }), defaults)).toBe(1);
-    expect(quality(row({ hidden: 0, vsHuman: { opus: 1 } }), defaults)).toBeCloseTo(0.35 / 0.85);
+    expect(quality(row({ vsHuman: { opus: 1, sonnet: 1 } }), defaultBenchScoreWeights)).toBe(1);
+    expect(quality(row({ hidden: 0, vsHuman: { opus: 1 } }), defaultBenchScoreWeights)).toBeCloseTo(0.35 / 0.85);
   });
 
   it('prices tokens by class through the aliases, or falls back to the reported cost', () => {
@@ -85,12 +85,12 @@ describe('bench score', () => {
       row({ point: 'opencode:smart/floor@unknown//runs-3', case: 'a', hidden: 0, suite: 1 }),
       row({ point: 'opencode:smart/human@unknown//runs-3', case: 'a', hidden: 1 }),
     ];
-    const s = summarise(rows, { w: defaults, x: r => r.minutes });
+    const s = summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes });
     expect(s.map(p => [p.key.split('/')[1], p.n, p.completion])).toEqual([
       ['v2@unknown', 1, 0.5],
       ['floor@unknown', 1, 1],
     ]);
-    expect(summarise(rows, { w: defaults, x: r => r.minutes, infraZero: true })[0]!.y).toBeCloseTo(0.5);
+    expect(summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes, infraZero: true })[0]!.y).toBeCloseTo(0.5);
     const points = [
       { key: 'cheap', x: 1, y: 0.2 },
       { key: 'worse', x: 2, y: 0.1 },
@@ -105,7 +105,7 @@ describe('bench score', () => {
       row({ case: 'a', strata: { repo: 'me/a', tests: 'hidden' }, hidden: 1 }),
       row({ case: 'b', strata: { repo: 'me/a', tests: 'judge-only' }, vsHuman: { opus: 0 } }),
     ];
-    const s = summarise(rows, { w: defaults, x: r => r.minutes });
+    const s = summarise(rows, { w: defaultBenchScoreWeights, x: r => r.minutes });
     expect(s.map(p => [p.key, p.n, p.y])).toEqual([
       ['opencode:smart/v2@unknown//runs-3', 1, 1],
       ['opencode:smart/v2@unknown//runs-3, judge-only', 1, 0],

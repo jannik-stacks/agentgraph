@@ -17,7 +17,7 @@ import {
   tuneRows,
   type tunesOf,
 } from '../bin/tune.ts';
-import { fixtures } from '../studio/fixtures.ts';
+import { makeStudioDevApiPlugin } from '../studio/fixtures.ts';
 import { tmp } from './kit.ts';
 
 const dirs: string[] = [];
@@ -375,7 +375,7 @@ const tuneRoot = (dir: string) => join(dir, '..', '..');
 describe('/api/compound', () => {
   it('answers every tune under VITE_AGI_TUNE with its steps', async () => {
     const routes: Record<string, (req: unknown, res: unknown) => Promise<void>> = {};
-    const plugin = fixtures().configureServer as (server: unknown) => void;
+    const plugin = makeStudioDevApiPlugin().configureServer as (server: unknown) => void;
     plugin({ middlewares: { use: (path: string, f: (typeof routes)[string]) => (routes[path] = f) } });
     process.env.VITE_AGI_TUNE = join(import.meta.dirname, 'fixtures/tune');
     let body = '';

@@ -1,8 +1,8 @@
 import type { Graph } from '../../../src/graph.ts';
-import { chipsOf, linesOf } from './chips.ts';
+import { makeStepChips, splitStepChipsIntoRows } from './chips.ts';
 
 type Box = { x: number; y: number; width: number; height: number };
-export type Point = { x: number; y: number };
+export type CanvasPoint = { x: number; y: number };
 
 const pillHeight = 28;
 const pad = 28;
@@ -21,11 +21,11 @@ export const chipRoom = stepWidth - 22;
 /** The trigger label wraps onto two lines past this width. */
 const triggerMax = 150;
 
-export type Row = {
+export type WorkflowLayoutLane = {
   workflow: string;
   frame: Box;
   nodes: { id: string; kind: 'trigger' | 'step' | 'done'; step?: string; box: Box }[];
-  backs: { edge: Graph['edges'][number]; points: Point[] }[];
+  backs: { edge: Graph['edges'][number]; points: CanvasPoint[] }[];
 };
 
 /** An edge from a step of one workflow to the trigger of another. */
@@ -38,10 +38,13 @@ export type Start = { workflow: string; step: string; target: string };
  */
 export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Start[]) => {
   const gutter = 16 + nest * starts.length;
-  const lines = Math.max(1, ...graphs.flatMap(g => g.graph.nodes.map(n => linesOf(chipsOf(n), chipRoom).length)));
+  const lines = Math.max(
+    1,
+    ...graphs.flatMap(g => g.graph.nodes.map(n => splitStepChipsIntoRows(makeStepChips(n), chipRoom).length))
+  );
   const stepHeight = 62 + 20 * lines;
   let top = 0;
-  const rows = graphs.map(({ workflow, graph }): Row => {
+  const rows = graphs.map(({ workflow, graph }): WorkflowLayoutLane => {
     const backEdges = graph.edges
       .filter(e => e.kind === 'back')
       .map(e => ({ e, span: Math.abs(indexOf(graph, e.from) - indexOf(graph, e.to)) }))
@@ -50,7 +53,13 @@ export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Sta
     const stepTop = top + header + above;
     const mid = stepTop + stepHeight / 2;
     let x = gutter + pad;
-    const place = (id: string, kind: Row['nodes'][number]['kind'], width: number, height: number, step?: string) => {
+    const place = (
+      id: string,
+      kind: WorkflowLayoutLane['nodes'][number]['kind'],
+      width: number,
+      height: number,
+      step?: string
+    ) => {
       const node = { id, kind, ...(step && { step }), box: { x, y: mid - height / 2, width, height } };
       x += width;
       return node;
@@ -89,5 +98,5 @@ export const layout = (graphs: { workflow: string; graph: Graph }[], starts: Sta
   return { rows, starts: routes };
 };
 
-const p = (x: number, y: number): Point => ({ x, y });
+const p = (x: number, y: number): CanvasPoint => ({ x, y });
 const indexOf = (graph: Graph, step: string) => graph.nodes.findIndex(n => n.step === step);

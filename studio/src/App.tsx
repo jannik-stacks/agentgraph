@@ -1,7 +1,7 @@
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Component, lazy, type ReactNode, Suspense, useEffect } from 'react';
 import { navigateAtom, pageAtom, routes } from './state.ts';
-import { Mark } from './icons.tsx';
+import { AgentgraphLogo } from './icons.tsx';
 import { cx, Link, Loading, Tooltip } from './ui.tsx';
 
 const pages = {
@@ -65,7 +65,7 @@ export const App = () => {
     <div className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-200 px-3 sm:gap-5 sm:px-4 dark:border-zinc-800">
         <Link href="/runs" className="inline-flex shrink-0 items-center gap-1.5 font-semibold tracking-tight">
-          <Mark className="size-5" />
+          <AgentgraphLogo className="size-5" />
           agentgraph
         </Link>
         <nav className="inline-flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 text-[13px] leading-5 dark:bg-zinc-900">

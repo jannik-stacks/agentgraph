@@ -3,7 +3,7 @@ import type { ServerResponse } from 'node:http';
 import { basename, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { type Fixture, scenarios, simulate } from './src/graph/scenarios.ts';
-import { linksOf } from './src/runs/trace.ts';
+import { findTraceLinks } from './src/runs/trace.ts';
 import type * as BenchModule from '../bin/bench.ts';
 import type * as TuneModule from '../bin/tune.ts';
 import type * as DriveModule from '../bench/drive.ts';
@@ -79,7 +79,7 @@ const bodies = (docs: Record<string, { body: string }>) =>
  * `GET /api/compound` answers every tune under `VITE_AGI_TUNE` (default: the `bin/tune.ts` root): its folder name, settings and steps.
  * `GET /api/events` is a server-sent event stream that says `changed` when anything in the data dir does.
  */
-export const fixtures = (): Plugin => ({
+export const makeStudioDevApiPlugin = (): Plugin => ({
   name: 'agentgraph:fixtures',
   resolveId: source => (source === id ? `\0${id}` : undefined),
   configureServer(server) {
@@ -157,7 +157,7 @@ export const fixtures = (): Plugin => ({
                 repo: served.hub?.repo ?? '',
                 run,
                 trace: all ? trace : trace.map(line => cut(line) as typeof line),
-                ...linksOf(trace),
+                ...findTraceLinks(trace),
               }))
             );
           if (!one) return yield* Effect.forEach(yield* store.list(), run => entry(run, false));

@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactNode, useState } from 'react';
-import { langOf } from '../source/lang.ts';
+import { getFileHighlightLanguage } from '../source/lang.ts';
 import { Icon } from '../icons.tsx';
 import { Badge, cx } from '../ui.tsx';
 import { Code, codeSurface, Markdown as Text } from '../Markdown.tsx';
@@ -105,7 +105,7 @@ const Read = ({ input, output, ok }: ToolProps) =>
   ok === false || output === undefined ? (
     <Output output={output} ok={ok} />
   ) : (
-    <Code code={fileText(output)} lang={langOf(str(pathOf(input)))} compact lines={12} />
+    <Code code={fileText(output)} lang={getFileHighlightLanguage(str(pathOf(input)))} compact lines={12} />
   );
 
 /** opencode grep output: "Found N matches", then each file followed by its "Line N: text" lines. */
@@ -270,7 +270,7 @@ const Edit = ({ input, output, ok }: ToolProps) => (
 
 const Write = ({ input, output, ok }: ToolProps) => (
   <>
-    <Code code={str(input.content)} lang={langOf(str(pathOf(input)))} compact lines={12} />
+    <Code code={str(input.content)} lang={getFileHighlightLanguage(str(pathOf(input)))} compact lines={12} />
     {ok === false && <Output output={output} ok={ok} />}
   </>
 );
