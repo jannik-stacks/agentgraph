@@ -6,7 +6,7 @@ export const verbs = new Set(
   [
     ['parse', 'compile', 'format', 'make', 'get', 'find', 'pick', 'split', 'sum', 'is', 'why'],
     ['read', 'write', 'append', 'copy', 'move', 'remove', 'create', 'ensure'],
-    ['run', 'start', 'wait', 'poll', 'queue', 'propose', 'commit', 'merge', 'use'],
+    ['run', 'start', 'wait', 'scan', 'queue', 'propose', 'commit', 'merge', 'use'],
   ].flat()
 );
 const layer = /(Forge|Store|Session|Sandbox)$/;
