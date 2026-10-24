@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { readBenchRows } from '../bin/bench.ts';
-import { bootstrap, cost, defaultBenchScoreWeights, frontier, presets, price, quality, summarise } from '../studio/src/bench/score.ts';
+import {
+  bootstrap,
+  cost,
+  defaultBenchScoreWeights,
+  frontier,
+  presets,
+  price,
+  quality,
+  summarise,
+} from '../studio/src/bench/score.ts';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 
@@ -31,7 +40,9 @@ describe('bench score', () => {
   });
 
   it('scores a run that changed nothing 0, whatever else it has', () => {
-    expect(quality(row({ outcome: 'no-change', hidden: 0, suite: 1, vsHuman: { opus: 0.5 } }), defaultBenchScoreWeights)).toBe(0);
+    expect(
+      quality(row({ outcome: 'no-change', hidden: 0, suite: 1, vsHuman: { opus: 0.5 } }), defaultBenchScoreWeights)
+    ).toBe(0);
   });
 
   it('weights the parts a case has, drops judges and charges findings above the human', () => {
