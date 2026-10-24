@@ -4,7 +4,10 @@ const toolTestTimeout = 60_000;
 const toolTests = [
   'tests/agentgraph-hub.test.ts',
   'tests/agentgraph-ui-checks.test.ts',
+  'tests/base-moved.test.ts',
   'tests/bench.test.ts',
+  'tests/branch-moved.test.ts',
+  'tests/coworker.test.ts',
   'tests/docker.test.ts',
   'tests/doubles.test.ts',
   'tests/drive-durable.test.ts',
@@ -15,6 +18,7 @@ const toolTests = [
   'tests/precommit.test.ts',
   'tests/run.test.ts',
   'tests/skill.test.ts',
+  'tests/tick.test.ts',
   'tests/triage.test.ts',
   'tests/tune.test.ts',
 ];
