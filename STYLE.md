@@ -45,7 +45,8 @@ at that level first.
 8. `is` returns a boolean, `why` returns a reason or undefined: `isAgentBranch`, `whyUnpushable`.
 9. No `xOf` or `xFor` helpers: `splitTraceIntoVisitedSteps`, not `visitsOf`.
 10. Types and components are a qualifier plus a noun: `RunLink`, `DiskCacheEntry`, never `Mark` or `Item`.
-11. Spell words out: no `Repo`, `Dep` or `Cfg` in type names. `Dirs` is the agreed exception.
+11. Spell words out: no `Repo`, `Dep` or `Cfg` in type names. The allowed abbreviations are
+    `Dirs`, `Ms`, `Id`, `Url`, `Json`, `Sha`, `Ast`, `Api`, `Cli`, `Pid` and `Env`.
 12. Name what a thing is for, not what it holds: `SharedMount`, not `DependencyVolume`.
 13. Type suffixes: `Spec` input, `Result` what an action hands back, `Entry` keyed record, `Settings`
     config (never Config or Options), `Point` chart position, `XWithY`.
