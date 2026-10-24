@@ -286,7 +286,6 @@ verb-first src/engine.ts instruct
 verb-first src/engine.ts sweep
 verb-first src/engine.ts tell
 verb-first src/engine.ts tick
-verb-first src/env.ts alive
 verb-first src/env.ts beat
 verb-first src/env.ts dependencyDirs
 verb-first src/env.ts discard

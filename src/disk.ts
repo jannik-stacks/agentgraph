@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
-import { alive, docker, envVersion, held, live, lowerOf, state, sweep, unlogged, used } from './env.ts';
+import { docker, envVersion, held, isPidRunning, live, lowerOf, state, sweep, unlogged, used } from './env.ts';
 
 /** What a cache item is: an Env image with its dependency volume, a dependency volume no image uses, or a host build dir. */
 type Kind = 'env' | 'lower' | 'tree';
@@ -104,7 +104,7 @@ export const trees = (root: string, depth = 5): string[] => {
 
 const busy = (path: string) => {
   const pid = Number((existsSync(`${path}.lock`) && readFileSync(`${path}.lock`, 'utf8')) || 0);
-  return pid > 0 && pid !== process.pid && alive(pid);
+  return pid > 0 && pid !== process.pid && isPidRunning(pid);
 };
 
 const du = (path: string) =>

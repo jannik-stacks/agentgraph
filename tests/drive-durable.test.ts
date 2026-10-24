@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configure, stateOf } from '../bench/drive.ts';
 import { jsonl } from '../bin/resume.ts';
-import { alive } from '../src/env.ts';
+import { isPidRunning } from '../src/env.ts';
 import { tmp } from './kit.ts';
 
 const driver = resolve(import.meta.dirname, '../bench/drive.ts');
@@ -46,7 +46,7 @@ const procs: ChildProcess[] = [];
 const orphans: number[] = [];
 afterEach(() => {
   for (const p of procs.splice(0)) p.kill('SIGKILL');
-  for (const pid of orphans.splice(0)) if (alive(pid)) process.kill(pid, 'SIGKILL');
+  for (const pid of orphans.splice(0)) if (isPidRunning(pid)) process.kill(pid, 'SIGKILL');
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -160,7 +160,7 @@ describe('bench driver durability', () => {
     expect((await exit).code).toBe(143);
     expect(events(dir).at(-1)).toMatchObject({ event: 'stop', reason: 'signal SIGTERM' });
     expect(existsSync(join(dir, 'drive.lock'))).toBe(false);
-    await until(() => !alive(pid));
+    await until(() => !isPidRunning(pid));
     expect(stateOf(dir)).toMatchObject({ status: 'stopped', reason: 'signal SIGTERM' });
   });
 
@@ -173,7 +173,7 @@ describe('bench driver durability', () => {
     orphans.push(pid);
     child.kill('SIGTERM');
     expect((await exit).code).toBe(143);
-    await until(() => !alive(pid));
+    await until(() => !isPidRunning(pid));
   });
 
   it('after SIGKILL shows crashed, and a resume takes over the dead lock', async () => {

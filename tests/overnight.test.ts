@@ -2,14 +2,14 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { alive } from '../src/env.ts';
+import { isPidRunning } from '../src/env.ts';
 import { tmp } from './kit.ts';
 
 const script = resolve(import.meta.dirname, '../bin/overnight.sh');
 const dirs: string[] = [];
 const pids: number[] = [];
 afterEach(() => {
-  for (const pid of pids.splice(0)) if (alive(pid)) process.kill(pid, 'SIGKILL');
+  for (const pid of pids.splice(0)) if (isPidRunning(pid)) process.kill(pid, 'SIGKILL');
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -43,7 +43,7 @@ it.each(shells)('on SIGTERM stops everything the running line started, in %s', a
   const pid = Number(readFileSync(pidFile, 'utf8'));
   pids.push(pid);
   queue.kill('SIGTERM');
-  await until(() => !alive(pid));
+  await until(() => !isPidRunning(pid));
 });
 
 it('records a line that passes as done and one that fails three times as failed', async () => {

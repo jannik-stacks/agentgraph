@@ -225,7 +225,7 @@ export const beat = () => {
   return `${process.pid}:${self}`;
 };
 
-export const alive = (pid: number) => {
+export const isPidRunning = (pid: number) => {
   try {
     process.kill(pid, 0);
     return true;
@@ -244,7 +244,7 @@ export const live = (label: string) => {
   try {
     if (Date.now() - statSync(join(owners(), owner || '-')).mtimeMs < 120_000) return true;
   } catch {}
-  return Boolean(Number(pid)) && alive(Number(pid));
+  return Boolean(Number(pid)) && isPidRunning(Number(pid));
 };
 
 const tagOf = (repo: string, key: string) =>

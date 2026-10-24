@@ -24,7 +24,7 @@ import { uptime } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, room } from '../src/disk.ts';
-import { alive } from '../src/env.ts';
+import { isPidRunning } from '../src/env.ts';
 
 const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
 
@@ -104,7 +104,7 @@ const mtime = (path: string) => {
 /** Whether a live process other than this one holds the unit at `path`. */
 export const busy = (path: string) => {
   const pid = owner(path);
-  return pid > 0 && pid !== process.pid && alive(pid) && mtime(`${path}.lock`) > booted() - 60_000;
+  return pid > 0 && pid !== process.pid && isPidRunning(pid) && mtime(`${path}.lock`) > booted() - 60_000;
 };
 
 /** Takes the unit at `path` for this process, unless a live one holds it; a dead holder's lock is taken over. */
