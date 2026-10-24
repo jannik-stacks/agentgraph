@@ -7,7 +7,7 @@
     "oxc"
   ],
   "jsPlugins": [
-    "./bin/names.mjs"
+    "./bin/style.mjs"
   ],
   "categories": {
     "correctness": "error"
@@ -114,7 +114,8 @@
     "import/no-duplicates": "error",
     "import/no-empty-named-blocks": "error",
     "import/no-mutable-exports": "error",
-    "import/no-self-import": "error"
+    "import/no-self-import": "error",
+    "style/no-comment": "error"
   },
   "overrides": [
     {
@@ -370,10 +371,10 @@
         "studio/src/**"
       ],
       "rules": {
-        "names/verb-first": "error",
-        "names/no-of-for": "error",
-        "names/unique-export": "error",
-        "names/retired-word": "warn"
+        "style/verb-first": "error",
+        "style/no-of-for": "error",
+        "style/unique-export": "error",
+        "style/retired-word": "warn"
       }
     }
   ],
