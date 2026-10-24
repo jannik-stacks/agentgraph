@@ -8,7 +8,7 @@ import { fileForge, Forge } from '../src/forge.ts';
 import { Sandbox } from '../src/sandbox.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
-import { host } from './doubles/sandbox.ts';
+import { hostSandbox } from './doubles/sandbox.ts';
 import { fixture, plant } from './fixtures.ts';
 import { git } from './kit.ts';
 
@@ -284,7 +284,7 @@ describe('fileForge issue', () => {
   });
 });
 
-describe('host', () => {
+describe('hostSandbox', () => {
   it('runs a command in a dir, streams its lines and times out', async () => {
     const dir = temp();
     const command = { cmd: 'sh', dir, env: { WHO: 'bot' }, network: 'none' as const, minutes: 1 };
@@ -295,7 +295,7 @@ describe('host', () => {
         const lines = yield* Stream.runCollect(sandbox.lines({ ...command, args: ['-c', 'echo a; echo b'] }));
         const late = yield* Effect.either(sandbox.exec({ ...command, args: ['-c', 'sleep 5'], minutes: 0.001 }));
         return { exit, lines: Chunk.toArray(lines), late: late._tag === 'Left' && late.left.reason };
-      }).pipe(Effect.scoped, Effect.provide(host(dir)))
+      }).pipe(Effect.scoped, Effect.provide(hostSandbox(dir)))
     );
     expect(out).toEqual({ exit: { code: 3, output: 'bot\n' }, lines: ['a', 'b'], late: 'timeout' });
   });
@@ -315,7 +315,7 @@ describe('host', () => {
           Stream.runDrain(sandbox.lines({ ...command, args: ['-c', 'echo $$ > lines; exec sleep 5'] }))
         );
         return [exec, lines].map(e => [e.reason, e.detail]);
-      }).pipe(Effect.scoped, Effect.provide(host(dir)))
+      }).pipe(Effect.scoped, Effect.provide(hostSandbox(dir)))
     );
     expect(out).toEqual(Array(2).fill(['timeout', 'sh ran past 0.005 minutes']));
     await killed('exec');

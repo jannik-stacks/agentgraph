@@ -9,7 +9,7 @@ export const verbs = new Set(
     ['run', 'start', 'wait', 'scan', 'queue', 'propose', 'commit', 'merge', 'use'],
   ].flat()
 );
-const layer = /(Forge|Store|Session|Sandbox)$/;
+const layerConstructors = new Set(['fileForge', 'githubForge', 'fileStore', 'harnessSession', 'dockerSandbox']);
 const retired = /compound|climb|stamp|provenance|bothub/i;
 const marked = /^\s*UNEXPECTED: /;
 const directive = /^\s*(oxlint-|eslint-|@ts-|\*?\s*@internal\s*$)/;
@@ -21,7 +21,7 @@ export const findNameProblems = name => {
   if (/^[A-Z]/.test(name)) return [];
   const problems = [];
   if (/[a-z\d](Of|For)$/.test(name)) problems.push('no-of-for');
-  if (!verbs.has(/^[a-z]+/.exec(name)?.[0]) && !layer.test(name)) problems.push('verb-first');
+  if (!verbs.has(/^[a-z]+/.exec(name)?.[0]) && !layerConstructors.has(name)) problems.push('verb-first');
   return problems;
 };
 
@@ -97,7 +97,8 @@ export default {
     'verb-first': makeNameRule(
       'verb-first',
       (n, fn) => fn && findNameProblems(n).includes('verb-first'),
-      n => `${n}: an exported function starts with a verb from docs/patterns.md#names`
+      n =>
+        `${n}: an exported function starts with a verb from docs/patterns.md#names, or is a layer constructor in STYLE.md#exceptions`
     ),
     'no-of-for': makeNameRule(
       'no-of-for',

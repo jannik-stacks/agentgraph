@@ -28,7 +28,7 @@ const late = (command: Command) => () =>
   new SandboxError({ reason: 'timeout', detail: `${command.cmd} ran past ${command.minutes} minutes` });
 
 /** Commands on the host, with clones of the local git repo `repo` as worktrees. No network rules. */
-export const host = (repo: string): Layer.Layer<Sandbox> =>
+export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
   Layer.succeed(Sandbox, {
     checkout: (ref, branch, keep) => {
       let checked: Checkout | undefined;

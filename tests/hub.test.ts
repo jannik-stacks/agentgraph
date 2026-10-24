@@ -6,7 +6,7 @@ import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { loadHub } from '../src/hub.ts';
 import { hubAt } from '../src/services.ts';
-import { host } from './doubles/sandbox.ts';
+import { hostSandbox } from './doubles/sandbox.ts';
 import { git } from './kit.ts';
 
 /** A hub directory with `files` written into it. */
@@ -224,7 +224,9 @@ describe('hubAt', () => {
     };
     const sha = () =>
       Effect.runPromise(
-        Effect.scoped(Effect.map(hubAt('.agentgraph'), h => h.sha)).pipe(Effect.provide(host(join(root, 'origin.git'))))
+        Effect.scoped(Effect.map(hubAt('.agentgraph'), h => h.sha)).pipe(
+          Effect.provide(hostSandbox(join(root, 'origin.git')))
+        )
       );
     const local = (await Effect.runPromise(loadHub(example))).sha;
     expect(await sha()).toBe(local);

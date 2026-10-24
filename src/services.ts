@@ -3,10 +3,10 @@ import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, type Redacted } from 'effect';
 import { fileForge } from './forge.ts';
-import { docker } from './docker.ts';
+import { dockerSandbox } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
-import { harnesses } from './harnesses.ts';
+import { harnessSession } from './harnesses.ts';
 import { HubError, loadHub } from './hub.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
@@ -85,7 +85,7 @@ export const hubAt = (path: string) =>
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
-  const sandbox = docker({ data: s.data, cache: s.cache, image: s.image, ...origin });
+  const sandbox = dockerSandbox({ data: s.data, cache: s.cache, image: s.image, ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
   const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
     Effect.provide(sandbox),
@@ -93,7 +93,7 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   );
   return Layer.unwrapEffect(
     Effect.map(trust, trust =>
-      Layer.mergeAll(forge(trust), fileStore(s.data, s.checkLogs), harnesses(s).pipe(Layer.provideMerge(sandbox)))
+      Layer.mergeAll(forge(trust), fileStore(s.data, s.checkLogs), harnessSession(s).pipe(Layer.provideMerge(sandbox)))
     )
   );
 };

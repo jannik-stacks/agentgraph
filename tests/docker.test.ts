@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync
 import { basename, delimiter, dirname, join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { docker, dockerArgs } from '../src/docker.ts';
+import { dockerSandbox, dockerArgs } from '../src/docker.ts';
 import {
   startHeartbeat,
   dependencyDirs,
@@ -17,7 +17,7 @@ import {
   makeToolchainSetupCommands,
   written,
 } from '../src/env.ts';
-import { harnesses } from '../src/harnesses.ts';
+import { harnessSession } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import { faked, plant } from './fixtures.ts';
@@ -78,7 +78,7 @@ describe('docker with a stand-in docker client', () => {
     process.env.PATH = path;
   });
 
-  const layer = docker({ data: tmp('data'), origin: '/nowhere' });
+  const layer = dockerSandbox({ data: tmp('data'), origin: '/nowhere' });
   const logged = () => readFileSync(log, 'utf8').split('\n');
 
   it('runs a hardened container with secrets by name and their values only in the client env', async () => {
@@ -175,7 +175,7 @@ describe('docker with a stand-in docker client', () => {
     expect(logged().join('\n')).not.toContain('/tmp/x');
 
     const data = tmp('data');
-    const exit = await use(docker({ data, origin: origin() }), s =>
+    const exit = await use(dockerSandbox({ data, origin: origin() }), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
         writeFileSync(join(work.dir, '.git'), 'gitdir: /tmp/x\n');
@@ -193,7 +193,7 @@ describe('docker with a stand-in docker client', () => {
   });
 
   it('runs every command of a checkout in its hub image and, with network models, on the proxy-only network', async () => {
-    const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main', undefined, undefined, {
           image: 'acme-rust:1',
@@ -219,9 +219,9 @@ describe('docker with a stand-in docker client', () => {
     await use(layer, s => s.exec(command(tmp('work'))));
     expect(logged()).toContain('type=volume,src=agentgraph-cache,dst=/cache,readonly');
     expect(logged()).toContain('npm_config_cache=/tmp/npm');
-    await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '' }), s => s.exec(command(tmp('work'))));
+    await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '' }), s => s.exec(command(tmp('work'))));
     expect(logged().join('\n')).not.toContain('type=volume');
-    const exit = await use(docker({ data: tmp('data'), origin: '/nowhere', cache: '--x' }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere', cache: '--x' }), s =>
       s.exec(command(tmp('work')))
     );
     expect(JSON.stringify(exit)).toContain('volume name not allowed');
@@ -237,7 +237,7 @@ describe('docker with a stand-in docker client', () => {
         .split('\n')
         .filter(l => l.includes('agentgraph.envbuild')).length;
     const before = existsSync(`${log}.all`) ? builds() : 0;
-    const exit = await use(docker({ data: tmp('data'), origin: repo }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo }), s =>
       Effect.gen(function* () {
         const hub = { toolchain: 'rustup target add wasm32-unknown-unknown' };
         const work = yield* s.checkout('main', undefined, undefined, hub);
@@ -272,7 +272,7 @@ describe('docker with a stand-in docker client', () => {
   });
 
   it("layers a checkout's dependency dirs over the sandbox setup's copy, skips setup on base files and drops them after", async () => {
-    const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main', undefined, undefined, { setup: 'withdeps' });
         yield* s.exec(command(work.dir));
@@ -307,7 +307,7 @@ describe('docker with a stand-in docker client', () => {
           ),
         ].map(m => m[1]);
       const before = builds().length;
-      const exit = await use(docker({ data: tmp('data'), origin: repo }), s =>
+      const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo }), s =>
         Effect.gen(function* () {
           const first = yield* s.checkout('main', undefined, undefined, { setup: 'skelfail' });
           const second = yield* s.checkout('feature', undefined, undefined, { setup: 'skelfail' });
@@ -330,7 +330,7 @@ describe('docker with a stand-in docker client', () => {
     const saved = process.env.AGENTGRAPH_STATE;
     process.env.AGENTGRAPH_STATE = tmp('state');
     try {
-      const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+      const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
         s.checkout('main', undefined, undefined, { toolchain: 'skeltool', setup: 'x' })
       );
       expect(Exit.isSuccess(exit) && exit.value.env).toEqual({ key: expect.any(String), mode: 'tree', match: true });
@@ -341,7 +341,7 @@ describe('docker with a stand-in docker client', () => {
   });
 
   it('fails the checkout when the toolchain fails', async () => {
-    const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s =>
       s.checkout('main', undefined, undefined, { toolchain: 'toolfail' })
     );
     expect(JSON.stringify(exit)).toContain('toolchain exited');
@@ -391,7 +391,7 @@ describe('docker checkout', () => {
     const token = 'ghs_secret_token_value';
     const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
     try {
-      const layer = docker({ data, origin: origin(), token: Effect.succeed(token) });
+      const layer = dockerSandbox({ data, origin: origin(), token: Effect.succeed(token) });
       const exit = await use(layer, s => Effect.zipRight(s.checkout('main'), s.checkout('main')));
       expect(Exit.isSuccess(exit)).toBe(true);
     } finally {
@@ -423,7 +423,7 @@ describe('docker checkout', () => {
     const from = origin();
     git(from, 'tag', 'v1');
     git(from, 'update-ref', 'refs/pull/1/head', 'feature');
-    const layer = docker({ data, origin: from });
+    const layer = dockerSandbox({ data, origin: from });
     for (const _ of [0, 1]) expect(Exit.isSuccess(await use(layer, s => s.checkout('main')))).toBe(true);
     const refs = git(join(data, 'mirror.git'), 'for-each-ref', '--format=%(refname)').split('\n');
     expect(refs).toEqual(['refs/heads/feature', 'refs/heads/main', 'refs/remotes/origin/HEAD', 'refs/tags/v1']);
@@ -433,14 +433,16 @@ describe('docker checkout', () => {
   it('lets two processes create the mirror at the same time', async () => {
     const data = tmp('data');
     const from = origin();
-    const exits = await Promise.all([0, 1].map(() => use(docker({ data, origin: from }), s => s.checkout('main'))));
+    const exits = await Promise.all(
+      [0, 1].map(() => use(dockerSandbox({ data, origin: from }), s => s.checkout('main')))
+    );
     expect(exits.map(Exit.isSuccess)).toEqual([true, true]);
     expect(readdirSync(data).filter(n => n.startsWith('mirror'))).toEqual(['mirror.git']);
   });
 
   it('checks out a ref or the existing branch from a mirror and removes the worktree with the scope', async () => {
     const data = tmp('data');
-    const layer = docker({ data, origin: origin() });
+    const layer = dockerSandbox({ data, origin: origin() });
     let kept = '';
     const exit = await use(layer, s =>
       Effect.gen(function* () {
@@ -468,7 +470,7 @@ describe('docker checkout', () => {
 
   it('keeps the files under the keep ref through a fetch and puts them back on the next checkout', async () => {
     const data = tmp('data');
-    const layer = docker({ data, origin: origin() });
+    const layer = dockerSandbox({ data, origin: origin() });
     const keep = 'refs/agentgraph/runs/r1';
     const first = await use(layer, s =>
       Effect.map(s.checkout('main', 'feature', keep), c => writeFileSync(join(c.dir, 'b.txt'), 'kept\n'))
@@ -488,7 +490,7 @@ describe('docker checkout', () => {
   it('puts kept files on the run branch after the branch moved on', async () => {
     const data = tmp('data');
     const repo = origin();
-    const layer = docker({ data, origin: repo });
+    const layer = dockerSandbox({ data, origin: repo });
     const keep = 'refs/agentgraph/runs/r2';
     await use(layer, s =>
       Effect.map(s.checkout('main', 'work', keep), c => writeFileSync(join(c.dir, 'b.txt'), 'second try\n'))
@@ -513,7 +515,7 @@ describe('docker checkout', () => {
     const mirror = join(data, 'mirror.git');
     let planted = { marker: '', victim: '' };
     let dir = '';
-    const exit = await use(docker({ data, origin: origin() }), s =>
+    const exit = await use(dockerSandbox({ data, origin: origin() }), s =>
       Effect.map(s.checkout('main', undefined, keep), c => {
         dir = c.dir;
         writeFileSync(join(c.dir, 'b.txt'), 'kept\n');
@@ -532,7 +534,7 @@ describe('docker checkout', () => {
   it('fetches while a live checkout claims a branch as its HEAD', async () => {
     const data = tmp('data');
     const repo = origin();
-    const layer = docker({ data, origin: repo });
+    const layer = dockerSandbox({ data, origin: repo });
     const exit = await use(layer, s =>
       Effect.gen(function* () {
         const c = yield* s.checkout('main');
@@ -547,7 +549,7 @@ describe('docker checkout', () => {
   });
 
   it('fails for a ref that does not exist', async () => {
-    const exit = await use(docker({ data: tmp('data'), origin: origin() }), s => s.checkout('nope'));
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: origin() }), s => s.checkout('nope'));
     expect(JSON.stringify(exit)).toContain('no commit for nope');
   });
 });
@@ -557,7 +559,7 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
   it('runs a command in the sandbox image with no network', async () => {
     const dir = tmp('work');
     writeFileSync(join(dir, 'x.txt'), 'inside\n');
-    const exit = await use(docker({ data: tmp('data'), origin: '/nowhere' }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere' }), s =>
       s.exec(command(dir, { args: ['-c', 'cat x.txt; id -u; touch /etc/x 2>/dev/null || echo read-only'] }))
     );
     expect(Exit.isSuccess(exit) && exit.value.output).toMatch(/^inside\n\d+\nread-only\n$/);
@@ -567,7 +569,7 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
     const hub = tmp('hub');
     writeFileSync(join(hub, 'x.sh'), 'hub script\n');
     const script = 'cat "$AGENTGRAPH_HUB/x.sh"; touch "$AGENTGRAPH_HUB/y" 2>/dev/null || echo read-only';
-    const exit = await use(docker({ data: tmp('data'), origin: '/nowhere' }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: '/nowhere' }), s =>
       s.exec(command(tmp('work'), { args: ['-c', script], hub }))
     );
     expect(Exit.isSuccess(exit) && exit.value.output).toBe('hub script\nread-only\n');
@@ -586,7 +588,7 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
     };
     const sh = (dir: string, script: string) => (s: Sandbox['Type']) => s.exec(command(dir, { args: ['-c', script] }));
     const kb = (args: string[]) => Number(execFileSync('docker', args, { encoding: 'utf8' }).trim().split(/\s+/)[0]);
-    const exit = await use(docker({ data: tmp('data'), origin: repo, cache: 'agentgraph-disk-test-cache' }), s =>
+    const exit = await use(dockerSandbox({ data: tmp('data'), origin: repo, cache: 'agentgraph-disk-test-cache' }), s =>
       Effect.gen(function* () {
         const works = yield* Effect.all(
           [1, 2, 3].map(() => s.checkout('main', undefined, undefined, hub)),
@@ -649,11 +651,11 @@ describe.runIf(process.env.AGENTGRAPH_LIVE === '1')('opencode for real', () => {
   it('answers, is denied a read outside the allowlist, and resumes', async () => {
     const dir = tmp('work');
     writeFileSync(join(dir, 'note.txt'), 'the word is kumquat\n');
-    const layer = harnesses({
+    const layer = harnessSession({
       data: tmp('data'),
       proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(process.env.AGENTGRAPH_PROXY_KEYS ?? '') },
       prices: join(import.meta.dirname, '../infra/local/prices.json'),
-    }).pipe(Layer.provide(docker({ data: tmp('data'), origin: '/nowhere' })));
+    }).pipe(Layer.provide(dockerSandbox({ data: tmp('data'), origin: '/nowhere' })));
     const open = (prompt: string, resume?: { id: string; home: string }) =>
       Effect.runPromise(
         Session.pipe(

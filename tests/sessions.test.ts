@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { runStepChecks } from '../src/engine.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
-import { host } from './doubles/sandbox.ts';
+import { hostSandbox } from './doubles/sandbox.ts';
 import { hubOf } from './fixtures.ts';
 import { git } from './kit.ts';
 
@@ -48,7 +48,7 @@ const peakOf = async (sessions: number) => {
         )
       ),
   });
-  const layer = Layer.mergeAll(fileStore(join(root, 'data')), host(join(root, 'origin.git')), counting);
+  const layer = Layer.mergeAll(fileStore(join(root, 'data')), hostSandbox(join(root, 'origin.git')), counting);
   const left = (run: string) => ({
     run,
     issue: 7,

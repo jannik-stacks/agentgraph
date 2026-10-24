@@ -212,7 +212,6 @@ verb-first src/disk.ts collect
 verb-first src/disk.ts inventory
 verb-first src/disk.ts pin
 verb-first src/disk.ts unpin
-verb-first src/docker.ts docker
 verb-first src/docker.ts dockerArgs
 verb-first src/engine.ts drive
 verb-first src/engine.ts instruct
@@ -232,7 +231,6 @@ verb-first src/forge.ts unpushable
 verb-first src/forge.ts withheld
 verb-first src/git.ts hostGit
 verb-first src/github.ts appToken
-verb-first src/harnesses.ts harnesses
 verb-first src/hub.ts loadHub
 verb-first src/hub.ts retiredIn
 verb-first src/instance.ts instanceAt

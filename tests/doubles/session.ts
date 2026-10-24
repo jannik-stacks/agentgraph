@@ -18,7 +18,7 @@ const written = (dir: string, event: SessionEvent) =>
  * writes that file into the session's dir before it is emitted. A list without an `end` gets one that stops cleanly
  * with the last text as the reply.
  */
-export const scripted = (turns: SessionEvent[][]): Layer.Layer<Session> =>
+export const replaySession = (turns: SessionEvent[][]): Layer.Layer<Session> =>
   Layer.sync(Session, () => {
     let next = 0;
     return {

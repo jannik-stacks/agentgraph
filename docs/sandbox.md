@@ -8,7 +8,7 @@ A container has a read-only root, a tmpfs `/tmp`, the operator's non-root uid, n
 
 `/work` (the checkout) and the session home `/home/agent` are writable. The mirror is read only, and so is `/hub` (`AGENTGRAPH_HUB`), which scripts and setup get but sessions do not. The shared cache is at `/cache`, where a checkout's writes stay with that checkout. No Docker socket or GitHub token enters a session; it gets only its agent's model key. <!-- code: src/docker.ts#dockerArgs -->
 
-`infra/local/sandbox` builds the image, and its `smoke.sh` checks how containers behave. Tests use a host sandbox instead, which runs in a clone without network rules. <!-- code: tests/doubles/sandbox.ts#host -->
+`infra/local/sandbox` builds the image, and its `smoke.sh` checks how containers behave. Tests use a host sandbox instead, which runs in a clone without network rules. <!-- code: tests/doubles/sandbox.ts#hostSandbox -->
 
 ## The network
 
@@ -29,7 +29,7 @@ An environment caches a repo's dependencies so checkouts do not install them aga
 
 The key covers the base image, the toolchain commands, `setup` and those files, so bases that differ only in source share an environment. If setup fails on those files alone, the build retries with the whole base. A setup that reads `$AGENTGRAPH_HUB` runs per checkout instead. A run's trace says which environment each checkout used and how it was built.
 
-Each checkout mounts private overlays over the cached dependency folders, so its writes stay its own, and the overlays go when the checkout closes. Checkouts skip setup when the environment holds everything setup produced; resumed checkouts and incomplete environments run it again. <!-- code: src/env.ts#layer src/docker.ts#docker src/env.ts#unlogged -->
+Each checkout mounts private overlays over the cached dependency folders, so its writes stay its own, and the overlays go when the checkout closes. Checkouts skip setup when the environment holds everything setup produced; resumed checkouts and incomplete environments run it again. <!-- code: src/env.ts#layer src/docker.ts#dockerSandbox src/env.ts#unlogged -->
 
 `AGENTGRAPH_STATE` (default `~/.cache/agentgraph`) holds runner heartbeats and image use times. Runners that share Docker must share it, and startup removes what dead runners left behind.
 
@@ -89,7 +89,7 @@ An agent's `harness` picks the session program:
 | `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` is dropped, so best for read-only agents | `--fork <id>` |
 | `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work | `--resume <id> --fork-session` |
 
-Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnesses -->
+Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnessSession -->
 
 ## Models
 

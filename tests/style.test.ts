@@ -35,6 +35,7 @@ describe('style lint', () => {
         'export const trees = () => [];',
         'export const graphOf = () => 1;',
         'export const fileForge = () => 1;',
+        'export const memoryStore = () => 1;',
         'export const Button = () => null;',
         'export const limits = { files: 1 };',
         'export const plan = () => 1;',
@@ -50,6 +51,7 @@ describe('style lint', () => {
       'error style(unique-export) plan',
       'error style(unique-export) plan',
       'error style(verb-first) graphOf',
+      'error style(verb-first) memoryStore',
       'error style(verb-first) trees',
       'warning style(retired-word) makeClimb',
     ]);

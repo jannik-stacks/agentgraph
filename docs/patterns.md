@@ -22,7 +22,7 @@ The engine reaches the outside only through the [four services](architecture.md#
 
 ## Test code stays out of src
 
-`src` holds only production code. A test double lives in `tests/doubles/` under the name of the `src` file it stands in for. `npm run knip` includes `knip --production`, which fails on a `src` export only tests use; an export kept for a unit test says so with `@internal`. <!-- code: tests/doubles/sandbox.ts#host tests/doubles/session.ts#scripted -->
+`src` holds only production code. A test double lives in `tests/doubles/` under the name of the `src` file it stands in for. `npm run knip` includes `knip --production`, which fails on a `src` export only tests use; an export kept for a unit test says so with `@internal`. <!-- code: tests/doubles/sandbox.ts#hostSandbox tests/doubles/session.ts#replaySession -->
 
 ## Hub files decode strictly
 
@@ -56,7 +56,7 @@ Names follow one small vocabulary so a reader can guess what a function does fro
 - `run` runs a process, step or loop to its end; `start` begins something that keeps going; `wait` blocks until a condition holds; `scan` is one pass over every open issue; `queue` puts work on a queue for a later loop; `propose` answers proposals; `commit` and `merge` are git's.
 - `use` names a React hook.
 
-Components and types are a qualifier plus a noun, spelled out: `RunLink`, `DiskCacheEntry`, `SandboxSetup`, never `Mark`, `Item` or `RepoSetup`. A type never reuses a name another export has, and never shadows Effect or the platform (`TokenScope`, not `Scope`). Type suffixes mean one thing each: `Spec` is an input describing what to make, `Result` is what one action hands back, `Entry` is one keyed record of a cache, store or log, `Settings` is configuration, `Point` is a position, and `Lookup` answers a value for a key; there is no `Index` or `Map` suffix. Layer constructors are `<how><Service>` for now (`fileForge`); whether they take `make` is an open question. No name ends in `Of` or `For`; say what the function does instead.
+Components and types are a qualifier plus a noun, spelled out: `RunLink`, `DiskCacheEntry`, `SandboxSetup`, never `Mark`, `Item` or `RepoSetup`. A type never reuses a name another export has, and never shadows Effect or the platform (`TokenScope`, not `Scope`). Type suffixes mean one thing each: `Spec` is an input describing what to make, `Result` is what one action hands back, `Entry` is one keyed record of a cache, store or log, `Settings` is configuration, `Point` is a position, and `Lookup` answers a value for a key; there is no `Index` or `Map` suffix. Layer constructors are `<how><Service>` with no verb (`fileForge`, `replaySession`), the one exception in [STYLE.md](../STYLE.md#exceptions). No name ends in `Of` or `For`; say what the function does instead.
 
 Core code in `src/` uses the short domain words from the [vocabulary](vocabulary.md). Edge code (bench, tune, studio pages, `bin/` helpers, hub scripts, test doubles) uses long names that explain themselves to someone who never opened the file: `readArmUsageOverAttempts`. The words users type in workflow and check files stay short (`back`, `until`, `tries`, `judge`); TypeScript types may qualify them (`CheckJudge`).
 

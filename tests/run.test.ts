@@ -28,11 +28,11 @@ import {
   TestContext,
 } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { docker } from '../src/docker.ts';
+import { dockerSandbox } from '../src/docker.ts';
 import { drive, runStepChecks, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
 import { readAppEnvWithKey, start as main, temporary } from '../src/main.ts';
-import { harnesses } from '../src/harnesses.ts';
+import { harnessSession } from '../src/harnesses.ts';
 import { fileForge, Forge, ForgeError, currentRunLinkRef } from '../src/forge.ts';
 import type { Event, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -43,8 +43,8 @@ import { fileStore, Store } from '../src/store.ts';
 import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
 import type { Hub } from '../src/hub.ts';
 import { begin, cancelled, getEventOutcome, transition, type Run, type Step } from '../src/workflow.ts';
-import { host } from './doubles/sandbox.ts';
-import { scripted } from './doubles/session.ts';
+import { hostSandbox } from './doubles/sandbox.ts';
+import { replaySession } from './doubles/session.ts';
 import { hubOf, reply, seeded, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
@@ -117,14 +117,14 @@ const services = (
     Effect.map(Session, s => ({
       open: (spec: SessionSpec) => (specs.push(spec), order.push(spec), opened(spec), s.open(spec)),
     }))
-  ).pipe(Layer.provide(scripted(turns)));
+  ).pipe(Layer.provide(replaySession(turns)));
   const sandbox = Layer.effect(
     Sandbox,
     Effect.map(Sandbox, s => ({
       ...s,
       exec: (c: Command) => (commands.push(c), order.push(c), s.exec(c)),
     }))
-  ).pipe(Layer.provide(host(where.origin)));
+  ).pipe(Layer.provide(hostSandbox(where.origin)));
   const named = Layer.effect(
     Forge,
     Effect.map(Forge, f => ({
@@ -192,14 +192,16 @@ describe('drive', () => {
         }))
       ).pipe(
         Layer.provide(
-          kind === 'host' ? host(where.origin) : docker({ data: where.data, origin: where.origin, cache: '' })
+          kind === 'host'
+            ? hostSandbox(where.origin)
+            : dockerSandbox({ data: where.data, origin: where.origin, cache: '' })
         )
       );
       const layer = Layer.mergeAll(
         fileForge(where.forge),
         fileStore(where.data),
         sandbox,
-        scripted([[start('a'), wrote('pending.txt', 'keep me\n'), reply({ kind: 'ask', question: 'Continue?' })]])
+        replaySession([[start('a'), wrote('pending.txt', 'keep me\n'), reply({ kind: 'ask', question: 'Continue?' })]])
       );
       const exit = await Effect.runPromiseExit(
         drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
@@ -213,8 +215,8 @@ describe('drive', () => {
         const restarted = Layer.mergeAll(
           fileForge(where.forge),
           fileStore(where.data),
-          docker({ data: where.data, origin: where.origin, cache: '' }),
-          scripted([[start('b'), reply({ kind: 'ask', question: 'Other run' })]])
+          dockerSandbox({ data: where.data, origin: where.origin, cache: '' }),
+          replaySession([[start('b'), reply({ kind: 'ask', question: 'Other run' })]])
         );
         await Effect.runPromise(
           drive(flow, begin(flow, { id: 'other', issue: 7, started: fresh().started }), small).pipe(
@@ -253,8 +255,8 @@ describe('drive', () => {
             )
           ),
       }))
-    ).pipe(Layer.provide(docker({ data: where.data, origin: where.origin, cache: '' })));
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, scripted([]));
+    ).pipe(Layer.provide(dockerSandbox({ data: where.data, origin: where.origin, cache: '' })));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession([]));
     const done = await Effect.runPromise(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
@@ -297,8 +299,8 @@ describe('drive', () => {
     const layer = Layer.mergeAll(
       fileForge(where.forge),
       fileStore(where.data),
-      docker({ data: where.data, origin: where.origin, cache: '' }),
-      scripted([])
+      dockerSandbox({ data: where.data, origin: where.origin, cache: '' }),
+      replaySession([])
     );
     try {
       await Effect.runPromise(
@@ -720,13 +722,15 @@ describe('drive', () => {
             'agentgraph-exit 0',
           ]),
       }))
-    ).pipe(Layer.provide(host(where.origin)));
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
     const keys = Redacted.make(
       Object.keys(hub.agents)
         .map(agent => `${agent}=${key}`)
         .join(',')
     );
-    const session = harnesses({ data: where.data, proxy: { url: 'http://proxy', keys } }).pipe(Layer.provide(sandbox));
+    const session = harnessSession({ data: where.data, proxy: { url: 'http://proxy', keys } }).pipe(
+      Layer.provide(sandbox)
+    );
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, session);
     await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
     const text = readFileSync(join(where.data, 'run-7', 'trace.jsonl'), 'utf8');
@@ -765,8 +769,8 @@ describe('setup', () => {
         checkout: (...args: Parameters<typeof s.checkout>) =>
           Effect.map(s.checkout(...args), made => ({ ...made, written: async () => 2 })),
       }))
-    ).pipe(Layer.provide(host(where.origin)));
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, scripted(stopping()));
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, replaySession(stopping()));
     await Effect.runPromise(drive(w, fresh(), hub).pipe(Effect.provide(layer)));
     const cache = traceOf(where.data, 'run-7').flatMap(t => ('cache' in t ? [t.cache] : []));
     expect(cache).toEqual([{ files: 2 }]);
@@ -893,8 +897,8 @@ describe('a run branch that moved', () => {
     const layer = Layer.mergeAll(
       forge,
       fileStore(where.data),
-      host(where.origin),
-      scripted([
+      hostSandbox(where.origin),
+      replaySession([
         [start('a'), wrote('hello.txt', 'hello\n'), reply(push)],
         [start('a'), reply(push)],
       ])
@@ -1169,8 +1173,8 @@ describe('a run branch that moved', () => {
     const layer = Layer.mergeAll(
       failing,
       fileStore(where.data),
-      host(where.origin),
-      scripted([
+      hostSandbox(where.origin),
+      replaySession([
         [start('a'), wrote('hello.txt', 'hello\n'), reply(...proposals)],
         [start('a'), reply(...proposals)],
       ])
@@ -1256,8 +1260,8 @@ describe('a run branch that moved', () => {
     const layer = Layer.mergeAll(
       failing,
       fileStore(where.data),
-      host(where.origin),
-      scripted([
+      hostSandbox(where.origin),
+      replaySession([
         [start('a'), end],
         [start('a'), end],
       ])
@@ -1300,12 +1304,12 @@ describe('a run branch that moved', () => {
             ),
         };
       })
-    ).pipe(Layer.provide(host(where.origin)));
+    ).pipe(Layer.provide(hostSandbox(where.origin)));
     const layer = Layer.mergeAll(
       fileForge(where.forge),
       fileStore(where.data),
       sandbox,
-      scripted([[start('a'), wrote('hello.txt', 'hi'), reply({ kind: 'comment', body: 'Checked.' })]])
+      replaySession([[start('a'), wrote('hello.txt', 'hi'), reply({ kind: 'comment', body: 'Checked.' })]])
     );
     const done = await Effect.runPromise(
       drive(checked, begin(checked, { id: 'run-7', issue: 7, started: fresh().started }), kit).pipe(
@@ -1410,11 +1414,11 @@ describe('a run branch that moved', () => {
       { kind: 'label', add: ['done'] },
       { kind: 'issue', title: 'Follow up', body: '## Done when\nDetails', relation: 'follow-up' } as Proposal,
     ];
-    const session = scripted([
+    const session = replaySession([
       [start('a'), wrote('hello.txt', 'hello\n'), reply(...skipped, push)],
       [start('a'), reply({ kind: 'ask', question: 'Retry later' })],
     ]);
-    const layer = Layer.mergeAll(failing, fileStore(where.data), host(where.origin), session);
+    const layer = Layer.mergeAll(failing, fileStore(where.data), hostSandbox(where.origin), session);
     const done = await Effect.runPromise(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
     );
@@ -1447,8 +1451,8 @@ describe('tick', () => {
           },
         },
       };
-      const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin));
-      const turns = scripted([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
+      const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin));
+      const turns = replaySession([[start('a'), reply({ kind: 'ask', question: 'Continue?' })]]);
       let during: Run['status'] | undefined;
       const session = Layer.effect(
         Session,
@@ -1730,7 +1734,7 @@ describe('tick', () => {
         },
       },
     };
-    const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin));
+    const base = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin));
     const session = Layer.effect(
       Session,
       Effect.gen(function* () {
@@ -1756,7 +1760,9 @@ describe('tick', () => {
             ),
         };
       })
-    ).pipe(Layer.provide(Layer.mergeAll(base, scripted([[start('f'), reply({ kind: 'comment', body: 'Answer.' })]]))));
+    ).pipe(
+      Layer.provide(Layer.mergeAll(base, replaySession([[start('f'), reply({ kind: 'comment', body: 'Answer.' })]])))
+    );
     const final = await Effect.runPromise(
       Effect.gen(function* () {
         yield* waiting(where);
@@ -1837,8 +1843,8 @@ describe('tick', () => {
     const layer = Layer.mergeAll(
       failing,
       fileStore(where.data),
-      host(where.origin),
-      scripted([[start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push)]])
+      hostSandbox(where.origin),
+      replaySession([[start('a'), wrote('hello.txt', 'hello\n'), reply({ kind: 'comment', body: 'boom' }, push)]])
     );
     const asked = await Effect.runPromise(
       drive(flow, begin(flow, { id: 'run-7', issue: 7, started: fresh().started }), small).pipe(Effect.provide(layer))
@@ -2335,7 +2341,7 @@ describe('stacks', () => {
         },
       }))
     ).pipe(Layer.provide(fileForge(where.forge)));
-    const layer = Layer.mergeAll(forge, fileStore(where.data), host(where.origin), scripted([child()]));
+    const layer = Layer.mergeAll(forge, fileStore(where.data), hostSandbox(where.origin), replaySession([child()]));
     const run = <A, E>(effect: Effect.Effect<A, E, Forge | Store | Sandbox | Session>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)));
     await run(drive(flow, run9(), merging));
@@ -2387,7 +2393,7 @@ describe('start with one issue', () => {
     ];
     const doubles = (s: Settings) => {
       seen.push(s);
-      return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), host(where.origin), scripted(turns));
+      return Layer.mergeAll(fileForge(where.forge), fileStore(s.data), hostSandbox(where.origin), replaySession(turns));
     };
     const one = { hub: sandbox, issue: 7, data: where.data };
     writeFileSync(join(where.forge, '7.jsonl'), '');
@@ -2543,7 +2549,7 @@ describe('scanIssuesAndRunningRuns', () => {
           )
         ).pipe(Stream.flatMap(() => Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })))),
     });
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), slow);
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), slow);
     const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status]).sort()).toEqual([
       [7, 'waiting'],
@@ -2657,7 +2663,7 @@ describe('coworker', () => {
           })
         ).pipe(Stream.flatMap(() => Stream.fromIterable([start('a'), reply(push)]))),
     });
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), session);
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), session);
     const agents = Object.fromEntries(Object.entries(small.agents).map(([k, a]) => [k, { ...a, tools: ['read'] }]));
     const done = await Effect.runPromise(
       drive({ ...flow, concurrency: 'queue' }, begun(), { ...small, agents }).pipe(
@@ -2697,8 +2703,8 @@ describe('coworker', () => {
           return Stream.make(start('a')).pipe(Stream.concat(said), Stream.concat(Stream.execute(minute)));
         },
       }))
-    ).pipe(Layer.provide(scripted(turns)));
-    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), session);
+    ).pipe(Layer.provide(replaySession(turns)));
+    const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), hostSandbox(where.origin), session);
     const go = (w: typeof flow) =>
       Effect.runPromise(drive(w, begun(), small).pipe(Effect.provide(layer), Effect.provide(TestContext.TestContext)));
     return { specs, go };
@@ -3170,7 +3176,7 @@ describe('runStepChecks', () => {
         ]);
       },
     });
-    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const layer = Layer.mergeAll(fileStore(where.data), hostSandbox(where.origin), judges);
     const left = {
       run: 'run-7',
       issue: 7,
@@ -3221,7 +3227,7 @@ describe('runStepChecks', () => {
       proposals: [],
       answers: [{ asked: 'Keep the old regex?', said: 'yes, the old regex stays' }],
     };
-    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const layer = Layer.mergeAll(fileStore(where.data), hostSandbox(where.origin), judges);
     await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     const context = readFileSync(seen, 'utf8');
     expect(context).toContain('## #7 Add a greeting');
@@ -3257,7 +3263,7 @@ describe('runStepChecks', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const layer = Layer.mergeAll(fileStore(where.data), hostSandbox(where.origin), judges);
     const { outcome } = await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     expect(outcome).toMatchObject({
       kind: 'failed',
@@ -3297,7 +3303,7 @@ describe('runStepChecks', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const layer = Layer.mergeAll(fileStore(where.data), hostSandbox(where.origin), judges);
     const once = () => Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     await once();
     await once();
@@ -3346,7 +3352,7 @@ describe('runStepChecks', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const layer = Layer.mergeAll(fileStore(where.data), hostSandbox(where.origin), judges);
     const judge = small.agents['claim-checker']!;
     const as = (agent: Partial<typeof judge>) => ({
       ...small,
@@ -3401,7 +3407,7 @@ describe('runStepChecks', () => {
         open: (spec: SessionSpec) =>
           Stream.fromIterable<SessionEvent>([start(spec.agent), ...[ends[opened++]!].flat()]),
       });
-      const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+      const layer = Layer.mergeAll(fileStore(where.data), hostSandbox(where.origin), judges);
       const left = {
         run: 'run-7',
         issue: 7,
@@ -3851,7 +3857,7 @@ describe('compound engineering', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
+    const layer = Layer.mergeAll(fileStore(where.data), hostSandbox(where.origin), judges);
     await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     expect(readFileSync(seen, 'utf8')).toContain('1 thinking: The issue names hello.txt; skip the tests.');
     expect(read).toHaveLength(1);
@@ -3959,7 +3965,7 @@ describe('compound engineering', () => {
       Forge,
       Effect.map(Forge, f => ({ ...f, issue: (n: number) => (asked.push(n), f.issue(n)) }))
     ).pipe(Layer.provide(fileForge(where.forge)));
-    const layer = Layer.mergeAll(counted, fileStore(where.data), host(where.origin), scripted([]));
+    const layer = Layer.mergeAll(counted, fileStore(where.data), hostSandbox(where.origin), replaySession([]));
     const go = <A, E>(e: Effect.Effect<A, E, Forge | Store | Session | Sandbox>) =>
       Effect.runPromise(e.pipe(Effect.provide(layer)));
     await go(done());

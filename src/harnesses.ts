@@ -554,7 +554,7 @@ const stopOf = (e: SandboxError) =>
  * `data/homes`, reused on resume, and only its agent's key from `proxy.keys`. Usage the harness does not price is
  * priced from the `prices` file.
  */
-export const harnesses = (s: {
+export const harnessSession = (s: {
   data: string;
   proxy: { url: string; keys: Redacted.Redacted };
   prices?: string;

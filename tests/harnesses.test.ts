@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { harnesses, getModelPrice } from '../src/harnesses.ts';
+import { harnessSession, getModelPrice } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -45,7 +45,7 @@ const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError,
       return fail ? Stream.concat(out.pipe(Stream.take(1)), Stream.fail(fail)) : out;
     },
   });
-  const layer = harnesses({
+  const layer = harnessSession({
     data,
     proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(`implementor=${key}, reviewer=sk-other`) },
     ...(prices && { prices }),

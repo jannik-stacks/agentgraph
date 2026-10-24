@@ -211,7 +211,7 @@ const timeout = (c: Command) => () =>
  * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
  * name turns the volume and sandbox setups off.
  */
-export const docker = (o: {
+export const dockerSandbox = (o: {
   data: string;
   origin: string;
   image?: string;

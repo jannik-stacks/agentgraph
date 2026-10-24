@@ -13,8 +13,8 @@ import { start as main } from '../src/main.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import type { SessionEvent } from '../src/trace.ts';
-import { host } from './doubles/sandbox.ts';
-import { scripted } from './doubles/session.ts';
+import { hostSandbox } from './doubles/sandbox.ts';
+import { replaySession } from './doubles/session.ts';
 import { reply, seeded, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 
@@ -61,8 +61,8 @@ const world = () => {
                   : sandbox.checkout(...args)
               ),
           }))
-        ).pipe(Layer.provide(host(join(forgeDir, 'origin.git')))),
-        scripted(turns)
+        ).pipe(Layer.provide(hostSandbox(join(forgeDir, 'origin.git')))),
+        replaySession(turns)
       );
     });
   };
@@ -410,8 +410,8 @@ describe('bin/forge.ts with run --forge', () => {
             Layer.mergeAll(
               fileForge(w.dir),
               fileStore(join(w.root, 'data')),
-              host(w.origin),
-              scripted([[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]])
+              hostSandbox(w.origin),
+              replaySession([[start('router'), reply({ kind: 'comment', body: 'Here is why.' })]])
             )
           )
         )
@@ -477,8 +477,8 @@ describe('an instance', () => {
         Layer.mergeAll(
           fileForge(s.forge as string),
           fileStore(s.data),
-          host(join(s.forge as string, 'origin.git')),
-          scripted(turns)
+          hostSandbox(join(s.forge as string, 'origin.git')),
+          replaySession(turns)
         )
       );
     const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });

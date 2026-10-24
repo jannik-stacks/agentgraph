@@ -11,8 +11,8 @@ import type { Session } from '../src/session.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
-import { host } from './doubles/sandbox.ts';
-import { scripted } from './doubles/session.ts';
+import { hostSandbox } from './doubles/sandbox.ts';
+import { replaySession } from './doubles/session.ts';
 import { reply, seeded, start } from './fixtures.ts';
 import { git } from './kit.ts';
 
@@ -71,7 +71,12 @@ const run = <A, E>(
   turns: SessionEvent[][],
   effect: Effect.Effect<A, E, Forge | Store | Session | Sandbox>
 ) => {
-  const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), scripted(turns));
+  const layer = Layer.mergeAll(
+    fileForge(where.forge),
+    fileStore(where.data),
+    hostSandbox(where.origin),
+    replaySession(turns)
+  );
   return Effect.runPromise(effect.pipe(Effect.provide(layer))).then(value => ({ value }));
 };
 

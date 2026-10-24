@@ -76,6 +76,6 @@ The output of each check is gzipped in `logs/`, one file per distinct content: t
 
 ## Checkout
 
-A run works in a checkout from the mirror on its workflow branch. When the engine is done with a checkout, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. Inside the sandbox the mirror is read only. <!-- code: src/docker.ts#docker -->
+A run works in a checkout from the mirror on its workflow branch. When the engine is done with a checkout, it saves the files at `refs/agentgraph/runs/<run id>` for resuming and removes it. Inside the sandbox the mirror is read only. <!-- code: src/docker.ts#dockerSandbox -->
 
 [Limits and runner errors](loop.md#order-and-limits) decide whether a run stops or waits. The status comment carries the reason and the trace the details.
