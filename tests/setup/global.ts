@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 type Proc = { pid: number; pgid: number; started: string; command: string };
@@ -37,12 +36,18 @@ export const leftovers = (spawned: Map<number, string>, running: Proc[] = parse(
   return running.filter(p => p.pid !== process.pid && (ours(p.pid) || ourGroup(p.pgid)));
 };
 
-/** Records every process the tests spawn and fails the run if any of them outlives it. */
+/**
+ * Gives the run its own TMPDIR, removed afterwards, records every process the tests spawn and fails the run if any of
+ * them outlives it.
+ */
 export default () => {
-  const dir = mkdtempSync(join(tmpdir(), 'agentgraph-test-processes-'));
+  // UNEXPECTED: oxlint and oxfmt read every ancestor directory, so a crowded system TMPDIR slows them by seconds.
+  const dir = mkdtempSync('/tmp/agentgraph-test-');
   const log = join(dir, 'pids');
   writeFileSync(log, '');
+  mkdirSync(join(dir, 'tmp'));
   process.env.AGENTGRAPH_TEST_PROCESSES = log;
+  process.env.TMPDIR = join(dir, 'tmp');
 
   return async () => {
     const spawned = new Map(
@@ -53,17 +58,17 @@ export default () => {
           return m ? [[Number(m[1]), m[2]!] as const] : [];
         })
     );
-    rmSync(dir, { recursive: true, force: true });
     let left = leftovers(spawned);
     for (let i = 0; i < 40 && left.length; i++) {
       await new Promise(resolve => setTimeout(resolve, 50));
       left = leftovers(spawned);
     }
-    if (!left.length) return;
     for (const p of left)
       try {
         process.kill(p.pid, 'SIGKILL');
       } catch {}
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    if (!left.length) return;
     throw new Error(
       `tests left ${left.length} process(es) running (now killed):\n${left.map(p => `  ${p.pid} ${p.command}`).join('\n')}`
     );
