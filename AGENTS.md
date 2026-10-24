@@ -1,8 +1,11 @@
 # agentgraph
 
-Read [docs/patterns.md](docs/patterns.md) before writing code. `npm run check` must pass before a commit.
+Read [STYLE.md](STYLE.md) and [docs/patterns.md](docs/patterns.md) before writing code.
+`npm run check` must pass before a commit.
 
 ## Code style
+
+The full rules are in [STYLE.md](STYLE.md). The ones that matter most:
 
 - **Derive types, never copy them.** Use `Pick`, `Omit`, `Partial`, indexed access or `typeof X.Type` at
   the use site.
