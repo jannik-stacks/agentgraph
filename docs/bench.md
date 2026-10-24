@@ -38,7 +38,7 @@ A tested case is valid only if its hidden tests fail on base and pass on the hum
 | Arm | What runs |
 | --- | --- |
 | `human` | The merged change |
-| `v2` | The repo's hub (`examples/clarinet`, `examples/sk`, `examples/sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
+| `v2` | The repo's hub (`examples/clarinet`, `examples/acme-app`, `examples/sandbox`), else `examples/bench`: implement, check tests, review with one return, then a human merge |
 | `floor` | `bench/floor`: one session, same sandbox and budget, no checks or review |
 
 Each arm seeds its forge with `init --at <base>`, hiding the fix. A scripted maintainer answers the first question with "No more information. Use your judgment."; a second question ends the arm where it waits. Answers are counted.

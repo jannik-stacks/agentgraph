@@ -82,7 +82,11 @@ const bots = ['v2', 'floor'];
 const excluded = new Set(['billing']);
 const benched = (repo = '') => !excluded.has(repo.split('/').pop() ?? '');
 const arms = ['human', ...bots, 'control'];
-const hubs: Record<string, string> = { clarinet: 'clarinet', 'acme-app': 'sk', 'agentgraph-sandbox': 'sandbox' };
+const hubs: Record<string, string> = {
+  clarinet: 'clarinet',
+  'acme-app': 'acme-app',
+  'agentgraph-sandbox': 'sandbox',
+};
 const strataKeys = ['repo', 'tests', 'size', 'kind', 'bucket', 'filesBucket', 'area', 'issue'];
 const answer = '/agent No more information. Use your judgment.';
 const limits = { codex: 30, claude: 60 };

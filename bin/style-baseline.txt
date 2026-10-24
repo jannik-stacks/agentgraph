@@ -56,7 +56,7 @@ no-comment examples/clarinet/scripts/lib.mjs 15
 no-comment examples/clarinet/scripts/limits.mjs 2
 no-comment examples/clarinet/scripts/reach.mjs 3
 no-comment examples/clarinet/scripts/triage-brief.mjs 6
-no-comment examples/sk/scripts/surface.mjs 6
+no-comment examples/acme-app/scripts/surface.mjs 6
 no-comment src/context.ts 12
 no-comment src/disk.ts 14
 no-comment src/docker.ts 10
