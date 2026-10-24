@@ -234,5 +234,5 @@ describe('hubAt', () => {
     expect(await sha()).toBe(local);
     edit('main');
     expect(await sha()).not.toBe(local);
-  }, 30_000);
+  });
 });

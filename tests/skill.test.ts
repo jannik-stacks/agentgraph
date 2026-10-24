@@ -146,7 +146,7 @@ describe('skill benchmark', () => {
     await skill(like, options(2), io);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).toMatch(/i001-skill, skill, kept/);
     expect(readFileSync(join(dir, 'skill/r002/tried.md'), 'utf8')).not.toMatch(/\bv1\b/);
-  }, 30_000);
+  });
 
   it('stops a session past a cap and asks the round again on resume', async () => {
     const s = setup();
@@ -164,5 +164,5 @@ describe('skill benchmark', () => {
     await skill(like, options(1), io);
     expect(tuneRows(dir).steps.map(x => x.id)).toEqual(['i000-init', 'i001-skill', 'i001-skill-2']);
     expect(readdirSync(join(dir, 'skill')).filter(n => n.startsWith('r001.'))).toHaveLength(1);
-  }, 30_000);
+  });
 });

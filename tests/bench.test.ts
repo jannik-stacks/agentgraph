@@ -281,7 +281,7 @@ describe('bench helpers', () => {
 });
 
 describe('bin/bench.ts score and report', () => {
-  it('runs the merged tests on each arm, keeps scores, and skips them on a rerun', { timeout: 30_000 }, () => {
+  it('runs the merged tests on each arm, keeps scores, and skips them on a rerun', () => {
     const root = tmp('bench');
     dirs.push(root);
     const repo = join(root, 'repo');
@@ -420,7 +420,7 @@ describe('bin/bench.ts score and report', () => {
 });
 
 describe('bin/bench.ts typecheck', () => {
-  it('typechecks a case without hidden tests and calls it invalid when the human fails it', { timeout: 30_000 }, () => {
+  it('typechecks a case without hidden tests and calls it invalid when the human fails it', () => {
     const root = tmp('bench');
     dirs.push(root);
     const repo = join(root, 'repo');

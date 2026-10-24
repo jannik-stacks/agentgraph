@@ -416,7 +416,7 @@ describe('docker checkout', () => {
     expect(config).not.toContain(header.split(' ').at(-1));
     expect(config).not.toContain(token);
     expect(config).not.toContain('extraheader');
-  }, 30_000);
+  });
 
   it('mirrors branches, tags and the default branch head but not pull refs', async () => {
     const data = tmp('data');
@@ -466,7 +466,7 @@ describe('docker checkout', () => {
     );
     expect(existsSync(kept)).toBe(false);
     expect(existsSync(join(data, 'mirror.git', 'HEAD'))).toBe(true);
-  }, 30_000);
+  });
 
   it('keeps the files under the keep ref through a fetch and puts them back on the next checkout', async () => {
     const data = tmp('data');
@@ -485,7 +485,7 @@ describe('docker checkout', () => {
     );
     expect(second).toEqual(Exit.succeed(['feature', 'kept', true]));
     expect(git(join(data, 'mirror.git'), 'rev-list', '--count', keep)).toBe('4');
-  }, 30_000);
+  });
 
   it('puts kept files on the run branch after the branch moved on', async () => {
     const data = tmp('data');
@@ -507,7 +507,7 @@ describe('docker checkout', () => {
       ])
     );
     expect(again).toEqual(Exit.succeed(['second try', true]));
-  }, 30_000);
+  });
 
   it('keeps the files through host git that nothing in the worktree can steer', async () => {
     const data = tmp('data');
@@ -529,7 +529,7 @@ describe('docker checkout', () => {
     expect(existsSync(dir)).toBe(false);
     expect(git(mirror, 'show', `${keep}:b.txt`)).toBe('kept');
     expect(git(mirror, 'worktree', 'list', '--porcelain')).not.toContain(dir);
-  }, 30_000);
+  });
 
   it('fetches while a live checkout claims a branch as its HEAD', async () => {
     const data = tmp('data');

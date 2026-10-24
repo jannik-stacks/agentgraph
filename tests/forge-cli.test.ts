@@ -117,7 +117,7 @@ describe('bin/forge.ts with run --forge', () => {
     expect(w.forge('show')).toBe(
       '#1 closed Add a greeting [agent:ready, agentgraph:done]\n#2 merged Add hello (agentgraph/1 into main)'
     );
-  }, 30_000);
+  });
 
   it('sends a pull request back with the line comments posted just before the review in its reason', async () => {
     const w = world();
@@ -148,7 +148,7 @@ describe('bin/forge.ts with run --forge', () => {
       .map(l => JSON.parse(l) as { outcome?: { kind: string; why?: string } })
       .flatMap(l => (l.outcome?.kind === 'back' ? [l.outcome.why] : []));
     expect(backs).toEqual(['see the line note\nhello.txt:1: say hello world']);
-  }, 30_000);
+  });
 
   it('runs a stacked issue on the pull request of the one it stacks on', async () => {
     const w = world();
@@ -178,7 +178,7 @@ describe('bin/forge.ts with run --forge', () => {
     w.forge('merge', '4');
     expect(git(w.origin, 'show', 'main:bye.txt')).toBe('bye.txt');
     expect(existsSync(join(w.dir, '2.md'))).toBe(true);
-  }, 30_000);
+  });
 
   it('starts the router on a bare mention, stops a waiting run on a mention with stop, and ignores stop with no run', async () => {
     const w = world();
@@ -196,73 +196,69 @@ describe('bin/forge.ts with run --forge', () => {
     expect(stopped.map(r => [r.step, r.status, r.reason])).toEqual([['router', 'stopped', 'wrong issue']]);
   });
 
-  it.each([0, 1])(
-    'routes review say with %i checkout failures',
-    async failures => {
-      const w = world();
-      w.forge('init', w.seed);
-      w.forge('issue', 'Add a greeting');
-      w.forge('label', '1', 'agent:ready');
-      const [waiting] = await w.run([
+  it.each([0, 1])('routes review say with %i checkout failures', async failures => {
+    const w = world();
+    w.forge('init', w.seed);
+    w.forge('issue', 'Add a greeting');
+    w.forge('label', '1', 'agent:ready');
+    const [waiting] = await w.run([
+      [
+        start('i'),
+        wrote('hello.txt', 'hello\n'),
+        reply(
+          { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
+          { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
+        ),
+      ],
+      [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+    ]);
+    w.forge('comment', '2', 'This line?', '--line', 'hello.txt:1');
+    const event = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l))
+      .at(-1);
+    const routed = await w.run(
+      [
         [
-          start('i'),
-          wrote('hello.txt', 'hello\n'),
-          reply(
-            { kind: 'push', branch: 'agentgraph/1', message: 'feat: hello' },
-            { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Hello', body: 'Hello' }
-          ),
+          start('cli-router'),
+          reply({ kind: 'comment', body: 'Answer in thread.' }, { kind: 'tell', issue: 1, text: 'Please revise it' }),
         ],
-        [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
-      ]);
-      w.forge('comment', '2', 'This line?', '--line', 'hello.txt:1');
-      const event = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
-        .trim()
-        .split('\n')
-        .map(l => JSON.parse(l))
-        .at(-1);
-      const routed = await w.run(
-        [
-          [
-            start('cli-router'),
-            reply({ kind: 'comment', body: 'Answer in thread.' }, { kind: 'tell', issue: 1, text: 'Please revise it' }),
-          ],
-        ],
-        2,
-        { kind: 'say', issue: 2, comment: event.comment.id, text: 'Please explain this line' },
-        failures
-      );
-      const router = routed.find(r => r.workflow === 'router')!;
-      expect(router.status).toBe('done');
-      const trace = readFileSync(join(w.root, 'data', router.id, 'trace.jsonl'), 'utf8');
-      expect(trace).toContain('"source":"cli"');
-      expect(
-        JSON.parse(
-          trace
-            .trim()
-            .split('\n')
-            .find(l => JSON.parse(l).prompt)!
-        ).prompt.prompt
-      ).toContain('hello.txt:1');
-      expect(
+      ],
+      2,
+      { kind: 'say', issue: 2, comment: event.comment.id, text: 'Please explain this line' },
+      failures
+    );
+    const router = routed.find(r => r.workflow === 'router')!;
+    expect(router.status).toBe('done');
+    const trace = readFileSync(join(w.root, 'data', router.id, 'trace.jsonl'), 'utf8');
+    expect(trace).toContain('"source":"cli"');
+    expect(
+      JSON.parse(
         trace
           .trim()
           .split('\n')
-          .map(l => JSON.parse(l))
-          .some(t => t.prompt?.prompt.includes('Please explain this line'))
-      ).toBe(true);
-      const timeline = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+          .find(l => JSON.parse(l).prompt)!
+      ).prompt.prompt
+    ).toContain('hello.txt:1');
+    expect(
+      trace
         .trim()
         .split('\n')
-        .map(l => JSON.parse(l));
-      expect(
-        timeline.some(m => m.comment?.body.includes('Answer in thread.') && m.comment.under === event.comment.id)
-      ).toBe(true);
-      expect(readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')).toContain(
-        '"text":"Please revise it"'
-      );
-    },
-    30_000
-  );
+        .map(l => JSON.parse(l))
+        .some(t => t.prompt?.prompt.includes('Please explain this line'))
+    ).toBe(true);
+    const timeline = readFileSync(join(w.dir, '2.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l));
+    expect(
+      timeline.some(m => m.comment?.body.includes('Answer in thread.') && m.comment.under === event.comment.id)
+    ).toBe(true);
+    expect(readFileSync(join(w.root, 'data', waiting!.id, 'trace.jsonl'), 'utf8')).toContain(
+      '"text":"Please revise it"'
+    );
+  });
 
   it('says on an issue, and rejects an unknown review thread', async () => {
     const w = world();
@@ -435,7 +431,7 @@ describe('bin/forge.ts with run --forge', () => {
     const recovered = await run(scanIssuesAndRunningRuns(hub));
     expect(recovered.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     expect(w.forge('show', '2')).toContain('Here is why.');
-  }, 30_000);
+  });
 
   it('seeds only the given commit with --at, so a later commit is not in the origin', () => {
     const w = world();
@@ -525,5 +521,5 @@ describe('an instance', () => {
     git(w.seed, 'add', 'later.txt');
     git(w.seed, 'commit', '-q', '-m', 'later');
     expect(bh(at, 'sync')).toBe(`main at ${git(w.seed, 'rev-parse', 'HEAD')}`);
-  }, 60_000);
+  });
 });
