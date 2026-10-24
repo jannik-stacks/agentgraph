@@ -1,7 +1,7 @@
 // The studio's UI rules on TSX under studio/src: shared primitives instead of native controls, icons explained by a
 // tooltip, numbers before their muted arrows, one kind of spinner per level, motion only for new items, and nothing
 // that flashes while it loads. code-shape runs them.
-import { attrOf, attrText, isNative, meaningful, tagOf, walk } from './ast.mjs';
+import { getJsxAttr, attrText, isNative, meaningful, getJsxTag, walk } from './ast.mjs';
 
 export const studioFile = path => /^studio\/src\/.*\.tsx$/.test(path) && !path.startsWith('studio/src/lab/');
 const primitives = path => path === 'studio/src/ui.tsx';
@@ -81,34 +81,34 @@ export const studioUi = (source, program, lineOf, add) => {
     }
 
     if (node.type !== 'JSXElement') return;
-    const tag = tagOf(node);
+    const tag = getJsxTag(node);
 
     if (tag === 'select' && !primitives(path)) {
       add(source, line, 'a native <select>; use Select from ui.tsx, which spaces its chevron from the text');
     }
-    if (isNative(tag) && tag !== 'iframe' && attrOf(node, 'title') && !primitives(path)) {
+    if (isNative(tag) && tag !== 'iframe' && getJsxAttr(node, 'title') && !primitives(path)) {
       add(source, line, `a native title on <${tag}>; wrap it in Tooltip`);
     }
 
     const children = meaningful(node.children);
     const kids = children.map(elementOf);
 
-    const clickable = interactive.has(tag) || attrOf(node, 'onClick') || attrText(attrOf(node, 'role')) === 'button';
+    const clickable = interactive.has(tag) || getJsxAttr(node, 'onClick') || attrText(getJsxAttr(node, 'role')) === 'button';
     if (isNative(tag) && clickable && !primitives(path)) {
       const iconOnly =
-        kids.some(kid => kid && isIcon(tagOf(kid))) && kids.every(kid => kid && (isIcon(tagOf(kid)) || tagOf(kid) === 'Num'));
-      const tipped = parents.some(p => p.type === 'JSXElement' && tagOf(p) === 'Tooltip');
+        kids.some(kid => kid && isIcon(getJsxTag(kid))) && kids.every(kid => kid && (isIcon(getJsxTag(kid)) || getJsxTag(kid) === 'Num'));
+      const tipped = parents.some(p => p.type === 'JSXElement' && getJsxTag(p) === 'Tooltip');
       if (iconOnly && !tipped) add(source, line, `<${tag}> shows only an icon; wrap it in Tooltip to say what it does`);
     }
 
     kids.forEach((kid, i) => {
       if (!kid) return;
-      const kidTag = tagOf(kid);
+      const kidTag = getJsxTag(kid);
       const number = child =>
-        child && ((child.type === 'JSXExpressionContainer' && !elementOf(child)) || tagOf(elementOf(child) ?? {}) === 'Num');
+        child && ((child.type === 'JSXExpressionContainer' && !elementOf(child)) || getJsxTag(elementOf(child) ?? {}) === 'Num');
       if (
         isIcon(kidTag) &&
-        arrowIcon.test(attrText(attrOf(kid, 'name')) ?? '') &&
+        arrowIcon.test(attrText(getJsxAttr(kid, 'name')) ?? '') &&
         number(children[i + 1]) &&
         !number(children[i - 1])
       ) {
@@ -117,8 +117,8 @@ export const studioUi = (source, program, lineOf, add) => {
       const before = kids[i - 1];
       const removes =
         kidTag === 'button' &&
-        (/^\s*[×✕x]\s*$/i.test(textOf(kid)) || /remove/i.test(attrText(attrOf(kid, 'aria-label')) ?? ''));
-      if (removes && before && /^(Chip|Badge)$/.test(tagOf(before)) && !primitives(path)) {
+        (/^\s*[×✕x]\s*$/i.test(textOf(kid)) || /remove/i.test(attrText(getJsxAttr(kid, 'aria-label')) ?? ''));
+      if (removes && before && /^(Chip|Badge)$/.test(getJsxTag(before)) && !primitives(path)) {
         add(source, lineOf(kid.start), 'a remove button beside a chip; use RemovableChip, which keeps it inside the border');
       }
     });

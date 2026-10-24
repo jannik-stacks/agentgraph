@@ -3,7 +3,7 @@
 // reads. Fields and events are matched by words, so they only fail when no line could be the use.
 import { execFileSync } from 'node:child_process';
 import { basename, extname } from 'node:path';
-import { ownLines, base, changedFiles, inBase, report } from './changes.mjs';
+import { ownLines, readBaseShaFromEnv, changedFiles, inBase, report } from './changes.mjs';
 
 const declaration =
   /^export\s+(?:declare\s+)?(?:async\s+)?(?:const|let|function\*?|type|interface|class|enum)\s+([A-Za-z_$][\w$]*)/;
@@ -31,7 +31,7 @@ const hits = (pattern, ...flags) => {
 const elsewhere = (path, line) => hit =>
   !hit.file.startsWith('tests/') && (hit.file !== path || (line !== undefined && hit.line !== line));
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const findings = [];
 for (const { path, deleted } of changedFiles(sha)) {
   if (deleted || !code.test(path)) continue;

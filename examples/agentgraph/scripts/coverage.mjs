@@ -8,13 +8,13 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ownLines, base, changedFiles, report } from './changes.mjs';
+import { ownLines, readBaseShaFromEnv, changedFiles, report } from './changes.mjs';
 
 const roots = process.argv.slice(2);
 if (!roots.length) throw new Error('usage: coverage.mjs <root>...');
 
 const code = /\.(ts|mts|js|mjs)$/;
-const sha = base();
+const sha = readBaseShaFromEnv();
 const files = changedFiles(sha)
   .filter(({ path, deleted }) => !deleted && code.test(path) && roots.some(root => path.startsWith(root)))
   .map(({ path }) => path);

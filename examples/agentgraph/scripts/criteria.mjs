@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
-import { base, changedFiles, changeText, titleOf } from './changes.mjs';
+import { readBaseShaFromEnv, changedFiles, changeText, parseTestCallTitle } from './changes.mjs';
 
 const maxChars = 24_000;
 const maxTestLines = 80;
@@ -19,7 +19,7 @@ const depth = line =>
 
 /** The `it` or `test` call titled `title` in `lines` of a test file, or nothing when there is no such test yet. */
 const testCode = (lines, title) => {
-  const start = lines.findIndex(line => titleOf(line) === title);
+  const start = lines.findIndex(line => parseTestCallTitle(line) === title);
   if (start < 0) return;
   let open = 0;
   for (let i = start; i < Math.min(lines.length, start + maxTestLines); i++) {
@@ -44,7 +44,7 @@ const clip = change => (change.length > maxChars ? `${change.slice(0, maxChars)}
 const text = findBrief();
 if (text) {
   const { task, criteria, outOfScope } = parseBrief(text);
-  const sha = base();
+  const sha = readBaseShaFromEnv();
   const changed = changedFiles(sha)
     .map(({ path }) => path)
     .filter(path => roots.some(root => path.startsWith(root)));

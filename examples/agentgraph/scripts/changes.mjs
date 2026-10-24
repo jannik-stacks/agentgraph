@@ -5,7 +5,7 @@ import { readFileSync, statSync } from 'node:fs';
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
-export const base = () => {
+export const readBaseShaFromEnv = () => {
   const sha = process.env.AGENTGRAPH_BASE;
   if (!sha) throw new Error('AGENTGRAPH_BASE is not set, so there is no change to check');
   git('rev-parse', '--verify', '--quiet', `${sha}^{commit}`);
@@ -75,7 +75,7 @@ export const baseText = (sha, path) => (inBase(sha, path) ? git('show', `${sha}:
  * The diff of `paths` against `sha`, with `context` lines around each change, or the whole enclosing function for
  * `'function'`. Untracked files are not in it.
  */
-export const diffOf = (sha, paths, context = 3) =>
+export const readChangeDiff = (sha, paths, context = 3) =>
   git('diff', context === 'function' ? '-W' : `-U${context}`, '--no-color', '--no-renames', sha, '--', ...paths);
 
 /** A vitest test file. */
@@ -84,14 +84,14 @@ export const isTestFile = path => /^tests\/.*\.test\.(ts|tsx|mts|js|mjs)$/.test(
 const call = /\b(it|test)(\.each\([^)]*\))?\(\s*(['"`])(.+?)\3/;
 
 /** The title of the `it` or `test` call that starts on `line`, if one does. */
-export const titleOf = line => call.exec(line)?.[4];
+export const parseTestCallTitle = line => call.exec(line)?.[4];
 
 /** The change under `roots` as one diff text, new untracked files included as added lines. */
 export const changeText = (sha, roots, context = 3) => {
   const files = changedFiles(sha).filter(({ path }) => roots.some(root => path.startsWith(root)));
   const tracked = files.filter(({ path }) => inBase(sha, path) || git('ls-files', path).trim());
   const fresh = files.filter(f => !f.deleted && !tracked.includes(f));
-  const diff = tracked.length ? diffOf(sha, tracked.map(f => f.path), context) : '';
+  const diff = tracked.length ? readChangeDiff(sha, tracked.map(f => f.path), context) : '';
   const added = fresh.map(({ path }) => {
     const lines = addedLines(sha, path).map(({ text }) => `+${text}`);
     return `diff --git a/${path} b/${path}\nnew file\n+++ b/${path}\n${lines.join('\n')}`;
@@ -119,10 +119,10 @@ export const swapIn = diff => {
 };
 
 /** The change's rename: the swap the most of `files` make with every line they change, and those files. */
-export const renameOf = (sha, files) => {
+export const findDominantTokenRename = (sha, files) => {
   const swaps = new Map();
   for (const { path, deleted } of files) {
-    const swap = !deleted && inBase(sha, path) ? swapIn(diffOf(sha, [path], 0)) : undefined;
+    const swap = !deleted && inBase(sha, path) ? swapIn(readChangeDiff(sha, [path], 0)) : undefined;
     if (swap) swaps.set(swap, [...(swaps.get(swap) ?? []), path]);
   }
   const [rename, renamed = []] = [...swaps].sort((a, b) => b[1].length - a[1].length)[0] ?? [];
@@ -136,11 +136,11 @@ let changeRename;
  * replaces is that swap was there before, so a check that blames new code leaves it alone.
  */
 export const ownLines = (sha, path) => {
-  changeRename ??= renameOf(sha, changedFiles(sha)).rename;
+  changeRename ??= findDominantTokenRename(sha, changedFiles(sha)).rename;
   const lines = addedLines(sha, path);
   if (!changeRename || !inBase(sha, path)) return lines;
   const renamedAt = new Set();
-  for (const hunk of diffOf(sha, [path], 0).split(/^(?=@@ )/m).slice(1)) {
+  for (const hunk of readChangeDiff(sha, [path], 0).split(/^(?=@@ )/m).slice(1)) {
     const at = Number(/^@@ -\S+ \+(\d+)/.exec(hunk)?.[1] ?? 0);
     const rows = hunk.split('\n').slice(1);
     const removed = rows.filter(row => row.startsWith('-')).map(row => row.slice(1));

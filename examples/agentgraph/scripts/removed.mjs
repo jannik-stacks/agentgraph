@@ -3,7 +3,7 @@
 // line, and the hunks that replace them. A line the change adds back elsewhere is a move, not a removal. A reviewer
 // who sees one hunk never asks who relied on the line that went.
 import { findBrief, parseBrief } from './brief.mjs';
-import { addedLines, base, changedFiles, diffOf } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles, readChangeDiff } from './changes.mjs';
 
 const roots = ['src', 'examples/agentgraph/scripts'];
 const maxChars = 4000;
@@ -13,7 +13,7 @@ const trivial = /^(\/\/|\/?\*|import\b|[\]})]+[;,]?$)/;
 
 const count = (rows, pattern) => rows.join('\n').match(pattern)?.length ?? 0;
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const added = new Set();
 const addedText = [];
 for (const { path, deleted } of changedFiles(sha)) {
@@ -24,7 +24,7 @@ for (const { path, deleted } of changedFiles(sha)) {
   }
 }
 
-const diff = diffOf(sha, roots, 0);
+const diff = readChangeDiff(sha, roots, 0);
 
 const items = new Map();
 const push = (kind, file, line, removed, hunk) => {

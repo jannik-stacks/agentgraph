@@ -2,7 +2,7 @@
 // routes loaded lazily, schema unions told apart by `type`, and the studio's UI rules on its TSX. Softer hints, state
 // copied in an effect and type unions told apart by another field, are printed without failing the check. In the hub
 // scripts, a field an item sends to a model that gathers text with no clip or limit fails.
-import { lineIndex, parse, reporter, sources, walk } from './ast.mjs';
+import { makeOffsetToLineLookup, parseSourceFileToAst, reporter, sources, walk } from './ast.mjs';
 import { report } from './changes.mjs';
 import { studioFile, studioUi } from './studio-ui.mjs';
 
@@ -66,8 +66,8 @@ const { findings, add } = reporter();
 const hinted = reporter();
 for (const source of sources(path => code(path) || slicer(path))) {
   const { path, code: text } = source;
-  const { program, error } = parse(path, text);
-  const lineOf = lineIndex(text);
+  const { program, error } = parseSourceFileToAst(path, text);
+  const lineOf = makeOffsetToLineLookup(text);
   if (error) {
     add({ ...source, lines: null }, 1, `does not parse: ${error}`);
     continue;

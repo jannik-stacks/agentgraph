@@ -1,6 +1,6 @@
 // A schema a change adds to src/hub.ts that no docs page names, so the reference falls behind the code.
 import { execFileSync } from 'node:child_process';
-import { addedLines, base, changedFiles, report } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles, report } from './changes.mjs';
 
 const declaration = /^export const ([A-Z]\w*)\s*=\s*Schema\b/;
 
@@ -13,7 +13,7 @@ const mentioned = name => {
   }
 };
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const findings = [];
 for (const { path, deleted } of changedFiles(sha)) {
   if (deleted || path !== 'src/hub.ts') continue;

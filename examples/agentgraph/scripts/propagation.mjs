@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { basename, extname } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { base, changedFiles, diffOf, report } from './changes.mjs';
+import { readBaseShaFromEnv, changedFiles, readChangeDiff, report } from './changes.mjs';
 
 const roots = ['src', 'studio', 'docs', 'examples', 'infra', 'bin'];
 const shown = 3;
@@ -61,13 +61,13 @@ const grep = token => {
   }
 };
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const changed = changedFiles(sha).filter(({ path }) => !path.startsWith('tests/') && !path.endsWith('lock.json'));
 const paths = new Set(changed.map(({ path }) => path));
 const now = changed.filter(({ deleted }) => !deleted).map(({ path }) => readFileSync(path, 'utf8'));
 const candidates = new Map();
 for (const { path, deleted } of changed) {
-  const names = deleted ? stem(path) : gone(path, diffOf(sha, [path], 0));
+  const names = deleted ? stem(path) : gone(path, readChangeDiff(sha, [path], 0));
   for (const name of names) if (!candidates.has(name)) candidates.set(name, path);
 }
 

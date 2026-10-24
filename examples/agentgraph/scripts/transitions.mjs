@@ -2,7 +2,7 @@
 // names it, with the code around it, so a reviewer follows that one value through the transitions the change makes.
 // The values are read from where the code declares them; a change that names none prints nothing.
 import { existsSync, readFileSync } from 'node:fs';
-import { base, changeText } from './changes.mjs';
+import { readBaseShaFromEnv, changeText } from './changes.mjs';
 
 const declared = [['run status', 'src/workflow.ts', /\bstatus: ([^;]+);/]];
 const context = 12;
@@ -13,7 +13,7 @@ const values = declared.flatMap(([kind, path, pattern]) => {
   return [...(list ?? '').matchAll(/'([\w-]+)'/g)].map(([, value]) => ({ kind, value }));
 });
 
-const hunks = changeText(base(), ['src/', 'studio/src/'], context)
+const hunks = changeText(readBaseShaFromEnv(), ['src/', 'studio/src/'], context)
   .split(/^(?=diff --git )/m)
   .flatMap(section => {
     const [head, ...parts] = section.split(/^(?=@@ )/m);

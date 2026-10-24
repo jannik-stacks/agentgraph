@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { base, changedFiles, inBase, ownLines, report } from './changes.mjs';
+import { readBaseShaFromEnv, changedFiles, inBase, ownLines, report } from './changes.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const stricter = ['-D', 'suspicious', '-A', 'no-shadow', '-A', 'no-underscore-dangle'];
@@ -16,7 +16,7 @@ const code = /\.(ts|tsx|mts|cts|js|mjs)$/;
 const styled = /\.(ts|tsx|mts|cts|js|mjs|json|css)$/;
 const skipped = /^(tests\/fixtures|examples|research)\/|(^|\/)package-lock\.json$/;
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const changed = changedFiles(sha).filter(({ path, deleted }) => !deleted && !skipped.test(path));
 const linted = changed.filter(({ path }) => code.test(path)).map(({ path }) => path);
 const ownFormat = existsSync('.oxfmtrc.json');

@@ -5,19 +5,19 @@
 //
 //   node size.mjs [<max-added-lines> <max-files>]      e.g. node size.mjs 300 8
 import { capped, maxAddedLines, maxFiles } from './bounds.mjs';
-import { addedLines, base, changedFiles, renameOf, report } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles, findDominantTokenRename, report } from './changes.mjs';
 
 const given = process.argv.slice(2).map(Number);
 const [lines, files] = given.length ? given : [maxAddedLines, maxFiles];
 if (!(lines > 0 && files > 0)) throw new Error('usage: size.mjs [<max-added-lines> <max-files>]');
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const outside = changedFiles(sha)
   .filter(({ path, deleted }) => capped(path) && !deleted)
   .map(file => ({ ...file, added: addedLines(sha, file.path).length }))
   .filter(({ added }) => added > 0);
 const added = outside.reduce((sum, file) => sum + file.added, 0);
-const { rename, renamed } = renameOf(sha, outside);
+const { rename, renamed } = findDominantTokenRename(sha, outside);
 const counted = outside.filter(({ path }) => !renamed.includes(path));
 
 const findings = [];

@@ -6,7 +6,7 @@
 //   node hunks.mjs <root>...      e.g. node hunks.mjs src/
 import { readFileSync } from 'node:fs';
 import { findBrief, parseBrief } from './brief.mjs';
-import { base, changedFiles, diffOf, inBase, renameOf, swapIn } from './changes.mjs';
+import { readBaseShaFromEnv, changedFiles, readChangeDiff, inBase, findDominantTokenRename, swapIn } from './changes.mjs';
 
 const roots = process.argv.slice(2);
 if (!roots.length) throw new Error('usage: hunks.mjs <root>...');
@@ -20,9 +20,9 @@ const brief = findBrief();
 const outOfScope = brief ? parseBrief(brief).outOfScope : [];
 const scoped = outOfScope.length ? { 'out of scope': outOfScope } : {};
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const changed = changedFiles(sha);
-const { rename } = renameOf(sha, changed);
+const { rename } = findDominantTokenRename(sha, changed);
 const files = changed.filter(({ path }) => roots.some(root => path.startsWith(root)));
 for (const { path, deleted } of files) {
   const trivial = code.test(path) ? line => /^[+-]\s*(\/\/.*|\/\*.*|\*.*|)$/.test(line) : line => /^[+-]\s*$/.test(line);
@@ -32,7 +32,7 @@ for (const { path, deleted } of files) {
       console.log(JSON.stringify({ file: path, line: 1, hunk: clip(lines.map(line => `+${line}`)), ...scoped }));
     continue;
   }
-  const [, ...parts] = diffOf(sha, [path], context).split(/^(?=@@ )/m);
+  const [, ...parts] = readChangeDiff(sha, [path], context).split(/^(?=@@ )/m);
   for (const part of parts) {
     const lines = part.trimEnd().split('\n');
     const changes = lines.slice(1).filter(line => /^[+-]/.test(line));

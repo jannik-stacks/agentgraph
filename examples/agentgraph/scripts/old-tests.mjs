@@ -6,11 +6,11 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findBrief, parseBrief } from './brief.mjs';
-import { base, baseText, changedFiles, inBase, isTestFile, report } from './changes.mjs';
+import { readBaseShaFromEnv, baseText, changedFiles, inBase, isTestFile, report } from './changes.mjs';
 
 const line = text => (text ?? '').split('\n').find(Boolean)?.slice(0, 200) ?? '';
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const edited = changedFiles(sha)
   .filter(({ path, deleted }) => !deleted && isTestFile(path) && inBase(sha, path))
   .map(({ path }) => path);

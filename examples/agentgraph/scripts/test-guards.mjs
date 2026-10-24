@@ -11,7 +11,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findBrief, findReply, parseBrief } from './brief.mjs';
-import { addedLines, base, baseText, changedFiles, inBase, isTestFile, report, titleOf } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, baseText, changedFiles, inBase, isTestFile, report, parseTestCallTitle } from './changes.mjs';
 
 const count = (text, pattern) => text.match(pattern)?.length ?? 0;
 const testCalls = /\b(it|test)(\.each\([^)]*\))?\(/g;
@@ -35,7 +35,7 @@ const timeoutOf = text => {
   }
 };
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const changed = changedFiles(sha);
 const findings = [];
 
@@ -137,7 +137,7 @@ const criteria = () => {
     findings.push(`the reply says "${closes[0]}", but the brief lists follow-ups, so the issue stays open; say "Part of #<issue>"`);
   for (const { n, title, file } of criteria) {
     const still = title.startsWith('still ');
-    if (!lines(file, still).some(line => titleOf(line) === title))
+    if (!lines(file, still).some(line => parseTestCallTitle(line) === title))
       findings.push(`criterion ${n}: no test titled '${title}' ${still ? 'in' : 'added in'} ${file}; add it with that exact title`);
   }
   const wanted = new Set(criteria.map(c => c.title));
@@ -145,7 +145,7 @@ const criteria = () => {
     if (!isTestFile(path)) continue;
     const before = baseText(sha, path) ?? '';
     for (const { line, text } of addedLines(sha, path)) {
-      const title = titleOf(text);
+      const title = parseTestCallTitle(text);
       if (title && !wanted.has(title) && !before.includes(title))
         findings.push(`${path}:${line}: '${title}' is not a criterion of the brief; one test per criterion, so fold it into that criterion's test or drop it`);
     }
@@ -158,7 +158,7 @@ const bite = () => {
     tests.map(path => [
       path,
       addedLines(sha, path).flatMap(({ line, text }) => {
-        const title = titleOf(text);
+        const title = parseTestCallTitle(text);
         return title && !title.includes('${') ? [{ line, title }] : [];
       }),
     ])

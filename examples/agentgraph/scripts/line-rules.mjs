@@ -2,7 +2,7 @@
 // line or a comment in a code file, prose or fenced code in a markdown file, or plain text anywhere else.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { addedLines, base, changedFiles } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles } from './changes.mjs';
 
 const code = /\.(ts|tsx|mts|cts|js|mjs)$/;
 const markdown = /\.mdx?$/;
@@ -36,7 +36,7 @@ export const files = (wanted = () => true) => {
         return { path, text, lines: text.split('\n').map((row, i) => ({ line: i + 1, text: row })) };
       });
   }
-  const sha = base();
+  const sha = readBaseShaFromEnv();
   return changedFiles(sha)
     .filter(({ path, deleted }) => !deleted && wanted(path))
     .map(({ path }) => ({ path, text: readFileSync(path, 'utf8'), lines: addedLines(sha, path) }));

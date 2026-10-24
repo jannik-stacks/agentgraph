@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { addedLines, base, changedFiles } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles } from './changes.mjs';
 
 const resolveParser = () => {
   for (const from of [join(process.cwd(), 'studio/package.json'), new URL('../../../studio/package.json', import.meta.url)])
@@ -29,7 +29,7 @@ export const sources = wanted => {
       .filter(path => wanted(path) && existsSync(path))
       .map(path => ({ path, code: readFileSync(path, 'utf8'), lines: null }));
   }
-  const sha = base();
+  const sha = readBaseShaFromEnv();
   return changedFiles(sha)
     .filter(({ path, deleted }) => !deleted && wanted(path))
     .map(({ path }) => ({
@@ -40,7 +40,7 @@ export const sources = wanted => {
 };
 
 /** The program of `code`, or the parse error message. */
-export const parse = (path, code) => {
+export const parseSourceFileToAst = (path, code) => {
   try {
     return { program: parseAst(code, { lang: langOf(path) }) };
   } catch (error) {
@@ -49,7 +49,7 @@ export const parse = (path, code) => {
 };
 
 /** The 1-based line of a character offset. */
-export const lineIndex = code => {
+export const makeOffsetToLineLookup = code => {
   const starts = [0];
   for (let i = 0; i < code.length; i++) if (code[i] === '\n') starts.push(i + 1);
   return offset => {
@@ -80,18 +80,18 @@ export const walk = (node, visit, parents = []) => {
 };
 
 /** The tag name of a JSX element, `a.b` for member names. */
-export const tagOf = element => {
+export const getJsxTag = element => {
   const name = element.openingElement?.name;
   if (!name) return '';
   if (name.type === 'JSXIdentifier') return name.name;
-  if (name.type === 'JSXMemberExpression') return `${tagOf({ openingElement: { name: name.object } })}.${name.property.name}`;
+  if (name.type === 'JSXMemberExpression') return `${getJsxTag({ openingElement: { name: name.object } })}.${name.property.name}`;
   return '';
 };
 
 export const isNative = tag => /^[a-z]/.test(tag);
 
 /** The attribute `name` of a JSX element. */
-export const attrOf = (element, name) =>
+export const getJsxAttr = (element, name) =>
   element.openingElement?.attributes?.find(a => a.type === 'JSXAttribute' && a.name?.name === name);
 
 /** The literal string an attribute holds, when it holds one. */

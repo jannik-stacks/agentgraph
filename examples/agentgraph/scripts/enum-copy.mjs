@@ -4,7 +4,7 @@
 // `calls !== 5` in the engine and `calls: 5` in a script: two copies of one limit that drift apart.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { addedLines, base, changedFiles, report } from './changes.mjs';
+import { addedLines, readBaseShaFromEnv, changedFiles, report } from './changes.mjs';
 
 const code = /^(src|studio\/src|examples\/[^/]+\/scripts)\/.*\.(ts|tsx|mts|js|mjs)$/;
 const quoted = text => [...text.matchAll(/['"`]([\w-]+)['"`]/g)].map(m => m[1]);
@@ -28,7 +28,7 @@ const named = text =>
 const where = paths => new Map(paths.flatMap(path => named(readFileSync(path, 'utf8')).map(pair => [pair, path])));
 const [engineNumbers, scriptNumbers] = [ls('src').filter(p => engine.test(p)), ls('examples').filter(p => script.test(p))].map(where);
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const findings = [];
 for (const { path } of changedFiles(sha).filter(f => !f.deleted && code.test(f.path))) {
   const lines = addedLines(sha, path);

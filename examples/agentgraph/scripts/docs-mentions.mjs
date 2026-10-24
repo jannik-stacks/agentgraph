@@ -5,7 +5,7 @@
 //   node docs-mentions.mjs <code-root> <docs-root>      e.g. node docs-mentions.mjs src/ docs/
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { base, changedFiles, diffOf } from './changes.mjs';
+import { readBaseShaFromEnv, changedFiles, readChangeDiff } from './changes.mjs';
 
 const [code, docs] = process.argv.slice(2);
 if (!code || !docs) throw new Error('usage: docs-mentions.mjs <code-root> <docs-root>');
@@ -23,13 +23,13 @@ const exportsOf = lines =>
     return [{ name, from }];
   });
 
-const sha = base();
+const sha = readBaseShaFromEnv();
 const touched = new Map();
 for (const { path, deleted } of changedFiles(sha)) {
   if (deleted || !path.startsWith(code) || !/\.(ts|tsx|mts)$/.test(path)) continue;
   const lines = readFileSync(path, 'utf8').split('\n');
   const owners = exportsOf(lines);
-  const ranges = [...diffOf(sha, [path], 0).matchAll(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/gm)].map(([, at, n = '1']) => [
+  const ranges = [...readChangeDiff(sha, [path], 0).matchAll(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/gm)].map(([, at, n = '1']) => [
     Number(at) - 1,
     Number(at) - 1 + Math.max(Number(n), 1),
   ]);
