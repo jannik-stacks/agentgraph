@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 /** The one agentgraph App: private, no webhook, and only the permissions the engine uses. */
-const manifest = (name: string, base: string) => ({
+const makeGithubAppSetupManifest = (name: string, base: string) => ({
   name,
   url: 'https://github.com',
   redirect_url: `${base}/created`,
@@ -71,7 +71,7 @@ export const setupApp = async ({
       const target = org
         ? `https://github.com/organizations/${encodeURIComponent(org)}/settings/apps/new`
         : 'https://github.com/settings/apps/new';
-      const json = escape(JSON.stringify(manifest(name, base)));
+      const json = escape(JSON.stringify(makeGithubAppSetupManifest(name, base)));
       return {
         status: 200,
         body:

@@ -3,30 +3,30 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  answerOf,
+  parseBenchJudgeResponse,
   armSlot,
   bootstrap,
-  costOf,
+  getBenchUsageCost,
   couplings,
-  family,
+  getModelMakerFromUpstreamName,
   hiddenShare,
   infra,
   invalid,
   orders,
   pad,
   parsePanel,
-  plan,
+  pickBenchTestCommands,
   plant,
   keep,
   repoint,
   reuse,
-  rowsOf,
+  readBenchRows,
   scrub,
-  spent,
+  readArmUsageOverAttempts,
   stats,
-  unbiased,
+  makeCrossMakerJudgePanel,
   unpriced,
-  verdict,
+  parseBenchJudgeVerdict,
 } from '../bin/bench.ts';
 import { git, tmp } from './kit.ts';
 
@@ -129,7 +129,7 @@ describe('bench helpers', () => {
       total_cost_usd: 0.25,
       usage: { input_tokens: 10, cache_read_input_tokens: 90, cache_creation_input_tokens: 5, output_tokens: 7 },
     };
-    expect(answerOf(JSON.stringify(claude))).toEqual({
+    expect(parseBenchJudgeResponse(JSON.stringify(claude))).toEqual({
       text: 'A is better',
       tokens: { input: 10, cacheRead: 90, cacheWrite: 5, output: 7 },
       usd: 0.25,
@@ -138,17 +138,22 @@ describe('bench helpers', () => {
       choices: [{ message: { content: 'tie' } }],
       usage: { prompt_tokens: 100, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 60 } },
     };
-    expect(answerOf(openai)).toEqual({ text: 'tie', tokens: { input: 40, cacheRead: 60, cacheWrite: 0, output: 3 } });
-    expect(answerOf('plain text')).toEqual({ text: 'plain text' });
+    expect(parseBenchJudgeResponse(openai)).toEqual({
+      text: 'tie',
+      tokens: { input: 40, cacheRead: 60, cacheWrite: 0, output: 3 },
+    });
+    expect(parseBenchJudgeResponse('plain text')).toEqual({ text: 'plain text' });
   });
 
   it('reads the last JSON block of a judge answer and needs a preference', () => {
-    expect(verdict('x\n```json\n{"prefer":"B"}\n```\nmore\n```json\n{"prefer":"A","A":{"findings":[]}}\n```')).toEqual({
+    expect(
+      parseBenchJudgeVerdict('x\n```json\n{"prefer":"B"}\n```\nmore\n```json\n{"prefer":"A","A":{"findings":[]}}\n```')
+    ).toEqual({
       prefer: 'A',
       A: { findings: [] },
     });
-    expect(verdict('```json\n{"prefer":"maybe"}\n```')).toBeUndefined();
-    expect(verdict('no block')).toBeUndefined();
+    expect(parseBenchJudgeVerdict('```json\n{"prefer":"maybe"}\n```')).toBeUndefined();
+    expect(parseBenchJudgeVerdict('no block')).toBeUndefined();
   });
 
   it('marks a case invalid unless the hidden tests fail on base and pass on the human', () => {
@@ -254,13 +259,17 @@ describe('bench helpers', () => {
       gemini: 'openrouter/google/gemini-4-argon',
       glm: 'openrouter/z-ai/glm-5.3',
     };
-    expect(family('luna', aliases)).toBe('openai');
-    expect(family('glm', aliases)).toBe('z-ai');
-    expect(family('claude-opus', aliases)).toBe('anthropic');
-    expect(unbiased({ sol: 1 }, 'glm', aliases)).toEqual({ sol: 1 });
-    expect(unbiased({ sol: 1 }, 'luna', aliases)).toEqual({ gemini: 1 });
-    expect(unbiased({ opus: 1, sonnet: 2, sol: 2 }, 'smart', aliases)).toEqual({ opus: 1, sonnet: 2, gemini: 2 });
-    expect(unbiased({ opus: 1, sol: 2 }, 'claude-sonnet', aliases)).toEqual({ gemini: 1, sol: 2 });
+    expect(getModelMakerFromUpstreamName('luna', aliases)).toBe('openai');
+    expect(getModelMakerFromUpstreamName('glm', aliases)).toBe('z-ai');
+    expect(getModelMakerFromUpstreamName('claude-opus', aliases)).toBe('anthropic');
+    expect(makeCrossMakerJudgePanel({ sol: 1 }, 'glm', aliases)).toEqual({ sol: 1 });
+    expect(makeCrossMakerJudgePanel({ sol: 1 }, 'luna', aliases)).toEqual({ gemini: 1 });
+    expect(makeCrossMakerJudgePanel({ opus: 1, sonnet: 2, sol: 2 }, 'smart', aliases)).toEqual({
+      opus: 1,
+      sonnet: 2,
+      gemini: 2,
+    });
+    expect(makeCrossMakerJudgePanel({ opus: 1, sol: 2 }, 'claude-sonnet', aliases)).toEqual({ gemini: 1, sol: 2 });
   });
 
   it('gives a bootstrap interval around the mean', () => {
@@ -372,7 +381,7 @@ describe('bin/bench.ts score and report', () => {
     expect(report).toContain('Judges agree, order-consistent, on 0 of 1 case pairs.');
     expect(report).toContain('| v2 | 1 | 1 | 1 | 1 | 1 | 1 |');
 
-    const rows = rowsOf(out);
+    const rows = readBenchRows(out);
     expect(rows.map(r => r.point)).toEqual([
       'opencode:smart/human@unknown//out',
       'opencode:smart/v2@unknown//out',
@@ -397,15 +406,15 @@ describe('bin/bench.ts score and report', () => {
     expect(rows[1]).not.toHaveProperty('outcome');
     const point = { harness: 'pi', model: 'luna', engine: 'abc', hubs: { v2: 'h2' }, set: 'core@1', repeat: 2 };
     writeFileSync(join(out, 'point.json'), JSON.stringify(point));
-    expect(rowsOf(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
+    expect(readBenchRows(out).map(r => [r.point, r.repeat])[1]).toEqual(['pi:luna/v2@abc/h2/core@1', 2]);
     writeFileSync(join(out, 'demo', 'base', 'score.json'), JSON.stringify({ ...score('base'), suite: { ok: false } }));
-    expect(rowsOf(out)[1]).not.toHaveProperty('suite');
+    expect(readBenchRows(out)[1]).not.toHaveProperty('suite');
     mkdirSync(join(out, 'btc', 'human'), { recursive: true });
     writeFileSync(join(out, 'btc', 'case.json'), JSON.stringify({ repo: 'acme/billing' }));
     writeFileSync(join(out, 'btc', 'human', 'score.json'), '{}');
-    expect(rowsOf(out).map(r => r.case)).toEqual(['demo', 'demo', 'demo']);
-    expect(rowsOf(out, ['me/other'])).toEqual([]);
-    expect(rowsOf(out, ['me/demo'])).toHaveLength(3);
+    expect(readBenchRows(out).map(r => r.case)).toEqual(['demo', 'demo', 'demo']);
+    expect(readBenchRows(out, ['me/other'])).toEqual([]);
+    expect(readBenchRows(out, ['me/demo'])).toHaveLength(3);
     expect(bench('report', out)).not.toContain('btc');
   });
 });
@@ -570,7 +579,7 @@ describe('points', () => {
     attempt('.attic/v2-2026-10-22T09-00-00-000Z', 0.25, { ms: 2000, infra: 'SandboxError: no image' });
     attempt('v2.1792493424355', 0.125);
     attempt('.attic/floor-2026-10-22T09-00-00-000Z', 9, { ms: 9 });
-    const all = spent(join(root, 'v2'));
+    const all = readArmUsageOverAttempts(join(root, 'v2'));
     expect(all).toMatchObject({ sessions: 3, usd: 0.875, ms: 69_000 });
     expect(all.tokens).toEqual({ luna: { input: 30, cacheRead: 0, cacheWrite: 0, output: 6 } });
     expect(all.split).toEqual({ agent: 180_000, tools: 6000, setup: 15_000, checks: 3000, infra: 2000 });
@@ -605,64 +614,77 @@ describe('prices', () => {
       subscriptions: ['chatgpt/'],
     };
     const t = { input: 1e6, cacheRead: 1e6, cacheWrite: 1e6, output: 1e6 };
-    expect(costOf({ usd: 0, tokens: { flash: t } }, 'opencode', prices)).toEqual({
+    expect(getBenchUsageCost({ usd: 0, tokens: { flash: t } }, 'opencode', prices)).toEqual({
       usd: 0.3 + 0.006 + 0.3 + 1.2,
       usdSource: 'list price',
     });
-    expect(costOf({ usd: 2, tokens: { flash: t } }, 'opencode', prices)).toEqual({ usd: 2, usdSource: 'recorded' });
-    expect(costOf({ usd: 0.5, tokens: { luna: t } }, 'opencode', prices).usdSource).toBe('list-price estimate');
-    expect(costOf({ usd: 0, tokens: { luna: t } }, 'opencode', prices)).toEqual({
+    expect(getBenchUsageCost({ usd: 2, tokens: { flash: t } }, 'opencode', prices)).toEqual({
+      usd: 2,
+      usdSource: 'recorded',
+    });
+    expect(getBenchUsageCost({ usd: 0.5, tokens: { luna: t } }, 'opencode', prices).usdSource).toBe(
+      'list-price estimate'
+    );
+    expect(getBenchUsageCost({ usd: 0, tokens: { luna: t } }, 'opencode', prices)).toEqual({
       usd: 0.71,
       usdSource: 'list-price estimate',
     });
-    expect(costOf({ usd: 1 }, 'claude-sub', prices).usdSource).toBe('list-price estimate');
-    expect(costOf({ usd: 0, tokens: { mystery: t } }, 'opencode', prices)).toEqual({ usd: 0, usdSource: 'unpriced' });
+    expect(getBenchUsageCost({ usd: 1 }, 'claude-sub', prices).usdSource).toBe('list-price estimate');
+    expect(getBenchUsageCost({ usd: 0, tokens: { mystery: t } }, 'opencode', prices)).toEqual({
+      usd: 0,
+      usdSource: 'unpriced',
+    });
   });
 });
 
-describe('plan', () => {
+describe('pickBenchTestCommands', () => {
   it('turns the miner test file list into a test command per repo', () => {
-    expect(plan('acme/explorer', ['src/a/[id]/x.test.ts', 'src/a/fixture.json'])).toMatchObject({
+    expect(pickBenchTestCommands('acme/explorer', ['src/a/[id]/x.test.ts', 'src/a/fixture.json'])).toMatchObject({
       test: expect.stringContaining("--runTestsByPath 'src/a/[id]/x.test.ts'"),
       setup: expect.stringContaining("'10.28.2'"),
     });
-    expect(plan('acme/stacks.js', ['packages/api/tests/a.test.ts', 'packages/auth/tests/setup.js']).test).toBe(
-      "(cd packages/api && npx jest --runTestsByPath 'tests/a.test.ts')"
-    );
-    expect(plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])).toEqual({
+    expect(
+      pickBenchTestCommands('acme/stacks.js', ['packages/api/tests/a.test.ts', 'packages/auth/tests/setup.js']).test
+    ).toBe("(cd packages/api && npx jest --runTestsByPath 'tests/a.test.ts')");
+    expect(
+      pickBenchTestCommands('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs', 'x/a.test.ts'])
+    ).toEqual({
       toolchain: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && rustup toolchain install /),
       setup: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && cargo fetch && \(cargo test --no-run \|\| true\)$/),
       test: expect.stringMatching(/^export RUSTUP_TOOLCHAIN=.* && cargo test -p clarinet-deployments --test remap$/),
       typecheck: 'cargo check --tests',
     });
-    expect(plan('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar']).setup).toBe(
-      plan('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs']).setup
+    expect(pickBenchTestCommands('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar']).setup).toBe(
+      pickBenchTestCommands('acme/clarinet', ['components/clarinet-deployments/tests/remap.rs']).setup
     );
-    expect(plan('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar']).test).toMatch(
+    expect(pickBenchTestCommands('acme/clarinet', ['components/clarinet-format/tests/golden/a.clar']).test).toMatch(
       / && cargo test -p clarinet-format --tests$/
     );
-    expect(plan('acme/clarinet', ['components/clarity-repl/src/analysis/coverage_tests.rs']).test).toMatch(
-      / && cargo test -p clarity-repl --lib analysis::coverage_tests$/
-    );
-    expect(plan('acme/clarinet', ['components/clarinet-sdk/node/tests/a.test.ts'])).toMatchObject({
+    expect(
+      pickBenchTestCommands('acme/clarinet', ['components/clarity-repl/src/analysis/coverage_tests.rs']).test
+    ).toMatch(/ && cargo test -p clarity-repl --lib analysis::coverage_tests$/);
+    expect(pickBenchTestCommands('acme/clarinet', ['components/clarinet-sdk/node/tests/a.test.ts'])).toMatchObject({
       setup: expect.stringContaining('build.mjs'),
       test: "(cd components/clarinet-sdk/node && npx vitest run 'tests/a.test.ts')",
     });
-    expect(plan('acme/explorer', ['src/a/__tests__/__snapshots__/B.test.tsx.snap']).test).toContain(
-      "'src/a/__tests__/B.test.tsx'"
-    );
-    expect(plan('acme/stacks.js', [])).toEqual({
+    expect(
+      pickBenchTestCommands('acme/explorer', ['src/a/__tests__/__snapshots__/B.test.tsx.snap']).test
+    ).toContain("'src/a/__tests__/B.test.tsx'");
+    expect(pickBenchTestCommands('acme/stacks.js', [])).toEqual({
       hasTests: false,
       setup: 'npm ci --no-audit --no-fund --ignore-scripts',
       typecheck: 'npm run typecheck --workspaces --if-present',
     });
-    expect(plan('acme/explorer', ['README.md'])).toMatchObject({ hasTests: false, typecheck: expect.any(String) });
-    expect(plan('acme/billing', [])).toEqual({ hasTests: false });
+    expect(pickBenchTestCommands('acme/explorer', ['README.md'])).toMatchObject({
+      hasTests: false,
+      typecheck: expect.any(String),
+    });
+    expect(pickBenchTestCommands('acme/billing', [])).toEqual({ hasTests: false });
   });
 
   it('runs one cargo command per hidden Rust file and builds the workspace tests during setup', () => {
     expect(
-      plan('acme/clarity-wasm', [
+      pickBenchTestCommands('acme/clarity-wasm', [
         'clar2wasm/tests/wasm-generation/main.rs',
         'clar2wasm/tests/wasm-generation/equal.rs',
         'clar2wasm/tests/contracts/a.clar',
@@ -679,37 +701,48 @@ describe('plan', () => {
         /^export RUSTUP_TOOLCHAIN=.* && export PROPTEST_CASES=100 && \(for f in .*; do cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test wasm-generation equal:: \|\| exit 1; done\) && cargo test --manifest-path tests\/Cargo.toml --test lib_tests$/
       ),
     });
-    expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).setup).toBe(
-      plan('acme/clarity-wasm', ['tests/tests/lib_tests.rs']).setup
+    expect(pickBenchTestCommands('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).setup).toBe(
+      pickBenchTestCommands('acme/clarity-wasm', ['tests/tests/lib_tests.rs']).setup
     );
-    expect(plan('stacks-network/stacks-core', ['src/vm/tests/mod.rs']).setup).toMatch(
+    expect(pickBenchTestCommands('stacks-network/stacks-core', ['src/vm/tests/mod.rs']).setup).toMatch(
       / && cargo fetch && \(cargo test --no-run \|\| true\)$/
     );
-    expect(plan('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toMatch(
+    expect(pickBenchTestCommands('acme/clarity-wasm', ['clar2wasm/tests/oom-checker/main.rs']).test).toMatch(
       /cargo test \$\{f:\+--features \$f\} --manifest-path clar2wasm\/Cargo.toml --test oom-checker \|\| exit 1; done\)$/
     );
     expect(
-      plan('stacks-network/stacks-core', ['stacks-signer/src/tests/chainstate.rs', 'src/vm/tests/mod.rs', 'src/a.rs'])
-        .test
+      pickBenchTestCommands('stacks-network/stacks-core', [
+        'stacks-signer/src/tests/chainstate.rs',
+        'src/vm/tests/mod.rs',
+        'src/a.rs',
+      ]).test
     ).toMatch(
       / && cargo test --manifest-path stacks-signer\/Cargo.toml --lib tests::chainstate && cargo test --lib vm::tests$/
     );
-    expect(plan('stacks-network/stacks-core', ['stackslib/src/net/api/mod.rs'])).toEqual({ hasTests: false });
+    expect(pickBenchTestCommands('stacks-network/stacks-core', ['stackslib/src/net/api/mod.rs'])).toEqual({
+      hasTests: false,
+    });
   });
 
   it('starts PostgreSQL for the API repos and runs each file under the jest config that holds it', () => {
     expect(
-      plan('acme/stacks-blockchain-api', ['src/tests/tx-tests.ts', 'tests/api/a.test.ts', 'tests/utils/b.ts'])
+      pickBenchTestCommands('acme/stacks-blockchain-api', [
+        'src/tests/tx-tests.ts',
+        'tests/api/a.test.ts',
+        'tests/utils/b.ts',
+      ])
     ).toEqual({
       image: 'agentgraph-sandbox:services',
       setup:
         'npm ci --no-audit --no-fund --ignore-scripts && if [ -f client/package-lock.json ]; then (cd client && npm ci --no-audit --no-fund --ignore-scripts); fi',
       test: "services && npm run test -- --coverage=false --runTestsByPath 'src/tests/tx-tests.ts' && npm run test:api -- --coverage=false --runTestsByPath 'tests/api/a.test.ts'",
     });
-    expect(plan('acme/stacks-blockchain-api', ['tests/utils/b.ts', 'tests/2.5/c.test.ts'])).toEqual({
+    expect(
+      pickBenchTestCommands('acme/stacks-blockchain-api', ['tests/utils/b.ts', 'tests/2.5/c.test.ts'])
+    ).toEqual({
       hasTests: false,
     });
-    expect(plan('acme/token-metadata-api', ['tests/a.test.ts'])).toMatchObject({
+    expect(pickBenchTestCommands('acme/token-metadata-api', ['tests/a.test.ts'])).toMatchObject({
       image: 'agentgraph-sandbox:services',
       test: expect.stringMatching(
         /^services && export .*PGPORT=5432 .*jest --runInBand --runTestsByPath 'tests\/a\.test\.ts'; else .*node --import tsx --test/
@@ -718,17 +751,20 @@ describe('plan', () => {
   });
 
   it('runs vitest, jest or node tests per package in the smaller JS repos', () => {
-    expect(plan('acme/connect', ['packages/connect/tests/a.test.ts']).test).toBe(
+    expect(pickBenchTestCommands('acme/connect', ['packages/connect/tests/a.test.ts']).test).toBe(
       "(cd packages/connect && npx vitest run 'tests/a.test.ts')"
     );
-    expect(plan('leather-io/workers', ['packages/x/src/a.spec.ts']).setup).toContain("'10.33.0'");
-    expect(plan('acme/stacks-mesh-api', ['packages/api/tests/api/a.test.ts', 'packages/api/tests/h.ts']).test).toBe(
-      "(cd packages/api && NODE_ENV=test node --test --import tsx --test-timeout 300000 'tests/api/a.test.ts')"
-    );
-    expect(plan('acme/api-toolkit', ['src/__tests__/a.test.ts']).test).toBe(
+    expect(pickBenchTestCommands('leather-io/workers', ['packages/x/src/a.spec.ts']).setup).toContain("'10.33.0'");
+    expect(
+      pickBenchTestCommands('acme/stacks-mesh-api', ['packages/api/tests/api/a.test.ts', 'packages/api/tests/h.ts'])
+        .test
+    ).toBe("(cd packages/api && NODE_ENV=test node --test --import tsx --test-timeout 300000 'tests/api/a.test.ts')");
+    expect(pickBenchTestCommands('acme/api-toolkit', ['src/__tests__/a.test.ts']).test).toBe(
       "node_modules/.bin/jest --runInBand --runTestsByPath 'src/__tests__/a.test.ts'"
     );
-    expect(plan('acme/clarinet', ['components/clarinet-sdk/vitest-helpers/tests/a.test.ts'])).toEqual({
+    expect(
+      pickBenchTestCommands('acme/clarinet', ['components/clarinet-sdk/vitest-helpers/tests/a.test.ts'])
+    ).toEqual({
       setup: '(cd components/clarinet-sdk && npm ci --no-audit --no-fund --ignore-scripts)',
       test: "(cd components/clarinet-sdk && npx vitest run 'vitest-helpers/tests/a.test.ts')",
       typecheck: 'cargo check --tests',

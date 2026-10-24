@@ -18,7 +18,7 @@ import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { failureClass, infra } from '../bin/bench.ts';
-import { write } from '../bin/resume.ts';
+import { writeFileAtomic } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
 import { type Hub, loadHub } from '../src/hub.ts';
 import type { Trace } from '../src/trace.ts';
@@ -346,7 +346,7 @@ const apply = (hub: string, changes: Change[]) => {
   const problems: string[] = [];
   for (const c of changes) {
     const path = join(hub, c.path);
-    if (c.content !== undefined) write(path, c.content);
+    if (c.content !== undefined) writeFileAtomic(path, c.content);
     else if (!existsSync(path)) problems.push(`${c.path}: no such file in the hub`);
     else if (c.delete) rmSync(path);
     else {
@@ -431,7 +431,7 @@ export const propose = async (o: {
   const input = join(dir, 'input');
   cpSync(o.from, join(input, 'hub'), { recursive: true });
   for (const m of material)
-    for (const [name, text] of Object.entries(m.files)) write(join(input, 'cases', m.id, name), text);
+    for (const [name, text] of Object.entries(m.files)) writeFileAtomic(join(input, 'cases', m.id, name), text);
   const instructions = read(here(`proposers/${o.proposer}.md`)).replace('{{edit}}', edit ?? '');
   const heading = o.proposer === 'history' ? 'Merged pull requests' : 'Failing cases';
   const others = o.proposer === 'history' ? '' : unseen(o.runs!, split('validate'));
@@ -443,7 +443,7 @@ export const propose = async (o: {
     ...(others ? [`## Held-out cases\n\nOn the held-out cases this hub is scored on, ${others}`] : []),
     ...(before.length ? [`## Tried before\n\n${before.join('\n')}`] : []),
   ].join('\n\n');
-  write(join(input, 'prompt.md'), prompt);
+  writeFileAtomic(join(input, 'prompt.md'), prompt);
 
   const hub = join(dir, 'hub');
   const base = [
@@ -498,7 +498,7 @@ export const propose = async (o: {
   }
 
   const valid = !problems.length && answer.verdict === 'change';
-  if (answer.verdict === 'nothing') write(join(dir, 'asked.json'), key);
+  if (answer.verdict === 'nothing') writeFileAtomic(join(dir, 'asked.json'), key);
   const proposal: Proposal = {
     ...answer,
     id: o.id,
@@ -508,7 +508,7 @@ export const propose = async (o: {
     ...(usage && { usage }),
     problems,
   };
-  write(
+  writeFileAtomic(
     join(dir, 'proposal.md'),
     [
       `# ${o.id}, ${o.proposer}`,

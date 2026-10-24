@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { rowsOf } from '../bin/bench.ts';
+import type { readBenchRows } from '../bin/bench.ts';
 import { bootstrap, cost, defaults, frontier, presets, price, quality, summarise } from '../studio/src/bench/score.ts';
 
-type Row = ReturnType<typeof rowsOf>[number];
+type Row = ReturnType<typeof readBenchRows>[number];
 
 const row = (over: Partial<Row>): Row => ({
   point: 'opencode:smart/v2@unknown//runs-3',

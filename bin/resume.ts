@@ -29,7 +29,7 @@ import { isPidRunning } from '../src/env.ts';
 const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
 
 /** Writes `path` through a synced temp file and a rename, so a reader sees the old file or the whole new one. */
-export const write = (path: string, v: unknown) => {
+export const writeFileAtomic = (path: string, v: unknown) => {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   const fd = openSync(tmp, 'w');
@@ -43,7 +43,7 @@ export const write = (path: string, v: unknown) => {
 };
 
 /** Appends one JSON line, first ending a line a crash left open. */
-export const append = (path: string, v: unknown) => {
+export const appendJsonl = (path: string, v: unknown) => {
   mkdirSync(dirname(path), { recursive: true });
   const size = existsSync(path) ? statSync(path).size : 0;
   const last = Buffer.alloc(1);
@@ -56,7 +56,7 @@ export const append = (path: string, v: unknown) => {
 };
 
 /** The JSON lines of `path`, skipping any a crash cut off. */
-export const jsonl = <T = Record<string, unknown>>(path: string): T[] =>
+export const readJsonl = <T = Record<string, unknown>>(path: string): T[] =>
   (existsSync(path) ? readFileSync(path, 'utf8') : '').split('\n').flatMap(l => {
     try {
       return l ? [JSON.parse(l) as T] : [];
@@ -69,7 +69,7 @@ export const jsonl = <T = Record<string, unknown>>(path: string): T[] =>
  * Moves `path` into `.attic/` beside it, keeping its records; answers where it went. Its checkouts and scoring tree
  * are deleted first, since a rerun makes them again.
  */
-export const attic = (path: string) => {
+export const moveDirToAttic = (path: string) => {
   if (!existsSync(path)) return undefined;
   for (const copy of ['data/work', 'tree']) rmSync(join(path, copy), { recursive: true, force: true });
   const stamp = join(dirname(path), '.attic', `${basename(path)}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
@@ -81,7 +81,7 @@ export const attic = (path: string) => {
 };
 
 /** Copies `src` to `dst` through a temp dir and a rename, so `dst` is whole or absent. */
-export const publish = (src: string, dst: string, filter?: (path: string) => boolean) => {
+export const copyDirIfAbsentAtomic = (src: string, dst: string, filter?: (path: string) => boolean) => {
   const tmp = `${dst}.${process.pid}.tmp`;
   rmSync(tmp, { recursive: true, force: true });
   cpSync(src, tmp, { recursive: true, ...(filter && { filter }) });
@@ -132,7 +132,7 @@ export const release = (path: string) => {
  * Removes the sandbox containers (`agentgraph-<12 hex>`) that mount anything under `dir`, the unit this process holds, so
  * a killed run's containers never outlive it; every other container is left alone. Answers the names removed.
  */
-export const sweep = (dir: string) => {
+export const removeSandboxContainersMountingDir = (dir: string) => {
   const roots = [dir, ...(existsSync(dir) ? [realpathSync(dir)] : [])];
   const names = (
     spawnSync('docker', ['ps', '--filter', 'name=agentgraph-', '--format', '{{.Names}}'], {
@@ -186,7 +186,7 @@ export const down = async (net = false, disk?: Disk): Promise<string | undefined
 };
 
 /** Waits while `down()` has a reason, logging each wait and the recovery; backs off from 15 s to 5 min. */
-export const settle = async (
+export const waitWhileServicesDown = async (
   log: (e: object) => void,
   net = false,
   check = down,
@@ -231,7 +231,7 @@ export const onStop = (stop: (signal: string) => void) => {
 };
 
 /** The `BENCH_*` settings of this process that shape a run's results; `BENCH_FRESH` is a one-off and left out. */
-export const benchEnv = () =>
+export const readBenchResultEnv = () =>
   Object.fromEntries(
     Object.entries(process.env).flatMap(([k, v]) =>
       k.startsWith('BENCH_') && k !== 'BENCH_FRESH' && v ? [[k, v]] : []
@@ -243,7 +243,11 @@ export const benchEnv = () =>
  * missing one comes back from the record, `defaults` fill what neither has. A value that differs from the record, or
  * a recorded path that is gone, stops the run; edit `file` to change one on purpose.
  */
-export const pin = (file: string, given: Record<string, string | undefined>, defaults: Record<string, string> = {}) => {
+export const ensureRunSettingsPinned = (
+  file: string,
+  given: Record<string, string | undefined>,
+  defaults: Record<string, string> = {}
+) => {
   const was = JSON.parse(existsSync(file) ? readFileSync(file, 'utf8') : '{}') as Record<string, string>;
   const env = { ...defaults, ...was };
   for (const [k, v] of Object.entries(given)) {
@@ -256,6 +260,6 @@ export const pin = (file: string, given: Record<string, string | undefined>, def
     v.startsWith('/') ? v.split(':').flatMap(p => (existsSync(p) ? [] : [`${k} ${p}`])) : []
   );
   if (gone.length) throw new Error(`cannot resume, recorded in ${file} but missing: ${gone.join(', ')}`);
-  write(file, env);
+  writeFileAtomic(file, env);
   return env;
 };

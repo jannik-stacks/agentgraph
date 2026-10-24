@@ -17,8 +17,19 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { propose as proposeWith } from '../tune/propose.ts';
-import { codexUsed, plan, progress, rowsOf, statusText } from './bench.ts';
-import { append as appendLine, benchEnv, busy, claim, jsonl, onStop, pin, release, settle, write } from './resume.ts';
+import { codexUsed, pickBenchTestCommands, progress, readBenchRows, statusText } from './bench.ts';
+import {
+  appendJsonl,
+  readBenchResultEnv,
+  busy,
+  claim,
+  readJsonl,
+  onStop,
+  ensureRunSettingsPinned,
+  release,
+  waitWhileServicesDown,
+  writeFileAtomic,
+} from './resume.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {
@@ -67,7 +78,7 @@ export type Step = Candidate & {
   why: string;
   at: string;
 };
-type Row = ReturnType<typeof rowsOf>[number];
+type Row = ReturnType<typeof readBenchRows>[number];
 /** The latest reading of a usage window in percent, and the points used since the first, across window resets. */
 type Reading = { now: number; used: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
@@ -84,7 +95,7 @@ const pad = (n: number) => String(n).padStart(3, '0');
 export const tuneRows = (dir: string) => {
   const tune = read(join(dir, 'tune.json'));
   if (!tune) throw new Error(`${dir} has no tune.json`);
-  return { tune: JSON.parse(tune) as Tune, steps: jsonl<Step>(join(dir, 'iterations.jsonl')) };
+  return { tune: JSON.parse(tune) as Tune, steps: readJsonl<Step>(join(dir, 'iterations.jsonl')) };
 };
 
 const subdirs = (dir: string) =>
@@ -244,7 +255,7 @@ const finished = (dir: string, j: Job) => {
   return existsSync(join(at, 'v2', 'score.json')) || Boolean(JSON.parse(read(join(at, 'valid.json')) || '{}').invalid);
 };
 const tuneLog = (dir: string) => (e: object) =>
-  appendLine(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
+  appendJsonl(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
 const children = new Set<ChildProcess>();
 
 /** The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. */
@@ -286,7 +297,7 @@ const bench = {
         if (o.judged) await call(['judge', caseDir, out, '--pairs', 'human'], j.id, j.repeat);
       }
     };
-    write(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
+    writeFileAtomic(join(dir, 'phase.json'), { at: new Date().toISOString(), parallel: o.parallel, jobs });
     const log = tuneLog(dir);
     for (let round = 0, left = jobs; ;) {
       queue = [...left];
@@ -296,7 +307,7 @@ const bench = {
       const held = left.some(j => busy(join(dir, 'runs', outOf(j), j.case, 'v2')));
       log({ event: 'unfinished', jobs: left.length, held, round });
       if (!held && ++round >= 3) throw new Error(`${left.length} runs unfinished after 3 rounds; rerun to resume`);
-      await settle(log);
+      await waitWhileServicesDown(log);
       await sleep(held ? 30_000 : 60_000);
     }
   },
@@ -304,7 +315,7 @@ const bench = {
   rows: (dir: string, id: string) =>
     subdirs(join(dir, 'runs'))
       .filter(n => n === id || n.startsWith(`${id}@`))
-      .flatMap(n => rowsOf(join(dir, 'runs', n))),
+      .flatMap(n => readBenchRows(join(dir, 'runs', n))),
   codex: () => codexUsed(),
   propose: (o: Parameters<typeof proposeWith>[0]) => proposeWith(o),
 };
@@ -343,9 +354,9 @@ const enqueue = (dir: string, c: Omit<Candidate, 'hub' | 'diff'>) => {
   const sha = git(dir, ['commit-tree', tree, ...(c.parent ? ['-p', c.parent] : []), '-m', c.id]);
   git(dir, ['update-ref', `refs/cand/${c.id}`, sha]);
   const cand: Candidate = { ...c, hub: sha, diff: c.parent ? git(dir, ['diff', c.parent, sha]) : '' };
-  write(join(dir, 'cands', c.id, 'candidate.json'), cand);
+  writeFileAtomic(join(dir, 'cands', c.id, 'candidate.json'), cand);
   if (!existsSync(join(dir, 'cands', c.id, 'proposal.md')))
-    write(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n`);
+    writeFileAtomic(join(dir, 'cands', c.id, 'proposal.md'), `${c.rationale}\n`);
   return cand;
 };
 
@@ -428,7 +439,7 @@ export const guard = (
   const fiveHour = mark(b.claude?.fiveHour, claude?.fiveHour);
   const week = mark(b.claude?.week, claude?.week);
   const next: Budget = { ...(codex && { codex }), claude: { ...(fiveHour && { fiveHour }), ...(week && { week }) } };
-  write(file, next);
+  writeFileAtomic(file, next);
   const over = overOf(next, limits);
   if (over) throw new Error(over);
   return next;
@@ -441,7 +452,7 @@ const spent = (before: Budget, after: Budget, k: 'codex' | 'fiveHour') => {
   return round(of(after) - of(before));
 };
 
-const append = (dir: string, s: Step) => appendLine(join(dir, 'iterations.jsonl'), s);
+const append = (dir: string, s: Step) => appendJsonl(join(dir, 'iterations.jsonl'), s);
 
 /** Writes tune.json, the cases and the minimal hub, then evaluates that hub as the first incumbent. */
 export const init = async (
@@ -496,11 +507,11 @@ export const init = async (
     );
     minimal(
       join(dir, 'cands', 'i000-init', 'hub'),
-      { ...plan(t.repo, (first.tests as string[]) ?? []), ...mined },
+      { ...pickBenchTestCommands(t.repo, (first.tests as string[]) ?? []), ...mined },
       read(join(agentgraph, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
-    write(join(dir, 'tune.json'), t);
+    writeFileAtomic(join(dir, 'tune.json'), t);
   }
   const { tune: t, steps } = tuneRows(dir);
   if (steps.length) return dir;
@@ -530,11 +541,11 @@ export const init = async (
  * The bench hub with no reviewer: implement with two tries against a tests check, then a human merge. A repo with a
  * toolchain line builds through the toolchain step, so the case plan's host setup is left out.
  */
-const minimal = (hub: string, commands: ReturnType<typeof plan>, toolchain?: string) => {
+const minimal = (hub: string, commands: ReturnType<typeof pickBenchTestCommands>, toolchain?: string) => {
   cpSync(join(agentgraph, 'examples/bench'), hub, { recursive: true });
   rmSync(join(hub, 'agents/reviewer.md'), { force: true });
   rmSync(join(hub, 'scripts/review.mjs'), { force: true });
-  write(
+  writeFileAtomic(
     join(hub, 'workflows/issue.md'),
     `---
 on: issue_comment
@@ -549,7 +560,7 @@ steps:
 One issue becomes one pull request. The implementor changes the repo until the tests check passes. A human merges.
 `
   );
-  write(
+  writeFileAtomic(
     join(hub, 'checks/tests.md'),
     read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
   );
@@ -561,13 +572,13 @@ One issue becomes one pull request. The implementor changes the repo until the t
   if grep -q '"jest"' "$d/package.json"; then (cd "$d" && npx jest --runTestsByPath "\${f#"$d"/}") || exit 1
   else (cd "$d" && npx vitest run "\${f#"$d"/}") || exit 1; fi
 done`;
-  write(
+  writeFileAtomic(
     join(hub, 'scripts/tests.sh'),
     `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n${each}\n`
   );
-  if (toolchain) write(join(hub, 'hub.yaml'), `${toolchain}\n${read(join(hub, 'hub.yaml'))}`);
+  if (toolchain) writeFileAtomic(join(hub, 'hub.yaml'), `${toolchain}\n${read(join(hub, 'hub.yaml'))}`);
   else if (commands.setup)
-    write(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
+    writeFileAtomic(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
 };
 
 /** One iteration: proposals, a screen on a few fit cases, the survivors on the rest of select, at most one kept. */
@@ -721,7 +732,7 @@ export const checkpoint = async (dir: string, o: { parallel?: number; keys?: str
   );
   const e = evalOf(inc.id, 'test', test, scores(io.rows(dir, inc.id), 'composite'), { codex: 0, claude5h: 0 });
   const lines = steps.map(s => (s === inc ? { ...s, evals: [...s.evals, e] } : s));
-  write(join(dir, 'iterations.jsonl'), lines.map(s => `${JSON.stringify(s)}\n`).join(''));
+  writeFileAtomic(join(dir, 'iterations.jsonl'), lines.map(s => `${JSON.stringify(s)}\n`).join(''));
   return e;
 };
 
@@ -785,7 +796,7 @@ export const status = (dir: string, limits = limitsDefault) => {
     parallel: number;
     jobs: Job[];
   } | null;
-  const last = jsonl(join(dir, 'log.jsonl')).at(-1);
+  const last = readJsonl(join(dir, 'log.jsonl')).at(-1);
   const written = Math.max(
     0,
     ...[dir, ...subdirs(join(dir, 'runs')).map(n => join(dir, 'runs', n))]
@@ -865,7 +876,10 @@ if (import.meta.main) {
       process.exit(1);
     }
     process.on('exit', () => release(join(dir, 'tune')));
-    const env = pin(join(dir, 'env.json'), { ...benchEnv(), ...(o.keys && { keys: o.keys }) });
+    const env = ensureRunSettingsPinned(join(dir, 'env.json'), {
+      ...readBenchResultEnv(),
+      ...(o.keys && { keys: o.keys }),
+    });
     for (const [k, v] of Object.entries(env)) if (k.startsWith('BENCH_')) process.env[k] ??= v;
     if (env.keys) Object.assign(o, { keys: env.keys });
     onStop(signal => {

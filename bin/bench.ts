@@ -24,27 +24,27 @@ import {
   layer,
   manifest,
   ownerId,
-  removeOrphanedVolumes as sweepLayers,
+  removeOrphanedVolumes,
   written,
 } from '../src/env.ts';
 import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
 import type * as MainModule from '../src/main.ts';
 import {
-  append,
-  attic,
-  benchEnv,
+  appendJsonl,
+  moveDirToAttic,
+  readBenchResultEnv,
   busy,
   claim,
   clock,
   down,
-  jsonl,
+  readJsonl,
   onStop,
-  pin,
-  publish,
+  ensureRunSettingsPinned,
+  copyDirIfAbsentAtomic,
   release,
-  settle,
-  sweep,
-  write,
+  waitWhileServicesDown,
+  removeSandboxContainersMountingDir,
+  writeFileAtomic,
 } from './resume.ts';
 let engine = process.env.BENCH_ENGINE ?? join(import.meta.dirname, '..');
 
@@ -110,12 +110,12 @@ const round = (n: number) => Math.round(n * 1000) / 1000;
 const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length;
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
-const save = write;
-const lines = jsonl;
+const save = writeFileAtomic;
+const lines = readJsonl;
 const logger =
   (out: string, entry: Record<string, unknown> = {}) =>
   (more: object) =>
-    append(join(out, 'log.jsonl'), { at: new Date().toISOString(), pid: process.pid, ...entry, ...more });
+    appendJsonl(join(out, 'log.jsonl'), { at: new Date().toISOString(), pid: process.pid, ...entry, ...more });
 const step = async <A>(out: string, entry: Record<string, unknown>, f: () => A | Promise<A>) => {
   const log = logger(out, entry);
   log({ event: 'start' });
@@ -250,7 +250,7 @@ const typechecks: Record<string, Commands> = {
 };
 
 /** The test command, the typecheck and their setup, from the repo and the test files a merged change touches. */
-export const plan = (repo: string, tests: string[]): Commands => ({
+export const pickBenchTestCommands = (repo: string, tests: string[]): Commands => ({
   ...typechecks[repo.split('/').pop() ?? ''],
   ...tested(repo, tests),
 });
@@ -325,7 +325,7 @@ const loadCase = (dir: string): Case & Commands => {
     Commands & { tests?: unknown };
   const issue = read(join(dir, 'issue.md'));
   return {
-    ...(Array.isArray(c.tests) && plan(c.repo, c.tests as string[])),
+    ...(Array.isArray(c.tests) && pickBenchTestCommands(c.repo, c.tests as string[])),
     ...c,
     ...(typeof c.tests === 'string' && !c.test && { test: c.tests }),
     ...(c.bucket === 'no-tests' && { hasTests: false }),
@@ -517,7 +517,7 @@ export const armSlot = (
 
 /** Publishes a cached arm at `at` and notes in its `meta.json` which slot it came from. */
 export const reuse = (kept: string, at: string) => {
-  publish(kept, at);
+  copyDirIfAbsentAtomic(kept, at);
   save(join(at, 'meta.json'), { ...JSON.parse(read(join(at, 'meta.json')) || '{}'), reusedFrom: kept });
 };
 
@@ -554,14 +554,14 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (!claim(at)) return log({ event: 'busy' });
   onStop(signal => {
     log({ event: 'paused', signal });
-    sweep(at);
+    removeSandboxContainersMountingDir(at);
     release(at);
   });
   try {
-    sweep(at);
+    removeSandboxContainersMountingDir(at);
     if (await prepare(c, out, repo)) return;
     const aside = () => {
-      const to = attic(at);
+      const to = moveDirToAttic(at);
       if (to) log({ event: 'attic', to });
     };
     aside();
@@ -570,7 +570,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
     const failed = () =>
       lines(join(out, 'log.jsonl')).filter(l => l.event === 'infra' && l.case === c.id && l.arm === arm);
     for (let attempt = 0, empty = 0; ; attempt++) {
-      await settle(log, false, net => down(net, { dir: out, ...(cache && { image, volume: cache }) }));
+      await waitWhileServicesDown(log, false, net => down(net, { dir: out, ...(cache && { image, volume: cache }) }));
       aside();
       guard(out, false);
       const started = Date.now();
@@ -604,7 +604,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
         }
       }
       if (!env && nothing && ++empty < 2) continue;
-      save(join(at, 'usage.json'), spent(at));
+      save(join(at, 'usage.json'), readArmUsageOverAttempts(at));
       save(join(at, 'diff.patch'), diff);
       if (!env && !nothing) keep(at, kept);
       return;
@@ -615,7 +615,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
 };
 
 /** The changed files of a unified diff, each with its part of the diff. */
-const files = (diff: string) =>
+const splitUnifiedDiffByFile = (diff: string) =>
   diff.split(/^(?=diff --git )/m).flatMap(part => {
     const path = /^diff --git a\/\S+ b\/(\S+)/.exec(part)?.[1];
     return path ? [{ path, part }] : [];
@@ -633,7 +633,7 @@ export const stats = (diff: string, human: string[] = []) => {
     complexity: 0,
     overlap: 0,
   };
-  const changed = files(diff).filter(f => !noise.test(f.path));
+  const changed = splitUnifiedDiffByFile(diff).filter(f => !noise.test(f.path));
   for (const { path, part } of changed) {
     const kind = testPath.test(path) ? 'tests' : 'src';
     const hunks = part.indexOf('\n@@');
@@ -760,7 +760,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const box = { mounts: [{ src: git, dst: git, readonly: true }], layers };
   const from = env?.image ?? start;
   const scored = () => {
-    const again = !env?.complete || files(diff).some(f => manifest.test(f.path));
+    const again = !env?.complete || splitUnifiedDiffByFile(diff).some(f => manifest.test(f.path));
     const prep = again ? c.setup : diff.trim() ? c.build : undefined;
     const suite = c.suite ?? c.test;
     const result = {
@@ -845,7 +845,7 @@ const took = (dir: string) => {
 };
 
 /** Sessions, cost, tokens and wall time summed over every attempt of an arm, with each attempt's own numbers. */
-export const spent = (at: string) => {
+export const readArmUsageOverAttempts = (at: string) => {
   const attempts = [...earlier(at), ...(existsSync(at) ? [at] : [])].map(dir => {
     const { infra } = JSON.parse(read(join(dir, 'meta.json')) || '{}') as { infra?: string };
     return { dir: relative(dirname(at), dir), ms: took(dir), ...(infra && { infra }), ...effort(join(dir, 'data')) };
@@ -869,15 +869,15 @@ export const spent = (at: string) => {
 };
 
 /** An arm's usage over all its attempts: recounted from its records when they are here, else its `usage.json`. */
-const usage = (at: string): Partial<ReturnType<typeof spent>> =>
+const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>> =>
   existsSync(join(at, 'data')) || earlier(at).length
-    ? spent(at)
-    : (JSON.parse(read(join(at, 'usage.json')) || '{}') as Partial<ReturnType<typeof spent>>);
+    ? readArmUsageOverAttempts(at)
+    : (JSON.parse(read(join(at, 'usage.json')) || '{}') as Partial<ReturnType<typeof readArmUsageOverAttempts>>);
 
 /** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, hub or attic dirs. */
 export const keep = (at: string, kept: string | undefined) => {
-  if (!existsSync(join(at, 'usage.json'))) save(join(at, 'usage.json'), spent(at));
-  if (kept) publish(at, kept, p => !/\/(data|forge|hub|\.attic)$/.test(p));
+  if (!existsSync(join(at, 'usage.json'))) save(join(at, 'usage.json'), readArmUsageOverAttempts(at));
+  if (kept) copyDirIfAbsentAtomic(at, kept, p => !/\/(data|forge|hub|\.attic)$/.test(p));
 };
 
 const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {
@@ -886,7 +886,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
   if (!existsSync(join(root, 'human/diff.patch'))) save(join(root, 'human/diff.patch'), merged);
   if (!existsSync(join(root, 'base/diff.patch'))) save(join(root, 'base/diff.patch'), '');
   save(join(root, 'case.json'), read(join(c.dir, 'case.json')));
-  const human = files(merged).map(f => f.path);
+  const human = splitUnifiedDiffByFile(merged).map(f => f.path);
   const hidden = human.filter(p => testPath.test(p) && !noise.test(p));
   const tree = join(root, 'tree');
   while (!claim(tree)) await sleep(5000);
@@ -981,7 +981,7 @@ const target = (from: string, spec: string) => {
 export const couplings = (diff: string, issue: string, base: Base) => {
   const said = flat(issue);
   const mentioned = (name: string) => said.includes(flat(name));
-  const parts = files(diff).filter(f => !noise.test(f.path));
+  const parts = splitUnifiedDiffByFile(diff).filter(f => !noise.test(f.path));
   const added = (part: string) =>
     part
       .split('\n')
@@ -1083,7 +1083,11 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     const why = invalid(tests('base'), tests('human'), c.bucket === 'tests' || Boolean(c.test));
     save(file, { invalid: why });
     if (kept && why !== 'setup fails')
-      publish(join(out, c.id), kept, p => !/\/(tree|v2|floor|judge|\.attic)$/.test(p) && !p.endsWith('.lock'));
+      copyDirIfAbsentAtomic(
+        join(out, c.id),
+        kept,
+        p => !/\/(tree|v2|floor|judge|\.attic)$/.test(p) && !p.endsWith('.lock')
+      );
   }
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
 };
@@ -1115,7 +1119,7 @@ const flips: [RegExp, string][] = [
 
 /** The diff with one comparison flipped in its first added source line that has one. */
 export const plant = (diff: string) => {
-  for (const { path, part } of files(diff))
+  for (const { path, part } of splitUnifiedDiffByFile(diff))
     if (!testPath.test(path) && !noise.test(path))
       for (const line of part.split('\n'))
         if (line.startsWith('+') && !line.startsWith('+++') && !comment.test(line.slice(1)))
@@ -1134,7 +1138,7 @@ export const pad = (diff: string) => {
 export const scrub = (text: string, names: string[] = []) => {
   const who = new RegExp(`\\b(${['agentgraph', ...names.filter(n => /^[\w-]+$/.test(n))].join('|')})\\b`, 'gi');
   const kept = text.startsWith('diff --git')
-    ? files(text)
+    ? splitUnifiedDiffByFile(text)
         .filter(f => !noise.test(f.path))
         .map(f => f.part)
         .join('')
@@ -1147,7 +1151,7 @@ export const scrub = (text: string, names: string[] = []) => {
 };
 
 /** The last JSON block of a judge's answer, when it names a preference. */
-export const verdict = (text: string): Verdict | undefined => {
+export const parseBenchJudgeVerdict = (text: string): Verdict | undefined => {
   try {
     const v = JSON.parse([...text.matchAll(/```json\s*([\s\S]*?)```/g)].at(-1)?.[1] ?? '') as Verdict;
     return ['A', 'B', 'tie'].includes(v.prefer) ? v : undefined;
@@ -1160,7 +1164,7 @@ type Tokens = ReturnType<typeof effort>['tokens'][string];
 type Answer = { text: string; tokens?: Tokens; usd?: number };
 
 /** A judge's reply with its tokens and cost when reported, from claude's JSON output or a chat completion. */
-export const answerOf = (raw: unknown): Answer => {
+export const parseBenchJudgeResponse = (raw: unknown): Answer => {
   let r = raw as {
     result?: string;
     total_cost_usd?: number;
@@ -1205,7 +1209,7 @@ const claude = (model: string) => (prompt: string, cwd: string) =>
   new Promise<Answer>((done, fail) => {
     const args = ['-p', '--model', model, '--tools', '', '--no-session-persistence', '--output-format', 'json'];
     const child = execFile('claude', args, { cwd, maxBuffer: 1 << 26, timeout: 1_800_000 }, (e, out) =>
-      e ? fail(e) : done(answerOf(out))
+      e ? fail(e) : done(parseBenchJudgeResponse(out))
     );
     child.stdin?.end(prompt);
   });
@@ -1218,7 +1222,7 @@ const proxied = (model: string) => async (prompt: string) => {
     },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
   });
-  return answerOf(await r.json());
+  return parseBenchJudgeResponse(await r.json());
 };
 const judges: Record<string, (prompt: string, cwd: string) => Promise<Answer>> = {
   opus: claude('opus'),
@@ -1251,7 +1255,7 @@ export const unpriced = (arm: string, hub: string, point = options.point) => {
  * What an arm's usage cost and where the number comes from: recorded by the run, else its tokens at today's list
  * price. A subscription's cost is a list-price estimate either way.
  */
-export const costOf = (
+export const getBenchUsageCost = (
   u: { usd?: number; tokens?: ReturnType<typeof effort>['tokens'] },
   harness = '',
   prices = priceTable
@@ -1277,7 +1281,7 @@ export const costOf = (
 };
 
 /** The maker of a proxy alias or model, from its upstream name: openai, anthropic, google, z-ai, x-ai and so on. */
-export const family = (model: string, aliases = upstream ?? {}) => {
+export const getModelMakerFromUpstreamName = (model: string, aliases = upstream ?? {}) => {
   const name = (aliases[model] ?? model).replace(/^openrouter\//, '');
   if (/^(chatgpt|openai)\/|^gpt-/.test(name)) return 'openai';
   if (/^(anthropic\/)?claude/.test(name)) return 'anthropic';
@@ -1285,9 +1289,13 @@ export const family = (model: string, aliases = upstream ?? {}) => {
 };
 
 /** The panel with each judge of the contestant's family swapped for the first of sol, gemini, opus from another one. */
-export const unbiased = (chosen: Record<string, number>, contestant: string, aliases = upstream ?? {}) => {
-  const own = family(contestant, aliases);
-  const other = (name: string) => family(judgeModels[name]!, aliases) !== own;
+export const makeCrossMakerJudgePanel = (
+  chosen: Record<string, number>,
+  contestant: string,
+  aliases = upstream ?? {}
+) => {
+  const own = getModelMakerFromUpstreamName(contestant, aliases);
+  const other = (name: string) => getModelMakerFromUpstreamName(judgeModels[name]!, aliases) !== own;
   const out: Record<string, number> = {};
   for (const [name, n] of Object.entries(chosen)) {
     const judge = other(name) ? name : ['sol', 'gemini', 'opus'].find(j => other(j) && !(j in chosen) && !(j in out));
@@ -1339,14 +1347,14 @@ const judge = async (caseDir: string, out: string) => {
         const dir = join(root, 'judge', `${a}-${b}`);
         save(join(dir, 'prompt.md'), prompt);
         await Promise.all(
-          Object.entries(unbiased(panel, options.point?.split(':')[1] ?? 'smart'))
+          Object.entries(makeCrossMakerJudgePanel(panel, options.point?.split(':')[1] ?? 'smart'))
             .filter(([, n]) => orders(n, `${c.id}/${x}-${y}`).includes(at))
             .map(async ([name]) => {
               const ask = judges[name]!;
               const kept = slot('judge', name, prompt);
               for (let attempt = 0; attempt < 3 && !existsSync(join(dir, `${name}.json`)); attempt++) {
                 const hit = reusable(kept);
-                if (!hit) guard(out, family(judgeModels[name]!) === 'anthropic');
+                if (!hit) guard(out, getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic');
                 const started = Date.now();
                 const got: Answer = hit
                   ? { text: read(kept!) }
@@ -1360,13 +1368,13 @@ const judge = async (caseDir: string, out: string) => {
                   const cost = { ms: Date.now() - started, ...(tokens && { tokens }) };
                   save(join(dir, `${name}.${attempt}.cost.json`), {
                     ...cost,
-                    ...costOf(
+                    ...getBenchUsageCost(
                       { ...cost, ...(got.usd !== undefined && { usd: got.usd }) },
-                      family(judgeModels[name]!) === 'anthropic' ? 'claude-sub' : ''
+                      getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic' ? 'claude-sub' : ''
                     ),
                   });
                 }
-                const v = verdict(raw);
+                const v = parseBenchJudgeVerdict(raw);
                 if (v) save(join(dir, `${name}.json`), { judge: name, order: [a, b], ...v });
                 if (v && kept && !hit) save(kept, raw);
               }
@@ -1435,7 +1443,7 @@ const loadScored = (out: string, id: string): Scored => {
     .filter(([arm]) => !(arm in skipped))
     .map(([arm, s]): [string, Record<string, number>] => {
       const u = { ...s, ...usage(join(out, id, arm)) };
-      return [arm, metrics({ ...u, usd: costOf(u).usd })];
+      return [arm, metrics({ ...u, usd: getBenchUsageCost(u).usd })];
     });
   const failures = bots.flatMap(arm => {
     const h = (scores[arm] as { hidden?: { ok: boolean; tail: string; class?: string } } | undefined)?.hidden;
@@ -1457,7 +1465,7 @@ const loadScored = (out: string, id: string): Scored => {
  * One row per case and arm run of an out dir, keyed by its point. A dir without `point.json` reads as opencode:smart,
  * repeat 1, engine unknown, with the dir name as its set.
  */
-export const rowsOf = (out: string, repos?: string[]) => {
+export const readBenchRows = (out: string, repos?: string[]) => {
   const p = {
     harness: 'opencode',
     model: 'smart',
@@ -1511,7 +1519,7 @@ export const rowsOf = (out: string, repos?: string[]) => {
             minutes: Number(spent.ms ?? 0) / 60_000,
             tokens: spent.tokens ?? {},
             ...(spent.split && { split: spent.split }),
-            ...costOf(spent, p.harness),
+            ...getBenchUsageCost(spent, p.harness),
           },
         ];
       });
@@ -1711,8 +1719,8 @@ if (import.meta.main) {
   const out = command === 'run' ? c : ['score', 'judge'].includes(command ?? '') ? b : undefined;
   const sandbox = out && command !== 'judge' && !image.startsWith('sha256:') ? imageId(image) : undefined;
   const env = out
-    ? pin(join(resolve(out), 'env.json'), {
-        ...benchEnv(),
+    ? ensureRunSettingsPinned(join(resolve(out), 'env.json'), {
+        ...readBenchResultEnv(),
         ...(values.keys && { keys: resolve(values.keys) }),
         ...(values.point && { point: values.point }),
         ...(sandbox && { image: sandbox }),
@@ -1722,7 +1730,7 @@ if (import.meta.main) {
   if (env.image) process.env.AGENTGRAPH_IMAGE = image = env.image;
   engine = process.env.BENCH_ENGINE ?? engine;
   if (out && command !== 'judge') reapTrees(resolve(out));
-  if (cache && command !== 'judge') await sweepLayers();
+  if (cache && command !== 'judge') await removeOrphanedVolumes();
   const point = env.point ?? values.point ?? process.env.BENCH_POINT;
   if (point && !/^[\w-]+:[\w.-]+$/.test(point)) throw new Error(`bad --point ${point}`);
   if (!['all', 'human'].includes(values.pairs)) throw new Error(`bad --pairs ${values.pairs}`);

@@ -1,6 +1,6 @@
-import type { rowsOf } from '../../../bin/bench.ts';
+import type { readBenchRows } from '../../../bin/bench.ts';
 
-type Row = ReturnType<typeof rowsOf>[number];
+type Row = ReturnType<typeof readBenchRows>[number];
 type Tokens = Row['tokens'][string];
 
 export const defaults = { test: 0.5, judge: 0.35, suite: 0.15, crit: 0.1, help: 0.1 };

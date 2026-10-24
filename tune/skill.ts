@@ -24,7 +24,7 @@ import {
   step,
   tuneRows,
 } from '../bin/tune.ts';
-import { write } from '../bin/resume.ts';
+import { writeFileAtomic } from '../bin/resume.ts';
 import { claudeUsed, events, hubProblems, type Usage } from './propose.ts';
 
 type Io = Parameters<typeof step>[2];
@@ -86,7 +86,7 @@ const start = async (like: string, o: Pick<Options, 'version' | 'name' | 'parall
         filter: src => !skipped.has(basename(src)),
       });
     spawnSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
-    write(join(dir, 'tune.json'), t);
+    writeFileAtomic(join(dir, 'tune.json'), t);
   }
   const made = await init(
     t.repo.split('/').pop()!,
@@ -117,7 +117,7 @@ const workspace = (dir: string, w: string, k: number) => {
   const redact = (text: string) => hidden.reduce((s, id) => s.replaceAll(id, 'a held-out case'), text);
   cpSync(join(dir, 'cands', inc.id, 'hub'), join(w, 'hub'), { recursive: true });
   for (const id of seen) cpSync(join(dir, 'cases', id), join(w, 'cases', id), { recursive: true });
-  write(join(w, 'cases.json'), Object.fromEntries(seen.map(id => [id, t.cases[id]])));
+  writeFileAtomic(join(w, 'cases.json'), Object.fromEntries(seen.map(id => [id, t.cases[id]])));
   for (const id of idsOf(t.cases, 'fit')) {
     const from = join(dir, 'runs', inc.id, id);
     if (existsSync(from))
@@ -133,7 +133,7 @@ const workspace = (dir: string, w: string, k: number) => {
         ...(s.diff ? [fence(s.diff, 'diff')] : []),
       ].join('\n\n')
     );
-  write(
+  writeFileAtomic(
     join(w, 'tried.md'),
     `# Tried before\n\nThe incumbent is ${inc.id}.\n\n${tried.join('\n\n') || 'Nothing yet.'}\n`
   );
@@ -228,7 +228,7 @@ const leaksOf = (stream: string, dir: string, w: string, hidden: string[]) =>
 
 const pluginOf = (dir: string) => {
   const plugin = join(dir, 'skill', 'plugin');
-  write(join(plugin, '.claude-plugin/plugin.json'), { name: 'agentgraph' });
+  writeFileAtomic(join(plugin, '.claude-plugin/plugin.json'), { name: 'agentgraph' });
   cpSync(skillDir, join(plugin, 'skills/tune-graph'), { recursive: true });
   return plugin;
 };
@@ -315,7 +315,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
   const first = before ?? live.first;
   r.claude = { ...(first && { before: first }), ...(after && { after }) };
   if (live.stopped) {
-    write(join(w, 'stopped.json'), { ...r, stopped: live.stopped });
+    writeFileAtomic(join(w, 'stopped.json'), { ...r, stopped: live.stopped });
     throw new Error(`round ${iteration} stopped: ${live.stopped}`);
   }
   if (r.leaks.length) console.error(`round ${iteration}: tool calls outside the workspace\n${r.leaks.join('\n')}`);
@@ -328,7 +328,7 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
     r.slots.push({ slot: s.slot, id: c.id });
   }
   if (after) guard(dir, { codex: io?.codex ?? codexUsed }, o.limits, after);
-  write(join(w, 'round.json'), r);
+  writeFileAtomic(join(w, 'round.json'), r);
   return r;
 };
 

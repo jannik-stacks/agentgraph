@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync 
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { configure, stateOf } from '../bench/drive.ts';
-import { jsonl } from '../bin/resume.ts';
+import { readJsonl } from '../bin/resume.ts';
 import { isPidRunning } from '../src/env.ts';
 import { tmp } from './kit.ts';
 
@@ -81,8 +81,8 @@ const start = (dir: string, env: Record<string, string> = {}) => {
   return { child, exit };
 };
 const drive = (dir: string, env: Record<string, string> = {}) => start(dir, env).exit;
-const events = (dir: string) => jsonl<{ event: string; reason?: string; job?: string }>(join(dir, 'events.jsonl'));
-const calls = (dir: string) => jsonl<{ cmd: string; arm?: string; id: string }>(join(dir, 'calls.jsonl'));
+const events = (dir: string) => readJsonl<{ event: string; reason?: string; job?: string }>(join(dir, 'events.jsonl'));
+const calls = (dir: string) => readJsonl<{ cmd: string; arm?: string; id: string }>(join(dir, 'calls.jsonl'));
 const until = async (ok: () => boolean) => {
   for (let n = 0; n < 200 && !ok(); n++) await new Promise(r => setTimeout(r, 50));
   expect(ok()).toBe(true);

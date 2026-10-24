@@ -103,7 +103,7 @@ export const fixtures = (): Plugin => ({
       });
     });
     server.middlewares.use('/api/bench', async (_req, res) => {
-      const { rowsOf }: typeof BenchModule = await from('bin/bench.ts');
+      const { readBenchRows: rowsOf }: typeof BenchModule = await from('bin/bench.ts');
       const { stateOf }: typeof DriveModule = await from('bench/drive.ts');
       const dirs = (process.env.VITE_AGI_BENCH ?? '').split(':').filter(Boolean);
       json(res, {

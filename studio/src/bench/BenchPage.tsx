@@ -1,13 +1,13 @@
 import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
-import type { rowsOf } from '../../../bin/bench.ts';
+import type { readBenchRows } from '../../../bin/bench.ts';
 import { live, queryParam } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaults, frontier, presets, type price, summarise } from './score.ts';
 import { Scatter } from './Scatter.tsx';
 
-type Row = ReturnType<typeof rowsOf>[number];
+type Row = ReturnType<typeof readBenchRows>[number];
 
 const benchAtom = live<{ rows: Row[]; drives?: DriveState[]; prices: Parameters<typeof price>[1] }>('/api/bench');
 const params = {

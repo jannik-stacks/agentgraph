@@ -3,7 +3,19 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { harnessError, progress, runnerError, statusText } from '../bin/bench.ts';
-import { append, attic, busy, claim, jsonl, pin, probeUrl, publish, release, settle, write } from '../bin/resume.ts';
+import {
+  appendJsonl,
+  moveDirToAttic,
+  busy,
+  claim,
+  readJsonl,
+  ensureRunSettingsPinned,
+  probeUrl,
+  copyDirIfAbsentAtomic,
+  release,
+  waitWhileServicesDown,
+  writeFileAtomic,
+} from '../bin/resume.ts';
 import { tuneRows } from '../bin/tune.ts';
 import { tmp } from './kit.ts';
 
@@ -21,8 +33,8 @@ const dead = () => spawnSync('true').pid!;
 describe('crash-safe files', () => {
   it('writes whole files and leaves no temp file', () => {
     const dir = root();
-    write(join(dir, 'a/score.json'), { ok: true });
-    write(join(dir, 'a/score.json'), { ok: false });
+    writeFileAtomic(join(dir, 'a/score.json'), { ok: true });
+    writeFileAtomic(join(dir, 'a/score.json'), { ok: false });
     expect(JSON.parse(readFileSync(join(dir, 'a/score.json'), 'utf8'))).toEqual({ ok: false });
     expect(readdirSync(join(dir, 'a'))).toEqual(['score.json']);
   });
@@ -30,10 +42,10 @@ describe('crash-safe files', () => {
   it('skips a line a crash cut off and starts the next append on a new line', () => {
     const file = join(root(), 'log.jsonl');
     writeFileSync(file, '{"a":1}\n{"b":');
-    expect(jsonl(file)).toEqual([{ a: 1 }]);
-    append(file, { c: 3 });
-    append(file, { d: 4 });
-    expect(jsonl(file)).toEqual([{ a: 1 }, { c: 3 }, { d: 4 }]);
+    expect(readJsonl(file)).toEqual([{ a: 1 }]);
+    appendJsonl(file, { c: 3 });
+    appendJsonl(file, { d: 4 });
+    expect(readJsonl(file)).toEqual([{ a: 1 }, { c: 3 }, { d: 4 }]);
   });
 
   it('reads a tune whose last step line was torn', () => {
@@ -47,21 +59,21 @@ describe('crash-safe files', () => {
     const dir = root();
     mkdirSync(join(dir, 'case/v2/data'), { recursive: true });
     writeFileSync(join(dir, 'case/v2/data/trace.jsonl'), 'x');
-    const first = attic(join(dir, 'case/v2'))!;
+    const first = moveDirToAttic(join(dir, 'case/v2'))!;
     mkdirSync(join(dir, 'case/v2'));
-    const second = attic(join(dir, 'case/v2'))!;
+    const second = moveDirToAttic(join(dir, 'case/v2'))!;
     expect(existsSync(join(dir, 'case/v2'))).toBe(false);
     expect(readFileSync(join(first, 'data/trace.jsonl'), 'utf8')).toBe('x');
     expect(second).not.toBe(first);
     expect(readdirSync(join(dir, 'case/.attic'))).toHaveLength(2);
-    expect(attic(join(dir, 'case/v2'))).toBeUndefined();
+    expect(moveDirToAttic(join(dir, 'case/v2'))).toBeUndefined();
   });
 
   it('drops checkouts from a unit it moves aside and keeps the records', () => {
     const dir = root();
     mkdirSync(join(dir, 'case/v2/data/work/abc/node_modules'), { recursive: true });
     writeFileSync(join(dir, 'case/v2/data/trace.jsonl'), 'x');
-    const to = attic(join(dir, 'case/v2'))!;
+    const to = moveDirToAttic(join(dir, 'case/v2'))!;
     expect(existsSync(join(to, 'data/work'))).toBe(false);
     expect(readFileSync(join(to, 'data/trace.jsonl'), 'utf8')).toBe('x');
   });
@@ -70,10 +82,10 @@ describe('crash-safe files', () => {
     const dir = root();
     mkdirSync(join(dir, 'at/data'), { recursive: true });
     writeFileSync(join(dir, 'at/diff.patch'), 'd');
-    publish(join(dir, 'at'), join(dir, 'kept'), p => !p.endsWith('/data'));
+    copyDirIfAbsentAtomic(join(dir, 'at'), join(dir, 'kept'), p => !p.endsWith('/data'));
     expect(readdirSync(join(dir, 'kept'))).toEqual(['diff.patch']);
     writeFileSync(join(dir, 'at/diff.patch'), 'other');
-    publish(join(dir, 'at'), join(dir, 'kept'));
+    copyDirIfAbsentAtomic(join(dir, 'at'), join(dir, 'kept'));
     expect(readFileSync(join(dir, 'kept/diff.patch'), 'utf8')).toBe('d');
     expect(readdirSync(dir).sort()).toEqual(['at', 'kept']);
   });
@@ -101,7 +113,7 @@ describe('environment', () => {
     const log: object[] = [];
     const answers = ['model proxy unreachable', 'docker unreachable', undefined];
     const waits: number[] = [];
-    await settle(
+    await waitWhileServicesDown(
       e => log.push(e),
       false,
       async () => answers.shift(),
@@ -188,13 +200,13 @@ describe('progress', () => {
   it('pins the env a run started with and refuses a restart that cannot match it', () => {
     const dir = root();
     const file = join(dir, 'env.json');
-    expect(pin(file, { BENCH_PATH: dir, keys: undefined }, { BENCH_ENGINE: dir })).toEqual({
+    expect(ensureRunSettingsPinned(file, { BENCH_PATH: dir, keys: undefined }, { BENCH_ENGINE: dir })).toEqual({
       BENCH_ENGINE: dir,
       BENCH_PATH: dir,
     });
-    expect(pin(file, {})).toEqual({ BENCH_ENGINE: dir, BENCH_PATH: dir });
-    expect(() => pin(file, { BENCH_PATH: '/elsewhere' })).toThrow(/started with/);
-    write(file, { BENCH_PATH: `${dir}:${join(dir, 'gone')}` });
-    expect(() => pin(file, {})).toThrow(/missing: BENCH_PATH .*gone/);
+    expect(ensureRunSettingsPinned(file, {})).toEqual({ BENCH_ENGINE: dir, BENCH_PATH: dir });
+    expect(() => ensureRunSettingsPinned(file, { BENCH_PATH: '/elsewhere' })).toThrow(/started with/);
+    writeFileAtomic(file, { BENCH_PATH: `${dir}:${join(dir, 'gone')}` });
+    expect(() => ensureRunSettingsPinned(file, {})).toThrow(/missing: BENCH_PATH .*gone/);
   });
 });

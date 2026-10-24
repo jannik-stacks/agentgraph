@@ -29,7 +29,7 @@ A case folder has `case.json`, `issue.md` and `merged.diff`. An optional `hidden
 | `size`, `kind`, `area` | Report strata |
 | `control` | `bug` flips an added comparison; `padded` adds trivial tests |
 
-Mined cases list their test files in `tests`, and `plan` in `bin/bench.ts` derives the commands per repo, with a typecheck for some repos on every case. `bucket: no-tests` turns off hidden tests but not the typecheck. Repos whose tests start their own containers have no plan, since the sandbox has no Docker socket.
+Mined cases list their test files in `tests`, and `pickBenchTestCommands` in `bin/bench.ts` derives the commands per repo, with a typecheck for some repos on every case. `bucket: no-tests` turns off hidden tests but not the typecheck. Repos whose tests start their own containers have no plan, since the sandbox has no Docker socket.
 
 A tested case is valid only if its hidden tests fail on base and pass on the human change, the human diff applies, setup works, and the human passes the suite and, where base does, the typecheck. A case without hidden tests needs only the diff to apply, setup to work and the human to pass the typecheck. Before any container runs, a coupling check rejects tests that import paths only the human added, use names the issue does not mention, or check snapshots. Invalid cases record why in `valid.json` and skip arms and judges.
 

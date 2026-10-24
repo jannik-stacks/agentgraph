@@ -8,7 +8,16 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { loadavg } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { append, busy, claim, jsonl, onStop, pin, release, write } from '../bin/resume.ts';
+import {
+  appendJsonl,
+  busy,
+  claim,
+  readJsonl,
+  onStop,
+  ensureRunSettingsPinned,
+  release,
+  writeFileAtomic,
+} from '../bin/resume.ts';
 
 /** The node on PATH now, so a toolchain upgrade during a long bench does not break later spawns. */
 export const nodePath = (fallback = process.execPath) =>
@@ -113,8 +122,8 @@ export const configure = (dir: string, env: Record<string, string | undefined> =
   const given = pick(env, fixed);
   const sha = given.SHA ?? was.SHA;
   if (!sha) throw new Error(`no SHA for ${dir}: start it with SHA=<engine commit>`);
-  write(file, { ...was, ...pick(env, budgets) });
-  return pin(file, given, defaults(dir, sha));
+  writeFileAtomic(file, { ...was, ...pick(env, budgets) });
+  return ensureRunSettingsPinned(file, given, defaults(dir, sha));
 };
 
 type Entry = { id: string; repo: string; split?: string; use?: boolean };
@@ -171,7 +180,7 @@ export const stateOf = (dir: string): DriveState => {
   const done = jobs.filter(j => finished(dir, s, j)).length;
   const partial = jobs.filter(j => !finished(dir, s, j) && existsSync(join(runDir(dir, s, j), j.c.id))).length;
   const base = { dir, done, total: jobs.length, partial };
-  const last = jsonl<{ event: string; at: string; reason?: string; error?: string }>(join(dir, 'events.jsonl'))
+  const last = readJsonl<{ event: string; at: string; reason?: string; error?: string }>(join(dir, 'events.jsonl'))
     .filter(e => !String(e.event).startsWith('job') && e.event !== 'busy')
     .at(-1);
   const paused = existsSync(join(dir, 'PAUSE'));
@@ -247,7 +256,7 @@ if (import.meta.main) {
   }
   const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
   const event = (name: string, more: object = {}) =>
-    append(join(dir, 'events.jsonl'), { at: new Date().toISOString(), event: name, ...more });
+    appendJsonl(join(dir, 'events.jsonl'), { at: new Date().toISOString(), event: name, ...more });
   const lock = join(dir, 'drive');
   const tick = Number(process.env.DRIVE_TICK) || 15_000;
   if (!claim(lock)) {
@@ -282,14 +291,14 @@ if (import.meta.main) {
     const several = s.POINTS!.includes(',');
 
     const budgetLog = join(dir, 'budget-log.jsonl');
-    const seen = new Set(jsonl<{ label?: string }>(budgetLog).map(l => l.label));
+    const seen = new Set(readJsonl<{ label?: string }>(budgetLog).map(l => l.label));
     const { codexUsed } =
       maxCodex === undefined
         ? { codexUsed: () => undefined }
         : ((await import(join(engine, 'bin/bench.ts'))) as { codexUsed: () => number | undefined });
     const reading = (label: string) => {
       const now = codexUsed();
-      append(budgetLog, { at: new Date().toISOString(), label, codex: now });
+      appendJsonl(budgetLog, { at: new Date().toISOString(), label, codex: now });
       seen.add(label);
       log('codex', label, now);
       return now;
@@ -316,7 +325,7 @@ if (import.meta.main) {
       });
       const d = ((await r.json()) as { data?: { total_usage?: number; total_credits?: number } }).data;
       if (typeof d?.total_usage !== 'number') throw new Error(`credits answered ${r.status} without usage`);
-      append(budgetLog, {
+      appendJsonl(budgetLog, {
         at: new Date().toISOString(),
         label: 'spend',
         usage: d.total_usage,
@@ -327,7 +336,9 @@ if (import.meta.main) {
 
     let active = 0;
     const partial = queue.filter(j => existsSync(join(runDir(dir, s, j), j.c.id))).map(nameOf);
-    const again = jsonl<{ event: string }>(join(dir, 'events.jsonl')).some(e => ['start', 'resume'].includes(e.event));
+    const again = readJsonl<{ event: string }>(join(dir, 'events.jsonl')).some(e =>
+      ['start', 'resume'].includes(e.event)
+    );
     event(again || existsSync(join(dir, 'drive.log')) ? 'resume' : 'start', {
       pid: process.pid,
       done: total - queue.length,
@@ -352,7 +363,7 @@ if (import.meta.main) {
       const at = runDir(dir, s, j);
       if (existsSync(join(at, 'point.json'))) continue;
       const [harness, model] = j.point.split(':');
-      write(join(at, 'point.json'), {
+      writeFileAtomic(join(at, 'point.json'), {
         harness,
         model,
         engine: s.SHA,
@@ -406,7 +417,7 @@ if (import.meta.main) {
           if (judged) return `judge exit ${judged}`;
         }
       }
-      write(marker(dir, j), { min: Math.round((Date.now() - t0) / 60000), judged: judges !== 'none' });
+      writeFileAtomic(marker(dir, j), { min: Math.round((Date.now() - t0) / 60000), judged: judges !== 'none' });
       return undefined;
     };
 
