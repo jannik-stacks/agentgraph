@@ -6,6 +6,9 @@
     "unicorn",
     "oxc"
   ],
+  "jsPlugins": [
+    "./bin/names.mjs"
+  ],
   "categories": {
     "correctness": "error"
   },
@@ -356,6 +359,21 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "files": [
+        "src/**",
+        "bin/**",
+        "bench/**",
+        "tune/**",
+        "studio/src/**"
+      ],
+      "rules": {
+        "names/verb-first": "error",
+        "names/no-of-for": "error",
+        "names/unique-export": "error",
+        "names/retired-word": "warn"
       }
     }
   ],
