@@ -1,15 +1,15 @@
-import { studioRun, unstamped, type Event, type Issue } from './event.ts';
+import { makeStudioRunUrl, removeRunLink, type Event, type Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { Trace } from './trace.ts';
-import { failure, type Run, type Seen } from './workflow.ts';
+import { formatFailedTryFeedback, type Run, type Seen } from './workflow.ts';
 
 /** A run's issue and the pull request on its branch, each with its timeline. */
-export type Issues = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
+export type IssueWithPull = { issue: Issue & { events: Event[] }; pull?: Issue & { events: Event[] } };
 
 const cap = 20_000;
 
 /** One event as a line of a timeline: who did what, and what they said. */
-export const line = (m: Event): string => {
+export const formatEventLine = (m: Event): string => {
   const c = m.comment;
   const said = c ? `${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ''}, id ${c.id}` : ''}: ${c.body}` : '';
   const who = `@${m.actor}`;
@@ -35,14 +35,14 @@ export const line = (m: Event): string => {
 };
 
 /** Both timelines merged by time, each entry marked with its number when there are two. */
-const timeline = (t: Issues, keep: (m: Event) => boolean) =>
+const timeline = (t: IssueWithPull, keep: (m: Event) => boolean) =>
   [t.issue, ...(t.pull ? [t.pull] : [])]
     .flatMap(issue => issue.events.filter(keep))
     .sort((a, b) => a.at.localeCompare(b.at))
-    .map(m => (t.pull ? `#${m.issue} ${line(m)}` : line(m)));
+    .map(m => (t.pull ? `#${m.issue} ${formatEventLine(m)}` : formatEventLine(m)));
 
 /** The issue and its pull request as markdown: bodies, then one merged timeline. Older entries shrink to one line past a size cap. */
-export function context(t: Issues): string {
+export function context(t: IssueWithPull): string {
   const pull = t.pull;
   const heads = [
     `## #${t.issue.number} ${t.issue.title}\n\n${t.issue.body}`,
@@ -67,7 +67,7 @@ const thread = (m: Event) => m.comment?.under ?? (m.comment?.path !== undefined 
  * Only what came after `seen`: what people said and pushed, checks, and the base moving. Empty when nothing did. A
  * review comment a bot already answered in its thread is left out.
  */
-export function news(t: Issues, seen: Seen): { text: string; seen: Seen } {
+export function news(t: IssueWithPull, seen: Seen): { text: string; seen: Seen } {
   const pull = (t.pull ?? t.issue).pull;
   const moved = pull?.baseSha !== undefined && seen.base !== undefined && pull.baseSha !== seen.base;
   const events = [t.issue, t.pull].flatMap(x => x?.events ?? []);
@@ -102,7 +102,7 @@ export const answerWith = 'Answer with <code>/agent</code> and your reply, or <c
  * The labels and status comment for a run, as proposals; only what differs from the issue now. The comment holds what
  * a human acts on, so tries, rounds and cost so far never edit it; they show in the studio, linked when `studio` is set.
  */
-export function shown(run: Run, t: Issues, studio?: string): Proposal[] {
+export function proposeStatusUpdates(run: Run, t: IssueWithPull, studio?: string): Proposal[] {
   const label = statuses[run.status];
   const labels = t.issue.labels;
   const stale = labels.filter(l => Object.values(statuses).includes(l) && l !== label);
@@ -124,14 +124,14 @@ export function shown(run: Run, t: Issues, studio?: string): Proposal[] {
       stopped: `Stopped at ${run.step}: ${run.reason ?? 'no reason given'}`,
     }[run.status],
     pull && `Pull request: ${pull.url}`,
-    studio && `[Progress in the studio](${studioRun(studio, run.id)})`,
+    studio && `[Progress in the studio](${makeStudioRunUrl(studio, run.id)})`,
     failing.length > 0 && `Failing checks: ${failing.join(', ')}`,
     notes.length > 0 && footer(...notes),
   ]
     .filter(Boolean)
     .join('\n\n');
   const now = run.comment && t.issue.events.find(m => m.comment?.id === run.comment)?.comment?.body;
-  const same = now !== undefined && unstamped(now) === body;
+  const same = now !== undefined && removeRunLink(now) === body;
   return [
     ...(labels.includes(label) && stale.length === 0
       ? []
@@ -185,7 +185,15 @@ const entry = (t: Trace): string | undefined => {
   if ('outcome' in t) {
     const o = t.outcome;
     const why =
-      o.kind === 'failed' ? failure(o) : 'why' in o ? o.why : 'question' in o ? o.question : 'text' in o ? o.text : '';
+      o.kind === 'failed'
+        ? formatFailedTryFeedback(o)
+        : 'why' in o
+          ? o.why
+          : 'question' in o
+            ? o.question
+            : 'text' in o
+              ? o.text
+              : '';
     return `outcome ${o.kind}${why ? `: ${clip(why, 300)}` : ''} -> ${t.run.step} ${t.run.status}`;
   }
   if (!('event' in t)) return;

@@ -11,17 +11,28 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
-import { docker, envVersion, held, isPidRunning, live, lowerOf, state, sweep, unlogged, used } from './env.ts';
+import {
+  runDockerCli,
+  envVersion,
+  held,
+  isPidRunning,
+  isOwnerRunning,
+  makeSetupVolumeName,
+  readStateDir,
+  removeOrphanedVolumes,
+  unlogged,
+  used,
+} from './env.ts';
 
-/** What a cache item is: an Env image with its dependency volume, a dependency volume no image uses, or a host build dir. */
+/** What a cache item is: a sandbox setup image with its dependency volume, a dependency volume no image uses, or a host build dir. */
 type Kind = 'env' | 'lower' | 'tree';
 
 /**
  * One deletable cache thing. `refs` are what removing it names: image tags, volume names or one host path. `bytes` are
  * what removing it frees, `used` its last use in ms, `held` why it must stay now, `always` that it goes whatever the
- * cap, and `gone` why an Env can never be reused.
+ * cap, and `gone` why a sandbox setup can never be reused.
  */
-export type Item = {
+export type DiskCacheEntry = {
   kind: Kind;
   refs: string[];
   bytes: number;
@@ -32,16 +43,16 @@ export type Item = {
 };
 
 /** Bytes of a size like `60g`, `1.2GB` or `512MB`, in powers of 1000 as docker prints them. */
-export const bytes = (size: string) => {
+export const parseByteSize = (size: string) => {
   const m = /^([\d.]+)\s*([kmgt]?)b?$/i.exec(size.trim());
   if (!m) throw new Error(`not a size: ${size}`);
   return Number(m[1]) * 1000 ** ' kmgt'.indexOf(m[2]!.toLowerCase() || ' ');
 };
 
-const cap = () => bytes(process.env.AGENTGRAPH_ENV_CAP || '60g');
+const cap = () => parseByteSize(process.env.AGENTGRAPH_ENV_CAP || '60g');
 const lines = (out: string) => out.split('\n').filter(Boolean);
-const ask = (args: string[], timeout?: number) => docker(args, timeout).catch(() => '');
-const pins = () => join(state(), 'pins');
+const ask = (args: string[], timeout?: number) => runDockerCli(args, timeout).catch(() => '');
+const pins = () => join(readStateDir(), 'pins');
 
 /** Holds every cache item one of the `match` globs names, for `days`. */
 export const pin = (name: string, match: string[], days: number) => {
@@ -84,7 +95,7 @@ const skipped = new Set(['data', 'forge', 'hub', 'engine', 'cases', 'done', 'log
  * `root`. Records, run data, hidden dirs (attic, result cache, git) and a bench's engine, cases and logs are never
  * entered.
  */
-export const trees = (root: string, depth = 5): string[] => {
+export const findBuildDirs = (root: string, depth = 5): string[] => {
   let entries: Dirent[] = [];
   try {
     entries = readdirSync(root, { withFileTypes: true });
@@ -98,7 +109,7 @@ export const trees = (root: string, depth = 5): string[] => {
       const at = join(root, e.name);
       if (e.name === 'tree') return here.has('case.json') ? [at] : [];
       if (e.name === 'target-shared') return existsSync(join(at, 'CACHEDIR.TAG')) ? [at] : [];
-      return depth > 1 ? trees(at, depth - 1) : [];
+      return depth > 1 ? findBuildDirs(at, depth - 1) : [];
     });
 };
 
@@ -116,7 +127,7 @@ const du = (path: string) =>
 const usage = async () => {
   const size = (s = '') => {
     try {
-      return bytes(s);
+      return parseByteSize(s);
     } catch {
       return 0;
     }
@@ -144,7 +155,7 @@ const labelsOf = (text = '') =>
  * Every cache item agentgraph left in docker, and the host build dirs under `roots`. Only our names count; compose
  * objects are data and never appear. Volumes without a recorded size count 0 bytes unless `measure`.
  */
-export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<Item[]> => {
+export const inventory = async (o: { roots?: string[]; measure?: boolean } = {}): Promise<DiskCacheEntry[]> => {
   const df = usage();
   const tagsOf = new Map<string, string[]>();
   const others = new Set<string>();
@@ -177,10 +188,13 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
     .filter(v => !isData(v.labels));
   const overlaid = (key: string) =>
     vols.some(
-      v => v.labels['agentgraph.lower'] === key && v.labels['agentgraph.layer'] && live(v.labels['agentgraph.layer'])
+      v =>
+        v.labels['agentgraph.lower'] === key &&
+        v.labels['agentgraph.layer'] &&
+        isOwnerRunning(v.labels['agentgraph.layer'])
     );
   const names = new Set(vols.map(v => v.name));
-  const items: Item[] = [];
+  const items: DiskCacheEntry[] = [];
   const keys = new Set<string>();
   const inspected = tagsOf.size
     ? lines(
@@ -205,7 +219,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
     keys.add(key);
     items.push({
       kind: 'env',
-      refs: [...tags, ...(names.has(lowerOf(key)) ? [lowerOf(key)] : [])],
+      refs: [...tags, ...(names.has(makeSetupVolumeName(key)) ? [makeSetupVolumeName(key)] : [])],
       bytes: unique + (Number(labels['agentgraph.lowerkb']) || 0) * 1024,
       used: stamp,
       ...(why && { always: true, gone: why }),
@@ -217,7 +231,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
   const measured = o.measure ? (await df).volumes : new Map<string, number>();
   for (const v of vols) {
     const key = v.name.slice('agentgraph-lower-'.length);
-    if (v.name !== lowerOf(key) || keys.has(key)) continue;
+    if (v.name !== makeSetupVolumeName(key) || keys.has(key)) continue;
     items.push({
       kind: 'lower',
       refs: [v.name],
@@ -227,7 +241,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       ...(mounted.has(v.name) ? { held: 'container' } : overlaid(key) && { held: 'live checkout' }),
     });
   }
-  for (const path of (o.roots ?? []).flatMap(root => trees(root))) {
+  for (const path of (o.roots ?? []).flatMap(root => findBuildDirs(root))) {
     const score = basename(path) === 'tree';
     items.push({
       kind: 'tree',
@@ -250,7 +264,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
  * `limit` or free space is under `floor`.
  * @internal
  */
-export const plan = (items: Item[], o: { limit: number; free: number; floor: number }) => {
+export const pickCacheRemovals = (items: DiskCacheEntry[], o: { limit: number; free: number; floor: number }) => {
   const open = items.filter(i => !i.held);
   const chosen = open.filter(i => i.always);
   let total = items.filter(i => !i.always).reduce((n, i) => n + i.bytes, 0);
@@ -265,10 +279,10 @@ export const plan = (items: Item[], o: { limit: number; free: number; floor: num
   return chosen;
 };
 
-const remove = async (i: Item) => {
+const remove = async (i: DiskCacheEntry) => {
   if (i.kind === 'tree') return !busy(i.refs[0]!) && (rmSync(i.refs[0]!, { recursive: true, force: true }), true);
   const ok = (args: string[]) =>
-    docker(args).then(
+    runDockerCli(args).then(
       () => true,
       () => false
     );
@@ -286,8 +300,8 @@ export const collect = async (
   o: { limit?: number; dry?: boolean; roots?: string[]; measure?: boolean; free?: number; floor?: number } = {}
 ) => {
   const items = await inventory(o);
-  const removed: Item[] = [];
-  for (const i of plan(items, { limit: o.limit ?? cap(), free: o.free ?? Infinity, floor: o.floor ?? 0 }))
+  const removed: DiskCacheEntry[] = [];
+  for (const i of pickCacheRemovals(items, { limit: o.limit ?? cap(), free: o.free ?? Infinity, floor: o.floor ?? 0 }))
     if (o.dry || (await remove(i))) removed.push(i);
   return { removed, items };
 };
@@ -302,7 +316,7 @@ const dockerFree = (image: string, volume: string) => {
   const key = `${image} ${volume}`;
   const hit = inDocker.get(key);
   if (hit && Date.now() - hit.at < 60_000) return hit.free;
-  const free = docker(
+  const free = runDockerCli(
     [
       'run',
       ...unlogged,
@@ -341,7 +355,7 @@ const freeOf = async ({ dir, image, volume }: Disk) => {
 
 const gb = (b: number) => (b / 1e9).toFixed(1);
 
-const reasonOf = (free: number, need: number, kept: Item[]) => {
+const reasonOf = (free: number, need: number, kept: DiskCacheEntry[]) => {
   const by = new Map<string, number>();
   for (const i of kept) by.set(i.held!, (by.get(i.held!) ?? 0) + i.bytes);
   const pinned = [...by.keys()].filter(r => r.startsWith('pin ')).map(r => r.slice(4));
@@ -359,8 +373,8 @@ const reasonOf = (free: number, need: number, kept: Item[]) => {
  * @internal
  */
 export class DiskLow extends Error {
-  readonly held: Item[];
-  constructor(free: number, need: number, held: Item[]) {
+  readonly held: DiskCacheEntry[];
+  constructor(free: number, need: number, held: DiskCacheEntry[]) {
     super(reasonOf(free, need, held));
     this.held = held;
   }
@@ -371,10 +385,10 @@ export class DiskLow extends Error {
  * collects cache, also under `AGENTGRAPH_GC_ROOTS`, then throws `DiskLow` if that was not enough. It never stops a
  * running container.
  */
-export const room = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
+export const ensureFreeDisk = async (disk: Disk, min = Number(process.env.AGENTGRAPH_MIN_FREE_GB || 40)) => {
   if ((await freeOf(disk)) >= min * 1e9) return;
   inDocker.clear();
-  await sweep(60_000);
+  await removeOrphanedVolumes(60_000);
   const roots = (process.env.AGENTGRAPH_GC_ROOTS ?? '').split(':').filter(Boolean);
   const { items, removed } = await collect({ roots, free: await freeOf(disk), floor: min * 1e9 });
   inDocker.clear();

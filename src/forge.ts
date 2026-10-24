@@ -2,34 +2,42 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
-import { studioRun, unstamped, type Applied, type Comment, type Event, type Issue, type Mark } from './event.ts';
+import {
+  makeStudioRunUrl,
+  removeRunLink,
+  type Applied,
+  type Comment,
+  type Event,
+  type Issue,
+  type RunLink,
+} from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout } from './sandbox.ts';
-import { hostGit, mergeOf, published } from './git.ts';
+import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
 
 /** The mark of the run the current fiber writes for; bodies posted under it are stamped with it. */
-export const provenance = FiberRef.unsafeMake<Mark | undefined>(undefined);
+export const currentRunLinkRef = FiberRef.unsafeMake<RunLink | undefined>(undefined);
 
 /** The studio page of a run, opened at the trace line written at or after `at`. */
-const runLink = (studio: string, run: string, at: string) => `${studioRun(studio, run)}?at=${at}`;
+const makeStudioRunUrlAt = (studio: string, run: string, at: string) => `${makeStudioRunUrl(studio, run)}?at=${at}`;
 
 /**
  * A body ending in a hidden marker of where it came from, after a ⁂ that links to it when the studio has a URL. Any
  * marker or link already in the body is dropped first.
  */
-const stamp = (body: string, mark: Mark, at: string, studio = '') => {
+const stamp = (body: string, mark: RunLink, at: string, studio = '') => {
   const fields = Object.entries({ ...mark, at })
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}=${v.replace(/[^\w.:-]/g, '')}`);
-  const link = studio ? `[⁂](${runLink(studio, mark.run, at)}) ` : '';
-  return `${unstamped(body)}\n\n${link}<!-- agentgraph ${fields.join(' ')} -->`;
+  const link = studio ? `[⁂](${makeStudioRunUrlAt(studio, mark.run, at)}) ` : '';
+  return `${removeRunLink(body)}\n\n${link}<!-- agentgraph ${fields.join(' ')} -->`;
 };
 
 /** The proposal as posted: its body stamped with `provenance`, and when, if the fiber writes for a run; else unstamped. */
-export const marked = (p: Proposal, studio?: string) =>
-  Effect.map(FiberRef.get(provenance), (mark): { posted: Proposal; at?: string } => {
+export const makePostableProposal = (p: Proposal, studio?: string) =>
+  Effect.map(FiberRef.get(currentRunLinkRef), (mark): { posted: Proposal; at?: string } => {
     if (!('body' in p)) return { posted: p };
-    if (!mark) return { posted: { ...p, body: unstamped(p.body) } };
+    if (!mark) return { posted: { ...p, body: removeRunLink(p.body) } };
     const at = new Date().toISOString();
     return { posted: { ...p, body: stamp(p.body, mark, at, studio) }, at };
   });
@@ -89,8 +97,9 @@ export const withheld = (author: string, what = 'comment', why = 'not a collabor
   `(${what} by @${author} withheld: ${why})`;
 
 /** The branches a push may move, the files it may change at most, and the largest file it may write. */
-export const pushable = { prefix: 'agentgraph/', old: 'bothub/', files: 200, bytes: 1 << 20 };
-export const allowed = (branch: string) => branch.startsWith(pushable.prefix) || branch.startsWith(pushable.old);
+export const pushLimits = { prefix: 'agentgraph/', old: 'bothub/', files: 200, bytes: 1 << 20 };
+export const isAgentBranch = (branch: string) =>
+  branch.startsWith(pushLimits.prefix) || branch.startsWith(pushLimits.old);
 
 /** Why a changed path may not be pushed, if it may not: links, submodules, workflows and git's own files. */
 export const unpushable = (path: string, modes: string[]) =>
@@ -136,13 +145,13 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
         ).then(out => out.toString('utf8').trim());
       const problemOf = async (work: Checkout, from: string, to: string) => {
         const fields = (await git(work, 'diff-tree', '-r', '-z', '--no-renames', from, to)).split('\0');
-        if ((fields.length - 1) / 2 > pushable.files) return `at most ${pushable.files} files can be pushed`;
+        if ((fields.length - 1) / 2 > pushLimits.files) return `at most ${pushLimits.files} files can be pushed`;
         for (let i = 0; i + 1 < fields.length; i += 2) {
           const [oldMode, newMode, , sha] = fields[i]!.slice(1).split(' ');
           const problem = unpushable(fields[i + 1]!, [oldMode!, newMode!]);
           if (problem) return problem;
-          if (newMode !== '000000' && Number(await git(work, 'cat-file', '-s', sha!)) > pushable.bytes)
-            return `${fields[i + 1]} is over ${pushable.bytes} bytes`;
+          if (newMode !== '000000' && Number(await git(work, 'cat-file', '-s', sha!)) > pushLimits.bytes)
+            return `${fields[i + 1]} is over ${pushLimits.bytes} bytes`;
         }
         return undefined;
       };
@@ -255,7 +264,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             return { proposal: p, ok: true };
           }
           case 'push': {
-            if (!allowed(p.branch)) return no(`a push goes to a ${pushable.prefix} branch`);
+            if (!isAgentBranch(p.branch)) return no(`a push goes to a ${pushLimits.prefix} branch`);
             if (!work) return no('a push needs a worktree');
             const last = pushed.get(work.dir);
             const was = await tip(work, p.branch).catch(() => undefined);
@@ -274,12 +283,12 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
                 : await git(work, 'commit-tree', tree, ...parents.flatMap(c => ['-p', c]), '-m', p.message);
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was ?? ''}`;
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
-            await Effect.runPromise(published(work, tree));
+            await Effect.runPromise(commitPublishedTree(work, tree));
             pushed.set(work.dir, head);
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'rebase': {
-            if (!allowed(p.branch)) return no(`a rebase goes to a ${pushable.prefix} branch`);
+            if (!isAgentBranch(p.branch)) return no(`a rebase goes to a ${pushLimits.prefix} branch`);
             if (!work) return no('a rebase needs a worktree');
             const was = await tip(work, p.branch);
             if (p.head && was !== p.onto) return no(`${p.branch} moved to ${was}`, true);
@@ -297,7 +306,7 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               .split('\n')
               .filter(Boolean)) {
               const { tree: next, files } = await Effect.runPromise(
-                mergeOf(work, tree, `${commit}^{tree}`, `${commit}~1^{tree}`)
+                mergeTreeOnto(work, tree, `${commit}^{tree}`, `${commit}~1^{tree}`)
               );
               if (files.length > 0) {
                 if (p.head) await git(work, 'read-tree', '-u', '--reset', next);
@@ -321,12 +330,12 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const lease = `--force-with-lease=refs/heads/${p.branch}:${was}`;
             await git(work, 'push', '-q', lease, 'origin', `${head}:refs/heads/${p.branch}`);
             await git(work, 'read-tree', '-u', '--reset', tree);
-            await Effect.runPromise(published(work, tree));
+            await Effect.runPromise(commitPublishedTree(work, tree));
             pushed.set(work.dir, head);
             return { proposal: p, ok: true, url: `${p.branch}@${await moved(work, p.branch, head)}` };
           }
           case 'pull_request': {
-            if (!allowed(p.branch)) return no(`a pull request goes from a ${pushable.prefix} branch`);
+            if (!isAgentBranch(p.branch)) return no(`a pull request goes from a ${pushLimits.prefix} branch`);
             for (const k of await numbers()) {
               const pr = await read(k);
               if (pr?.pull?.branch === p.branch && pr.state === 'open') return { proposal: p, ok: true, url: pr.url };

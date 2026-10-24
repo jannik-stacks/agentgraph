@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fileForge } from '../src/forge.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { instanceAt } from '../src/instance.ts';
-import { sweep, tick, type Instruction, type Services } from '../src/engine.ts';
+import { scanIssuesAndRunningRuns, tick, type Instruction, type Services } from '../src/engine.ts';
 import { loadHub } from '../src/hub.ts';
 import { fileStore, Store } from '../src/store.ts';
 import { start as main } from '../src/main.ts';
@@ -432,7 +432,7 @@ describe('bin/forge.ts with run --forge', () => {
       )
     );
     expect(await run(tick(hub, undefined, false, 30_000))).toEqual([]);
-    const recovered = await run(sweep(hub));
+    const recovered = await run(scanIssuesAndRunningRuns(hub));
     expect(recovered.map(r => [r.workflow, r.status])).toEqual([['router', 'done']]);
     expect(w.forge('show', '2')).toContain('Here is why.');
   }, 30_000);

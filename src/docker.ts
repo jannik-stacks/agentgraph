@@ -8,18 +8,18 @@ import type { Hub } from './hub.ts';
 import {
   dependencyDirs,
   discard,
-  envOf,
-  inputsOf,
+  readSandboxSetup,
+  readSetupInputKey,
   type Layer as Deps,
   layer,
-  mark,
+  writeCheckoutOwner,
   reap,
-  sweep,
-  caches,
+  removeOrphanedVolumes,
+  packageManagerCacheEnv,
   unlogged,
   written,
 } from './env.ts';
-import { room } from './disk.ts';
+import { ensureFreeDisk } from './disk.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
 import { hostGit } from './git.ts';
 
@@ -62,8 +62,8 @@ const user = () => {
   return id;
 };
 
-/** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its hub and Env. */
-export type Made = { mounts: Mount[]; layers?: Deps[] } & Pick<Hub, 'image' | 'network'>;
+/** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its hub and sandbox setup. */
+export type CheckoutContainerSpec = { mounts: Mount[]; layers?: Deps[] } & Pick<Hub, 'image' | 'network'>;
 
 const volume = (name: string, dst: string, nocopy = false, readonly = false) => {
   if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
@@ -74,7 +74,9 @@ const volume = (name: string, dst: string, nocopy = false, readonly = false) => 
 };
 
 /** Where package managers keep downloads when the shared cache is read-only. */
-const scratch = Object.fromEntries(Object.entries(caches).map(([k, v]) => [k, v.replace(/^\/cache/, '/tmp')]));
+const scratch = Object.fromEntries(
+  Object.entries(packageManagerCacheEnv).map(([k, v]) => [k, v.replace(/^\/cache/, '/tmp')])
+);
 
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
@@ -86,7 +88,7 @@ export const dockerArgs = (
   c: Command,
   image: string,
   name: string,
-  { mounts, layers = [], network = 'egress' }: Made,
+  { mounts, layers = [], network = 'egress' }: CheckoutContainerSpec,
   cache = '',
   size = limits
 ) => [
@@ -130,7 +132,7 @@ export const dockerArgs = (
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'safe.directory',
     GIT_CONFIG_VALUE_0: '*',
-    ...(cache && (layers.some(l => l.dst === inside.cache) ? caches : scratch)),
+    ...(cache && (layers.some(l => l.dst === inside.cache) ? packageManagerCacheEnv : scratch)),
     ...(c.network === 'proxy' &&
       network === 'egress' && {
         HTTPS_PROXY: egress,
@@ -205,9 +207,9 @@ const timeout = (c: Command) => () =>
 /**
  * A sandbox: one container per command over linked worktrees of a read-only mirror of `origin` under `data`. With
  * `token`, the mirror's clone and fetch authenticate to github.com; containers never see it. Every container mounts
- * the volume `cache`, `agentgraph-cache` by default. A checkout for a hub starts from the hub's Env at its base, built once
+ * the volume `cache`, `agentgraph-cache` by default. A checkout for a hub starts from the hub's sandbox setup at its base, built once
  * with the toolchain and setup, and holds its dependency directories in volumes, never in the checkout. An empty cache
- * name turns the volume and Envs off.
+ * name turns the volume and sandbox setups off.
  */
 export const docker = (o: {
   data: string;
@@ -223,12 +225,12 @@ export const docker = (o: {
       const cache = o.cache ?? 'agentgraph-cache';
       const mirror = join(o.data, 'mirror.git');
       const lock = yield* Effect.makeSemaphore(1);
-      if (cache) yield* Effect.promise(() => sweep(30_000).catch(() => 0));
+      if (cache) yield* Effect.promise(() => removeOrphanedVolumes(30_000).catch(() => 0));
       reap(o.data);
       const disk = { dir: o.data, ...(cache && { image, volume: cache }) };
-      const roomy = Effect.tryPromise({ try: () => room(disk), catch: e => infra((e as Error).message) });
+      const roomy = Effect.tryPromise({ try: () => ensureFreeDisk(disk), catch: e => infra((e as Error).message) });
       /** Each live checkout as the host made it. */
-      const made = new Map<string, Made>();
+      const made = new Map<string, CheckoutContainerSpec>();
       const inMirror = (args: string[], env: Record<string, string> = {}) =>
         Effect.map(hostGit({ GIT_DIR: mirror, ...env }, args), out => out.toString('utf8').trim());
       const ready = yield* Effect.cachedFunction((network: string) =>
@@ -338,7 +340,7 @@ export const docker = (o: {
             hub && cache
               ? yield* Effect.tryPromise({
                   try: () =>
-                    envOf({
+                    readSandboxSetup({
                       repo: hub.repo ?? 'repo',
                       image: hub.image ?? image,
                       git: mirror,
@@ -352,7 +354,7 @@ export const docker = (o: {
               : undefined;
           const match = env
             ? yield* Effect.promise(() =>
-                inputsOf(mirror, rev, env.mode).then(
+                readSetupInputKey(mirror, rev, env.mode).then(
                   i => i === env.inputs,
                   () => false
                 )
@@ -402,7 +404,7 @@ export const docker = (o: {
           let admin = '';
           let layers: Deps[] = [];
           const add = Effect.gen(function* () {
-            yield* Effect.try({ try: () => mark(dir), catch: e => infra((e as Error).message) });
+            yield* Effect.try({ try: () => writeCheckoutOwner(dir), catch: e => infra((e as Error).message) });
             yield* lock.withPermits(1)(inMirror(['worktree', 'add', '--detach', dir, rev]));
             admin = yield* Effect.tryPromise({
               try: () => worktreeAdmin(mirror, dir),

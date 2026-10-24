@@ -4,13 +4,20 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
 import { ConfigProvider, Effect, Layer } from 'effect';
-import { instruct, settle, sweep, tick, type Instruction, type Services } from './engine.ts';
+import {
+  instruct,
+  issueDebounceMs,
+  scanIssuesAndRunningRuns,
+  tick,
+  type Instruction,
+  type Services,
+} from './engine.ts';
 import { loadHub, type Hub } from './hub.ts';
-import { hubAt, layers, settings, type Settings } from './services.ts';
+import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
 /** The variables of an env file, with the key file it names read in as `AGENTGRAPH_APP_KEY`. */
-export const appEnv = async (file: string | undefined): Promise<Record<string, string>> => {
+export const readAppEnvWithKey = async (file: string | undefined): Promise<Record<string, string>> => {
   if (!file) return {};
   const vars = parseEnv(await readFile(file, 'utf8')) as Record<string, string>;
   const keyFile = vars.AGENTGRAPH_APP_KEY_FILE?.replace(/^~(?=\/|$)/, homedir());
@@ -42,7 +49,7 @@ const warnTemporary = (data: string) =>
 
 const configured = (extra: Record<string, string>) =>
   Effect.map(
-    Effect.promise(() => appEnv(process.env.AGENTGRAPH_APP_ENV)),
+    Effect.promise(() => readAppEnvWithKey(process.env.AGENTGRAPH_APP_ENV)),
     app =>
       ConfigProvider.fromMap(new Map(Object.entries({ ...app, ...extra }))).pipe(
         ConfigProvider.orElse(() => ConfigProvider.fromEnv())
@@ -56,7 +63,7 @@ const configured = (extra: Record<string, string>) =>
  */
 export const start = (
   one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
-  services: (s: Settings) => Layer.Layer<Services> = layers
+  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
     Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
@@ -70,7 +77,11 @@ export const start = (
         });
         yield* warnTemporary(one.data);
         return yield* provided(
-          one.instruction ? instruct(hub, one.instruction) : one.issue === 'all' ? sweep(hub) : tick(hub, one.issue)
+          one.instruction
+            ? instruct(hub, one.instruction)
+            : one.issue === 'all'
+              ? scanIssuesAndRunningRuns(hub)
+              : tick(hub, one.issue)
         ).pipe(Effect.withConfigProvider(provider));
       })
     : Effect.gen(function* () {
@@ -84,11 +95,11 @@ export const start = (
               Effect.scoped,
               Effect.catchAll(e => Effect.logError(e))
             );
-          yield* look(hub => sweep(hub, settle));
+          yield* look(hub => scanIssuesAndRunningRuns(hub, issueDebounceMs));
           return yield* Effect.forever(
             Effect.zipRight(
               Effect.sleep(`${s.every} minutes`),
-              look(hub => sweep(hub, settle))
+              look(hub => scanIssuesAndRunningRuns(hub, issueDebounceMs))
             )
           );
         });

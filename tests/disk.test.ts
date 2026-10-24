@@ -1,15 +1,31 @@
 import { mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { collect, DiskLow, inventory, type Item, pin, plan, room, trees, unpin } from '../src/disk.ts';
+import {
+  collect,
+  DiskLow,
+  inventory,
+  type DiskCacheEntry,
+  pin,
+  pickCacheRemovals,
+  ensureFreeDisk,
+  findBuildDirs,
+  unpin,
+} from '../src/disk.ts';
 import { envVersion } from '../src/env.ts';
 import { faked } from './fixtures.ts';
 import { tmp, write } from './kit.ts';
 
 const GB = 1e9;
-const item = (id: string, more: Partial<Item> = {}): Item => ({ kind: 'env', refs: [id], bytes: GB, used: 0, ...more });
+const item = (id: string, more: Partial<DiskCacheEntry> = {}): DiskCacheEntry => ({
+  kind: 'env',
+  refs: [id],
+  bytes: GB,
+  used: 0,
+  ...more,
+});
 
-describe('plan', () => {
+describe('pickCacheRemovals', () => {
   it('takes orphans always, then the oldest unheld items, until under the limit', () => {
     const items = [
       item('a:new', { used: 3 }),
@@ -18,14 +34,14 @@ describe('plan', () => {
       item('agentgraph-lower-gone', { kind: 'lower', always: true }),
       item('busy-tree', { kind: 'tree', always: true, held: 'busy' }),
     ];
-    const ids = (o: Parameters<typeof plan>[1]) => plan(items, o).map(i => i.refs[0]);
+    const ids = (o: Parameters<typeof pickCacheRemovals>[1]) => pickCacheRemovals(items, o).map(i => i.refs[0]);
     expect(ids({ limit: 10 * GB, free: Infinity, floor: 0 })).toEqual(['agentgraph-lower-gone']);
     expect(ids({ limit: 2.5 * GB, free: Infinity, floor: 0 })).toEqual(['agentgraph-lower-gone', 'a:old']);
     expect(ids({ limit: 10 * GB, free: 1 * GB, floor: 3.5 * GB })).toEqual(['agentgraph-lower-gone', 'a:old', 'a:new']);
   });
 });
 
-/** A docker holding two current Envs, an unlabeled and a compose image, an orphan lower, and volumes that are data. */
+/** A docker holding two current sandbox setups, an unlabeled and a compose image, an orphan lower, and volumes that are data. */
 const box = {
   'image ls': [
     'sha256:e1 agentgraph-env/r:k1',
@@ -107,7 +123,7 @@ describe('inventory', () => {
     );
   });
 
-  it('takes an Env of an old family version or a replaced base image whatever the cap, unless held', async () => {
+  it('takes a sandbox setup of an old family version or a replaced base image whatever the cap, unless held', async () => {
     const env = (id: string, labels: string, layers: string) => `sha256:${id} 2026-10-01T00:00:00Z ${layers} ${labels}`;
     await faked(
       {
@@ -187,7 +203,7 @@ describe('collect', () => {
   });
 });
 
-describe('trees', () => {
+describe('findBuildDirs', () => {
   it('finds score trees beside a case and tagged target dirs, never inside records', () => {
     const root = tmp('runs');
     write(root, { 'a/case.json': '' });
@@ -199,7 +215,7 @@ describe('trees', () => {
     mkdirSync(join(root, '.attic/a/tree'));
     write(root, { 't/target-shared/CACHEDIR.TAG': '' });
     mkdirSync(join(root, 'u/target-shared'), { recursive: true });
-    expect(trees(root).sort()).toEqual(['a/tree', 't/target-shared', 'x/y/z/tree'].map(p => join(root, p)));
+    expect(findBuildDirs(root).sort()).toEqual(['a/tree', 't/target-shared', 'x/y/z/tree'].map(p => join(root, p)));
   });
 
   it('never enters the results, cache, engine, cases or logs of a bench dir', () => {
@@ -212,16 +228,16 @@ describe('trees', () => {
       write(root, { [`${d}/case.json`]: '' });
       mkdirSync(join(root, d, 'tree'));
     }
-    expect(trees(root)).toEqual([join(root, run, 'tree')]);
+    expect(findBuildDirs(root)).toEqual([join(root, run, 'tree')]);
   });
 });
 
-describe('room', () => {
+describe('ensureFreeDisk', () => {
   it('collects, then refuses with the held cache and the command that frees it', async () => {
     await faked(box, async () => {
-      await expect(room({ dir: tmp('disk') }, 0)).resolves.toBeUndefined();
+      await expect(ensureFreeDisk({ dir: tmp('disk') }, 0)).resolves.toBeUndefined();
       pin('luna', ['agentgraph-env/*'], 14);
-      const low = await room({ dir: tmp('disk') }, 1e9).catch((e: unknown) => e);
+      const low = await ensureFreeDisk({ dir: tmp('disk') }, 1e9).catch((e: unknown) => e);
       expect(low).toBeInstanceOf(DiskLow);
       expect(String((low as Error).message)).toMatch(/^disk low: [\d.]+ GB free, need 1000000000 GB/);
       expect((low as Error).message).toContain('pin luna');
@@ -231,7 +247,7 @@ describe('room', () => {
 });
 
 describe('last use', () => {
-  it('orders Envs by their last-use stamp', async () => {
+  it('orders sandbox setups by their last-use stamp', async () => {
     await faked(box, async () => {
       const envs = join(process.env.AGENTGRAPH_STATE!, 'envs');
       mkdirSync(envs, { recursive: true });

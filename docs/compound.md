@@ -36,4 +36,4 @@ agent: auditor
 Did the implementor do what its reply says it did?
 ```
 
-Steps can read traces too. The studio marks both with "reads traces" and draws dashed edges from human steps to feedback workflows. <!-- code: src/graph.ts#graphOf -->
+Steps can read traces too. The studio marks both with "reads traces" and draws dashed edges from human steps to feedback workflows. <!-- code: src/graph.ts#makeWorkflowGraph -->

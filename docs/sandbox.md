@@ -25,7 +25,7 @@ Hub `setup` installs dependencies, for example `npm ci --prefix kit --no-audit -
 
 ## Environments
 
-An environment caches a repo's dependencies so checkouts do not install them again. Its files live in the volume `agentgraph-lower-<key>`, and the image `agentgraph-env/<repo>:<key>` carries its labels. To build one, a container takes the files package managers read from the base commit (lockfiles, manifests and the like), installs [toolchains](#toolchains), runs hub `setup`, and keeps the ignored dependency folders such as `node_modules` and `target`. <!-- code: src/env.ts#envOf src/env.ts#skeletonOf -->
+An environment caches a repo's dependencies so checkouts do not install them again. Its files live in the volume `agentgraph-lower-<key>`, and the image `agentgraph-env/<repo>:<key>` carries its labels. To build one, a container takes the files package managers read from the base commit (lockfiles, manifests and the like), installs [toolchains](#toolchains), runs hub `setup`, and keeps the ignored dependency folders such as `node_modules` and `target`. <!-- code: src/env.ts#readSandboxSetup src/env.ts#readDependencySkeleton -->
 
 The key covers the base image, the toolchain commands, `setup` and those files, so bases that differ only in source share an environment. If setup fails on those files alone, the build retries with the whole base. A setup that reads `$AGENTGRAPH_HUB` runs per checkout instead. A run's trace says which environment each checkout used and how it was built.
 
@@ -45,7 +45,7 @@ node bin/env.ts unpin luna-full
 node bin/env.ts sweep
 ```
 
-A pin holds what its globs name until it expires. `collect` without `--dry-run` removes, and `sweep` removes dependency volumes of dead runners. Collection also runs after each bench case and when disk runs low: below `AGENTGRAPH_MIN_FREE_GB` (40) free in the data directory or Docker's disk, cleanup runs, and if that is not enough, `disk low` names what holds the space and bench work waits. Running containers are never stopped. <!-- code: src/disk.ts#collect src/disk.ts#room -->
+A pin holds what its globs name until it expires. `collect` without `--dry-run` removes, and `sweep` removes dependency volumes of dead runners. Collection also runs after each bench case and when disk runs low: below `AGENTGRAPH_MIN_FREE_GB` (40) free in the data directory or Docker's disk, cleanup runs, and if that is not enough, `disk low` names what holds the space and bench work waits. Running containers are never stopped. <!-- code: src/disk.ts#collect src/disk.ts#ensureFreeDisk -->
 
 ### Toolchains
 
@@ -57,7 +57,7 @@ A root `rust-toolchain` or `rust-toolchain.toml` pins Rust, and `Cargo.toml` alo
 toolchain: rustup target add wasm32-unknown-unknown && cargo install --locked cargo-nextest
 ```
 
-A failed toolchain install is a runner error with its output. `AGENTGRAPH_CACHE_VOLUME` names another volume, and an empty value turns off the cache and environments. `docker volume rm agentgraph-cache` clears it. <!-- code: src/env.ts#toolchainOf src/env.ts#written src/docker.ts#dockerArgs -->
+A failed toolchain install is a runner error with its output. `AGENTGRAPH_CACHE_VOLUME` names another volume, and an empty value turns off the cache and environments. `docker volume rm agentgraph-cache` clears it. <!-- code: src/env.ts#makeToolchainSetupCommands src/env.ts#written src/docker.ts#dockerArgs -->
 
 ## A hub's own image
 

@@ -97,13 +97,13 @@ export const hostGit = (
 const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
 /** Keeps the last published tree as a local commit for saved-work replay. */
-export const published = (work: Checkout, tree: string) =>
+export const commitPublishedTree = (work: Checkout, tree: string) =>
   Effect.map(hostGit(work.git, [...ident, 'commit-tree', tree, '-m', 'Published work']), out => {
     work.published = out.toString('utf8').trim();
   });
 
 /** `head` merged onto `onto` as a tree, conflict markers left in the files that clash, which come back in `files`. */
-export const mergeOf = (work: Checkout, onto: string, head: string, base?: string) =>
+export const mergeTreeOnto = (work: Checkout, onto: string, head: string, base?: string) =>
   Effect.map(
     hostGit(
       work.git,

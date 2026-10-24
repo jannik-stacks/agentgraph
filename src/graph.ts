@@ -47,7 +47,7 @@ const triggerOf = (w: Workflow) =>
     .join(', ');
 
 /** Expands a workflow into the graph the studio lays out, with a run drawn over it when given. `agents` holds what each agent returns and reads. */
-export function graphOf(
+export function makeWorkflowGraph(
   w: Workflow,
   checks: Record<string, Pick<Check, 'mode' | 'agent'>>,
   run?: Run,

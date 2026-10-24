@@ -62,7 +62,7 @@ node bin/traces.mjs "$AGENTGRAPH_DATA" 'issue=pull_request|push' 'triage=label|i
 
 It fails on denied tool calls, started sessions that cost nothing, and finished workflows without any of their listed applied kinds. It also prints how long each run waited before its first session.
 
-## Provenance
+## Run links
 
 Every comment, reply, issue and pull request the bot posts ends with a hidden `<!-- agentgraph run=<id> step=<step> session=<id> at=<time> -->`. With `AGENTGRAPH_STUDIO_URL` set, a `⁂` links to `<studio>/runs/<id>?at=<time>`, and the trace's `applied` line has the same `at`. <!-- code: src/forge.ts#stamp -->
 

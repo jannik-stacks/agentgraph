@@ -1,10 +1,20 @@
 import { createPrivateKey, sign } from 'node:crypto';
 import { Effect, Layer, Redacted, Schedule, Stream } from 'effect';
-import { addressed, allowed, pushable, unpushable, Forge, ForgeError, marked, matches, withheld } from './forge.ts';
+import {
+  addressed,
+  isAgentBranch,
+  pushLimits,
+  unpushable,
+  Forge,
+  ForgeError,
+  makePostableProposal,
+  matches,
+  withheld,
+} from './forge.ts';
 import type { Applied, Comment, Event, Issue } from './event.ts';
 import type { Proposal } from './proposal.ts';
 import type { Checkout } from './sandbox.ts';
-import { hostGit, mergeOf, published } from './git.ts';
+import { hostGit, mergeTreeOnto, commitPublishedTree } from './git.ts';
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type User = { login: string; type?: string } | null | undefined;
@@ -175,15 +185,15 @@ const scopes = {
   merge: { contents: 'write', pull_requests: 'write' },
   repos: { metadata: 'read' },
 } as const;
-type Scope = keyof typeof scopes;
+type TokenScope = keyof typeof scopes;
 
 /** Mints installation tokens for the App, one per scope, reusing a token until a minute before it expires. */
 export const appToken = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch
-): ((scope: Scope) => Effect.Effect<string, ForgeError>) => {
+): ((scope: TokenScope) => Effect.Effect<string, ForgeError>) => {
   const request = requester(fetch);
-  const tokens = new Map<Scope, { value: string; expires: number }>();
+  const tokens = new Map<TokenScope, { value: string; expires: number }>();
   const minting = Effect.unsafeMakeSemaphore(1);
   return scope =>
     minting.withPermits(1)(
@@ -223,7 +233,7 @@ const appSigned = (app: { id: string; key: Redacted.Redacted }) =>
 export const githubForge = (
   app: { repo: string; id: string; key: Redacted.Redacted },
   fetch: Fetch = globalThis.fetch,
-  token: (scope: Scope) => Effect.Effect<string, ForgeError> = appToken(app, fetch),
+  token: (scope: TokenScope) => Effect.Effect<string, ForgeError> = appToken(app, fetch),
   trust?: readonly string[],
   studio?: string
 ): Layer.Layer<Forge> =>
@@ -243,7 +253,7 @@ export const githubForge = (
           )
     );
 
-    const gh = <T>(method: string, path: string, body?: unknown, scope: Scope = 'read', version?: string) =>
+    const gh = <T>(method: string, path: string, body?: unknown, scope: TokenScope = 'read', version?: string) =>
       Effect.flatMap(token(scope), t => request<T>(method, path, t, body, version)).pipe(Effect.map(r => r.data));
 
     const missing = <A, R>(effect: Effect.Effect<A, ForgeError, R>) =>
@@ -494,7 +504,7 @@ export const githubForge = (
             { concurrency: 4 }
           );
 
-          const ours = open.filter(p => p.head.repo?.full_name === app.repo && allowed(p.head.ref));
+          const ours = open.filter(p => p.head.repo?.full_name === app.repo && isAgentBranch(p.head.ref));
           const commits = yield* Effect.forEach(
             ours,
             p =>
@@ -577,7 +587,7 @@ export const githubForge = (
      */
     const push = (work: Checkout, branch: string, message: string, onto?: string, merge?: true) =>
       Effect.gen(function* () {
-        if (!allowed(branch)) return yield* refuse(`a push goes to a ${pushable.prefix} branch`);
+        if (!isAgentBranch(branch)) return yield* refuse(`a push goes to a ${pushLimits.prefix} branch`);
         const ref = yield* refPath(branch);
         const last = pushed.get(work.dir);
         const parent = last?.sha ?? work.head ?? work.base;
@@ -623,7 +633,7 @@ export const githubForge = (
           if (force) yield* rewrite(branch, tip, head);
           else yield* gh('PATCH', `${repo}/git/refs/${ref}`, { sha: head, force }, 'push');
         } else yield* gh('POST', `${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha: head }, 'push');
-        yield* published(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
+        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
         return head;
       });
@@ -642,7 +652,7 @@ export const githubForge = (
      */
     const rebase = (work: Checkout, branch: string, from: string, onto: string, local?: string) =>
       Effect.gen(function* () {
-        if (!allowed(branch)) return yield* refuse(`a rebase goes to a ${pushable.prefix} branch`);
+        if (!isAgentBranch(branch)) return yield* refuse(`a rebase goes to a ${pushLimits.prefix} branch`);
         const ref = yield* refPath(branch);
         const tipOf = Effect.map(
           missing(gh<{ object: { sha: string } }>('GET', `${repo}/git/ref/${ref}`)),
@@ -663,7 +673,7 @@ export const githubForge = (
         let head = onto;
         let tree = yield* gitText(work, ['rev-parse', `${onto}^{tree}`]);
         for (const commit of commits) {
-          const { tree: next, files } = yield* mergeOf(work, tree, `${commit}^{tree}`, `${commit}~1^{tree}`).pipe(
+          const { tree: next, files } = yield* mergeTreeOnto(work, tree, `${commit}^{tree}`, `${commit}~1^{tree}`).pipe(
             Effect.mapError(e => refuse(e.detail ?? e.reason))
           );
           if (files.length > 0) {
@@ -692,7 +702,7 @@ export const githubForge = (
         if ((yield* tipOf) !== tip) return yield* refuse(`${branch} moved while it was rebased`, true);
         yield* rewrite(branch, tip, head);
         yield* git(work, ['read-tree', '-u', '--reset', tree]);
-        yield* published(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
+        yield* commitPublishedTree(work, tree).pipe(Effect.mapError(e => new ForgeError({ message: e.detail })));
         pushed.set(work.dir, { sha: head, tree });
         return head;
       });
@@ -714,12 +724,12 @@ export const githubForge = (
           else if (oldSha === newSha) changes.push({ path, mode: newMode, sha: newSha });
           else {
             const content = yield* git(work, ['cat-file', 'blob', newSha]);
-            if (content.length > pushable.bytes) problems.push(`${path} is over ${pushable.bytes} bytes`);
+            if (content.length > pushLimits.bytes) problems.push(`${path} is over ${pushLimits.bytes} bytes`);
             else changes.push({ path, mode: newMode, sha: newSha, content });
           }
         }
-        if (changes.length + problems.length > pushable.files)
-          problems.push(`${changes.length + problems.length} files changed, at most ${pushable.files} can be pushed`);
+        if (changes.length + problems.length > pushLimits.files)
+          problems.push(`${changes.length + problems.length} files changed, at most ${pushLimits.files} can be pushed`);
         if (problems.length) return yield* refuse(`refused to push: ${problems.join('; ')}`);
         for (const { path, sha, content } of changes) {
           if (!content) continue;
@@ -833,7 +843,8 @@ export const githubForge = (
           }));
         case 'pull_request':
           return Effect.gen(function* () {
-            if (!allowed(p.branch)) return yield* refuse(`a pull request goes from a ${pushable.prefix} branch`);
+            if (!isAgentBranch(p.branch))
+              return yield* refuse(`a pull request goes from a ${pushLimits.prefix} branch`);
             type Made = { number: number; html_url: string };
             const left = [...(held.get(p.branch) ?? [])];
             const note = left.length
@@ -886,7 +897,7 @@ export const githubForge = (
     };
 
     const apply: Forge['Type']['apply'] = (number, proposal, work) =>
-      Effect.flatMap(marked(proposal, studio), ({ posted, at }) =>
+      Effect.flatMap(makePostableProposal(proposal, studio), ({ posted, at }) =>
         Effect.map(act(number, posted, work), (done): Applied => ({ proposal, ok: true, ...done, ...(at && { at }) }))
       ).pipe(
         Effect.catchIf(

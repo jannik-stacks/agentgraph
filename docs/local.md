@@ -61,7 +61,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, also set by `--logs`; see [Check logs](runs.md#check-logs) |
 | `AGENTGRAPH_CACHE_VOLUME` | [Toolchain cache](sandbox.md#toolchains) volume, `agentgraph-cache` |
 | `AGENTGRAPH_IMAGE` | Base image when the hub sets none, `agentgraph-sandbox:local` |
-| `AGENTGRAPH_STUDIO_URL` | Studio address for [provenance links](runs.md#provenance) |
+| `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links) |
 
 Disk and cache limits are in [Environments](sandbox.md#environments).
 

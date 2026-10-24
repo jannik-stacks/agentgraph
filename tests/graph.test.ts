@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { graphOf } from '../src/graph.ts';
+import { makeWorkflowGraph } from '../src/graph.ts';
 import { begin, type Run } from '../src/workflow.ts';
 import { fixture, hubs } from './fixtures.ts';
 
-describe('graphOf', () => {
+describe('makeWorkflowGraph', () => {
   it.each(hubs)(
     'draws every workflow of the %s fixture with one node per step and a next edge between each pair',
     hub => {
       const { workflows, checks } = fixture(hub);
       for (const w of Object.values(workflows)) {
-        const g = graphOf(w, checks);
+        const g = makeWorkflowGraph(w, checks);
         expect(g.nodes.map(n => n.step)).toEqual(w.steps.map(s => s.name));
         expect(g.edges.filter(e => e.kind === 'next')).toHaveLength(w.steps.length - 1);
         expect(g.edges.filter(e => e.kind === 'back')).toHaveLength(w.steps.filter(s => s.back).length);
@@ -20,12 +20,14 @@ describe('graphOf', () => {
   it('says a feedback workflow starts on what people say, and marks the steps and checks whose agent reads traces', () => {
     const { workflows, checks } = fixture('kit');
     const issue = workflows.issue!;
-    expect(graphOf({ ...issue, on: { feedback: {} } }, checks).trigger).toBe("a person's review, comment or push");
+    expect(makeWorkflowGraph({ ...issue, on: { feedback: {} } }, checks).trigger).toBe(
+      "a person's review, comment or push"
+    );
     const agents = {
       implementor: { returns: ['push' as const], reads: 'traces' as const },
       reviewer: { returns: ['comment' as const], reads: 'traces' as const },
     };
-    const [triage, implement] = graphOf(issue, checks, undefined, agents).nodes;
+    const [triage, implement] = makeWorkflowGraph(issue, checks, undefined, agents).nodes;
     expect(triage!.traces).toBeUndefined();
     expect(implement!.traces).toBe(true);
     expect(implement!.checks.find(c => c.name === 'docs-tone')).toMatchObject({ agent: 'reviewer', traces: true });
@@ -38,7 +40,7 @@ describe('graphOf', () => {
       triager: { returns: ['label' as const, 'back' as const, 'run' as const] },
       implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const, 'ask' as const] },
     };
-    const g = graphOf(workflows.issue!, checks, undefined, agents);
+    const g = makeWorkflowGraph(workflows.issue!, checks, undefined, agents);
     const by = Object.fromEntries(g.nodes.map(n => [n.step, n.writes]));
     expect(by).toEqual({
       triage: ['label'],
@@ -51,14 +53,14 @@ describe('graphOf', () => {
   it("names the model alias of each agent step's agent, and none where the agent sets none", () => {
     const { workflows, checks } = fixture('kit');
     const agents = { triager: { returns: [], model: 'gemini' }, implementor: { returns: [] } };
-    const [triage, implement] = graphOf(workflows.issue!, checks, undefined, agents).nodes;
+    const [triage, implement] = makeWorkflowGraph(workflows.issue!, checks, undefined, agents).nodes;
     expect(triage!.model).toBe('gemini');
     expect(implement!.model).toBeUndefined();
   });
 
   it('counts the worst case of the user loop as 29 sessions', () => {
     const { workflows, checks } = fixture('loop');
-    const g = graphOf(workflows.align!, checks);
+    const g = makeWorkflowGraph(workflows.align!, checks);
     expect(g.worst).toBe(29);
     expect(g.edges.find(e => e.kind === 'back')).toEqual({
       from: 'align',
@@ -71,7 +73,7 @@ describe('graphOf', () => {
 
   it('leaves a wait step out of the worst case and its way back uncapped', () => {
     const { workflows, checks } = fixture('kit');
-    const g = graphOf(workflows.issue!, checks);
+    const g = makeWorkflowGraph(workflows.issue!, checks);
     // triage 1, then implement 4 tries and review 1 try, each visited 3 times (1 + 2 rounds)
     expect(g.worst).toBe(1 + 3 * 4 + 3 * 1);
     expect(g.edges.find(e => e.from === 'merge')).toEqual({ from: 'merge', to: 'implement', kind: 'back' });
@@ -79,7 +81,7 @@ describe('graphOf', () => {
 
   it('names the trigger, the doer, the checks with their modes and kinds, the tries and the fan-out', () => {
     const { workflows, checks } = fixture('kit');
-    const g = graphOf(workflows.issue!, checks);
+    const g = makeWorkflowGraph(workflows.issue!, checks);
     expect(g.trigger).toBe('a /agent comment');
     const [triage, implement, review, merge] = g.nodes;
     expect(triage).toEqual({ step: 'triage', doer: 'triager / triage', checks: [], tries: 1 });
@@ -93,8 +95,8 @@ describe('graphOf', () => {
     expect(merge!.doer).toBe('human');
     expect(merge!.asides).toBe(true);
     expect(implement!.asides).toBeUndefined();
-    expect(graphOf(workflows.merge!, checks).nodes[0]!.doer).toBe('script');
-    expect(graphOf(fixture('agentgraph').workflows.retro!, {}).nodes[0]!.each).toBe(
+    expect(makeWorkflowGraph(workflows.merge!, checks).nodes[0]!.doer).toBe('script');
+    expect(makeWorkflowGraph(fixture('agentgraph').workflows.retro!, {}).nodes[0]!.each).toBe(
       'node "$AGENTGRAPH_HUB/scripts/retro-items.mjs"'
     );
   });
@@ -108,7 +110,7 @@ describe('graphOf', () => {
       tries: 2,
       rounds: { review: 1 },
     };
-    const g = graphOf(w, checks, run);
+    const g = makeWorkflowGraph(w, checks, run);
     expect(g.nodes.map(n => n.run)).toEqual([
       { tries: 0, current: false, visited: true },
       { tries: 2, current: true, visited: true },
@@ -123,6 +125,6 @@ describe('graphOf', () => {
     const { workflows, checks } = fixture('clarinet');
     const w = workflows.issue!;
     const run: Run = { ...begin(w, { id: 'r1', issue: 7, started: 'now' }), step: 'review', status: 'done' };
-    expect(graphOf(w, checks, run).nodes.every(n => n.run?.visited)).toBe(true);
+    expect(makeWorkflowGraph(w, checks, run).nodes.every(n => n.run?.visited)).toBe(true);
   });
 });

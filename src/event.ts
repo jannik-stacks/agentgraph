@@ -61,12 +61,12 @@ export type Applied = {
 };
 
 /** The run, step and session a write to the forge comes from. */
-export type Mark = { run: string; step: string; session?: string };
+export type RunLink = { run: string; step: string; session?: string };
 
 /** The studio page of a run. */
-export const studioRun = (studio: string, run: string) =>
+export const makeStudioRunUrl = (studio: string, run: string) =>
   `${studio.replace(/\/+$/, '')}/runs/${encodeURIComponent(run)}`;
 
 /** The body without any provenance marker or ⁂ link in it. */
-export const unstamped = (body: string) =>
+export const removeRunLink = (body: string) =>
   body.replace(/<!--\s*agentgraph\b[\s\S]*?(?:-->|$)|\[⁂\]\([^)]*\)/g, '').trimEnd();

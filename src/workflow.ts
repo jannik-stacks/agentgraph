@@ -140,13 +140,13 @@ const Front = Schema.Struct({
 const decode = Schema.decodeUnknownEither(Front, { onExcessProperty: 'error', errors: 'all' });
 
 /** Splits a markdown file into its parsed YAML frontmatter and its trimmed body. */
-export const split = (text: string): { data: unknown; body: string } => {
+export const splitFrontmatter = (text: string): { data: unknown; body: string } => {
   const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(text);
   return m ? { data: parse(m[1] ?? '') ?? {}, body: (m[2] ?? '').trim() } : { data: {}, body: text.trim() };
 };
 
 /** Parses a workflow file and fills its defaults. Problems are data; the workflow is set only when there are none. */
-export function load(
+export function compileWorkflow(
   path: string,
   text: string,
   names: Record<'agents' | 'skills' | 'checks', string[]> & { judged?: string[] }
@@ -155,7 +155,7 @@ export function load(
   const say = (key: string, message: string) => problems.push({ path, message: `${key}: ${message}` });
   let file: { data: unknown; body: string };
   try {
-    file = split(text);
+    file = splitFrontmatter(text);
   } catch (e) {
     return { problems: [{ path, message: `frontmatter: ${(e as Error).message}` }] };
   }
@@ -243,8 +243,8 @@ export function load(
   return { workflow, problems };
 }
 
-export const waits = (step: Step) => 'wait' in step.does;
-const entered = (step: Step): Run['status'] => (waits(step) ? 'waiting' : 'running');
+export const isHumanWaitStep = (step: Step) => 'wait' in step.does;
+const entered = (step: Step): Run['status'] => (isHumanWaitStep(step) ? 'waiting' : 'running');
 
 const fresh = ({ feedback: _feedback, reason: _reason, retried: _retried, ...run }: Run): Run => run;
 
@@ -254,7 +254,7 @@ export const unchanged = (returns: readonly string[], held: boolean) =>
     ? 'no change was made: change the files the issue needs and push them, or ask'
     : undefined;
 
-export const failure = (o: Extract<Outcome, { kind: 'failed' }>) =>
+export const formatFailedTryFeedback = (o: Extract<Outcome, { kind: 'failed' }>) =>
   [
     ...o.checks.map(c => `${c.check}: ${c.findings ?? 'failed'}`),
     ...o.proposals.map(a => `${a.proposal.kind} failed: ${a.reason ?? 'not allowed'}`),
@@ -325,12 +325,12 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
         return o.answered ? { ...fresh(run), status: 'done' } : forward();
       case 'failed': {
         const tries = run.tries + 1;
-        const text = failure(o);
+        const text = formatFailedTryFeedback(o);
         const question =
           o.checks.length > 0
             ? [
                 `${step.name} failed after ${tries} tries (checks: ${o.checks.map(c => c.check).join(', ')}).`,
-                failure({
+                formatFailedTryFeedback({
                   ...o,
                   checks: o.checks.map(c => ({
                     ...c,
@@ -363,7 +363,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
         };
     }
   }
-  if (run.status === 'waiting' && waits(step)) {
+  if (run.status === 'waiting' && isHumanWaitStep(step)) {
     if (o.kind === 'pass') return forward();
     if (o.kind === 'back') return back(o.why);
     if (o.kind === 'stop') return stop(o.why);
@@ -384,7 +384,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
 }
 
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */
-export const toBot = (m: Event) => (m.kind === 'comment' ? m.comment?.said : undefined);
+export const parseAgentRequest = (m: Event) => (m.kind === 'comment' ? m.comment?.said : undefined);
 
 /**
  * The question a run parks with when a human cancels the try it is on.
@@ -396,7 +396,7 @@ export const cancelled = 'Cancelled. Say /agent and how to go on from here, or /
  * What a new event means for a live run: a review at a human step, an answer elsewhere, `cancel` parks a working run;
  * undefined when it is only context. `lined` are the line comments that came with a review.
  */
-export function reenter(w: Workflow, run: Run, m: Event, lined: Event[] = []): Outcome | undefined {
+export function getEventOutcome(w: Workflow, run: Run, m: Event, lined: Event[] = []): Outcome | undefined {
   if (!m.trusted || m.issue !== run.issue) return undefined;
   const label = w.on.issues?.label;
   if (m.kind === 'unlabel' && label !== undefined && m.label === label && run.status !== 'done')
@@ -404,7 +404,7 @@ export function reenter(w: Workflow, run: Run, m: Event, lined: Event[] = []): O
   const waiting = run.status === 'waiting';
   const live = waiting || run.status === 'running';
   if (m.kind === 'closed' && live) return { kind: 'stop', why: 'closed' };
-  const said = toBot(m);
+  const said = parseAgentRequest(m);
   const body = m.comment?.body.trim() ?? '';
   const [first = '', ...rest] = said?.split(/\s+/) ?? [];
   if (first.toLowerCase() === 'stop' && live) return { kind: 'stop', why: rest.join(' ') || 'a human said stop' };
@@ -412,7 +412,7 @@ export function reenter(w: Workflow, run: Run, m: Event, lined: Event[] = []): O
   if (first.toLowerCase() === 'cancel')
     return run.status === 'running' ? { kind: 'ask', question: cancelled } : undefined;
   const step = w.steps.find(s => s.name === run.step);
-  if (waiting && step && waits(step)) {
+  if (waiting && step && isHumanWaitStep(step)) {
     if (m.kind === 'merged' || m.kind === 'approved' || (m.kind === 'label' && m.label === 'approved'))
       return { kind: 'pass' };
     if (m.kind === 'changes_requested') {

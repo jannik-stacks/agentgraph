@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 
 import { join } from 'node:path';
 import { Deferred, Effect, Fiber, Redacted, Stream, TestClock, TestContext } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { Forge, provenance } from '../src/forge.ts';
+import { Forge, currentRunLinkRef } from '../src/forge.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { githubForge } from '../src/github.ts';
 import type { Checkout } from '../src/sandbox.ts';
@@ -597,7 +597,7 @@ describe('githubForge', () => {
         ] satisfies [number, Proposal][],
         ([n, p]) => Effect.flatMap(Forge, forge => forge.apply(n, p))
       ).pipe(
-        Effect.locally(provenance, mark),
+        Effect.locally(currentRunLinkRef, mark),
         Effect.provide(githubForge(app, f.fetch, undefined, undefined, 'http://studio:5492/'))
       )
     );
@@ -617,7 +617,7 @@ describe('githubForge', () => {
   it('posts only the hidden marker without a studio URL, and nothing extra outside a run', async () => {
     const f = fake({ 'POST /repos/o/r/issues/7/comments': { id: 31, html_url: 'u31' } });
     const say = (body: string) => Effect.flatMap(Forge, forge => forge.apply(7, { kind: 'comment', body }));
-    await run(f, Effect.locally(say('Hi.'), provenance, { run: 'r', step: 's' }));
+    await run(f, Effect.locally(say('Hi.'), currentRunLinkRef, { run: 'r', step: 's' }));
     await run(f, say('Plain. <!-- agentgraph run=fake -->'));
     const [marked, plain] = f.calls.filter(c => c.method === 'POST' && c.body?.body).map(c => c.body?.body);
     expect(marked).toMatch(/^Hi\.\n\n<!-- agentgraph run=r step=s at=\S+ -->$/);

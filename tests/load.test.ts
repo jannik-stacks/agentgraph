@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { load } from '../src/workflow.ts';
+import { compileWorkflow } from '../src/workflow.ts';
 import { fixture, hubs } from './fixtures.ts';
 
 const names = { agents: ['implementor', 'reviewer'], skills: ['implement'], checks: ['types', 'tests'] };
 const file = (front: string, body = 'The prose.') => `---\n${front}\n---\n${body}\n`;
-const messages = (text: string, n = names) => load('workflows/issue.md', text, n).problems.map(p => p.message);
+const messages = (text: string, n = names) =>
+  compileWorkflow('workflows/issue.md', text, n).problems.map(p => p.message);
 
-describe('load', () => {
+describe('compileWorkflow', () => {
   it.each(hubs)('loads every workflow of the %s fixture without problems', hub => {
     const { workflows, problems } = fixture(hub);
     expect(problems).toEqual([]);
@@ -80,7 +81,7 @@ describe('load', () => {
   });
 
   it('takes the only agent when a workflow without steps names none', () => {
-    const { workflow } = load('workflows/ask.md', file('on: issues'), { ...names, agents: ['helper'] });
+    const { workflow } = compileWorkflow('workflows/ask.md', file('on: issues'), { ...names, agents: ['helper'] });
     expect(workflow!.steps[0]!.does).toEqual({ agent: 'helper' });
   });
 

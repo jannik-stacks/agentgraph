@@ -3,7 +3,7 @@ import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import type { Check, Hub } from '../src/hub.ts';
 import type { SessionEvent } from '../src/trace.ts';
-import { load, type Problem, type Workflow } from '../src/workflow.ts';
+import { compileWorkflow, type Problem, type Workflow } from '../src/workflow.ts';
 import { git, tmp, write } from './kit.ts';
 
 /**
@@ -64,7 +64,7 @@ export const fixture = (hub: string) => {
   const problems: Problem[] = [];
   for (const name of readdirSync(join(dir, 'workflows'))) {
     const path = join(dir, 'workflows', name);
-    const loaded = load(path, readFileSync(path, 'utf8'), names);
+    const loaded = compileWorkflow(path, readFileSync(path, 'utf8'), names);
     problems.push(...loaded.problems);
     if (loaded.workflow) workflows[loaded.workflow.name] = loaded.workflow;
   }

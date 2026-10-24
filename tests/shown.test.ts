@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shown, type Issues } from '../src/context.ts';
+import { proposeStatusUpdates, type IssueWithPull } from '../src/context.ts';
 import type { Issue } from '../src/event.ts';
 import type { Run } from '../src/workflow.ts';
 
@@ -25,7 +25,7 @@ const issue: Issue = {
   author: 'a',
   url: '',
 };
-const holding = (body: string, pull?: Issue): Issues => ({
+const holding = (body: string, pull?: Issue): IssueWithPull => ({
   issue: {
     ...issue,
     events: [
@@ -41,8 +41,8 @@ const holding = (body: string, pull?: Issue): Issues => ({
   },
   ...(pull && { pull: { ...pull, events: [] } }),
 });
-const bodyOf = (r: Run, t: Issues = holding('')) => {
-  const p = shown(r, t).find(p => p.kind === 'comment');
+const bodyOf = (r: Run, t: IssueWithPull = holding('')) => {
+  const p = proposeStatusUpdates(r, t).find(p => p.kind === 'comment');
   return p?.kind === 'comment' ? p.body : undefined;
 };
 
@@ -55,22 +55,22 @@ describe('the status comment', () => {
       { rounds: { review: 1 }, usd: 1.5 },
       { tries: 1, rounds: { review: 2 }, usd: 3.25 },
     ])
-      expect(shown({ ...run, ...tick }, t)).toEqual([]);
+      expect(proposeStatusUpdates({ ...run, ...tick }, t)).toEqual([]);
   });
 
   it('links the run in the studio, where tries, rounds and cost so far show', () => {
-    const body = shown(run, holding(''), 'http://studio:5492/').find(p => p.kind === 'comment');
+    const body = proposeStatusUpdates(run, holding(''), 'http://studio:5492/').find(p => p.kind === 'comment');
     expect(body).toMatchObject({
       body: expect.stringContaining('[Progress in the studio](http://studio:5492/runs/issue-7)'),
     });
     const t = holding((body as { body: string }).body);
-    expect(shown({ ...run, tries: 2, usd: 1 }, t, 'http://studio:5492/')).toEqual([]);
+    expect(proposeStatusUpdates({ ...run, tries: 2, usd: 1 }, t, 'http://studio:5492/')).toEqual([]);
   });
 
   it('is not edited when the forge reads it back with its run stamp', () => {
     const body = bodyOf(run)!;
-    expect(shown(run, holding(`${body}\n\n[⁂](http://studio/runs/issue-7?at=1) `))).toEqual([]);
-    expect(shown(run, holding(`${body}\n\n<!-- agentgraph run=issue-7 step=implement -->`))).toEqual([]);
+    expect(proposeStatusUpdates(run, holding(`${body}\n\n[⁂](http://studio/runs/issue-7?at=1) `))).toEqual([]);
+    expect(proposeStatusUpdates(run, holding(`${body}\n\n<!-- agentgraph run=issue-7 step=implement -->`))).toEqual([]);
   });
 
   it('is edited when the step, status, question, pull request or result changes', () => {

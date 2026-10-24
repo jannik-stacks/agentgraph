@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
  * In `deps` mode setup saw only the skeleton and `inputs` is its digest; in `tree` mode it saw every file and `inputs`
  * is the base tree.
  */
-type Env = {
+type SandboxSetup = {
   image: string;
   outputs: string[];
   complete: boolean;
@@ -22,8 +22,8 @@ type Env = {
   inputs: string;
 };
 
-/** What an Env is built from: `git` is a repo dir holding `base`, `image` the image it starts from. */
-type EnvSpec = {
+/** What a sandbox setup is built from: `git` is a repo dir holding `base`, `image` the image it starts from. */
+type SandboxSetupSpec = {
   repo: string;
   image: string;
   git: string;
@@ -37,7 +37,7 @@ type EnvSpec = {
  * Shell lines that install the toolchain a repo's root `files` name, run from the repo root with network.
  * @internal
  */
-export const toolchainOf = (files: string[]) => {
+export const makeToolchainSetupCommands = (files: string[]) => {
   const has = (...names: string[]) => names.some(name => files.includes(name));
   const pinned = has('rust-toolchain', 'rust-toolchain.toml');
   if (!pinned && !has('Cargo.toml')) return [];
@@ -67,7 +67,7 @@ const git = (dir: string, ...args: string[]) =>
  * dependency build works without the source.
  * @internal
  */
-export const skeletonOf = async (dir: string, rev: string): Promise<Skeleton> => {
+export const readDependencySkeleton = async (dir: string, rev: string): Promise<Skeleton> => {
   const entries = (await git(dir, 'ls-tree', '-r', rev))
     .split('\n')
     .filter(Boolean)
@@ -94,14 +94,14 @@ export const skeletonOf = async (dir: string, rev: string): Promise<Skeleton> =>
 };
 
 /** What `rev` gives setup in `mode`: the skeleton digest or the tree id. */
-export const inputsOf = async (dir: string, rev: string, mode: Env['mode']) =>
-  mode === 'deps' ? (await skeletonOf(dir, rev)).digest : git(dir, 'rev-parse', `${rev}^{tree}`);
+export const readSetupInputKey = async (dir: string, rev: string, mode: SandboxSetup['mode']) =>
+  mode === 'deps' ? (await readDependencySkeleton(dir, rev)).digest : git(dir, 'rev-parse', `${rev}^{tree}`);
 
 /**
- * Where npm, pnpm and yarn keep what they download, shared by every container and Env build through the cache volume
+ * Where npm, pnpm and yarn keep what they download, shared by every container and sandbox setup build through the cache volume
  * at `/cache`. npm and pnpm lock their own writes; yarn 1 does not, and without this its cache fills the small `/tmp`.
  */
-export const caches = {
+export const packageManagerCacheEnv = {
   npm_config_cache: '/cache/npm',
   npm_config_store_dir: '/cache/pnpm',
   YARN_CACHE_FOLDER: '/cache/yarn',
@@ -110,7 +110,7 @@ export const caches = {
 /** Containers keep no log on the docker disk; the runner reads their output as they run. */
 export const unlogged = ['--log-driver', 'none'];
 
-export const docker = (args: string[], timeout = 600_000) =>
+export const runDockerCli = (args: string[], timeout = 600_000) =>
   new Promise<string>((done, fail) =>
     execFile('docker', args, { timeout, maxBuffer: 256 << 20 }, (error, stdout, stderr) =>
       error
@@ -181,11 +181,11 @@ const build = [
 const section = (out: string, name: string) =>
   (out.split(`@@${name}\n`)[1] ?? '').split(/^@@/m)[0]!.split('\n').filter(Boolean);
 
-/** Where runners keep what must outlive them: Env last-use stamps, holds per runner and owner heartbeats. */
-export const state = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
-export const used = () => join(state(), 'envs');
-const holds = () => join(state(), 'holds');
-const owners = () => join(state(), 'owners');
+/** Where runners keep what must outlive them: sandbox setup last-use stamps, holds per runner and owner heartbeats. */
+export const readStateDir = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
+export const used = () => join(readStateDir(), 'envs');
+const holds = () => join(readStateDir(), 'holds');
+const owners = () => join(readStateDir(), 'owners');
 const stamp = (file: string) => {
   try {
     mkdirSync(dirname(file), { recursive: true });
@@ -195,19 +195,19 @@ const stamp = (file: string) => {
 };
 const touch = (key: string) => {
   stamp(join(used(), key));
-  beat();
+  startHeartbeat();
   stamp(join(holds(), key, self));
 };
 const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
 
-/** Whether another live runner used the Env `key` within the hold window; with `prune`, dead runners' holds are dropped. */
+/** Whether another live runner used the sandbox setup `key` within the hold window; with `prune`, dead runners' holds are dropped. */
 export const held = (key: string, prune = true) => {
   const dir = join(holds(), key);
   let owners: string[] = [];
   try {
     owners = readdirSync(dir);
   } catch {}
-  const [alive, dead] = [owners.filter(o => live(`0:${o}`)), owners.filter(o => !live(`0:${o}`))];
+  const [alive, dead] = [owners.filter(o => isOwnerRunning(`0:${o}`)), owners.filter(o => !isOwnerRunning(`0:${o}`))];
   if (prune) for (const owner of dead) rmSync(join(dir, owner), { force: true });
   return alive.some(o => o !== self && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
 };
@@ -219,7 +219,7 @@ const self = ownerId();
 let beating: NodeJS.Timeout | undefined;
 
 /** Marks this process alive for other runners' sweeps, every 30 s while it runs; answers its `pid:owner` label. */
-export const beat = () => {
+export const startHeartbeat = () => {
   stamp(join(owners(), self));
   if (!beating) (beating = setInterval(() => stamp(join(owners(), self)), 30_000)).unref();
   return `${process.pid}:${self}`;
@@ -238,7 +238,7 @@ export const isPidRunning = (pid: number) => {
  * Whether the `pid:owner` label's process still runs: its heartbeat is under two minutes old, or its pid lives. A
  * process blocked in a long synchronous call cannot beat, so a stale heartbeat alone does not make it dead.
  */
-export const live = (label: string) => {
+export const isOwnerRunning = (label: string) => {
   const [pid, owner = ''] = label.split(':');
   if (owner === self) return true;
   try {
@@ -256,48 +256,50 @@ const tagOf = (repo: string, key: string) =>
   }:${key}`;
 
 const labels = async (tag: string) => {
-  const out = await docker(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(() => '');
+  const out = await runDockerCli(['image', 'inspect', '--format', '{{json .Config.Labels}}', tag]).catch(() => '');
   const l = out ? (JSON.parse(out) as Record<string, string> | null) : null;
   return l?.['agentgraph.env'] ? l : undefined;
 };
 
-export const lowerOf = (key: string) => `agentgraph-lower-${key}`;
+export const makeSetupVolumeName = (key: string) => `agentgraph-lower-${key}`;
 
-const envOfLabels = (tag: string, l: Record<string, string>): Env => ({
+const envOfLabels = (tag: string, l: Record<string, string>): SandboxSetup => ({
   image: tag,
   outputs: JSON.parse(l['agentgraph.outputs'] ?? '[]') as string[],
   complete: l['agentgraph.complete'] === 'true',
-  lower: lowerOf(l['agentgraph.env']!),
+  lower: makeSetupVolumeName(l['agentgraph.env']!),
   key: l['agentgraph.env']!,
   mode: l['agentgraph.mode'] === 'deps' ? 'deps' : 'tree',
   inputs: l['agentgraph.inputs'] ?? '',
 });
 
-const building = new Map<string, Promise<Env | 'setup' | undefined>>();
+const building = new Map<string, Promise<SandboxSetup | 'setup' | undefined>>();
 
-/** The Env build format; an Env of another version is never reused. */
+/** The sandbox setup build format; a sandbox setup of another version is never reused. */
 export const envVersion = 6;
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
 
 /**
- * The Env for `spec`: the tagged image when one exists, else one container with open network, committed. Setup first
+ * The sandbox setup for `spec`: the tagged image when one exists, else one container with open network, committed. Setup first
  * sees only the skeleton; when the toolchain or setup fails there, the build runs again on every file, and later bases
  * of the same toolchain and setup go there first. Throws when the toolchain fails on every file; undefined when setup
  * fails on every file, so setup runs in each checkout as before.
  */
-export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
+export const readSandboxSetup = async (spec: SandboxSetupSpec): Promise<SandboxSetup | undefined> => {
   const [tree, files, from, skeleton] = await Promise.all([
     git(spec.git, 'rev-parse', `${spec.base}^{tree}`),
     git(spec.git, 'ls-tree', '--name-only', spec.base),
-    docker(['image', 'inspect', '--format', '{{.Id}}', spec.image]),
-    skeletonOf(spec.git, spec.base),
+    runDockerCli(['image', 'inspect', '--format', '{{.Id}}', spec.image]),
+    readDependencySkeleton(spec.git, spec.base),
   ]);
-  const lines = [...toolchainOf(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join('\n');
+  const lines = [...makeToolchainSetupCommands(files.split('\n')), ...(spec.toolchain ? [spec.toolchain] : [])].join(
+    '\n'
+  );
   if (!lines && !spec.setup) return undefined;
   const family = hash([envVersion, from, lines, spec.setup ?? '']);
-  const wide = join(state(), 'tree-only', family);
-  const one = async (mode: Env['mode']) => {
+  const wide = join(readStateDir(), 'tree-only', family);
+  const one = async (mode: SandboxSetup['mode']) => {
     const inputs = mode === 'deps' ? skeleton.digest : tree;
     const key = hash([family, mode, inputs]);
     const tag = tagOf(spec.repo, key);
@@ -318,24 +320,24 @@ export const envOf = async (spec: EnvSpec): Promise<Env | undefined> => {
 };
 
 const buildOf = async (
-  spec: EnvSpec,
-  b: { key: string; tag: string; mode: Env['mode']; inputs: string; lines: string; skeleton: Skeleton }
-): Promise<Env | 'setup' | undefined> => {
+  spec: SandboxSetupSpec,
+  b: { key: string; tag: string; mode: SandboxSetup['mode']; inputs: string; lines: string; skeleton: Skeleton }
+): Promise<SandboxSetup | 'setup' | undefined> => {
   const { key, tag, mode } = b;
   for (;;) {
     const found = await labels(tag);
     const env = found && envOfLabels(tag, found);
     if (
       env &&
-      (await docker(['volume', 'inspect', env.lower!]).then(
+      (await runDockerCli(['volume', 'inspect', env.lower!]).then(
         () => true,
         () => false
       ))
     )
       return (touch(key), env);
-    if (env) await docker(['rmi', '-f', tag]).catch(() => '');
+    if (env) await runDockerCli(['rmi', '-f', tag]).catch(() => '');
     const name = `agentgraph-envbuild-${key}`;
-    await docker(['volume', 'create', '--label', `agentgraph.lower=${key}`, lowerOf(key)]);
+    await runDockerCli(['volume', 'create', '--label', `agentgraph.lower=${key}`, makeSetupVolumeName(key)]);
     const started = Date.now();
     const args = [
       'run',
@@ -367,11 +369,11 @@ const buildOf = async (
         ? [
             '--mount',
             `type=volume,src=${spec.cache},dst=/cache`,
-            ...Object.entries(caches).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
+            ...Object.entries(packageManagerCacheEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
           ]
         : []),
       '--mount',
-      `type=volume,src=${lowerOf(key)},dst=/work`,
+      `type=volume,src=${makeSetupVolumeName(key)},dst=/work`,
       spec.image,
       'sh',
       '-c',
@@ -386,7 +388,7 @@ const buildOf = async (
       mode === 'deps' ? b.skeleton.paths.join('\n') : '',
       mode === 'deps' ? b.skeleton.stubs.join('\n') : '',
     ];
-    const out = await docker(args, 7_200_000).then(
+    const out = await runDockerCli(args, 7_200_000).then(
       output => ({ code: 0, output }),
       (e: { code?: number; output?: string; message: string }) => ({
         code: typeof e.code === 'number' ? e.code : -1,
@@ -394,12 +396,14 @@ const buildOf = async (
       })
     );
     if (/Conflict\. The container name/.test(out.output)) {
-      const running = await docker(['container', 'inspect', '--format', '{{.State.Running}}', name]).catch(() => '');
+      const running = await runDockerCli(['container', 'inspect', '--format', '{{.State.Running}}', name]).catch(
+        () => ''
+      );
       if (running === 'true') await new Promise(r => setTimeout(r, 5000));
-      else await docker(['rm', '-f', name]).catch(() => '');
+      else await runDockerCli(['rm', '-f', name]).catch(() => '');
       continue;
     }
-    if (out.code !== 0) await docker(['volume', 'rm', '-f', lowerOf(key)]).catch(() => '');
+    if (out.code !== 0) await runDockerCli(['volume', 'rm', '-f', makeSetupVolumeName(key)]).catch(() => '');
     try {
       if (out.code === 97 && mode === 'tree') throw new Error(`toolchain exited: ${out.output.trim().slice(-2000)}`);
       if (out.code === 97 || out.code === 98) return mode === 'deps' ? undefined : 'setup';
@@ -407,9 +411,17 @@ const buildOf = async (
       const ignored = section(out.output, 'ignored');
       const outputs = ignored.filter(p => p.endsWith('/')).map(p => p.slice(0, -1));
       const complete = outputs.length === ignored.length && !section(out.output, 'untracked').length;
-      const env: Env = { image: tag, outputs, complete, lower: lowerOf(key), key, mode, inputs: b.inputs };
+      const env: SandboxSetup = {
+        image: tag,
+        outputs,
+        complete,
+        lower: makeSetupVolumeName(key),
+        key,
+        mode,
+        inputs: b.inputs,
+      };
       const kb = Number(section(out.output, 'lower')[0]) || 0;
-      await docker([
+      await runDockerCli([
         'commit',
         '--change',
         `LABEL agentgraph.env=${key} agentgraph.version=${envVersion} agentgraph.lowerkb=${kb} agentgraph.complete=${complete} agentgraph.mode=${mode} agentgraph.inputs=${b.inputs} agentgraph.outputs=${JSON.stringify(JSON.stringify(outputs))}`,
@@ -422,7 +434,7 @@ const buildOf = async (
       );
       return env;
     } finally {
-      await docker(['rm', '-f', name]).catch(() => '');
+      await runDockerCli(['rm', '-f', name]).catch(() => '');
     }
   }
 };
@@ -466,7 +478,7 @@ const overlayOf = (lower: string, upper: string) => [
   `o=lowerdir=${lower},upperdir=${upper}/upper,workdir=${upper}/work`,
 ];
 const mountpoints = async (...names: string[]) =>
-  (await docker(['volume', 'inspect', '-f', '{{.Mountpoint}}', ...names])).split('\n');
+  (await runDockerCli(['volume', 'inspect', '-f', '{{.Mountpoint}}', ...names])).split('\n');
 
 let overlay: Promise<boolean> | undefined;
 /** Whether this docker mounts an overlay volume, tried once with `image`. */
@@ -474,7 +486,7 @@ const overlays = (image: string) =>
   (overlay ??= (async () => {
     const [lower, upper, over] = ['l', 'u', 'o'].map(s => `agentgraph-probe-${self}-${s}`) as [string, string, string];
     const run = (mount: string, ...cmd: string[]) =>
-      docker([
+      runDockerCli([
         'run',
         ...unlogged,
         '--rm',
@@ -490,31 +502,31 @@ const overlays = (image: string) =>
         ...cmd,
       ]);
     try {
-      await docker(['volume', 'create', lower]);
-      await docker(['volume', 'create', upper]);
+      await runDockerCli(['volume', 'create', lower]);
+      await runDockerCli(['volume', 'create', upper]);
       await run(`type=volume,src=${upper},dst=/u`, 'mkdir', '-p', '/u/upper', '/u/work');
       const [l, u] = await mountpoints(lower, upper);
-      await docker(['volume', 'create', ...overlayOf(l!, u!), over]);
+      await runDockerCli(['volume', 'create', ...overlayOf(l!, u!), over]);
       await run(`type=volume,src=${over},dst=/o`, 'touch', '/o/x');
       return true;
     } catch {
       return false;
     } finally {
-      await docker(['volume', 'rm', '-f', over, upper, lower]).catch(() => '');
+      await runDockerCli(['volume', 'rm', '-f', over, upper, lower]).catch(() => '');
     }
   })());
 
 /**
  * Volumes for the checkout at `dir` at every dependency directory, so setup never writes one into the checkout. Where
- * the Env made one, the volume is an overlay over the Env's `lower` copy that holds only this checkout's writes, or a
- * copy of it where docker cannot mount overlays; elsewhere it starts empty. `more` names directories beyond the Env's
+ * the sandbox setup made one, the volume is an overlay over the sandbox setup's `lower` copy that holds only this checkout's writes, or a
+ * copy of it where docker cannot mount overlays; elsewhere it starts empty. `more` names directories beyond the sandbox setup's
  * outputs. With `cache`, one more overlay at `/cache` over that shared volume holds the checkout's own writes, so run
  * code never changes what later runs read; without overlays there is none. Every volume carries this process as its
- * owner, so a sweep finds the ones a dead runner left. The Env's other outputs are copied into `dir`, where a build may
+ * owner, so a sweep finds the ones a dead runner left. The sandbox setup's other outputs are copied into `dir`, where a build may
  * delete and remake them.
  */
 export const layer = async (
-  from: Pick<Env, 'image' | 'outputs' | 'lower'>,
+  from: Pick<SandboxSetup, 'image' | 'outputs' | 'lower'>,
   owner: string,
   dir: string,
   more: string[] = [],
@@ -526,7 +538,7 @@ export const layer = async (
   const over = (made.length > 0 || Boolean(cache)) && (await overlays(from.image));
   const shared = over && cache ? `agentgraph-layer-${owner}-c` : '';
   if (!paths.length && !rest.length && !shared) return [];
-  const label = ['--label', `agentgraph.layer=${beat()}`, '--label', `agentgraph.owner=${owner}`];
+  const label = ['--label', `agentgraph.layer=${startHeartbeat()}`, '--label', `agentgraph.owner=${owner}`];
   const layers: Layer[] = paths.map((o, i) => ({ name: `agentgraph-layer-${owner}-${i}`, dst: `/work/${o}` }));
   const [uid, gid] = user();
   const script = [
@@ -546,8 +558,8 @@ export const layer = async (
   ].join('\n');
   try {
     for (const name of [...layers.map(l => l.name), ...(shared ? [shared] : [])])
-      await docker(['volume', 'create', ...label, name]);
-    await docker(
+      await runDockerCli(['volume', 'create', ...label, name]);
+    await runDockerCli(
       [
         'run',
         ...unlogged,
@@ -582,7 +594,7 @@ export const layer = async (
       const [lower, ...uppers] = await mountpoints(from.lower!, ...layers.slice(0, made.length).map(l => l.name));
       for (const [i, upper] of uppers.entries()) {
         const name = `${layers[i]!.name}-o`;
-        await docker([
+        await runDockerCli([
           'volume',
           'create',
           ...label,
@@ -595,9 +607,9 @@ export const layer = async (
       }
     }
     if (shared) {
-      await docker(['volume', 'create', cache]);
+      await runDockerCli(['volume', 'create', cache]);
       const [lower, upper] = await mountpoints(cache, shared);
-      await docker(['volume', 'create', ...label, ...overlayOf(lower!, upper!), `${shared}-o`]);
+      await runDockerCli(['volume', 'create', ...label, ...overlayOf(lower!, upper!), `${shared}-o`]);
       layers.push({ name: `${shared}-o`, dst: '/cache', upper: shared });
     }
   } catch (e) {
@@ -611,7 +623,7 @@ export const layer = async (
 export const written = async (layers: Layer[], image: string) => {
   const upper = layers.find(l => l.dst === '/cache')?.upper;
   if (!upper) return undefined;
-  const out = await docker(
+  const out = await runDockerCli(
     [
       'run',
       ...unlogged,
@@ -640,7 +652,7 @@ export const written = async (layers: Layer[], image: string) => {
 /** Removes a checkout's dependency volumes, each overlay before the volume holding its writes. */
 export const discard = (layers: Layer[], timeout?: number) =>
   layers.length
-    ? docker(
+    ? runDockerCli(
         ['volume', 'rm', '-f', ...layers.map(l => l.name), ...layers.flatMap(l => (l.upper ? [l.upper] : []))],
         timeout
       ).then(
@@ -650,9 +662,9 @@ export const discard = (layers: Layer[], timeout?: number) =>
     : Promise.resolve();
 
 /** Marks the checkout `dir` as this process's, so a sweep in another runner leaves it alone while this one lives. */
-export const mark = (dir: string) => {
+export const writeCheckoutOwner = (dir: string) => {
   mkdirSync(dirname(dir), { recursive: true });
-  writeFileSync(`${dir}.owner`, beat());
+  writeFileSync(`${dir}.owner`, startHeartbeat());
 };
 
 /** Removes the checkouts under `data` whose owner is gone, with their index and news dirs. */
@@ -665,7 +677,7 @@ export const reap = (data: string) => {
   const gone = ids.filter(id => {
     if (existsSync(join(work, `${id}.failed`))) return false;
     try {
-      return !live(readFileSync(join(work, `${id}.owner`), 'utf8').trim());
+      return !isOwnerRunning(readFileSync(join(work, `${id}.owner`), 'utf8').trim());
     } catch {
       return true;
     }
@@ -677,18 +689,23 @@ export const reap = (data: string) => {
 };
 
 const volumes = async (label: string, timeout?: number) =>
-  (await docker(['volume', 'ls', '--filter', `label=${label}`, '--format', `{{.Name}} {{.Label "${label}"}}`], timeout))
+  (
+    await runDockerCli(
+      ['volume', 'ls', '--filter', `label=${label}`, '--format', `{{.Name}} {{.Label "${label}"}}`],
+      timeout
+    )
+  )
     .split('\n')
     .filter(Boolean)
     .map(l => l.split(' ') as [string, string]);
 
 /** Removes dependency volumes whose owner is gone; a docker that does not answer within `timeout` ms sweeps nothing. */
-export const sweep = async (timeout = 600_000) => {
-  beat();
+export const removeOrphanedVolumes = async (timeout = 600_000) => {
+  startHeartbeat();
   const dead = (await volumes('agentgraph.layer', timeout).catch(() => []))
-    .filter(([, owner]) => !live(owner))
+    .filter(([, owner]) => !isOwnerRunning(owner))
     .map(([name]) => name)
     .sort((a, b) => Number(b.endsWith('-o')) - Number(a.endsWith('-o')));
-  if (dead.length) await docker(['volume', 'rm', '-f', ...dead], timeout).catch(() => '');
+  if (dead.length) await runDockerCli(['volume', 'rm', '-f', ...dead], timeout).catch(() => '');
   return dead.length;
 };

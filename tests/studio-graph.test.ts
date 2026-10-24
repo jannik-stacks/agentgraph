@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { graphOf, type Graph } from '../src/graph.ts';
+import { makeWorkflowGraph, type Graph } from '../src/graph.ts';
 import type { Workflow } from '../src/workflow.ts';
 import { fixture, hubs as fixtureHubs } from './fixtures.ts';
 import { studioModule } from './studio.ts';
 
-type Fixture = { workflow: Workflow; checks: Parameters<typeof graphOf>[1] };
+type Fixture = { workflow: Workflow; checks: Parameters<typeof makeWorkflowGraph>[1] };
 type Box = { x: number; y: number; width: number; height: number };
 type Point = { x: number; y: number };
 type Row = {
@@ -39,7 +39,7 @@ const crosses = (a: Point, b: Point, box: Box) =>
   Math.max(a.y, b.y) > box.y &&
   Math.min(a.y, b.y) < box.y + box.height;
 const graphsOf = (list: readonly Fixture[]) =>
-  list.map(f => ({ workflow: f.workflow.name, graph: graphOf(f.workflow, f.checks) }));
+  list.map(f => ({ workflow: f.workflow.name, graph: makeWorkflowGraph(f.workflow, f.checks) }));
 
 describe('studio graph', () => {
   it.each(SHOWN)('%s: places each step once, apart from the others, inside its own row', (_, list) => {
@@ -93,7 +93,7 @@ describe('studio graph', () => {
       triager: { returns: ['back' as const] },
       implementor: { returns: ['comment' as const, 'push' as const, 'pull_request' as const] },
     };
-    const nodes = graphOf(workflows.issue!, checks, undefined, agents).nodes;
+    const nodes = makeWorkflowGraph(workflows.issue!, checks, undefined, agents).nodes;
     const writes = (step: string) => chipsOf(nodes.find(n => n.step === step)!).filter(c => c.glyph === 'writes');
     expect(writes('implement')).toEqual([
       {

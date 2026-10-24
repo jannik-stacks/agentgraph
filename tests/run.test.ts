@@ -29,12 +29,12 @@ import {
 } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { docker } from '../src/docker.ts';
-import { drive, gate, instruct, settle, sweep, tick } from '../src/engine.ts';
+import { drive, runStepChecks, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { answerWith } from '../src/context.ts';
-import { appEnv, start as main, temporary } from '../src/main.ts';
+import { readAppEnvWithKey, start as main, temporary } from '../src/main.ts';
 import { harnesses } from '../src/harnesses.ts';
-import { fileForge, Forge, ForgeError, provenance } from '../src/forge.ts';
-import type { Event, Mark } from '../src/event.ts';
+import { fileForge, Forge, ForgeError, currentRunLinkRef } from '../src/forge.ts';
+import type { Event, RunLink } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { Sandbox, type Checkout, type Command } from '../src/sandbox.ts';
 import { settings, type Settings } from '../src/services.ts';
@@ -42,7 +42,7 @@ import { Session } from '../src/session.ts';
 import { fileStore, Store } from '../src/store.ts';
 import type { Trace, SessionEvent, SessionSpec } from '../src/trace.ts';
 import type { Hub } from '../src/hub.ts';
-import { begin, cancelled, reenter, transition, type Run, type Step } from '../src/workflow.ts';
+import { begin, cancelled, getEventOutcome, transition, type Run, type Step } from '../src/workflow.ts';
 import { host } from './doubles/sandbox.ts';
 import { scripted } from './doubles/session.ts';
 import { hubOf, reply, seeded, start, wrote } from './fixtures.ts';
@@ -111,7 +111,7 @@ const services = (
   const specs: SessionSpec[] = [];
   const commands: Command[] = [];
   const order: (SessionSpec | Command)[] = [];
-  const marks: [Proposal['kind'], Mark | undefined][] = [];
+  const marks: [Proposal['kind'], RunLink | undefined][] = [];
   const recording = Layer.effect(
     Session,
     Effect.map(Session, s => ({
@@ -132,7 +132,7 @@ const services = (
       ...(slug && { slug: Effect.succeed(slug) }),
       apply: (n: number, p: Proposal, work?: Parameters<typeof f.apply>[2]) =>
         Effect.zipRight(
-          Effect.map(FiberRef.get(provenance), mark => marks.push([p.kind, mark])),
+          Effect.map(FiberRef.get(currentRunLinkRef), mark => marks.push([p.kind, mark])),
           f.apply(n, p, work)
         ),
     }))
@@ -474,7 +474,7 @@ describe('drive', () => {
     const said = await run(
       Effect.flatMap(Forge, f => Stream.runCollect(f.since('2026-10-16T23:00:00.000Z'))).pipe(Effect.map(Chunk.toArray))
     );
-    const answer = said.flatMap(m => reenter(w, asked, m) ?? [])[0]!;
+    const answer = said.flatMap(m => getEventOutcome(w, asked, m) ?? [])[0]!;
     expect(answer).toEqual({ kind: 'answer', text: 'it is fine, ship it' });
     const waiting = await run(driveStored(w, transition(w, asked, answer), hub));
     expect(waiting).toMatchObject({ step: 'merge', status: 'waiting', rounds: { review: 1 } });
@@ -487,7 +487,7 @@ describe('drive', () => {
       trusted: true,
       at: '2026-10-18T00:00:00.000Z',
     } as const;
-    expect(transition(w, waiting, reenter(w, waiting, merged)!)).toMatchObject({ status: 'done' });
+    expect(transition(w, waiting, getEventOutcome(w, waiting, merged)!)).toMatchObject({ status: 'done' });
   }, 30_000);
 
   it('writes to the forge under the run, its step and the session that proposed the write', async () => {
@@ -2038,7 +2038,7 @@ describe('tick', () => {
     const where = world();
     const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push, pull)]]);
     where.human('/agent hello', new Date().toISOString());
-    expect(await run(tick(small, undefined, false, settle))).toEqual([]);
+    expect(await run(tick(small, undefined, false, issueDebounceMs))).toEqual([]);
     const [done] = await run(tick(small));
     console.log(done!.step, done!.reason, JSON.stringify(bodies(await run(Effect.flatMap(Forge, f => f.issue(7))))));
     expect(done!.seen! >= done!.started).toBe(true);
@@ -2174,7 +2174,7 @@ describe('tick', () => {
     }
     say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
     say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at });
-    const swept = await run(sweep(merging));
+    const swept = await run(scanIssuesAndRunningRuns(merging));
     expect(swept.map(r => [r.id, r.step, r.status])).toEqual([['run-7', 'merge', 'done']]);
   });
 });
@@ -2433,7 +2433,7 @@ describe('temporary', () => {
   });
 });
 
-describe('appEnv', () => {
+describe('readAppEnvWithKey', () => {
   const file = (text: string) => {
     const dir = mkdtempSync(join(tmpdir(), 'agentgraph-env-'));
     dirs.push(dir);
@@ -2443,23 +2443,23 @@ describe('appEnv', () => {
   };
 
   it('reads quotes, comments, export and the named key file', async () => {
-    const env = await appEnv(
+    const env = await readAppEnvWithKey(
       file(
         '# app\nexport AGENTGRAPH_APP_ID=42\nAGENTGRAPH_REPO="o/r" # inline\nAGENTGRAPH_APP_KEY_FILE=\'$DIR/key.pem\'\n'
       )
     );
     expect(env).toMatchObject({ AGENTGRAPH_APP_ID: '42', AGENTGRAPH_REPO: 'o/r', AGENTGRAPH_APP_KEY: 'PEM' });
-    expect(await appEnv(undefined)).toEqual({});
+    expect(await readAppEnvWithKey(undefined)).toEqual({});
   });
 
   it('leaves a missing required setting to fail by name', async () => {
-    const env = await appEnv(file('AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY_FILE=$DIR/key.pem\n'));
+    const env = await readAppEnvWithKey(file('AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY_FILE=$DIR/key.pem\n'));
     const read = Effect.withConfigProvider(settings, ConfigProvider.fromMap(new Map(Object.entries(env))));
     await expect(Effect.runPromise(read)).rejects.toThrow(/AGENTGRAPH_REPO/);
   });
 });
 
-describe('sweep', () => {
+describe('scanIssuesAndRunningRuns', () => {
   const small = hubOf('hub', { types: { run: '! grep -q TODO hello.txt' } });
 
   it('drives a commanded issue and a parked one with a new answer, and skips an unmarked one and one waiting with nothing new', async () => {
@@ -2491,7 +2491,7 @@ describe('sweep', () => {
       mkdirSync(join(where.data, r.id), { recursive: true });
       writeFileSync(join(where.data, r.id, 'run.json'), JSON.stringify(r));
     }
-    const touched = await run(sweep(small));
+    const touched = await run(scanIssuesAndRunningRuns(small));
     expect(touched.map(r => r.issue).sort()).toEqual([7, 8]);
     expect(touched.find(r => r.issue === 9)).toBeUndefined();
     expect(await run(Effect.flatMap(Store, s => s.list({ issue: 10 })))).toEqual([]);
@@ -2518,7 +2518,7 @@ describe('sweep', () => {
     );
     where.human('/agent use gh-pages', '2026-10-17T00:00:00.000Z');
     expect(await run(tick(small))).toEqual([]);
-    const touched = await run(sweep(small));
+    const touched = await run(scanIssuesAndRunningRuns(small));
     expect(touched.map(r => [r.id, r.status])).toEqual([['issue-7-20261017000000000', 'done']]);
     expect(specs[0]!.prompt).toContain('use gh-pages');
     expect(readFileSync(join(where.forge, '7.jsonl'), 'utf8')).toContain('gh-pages it is.');
@@ -2544,7 +2544,7 @@ describe('sweep', () => {
         ).pipe(Stream.flatMap(() => Stream.make(start('s'), reply({ kind: 'ask', question: 'Which file?' })))),
     });
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), host(where.origin), slow);
-    const touched = await Effect.runPromise(sweep(small).pipe(Effect.provide(layer)));
+    const touched = await Effect.runPromise(scanIssuesAndRunningRuns(small).pipe(Effect.provide(layer)));
     expect(touched.map(r => [r.issue, r.status]).sort()).toEqual([
       [7, 'waiting'],
       [8, 'waiting'],
@@ -2807,25 +2807,25 @@ describe('coworker', () => {
     const where = world();
     writeFileSync(join(where.forge, '7.jsonl'), '');
     const { specs, run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
-    expect(await run(sweep(ready))).toEqual([]);
+    expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
     say(where, marked('stx-agentgraph[bot]', false, '2026-10-16T00:00:01.000Z'));
     say(where, marked('mallory', false, '2026-10-16T00:00:02.000Z'));
-    expect(await run(sweep(ready))).toEqual([]);
+    expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
     say(where, marked('morgan', true, '2026-10-16T00:00:03.000Z'));
-    const [asked] = await run(sweep(ready));
+    const [asked] = await run(scanIssuesAndRunningRuns(ready));
     expect(asked).toMatchObject({ issue: 7, workflow: 'issue', status: 'waiting' });
     expect(specs).toHaveLength(1);
     await run(Effect.flatMap(Store, s => s.put({ ...asked!, status: 'done' })));
     say(where, { ...marked('morgan', true, later(1)), kind: 'unlabel' });
     say(where, marked('morgan', true, later(2)));
-    expect(await run(sweep(ready))).toEqual([]);
+    expect(await run(scanIssuesAndRunningRuns(ready))).toEqual([]);
     expect(specs).toHaveLength(1);
   }, 30_000);
 
   it('still starts a mention workflow on /agent when it also starts on a label', async () => {
     const where = world();
     const { run } = services(where, [[start('a'), reply({ kind: 'ask', question: 'Hello or hi?' })]]);
-    expect((await run(sweep(ready))).map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
+    expect((await run(scanIssuesAndRunningRuns(ready))).map(r => [r.issue, r.status])).toEqual([[7, 'waiting']]);
   }, 30_000);
 
   it('keeps one status comment through two tries and an ask, with the question in its own comment', async () => {
@@ -2981,7 +2981,7 @@ describe('coworker', () => {
   }, 30_000);
 });
 
-describe('gate', () => {
+describe('runStepChecks', () => {
   it('lets a check read the pending proposals from AGENTGRAPH_PROPOSALS', async () => {
     const where = world();
     const dir = join(where.root, 'work');
@@ -3001,7 +3001,7 @@ describe('gate', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [push, pull],
     };
-    const { outcome } = await run(gate(step, left, small));
+    const { outcome } = await run(runStepChecks(step, left, small));
     const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
     expect(JSON.parse(findings!)).toEqual([push, pull]);
   });
@@ -3025,7 +3025,7 @@ describe('gate', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const { outcome } = await run(gate(step, left, small));
+    const { outcome } = await run(runStepChecks(step, left, small));
     expect(outcome).toEqual({ kind: 'pass' });
     const checks = traceOf(where.data, 'run-7').flatMap(t =>
       'check' in t && t.check.check === 'types' ? [t.check] : []
@@ -3061,7 +3061,7 @@ describe('gate', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const { outcome } = await run(gate(step, left, kit));
+    const { outcome } = await run(runStepChecks(step, left, kit));
     expect(outcome).toMatchObject({
       kind: 'failed',
       checks: [{ check: 'claims', findings: '21 items, more than 20' }],
@@ -3088,7 +3088,7 @@ describe('gate', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const { outcome } = await run(gate(step, left, small));
+    const { outcome } = await run(runStepChecks(step, left, small));
     expect(outcome.kind).toBe('failed');
     const checks = traceOf(where.data, 'run-7').flatMap(t =>
       'check' in t && t.check.check === 'types' ? [t.check] : []
@@ -3120,7 +3120,7 @@ describe('gate', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const { outcome } = await run(gate(step, left, small));
+    const { outcome } = await run(runStepChecks(step, left, small));
     const findings = outcome.kind === 'failed' ? outcome.checks[0]!.findings : undefined;
     expect(findings?.trim()).toBe('from hub');
   });
@@ -3182,7 +3182,7 @@ describe('gate', () => {
       news: join(where.root, 'news', 'news.md'),
       proposals: [],
     };
-    const { outcome } = await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    const { outcome } = await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     expect(specs.map(s => [s.agent, s.harness, s.model]).sort()).toEqual([
       ['critic', 'claude', 'opus'],
       ['tester', 'opencode', 'smart'],
@@ -3222,7 +3222,7 @@ describe('gate', () => {
       answers: [{ asked: 'Keep the old regex?', said: 'yes, the old regex stays' }],
     };
     const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
-    await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     const context = readFileSync(seen, 'utf8');
     expect(context).toContain('## #7 Add a greeting');
     expect(context).toContain('Asked: Keep the old regex?\n\nAnswered: yes, the old regex stays');
@@ -3258,7 +3258,7 @@ describe('gate', () => {
       proposals: [],
     };
     const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
-    const { outcome } = await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    const { outcome } = await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     expect(outcome).toMatchObject({
       kind: 'failed',
       checks: [
@@ -3298,7 +3298,7 @@ describe('gate', () => {
       proposals: [],
     };
     const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
-    const once = () => Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    const once = () => Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     await once();
     await once();
     expect(judgedItems.sort()).toEqual(['a', 'b', 'b']);
@@ -3311,11 +3311,11 @@ describe('gate', () => {
     writeFileSync(join(copy, 'hello.txt'), 'hello\n');
     const moved = { ...left, dir: copy, git: { GIT_DIR: join(copy, '.git'), GIT_WORK_TREE: copy } };
     judgedItems.length = 0;
-    await Effect.runPromise(gate(step, moved, small).pipe(Effect.provide(layer)));
+    await Effect.runPromise(runStepChecks(step, moved, small).pipe(Effect.provide(layer)));
     expect(judgedItems).toEqual(['b']);
     judgedItems.length = 0;
     const answered = { ...moved, answers: [{ asked: 'Is a fine?', said: 'Not any more.' }] };
-    await Effect.runPromise(gate(step, answered, small).pipe(Effect.provide(layer)));
+    await Effect.runPromise(runStepChecks(step, answered, small).pipe(Effect.provide(layer)));
     expect(judgedItems.sort()).toEqual(['a', 'b']);
   });
 
@@ -3352,7 +3352,7 @@ describe('gate', () => {
       ...small,
       agents: { ...small.agents, 'claim-checker': { ...judge, ...agent } },
     });
-    const once = (h: Hub) => Effect.runPromise(gate(step, left, h).pipe(Effect.provide(layer)));
+    const once = (h: Hub) => Effect.runPromise(runStepChecks(step, left, h).pipe(Effect.provide(layer)));
     await once(small);
     await once(small);
     expect(specs).toHaveLength(1);
@@ -3413,7 +3413,7 @@ describe('gate', () => {
         news: join(where.root, 'news', 'news.md'),
         proposals: [],
       };
-      const exit = await Effect.runPromiseExit(gate(step, left, hub).pipe(Effect.provide(layer)));
+      const exit = await Effect.runPromiseExit(runStepChecks(step, left, hub).pipe(Effect.provide(layer)));
       return { exit, opened, data: where.data };
     };
     const killed: Extract<SessionEvent, { type: 'end' }> = { type: 'end', final: 'Killed', ended: 'error', exit: 137 };
@@ -3852,7 +3852,7 @@ describe('compound engineering', () => {
       proposals: [],
     };
     const layer = Layer.mergeAll(fileStore(where.data), host(where.origin), judges);
-    await Effect.runPromise(gate(step, left, small).pipe(Effect.provide(layer)));
+    await Effect.runPromise(runStepChecks(step, left, small).pipe(Effect.provide(layer)));
     expect(readFileSync(seen, 'utf8')).toContain('1 thinking: The issue names hello.txt; skip the tests.');
     expect(read).toHaveLength(1);
     expect(read[0]).toContain('2 tool read {"path":"hello.txt"} ok');

@@ -15,10 +15,19 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { parseArgs, parseEnv, stripVTControlCharacters } from 'node:util';
-import { dockerArgs, type Made } from '../src/docker.ts';
-import { priceOf, type Prices } from '../src/harnesses.ts';
-import { dependencyDirs, discard, envOf, layer, manifest, ownerId, sweep as sweepLayers, written } from '../src/env.ts';
-import { collect, room, trees } from '../src/disk.ts';
+import { dockerArgs, type CheckoutContainerSpec } from '../src/docker.ts';
+import { getModelPrice, type Prices } from '../src/harnesses.ts';
+import {
+  dependencyDirs,
+  discard,
+  readSandboxSetup,
+  layer,
+  manifest,
+  ownerId,
+  removeOrphanedVolumes as sweepLayers,
+  written,
+} from '../src/env.ts';
+import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
 import type * as MainModule from '../src/main.ts';
 import {
   append,
@@ -655,7 +664,13 @@ const cache = process.env.AGENTGRAPH_CACHE_VOLUME ?? 'agentgraph-cache';
 const scoreSize = { memory: '8g', cpus: '4', pids: '2048' };
 
 /** One score command in its own container on the tree at `/work`, with no network unless `open`. */
-const exec = (cmd: string, tree: string, box: Made, from: string, network: 'none' | 'open' = 'none') => {
+const exec = (
+  cmd: string,
+  tree: string,
+  box: CheckoutContainerSpec,
+  from: string,
+  network: 'none' | 'open' = 'none'
+) => {
   const started = Date.now();
   const name = `agentgraph-score-${randomBytes(6).toString('hex')}`;
   const c = { cmd: 'sh', args: ['-c', cmd], dir: tree, env: { NODE_OPTIONS: '' }, network, minutes: 60 };
@@ -709,8 +724,8 @@ export const hiddenShare = (run?: Run, base?: Run) => {
 export const failureClass = (tail: string) => (coupled.test(tail) ? 'coupled' : 'behaviour');
 
 /**
- * Scores a diff in the case's Env: setup runs again only when the diff touches a manifest or the Env could not hold
- * everything setup made, else only `build`, and nothing for an empty diff. Hidden tests reach the tree after the Env exists.
+ * Scores a diff in the case's sandbox setup: setup runs again only when the diff touches a manifest or the sandbox setup could not hold
+ * everything setup made, else only `build`, and nothing for an empty diff. Hidden tests reach the tree after the sandbox setup exists.
  */
 const check = async (c: Case & Commands, tree: string, diff: string, hidden: string[], repo: string) => {
   sh('git', ['-C', tree, 'checkout', '-q', '-f', c.base]);
@@ -727,9 +742,9 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
   const found = spawnSync('docker', ['image', 'inspect', start], { encoding: 'utf8' });
   if (found.status !== 0)
     throw new Error(`score needs docker and the ${start} image: ${found.error?.message ?? found.stderr.trim()}`);
-  if (cache) await room({ dir: tree, image: start, volume: cache });
+  if (cache) await ensureFreeDisk({ dir: tree, image: start, volume: cache });
   const env = cache
-    ? await envOf({
+    ? await readSandboxSetup({
         repo: c.repo,
         image: start,
         git,
@@ -897,7 +912,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
 
 /** Removes the scoring trees under `out`, nested runs included, that no live process holds. */
 const reapTrees = (out: string) => {
-  for (const tree of trees(out))
+  for (const tree of findBuildDirs(out))
     if (basename(tree) === 'tree' && !busy(tree)) rmSync(tree, { recursive: true, force: true });
 };
 
@@ -1073,7 +1088,7 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
   return (JSON.parse(read(file)) as { invalid?: string }).invalid;
 };
 
-/** Removes the Env images a case's scores ran in and their dependency volumes; docker keeps one a container still uses. */
+/** Removes the sandbox setup images a case's scores ran in and their dependency volumes; docker keeps one a container still uses. */
 const dropEnvs = (root: string) => {
   const used = readdirSync(root).flatMap(arm => {
     const env = (JSON.parse(read(join(root, arm, 'score.json')) || '{}') as { env?: string }).env;
@@ -1229,7 +1244,7 @@ export const unpriced = (arm: string, hub: string, point = options.point) => {
   const prices = JSON.parse(
     read(process.env.AGENTGRAPH_PRICES ?? join(engine, 'infra/local/prices.json')) || '{}'
   ) as Prices;
-  return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !priceOf(prices, [m]));
+  return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !getModelPrice(prices, [m]));
 };
 
 /**
@@ -1246,7 +1261,7 @@ export const costOf = (
   const estimate = harness === 'claude-sub' || models.some(sub);
   if (u.usd || !models.length)
     return { usd: u.usd ?? 0, usdSource: estimate ? 'list-price estimate' : 'recorded' } as const;
-  const listed = models.map(m => [priceOf(prices, [m]), u.tokens![m]!] as const);
+  const listed = models.map(m => [getModelPrice(prices, [m]), u.tokens![m]!] as const);
   if (listed.some(([p]) => !p)) return { usd: 0, usdSource: 'unpriced' } as const;
   const usd = listed.reduce(
     (sum, [p, t]) =>

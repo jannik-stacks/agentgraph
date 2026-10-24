@@ -83,7 +83,7 @@ export const hubAt = (path: string) =>
       );
 
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
-export const layers = (s: Settings): Layer.Layer<Services> => {
+export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
   const sandbox = docker({ data: s.data, cache: s.cache, image: s.image, ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load

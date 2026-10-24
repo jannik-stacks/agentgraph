@@ -495,7 +495,7 @@ export type Prices = {
 };
 
 /** The list price of the first of `models` the table knows, by its own name, its alias's upstream or a bare name. */
-export const priceOf = (prices: Prices, models: string[]) => {
+export const getModelPrice = (prices: Prices, models: string[]) => {
   const bare = (model: string) => model.split('/').at(-1) ?? model;
   return models
     .flatMap(model => [model, prices.aliases?.[model] ?? model, prices.aliases?.[bare(model)] ?? model])
@@ -506,7 +506,7 @@ export const priceOf = (prices: Prices, models: string[]) => {
 /** The usage's list price when the harness reports none, as a subscription through the proxy does; else what is unpriced. */
 const priced = (prices: Prices, models: string[], u: Extract<Piece, { type: 'usage' }>) => {
   if (u.usd) return u;
-  const price = priceOf(prices, models);
+  const price = getModelPrice(prices, models);
   if (!price) return { ...u, unpriced: models[0] ?? 'unknown' };
   const [read, write] = [u.cacheRead ?? 0, u.cacheWrite ?? 0];
   const usd =

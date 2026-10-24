@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { harnesses, priceOf } from '../src/harnesses.ts';
+import { harnesses, getModelPrice } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -100,9 +100,9 @@ describe('the session loop', () => {
       models: { 'gpt-6-luna': { input: 0.1, output: 0.5 } },
     };
     for (const model of ['luna', 'litellm/luna', 'chatgpt/gpt-6-luna', 'gpt-6-luna'])
-      expect(priceOf(prices, [model])).toEqual({ input: 0.1, output: 0.5 });
-    expect(priceOf(prices, ['mystery'])).toBeUndefined();
-    expect(priceOf(prices, ['mystery', 'luna'])).toEqual({ input: 0.1, output: 0.5 });
+      expect(getModelPrice(prices, [model])).toEqual({ input: 0.1, output: 0.5 });
+    expect(getModelPrice(prices, ['mystery'])).toBeUndefined();
+    expect(getModelPrice(prices, ['mystery', 'luna'])).toEqual({ input: 0.1, output: 0.5 });
   });
 
   it('prices the OpenRouter bench models at their OpenRouter list prices', () => {
@@ -115,7 +115,7 @@ describe('the session loop', () => {
       'grok-build': [1, 0.2, 2],
     };
     for (const [model, [input, cached, output]] of Object.entries(list))
-      expect(priceOf(prices, [model]), model).toMatchObject({ input, cached, output, source: 'openrouter' });
+      expect(getModelPrice(prices, [model]), model).toMatchObject({ input, cached, output, source: 'openrouter' });
   });
 
   it('runs the harness in a shell that reports its exit code, with only the agent key, by name', async () => {

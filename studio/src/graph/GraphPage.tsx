@@ -4,7 +4,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import { useMemo } from 'react';
 import { fixtures, served } from 'virtual:fixtures';
-import { graphOf } from '../../../src/graph.ts';
+import { makeWorkflowGraph } from '../../../src/graph.ts';
 import { queryParam, runsAtom, selectedStepAtom } from '../state.ts';
 import { Problems } from '../Problems.tsx';
 import { accent, AutoHeight, Combobox, Muted, Select } from '../ui.tsx';
@@ -135,7 +135,7 @@ const Canvas = ({ shown, picked }: { shown: Fixture[]; picked: Picked | undefine
     () =>
       shown.map(f => {
         const run = picked?.fixture === f ? picked : undefined;
-        const graph = graphOf(f.workflow, f.checks, run?.run, f.roles);
+        const graph = makeWorkflowGraph(f.workflow, f.checks, run?.run, f.roles);
         return {
           fixture: f.id,
           workflow: f.workflow.name,
@@ -349,7 +349,7 @@ export const GraphPage = () => {
               </span>{' '}
               {storyOf(
                 visitsOf(
-                  graphOf(picked.fixture.workflow, picked.fixture.checks, picked.run, picked.fixture.roles),
+                  makeWorkflowGraph(picked.fixture.workflow, picked.fixture.checks, picked.run, picked.fixture.roles),
                   picked.trail,
                   picked.run
                 )

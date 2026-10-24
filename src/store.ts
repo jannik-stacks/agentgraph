@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
-import { beat, live } from './env.ts';
+import { startHeartbeat, isOwnerRunning } from './env.ts';
 import type { Log, Trace } from './trace.ts';
 import type { Run } from './workflow.ts';
 
@@ -97,7 +97,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       } catch (e) {
         if (!exists(e)) throw e;
         const other = await readFile(claim, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
-        if (other === undefined || live(other)) return false;
+        if (other === undefined || isOwnerRunning(other)) return false;
         claim = `${path}.${createHash('sha256').update(`${claim}\0${other}`).digest('hex')}.next`;
       }
     }
@@ -110,7 +110,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     }
   };
   const take = async (path: string) => {
-    const holder = `${beat()}:${randomUUID()}`;
+    const holder = `${startHeartbeat()}:${randomUUID()}`;
     const candidate = `${path}.${randomUUID()}`;
     await writeFile(candidate, holder, { flag: 'wx' });
     try {
@@ -122,7 +122,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
           if (!exists(e)) throw e;
           const before = await readFile(path, 'utf8').catch(e => (missing(e) ? undefined : Promise.reject(e)));
           if (before === undefined) continue;
-          if (before ? live(before) : Date.now() - (await stat(path)).mtimeMs < 120_000)
+          if (before ? isOwnerRunning(before) : Date.now() - (await stat(path)).mtimeMs < 120_000)
             throw new Error(`held by ${before || 'an initializing owner'}`, { cause: e });
           if (await succeed(path, before, candidate)) return holder;
           break;

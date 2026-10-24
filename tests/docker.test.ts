@@ -5,16 +5,16 @@ import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { docker, dockerArgs } from '../src/docker.ts';
 import {
-  beat,
+  startHeartbeat,
   dependencyDirs,
-  live,
+  isOwnerRunning,
   discard,
   layer,
-  mark,
+  writeCheckoutOwner,
   reap,
-  skeletonOf,
-  sweep,
-  toolchainOf,
+  readDependencySkeleton,
+  removeOrphanedVolumes,
+  makeToolchainSetupCommands,
   written,
 } from '../src/env.ts';
 import { harnesses } from '../src/harnesses.ts';
@@ -227,7 +227,7 @@ describe('docker with a stand-in docker client', () => {
     expect(JSON.stringify(exit)).toContain('volume name not allowed');
   });
 
-  it("builds a hub's Env once on the base's files with open network and starts every checkout from it", async () => {
+  it("builds a hub's sandbox setup once on the base's files with open network and starts every checkout from it", async () => {
     const repo = origin();
     writeFileSync(join(repo, 'Cargo.toml'), '[workspace]\n');
     git(repo, 'add', '.');
@@ -271,7 +271,7 @@ describe('docker with a stand-in docker client', () => {
     );
   });
 
-  it("layers a checkout's dependency dirs over the Env's copy, skips setup on base files and drops them after", async () => {
+  it("layers a checkout's dependency dirs over the sandbox setup's copy, skips setup on base files and drops them after", async () => {
     const exit = await use(docker({ data: tmp('data'), origin: origin() }), s =>
       Effect.gen(function* () {
         const work = yield* s.checkout('main', undefined, undefined, { setup: 'withdeps' });
@@ -353,9 +353,9 @@ describe('docker with a stand-in docker client', () => {
   });
 });
 
-describe('toolchainOf', () => {
+describe('makeToolchainSetupCommands', () => {
   it('installs the pinned Rust toolchain with clippy and rustfmt and fetches the locked crates', () => {
-    expect(toolchainOf(['Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'README.md'])).toEqual([
+    expect(makeToolchainSetupCommands(['Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'README.md'])).toEqual([
       'command -v rustup >/dev/null || rustup-init -y -q --no-modify-path --default-toolchain none --profile minimal',
       'rustup toolchain install',
       'rustup component add clippy rustfmt',
@@ -364,14 +364,14 @@ describe('toolchainOf', () => {
   });
 
   it('falls back to stable without a toolchain file and fetches without a lockfile', () => {
-    const lines = toolchainOf(['Cargo.toml']);
+    const lines = makeToolchainSetupCommands(['Cargo.toml']);
     expect(lines[1]).toBe('rustup default stable');
     expect(lines[3]).toBe('cargo fetch');
-    expect(toolchainOf(['rust-toolchain.toml'])).toHaveLength(3);
+    expect(makeToolchainSetupCommands(['rust-toolchain.toml'])).toHaveLength(3);
   });
 
   it('installs nothing for a repo without a toolchain it knows', () => {
-    expect(toolchainOf(['package.json', 'package-lock.json', '.nvmrc'])).toEqual([]);
+    expect(makeToolchainSetupCommands(['package.json', 'package-lock.json', '.nvmrc'])).toEqual([]);
   });
 });
 
@@ -574,7 +574,7 @@ describe.runIf(process.env.AGENTGRAPH_DOCKER === '1')('docker for real', () => {
     expect(existsSync(join(hub, 'y'))).toBe(false);
   }, 60_000);
 
-  it("keeps one copy of an Env's dependencies however many checkouts use it, each with only its own writes", async () => {
+  it("keeps one copy of a sandbox setup's dependencies however many checkouts use it, each with only its own writes", async () => {
     const repo = origin();
     writeFileSync(join(repo, 'package.json'), '{}\n');
     writeFileSync(join(repo, '.gitignore'), 'node_modules\n');
@@ -740,7 +740,7 @@ describe('disk lifecycle', () => {
     const commit = () => (
       git(dir, 'add', '-f', '.'),
       git(dir, 'commit', '-q', '-m', 'x'),
-      skeletonOf(join(dir, '.git'), 'main')
+      readDependencySkeleton(join(dir, '.git'), 'main')
     );
     const one = await commit();
     expect(one.paths.sort()).toEqual([
@@ -766,7 +766,7 @@ describe('disk lifecycle', () => {
     expect((await commit()).digest).not.toBe(one.digest);
   });
 
-  it('layers overlays over the Env copy where it made a dependency dir and empty volumes elsewhere', async () => {
+  it('layers overlays over the sandbox setup copy where it made a dependency dir and empty volumes elsewhere', async () => {
     await faked({ 'volume inspect': '/lower\\n/u0\\n' }, async log => {
       const layers = await layer(
         { image: 'img', outputs: ['node_modules', 'dist'], lower: 'agentgraph-lower-k' },
@@ -822,11 +822,11 @@ describe('disk lifecycle', () => {
     await faked({}, async () => {
       const data = tmp('data');
       for (const id of ['mine', 'none', 'gone']) mkdirSync(join(data, 'work', id, 'node_modules'), { recursive: true });
-      mark(join(data, 'work', 'mine'));
+      writeCheckoutOwner(join(data, 'work', 'mine'));
       writeFileSync(join(data, 'work', 'gone.owner'), `${spawnSync('true').pid}:0123456789ab`);
       expect(reap(data)).toBe(2);
       expect(readdirSync(join(data, 'work')).sort()).toEqual(['mine', 'mine.owner']);
-      expect(live(beat())).toBe(true);
+      expect(isOwnerRunning(startHeartbeat())).toBe(true);
     });
   });
 
@@ -839,8 +839,8 @@ describe('disk lifecycle', () => {
       mkdirSync(dirname(heartbeat), { recursive: true });
       writeFileSync(heartbeat, '');
       utimesSync(heartbeat, new Date(0), new Date(0));
-      expect(live(`${process.pid}:${owner}`)).toBe(true);
-      expect(live(`${spawnSync('true').pid}:${owner}`)).toBe(false);
+      expect(isOwnerRunning(`${process.pid}:${owner}`)).toBe(true);
+      expect(isOwnerRunning(`${spawnSync('true').pid}:${owner}`)).toBe(false);
     } finally {
       if (saved === undefined) delete process.env.AGENTGRAPH_STATE;
       else process.env.AGENTGRAPH_STATE = saved;
@@ -848,8 +848,8 @@ describe('disk lifecycle', () => {
   });
 });
 
-describe('sweep', () => {
-  it('sweeps nothing when docker does not answer in time', async () => {
+describe('removeOrphanedVolumes', () => {
+  it('removes nothing when docker does not answer in time', async () => {
     const bin = tmp('bin');
     writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexec sleep 5\n');
     chmodSync(join(bin, 'docker'), 0o755);
@@ -857,7 +857,7 @@ describe('sweep', () => {
     process.env.PATH = `${bin}${delimiter}${path}`;
     try {
       const started = Date.now();
-      expect(await sweep(200)).toBe(0);
+      expect(await removeOrphanedVolumes(200)).toBe(0);
       expect(Date.now() - started).toBeLessThan(3000);
     } finally {
       process.env.PATH = path;

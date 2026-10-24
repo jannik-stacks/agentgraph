@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Duration, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { gate } from '../src/engine.ts';
+import { runStepChecks } from '../src/engine.ts';
 import { Session } from '../src/session.ts';
 import { fileStore } from '../src/store.ts';
 import { host } from './doubles/sandbox.ts';
@@ -61,7 +61,7 @@ const peakOf = async (sessions: number) => {
     proposals: [],
   });
   await Effect.runPromise(
-    Effect.forEach(['a', 'b', 'c'], run => gate(step, left(run), small), { concurrency: 'unbounded' }).pipe(
+    Effect.forEach(['a', 'b', 'c'], run => runStepChecks(step, left(run), small), { concurrency: 'unbounded' }).pipe(
       Effect.provide(layer)
     )
   );

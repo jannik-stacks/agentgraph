@@ -31,9 +31,9 @@ export type Checkout = {
   head?: string;
   saved?: string;
   published?: string;
-  /** The checkout starts from an Env that already ran the hub's setup on these files. */
+  /** The checkout starts from a sandbox setup that already ran the hub's setup on these files. */
   ready?: boolean;
-  /** The Env the checkout starts from, how it was built, and whether it was built from the checkout's own files. */
+  /** The sandbox setup the checkout starts from, how it was built, and whether it was built from the checkout's own files. */
   env?: { key: string; mode: 'deps' | 'tree'; match: boolean };
   git: { GIT_DIR: string; GIT_WORK_TREE: string; GIT_INDEX_FILE?: string };
   news: string;
@@ -50,7 +50,7 @@ export class SandboxError extends Data.TaggedError('SandboxError')<{
  * Where a run's checkout lives and where its scripts and harnesses run. Docker, or the host in tests. With `keep`, a
  * checkout starts from the files last kept under that ref, on the run branch when it exists, else on their base.
  * It keeps its own files there as one local commit when its scope closes. Every command in a checkout runs in the
- * `image` and on the `network` of the `hub` it was made for, starting from that hub's Env at the base when there is one.
+ * `image` and on the `network` of the `hub` it was made for, starting from that hub's sandbox setup at the base when there is one.
  */
 export class Sandbox extends Context.Tag('agentgraph/Sandbox')<
   Sandbox,

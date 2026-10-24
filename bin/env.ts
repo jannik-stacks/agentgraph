@@ -1,5 +1,5 @@
 /**
- * Lists and collects the cache Envs, dependency volumes and score trees hold, pins what a paused bench still needs,
+ * Lists and collects the cache sandbox setups, dependency volumes and score trees hold, pins what a paused bench still needs,
  * and removes dependency volumes of dead runners.
  *
  *   node bin/env.ts list [--root <dir>]...
@@ -9,8 +9,8 @@
  *   node bin/env.ts sweep
  */
 import { parseArgs } from 'node:util';
-import { bytes, collect, inventory, type Item, pin, unpin } from '../src/disk.ts';
-import { sweep } from '../src/env.ts';
+import { parseByteSize, collect, inventory, type DiskCacheEntry, pin, unpin } from '../src/disk.ts';
+import { removeOrphanedVolumes } from '../src/env.ts';
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -23,9 +23,9 @@ const { positionals, values } = parseArgs({
 });
 const [command, name, ...globs] = positionals;
 const gb = (b: number) => `${(b / 1e9).toFixed(2)} GB`;
-const row = (i: Item) =>
+const row = (i: DiskCacheEntry) =>
   `  ${gb(i.bytes).padStart(10)}  ${i.kind.padEnd(6)}  ${i.refs.join(' ')}${i.gone ? `  (unreachable: ${i.gone})` : ''}${i.held ? `  (held: ${i.held})` : ''}`;
-const sum = (items: Item[]) => gb(items.reduce((n, i) => n + i.bytes, 0));
+const sum = (items: DiskCacheEntry[]) => gb(items.reduce((n, i) => n + i.bytes, 0));
 
 if (command === 'list') {
   const items = await inventory({ roots: values.root, measure: true });
@@ -37,7 +37,7 @@ if (command === 'list') {
     dry,
     roots: values.root,
     measure: true,
-    ...(values.cap && { limit: bytes(values.cap) }),
+    ...(values.cap && { limit: parseByteSize(values.cap) }),
   });
   console.log(`${dry ? 'would remove' : 'removed'} ${removed.length} items, ${sum(removed)}:`);
   for (const i of removed) console.log(row(i));
@@ -46,7 +46,7 @@ if (command === 'list') {
   for (const i of kept) console.log(row(i));
 } else if (command === 'pin' && name && globs.length) pin(name, globs, Number(values.days));
 else if (command === 'unpin' && name) unpin(name);
-else if (command === 'sweep') console.log(`removed ${await sweep()} dependency volumes`);
+else if (command === 'sweep') console.log(`removed ${await removeOrphanedVolumes()} dependency volumes`);
 else {
   console.error(
     'usage: node bin/env.ts (list | collect [--cap 60g] [--root <dir>]... [--dry-run] | pin <name> <glob>... [--days 14] | unpin <name> | sweep)'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { news, type Issues } from '../src/context.ts';
+import { news, type IssueWithPull } from '../src/context.ts';
 import type { Comment, Event, Issue } from '../src/event.ts';
 
 const said = (actor: string, at: string, comment: Omit<Comment, 'author' | 'at'>): Event => ({
@@ -10,7 +10,7 @@ const said = (actor: string, at: string, comment: Omit<Comment, 'author' | 'at'>
   at,
   comment: { ...comment, author: actor, at },
 });
-const pull = (events: Event[]): Issues => {
+const pull = (events: Event[]): IssueWithPull => {
   const issue: Issue = {
     number: 17,
     title: 'Fix numeric tips',

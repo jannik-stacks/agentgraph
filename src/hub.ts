@@ -4,7 +4,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import { Data, Effect, Either, ParseResult, Schema } from 'effect';
 import { parse } from 'yaml';
 import { Kind } from './proposal.ts';
-import { exact, load, split, type Doc, type Problem, type Workflow } from './workflow.ts';
+import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type Workflow } from './workflow.ts';
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
@@ -166,7 +166,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   const sayer = (path: string) => (message: string) => problems.push({ path, message });
   const front = (file: File) => {
     try {
-      return split(file.text);
+      return splitFrontmatter(file.text);
     } catch (e) {
       sayer(file.path)(`frontmatter: ${(e as Error).message}`);
     }
@@ -231,7 +231,7 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   };
   const workflows: Record<string, Workflow> = {};
   for (const file of groups.workflows) {
-    const loaded = load(file.path, file.text, names);
+    const loaded = compileWorkflow(file.path, file.text, names);
     problems.push(...loaded.problems);
     if (loaded.workflow) workflows[loaded.workflow.name] = loaded.workflow;
   }

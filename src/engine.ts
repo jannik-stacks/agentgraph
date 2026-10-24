@@ -2,21 +2,30 @@ import { createHash, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Chunk, Data, Effect, Either, Option, Schema, Stream } from 'effect';
-import { answerWith, context, footer, line, news, shown, transcript, type Issues } from './context.ts';
-import { Forge, ForgeError, provenance, withheld } from './forge.ts';
+import {
+  answerWith,
+  context,
+  footer,
+  formatEventLine,
+  news,
+  proposeStatusUpdates,
+  transcript,
+  type IssueWithPull,
+} from './context.ts';
+import { Forge, ForgeError, currentRunLinkRef, withheld } from './forge.ts';
 import type { Applied, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import type { Check, Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { hostGit, mergeOf } from './git.ts';
+import { hostGit, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
 import { Store, type StoreError } from './store.ts';
 import { type Aside, type Trace, SessionStop, type SessionSpec } from './trace.ts';
 import {
   begin,
-  failure,
+  formatFailedTryFeedback,
   fold,
-  reenter,
+  getEventOutcome,
   transition,
   type CheckResult,
   type Doc,
@@ -26,8 +35,8 @@ import {
   type Step,
   type Workflow,
   unchanged,
-  waits,
-  toBot,
+  isHumanWaitStep,
+  parseAgentRequest,
 } from './workflow.ts';
 
 export type Services = Forge | Store | Session | Sandbox;
@@ -178,7 +187,7 @@ const depthOf = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge>
 const writing =
   (run: Run, session = run.sessions[run.step]?.id) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    Effect.locallyWith(effect, provenance, outer =>
+    Effect.locallyWith(effect, currentRunLinkRef, outer =>
       outer?.run === run.id && outer.step === run.step
         ? outer
         : { run: run.id, step: run.step, ...(session && { session }) }
@@ -460,7 +469,7 @@ const settled = (child: Run) =>
   }`;
 
 /** The run's issue and the pull request on its branch, fetched before every session. */
-const issuesOf = (w: Workflow, run: Run): Effect.Effect<Issues, ForgeError | StoreError, Forge | Store> =>
+const issuesOf = (w: Workflow, run: Run): Effect.Effect<IssueWithPull, ForgeError | StoreError, Forge | Store> =>
   Effect.gen(function* () {
     const forge = yield* Forge;
     const issue = yield* forge.issue(run.issue);
@@ -520,14 +529,14 @@ const heardBy = (hub: Hub, w: Workflow, m: Event): Event => {
 };
 
 /** What people said to a live run on its issue and pull request since it last looked, as one outcome, and when the newest of it was said. */
-const told = (hub: Hub, w: Workflow, run: Run, t: Issues) =>
+const told = (hub: Hub, w: Workflow, run: Run, t: IssueWithPull) =>
   Effect.map(tellsOf(run), tells => {
     if (w.on.feedback) return undefined;
     const since = run.seen ?? run.started;
     const said = [...[...t.issue.events, ...(t.pull?.events ?? [])].map(m => heardBy(hub, w, m)), ...tells]
       .filter(m => m.at > since)
       .flatMap(m => {
-        const o = reenter(w, run, { ...m, issue: run.issue });
+        const o = getEventOutcome(w, run, { ...m, issue: run.issue });
         return o ? [{ o, at: m.at }] : [];
       });
     const outcome = fold(said.map(s => s.o));
@@ -541,10 +550,10 @@ const feedback = (m: Event) =>
     m.kind === 'changes_requested' ||
     m.kind === 'commit' ||
     (m.kind === 'approved' && !!m.comment?.body.trim())) &&
-  !/^(stop|cancel|restart(\s+\S+)?)$/i.test(toBot(m) ?? '');
+  !/^(stop|cancel|restart(\s+\S+)?)$/i.test(parseAgentRequest(m) ?? '');
 
 /** When a trusted person last did something on the issue or its pull request. */
-const lastHeard = (t: Issues) =>
+const lastHeard = (t: IssueWithPull) =>
   newest(...[t.issue, t.pull].flatMap(x => x?.events ?? []).flatMap(m => (m.trusted ? m.at : [])));
 
 const sh = (
@@ -642,7 +651,7 @@ const itemsOf = (
 };
 
 /** Writes the news since `seen` to the checkout's news file; a failed write logs and keeps the old file. */
-const refresh = (run: Run, work: Checkout, seen: Seen, t: Issues) =>
+const refresh = (run: Run, work: Checkout, seen: Seen, t: IssueWithPull) =>
   Effect.tryPromise(() => writeFile(work.news, `${news(t, seen).text || 'Nothing new yet.'}\n`)).pipe(
     Effect.catchAll(e => Effect.logWarning(`news for run ${run.id}`, e))
   );
@@ -1245,7 +1254,7 @@ const attempt = (
     const checked = answered
       ? { outcome: { kind: 'pass' } as const, usd: 0 }
       : yield* Effect.raceFirst(
-          gate(
+          runStepChecks(
             step,
             {
               run: run.id,
@@ -1350,7 +1359,7 @@ const attempt = (
  * The step's checks over what a try left behind, all at once, so every finding of a try comes back together. `usd` is what the agent checks cost.
  * @internal
  */
-export const gate = (
+export const runStepChecks = (
   step: Step,
   left: Left,
   hub: Hub
@@ -1419,7 +1428,7 @@ const show = (w: Workflow, run: Run): Effect.Effect<Run, StoreError, Forge | Sto
     if (w.on.feedback) return run;
     const forge = yield* Forge;
     const t = yield* issuesOf(w, run);
-    const status = yield* Effect.forEach(shown(run, t, forge.studio), p => forge.apply(run.issue, p));
+    const status = yield* Effect.forEach(proposeStatusUpdates(run, t, forge.studio), p => forge.apply(run.issue, p));
     const reply = status.find(a => a.proposal.kind === 'comment');
     const undone = reply?.ok && run.eyes ? [yield* forge.apply(run.eyes.issue, run.eyes.undo)] : [];
     yield* Effect.flatMap(Store, s =>
@@ -1667,7 +1676,7 @@ const following = (work: Checkout, onto: string, first: boolean) =>
         '-m',
         'Saved work',
       ]);
-      yield* hostGit(work.git, ['read-tree', '-u', '--reset', (yield* mergeOf(work, onto, head)).tree]);
+      yield* hostGit(work.git, ['read-tree', '-u', '--reset', (yield* mergeTreeOnto(work, onto, head)).tree]);
     }
     work.base = onto;
     return work;
@@ -1742,7 +1751,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
         )
       );
       if (tried >= (to ? 2 : 1)) return { run: current };
-      const { tree, files } = yield* mergeOf(work, onto, pull.head);
+      const { tree, files } = yield* mergeTreeOnto(work, onto, pull.head);
       if (merge && files.length === 0) yield* hostGit(work.git, ['read-tree', '-u', '--reset', tree]);
       const applied: Applied =
         files.length > 0
@@ -1792,7 +1801,7 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
     const judged = (name: string) => hub.checks[name]?.agent !== undefined;
     const scripts = step.checks.filter(c => !judged(c));
     const later = own ? step.checks.filter(judged) : [];
-    let { outcome, usd } = yield* gate(own ? { ...step, checks: scripts } : to, left, hub);
+    let { outcome, usd } = yield* runStepChecks(own ? { ...step, checks: scripts } : to, left, hub);
     if (outcome.kind === 'pass' && later.length > 0) {
       const log = yield* text(work, ['log', '--oneline', '--no-decorate', `${from}..${onto}`]);
       const stat = yield* text(work, ['diff', '--stat', from, onto]);
@@ -1804,13 +1813,13 @@ const catchUp = (w: Workflow, run: Run, hub: Hub, pull: NonNullable<Issue['pull'
       ]
         .filter(Boolean)
         .join('\n\n');
-      const second = yield* gate({ ...step, checks: later }, { ...left, reply }, hub);
+      const second = yield* runStepChecks({ ...step, checks: later }, { ...left, reply }, hub);
       outcome = second.outcome;
       usd += second.usd;
     }
     const checked = { ...current, usd: run.usd + usd };
     return outcome.kind === 'failed'
-      ? { run: checked, outcome: { kind: 'back', why: failure(outcome) } as const }
+      ? { run: checked, outcome: { kind: 'back', why: formatFailedTryFeedback(outcome) } as const }
       : outcome.kind === 'pass'
         ? { run: checked }
         : { run: checked, outcome };
@@ -1886,18 +1895,18 @@ const aside = (w: Workflow, run: Run, hub: Hub, said: string, pull: NonNullable<
   }).pipe(Effect.scoped);
 
 /** How long an issue must be quiet before what people did there starts or wakes a run, so a burst counts once. */
-export const settle = 30_000;
+export const issueDebounceMs = 30_000;
 
 /**
  * One look at the repo: reenter live runs, begin new ones on a trusted command or label, drive up to `limits.parallel`.
  * With `only`, it looks at that issue alone and begins a run there when none was live; with `marked` too, only on a
- * trusted command or label. An issue with a trusted event younger than `quiet` ms is left for a later look.
+ * trusted command or label. An issue with a trusted event younger than `debounce` ms is left for a later look.
  */
 export const tick = (
   hub: Hub,
   only?: number,
   marked = false,
-  quiet = 0
+  debounce = 0
 ): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
@@ -1990,11 +1999,11 @@ export const tick = (
     };
     const triggered = Object.values(hub.workflows).filter(w => w.on.issue_comment);
     const routed = router(hub) !== undefined;
-    /** Whether a trusted event on the issue is younger than `quiet`, so a burst still coming starts nothing yet. */
+    /** Whether a trusted event on the issue is younger than `debounce`, so a burst still coming starts nothing yet. */
     const young = (issue: number) =>
-      quiet > 0 &&
+      debounce > 0 &&
       latest.some(
-        m => (m.issue === issue || onRun(m).issue === issue) && m.trusted && Date.now() - Date.parse(m.at) < quiet
+        m => (m.issue === issue || onRun(m).issue === issue) && m.trusted && Date.now() - Date.parse(m.at) < debounce
       );
     const events = latest.map(onRun).filter(mine);
     const used = new Set<Event>();
@@ -2048,7 +2057,7 @@ export const tick = (
 
         /** A working run takes only a stop here; what else people say reaches it where it works. */
         const taken = (m: Event, lined: Event[] = []) => {
-          const o = w && reenter(w, run, tells.includes(m) ? m : heardBy(hub, w, m), lined);
+          const o = w && getEventOutcome(w, run, tells.includes(m) ? m : heardBy(hub, w, m), lined);
           return o && (run.status !== 'running' || o.kind === 'stop') ? o : undefined;
         };
         const answers =
@@ -2075,7 +2084,7 @@ export const tick = (
         const step = w.steps.find(s => s.name === run.step);
         const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
         const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =
-          outcome.kind !== 'answer' || !step || !waits(step)
+          outcome.kind !== 'answer' || !step || !isHumanWaitStep(step)
             ? undefined
             : yield* (
                 pull
@@ -2176,7 +2185,7 @@ export const tick = (
         touched.push(run);
       }).pipe(Effect.scoped);
     for (const m of events) {
-      const words = toBot(m)?.split(/\s+/) ?? [];
+      const words = parseAgentRequest(m)?.split(/\s+/) ?? [];
       const named = triggered.find(w => w.name === words[0]);
       const relabelled = events.some(
         n => n.issue === m.issue && n.label === m.label && n.at > m.at && (n.kind === 'label' || n.kind === 'unlabel')
@@ -2186,7 +2195,7 @@ export const tick = (
           ? relabelled
             ? undefined
             : labelled.find(w => w.on.issues!.label === m.label)
-          : toBot(m) !== undefined
+          : parseAgentRequest(m) !== undefined
             ? (named ?? triggered[0])
             : undefined;
       const [verb = '', step = ''] = named ? words.slice(1) : words;
@@ -2254,7 +2263,7 @@ export const tick = (
         const at = newest(...fresh.map(m => m.at))!;
         const begun: Run = {
           ...begin(w, { id: `${w.name}-${issue}-${at.replace(/\D/g, '')}`, issue, started: at }),
-          feedback: `## What a person said or pushed\n\n${fresh.map(line).join('\n\n')}`,
+          feedback: `## What a person said or pushed\n\n${fresh.map(formatEventLine).join('\n\n')}`,
         };
         yield* Effect.gen(function* () {
           if (Either.isLeft(yield* Effect.either(store.lock(begun.id)))) return;
@@ -2281,7 +2290,7 @@ export const tick = (
         const w = hub.workflows[r.workflow];
         const step = w?.steps.find(s => s.name === r.step);
         const pull = w && issues.find(t => t.number === pullOf(w, r.issue, issues))?.pull;
-        if (!w || !step || !waits(step) || !pull) return;
+        if (!w || !step || !isHumanWaitStep(step) || !pull) return;
         const caught = yield* catchUp(w, r, hub, pull).pipe(
           Effect.catchAll(e => Effect.as(Effect.logError(`catch up run ${r.id}`, e), undefined))
         );
@@ -2313,16 +2322,19 @@ export const tick = (
 /**
  * One pass over the open issues and the issues of live runs, up to `limits.parallel` at once: each gets one look, and a
  * new run only on a trusted mark. Each issue is read from its own last run on, so it catches up on what a repo-wide
- * look has passed. `quiet` is as for `tick`.
+ * look has passed. `debounce` is as for `tick`.
  */
-export const sweep = (hub: Hub, quiet = 0): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
+export const scanIssuesAndRunningRuns = (
+  hub: Hub,
+  debounce = 0
+): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
     const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(
       t => !t.pull && inScope(hub, t)
     );
     const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(live);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
-    return (yield* Effect.forEach(issues, n => tick(hub, n, true, quiet), {
+    return (yield* Effect.forEach(issues, n => tick(hub, n, true, debounce), {
       concurrency: hub.limits.parallel,
     })).flat();
   });

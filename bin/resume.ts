@@ -23,7 +23,7 @@ import {
 import { uptime } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { type Disk, room } from '../src/disk.ts';
+import { type Disk, ensureFreeDisk } from '../src/disk.ts';
 import { isPidRunning } from '../src/env.ts';
 
 const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
@@ -178,7 +178,7 @@ export const down = async (net = false, disk?: Disk): Promise<string | undefined
     return 'docker unreachable';
   if (net && !(await reach('https://registry.npmjs.org/'))) return 'network unreachable';
   if (disk)
-    return room(disk).then(
+    return ensureFreeDisk(disk).then(
       () => undefined,
       (e: Error) => e.message
     );

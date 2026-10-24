@@ -1,6 +1,6 @@
 import { useAtomValue } from 'jotai';
 import { useState } from 'react';
-import { graphOf } from '../../../src/graph.ts';
+import { makeWorkflowGraph } from '../../../src/graph.ts';
 import type { Trace } from '../../../src/trace.ts';
 import type { CheckResult, Run, Step, Workflow } from '../../../src/workflow.ts';
 import { Code, Markdown } from '../Markdown.tsx';
@@ -213,7 +213,7 @@ export const StepDetails = ({ fixture, step, run }: { fixture: Fixture; step: St
   const { workflow, checks } = fixture;
   const { does } = step;
   const lines = run && (run.trace ?? traceOf(run.trail, run.run)).filter(line => line.step === step.name);
-  const graph = graphOf(workflow, checks, undefined, fixture.roles);
+  const graph = makeWorkflowGraph(workflow, checks, undefined, fixture.roles);
   const { trigger } = graph;
   const { writes, model } = graph.nodes.find(n => n.step === step.name) ?? {};
   const waits = 'wait' in does;

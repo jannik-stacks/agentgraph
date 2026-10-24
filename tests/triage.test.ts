@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from '
 import { join } from 'node:path';
 import { Chunk, Effect, Layer, Stream } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
-import { sweep, tick } from '../src/engine.ts';
+import { scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import { fileForge, Forge } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import { loadHub } from '../src/hub.ts';
@@ -123,7 +123,7 @@ describe('triage', () => {
     const scoped = { ...hub, milestone: 'v1' };
     const first = await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(scoped));
     expect(first.value.map(r => r.issue)).toEqual([1]);
-    const swept = await run(where, [], sweep(scoped));
+    const swept = await run(where, [], scanIssuesAndRunningRuns(scoped));
     expect(swept.value.map(r => r.issue)).toEqual([]);
     const rest = await run(where, [turn({ kind: 'label', add: ['size/S'] })], tick(hub));
     expect(rest.value.map(r => r.issue)).toEqual([2]);
@@ -176,7 +176,7 @@ describe('triage', () => {
       ).pipe(Effect.provide(bot))
     );
     expect((await run(where, [], tick(hub))).value).toEqual([]);
-    expect((await run(where, [], sweep(hub))).value).toEqual([]);
+    expect((await run(where, [], scanIssuesAndRunningRuns(hub))).value).toEqual([]);
     expect((await runs(where)).map(r => [r.workflow, r.issue, r.status])).toEqual([['triage', 1, 'done']]);
   });
 

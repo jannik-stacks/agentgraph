@@ -21,7 +21,7 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { tell, type Instruction } from '../src/engine.ts';
-import { appEnv, start } from '../src/main.ts';
+import { readAppEnvWithKey, start } from '../src/main.ts';
 import { loadHub } from '../src/hub.ts';
 import { instanceAt } from '../src/instance.ts';
 import { needsYou } from '../src/status.ts';
@@ -52,7 +52,8 @@ if (values.instance && !instance) {
 if (instance) {
   Object.assign(values, { hub: instance.hub, forge: instance.forge, data: instance.data });
   if (instance.logs) process.env.AGENTGRAPH_CHECK_LOGS ??= instance.logs;
-  if (existsSync(instance.keys)) for (const [k, v] of Object.entries(await appEnv(instance.keys))) process.env[k] ??= v;
+  if (existsSync(instance.keys))
+    for (const [k, v] of Object.entries(await readAppEnvWithKey(instance.keys))) process.env[k] ??= v;
 }
 if (values.forge) process.env.AGENTGRAPH_FORGE = resolve(values.forge);
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
@@ -124,7 +125,7 @@ if (positionals[0] === 'status') {
   }
   const hub = resolve(values.hub);
   const data = resolve(values.data);
-  const env = await appEnv(process.env.AGENTGRAPH_APP_ENV);
+  const env = await readAppEnvWithKey(process.env.AGENTGRAPH_APP_ENV);
   const id = env.AGENTGRAPH_APP_ID ?? process.env.AGENTGRAPH_APP_ID;
   const key = env.AGENTGRAPH_APP_KEY ?? process.env.AGENTGRAPH_APP_KEY;
   if (!values.forge && (!id || !key)) {
