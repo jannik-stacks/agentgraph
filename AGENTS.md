@@ -7,6 +7,10 @@ Read [STYLE.md](STYLE.md) and [docs/patterns.md](docs/patterns.md) before writin
 
 The full rules are in [STYLE.md](STYLE.md). The ones that matter most:
 
+- **Check the exceptions every loop.** Before finishing any change, reread
+  [STYLE.md#exceptions](STYLE.md#exceptions) and say whether a restructure or rename would remove one.
+  A new exception needs a reason in that list.
+
 - **Derive types, never copy them.** Use `Pick`, `Omit`, `Partial`, indexed access or `typeof X.Type` at
   the use site.
   Before: `type Made = { mounts: Mount[]; image: string; network?: string }`.

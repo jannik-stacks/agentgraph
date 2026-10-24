@@ -125,6 +125,17 @@ at that level first.
 55. No em-dash taglines on headings, no `·`, no math symbols, no marketing words. Diagram arrows are
     ASCII `>` `<` `v` `^`.
 
+## Exceptions
+
+A rule may have an exception when following it reads worse. Every exception is listed here with its
+reason, and the lint baseline or allowlist points back to this list. On every implementation loop,
+reread this list and ask whether a restructure or rename would remove an exception. Don't add a new
+one without that check.
+
+- **Layer constructors are named `<how><Service>`, without a verb:** `fileStore`, `githubForge`,
+  `fileForge`, and the test doubles in `tests/doubles/` (`scripted` becomes `replaySession`). They
+  read as values handed to `Effect.provide`.
+
 ## Commits
 
 56. Small linear commits, one change each; no merge commits; never rewrite pushed history.
