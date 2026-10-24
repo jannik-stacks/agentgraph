@@ -713,6 +713,9 @@ export const githubForge = (
         const fields = (yield* git(work, ['diff-tree', '-r', '-z', '--no-renames', '--no-abbrev', from, to]))
           .toString('utf8')
           .split('\0');
+        const count = (fields.length - 1) / 2;
+        if (count > pushLimits.files)
+          return yield* refuse(`refused to push: ${count} files changed, at most ${pushLimits.files} can be pushed`);
         const changes: { path: string; mode: string; sha: string | null; content?: Buffer }[] = [];
         const problems: string[] = [];
         for (let i = 0; i + 1 < fields.length; i += 2) {
@@ -728,8 +731,6 @@ export const githubForge = (
             else changes.push({ path, mode: newMode, sha: newSha, content });
           }
         }
-        if (changes.length + problems.length > pushLimits.files)
-          problems.push(`${changes.length + problems.length} files changed, at most ${pushLimits.files} can be pushed`);
         if (problems.length) return yield* refuse(`refused to push: ${problems.join('; ')}`);
         for (const { path, sha, content } of changes) {
           if (!content) continue;
