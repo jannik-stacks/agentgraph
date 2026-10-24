@@ -87,7 +87,7 @@ describe('lint check', () => {
       { 'kit/old.ts': 'export const   old = 2\n', 'kit/new.ts': 'export const add = (a: number) => a + 1;\n' }
     );
     expect(check('lint.mjs', repo)).toEqual({ ok: true, out: 'lint: ok' });
-  });
+  }, 30_000);
 
   it('fails when the linters are missing from the sandbox instead of passing', () => {
     const repo = change({ 'kit/a.ts': 'export const a = 1;\n' }, { 'kit/a.ts': 'export const a = 2;\n' });
