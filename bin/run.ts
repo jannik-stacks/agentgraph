@@ -87,9 +87,16 @@ const printRuns = (runs: Run[]) => {
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
 const checkHub = async (hub: string) => {
+  Object.assign(process.env, {
+    ...(values.provider && { AGENTGRAPH_PROVIDER: values.provider }),
+    ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
+  });
   const problems = await Effect.runPromise(
-    readConfiguredHub(hub).pipe(
-      Effect.map(() => []),
+    Effect.zip(readHarnessSettings, readConfiguredHub(hub)).pipe(
+      Effect.map(([{ providers = [] }, loaded]) => {
+        const provider = providers.find(p => p.name === values.provider);
+        return provider ? findUnserved(provider, loaded) : [];
+      }),
       Effect.catchTag('HubError', e => Effect.succeed(e.problems))
     )
   );
@@ -126,17 +133,21 @@ const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
   return picked;
 };
 
-let prepared: Promise<Hub> | undefined;
-const prepare = (i: Instance, hub: string, after: string) =>
-  (prepared ??= (async () => {
+const findUnserved = (provider: Provider, hub: Hub) =>
+  Object.values(hub.agents)
+    .filter(a => !provider.harnesses.includes(a.harness))
+    .map(a => ({
+      path: a.path,
+      message: `${provider.name} does not serve ${a.harness}. It serves ${provider.harnesses.join(' and ')}.`,
+    }));
+
+let connected: Promise<Provider> | undefined;
+const connect = (i: Instance, hub: string, after: string) =>
+  (connected ??= (async () => {
     const provider = await pickProvider(i, after);
     const harness = values.harness ?? provider.harnesses[0]!;
     if (!provider.harnesses.includes(harness))
       fail(`${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.\n${after}`);
-    Object.assign(process.env, provider.settings?.() ?? {}, {
-      AGENTGRAPH_PROVIDER: provider.name,
-      ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
-    });
     console.log(
       `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
     );
@@ -151,20 +162,26 @@ const prepare = (i: Instance, hub: string, after: string) =>
       await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))().catch((e: Error) =>
         fail(`${e.message}\n${after}`, 1)
       );
-    const loaded = await Effect.runPromise(readConfiguredHub(hub)).catch((e: Error) => fail(e.message, 1));
-    const agents = Object.values(loaded.agents);
-    if (values.model)
-      process.env.AGENTGRAPH_MODELS = ['*', ...agents.flatMap(a => a.model ?? [])]
-        .map(alias => `${alias}=${values.model}`)
-        .join(',');
-    const unserved = agents.filter(a => !provider.harnesses.includes(a.harness));
-    if (unserved.length)
-      fail(
-        `${provider.name} does not serve ${unserved.map(a => `${a.harness} (${a.path})`).join(', ')}. It serves ${provider.harnesses.join(' and ')}.\n${after}`,
-        1
-      );
-    return loaded;
+    Object.assign(process.env, provider.settings?.() ?? {}, {
+      AGENTGRAPH_PROVIDER: provider.name,
+      ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
+    });
+    return provider;
   })());
+
+const loadServedHub = async (provider: Provider, hub: string) => {
+  const loaded = await Effect.runPromise(readConfiguredHub(hub));
+  if (values.model)
+    process.env.AGENTGRAPH_MODELS = ['*', ...Object.values(loaded.agents).flatMap(a => a.model ?? [])]
+      .map(alias => `${alias}=${values.model}`)
+      .join(',');
+  const unserved = findUnserved(provider, loaded);
+  if (unserved.length) throw new Error(unserved.map(p => `${p.path}: ${p.message}`).join('\n'));
+  return loaded;
+};
+
+const prepare = async (i: Instance, hub: string, after: string) =>
+  loadServedHub(await connect(i, hub, after), hub).catch((e: Error) => fail(`${e.message}\n${after}`, 1));
 
 const stopping = new AbortController();
 const trapInterrupt = () =>
@@ -281,11 +298,10 @@ async function runOnInstance() {
     }
     case 'say': {
       if (!said()) fail(`say takes text\n${usage}`);
-      const { seen } = await readLastRun(i, numbered());
-      await writeComment(i.forge, i.owner, numbered(), `/agent ${said()}`, values.line).catch((e: Error) =>
-        fail(e.message)
-      );
-      return drive(i, n, await synced(), seen);
+      const issue = await findIssueOf(i, numbered());
+      const { seen } = await readLastRun(i, issue);
+      await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
+      return drive(i, issue, await synced(), seen);
     }
     case 'review': {
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
@@ -293,9 +309,10 @@ async function runOnInstance() {
       ];
       if (!verdict) fail('review takes approve or changes');
       const text = rest.slice(2).join(' ').trim();
-      const { seen } = await readLastRun(i, numbered());
-      await writeReview(i.forge, i.owner, numbered(), verdict, text).catch((e: Error) => fail(e.message));
-      if (verdict === 'changes_requested') return drive(i, n, await synced(), seen);
+      const issue = await findIssueOf(i, numbered());
+      const { seen } = await readLastRun(i, issue);
+      await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
+      if (verdict === 'changes_requested') return drive(i, issue, await synced(), seen);
       console.log(`approved #${n}`);
       return;
     }
@@ -311,7 +328,8 @@ async function runOnInstance() {
         ...(values.patch && { patch: values.patch }),
       });
       if (!result) return fail(`#${n} has no pull request`, 1);
-      if ('why' in result) return fail(`${result.why}; try --as <branch> or --patch <file>`, 1);
+      if ('why' in result)
+        return fail(values.patch ? result.why : `${result.why}; try --as <branch> or --patch <file>`, 1);
       if (!values.patch) return report(i, n);
       console.log(`${result.stat}\nPatch: ${result.ref}    git am ${result.ref}`);
       return;
@@ -352,6 +370,11 @@ function watchRuns(i: Instance, issue: number) {
     clearInterval(timer);
     await look();
   };
+}
+
+async function findIssueOf(i: Instance, n: number) {
+  const branch = (await findPull(i.forge, n))?.pull.branch ?? '';
+  return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
 
 async function readLastRun(i: Instance, issue: number) {
@@ -413,15 +436,19 @@ async function report(i: Instance, issue: number, next?: string) {
 
 async function loop(i: Instance) {
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
-  await prepare(i, await ensureHub(i, values.hub), 'Nothing was driven.');
+  const provider = await connect(i, await ensureHub(i, values.hub), 'Nothing was driven.');
   trapInterrupt();
   const every = Number(process.env.AGENTGRAPH_EVERY ?? 5);
   try {
     while (!stopping.signal.aborted) {
-      const why = await ensureBase(i);
+      let why = await ensureBase(i);
+      const hub = why ? '' : await ensureHub(i, values.hub);
+      why ||= await loadServedHub(provider, hub).then(
+        () => '',
+        (e: Error) => e.message
+      );
       if (why) console.error(why);
       else {
-        const hub = await ensureHub(i, values.hub);
         const runs = await start(
           { hub, issue: 'all', data: i.data, base: i.base },
           undefined,

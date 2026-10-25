@@ -250,6 +250,7 @@ export const writePullToRepo = async (
   const { branch, base } = pr.pull;
   const head = await inForge(i, ['rev-parse', `refs/heads/${branch}`]);
   const stat = await inForge(i, ['diff', '--stat', '--no-ext-diff', '--no-textconv', `refs/heads/${base}...${head}`]);
+  if (to.patch && pr.state === 'merged') return { why: `#${pr.number} is merged into ${base}` };
   if (to.patch) {
     const patch = await inForge(i, ['format-patch', '--stdout', `refs/heads/${base}..${head}`]);
     await writeFile(resolve(to.patch), `${patch}\n`);
