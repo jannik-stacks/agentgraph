@@ -1481,12 +1481,11 @@ const reopen = (hub: Hub, w: Workflow, run: Run) =>
     const work = yield* Effect.flatMap(Sandbox, s =>
       s.checkout(`refs/agentgraph/runs/${run.id}`, undefined, undefined, hub)
     );
-    const onto = run.base?.branch ?? expand(w.base ?? 'main', t.issue);
-    const base = yield* text(work, ['merge-base', `${work.base}^`, onto]);
+    if (!run.fork) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no fork commit' });
     yield* setUp(hub, work, run);
     const left: Left = {
       ...work,
-      base,
+      base: run.fork,
       run: run.id,
       issue: run.issue,
       context: context(t),
@@ -1707,6 +1706,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       }
 
       const work = current.onto ? yield* following(made, current.onto.sha, current.tries === 0) : made;
+      current = { ...current, fork: work.base };
 
       if (!w.on.feedback) yield* setUp(hub, work, current);
       while (current.status === 'running') {

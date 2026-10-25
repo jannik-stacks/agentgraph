@@ -31,6 +31,7 @@ A run id is the workflow name, the issue number and a timestamp.
 | `base`, `onto` | The stacked parent's pull request, and the base a conflicted follow lands on |
 | `hub`, `by` | Hub version last checked, and the run that dispatched this one |
 | `started`, `ended`, `usd` | Times and session cost, judges of end checks included |
+| `fork` | The commit the run's change is measured from, as its last checkout had it |
 | `owed` | [End checks](loop.md#at-run-end-and-later) the ended run has yet to run |
 
 <!-- code: src/workflow.ts#Run -->

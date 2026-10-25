@@ -42,12 +42,20 @@ const left = (where: ReturnType<typeof world>) => {
   };
 };
 
+const git = (where: ReturnType<typeof world>, ...args: string[]) =>
+  execFileSync('git', ['--git-dir', where.origin, ...args])
+    .toString()
+    .trim();
+
 const keep = (where: ReturnType<typeof world>) => {
-  const git = (...args: string[]) =>
-    execFileSync('git', ['--git-dir', where.origin, ...args])
-      .toString()
-      .trim();
-  git('update-ref', 'refs/agentgraph/runs/run-7', git('commit-tree', 'main^{tree}', '-p', 'main', '-m', 'kept'));
+  const fork = git(where, 'rev-parse', 'main');
+  git(
+    where,
+    'update-ref',
+    'refs/agentgraph/runs/run-7',
+    git(where, 'commit-tree', 'main^{tree}', '-p', fork, '-m', 'kept')
+  );
+  return fork;
 };
 
 const results = (data: string, id = 'run-7') =>
@@ -158,6 +166,7 @@ describe('end checks', () => {
     }
     say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
     say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at });
+    git(where, 'update-ref', 'refs/heads/main', 'refs/heads/agentgraph/7');
     const second = services(where, []);
     const swept = await second.run(scanIssuesAndRunningRuns(h));
     expect(swept.map(r => [r.id, r.status, r.owed])).toEqual([['run-7', 'done', undefined]]);
@@ -173,8 +182,8 @@ describe('end checks', () => {
     const where = world();
     const h = ending({ present: { run: 'echo present' }, lines: { returns: 'number', run: 'echo 3' } });
     const { commands, run } = services(where, []);
-    keep(where);
-    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', owed: ['lines'] })));
+    const fork = keep(where);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', owed: ['lines'], fork })));
     await run(tick(h, 7, true));
     await run(tick(h, 7, true));
     expect(commands.filter(c => c.args.some(a => a.startsWith('echo'))).map(c => c.args.at(-1))).toEqual(['echo 3']);
@@ -212,8 +221,8 @@ describe('end checks', () => {
     const where = world();
     const h = ending({ lines: { returns: 'number', run: 'echo 5' } });
     const { run } = services(where, []);
-    keep(where);
-    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge' })));
+    const fork = keep(where);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', fork })));
     const [after] = await run(instruct(h, { kind: 'check', checks: ['lines'], issue: 7 }));
     expect(after).toMatchObject({ status: 'done' });
     expect(after).not.toHaveProperty('owed');
