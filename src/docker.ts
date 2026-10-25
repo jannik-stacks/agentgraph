@@ -229,8 +229,8 @@ export const ensureDocker = (say: (line: string) => void) =>
         --security-opt no-new-privileges:true --memory 128m --pids-limit 512 --network ${networks.egress}
         --network-alias egress agentgraph-egress:local`;
       yield* run('docker', flags.split(/\s+/));
-      yield* run('docker', ['network', 'connect', 'agentgraph-egress', 'agentgraph-egress']);
     }
+    yield* has(['network', 'connect', 'agentgraph-egress', 'agentgraph-egress']);
     return version;
   });
 

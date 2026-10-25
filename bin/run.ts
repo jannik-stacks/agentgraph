@@ -123,7 +123,7 @@ const noModel = `No model to use. Any one of these works:
 
 const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
   const { providers = [] } = await Effect.runPromise(readHarnessSettings).catch((e: Error) => fail(e.message, 1));
-  const named = values.provider ?? i.provider;
+  const named = values.provider ?? i.provider ?? process.env.AGENTGRAPH_PROVIDER;
   if (named)
     return (
       providers.find(p => p.name === named) ??
