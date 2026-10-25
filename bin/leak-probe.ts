@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const canary = process.env.PROBE_CANARY;
@@ -9,7 +9,7 @@ const secret = [
   '(?<![\\w-])sk-(?=[\\w-]*\\d)[\\w-]{20,}',
   '\\bgh[pousr]_[A-Za-z0-9]{30,}',
   '\\bgithub_pat_\\w{22,}',
-  '-----BEGIN [A-Z ]*PRIVATE KEY-----(?:\\s|\\\\n)*[A-Za-z0-9+/]{40}',
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----(?:(?:\\s|\\\\n)+[\\w-]+:[^\\n\\\\]*)*(?:\\s|\\\\n)+[A-Za-z0-9+/]{40}',
   '\\bAKIA[0-9A-Z]{16}\\b',
   '\\bxox[abprs]-[A-Za-z0-9-]{10,}',
   ...(canary ? [canary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')] : []),
@@ -86,7 +86,7 @@ const findSecretFiles = () =>
 
 const isKeyAtRest = (file: string) =>
   [join(repo, 'infra/local/.env'), join(repo, 'infra/local/.keys.env')].includes(file) ||
-  basename(file) === 'keys.env' ||
+  (basename(file) === 'keys.env' && existsSync(join(dirname(file), 'hub'))) ||
   (file.startsWith(join(homedir(), '.config', 'agentgraph') + '/') && basename(file) === 'key.pem');
 
 const listProcesses = (args: string[]) =>
@@ -101,7 +101,13 @@ const listProcesses = (args: string[]) =>
 
 const groupBy = <T>(list: T[], keyOf: (item: T) => string) => {
   const groups = new Map<string, T[]>();
-  for (const item of list) groups.set(keyOf(item), [...(groups.get(keyOf(item)) ?? []), item]);
+  for (const item of list) {
+    const key = keyOf(item);
+    groups
+      .set(key, groups.get(key) ?? [])
+      .get(key)!
+      .push(item);
+  }
   return [...groups];
 };
 
@@ -130,7 +136,9 @@ const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
         ),
       ];
       const [program = '', ...rest] = args.split(/\s+/);
-      const command = [program, rest.find(arg => !arg.startsWith('-')) ?? ''].map(part => basename(part)).join(' ');
+      const command = [program, rest.find(arg => /^[\w./-]+\.\w{1,4}$/.test(arg) && !countSecrets(arg)) ?? '']
+        .map(part => basename(part))
+        .join(' ');
       return names.length ? [{ pid, what: `${command.trim()}  ${names.join(' ')}` }] : [];
     });
     return groupBy(found, hit => hit.what).map(([what, group]) => ({
@@ -154,7 +162,13 @@ const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
           return isSecretVariable(pair.slice(0, at), pair.slice(at + 1)) ? [pair.slice(0, at)] : [];
         });
         return names.length
-          ? [{ place: 'docker', detail: `${name}  ${names.join(' ')}`, expected: /litellm|postgres/.test(name) }]
+          ? [
+              {
+                place: 'docker',
+                detail: `${name}  ${names.join(' ')}`,
+                expected: /^\/\w+-(litellm|postgres)-\d+$/.test(name),
+              },
+            ]
           : [];
       }),
   studio: async () => {
@@ -172,7 +186,7 @@ const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
 };
 
 const asked = process.argv.slice(2);
-if (asked.some(name => !(name in probes))) {
+if (asked.some(name => !Object.hasOwn(probes, name))) {
   console.error(`usage: node bin/leak-probe.ts [${Object.keys(probes).join('] [')}]`);
   process.exit(2);
 }
