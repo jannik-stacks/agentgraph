@@ -37,7 +37,7 @@ The engine is the same runner as on a host. `AGENTGRAPH_SANDBOX_URL` set to `htt
 
 Each checkout gets its own box, named after the checkout, and destroys it when the checkout closes. Before a command the work tree, the session home and the hub go to the box; after it, the work tree and the home come back. Both directions send only the git objects that changed, so ignored folders such as `node_modules` or `target` stay in the box, deletions travel, and a box cannot write through a link on the host. The news file is sent before the command and once a minute while it runs.
 
-Commands in one checkout share the box, as they share the work tree under docker. The toolchain step runs once per checkout in the box, with any host reachable. A hub `image` is refused: every box runs the sandbox image.
+Commands in one checkout share the box, as they share the work tree under docker. A command that times out or is interrupted is killed with its children, and what it wrote comes back. A box that restarted gets the files and the toolchain again before the next command; the hub's `setup` is not run again. The toolchain step runs once per checkout in the box, with any host reachable. A hub `image` is refused: every box runs the sandbox image.
 
 The box answers a small HTTP protocol, so any server that runs `examples/deploy/cloudflare/box.sh` behind it can stand in for Cloudflare.
 
