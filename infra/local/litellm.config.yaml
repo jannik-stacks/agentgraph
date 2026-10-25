@@ -1,7 +1,7 @@
 # Model aliases bots ask for. Upstream model IDs come from the environment (see .env.example).
 # For a fully offline run, switch to litellm.offline.yaml (LITELLM_CONFIG in .env).
 #
-# Clients (opencode, pi): AGENTGRAPH_LLM_BASE_URL=http://127.0.0.1:4000/v1 (http://litellm:4000/v1 in a sandbox)
+# Clients (opencode, pi): AGENTGRAPH_LLM_BASE_URL=http://127.0.0.1:4000/v1 (http://gateway:4000/v1 in a sandbox)
 
 model_list:
   # ChatGPT subscription through the chatgpt/ provider. Tokens come from the device login

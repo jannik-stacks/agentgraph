@@ -877,11 +877,20 @@ describe('readEngineEnv', () => {
     });
   });
 
-  it('reads a NAME_FILE the shell or the defaults set, and only for secret settings', async () => {
+  it('reads a NAME_FILE the shell or the defaults set, and only for secret settings and session variables', async () => {
     const { dir } = file('');
-    const shell = { AGENTGRAPH_APP_KEY_FILE: join(dir, 'key.pem'), AGENTGRAPH_REPO_FILE: join(dir, 'key.pem') };
+    const shell = {
+      AGENTGRAPH_APP_KEY_FILE: join(dir, 'key.pem'),
+      AGENTGRAPH_REPO_FILE: join(dir, 'key.pem'),
+      AGENTGRAPH_SESSION_ENV: 'CLAUDE_CODE_OAUTH_TOKEN',
+      CLAUDE_CODE_OAUTH_TOKEN_FILE: join(dir, 'keys'),
+    };
     const env = await withShell(shell, () => readEngineEnv({ AGENTGRAPH_PROXY_KEYS_FILE: join(dir, 'keys') }));
-    expect(env).toMatchObject({ AGENTGRAPH_APP_KEY: 'PEM', AGENTGRAPH_PROXY_KEYS: 'implementor=k1' });
+    expect(env).toMatchObject({
+      AGENTGRAPH_APP_KEY: 'PEM',
+      AGENTGRAPH_PROXY_KEYS: 'implementor=k1',
+      CLAUDE_CODE_OAUTH_TOKEN: 'implementor=k1',
+    });
     expect(env.AGENTGRAPH_REPO).toBeUndefined();
   });
 

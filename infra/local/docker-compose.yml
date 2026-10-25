@@ -46,7 +46,11 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
-    networks: [db, egress, sandbox, models]
+    networks:
+      db: {}
+      egress: {}
+      sandbox: { aliases: [gateway] }
+      models: { aliases: [gateway] }
     restart: unless-stopped
 
   postgres:

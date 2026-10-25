@@ -128,9 +128,9 @@ export const removeSandboxContainersMountingDir = (dir: string) => {
 };
 
 /** The host URL of the model proxy's liveness check, from `AGENTGRAPH_PROXY_URL`. */
-export const probeUrl = (proxy = process.env.AGENTGRAPH_PROXY_URL ?? 'http://litellm:4000/v1') => {
+export const probeUrl = (proxy = process.env.AGENTGRAPH_PROXY_URL ?? 'http://gateway:4000/v1') => {
   const url = new URL(proxy);
-  if (url.hostname === 'litellm') url.hostname = '127.0.0.1';
+  if (url.hostname === 'gateway') url.hostname = '127.0.0.1';
   url.pathname = '/health/liveliness';
   return process.env.BENCH_PROXY_PROBE ?? url.href;
 };

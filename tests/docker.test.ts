@@ -77,7 +77,7 @@ describe('docker with a stand-in docker client', () => {
     process.env.PATH = path;
   });
 
-  const layer = dockerSandbox({ data: tmp('data'), origin: '/nowhere' });
+  const layer = dockerSandbox({ data: tmp('data'), origin: '/nowhere', direct: ['gateway'] });
   const logged = () => readFileSync(log, 'utf8').split('\n');
 
   it('runs a hardened container with secrets by name and their values only in the client env', async () => {
@@ -97,6 +97,7 @@ describe('docker with a stand-in docker client', () => {
     expect(args).toContain(`type=bind,src=${home},dst=/home/agent`);
     expect(args).toContain('HOME=/home/agent');
     expect(args).toContain('HTTPS_PROXY=http://egress:8888');
+    expect(args).toContain('NO_PROXY=gateway,localhost,127.0.0.1');
     expect(args).toContain('A=1');
     expect(args.slice(args.indexOf('AGENTGRAPH_LLM_API_KEY') - 1, args.indexOf('AGENTGRAPH_LLM_API_KEY') + 1)).toEqual([
       '-e',

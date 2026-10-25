@@ -13,7 +13,7 @@ import {
   type Services,
 } from './engine.ts';
 import { writeIssueFile } from './forge.ts';
-import { readConfiguredHub } from './harnesses.ts';
+import { splitNames, readConfiguredHub } from './harnesses.ts';
 import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
@@ -28,7 +28,7 @@ export const readEngineEnv = async (defaults: Record<string, string> = {}): Prom
   const app = await readEnvFile(process.env.AGENTGRAPH_APP_ENV ?? defaults.AGENTGRAPH_APP_ENV);
   const layers: Record<string, string | undefined>[] = [defaults, process.env, app];
   const merged = Object.assign({}, ...layers);
-  for (const name of secretSettings) {
+  for (const name of [...secretSettings, ...splitNames(merged.AGENTGRAPH_SESSION_ENV ?? '')]) {
     const file = layers.findLast(vars => vars[name] ?? vars[`${name}_FILE`])?.[`${name}_FILE`];
     if (file) merged[name] = await readText(file);
   }
@@ -74,9 +74,7 @@ export const temporary = (data: string): string[] => {
 };
 
 const warnTemporary = (data: string) =>
-  Effect.forEach(temporary(data), p =>
-    Effect.logWarning(`${p} is under a temp dir, which the OS may empty (macOS deletes files untouched for 3 days)`)
-  );
+  Effect.forEach(temporary(data), p => Effect.logWarning(`${p} is under a temp dir, which the OS may empty`));
 
 const configured = (env: Record<string, string>, extra: Record<string, string> = {}) =>
   ConfigProvider.fromMap(new Map(Object.entries({ ...env, ...extra })));

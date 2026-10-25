@@ -47,7 +47,14 @@ const makeHome = () => {
 const session = (
   s: SessionSpec,
   lines: string[],
-  o: { exit?: number; fail?: SandboxError; prices?: string; harnesses?: Harness[] } = {}
+  o: {
+    exit?: number;
+    fail?: SandboxError;
+    prices?: string;
+    harnesses?: Harness[];
+    proxy?: { url: string; keys: Redacted.Redacted };
+    passed?: Record<string, Redacted.Redacted>;
+  } = {}
 ) => {
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
@@ -61,7 +68,8 @@ const session = (
   });
   const layer = harnessSession({
     data,
-    proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(`implementor=${key}, reviewer=sk-other`) },
+    proxy: o.proxy ?? { url: 'http://litellm:4000/v1', keys: Redacted.make(`implementor=${key}, reviewer=sk-other`) },
+    ...(o.passed && { passed: o.passed }),
     ...(o.prices && { prices: o.prices }),
     harnesses: o.harnesses ?? harnesses,
   }).pipe(Layer.provide(sandbox));
@@ -154,10 +162,21 @@ describe('the session loop', () => {
     expect(JSON.stringify([command.args, command.env])).not.toContain(key);
   });
 
-  it('stops before the harness starts when the agent has no key', async () => {
-    const { exit, command } = await session({ ...spec, agent: 'gardener' }, []);
-    expect(command).toBeUndefined();
-    expect(String(exit)).toContain('no proxy key for agent gardener');
+  it('runs an agent without a key on its harness login, with the passed variables and its harness URL', async () => {
+    const token = 'oauth-token-123456';
+    const { command } = await session({ ...spec, agent: 'gardener', harness: 'claude' }, [], {
+      proxy: { url: 'opencode=http://gateway/v1 claude=', keys: Redacted.make('') },
+      passed: { CLAUDE_CODE_OAUTH_TOKEN: Redacted.make(token) },
+    });
+    expect(Object.keys(command.secrets ?? {})).toEqual(['CLAUDE_CODE_OAUTH_TOKEN']);
+    expect(command.env).not.toHaveProperty('ANTHROPIC_BASE_URL');
+    const fallback = await session({ ...spec, agent: 'gardener' }, [`leaked ${token}`], {
+      proxy: { url: 'http://gateway:4000/v1', keys: Redacted.make(`*=${key}`) },
+      passed: { CLAUDE_CODE_OAUTH_TOKEN: Redacted.make(token) },
+    });
+    expect(Redacted.value(fallback.command.secrets!.AGENTGRAPH_LLM_API_KEY!)).toBe(key);
+    expect(fallback.command.env.AGENTGRAPH_LLM_BASE_URL).toBe('http://gateway:4000/v1');
+    expect(JSON.stringify(fallback.exit)).toContain('leaked ***');
   });
 
   it('stops before the harness starts when the config has no harness by that name', async () => {

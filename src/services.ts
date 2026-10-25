@@ -1,12 +1,12 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Config, Effect, Layer, type Redacted } from 'effect';
+import { Config, Effect, Layer, Redacted } from 'effect';
 import { fileForge } from './forge.ts';
 import { dockerSandbox } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
-import { harnessSession, readConfiguredHub, readHarnessSettings } from './harnesses.ts';
+import { harnessSession, parseModelUrls, splitNames, readConfiguredHub, readHarnessSettings } from './harnesses.ts';
 import { HubError } from './hub.ts';
 import { remoteSandbox } from './remote.ts';
 import { Sandbox } from './sandbox.ts';
@@ -19,6 +19,7 @@ export type Settings = {
   data: string;
   every: number;
   proxy: { url: string; keys: Redacted.Redacted };
+  passed: Record<string, Redacted.Redacted>;
   prices: string;
   /** The docker volume toolchains and package caches live in; empty for none. */
   cache: string;
@@ -34,14 +35,21 @@ export type Settings = {
 
 const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.url));
 
-export const settings: Config.Config<Settings> = Config.all({
+const passed = Effect.flatMap(Config.string('AGENTGRAPH_SESSION_ENV').pipe(Config.withDefault('')), names =>
+  Effect.map(
+    Effect.forEach(splitNames(names), name => Effect.map(Config.redacted(name), value => [name, value] as const)),
+    Object.fromEntries<Redacted.Redacted>
+  )
+);
+
+export const settings = Config.all({
   repo: Config.string('AGENTGRAPH_REPO'),
   hub: Config.string('AGENTGRAPH_HUB').pipe(Config.withDefault('.agentgraph')),
   data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
   every: Config.number('AGENTGRAPH_EVERY').pipe(Config.withDefault(5)),
   proxy: Config.all({
-    url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://litellm:4000/v1')),
-    keys: Config.redacted('AGENTGRAPH_PROXY_KEYS'),
+    url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1')),
+    keys: Config.redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
   }),
   prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(prices)),
   cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
@@ -54,7 +62,7 @@ export const settings: Config.Config<Settings> = Config.all({
       Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
     )
   ),
-});
+}).pipe(Effect.flatMap(s => Effect.map(passed, (p): Settings => ({ ...s, passed: p }))));
 
 /** The forge for `trust` and the origin the sandbox mirrors, on GitHub or on a forge folder. */
 const where = (s: Settings) => {
@@ -85,12 +93,15 @@ export const hubAt = (path: string) =>
         Effect.flatMap(work => readConfiguredHub(join(work.dir, path)))
       );
 
+const hostsOf = (url: string) =>
+  Object.values(parseModelUrls(url)).flatMap(at => (URL.canParse(at) ? [new URL(at).hostname] : []));
+
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
   const sandbox = s.sandbox
     ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
-    : dockerSandbox({ data: s.data, cache: s.cache, image: s.image, ...origin });
+    : dockerSandbox({ data: s.data, cache: s.cache, image: s.image, direct: hostsOf(s.proxy.url), ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
   const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
     Effect.provide(sandbox),

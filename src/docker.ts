@@ -26,7 +26,7 @@ import { gitIdentity, hostGit, makeHostEnv } from './git.ts';
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
 const egress = 'http://egress:8888';
-const direct = 'litellm,ollama.internal,localhost,127.0.0.1';
+const bypass = (direct: string[]) => [...direct, 'localhost', '127.0.0.1'].join(',');
 const inside = { work: '/work', home: '/home/agent', tmp: '/tmp', hub: '/hub', cache: '/cache' };
 const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
@@ -62,7 +62,10 @@ const user = () => {
 };
 
 /** What the host recorded for a checkout: its git mounts, its dependency volumes and the container settings of its hub and sandbox setup. */
-export type CheckoutContainerSpec = { mounts: Mount[]; layers?: Deps[] } & Pick<Hub, 'image' | 'network'>;
+export type CheckoutContainerSpec = { mounts: Mount[]; layers?: Deps[]; direct?: string[] } & Pick<
+  Hub,
+  'image' | 'network'
+>;
 
 const volume = (name: string, dst: string, nocopy = false, readonly = false) => {
   if (!/^\w[\w.-]*$/.test(name) || /[,\n"]/.test(dst)) throw infra(`volume name not allowed: ${name}`);
@@ -79,7 +82,7 @@ const scratch = Object.fromEntries(
 
 /**
  * `docker run` for one command in a throwaway container. `dir` is `/work` and `home` is `/home/agent`. With `proxy`
- * the only routes out are the model proxy and, unless the hub's network is `models`, the egress allowlist; with
+ * the only routes out are the `direct` model hosts and, unless the hub's network is `models`, the egress allowlist; with
  * `none` there is no network, and with `open` any host. With `cache`, that volume is `/cache`, read-only unless a layer
  * overlays it there; each layer is a volume at its path.
  */
@@ -87,7 +90,7 @@ export const dockerArgs = (
   c: Command,
   image: string,
   name: string,
-  { mounts, layers = [], network = 'egress' }: CheckoutContainerSpec,
+  { mounts, layers = [], network = 'egress', direct = [] }: CheckoutContainerSpec,
   cache = '',
   size = limits
 ) => [
@@ -138,8 +141,8 @@ export const dockerArgs = (
         HTTP_PROXY: egress,
         https_proxy: egress,
         http_proxy: egress,
-        NO_PROXY: direct,
-        no_proxy: direct,
+        NO_PROXY: bypass(direct),
+        no_proxy: bypass(direct),
       }),
     ...c.env,
     ...(c.hub && { AGENTGRAPH_HUB: inside.hub }),
@@ -211,6 +214,7 @@ export const dockerSandbox = (o: {
   origin: string;
   image?: string;
   cache?: string;
+  direct?: string[];
   token?: Effect.Effect<string, ForgeError>;
 }): Layer.Layer<Sandbox> =>
   Layer.effect(
@@ -244,7 +248,7 @@ export const dockerSandbox = (o: {
           if (c.network === 'proxy') yield* ready(networks[box.network ?? 'egress']);
           const name = `agentgraph-${randomBytes(6).toString('hex')}`;
           const args = yield* Effect.try({
-            try: () => dockerArgs(c, box.image ?? image, name, box, cache),
+            try: () => dockerArgs(c, box.image ?? image, name, { ...box, direct: o.direct ?? [] }, cache),
             catch: e => e as SandboxError,
           });
           return { name, args };

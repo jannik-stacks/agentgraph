@@ -85,7 +85,7 @@ export const claude = (): Harness => ({
         spec.prompt,
       ],
       env: {
-        ANTHROPIC_BASE_URL: route.url.replace(/\/v1\/?$/, ''),
+        ...(route.url && { ANTHROPIC_BASE_URL: route.url.replace(/\/v1\/?$/, '') }),
         DISABLE_AUTOUPDATER: '1',
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         API_TIMEOUT_MS: String(modelTimeouts.headersMs),

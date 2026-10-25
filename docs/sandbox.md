@@ -136,9 +136,9 @@ Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= comm
 
 ## Models
 
-An agent's `model` names a proxy alias. Without one, opencode and pi ask for `default`, which the local proxy config does not define, so give those agents a `model`. Claude Code uses its own default. `infra/local/litellm.config.yaml` maps aliases to providers and logs spend per agent key, so moving an alias to another provider or subscription needs no agent edit.
+An agent's `model` is the name its endpoint expects, such as a gateway alias. Without one, opencode and pi ask for `default`, so give those agents a `model`. Claude Code uses its own default. Locally, `infra/local/litellm.config.yaml` maps aliases to providers and logs spend per agent key, so moving an alias to another provider or subscription needs no agent edit.
 
-`AGENTGRAPH_PROXY_KEYS` holds `name=key` pairs, separated by commas or spaces; an agent without a key cannot start a session. Inside the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code; opencode also gets `AGENTGRAPH_LLM_BASE_URL`. Keys pass by environment name, never in arguments, and are masked in output. <!-- code: src/harnesses.ts#keysOf -->
+`AGENTGRAPH_PROXY_URL` is the base URL, one for every harness or `harness=url` pairs, and `AGENTGRAPH_PROXY_KEYS` holds `agent=key` pairs, with `*` for any other agent; both are separated by commas or spaces. A harness without a URL uses its own endpoint, and an agent without a key runs on its harness's own login. Inside the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code; opencode also gets `AGENTGRAPH_LLM_BASE_URL`. `AGENTGRAPH_SESSION_ENV` names engine variables every session gets as well. Keys pass by environment name, never in arguments, and are masked in output. [Hosting](hosting.md#models) has the settings for each kind of gateway. <!-- code: src/harnesses.ts#harnessSession -->
 
 Usage the harness does not price, subscriptions included, is priced from `AGENTGRAPH_PRICES` (default `infra/local/prices.json`), with its source. A model missing from the table is marked `unpriced` in the trace, never $0. <!-- code: src/harnesses.ts#priced -->
 
@@ -146,7 +146,7 @@ Usage the harness does not price, subscriptions included, is priced from `AGENTG
 
 A session gets only its agent's model key. On the host, these keep long-lived keys out of what other processes inherit or can see:
 
-- Only `AGENTGRAPH_APP_KEY` and `AGENTGRAPH_PROXY_KEYS` may come from a file, named by `AGENTGRAPH_APP_KEY_FILE` or `AGENTGRAPH_PROXY_KEYS_FILE`. Each start reads that file once. Keys from an instance's `keys.env` and from the bench keys file stay in the runner's memory and reach `process.env` only for a bench engine pinned by `BENCH_ENGINE`. <!-- code: src/main.ts#readEngineEnv bin/bench.ts#readBenchKeys -->
+- Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the names in `AGENTGRAPH_SESSION_ENV` may come from a file, named by the setting plus `_FILE`. Each start reads that file once. Keys from an instance's `keys.env` and from the bench keys file stay in the runner's memory and reach `process.env` only for a bench engine pinned by `BENCH_ENGINE`. <!-- code: src/main.ts#readEngineEnv bin/bench.ts#readBenchKeys -->
 - Host git, docker and environment builds get a short list of variables: `PATH`, `HOME`, `USER`, `TMPDIR`, the locale, `TZ` and the Docker settings. They never get the runner's whole environment. <!-- code: src/git.ts#makeHostEnv -->
 - `infra/local/keys.sh` unexports every name in `.env` and every inherited name with a `KEY`, `KEYS`, `TOKEN`, `SECRET` or `PASSWORD` part. curl reads the key from a header file and the request body from stdin, so neither shows in a process list.
 - npm runs no install scripts. The `.npmrc` in `agentgraph/` and in `studio/` sets `ignore-scripts=true`, and `min-release-age=7` skips versions published in the last week. The sandbox image installs with `--ignore-scripts` and runs one postinstall by hand, opencode's, which links its platform binary.

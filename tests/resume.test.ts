@@ -128,8 +128,8 @@ describe('environment', () => {
   });
 
   it('probes the proxy from the host', () => {
-    expect(probeUrl('http://litellm:4000/v1')).toBe('http://127.0.0.1:4000/health/liveliness');
-    expect(probeUrl('http://litellm:4999/v1')).toBe('http://127.0.0.1:4999/health/liveliness');
+    expect(probeUrl('http://gateway:4000/v1')).toBe('http://127.0.0.1:4000/health/liveliness');
+    expect(probeUrl('http://gateway:4999/v1')).toBe('http://127.0.0.1:4999/health/liveliness');
   });
 
   it('calls a run whose last session ended in a harness error infra', () => {

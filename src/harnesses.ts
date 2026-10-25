@@ -54,16 +54,19 @@ export const readConfiguredHub = (dir: string) =>
 /** Runs the harness with its errors on the one stream it prints to, so the lines keep their order. */
 const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
 
-/** `agent=key` pairs, separated by commas or white space. */
-const keysOf = (keys: Redacted.Redacted) =>
+/** `name=value` pairs, separated by commas or white space. */
+const pairsOf = (text: string) =>
   Object.fromEntries(
-    Redacted.value(keys)
-      .split(/[\s,]+/)
-      .flatMap(pair => {
-        const at = pair.indexOf('=');
-        return at > 0 ? [[pair.slice(0, at), Redacted.make(pair.slice(at + 1))]] : [];
-      })
+    splitNames(text).flatMap(pair => {
+      const at = pair.indexOf('=');
+      return at > 0 ? [[pair.slice(0, at), pair.slice(at + 1)]] : [];
+    })
   );
+
+export const splitNames = (text: string) => text.split(/[\s,]+/).filter(Boolean);
+
+export const parseModelUrls = (url: string): Record<string, string> =>
+  /^[\w*-]+=/.test(url) ? pairsOf(url) : { '*': url };
 
 /**
  * List prices in USD per million tokens, keyed by upstream model, the proxy's aliases for them, and the upstream
@@ -132,12 +135,14 @@ const stopOf = (e: SandboxError) =>
 
 /**
  * Runs the harness of `harnesses` that `spec.harness` names. Each session gets its own home under
- * `data/homes`, reused on resume, and only its agent's key from `proxy.keys`. Usage the harness does not price is
- * priced from the `prices` file.
+ * `data/homes`, reused on resume, its harness's URL from `proxy.url`, its agent's key from `proxy.keys` (`*` for any
+ * agent) and the `passed` variables. Without a URL the harness uses its own endpoint, without a key its own login.
+ * Usage the harness does not price is priced from the `prices` file.
  */
 export const harnessSession = (s: {
   data: string;
   proxy: { url: string; keys: Redacted.Redacted };
+  passed?: Record<string, Redacted.Redacted>;
   prices?: string;
   harnesses: readonly Harness[];
 }): Layer.Layer<Session, never, Sandbox> =>
@@ -145,7 +150,8 @@ export const harnessSession = (s: {
     Session,
     Effect.gen(function* () {
       const sandbox = yield* Sandbox;
-      const keys = keysOf(s.proxy.keys);
+      const keys = pairsOf(Redacted.value(s.proxy.keys));
+      const urls = parseModelUrls(s.proxy.url);
       const prices: Prices = s.prices
         ? yield* Effect.tryPromise(() => readFile(s.prices!, 'utf8').then(JSON.parse)).pipe(Effect.orDie)
         : {};
@@ -156,10 +162,9 @@ export const harnessSession = (s: {
             const harness = s.harnesses.find(h => h.name === spec.harness);
             if (!harness)
               return yield* new SessionStop({ reason: 'sandbox', detail: `no harness ${spec.harness} in the config` });
-            const key = keys[spec.agent];
-            if (!key)
-              return yield* new SessionStop({ reason: 'provider', detail: `no proxy key for agent ${spec.agent}` });
-            const route = { url: s.proxy.url, model: spec.model ?? 'default' };
+            const key = keys[spec.agent] ?? keys['*'];
+            const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
+            const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: spec.model ?? 'default' };
             const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
             const homes = join(s.data, 'homes');
             const home = (!spec.fork && spec.resume?.home) || join(homes, randomUUID());
@@ -177,7 +182,9 @@ export const harnessSession = (s: {
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
             const { cmd, args, env = {} } = harness.command(spec, route);
-            const secret = Redacted.value(key);
+            const hidden = Object.values(secrets)
+              .map(secret => Redacted.value(secret))
+              .filter(secret => secret.length >= 8);
             const parse = harness.parse();
             let session: string | undefined;
             let model = route.model;
@@ -191,7 +198,7 @@ export const harnessSession = (s: {
                 const final = reply || (ended === 'error' ? (done?.error ?? tail.trim()) : '');
                 return [{ type: 'end', final, ended, exit: raw.code }];
               }
-              const line = secret.length >= 8 ? raw.replaceAll(secret, '***') : raw;
+              const line = hidden.reduce((text, secret) => text.replaceAll(secret, '***'), raw);
               let json: unknown;
               try {
                 json = JSON.parse(line);
@@ -223,7 +230,7 @@ export const harnessSession = (s: {
                 dir: spec.dir,
                 home,
                 env,
-                secrets: { [harness.key]: key },
+                secrets,
                 network: 'proxy',
                 minutes: spec.minutes,
               })
