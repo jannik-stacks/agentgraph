@@ -28,7 +28,7 @@
   `AGENTGRAPH_HARNESS` runs every agent on one harness. `AGENTGRAPH_MODELS`
   maps model aliases, `*` for agents without a `model`.
 - The CLI checks docker before it files or drives, and creates the sandbox networks, the egress proxy
-  and the sandbox image when missing. The package is publishable: `bin/agentgraph.js` runs the
+  and the sandbox image when missing or out of date. The package is publishable: `bin/agentgraph.js` runs the
   TypeScript sources from `node_modules`, and `files` ships the engine, the default hub and the
   image sources.
 

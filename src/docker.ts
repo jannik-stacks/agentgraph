@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -199,18 +200,23 @@ export const ensureDocker = (say: (line: string) => void) =>
         ]);
     const build = (tag: string, dir: string) =>
       Effect.gen(function* () {
-        if (yield* has(['image', 'inspect', tag])) return;
-        say(`building ${tag} (once)`);
-        yield* run('docker', [
-          'build',
-          '-q',
-          '-t',
-          tag,
-          fileURLToPath(new URL(`../infra/local/${dir}`, import.meta.url)),
-        ]);
+        const source = fileURLToPath(new URL(`../infra/local/${dir}`, import.meta.url));
+        const hash = createHash('sha256');
+        for (const f of readdirSync(source, { withFileTypes: true }).filter(f => f.isFile()))
+          hash.update(f.name).update(readFileSync(join(source, f.name)));
+        const digest = hash.digest('hex').slice(0, 12);
+        const label = '{{index .Config.Labels "agentgraph.source"}}';
+        const built = yield* run('docker', ['image', 'inspect', '--format', label, tag]).pipe(
+          Effect.orElseSucceed(() => '')
+        );
+        if (built.trim() === digest) return false;
+        say(`building ${tag}`);
+        yield* run('docker', ['build', '-q', '--label', `agentgraph.source=${digest}`, '-t', tag, source]);
+        return true;
       });
     const image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
     if (image === 'agentgraph-sandbox:local') yield* build(image, 'sandbox');
+    if (yield* build('agentgraph-egress:local', 'egress')) yield* has(['rm', '-f', 'agentgraph-egress']);
     const members = yield* run('docker', [
       'network',
       'inspect',
@@ -219,7 +225,6 @@ export const ensureDocker = (say: (line: string) => void) =>
       networks.egress,
     ]);
     if (!members.includes('egress') && !(yield* has(['start', 'agentgraph-egress']))) {
-      yield* build('agentgraph-egress:local', 'egress');
       const flags = `run -d --name agentgraph-egress --restart unless-stopped --read-only --cap-drop ALL
         --security-opt no-new-privileges:true --memory 128m --pids-limit 512 --network ${networks.egress}
         --network-alias egress agentgraph-egress:local`;

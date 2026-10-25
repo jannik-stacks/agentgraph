@@ -9,7 +9,6 @@ import type { Provider } from '../src/harnesses.ts';
 
 const config = join(homedir(), '.config', 'agentgraph');
 const claudeToken = join(config, 'claude-token');
-const codexLogin = join(config, 'codex-login');
 const claudeModels = '*=sonnet,smart=opus,fast=haiku';
 const keychain = process.platform === 'darwin';
 const security = (args: string[], input?: string) =>
@@ -70,10 +69,22 @@ const claude: Provider = {
   },
 };
 
+const inCodexVolume = (flags: string, script: string, stdio: 'ignore' | 'inherit') =>
+  spawnSync(
+    'docker',
+    [
+      ...`run --rm ${flags} --user ${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}
+        --mount type=volume,src=agentgraph-codex,dst=/codex -e CODEX_HOME=/codex
+        ${process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local'} sh -c`.split(/\s+/),
+      `exec 9>/codex/.lock && flock 9 && exec ${script}`,
+    ],
+    { stdio }
+  ).status === 0;
+
 const chatgpt: Provider = {
   name: 'chatgpt',
   harnesses: ['codex'],
-  ready: () => existsSync(codexLogin),
+  ready: () => inCodexVolume('--network none', 'codex login status', 'ignore'),
   detect: () => loggedIn('codex', ['login', 'status']),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'codex=',
@@ -83,16 +94,8 @@ const chatgpt: Provider = {
   login: async () => {
     needTerminal('run npx agentgraph start --provider chatgpt from a terminal once');
     console.log('login    agentgraph needs its own ChatGPT login for the sandbox.');
-    const image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
-    const user = `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
-    const run = `run --rm -it --user ${user} --network agentgraph-egress
-      --mount type=volume,src=agentgraph-codex,dst=/codex -e CODEX_HOME=/codex ${image} sh -c`.split(/\s+/);
-    const login = spawnSync('docker', [...run, 'exec 9>/codex/.lock && flock 9 && exec codex login --device-auth'], {
-      stdio: 'inherit',
-    });
-    if (login.status !== 0) throw new Error('codex login failed');
-    await mkdir(config, { recursive: true, mode: 0o700 });
-    await writeFile(codexLogin, `${new Date().toISOString()}\n`);
+    if (!inCodexVolume('-it --network agentgraph-egress', 'codex login --device-auth', 'inherit'))
+      throw new Error('codex login failed');
     console.log('         saved in docker volume agentgraph-codex');
   },
 };

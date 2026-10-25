@@ -47,10 +47,10 @@ export const makeCodexHarness = (): Harness => ({
         'exec 9>/codex/.lock && flock 9 && exec node -e "$AGENTGRAPH_CODEX" -- "$@"',
         'sh',
         'exec',
+        ...(writes(spec.tools) ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', 'read-only']),
         ...(resume ? ['resume', resume.id] : []),
         '--json',
         '--skip-git-repo-check',
-        ...(writes(spec.tools) ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', 'read-only']),
         ...(route.url
           ? [
               'model_provider="agentgraph"',

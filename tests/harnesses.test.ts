@@ -561,7 +561,7 @@ describe('codex', () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(harnessArgs(command)[1]).toContain('flock 9');
     const args = codexArgs(command);
-    expect(args.slice(0, 2)).toEqual(['exec', '--json']);
+    expect(args.slice(0, 4)).toEqual(['exec', '--sandbox', 'read-only', '--json']);
     expect(args[args.indexOf('--model') + 1]).toBe('gpt-y');
     expect(args).not.toContain('-c');
     expect(args.at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
@@ -571,7 +571,7 @@ describe('codex', () => {
     expect(command.secrets).toEqual({});
     const { model: _, ...bare } = codex;
     const { command: unnamed } = await session({ ...bare, resume: resumable() }, [], { proxy });
-    expect(codexArgs(unnamed).slice(0, 3)).toEqual(['exec', 'resume', 't1']);
+    expect(codexArgs(unnamed).slice(0, 5)).toEqual(['exec', '--sandbox', 'read-only', 'resume', 't1']);
     expect(codexArgs(unnamed)[codexArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
   });
 

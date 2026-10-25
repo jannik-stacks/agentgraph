@@ -10,7 +10,7 @@ import type { Instruction } from '../src/engine.ts';
 import type { Hub } from '../src/hub.ts';
 import { fileForge, Forge } from '../src/forge.ts';
 import { readInstallationReach } from '../src/github.ts';
-import { readConfiguredHub, readHarnessSettings, type Provider } from '../src/harnesses.ts';
+import { readConfiguredHub, readHarnessSettings, splitNames, type Provider } from '../src/harnesses.ts';
 import {
   defaultHub,
   ensureHub,
@@ -144,7 +144,7 @@ const findUnserved = (provider: Provider, hub: Hub) =>
       message: `${provider.name} does not serve ${a.harness}. It serves ${provider.harnesses.join(' and ')}.`,
     }));
 
-let connected: Promise<Provider> | undefined;
+let connected: Promise<{ provider: Provider; model?: string }> | undefined;
 const connect = (i: Instance, hub: string, after: string) =>
   (connected ??= (async () => {
     const provider = await pickProvider(i, after);
@@ -169,14 +169,17 @@ const connect = (i: Instance, hub: string, after: string) =>
       AGENTGRAPH_PROVIDER: provider.name,
       ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
     });
-    return provider;
+    const aliases = new Map(
+      splitNames(process.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
+    );
+    return { provider, ...(values.model && { model: aliases.get(values.model) ?? values.model }) };
   })());
 
-const loadServedHub = async (provider: Provider, hub: string) => {
+const loadServedHub = async ({ provider, model }: Awaited<ReturnType<typeof connect>>, hub: string) => {
   const loaded = await Effect.runPromise(readConfiguredHub(hub));
-  if (values.model)
+  if (model)
     process.env.AGENTGRAPH_MODELS = ['*', ...Object.values(loaded.agents).flatMap(a => a.model ?? [])]
-      .map(alias => `${alias}=${values.model}`)
+      .map(alias => `${alias}=${model}`)
       .join(',');
   const unserved = findUnserved(provider, loaded);
   if (unserved.length) throw new Error(unserved.map(p => `${p.path}: ${p.message}`).join('\n'));
@@ -446,14 +449,14 @@ async function report(i: Instance, issue: number, next?: string) {
 
 async function loop(i: Instance) {
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
-  const provider = await connect(i, await ensureHub(i, values.hub), 'Nothing was driven.');
+  const connection = await connect(i, await ensureHub(i, values.hub), 'Nothing was driven.');
   trapInterrupt();
   const every = Number(process.env.AGENTGRAPH_EVERY ?? 5);
   try {
     while (!stopping.signal.aborted) {
       let why = await ensureBase(i);
       const hub = why ? '' : await ensureHub(i, values.hub);
-      why ||= await loadServedHub(provider, hub).then(
+      why ||= await loadServedHub(connection, hub).then(
         () => '',
         (e: Error) => e.message
       );
@@ -474,7 +477,7 @@ async function loop(i: Instance) {
             );
         }
       }
-      if (values.once) break;
+      if (values.once || stopping.signal.aborted) break;
       await new Promise<void>(done => {
         const quiet = setTimeout(finish, every * 60_000);
         const watcher = watch(i.forge, finish);
@@ -482,6 +485,7 @@ async function loop(i: Instance) {
         function finish() {
           clearTimeout(quiet);
           watcher.close();
+          stopping.signal.removeEventListener('abort', finish);
           done();
         }
       });

@@ -30,7 +30,7 @@ The issue number is the handle. Each issue has at most one open pull request, on
 
 ## The sandbox
 
-Before it files or drives, the CLI checks that docker runs, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress` when missing, builds the sandbox and egress images from the package once, and starts an egress proxy when none is on the sandbox network. Without docker it stops before filing and says how to start it. `AGENTGRAPH_SANDBOX_URL` skips all of this. <!-- code: src/docker.ts#ensureDocker -->
+Before it files or drives, the CLI checks that docker runs, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress` when missing, builds the sandbox and egress images from the package when they are missing or their files changed, and starts an egress proxy when none is on the sandbox network. Without docker it stops before filing and says how to start it. `AGENTGRAPH_SANDBOX_URL` skips all of this. <!-- code: src/docker.ts#ensureDocker -->
 
 ## Models
 
