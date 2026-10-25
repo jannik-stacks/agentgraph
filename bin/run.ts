@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, realpathSync, watch } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, watch } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -25,6 +25,7 @@ import {
   writeComment,
   writeReview,
   writeInstanceProvider,
+  writeLabels,
   type Instance,
 } from '../src/instance.ts';
 import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
@@ -35,7 +36,7 @@ import type { Run } from '../src/workflow.ts';
 const usage = `usage: npx agentgraph <verb> [flags]
   start "<title>[\\n<body>]" [--workflow <name>]   files an issue and drives it until it waits or ends
   loop [--once]                                   drives every open issue, again every AGENTGRAPH_EVERY minutes
-  show [<n>]                                      what needs you and every issue, or one issue in full
+  show [<n>|hub]                                  what needs you and every issue, one issue in full, or the hub
   say <n> "<text>" [--line <path>:<line>]         an /agent comment on issue n, then drives it
   review <n> approve|changes ["<text>"]           a review of issue n's pull request; changes drives it
   merge <n>                                       merges issue n's pull request and closes the issue
@@ -45,7 +46,7 @@ const usage = `usage: npx agentgraph <verb> [flags]
   dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
   prune-logs [--apply]                            counts the check logs no trace names, or deletes them
 flags: --data <dir> --repo <dir> --base <branch> --hub <dir> --forge github|<dir> --logs all|failed|off
-       --provider <name> [--save] --harness <name> --model <model>`;
+       --provider <name> [--save] --harness <name> --model <model>; start and say take --label <label>...`;
 
 const { values, positionals } = parseArgs({
   options: {
@@ -68,6 +69,7 @@ const { values, positionals } = parseArgs({
     provider: { type: 'string' },
     model: { type: 'string' },
     save: { type: 'boolean' },
+    label: { type: 'string', multiple: true },
   },
   allowPositionals: true,
 });
@@ -312,7 +314,8 @@ async function runOnInstance() {
         i.forge,
         text,
         i.owner,
-        values.workflow
+        values.workflow,
+        values.label
       ).catch((e: Error) => fail(e.message));
       console.log(`#${issue} ${text.split('\n')[0]}`);
       return drive(i, issue, hub, undefined);
@@ -324,6 +327,7 @@ async function runOnInstance() {
       await prepare(i, hub, 'Nothing was posted.');
       const { seen } = await readLastRun(i, issue);
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
+      if (values.label) await writeLabels(i.forge, i.owner, n, values.label).catch((e: Error) => fail(e.message));
       return drive(i, issue, hub, seen);
     }
     case 'review': {
@@ -369,6 +373,7 @@ async function runOnInstance() {
       return;
     }
     case 'show':
+      if (rest[0] === 'hub') return showHub(await synced());
       return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
     case 'check':
     case 'dispatch': {
@@ -467,8 +472,8 @@ async function report(i: Instance, issue: number, merged = false) {
 }
 
 async function loop(i: Instance) {
-  const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
   const connection = await connect(i, await ensureHub(i, values.hub), 'Nothing was driven.');
+  const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
   trapInterrupt();
   const every = Number(process.env.AGENTGRAPH_EVERY ?? 5);
   try {
@@ -522,6 +527,11 @@ async function showAll(i: Instance, forge: Forge['Type']) {
     .map(line => aim(line));
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
   console.log(formatIssueList(await Effect.runPromise(forge.issues())));
+}
+
+function showHub(hub: string) {
+  console.log(`hub ${hub}${hub === defaultHub ? ' (default; copy it to .agentgraph/ in your repo to change it)' : ''}`);
+  for (const file of readdirSync(hub, { recursive: true, encoding: 'utf8' }).toSorted()) console.log(`  ${file}`);
 }
 
 async function showIssue(forge: Forge['Type'], issue: number, i: Instance) {

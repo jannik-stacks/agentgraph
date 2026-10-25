@@ -9,6 +9,7 @@ import {
   ensureHub,
   ensureInstance,
   writePullToRepo,
+  writeLabels,
   mergePull,
   ensureBase,
   writeClosed,
@@ -612,6 +613,11 @@ describe('an instance', () => {
     expect(await writeTriggeringIssue({ ...hub, trust: [i.owner] }, i.forge, 'Add a greeting', i.owner, 'issue')).toBe(
       1
     );
+    const shownHub = cli('show', 'hub').out;
+    expect(shownHub).toContain('(default; copy it to .agentgraph/');
+    expect(shownHub).toContain('agents/reviewer.md');
+    await writeLabels(i.forge, i.owner, 1, ['urgent']);
+    expect(readFileSync(join(i.forge, '1.md'), 'utf8')).toContain('urgent');
 
     Object.assign(process.env, { AGENTGRAPH_FORGE: i.forge, AGENTGRAPH_TRUST: i.owner });
     const run = (turns: SessionEvent[][], issue: number | 'all' = 1) =>

@@ -214,6 +214,9 @@ export const writeReview = async (
   record(dir, as, pull.number, verdict, text);
 };
 
+export const writeLabels = (dir: string, as: string, n: number, add: string[]) =>
+  apply(dir, as, n, { kind: 'label', add, remove: [] });
+
 export const writeClosed = (dir: string, as: string, n: number) => {
   const md = join(dir, `${n}.md`);
   if (!existsSync(md)) throw new Error(`no issue #${n}`);

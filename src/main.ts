@@ -41,7 +41,8 @@ export const writeTriggeringIssue = async (
   forge: string,
   text: string,
   author: string,
-  workflow?: string
+  workflow?: string,
+  more: string[] = []
 ): Promise<number> => {
   const labelled = Object.values(hub.workflows).flatMap(w => (w.on.issues?.label ? [[w.name, w.on.issues.label]] : []));
   const picked = labelled.filter(([name]) => (workflow ?? name) === name);
@@ -53,7 +54,11 @@ export const writeTriggeringIssue = async (
     throw new Error(`${author} may not start runs on this hub`);
   const [title = '', ...body] = text.split('\n');
   const milestone = hub.milestone && { milestone: hub.milestone };
-  return writeIssueFile(forge, { title, author, labels: [label], ...milestone }, body.join('\n').trim());
+  return writeIssueFile(
+    forge,
+    { title, author, labels: [...new Set([label, ...more])], ...milestone },
+    body.join('\n').trim()
+  );
 };
 
 /** The data dir and its mirror, where they sit under a temp dir the OS may empty. */

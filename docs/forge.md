@@ -16,14 +16,14 @@ The issue number is the handle. Each issue has at most one open pull request, on
 
 | Verb | What it does |
 | --- | --- |
-| `start "<text>"` | Files the text as an issue with the label of `--workflow` (left out when one workflow has a label) and drives it. The first line is the title, the rest the body. <!-- code: src/main.ts#writeTriggeringIssue --> |
-| `say <n> "<text>"` | An `/agent` comment on issue `n`, then drives it: an answer, feedback, `stop`, `cancel` or `restart`. `--line <path>:<line>` puts it on a line of the pull request. |
+| `start "<text>"` | Files the text as an issue with the label of `--workflow` (left out when one workflow has a label) and drives it. The first line is the title, the rest the body. `--label <label>`, repeatable, adds labels. <!-- code: src/main.ts#writeTriggeringIssue --> |
+| `say <n> "<text>"` | An `/agent` comment on issue `n`, then drives it: an answer, feedback, `stop`, `cancel` or `restart`. `--line <path>:<line>` puts it on a line of the pull request; `--label <label>`, repeatable, labels the issue. |
 | `review <n> approve` | Approves the pull request of issue `n`. |
 | `review <n> changes "<why>"` | Requests changes, with the line comments made before it, then drives the issue. |
 | `merge <n>` | Moves the forge's base to the pull request's head, retargets pull requests stacked on it, closes the issue and writes the branch into your repo. Fails if the base moved past it. <!-- code: src/instance.ts#mergePull --> |
 | `export <n>` | Writes the branch into your repo again; `--as <branch>` under another name, `--patch <file>` as a patch file instead. |
 | `close <n>` | Closes the issue and its open pull request; a live run stops on its next look. |
-| `show [n]` | What needs you and every issue, or one issue's timeline and diff. Outside a repo it lists every instance and what needs you there. |
+| `show [n]`, `show hub` | What needs you and every issue, or one issue's timeline and diff; `show hub` prints the hub in use, its path and files. Outside a repo it lists every instance and what needs you there. |
 | `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
 
 `check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--hub` and `--logs`, and the commands it prints carry the `--repo` and `--data` it was given. `check --hub` inside a repo checks against the instance's saved provider. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
@@ -75,7 +75,7 @@ Workflows that name no `base` start from the instance's base. <!-- code: src/mai
 
 <!-- code: src/instance.ts#ensureHub src/instance.ts#defaultHub -->
 
-To change the default hub, copy the package's `hub/` folder to `.agentgraph/` in your repo, edit it and commit it.
+To change the default hub, copy the folder `show hub` prints to `.agentgraph/` in your repo, edit it and commit it.
 
 ## The data dir
 
