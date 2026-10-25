@@ -192,10 +192,11 @@ describe('remote sandbox', () => {
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
         yield* s.exec(sh(work.dir, 'mkdir node_modules; echo y > node_modules/y; git add -f node_modules/y'));
-        return readFileSync(join(work.dir, 'node_modules', 'y'), 'utf8');
+        const tracked = execFileSync('git', ['ls-files'], { env: { ...process.env, ...work.git } }).toString();
+        return [readFileSync(join(work.dir, 'node_modules', 'y'), 'utf8'), tracked];
       })
     );
-    expect(exit).toEqual(Exit.succeed('y\n'));
+    expect(exit).toEqual(Exit.succeed(['y\n', '.gitignore\na.txt\nnode_modules/y\n']));
   });
 
   it('pulls work that did not come back before the next command', async () => {

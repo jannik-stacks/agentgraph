@@ -94,6 +94,7 @@ export class Box extends Container<Env> {
   checkout = '';
   dirty = false;
   requests = 0;
+  stopped = new Set<string>();
   static {
     this.outbound = async (request: Request, env: Env, ctx: OutboundHandlerContext) => {
       const host = new URL(request.url).hostname;
@@ -148,14 +149,17 @@ export class Box extends Container<Env> {
     this.renewActivityTimeout();
     const headers: HeadersInit = fresh ? { 'agentgraph-box-fresh': '1' } : {};
     if (op === 'run') {
+      if (fresh) return new Response(null, { headers });
       const network = url.searchParams.get('network');
       if (!networks.includes(network as Network)) return new Response(`unknown network ${network}`, { status: 400 });
       const { argv, secrets } = (await request.json()) as { argv: string[]; secrets: Record<string, string> };
       return this.run(url.searchParams.get('id') ?? '', network as Network, argv, secrets, headers);
     }
     if (op === 'stop') {
-      const child = await this.children.get(url.searchParams.get('arg') ?? '')?.catch(() => undefined);
+      const id = url.searchParams.get('arg') ?? '';
+      const child = await this.children.get(id)?.catch(() => undefined);
       if (child) await this.killGroup(child);
+      else this.stopped.add(id);
       return new Response(null, { status: 204, headers });
     }
     if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
@@ -181,6 +185,7 @@ export class Box extends Container<Env> {
   }
 
   async run(id: string, network: Network, argv: string[], secrets: Record<string, string>, headers: HeadersInit) {
+    if (this.stopped.delete(id)) return new Response(frame(137), { headers });
     this.dirty = true;
     this.running.set(network, (this.running.get(network) ?? 0) + 1);
     const done = () => {

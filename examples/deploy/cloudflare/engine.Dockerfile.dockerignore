@@ -6,3 +6,8 @@ studio
 bench
 tune
 tests
+**/.env
+**/*.env
+**/.env.*
+**/*.pem
+**/*.key

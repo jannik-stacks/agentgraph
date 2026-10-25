@@ -25,7 +25,8 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       rmSync(root, { recursive: true, force: true });
       return response.end();
     }
-    if (!existsSync(root)) response.setHeader('agentgraph-box-fresh', '1');
+    const fresh = !existsSync(root);
+    if (fresh) response.setHeader('agentgraph-box-fresh', '1');
     mkdirSync(join(root, 'tmp'), { recursive: true });
     const body = await read(request);
     const env = { ...process.env, AGENTGRAPH_BOX_ROOT: root };
@@ -39,6 +40,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       return response.end();
     }
     if (op === 'run') {
+      if (fresh) return response.end();
       const sent = JSON.parse(body.toString('utf8')) as { argv: string[]; secrets: Record<string, string> };
       const [minutes = '1', ...argv] = sent.argv;
       runs.push({ id, network: url.searchParams.get('network') ?? '', argv });

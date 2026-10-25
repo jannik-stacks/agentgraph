@@ -103,6 +103,10 @@ const pull = (box: BoxEntry, dir: SyncedDir) =>
       input: body.subarray(end + 1),
     });
     yield* hostGit(dir.git, ['read-tree', '-u', '--reset', tree]);
+    if (dir.tracked) {
+      const forced = yield* hostGit(dir.git, ['ls-files', '-z', '--cached', '--ignored', '--exclude-standard']);
+      if (forced.length > 0) yield* hostGit(dir.tracked, ['update-index', '--add', '-z', '--stdin'], { input: forced });
+    }
     box.trees.set(dir.box, tree);
   });
 

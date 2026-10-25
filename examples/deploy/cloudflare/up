@@ -1,11 +1,15 @@
 #!/bin/sh
 set -eu
+for name in AGENTGRAPH_APP_KEY AGENTGRAPH_PROXY_KEYS GATEWAY_HEADERS; do
+  eval "held_$name=\${$name:-}"
+  unset "$name"
+done
 cd "$(dirname "$0")"
 answers=$(mktemp -d)
 trap 'rm -rf "$answers"' EXIT
 
 keep() {
-  eval "value=\${$1:-} file=\${$1_FILE:-}"
+  eval "value=\${held_$1:-}\${$1:-} file=\${$1_FILE:-}"
   if [ -n "$value" ]; then
     printf '%s' "$value" > "$answers/$1"
   elif [ -n "$file" ]; then
@@ -21,7 +25,7 @@ keep() {
       exit 1
     }
   fi
-  unset "$1" "$1_FILE"
+  unset "$1" "$1_FILE" "held_$1"
 }
 keep AGENTGRAPH_APP_KEY
 keep AGENTGRAPH_PROXY_KEYS
