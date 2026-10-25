@@ -147,7 +147,6 @@ describe('end checks', () => {
   it('run once a merge ends the run, on its kept files, and leave its status alone', async () => {
     const where = world();
     const h = ending({
-      present: { run: 'test -e hello.txt' },
       lines: { returns: 'number', run: 'wc -l < hello.txt' },
       changed: { returns: 'number', each: 'files', run: 'test -s "$AGENTGRAPH_ITEM"' },
     });
@@ -172,7 +171,6 @@ describe('end checks', () => {
     expect(swept.map(r => [r.id, r.status, r.owed])).toEqual([['run-7', 'done', undefined]]);
     const ends = results(where.data).filter(r => r.end);
     expect(ends).toEqual([
-      expect.objectContaining({ check: 'present', pass: true }),
       expect.objectContaining({ check: 'lines', pass: true, value: 1 }),
       expect.objectContaining({ check: 'changed', pass: true, value: 1 }),
     ]);
@@ -217,16 +215,19 @@ describe('end checks', () => {
     ]);
   });
 
-  it('run again later on stored runs that ended, and refuse a check the hub lacks', async () => {
+  it('run again later on stored runs that ended, each on the files setup left, and refuse a check the hub lacks', async () => {
     const where = world();
-    const h = ending({ lines: { returns: 'number', run: 'echo 5' } });
+    const h = ending({ wipe: { run: 'rm README.md' }, lines: { returns: 'number', run: 'wc -l < README.md' } });
     const { run } = services(where, []);
     const fork = keep(where);
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', fork })));
-    const [after] = await run(instruct(h, { kind: 'check', checks: ['lines'], issue: 7 }));
+    const [after] = await run(instruct(h, { kind: 'check', checks: ['wipe', 'lines'], issue: 7 }));
     expect(after).toMatchObject({ status: 'done' });
     expect(after).not.toHaveProperty('owed');
-    expect(results(where.data)).toEqual([expect.objectContaining({ check: 'lines', value: 5, end: true })]);
+    expect(results(where.data)).toEqual([
+      expect.objectContaining({ check: 'wipe', pass: true, end: true }),
+      expect.objectContaining({ check: 'lines', value: 1, end: true }),
+    ]);
     const refused = await run(Effect.either(instruct(h, { kind: 'check', checks: ['nope'] })));
     expect(Either.isLeft(refused) && refused.left.message).toBe('the hub has no check nope');
   });

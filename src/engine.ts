@@ -1478,14 +1478,15 @@ const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeErro
 const reopen = (hub: Hub, w: Workflow, run: Run) =>
   Effect.gen(function* () {
     const t = yield* issuesOf(w, run);
-    const work = yield* Effect.flatMap(Sandbox, s =>
+    const made = yield* Effect.flatMap(Sandbox, s =>
       s.checkout(`refs/agentgraph/runs/${run.id}`, undefined, undefined, hub)
     );
     if (!run.fork) return yield* new SandboxError({ reason: 'infra', detail: 'the run kept no fork commit' });
+    const work = { ...made, base: run.fork };
     yield* setUp(hub, work, run);
+    const ready = yield* treeOf(work);
     const left: Left = {
       ...work,
-      base: run.fork,
       run: run.id,
       issue: run.issue,
       context: context(t),
@@ -1494,7 +1495,8 @@ const reopen = (hub: Hub, w: Workflow, run: Run) =>
       ...(run.answers && { answers: run.answers }),
     };
     yield* prepare(hub, left, true);
-    return left;
+    const restore = Effect.zipRight(text(work, ['read-tree', '-u', '--reset', ready]), text(work, ['clean', '-fdq']));
+    return { left, restore };
   });
 
 const runEndChecks = (hub: Hub, id: string): Effect.Effect<Run | undefined, StoreError, Services> =>
@@ -1512,7 +1514,9 @@ const runEndChecks = (hub: Hub, id: string): Effect.Effect<Run | undefined, Stor
         ? `the hub has no check ${name}`
         : typeof opened === 'string'
           ? opened
-          : yield* caught(resultOf(ended.step, { ...check, mode: 'warn' }, opened, hub, true));
+          : yield* caught(
+              Effect.zipRight(opened.restore, resultOf(ended.step, { ...check, mode: 'warn' }, opened.left, hub, true))
+            );
       if (typeof got === 'string')
         yield* store.trace(id, {
           at: now(),
