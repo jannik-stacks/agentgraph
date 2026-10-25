@@ -121,7 +121,6 @@ no-comment tests/doubles/session.ts 1
 no-comment tests/drive.test.ts 1
 no-comment tests/examples.test.ts 2
 no-comment tests/fixtures.ts 7
-no-comment tests/forge-cli.test.ts 1
 no-comment tests/github.test.ts 3
 no-comment tests/graph.test.ts 1
 no-comment tests/harnesses.test.ts 1

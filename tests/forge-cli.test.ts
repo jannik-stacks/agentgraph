@@ -40,7 +40,6 @@ afterEach(() => {
   delete process.env.AGENTGRAPH_TRUST;
 });
 
-/** A repo to seed from, a forge folder and a data dir; `forge` plays morgan on the forge folder, `run` sweeps once. */
 const world = () => {
   const { root, seed, data } = seeded('forge-cli', {
     'package.json': JSON.stringify({ scripts: { test: '! grep -q TODO hello.txt' } }),
