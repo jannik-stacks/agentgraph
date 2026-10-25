@@ -5,7 +5,6 @@ export type { Split, Step };
 /** One tune as `/api/compound` answers it; `name` is its folder. */
 export type TuneRows = ReturnType<typeof tunesOf>[number];
 
-
 /**
  * The case-weighted quality of a step's evals on `splits`; select (fit and validate) by default.
  * @internal

@@ -3,7 +3,7 @@
 // The first start records its settings in drive.json; `resume <dir>` needs none.
 // Live knobs in <dir>: `parallel` (worker count), `PAUSE` (take no new job). events.jsonl logs every start, stop,
 // pause and job. Exits 1 while jobs are left, so a queue tries again later.
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -15,15 +15,15 @@ import {
   readJsonl,
   onStop,
   ensureRunSettingsPinned,
+  readFileOrEmpty,
   release,
-  writeFileAtomic,
+  startChildProcess,
 } from '../bin/resume.ts';
+import { writeFileAtomic } from '../src/store.ts';
 
 /** The node on PATH now, so a toolchain upgrade during a long bench does not break later spawns. */
 export const nodePath = (fallback = process.execPath) =>
   spawnSync('sh', ['-c', 'command -v node'], { encoding: 'utf8' }).stdout?.trim() || fallback;
-
-const children = new Set<ChildProcess>();
 
 /**
  * Runs `args` with node into `logFile` in its own process group; a spawn or log write error ends it with exit 1
@@ -39,30 +39,20 @@ export const runLogged = (
     const stream = createWriteStream(logFile, { flags: 'a' });
     stream.on('error', e => log(`log ${logFile}: ${e.message}`));
     stream.write(`\n### ${new Date().toISOString()} ${args.slice(1, 3).join(' ')}\n`);
-    const child = spawn(nodePath(), args, { env, detached: true });
-    children.add(child);
-    child.stdout.pipe(stream, { end: false });
-    child.stderr.pipe(stream, { end: false });
+    const child = startChildProcess(nodePath(), args, { env });
+    child.stdout?.pipe(stream, { end: false });
+    child.stderr?.pipe(stream, { end: false });
     child.on('error', e => {
       log(`spawn: ${e.message}`);
-      children.delete(child);
       stream.end();
       done(1);
     });
     child.on('close', code => {
-      children.delete(child);
       stream.end();
       done(code ?? 1);
     });
   });
 
-const read = (path: string) => {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return '';
-  }
-};
 const json = <T>(path: string, fallback: T): T => {
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as T;
@@ -86,7 +76,7 @@ const pick = (from: Record<string, string | undefined>, keys: string[]) => {
 /** The env assignments of a dir's overnight queue, for a dir started before drive.json. */
 const queued = (dir: string) =>
   Object.fromEntries(
-    read(join(dir, 'queue.txt'))
+    readFileOrEmpty(join(dir, 'queue.txt'))
       .split('\n')
       .filter(l => !l.trimStart().startsWith('#'))
       .flatMap(l => [...l.matchAll(/\b([A-Z_]+)=(\S+)/g)].map(m => [m[1]!, m[2]!]))
@@ -189,7 +179,7 @@ export const stateOf = (dir: string): DriveState => {
   if (jobs.length && done === jobs.length) return { ...base, status: 'finished', at: last?.at };
   if (paused) return { ...base, status: 'paused', reason: 'PAUSE file, driver not running', at: last?.at };
   if (!last) {
-    const stop = read(join(dir, 'drive.log'))
+    const stop = readFileOrEmpty(join(dir, 'drive.log'))
       .split('\n')
       .filter(l => / stop: /.test(l))
       .at(-1);
@@ -260,7 +250,7 @@ if (import.meta.main) {
   const lock = join(dir, 'drive');
   const tick = Number(process.env.DRIVE_TICK) || 15_000;
   if (!claim(lock)) {
-    const pid = Number(read(`${lock}.lock`));
+    const pid = Number(readFileOrEmpty(`${lock}.lock`));
     log(`another driver runs ${dir} as pid ${pid}`);
     event('busy', { pid: process.pid, holder: pid });
     process.exit(1);
@@ -311,7 +301,7 @@ if (import.meta.main) {
         .sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')))[0]?.now;
 
     const orKey = s.ORENV
-      ? read(s.ORENV)
+      ? readFileOrEmpty(s.ORENV)
           .split('\n')
           .find(l => l.startsWith('OPENROUTER_API_KEY='))
           ?.slice(19)
@@ -349,10 +339,6 @@ if (import.meta.main) {
     log(`${total - queue.length}/${total} done, ${partial.length} partial: ${partial.join(', ') || 'none'}`);
     onStop(signal => {
       event('stop', { reason: `signal ${signal}`, done: done(), total, active });
-      for (const child of children)
-        try {
-          process.kill(-Number(child.pid), 'SIGTERM');
-        } catch {}
       release(lock);
     });
 
@@ -425,7 +411,7 @@ if (import.meta.main) {
     const failed: string[] = [];
     let stopped: string | undefined;
     let paused = false;
-    const width = () => Number(read(join(dir, 'parallel')).trim()) || 3;
+    const width = () => Number(readFileOrEmpty(join(dir, 'parallel')).trim()) || 3;
     await new Promise<void>((finish, fail) => {
       const step = async () => {
         if (existsSync(join(dir, 'PAUSE')) !== paused) {

@@ -4,23 +4,15 @@
  *   node tune/propose.ts <tune dir> retro|history|structure --id <id> --from <hub> [--runs <dir>] [--iteration n]
  */
 import { spawn, spawnSync } from 'node:child_process';
-import {
-  appendFileSync,
-  cpSync,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { appendFileSync, cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { failureClass, infra } from '../bin/bench.ts';
-import { writeFileAtomic } from '../bin/resume.ts';
+import { parseJsonl, readFileOrEmpty, readJsonl } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
 import { type Hub, loadHub } from '../src/hub.ts';
+import { writeFileAtomic } from '../src/store.ts';
 import type { Trace } from '../src/trace.ts';
 import type { Run } from '../src/workflow.ts';
 
@@ -100,7 +92,6 @@ const schema = {
 const minCases: Record<Proposer, number> = { retro: 2, history: 2, structure: 1 };
 const hubPath = /^(hub\.yaml|(agents|skills|checks|workflows|scripts)(\/[\w-][\w.-]*)+)$/;
 const here = (path: string) => join(import.meta.dirname, path);
-const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const head = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max)}\n... ${text.length - max} more characters`;
 const tail = (text: string, max: number) => (text.length <= max ? text : `...\n${text.slice(-max)}`);
@@ -108,7 +99,7 @@ const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 /** Compiler warning blocks and build progress lines, which crowd out the failure in a test output tail. */
 const noise =
   /^warning[:[][\s\S]*?(?:\n[ \t]*\n|(?![\s\S]))|^ *(Compiling|Finished|Running|Downloaded|Downloading) .*\n/gm;
-const fence = (text: string, lang = '') => `\`\`\`${lang}\n${text.replaceAll('```', "'''")}\n\`\`\``;
+export const formatCodeFence = (text: string, lang = '') => `\`\`\`${lang}\n${text.replaceAll('```', "'''")}\n\`\`\``;
 const files = (dir: string): string[] =>
   readdirSync(dir).flatMap(n =>
     statSync(join(dir, n)).isDirectory() ? files(join(dir, n)).map(f => `${n}/${f}`) : [n]
@@ -117,17 +108,20 @@ const files = (dir: string): string[] =>
 type Material = { id: string; text: string; files: Record<string, string> };
 
 const titleOf = (dir: string) =>
-  (JSON.parse(read(join(dir, 'case.json')) || '{}') as { title?: string; pr?: number }).title ?? '';
+  (JSON.parse(readFileOrEmpty(join(dir, 'case.json')) || '{}') as { title?: string; pr?: number }).title ?? '';
 
 /** The newest run of each bot arm of a case whose change failed the hidden tests, infra failures left out. */
 const failing = (runs: string, id: string) => {
   const dir = join(runs, id);
-  if (!existsSync(dir) || (JSON.parse(read(join(dir, 'valid.json')) || '{}') as { invalid?: string }).invalid)
+  if (
+    !existsSync(dir) ||
+    (JSON.parse(readFileOrEmpty(join(dir, 'valid.json')) || '{}') as { invalid?: string }).invalid
+  )
     return [];
   return readdirSync(dir)
     .filter(arm => !['human', 'base', 'judge', 'tree'].includes(arm) && !arm.includes('.'))
     .flatMap(arm => {
-      const s = JSON.parse(read(join(dir, arm, 'score.json')) || 'null') as
+      const s = JSON.parse(readFileOrEmpty(join(dir, arm, 'score.json')) || 'null') as
         | (Parameters<typeof infra>[0] & { hidden?: { ok: boolean; tail: string; class?: string } })
         | null;
       return s?.hidden && !s.hidden.ok && !infra(s) ? [{ at: join(dir, arm), hidden: s.hidden }] : [];
@@ -141,11 +135,8 @@ const traces = (at: string, budget: number) => {
     .filter(n => n.startsWith('issue-') && existsSync(join(data, n, 'run.json')))
     .sort()
     .map(n => ({
-      run: JSON.parse(read(join(data, n, 'run.json'))) as Run,
-      lines: read(join(data, n, 'trace.jsonl'))
-        .split('\n')
-        .filter(Boolean)
-        .map(l => JSON.parse(l) as Trace),
+      run: JSON.parse(readFileOrEmpty(join(data, n, 'run.json'))) as Run,
+      lines: readJsonl<Trace>(join(data, n, 'trace.jsonl')),
     }));
   return transcript(1, runs, budget);
 };
@@ -156,18 +147,21 @@ const failures = (cases: string, runs: string, ids: string[], small: boolean): M
     .flatMap(id => failing(runs, id).map(f => ({ id, ...f })))
     .slice(0, small ? 4 : 6)
     .map(({ id, at, hidden }) => {
-      const issue = read(join(cases, id, 'issue.md'));
-      const human = read(join(cases, id, 'merged.diff'));
-      const bot = read(join(at, 'diff.patch'));
+      const issue = readFileOrEmpty(join(cases, id, 'issue.md'));
+      const human = readFileOrEmpty(join(cases, id, 'merged.diff'));
+      const bot = readFileOrEmpty(join(at, 'diff.patch'));
       const out = hidden.tail.replace(ansi, '').replace(noise, '');
       const full = traces(at, 60_000);
       const text = [
         `### ${id}: ${titleOf(join(cases, id))}`,
         `Issue:\n\n${head(issue, small ? 800 : 2000)}`,
-        `Hidden tests (${hidden.class ?? failureClass(out)}):\n\n${fence(tail(out, small ? 700 : 1500))}`,
+        `Hidden tests (${hidden.class ?? failureClass(out)}):\n\n${formatCodeFence(tail(out, small ? 700 : 1500))}`,
         ...(small
           ? []
-          : [`Bot diff:\n\n${fence(head(bot, 3000), 'diff')}`, `Human diff:\n\n${fence(head(human, 3000), 'diff')}`]),
+          : [
+              `Bot diff:\n\n${formatCodeFence(head(bot, 3000), 'diff')}`,
+              `Human diff:\n\n${formatCodeFence(head(human, 3000), 'diff')}`,
+            ]),
         `Transcript:\n\n${traces(at, small ? 4000 : 10_000)}`,
       ].join('\n\n');
       return {
@@ -201,18 +195,14 @@ const unseen = (runs: string, ids: string[]) => {
 /** What earlier candidates of this tune tried and how each ended, one line each. */
 const tried = (tune: string) => {
   const verdicts = new Map(
-    read(join(tune, 'iterations.jsonl'))
-      .split('\n')
-      .filter(Boolean)
-      .map(l => JSON.parse(l) as { id: string; verdict: string })
-      .map(s => [s.id, s.verdict])
+    readJsonl<{ id: string; verdict: string }>(join(tune, 'iterations.jsonl')).map(s => [s.id, s.verdict])
   );
   const cands = join(tune, 'cands');
   return (existsSync(cands) ? readdirSync(cands) : [])
     .filter(id => verdicts.has(id) && !id.endsWith('-init'))
     .sort()
     .map(id => {
-      const c = JSON.parse(read(join(cands, id, 'candidate.json')) || '{}') as {
+      const c = JSON.parse(readFileOrEmpty(join(cands, id, 'candidate.json')) || '{}') as {
         proposer?: string;
         rationale?: string;
       };
@@ -227,21 +217,21 @@ const tried = (tune: string) => {
 /** Eight mine cases, those with review comments that ask for something first. */
 const history = (cases: string, ids: string[], seed: number): Material[] => {
   const said = (id: string) =>
-    read(join(cases, id, 'reviews.md'))
+    readFileOrEmpty(join(cases, id, 'reviews.md'))
       .replace(/^### review (APPROVED|COMMENTED) \(.*\)$/gm, '')
       .trim().length > 80;
   const order = shuffle(ids, seed + 1);
   return [...order.filter(said), ...order.filter(id => !said(id))].slice(0, 8).map(id => {
-    const c = JSON.parse(read(join(cases, id, 'case.json')) || '{}') as { pr?: number; title?: string };
-    const issue = read(join(cases, id, 'issue.md'));
-    const diff = read(join(cases, id, 'merged.diff'));
-    const reviews = read(join(cases, id, 'reviews.md'));
+    const c = JSON.parse(readFileOrEmpty(join(cases, id, 'case.json')) || '{}') as { pr?: number; title?: string };
+    const issue = readFileOrEmpty(join(cases, id, 'issue.md'));
+    const diff = readFileOrEmpty(join(cases, id, 'merged.diff'));
+    const reviews = readFileOrEmpty(join(cases, id, 'reviews.md'));
     const touched = [...diff.matchAll(/^diff --git a\/(\S+)/gm)].map(m => m[1]).join('\n');
     const text = [
       `### ${id}: PR #${c.pr ?? '?'} ${c.title ?? ''}`,
       `Issue:\n\n${head(issue, 1200)}`,
       `Files:\n\n${touched}`,
-      `Diff excerpt:\n\n${fence(head(diff, 1500), 'diff')}`,
+      `Diff excerpt:\n\n${formatCodeFence(head(diff, 1500), 'diff')}`,
       `Reviews:\n\n${head(reviews, 3500) || '(none)'}`,
     ].join('\n\n');
     return { id, text, files: { 'issue.md': issue, 'merged.diff': diff, 'reviews.md': reviews } };
@@ -251,10 +241,10 @@ const history = (cases: string, ids: string[], seed: number): Material[] => {
 const hubText = (hub: string) =>
   files(hub)
     .sort()
-    .map(f => `### ${f}\n\n${fence(head(read(join(hub, f)), 4000))}`)
+    .map(f => `### ${f}\n\n${formatCodeFence(head(readFileOrEmpty(join(hub, f)), 4000))}`)
     .join('\n\n');
 
-type Event = {
+export type ClaudeStreamEvent = {
   type?: string;
   session_id?: string;
   total_cost_usd?: number;
@@ -263,19 +253,10 @@ type Event = {
   rate_limit_info?: { unifiedWindows?: Record<string, { utilization?: number } | undefined> };
   message?: { content?: unknown };
 };
-/** The events of a stream-json session, lines that are not JSON left out. */
-export const events = (stream: string) =>
-  stream.split('\n').flatMap(line => {
-    try {
-      return [JSON.parse(line) as Event];
-    } catch {
-      return [];
-    }
-  });
 
 /** Claude's 5-hour and weekly use in percent, from the newest `rate_limit_event` of a stream-json session. */
 export const claudeUsed = (stream: string): Usage | undefined => {
-  const w = events(stream)
+  const w = parseJsonl<ClaudeStreamEvent>(stream)
     .flatMap(e =>
       e.type === 'rate_limit_event' && e.rate_limit_info?.unifiedWindows ? [e.rate_limit_info.unifiedWindows] : []
     )
@@ -308,7 +289,7 @@ const claude = (args: string[], prompt: string, cwd: string, log: string) =>
     child.stdin.end(prompt);
   });
 
-const answerOf = (result?: Event): Answer | undefined => {
+const answerOf = (result?: ClaudeStreamEvent): Answer | undefined => {
   if (result?.structured_output) return result.structured_output as Answer;
   const text = result?.result ?? '';
   const json = [...text.matchAll(/```json\n([\s\S]*?)```/g)].at(-1)?.[1] ?? text;
@@ -350,11 +331,11 @@ const apply = (hub: string, changes: Change[]) => {
     else if (!existsSync(path)) problems.push(`${c.path}: no such file in the hub`);
     else if (c.delete) rmSync(path);
     else {
-      const found = read(path).split(c.old!).length - 1;
+      const found = readFileOrEmpty(path).split(c.old!).length - 1;
       if (found === 1)
         writeFileSync(
           path,
-          read(path).replace(c.old!, () => c.new!)
+          readFileOrEmpty(path).replace(c.old!, () => c.new!)
         );
       else problems.push(`${c.path}: old snippet found ${found} times, it must be found once`);
     }
@@ -390,7 +371,7 @@ export const propose = async (o: {
 }): Promise<Proposal> => {
   const dir = join(o.tune, 'cands', o.id);
   if (existsSync(join(dir, 'proposal.md'))) throw new Error(`${dir} already has a proposal`);
-  const tune = JSON.parse(read(join(o.tune, 'tune.json'))) as { cases: Record<string, string> };
+  const tune = JSON.parse(readFileOrEmpty(join(o.tune, 'tune.json'))) as { cases: Record<string, string> };
   const cases = o.cases ?? [join(o.tune, 'cases'), join(o.tune, '..', 'cases')].find(d => existsSync(d));
   if (!cases) throw new Error(`no cases dir beside ${o.tune}`);
   const split = (s: string) => Object.keys(tune.cases).filter(id => tune.cases[id] === s);
@@ -407,7 +388,9 @@ export const propose = async (o: {
   const before = tried(o.tune);
   const key = JSON.stringify({ proposer: o.proposer, from: relative(o.tune, o.from), ids, edit, tried: before.length });
   const cands = join(o.tune, 'cands');
-  const again = (existsSync(cands) ? readdirSync(cands) : []).some(id => read(join(cands, id, 'asked.json')) === key);
+  const again = (existsSync(cands) ? readdirSync(cands) : []).some(
+    id => readFileOrEmpty(join(cands, id, 'asked.json')) === key
+  );
   const skip = !ids.length
     ? 'no cases to learn from'
     : o.proposer === 'structure' && !edit
@@ -432,12 +415,12 @@ export const propose = async (o: {
   cpSync(o.from, join(input, 'hub'), { recursive: true });
   for (const m of material)
     for (const [name, text] of Object.entries(m.files)) writeFileAtomic(join(input, 'cases', m.id, name), text);
-  const instructions = read(here(`proposers/${o.proposer}.md`)).replace('{{edit}}', edit ?? '');
+  const instructions = readFileOrEmpty(here(`proposers/${o.proposer}.md`)).replace('{{edit}}', edit ?? '');
   const heading = o.proposer === 'history' ? 'Merged pull requests' : 'Failing cases';
   const others = o.proposer === 'history' ? '' : unseen(o.runs!, split('validate'));
   const prompt = [
     instructions,
-    read(here('proposers/patch.md')),
+    readFileOrEmpty(here('proposers/patch.md')),
     `## The hub\n\n${hubText(o.from)}`,
     `## ${heading}\n\n${material.map(m => m.text).join('\n\n') || '(none)'}`,
     ...(others ? [`## Held-out cases\n\nOn the held-out cases this hub is scored on, ${others}`] : []),
@@ -477,7 +460,7 @@ export const propose = async (o: {
       input,
       join(dir, `stream-${attempt}.jsonl`)
     );
-    const result = events(stream).findLast(e => e.type === 'result');
+    const result = parseJsonl<ClaudeStreamEvent>(stream).findLast(e => e.type === 'result');
     usd += result?.total_cost_usd ?? 0;
     usage = claudeUsed(stream) ?? usage;
     session = result?.session_id ?? session;
@@ -519,8 +502,8 @@ export const propose = async (o: {
         `Cost: $${usd.toFixed(2)}${usage ? `, Claude 5h ${usage.fiveHour}%, week ${usage.week}%` : ''}`,
       ].join('\n'),
       `## Cases\n\n${answer.cases.map(c => `- ${c.id}: ${c.evidence}`).join('\n') || '(none)'}`,
-      ...(valid ? [`## Diff\n\n${fence(diffOf(dir), 'diff')}`] : []),
-      `## Raw\n\n${fence(JSON.stringify(answer, null, 2), 'json')}`,
+      ...(valid ? [`## Diff\n\n${formatCodeFence(diffOf(dir), 'diff')}`] : []),
+      `## Raw\n\n${formatCodeFence(JSON.stringify(answer, null, 2), 'json')}`,
     ].join('\n\n') + '\n'
   );
   return proposal;

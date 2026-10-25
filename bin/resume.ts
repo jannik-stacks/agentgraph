@@ -1,15 +1,13 @@
 /**
- * Crash-safe files and units for long bench and tune runs. A result file is written whole or not at all, a log line
- * that a crash cut off is skipped, a unit a dead process left half done goes to an attic beside it, and a run waits
- * while the model proxy or docker is down.
+ * Crash-safe files and units for long bench and tune runs. A log line that a crash cut off is skipped, a unit a dead
+ * process left half done goes to an attic beside it, and a run waits while the model proxy or docker is down.
  */
-import { spawnSync } from 'node:child_process';
+import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   closeSync,
   cpSync,
   existsSync,
-  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -25,22 +23,7 @@ import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, ensureFreeDisk } from '../src/disk.ts';
 import { isPidRunning } from '../src/env.ts';
-
-const text = (v: unknown) => (typeof v === 'string' ? v : `${JSON.stringify(v, null, 2)}\n`);
-
-/** Writes `path` through a synced temp file and a rename, so a reader sees the old file or the whole new one. */
-export const writeFileAtomic = (path: string, v: unknown) => {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  const fd = openSync(tmp, 'w');
-  try {
-    writeSync(fd, text(v));
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  renameSync(tmp, path);
-};
+import { writeFileAtomic } from '../src/store.ts';
 
 /** Appends one JSON line, first ending a line a crash left open. */
 export const appendJsonl = (path: string, v: unknown) => {
@@ -55,15 +38,21 @@ export const appendJsonl = (path: string, v: unknown) => {
   appendFileSync(path, `${size && last[0] !== 10 ? '\n' : ''}${JSON.stringify(v)}\n`);
 };
 
-/** The JSON lines of `path`, skipping any a crash cut off. */
-export const readJsonl = <T = Record<string, unknown>>(path: string): T[] =>
-  (existsSync(path) ? readFileSync(path, 'utf8') : '').split('\n').flatMap(l => {
+export const agentgraphDir = join(import.meta.dirname, '..');
+
+export const readFileOrEmpty = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
+
+/** The JSON lines of `text`, skipping any a crash cut off. */
+export const parseJsonl = <T = Record<string, unknown>>(text: string): T[] =>
+  text.split('\n').flatMap(l => {
     try {
       return l ? [JSON.parse(l) as T] : [];
     } catch {
       return [];
     }
   });
+
+export const readJsonl = <T = Record<string, unknown>>(path: string) => parseJsonl<T>(readFileOrEmpty(path));
 
 /**
  * Moves `path` into `.attic/` beside it, keeping its records; answers where it went. Its checkouts and scoring tree
@@ -89,7 +78,7 @@ export const copyDirIfAbsentAtomic = (src: string, dst: string, filter?: (path: 
   else renameSync(tmp, dst);
 };
 
-const owner = (path: string) => Number((existsSync(`${path}.lock`) && readFileSync(`${path}.lock`, 'utf8')) || 0);
+const owner = (path: string) => Number(readFileOrEmpty(`${path}.lock`) || 0);
 
 /** Since when this machine runs, so a lock from before a reboot is stale even when its pid was reused. */
 const booted = () => Date.now() - uptime() * 1000;
@@ -218,10 +207,27 @@ export const clock = () => {
   };
 };
 
-/** Runs `stop` once on SIGINT, SIGTERM or SIGHUP, then exits; a pause is a stop and a later rerun resumes. */
+const children = new Set<ChildProcess>();
+
+export const startChildProcess = (command: string, args: string[], options: SpawnOptions) => {
+  const child = spawn(command, args, { ...options, detached: true });
+  children.add(child);
+  child.on('error', () => children.delete(child));
+  child.on('close', () => children.delete(child));
+  return child;
+};
+
+/**
+ * Ends every child `startChildProcess` started, runs `stop` once on SIGINT, SIGTERM or SIGHUP, then exits; a pause is
+ * a stop and a later rerun resumes.
+ */
 export const onStop = (stop: (signal: string) => void) => {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const)
     process.once(signal, () => {
+      for (const child of children)
+        try {
+          process.kill(-Number(child.pid), 'SIGTERM');
+        } catch {}
       try {
         stop(signal);
       } finally {
@@ -248,7 +254,7 @@ export const ensureRunSettingsPinned = (
   given: Record<string, string | undefined>,
   defaults: Record<string, string> = {}
 ) => {
-  const was = JSON.parse(existsSync(file) ? readFileSync(file, 'utf8') : '{}') as Record<string, string>;
+  const was = JSON.parse(readFileOrEmpty(file) || '{}') as Record<string, string>;
   const env = { ...defaults, ...was };
   for (const [k, v] of Object.entries(given)) {
     if (v === undefined) continue;

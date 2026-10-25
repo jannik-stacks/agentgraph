@@ -8,7 +8,7 @@
  */
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { codexUsed } from '../bin/bench.ts';
@@ -24,9 +24,10 @@ import {
   step,
   tuneRows,
 } from '../bin/tune.ts';
-import { writeFileAtomic } from '../bin/resume.ts';
+import { agentgraphDir, parseJsonl, readFileOrEmpty } from '../bin/resume.ts';
+import { writeFileAtomic } from '../src/store.ts';
 import { getRounded } from '../src/stats.ts';
-import { claudeUsed, events, hubProblems, type Usage } from './propose.ts';
+import { claudeUsed, type ClaudeStreamEvent, formatCodeFence, hubProblems, type Usage } from './propose.ts';
 
 type Io = Parameters<typeof step>[2];
 type Limits = { codex: number; claude5h: number; claudeWeek: number };
@@ -55,18 +56,15 @@ type Round = {
   stopped?: string;
 };
 
-const agentgraph = join(import.meta.dirname, '..');
-const skillDir = join(agentgraph, 'skills/tune-graph');
-const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
+const skillDir = join(agentgraphDir, 'skills/tune-graph');
 const pad = (n: number) => String(n).padStart(3, '0');
-const fence = (text: string, lang = '') => `\`\`\`${lang}\n${text.replaceAll('```', "'''")}\n\`\`\``;
 const idsOf = (cases: Record<string, Split>, ...splits: Split[]) =>
   Object.keys(cases)
     .filter(id => splits.includes(cases[id]!))
     .sort();
 const skillSha = () =>
   createHash('sha256')
-    .update(read(join(skillDir, 'SKILL.md')))
+    .update(readFileOrEmpty(join(skillDir, 'SKILL.md')))
     .digest('hex')
     .slice(0, 12);
 
@@ -130,7 +128,7 @@ const workspace = (dir: string, w: string, k: number) => {
         `## ${s.id}, ${s.proposer}, ${s.verdict}`,
         redact(s.why),
         redact(s.rationale),
-        ...(s.diff ? [fence(s.diff, 'diff')] : []),
+        ...(s.diff ? [formatCodeFence(s.diff, 'diff')] : []),
       ].join('\n\n')
     );
   writeFileAtomic(
@@ -148,7 +146,7 @@ const slotsOf = async (w: string) =>
       .sort()
       .map(async slot => {
         const at = join(w, 'out', slot);
-        const why = read(join(at, 'why.md')).trim();
+        const why = readFileOrEmpty(join(at, 'why.md')).trim();
         const diff = spawnSync('git', ['diff', '--no-index', '--stat', join(w, 'hub'), join(at, 'hub')], {
           encoding: 'utf8',
         }).stdout;
@@ -212,7 +210,7 @@ const session = (
 
 /** Tool calls that name a held-out case or a path of the tune outside the workspace. */
 const leaksOf = (stream: string, dir: string, w: string, hidden: string[]) =>
-  events(stream).flatMap(e => {
+  parseJsonl<ClaudeStreamEvent>(stream).flatMap(e => {
     if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) return [];
     return (e.message.content as { type?: string; name?: string; input?: unknown }[])
       .filter(c => c.type === 'tool_use')
@@ -240,7 +238,7 @@ const promptOf = (iteration: number, o: Options) =>
 
 /** Readings past a cap: the loop's caps on the points used so far, and the absolute stops. */
 const stopOf = (dir: string, o: Options) => (u: Usage) => {
-  const b = JSON.parse(read(join(dir, 'budget.json')) || '{}') as Parameters<typeof overOf>[0];
+  const b = JSON.parse(readFileOrEmpty(join(dir, 'budget.json')) || '{}') as Parameters<typeof overOf>[0];
   if (u.fiveHour >= o.stop.fiveHour) return `Claude 5h at ${u.fiveHour}%, the stop is ${o.stop.fiveHour}%`;
   if (u.week >= o.stop.week) return `Claude week at ${u.week}%, the stop is ${o.stop.week}%`;
   const claude = { fiveHour: reading(b.claude?.fiveHour, u.fiveHour), week: reading(b.claude?.week, u.week) };
@@ -300,8 +298,8 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
       over,
       live
     );
-    const result = events(stream).findLast(e => e.type === 'result');
-    const id = result?.session_id ?? events(stream).find(e => e.session_id)?.session_id;
+    const result = parseJsonl<ClaudeStreamEvent>(stream).findLast(e => e.type === 'result');
+    const id = result?.session_id ?? parseJsonl<ClaudeStreamEvent>(stream).find(e => e.session_id)?.session_id;
     if (id) r.session = id;
     r.usd = getRounded(r.usd + (result?.total_cost_usd ?? 0));
     r.leaks.push(...leaksOf(stream, dir, w, hidden));
@@ -343,7 +341,7 @@ const claudeOf = (r: Round) => {
 const rounds = (dir: string) =>
   (existsSync(join(dir, 'skill')) ? readdirSync(join(dir, 'skill')) : [])
     .filter(n => /^r\d+$/.test(n) && existsSync(join(dir, 'skill', n, 'round.json')))
-    .map(n => JSON.parse(read(join(dir, 'skill', n, 'round.json'))) as Round);
+    .map(n => JSON.parse(readFileOrEmpty(join(dir, 'skill', n, 'round.json'))) as Round);
 
 const flatSince = (steps: Step[]) => {
   const its = [...new Set(steps.filter(s => s.iteration > 0).map(s => s.iteration))].sort((a, b) => b - a);

@@ -9,8 +9,8 @@
  *        node bin/tune.ts status <tune dir or root> [--max-codex 25] [--max-claude-5h 40] [--max-claude-week 12]
  * Tunes live in <root>/<repo>/<name>; the root is AGENTGRAPH_TUNE, by default ~/.agentgraph/tune.
  */
-import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -19,7 +19,9 @@ import { presets, quality, random } from '../studio/src/bench/score.ts';
 import { getMean, getRounded, sum } from '../src/stats.ts';
 import { propose as proposeWith } from '../tune/propose.ts';
 import { codexUsed, pickBenchTestCommands, progress, readBenchRows, statusText } from './bench.ts';
+import { writeFileAtomic } from '../src/store.ts';
 import {
+  agentgraphDir,
   appendJsonl,
   readBenchResultEnv,
   busy,
@@ -28,8 +30,9 @@ import {
   onStop,
   ensureRunSettingsPinned,
   release,
+  readFileOrEmpty,
+  startChildProcess,
   waitWhileServicesDown,
-  writeFileAtomic,
 } from './resume.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
@@ -84,14 +87,12 @@ type Row = ReturnType<typeof readBenchRows>[number];
 type Reading = { now: number; used: number };
 type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading } };
 
-const agentgraph = join(import.meta.dirname, '..');
 const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), '.agentgraph/tune');
-const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const pad = (n: number) => String(n).padStart(3, '0');
 
 /** The tune's settings and its steps in order, as `iterations.jsonl` holds them. */
 export const tuneRows = (dir: string) => {
-  const tune = read(join(dir, 'tune.json'));
+  const tune = readFileOrEmpty(join(dir, 'tune.json'));
   if (!tune) throw new Error(`${dir} has no tune.json`);
   return { tune: JSON.parse(tune) as Tune, steps: readJsonl<Step>(join(dir, 'iterations.jsonl')) };
 };
@@ -250,11 +251,13 @@ const unitOf = (dir: string, j: Job) => ({ out: join(dir, 'runs', outOf(j)), cas
 /** A job is done once its v2 run is scored or its case is invalid. */
 const finished = (dir: string, j: Job) => {
   const at = join(dir, 'runs', outOf(j), j.case);
-  return existsSync(join(at, 'v2', 'score.json')) || Boolean(JSON.parse(read(join(at, 'valid.json')) || '{}').invalid);
+  return (
+    existsSync(join(at, 'v2', 'score.json')) ||
+    Boolean(JSON.parse(readFileOrEmpty(join(at, 'valid.json')) || '{}').invalid)
+  );
 };
 const tuneLog = (dir: string) => (e: object) =>
   appendJsonl(join(dir, 'log.jsonl'), { at: new Date().toISOString(), ...e });
-const children = new Set<ChildProcess>();
 
 /** The bench as the tune drives it: one v2 run and score per job, judged on request, `parallel` at a time. */
 const bench = {
@@ -262,10 +265,10 @@ const bench = {
     const engine = engineAt(t);
     const call = (args: string[], id: string, repeat = 1) =>
       new Promise<number>(done => {
-        const child = spawn(
+        const child = startChildProcess(
           process.execPath,
           [
-            join(agentgraph, 'bin/bench.ts'),
+            join(agentgraphDir, 'bin/bench.ts'),
             ...args,
             ...(o.keys ? ['--keys', o.keys] : []),
             ...(repeat > 1 ? ['--repeat', String(repeat)] : []),
@@ -282,8 +285,7 @@ const bench = {
             },
           }
         );
-        children.add(child);
-        child.on('close', code => (children.delete(child), done(code ?? 1)));
+        child.on('close', code => done(code ?? 1));
       });
     let queue: Job[] = [];
     const next = async () => {
@@ -321,7 +323,7 @@ type Io = typeof bench;
 
 /** The engine dir to run, after checking its `src` tree is the pinned engine's. */
 const engineAt = (t: Tune) => {
-  const dir = process.env.BENCH_ENGINE ?? agentgraph;
+  const dir = process.env.BENCH_ENGINE ?? agentgraphDir;
   const tree = (rev: string) =>
     spawnSync('git', ['-C', dir, 'rev-parse', `${rev}:./src`], { encoding: 'utf8' }).stdout.trim();
   if (tree('HEAD') !== tree(t.engine)) throw new Error(`the engine at ${dir} is not the tune's ${t.engine}`);
@@ -387,7 +389,7 @@ const pending = (dir: string, steps: Step[]) => {
     const hub = join(dir, 'cands', freeId(dir, nextIteration(steps), 'manual'), 'hub');
     cpSync(join(dir, 'cands', parent.id, 'hub'), hub, { recursive: true });
     execFileSync('git', ['apply', patch], { cwd: hub, env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(hub) } });
-    const rationale = read(patch)
+    const rationale = readFileOrEmpty(patch)
       .split(/\n\s*\n/)[0]!
       .trim();
     enqueue(dir, {
@@ -403,7 +405,7 @@ const pending = (dir: string, steps: Step[]) => {
   const done = new Set(steps.map(s => s.id));
   return (existsSync(join(dir, 'cands')) ? readdirSync(join(dir, 'cands')) : [])
     .filter(id => !done.has(id) && existsSync(join(dir, 'cands', id, 'candidate.json')))
-    .map(id => JSON.parse(read(join(dir, 'cands', id, 'candidate.json'))) as Candidate)
+    .map(id => JSON.parse(readFileOrEmpty(join(dir, 'cands', id, 'candidate.json'))) as Candidate)
     .sort((a, b) => a.id.localeCompare(b.id));
 };
 
@@ -431,7 +433,7 @@ export const guard = (
   claude?: { fiveHour: number; week: number }
 ) => {
   const file = join(dir, 'budget.json');
-  const b = JSON.parse(read(file) || '{}') as Budget;
+  const b = JSON.parse(readFileOrEmpty(file) || '{}') as Budget;
   const mark = (r: Reading | undefined, now: number | undefined) => (now === undefined ? r : reading(r, now));
   const codex = mark(b.codex, io.codex());
   const fiveHour = mark(b.claude?.fiveHour, claude?.fiveHour);
@@ -470,8 +472,9 @@ export const init = async (
   const short = repo.split('/').pop()!;
   const dir = join(tuneRoot(), short, o.name ?? 't1');
   if (!existsSync(join(dir, 'tune.json'))) {
-    const splits = JSON.parse(read(o.splits)) as Record<string, string>;
-    const meta = (id: string) => JSON.parse(read(join(o.cases, id, 'case.json')) || '{}') as Record<string, unknown>;
+    const splits = JSON.parse(readFileOrEmpty(o.splits)) as Record<string, string>;
+    const meta = (id: string) =>
+      JSON.parse(readFileOrEmpty(join(o.cases, id, 'case.json')) || '{}') as Record<string, unknown>;
     const gated = Object.keys(splits).filter(id => {
       const m = meta(id);
       return (
@@ -487,7 +490,7 @@ export const init = async (
     for (const id of gated) if (splits[id] === 'validate' || splits[id] === 'test') cases[id] = splits[id];
     for (const id of Object.keys(cases)) cpSync(join(o.cases, id), join(dir, 'cases', id), { recursive: true });
     const engine = (...args: string[]) =>
-      spawnSync('git', ['-C', process.env.BENCH_ENGINE ?? agentgraph, ...args], { encoding: 'utf8' }).stdout.trim();
+      spawnSync('git', ['-C', process.env.BENCH_ENGINE ?? agentgraphDir, ...args], { encoding: 'utf8' }).stdout.trim();
     const t: Tune = {
       repo: String(meta(gated[0] ?? '').repo ?? repo),
       engine:
@@ -506,7 +509,7 @@ export const init = async (
     minimal(
       join(dir, 'cands', 'i000-init', 'hub'),
       { ...pickBenchTestCommands(t.repo, (first.tests as string[]) ?? []), ...mined },
-      read(join(agentgraph, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
+      readFileOrEmpty(join(agentgraphDir, 'examples', short, 'hub.yaml')).match(/^toolchain: .*$/m)?.[0]
     );
     execFileSync('git', ['init', '-q', '--bare', join(dir, 'hub.git')]);
     writeFileAtomic(join(dir, 'tune.json'), t);
@@ -514,7 +517,7 @@ export const init = async (
   const { tune: t, steps } = tuneRows(dir);
   if (steps.length) return dir;
   const cand = existsSync(join(dir, 'cands/i000-init/candidate.json'))
-    ? (JSON.parse(read(join(dir, 'cands/i000-init/candidate.json'))) as Candidate)
+    ? (JSON.parse(readFileOrEmpty(join(dir, 'cands/i000-init/candidate.json'))) as Candidate)
     : enqueue(dir, { id: 'i000-init', iteration: 0, parent: '', proposer: 'manual', rationale: 'The minimal hub.' });
   git(dir, ['update-ref', 'refs/heads/main', cand.hub]);
   const select = ids(t, 'fit', 'validate');
@@ -540,7 +543,7 @@ export const init = async (
  * toolchain line builds through the toolchain step, so the case plan's host setup is left out.
  */
 const minimal = (hub: string, commands: ReturnType<typeof pickBenchTestCommands>, toolchain?: string) => {
-  cpSync(join(agentgraph, 'examples/bench'), hub, { recursive: true });
+  cpSync(join(agentgraphDir, 'examples/bench'), hub, { recursive: true });
   rmSync(join(hub, 'agents/reviewer.md'), { force: true });
   rmSync(join(hub, 'scripts/review.mjs'), { force: true });
   writeFileAtomic(
@@ -560,7 +563,7 @@ One issue becomes one pull request. The implementor changes the repo until the t
   );
   writeFileAtomic(
     join(hub, 'checks/tests.md'),
-    read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
+    readFileOrEmpty(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
   );
   const each = commands.runner
     ? `[ -z "$files" ] || ${commands.runner} $files`
@@ -574,9 +577,12 @@ done`;
     join(hub, 'scripts/tests.sh'),
     `set -f\nfiles=$(git ls-files -mo --exclude-standard | grep -E '[.](test|spec)[.][jt]sx?$')\n${each}\n`
   );
-  if (toolchain) writeFileAtomic(join(hub, 'hub.yaml'), `${toolchain}\n${read(join(hub, 'hub.yaml'))}`);
+  if (toolchain) writeFileAtomic(join(hub, 'hub.yaml'), `${toolchain}\n${readFileOrEmpty(join(hub, 'hub.yaml'))}`);
   else if (commands.setup)
-    writeFileAtomic(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(commands.setup)}\n${read(join(hub, 'hub.yaml'))}`);
+    writeFileAtomic(
+      join(hub, 'hub.yaml'),
+      `setup: ${JSON.stringify(commands.setup)}\n${readFileOrEmpty(join(hub, 'hub.yaml'))}`
+    );
 };
 
 /** One iteration: proposals, a screen on a few fit cases, the survivors on the rest of select, at most one kept. */
@@ -785,11 +791,11 @@ export const status = (dir: string, limits = limitsDefault) => {
     return n ? `${getRounded(sum(es.map(e => e.quality * e.cases.length)) / n)} on ${n}` : '-';
   };
   const on = (...splits: Split[]) => q(inc?.evals.filter(e => splits.includes(e.split)) ?? []);
-  const b = JSON.parse(read(join(dir, 'budget.json')) || '{}') as Budget;
+  const b = JSON.parse(readFileOrEmpty(join(dir, 'budget.json')) || '{}') as Budget;
   const used = (name: string, r: Reading | undefined, max: number) => `${name} ${r?.used ?? '-'} of ${max}`;
-  const live = Boolean(read(join(dir, 'tune.lock'))) && busy(join(dir, 'tune'));
-  const pid = Number(read(join(dir, 'tune.lock')) || 0);
-  const phase = JSON.parse(read(join(dir, 'phase.json')) || 'null') as {
+  const live = Boolean(readFileOrEmpty(join(dir, 'tune.lock'))) && busy(join(dir, 'tune'));
+  const pid = Number(readFileOrEmpty(join(dir, 'tune.lock')) || 0);
+  const phase = JSON.parse(readFileOrEmpty(join(dir, 'phase.json')) || 'null') as {
     at: string;
     parallel: number;
     jobs: Job[];
@@ -870,7 +876,7 @@ if (import.meta.main) {
   }
   if (dir && ['init', 'step', 'run', 'checkpoint'].includes(command ?? '')) {
     if (!claim(join(dir, 'tune'))) {
-      console.error(`another process runs ${dir}: ${read(join(dir, 'tune.lock'))}`);
+      console.error(`another process runs ${dir}: ${readFileOrEmpty(join(dir, 'tune.lock'))}`);
       process.exit(1);
     }
     process.on('exit', () => release(join(dir, 'tune')));
@@ -882,7 +888,6 @@ if (import.meta.main) {
     if (env.keys) Object.assign(o, { keys: env.keys });
     onStop(signal => {
       tuneLog(dir)({ event: 'paused', signal });
-      for (const child of children) child.kill('SIGTERM');
       release(join(dir, 'tune'));
     });
   }

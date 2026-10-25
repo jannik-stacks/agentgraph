@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
 import { open, mkdir, link, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
@@ -20,6 +21,19 @@ const changes = (before: Run | undefined, next: Run): Trace | undefined => {
     saved: Object.fromEntries(changed.filter(k => next[k] !== undefined).map(k => [k, next[k]])),
     ...(cleared.length > 0 && { cleared }),
   };
+};
+
+export const writeFileAtomic = (path: string, v: unknown) => {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  const fd = openSync(tmp, 'w');
+  try {
+    writeFileSync(fd, typeof v === 'string' || v instanceof Uint8Array ? v : `${JSON.stringify(v, null, 2)}\n`);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(tmp, path);
 };
 
 /** Which check output the store keeps: every run's, only failing ones', or none. */
@@ -178,12 +192,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
     const hash = createHash('sha256').update(output).digest('hex');
     const path = logFile(hash);
     return io(path, async () => {
-      if (!(await stat(path).catch(() => undefined))) {
-        await mkdir(join(dir, 'logs'), { recursive: true });
-        const tmp = `${path}.${randomUUID()}.tmp`;
-        await writeFile(tmp, await promisify(gzip)(output));
-        await rename(tmp, path);
-      }
+      if (!(await stat(path).catch(() => undefined))) writeFileAtomic(path, await promisify(gzip)(output));
       return { hash, bytes: Buffer.byteLength(output) };
     });
   };
@@ -204,12 +213,7 @@ export const fileStore = (dir: string, logs: (typeof checkLogs)[number] = 'all')
       Effect.gen(function* () {
         const line = changes(yield* readRun(run.id), run);
         if (line) yield* trace(run.id, line);
-        yield* io(runFile(run.id), async () => {
-          await mkdir(join(dir, run.id), { recursive: true });
-          const tmp = `${runFile(run.id)}.${randomUUID()}.tmp`;
-          await writeFile(tmp, `${JSON.stringify(run, null, 2)}\n`);
-          await rename(tmp, runFile(run.id));
-        });
+        yield* io(runFile(run.id), async () => writeFileAtomic(runFile(run.id), run));
       }),
     trace,
     read: (id, from = 0) =>

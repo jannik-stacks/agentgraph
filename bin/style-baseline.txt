@@ -9,7 +9,7 @@ no-comment bin/fields.mjs 2
 no-comment bin/forge.ts 2
 no-comment bin/lsp.ts 1
 no-comment bin/refs.mjs 18
-no-comment bin/resume.ts 17
+no-comment bin/resume.ts 16
 no-comment bin/run.ts 2
 no-comment bin/setup-app.ts 3
 no-comment bin/traces.mjs 6
@@ -149,7 +149,7 @@ no-comment tests/transition.test.ts 1
 no-comment tests/triage.test.ts 2
 no-comment tests/tune.test.ts 3
 no-comment tests/world.ts 5
-no-comment tune/propose.ts 16
+no-comment tune/propose.ts 15
 no-comment tune/skill.ts 11
 no-of-for bench/drive.ts stateOf
 no-of-for bin/tune.ts flipsOf
@@ -275,7 +275,6 @@ verb-first studio/src/runs/trace.ts locatedLink
 verb-first studio/src/state.ts queryParam
 verb-first studio/src/ui.tsx cx
 verb-first tune/propose.ts claudeUsed
-verb-first tune/propose.ts events
 verb-first tune/propose.ts fitting
 verb-first tune/propose.ts hubProblems
 verb-first tune/skill.ts skill

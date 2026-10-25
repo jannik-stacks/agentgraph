@@ -14,8 +14,8 @@ import {
   copyDirIfAbsentAtomic,
   release,
   waitWhileServicesDown,
-  writeFileAtomic,
 } from '../bin/resume.ts';
+import { writeFileAtomic } from '../src/store.ts';
 import { tuneRows } from '../bin/tune.ts';
 import { tmp } from './kit.ts';
 

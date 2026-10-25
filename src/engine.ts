@@ -1581,15 +1581,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         const onto = made.head ?? made.base;
         const tree = yield* treeOf(made);
         if (from !== onto && tree !== (yield* text(made, ['rev-parse', `${onto}^{tree}`]))) {
-          const head = yield* text(made, [
-            ...gitIdentity,
-            'commit-tree',
-            tree,
-            '-p',
-            from,
-            '-m',
-            'Saved work',
-          ]);
+          const head = yield* text(made, [...gitIdentity, 'commit-tree', tree, '-p', from, '-m', 'Saved work']);
           const applied = yield* forge.apply(run.issue, { kind: 'rebase', branch: own, from, onto, head }, made);
           yield* store.trace(run.id, { at: now(), step: current.step, applied });
           if (!applied.ok)

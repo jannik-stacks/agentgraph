@@ -30,7 +30,9 @@ import {
 import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
 import type * as MainModule from '../src/main.ts';
+import { writeFileAtomic } from '../src/store.ts';
 import {
+  agentgraphDir,
   appendJsonl,
   moveDirToAttic,
   readBenchResultEnv,
@@ -44,10 +46,10 @@ import {
   copyDirIfAbsentAtomic,
   release,
   waitWhileServicesDown,
+  readFileOrEmpty,
   removeSandboxContainersMountingDir,
-  writeFileAtomic,
 } from './resume.ts';
-let engine = process.env.BENCH_ENGINE ?? join(import.meta.dirname, '..');
+let engine = process.env.BENCH_ENGINE ?? agentgraphDir;
 
 type Case = {
   id: string;
@@ -100,7 +102,6 @@ const caseStart = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|#\[(?:tokio::)?test\]|def t
 const branches = /\b(?:if|for|while|match|case|catch|loop)\b|&&|\|\|/g;
 const comment = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
 
-const here = (path: string) => join(import.meta.dirname, '..', path);
 const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 20);
 const treeText = (dir: string): string =>
   readdirSync(dir, { withFileTypes: true })
@@ -110,7 +111,6 @@ const treeText = (dir: string): string =>
 const slot = (kind: string, ...key: unknown[]) =>
   process.env.BENCH_CACHE ? join(process.env.BENCH_CACHE, kind, hash(JSON.stringify(key))) : undefined;
 const reusable = (dir: string | undefined) => dir !== undefined && !process.env.BENCH_FRESH && existsSync(dir);
-const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
 const save = writeFileAtomic;
@@ -324,9 +324,9 @@ const tested = (repo: string, tests: string[]): Commands => {
 };
 
 const loadCase = (dir: string): Case & Commands => {
-  const c = JSON.parse(read(join(dir, 'case.json'))) as Omit<Case, 'id' | 'dir' | 'body'> &
+  const c = JSON.parse(readFileOrEmpty(join(dir, 'case.json'))) as Omit<Case, 'id' | 'dir' | 'body'> &
     Commands & { tests?: unknown };
-  const issue = read(join(dir, 'issue.md'));
+  const issue = readFileOrEmpty(join(dir, 'issue.md'));
   return {
     ...(Array.isArray(c.tests) && pickBenchTestCommands(c.repo, c.tests as string[])),
     ...c,
@@ -340,7 +340,7 @@ const loadCase = (dir: string): Case & Commands => {
 };
 
 const loadKeys = (file: string) => {
-  const env = parseEnv(read(file)) as Record<string, string>;
+  const env = parseEnv(readFileOrEmpty(file)) as Record<string, string>;
   Object.assign(process.env, env);
   process.env.AGENTGRAPH_PROXY_KEYS ??= Object.entries(env)
     .flatMap(([k, v]) =>
@@ -361,13 +361,13 @@ export const codexUsed = () => {
     .split('\n')
     .filter(Boolean)
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-  const m = [...read(newest ?? '').matchAll(/"primary":\{"used_percent":([\d.]+)/g)].at(-1);
+  const m = [...readFileOrEmpty(newest ?? '').matchAll(/"primary":\{"used_percent":([\d.]+)/g)].at(-1);
   return m ? Number(m[1]) : undefined;
 };
 
 const guard = (out: string, claude: boolean) => {
   const file = join(out, 'budget.json');
-  const b = JSON.parse(read(file) || '{}') as { start?: number; now?: number; at?: number };
+  const b = JSON.parse(readFileOrEmpty(file) || '{}') as { start?: number; now?: number; at?: number };
   if (!b.at || Date.now() - b.at > 600_000) {
     const now = codexUsed();
     if (now !== undefined) Object.assign(b, { start: b.start ?? now, now });
@@ -379,7 +379,7 @@ const guard = (out: string, claude: boolean) => {
   if (claude && calls.length >= limits.claude) throw new Error(`${calls.length} claude judge calls, the limit`);
 };
 const forge = (dir: string, ...args: string[]) =>
-  sh(process.execPath, [here('bin/forge.ts'), dir, ...args, '--as', 'maintainer']);
+  sh(process.execPath, [join(agentgraphDir, 'bin/forge.ts'), dir, ...args, '--as', 'maintainer']);
 
 /**
  * Points every agent of a hub at `harness:model`, by the two lines of its front matter. Every agent gets the point's
@@ -392,7 +392,7 @@ export const repoint = (hub: string, point: string) => {
   for (const name of names)
     save(
       join(dir, name),
-      read(join(dir, name)).replace(/^---\n[\s\S]*?\n---/, head =>
+      readFileOrEmpty(join(dir, name)).replace(/^---\n[\s\S]*?\n---/, head =>
         head.replace(/^harness: .*$/m, `harness: ${harness}`).replace(/^model: .*$/m, `model: ${model}`)
       )
     );
@@ -420,18 +420,19 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     );
     save(
       join(hub, 'checks/tests.md'),
-      read(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
+      readFileOrEmpty(join(hub, 'checks/tests.md')).replace('npm test', 'sh "$AGENTGRAPH_HUB/scripts/tests.sh"')
     );
-    if (c.setup) save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${read(join(hub, 'hub.yaml'))}`);
+    if (c.setup)
+      save(join(hub, 'hub.yaml'), `setup: ${JSON.stringify(c.setup)}\n${readFileOrEmpty(join(hub, 'hub.yaml'))}`);
   }
   if (own === 'examples/bench' && !c.runner) {
     rmSync(join(hub, 'checks'), { recursive: true });
     save(
       join(hub, 'workflows/issue.md'),
-      read(join(hub, 'workflows/issue.md')).replace(/^ {4}checks: \[tests\]\n/m, '')
+      readFileOrEmpty(join(hub, 'workflows/issue.md')).replace(/^ {4}checks: \[tests\]\n/m, '')
     );
   }
-  const raw = read(join(hub, 'hub.yaml'));
+  const raw = readFileOrEmpty(join(hub, 'hub.yaml'));
   if (/^setup: pnpm install/m.test(raw)) save(join(hub, 'hub.yaml'), raw.replace(/^setup: .*\n/m, ''));
   const limit = (yaml: string, key: string, value: number) =>
     new RegExp(`^ {2}${key}:`, 'm').test(yaml)
@@ -439,12 +440,12 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
       : /^limits:/m.test(yaml)
         ? yaml.replace(/^limits:/m, `limits:\n  ${key}: ${value}`)
         : `${yaml}limits:\n  ${key}: ${value}\n`;
-  save(join(hub, 'hub.yaml'), limit(limit(read(join(hub, 'hub.yaml')), 'parallel', 1), 'sessions', 3));
+  save(join(hub, 'hub.yaml'), limit(limit(readFileOrEmpty(join(hub, 'hub.yaml')), 'parallel', 1), 'sessions', 3));
   if (arm === 'floor') {
     rmSync(join(hub, 'workflows'), { recursive: true });
     for (const d of ['agents', 'skills']) rmSync(join(hub, d), { recursive: true, force: true });
     rmSync(join(hub, 'checks'), { recursive: true, force: true });
-    cpSync(here('bench/floor'), hub, { recursive: true });
+    cpSync(join(agentgraphDir, 'bench/floor'), hub, { recursive: true });
   }
   if (options.point) repoint(hub, options.point);
   const dir = join(at, 'forge');
@@ -472,7 +473,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     .find(existsSync);
   const branch = ['--git-dir', origin, 'rev-parse', '-q', '--verify', 'refs/heads/agentgraph/1'];
   const head = pull
-    ? (JSON.parse(read(pull)) as { head: string }).head
+    ? (JSON.parse(readFileOrEmpty(pull)) as { head: string }).head
     : spawnSync('git', branch, { encoding: 'utf8' }).stdout.trim();
   const diff = head ? sh('git', ['--git-dir', origin, 'diff', c.base, head]) : '';
   return { answers, status, ...(reason && { reason: reason.slice(0, 500) }), diff };
@@ -511,7 +512,7 @@ export const armSlot = (
     arm,
     tree,
     treeText(hubOf(c)),
-    arm === 'floor' ? treeText(here('bench/floor')) : '',
+    arm === 'floor' ? treeText(join(agentgraphDir, 'bench/floor')) : '',
     c.runner,
     c.setup,
     ...(c.toolchain ? [c.toolchain] : []),
@@ -521,7 +522,7 @@ export const armSlot = (
 /** Publishes a cached arm at `at` and notes in its `meta.json` which slot it came from. */
 export const reuse = (kept: string, at: string) => {
   copyDirIfAbsentAtomic(kept, at);
-  save(join(at, 'meta.json'), { ...JSON.parse(read(join(at, 'meta.json')) || '{}'), reusedFrom: kept });
+  save(join(at, 'meta.json'), { ...JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}'), reusedFrom: kept });
 };
 
 /** The harness's last words when the run's last session ended in an error, as when it cannot reach the proxy. */
@@ -777,7 +778,7 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
     for (const path of hidden)
       if (spawnSync('git', ['-C', tree, 'checkout', c.merged, '--', path]).status)
         rmSync(join(tree, path), { force: true });
-    const relaxed = read(join(c.dir, 'hidden.relaxed.diff'));
+    const relaxed = readFileOrEmpty(join(c.dir, 'hidden.relaxed.diff'));
     if (relaxed && spawnSync('git', ['-C', tree, 'apply', '-'], { input: relaxed }).status)
       throw new Error(`${c.id}: hidden.relaxed.diff does not apply to the hidden tests`);
     const run = exec(c.test, tree, box, from);
@@ -838,7 +839,7 @@ const earlier = (at: string) => {
 
 /** Wall time of one attempt: its `meta.json` ms, else the span of its traces. */
 const took = (dir: string) => {
-  const ms = (JSON.parse(read(join(dir, 'meta.json')) || '{}') as { ms?: number }).ms;
+  const ms = (JSON.parse(readFileOrEmpty(join(dir, 'meta.json')) || '{}') as { ms?: number }).ms;
   if (typeof ms === 'number') return ms;
   const data = join(dir, 'data');
   const at = (existsSync(data) ? readdirSync(data) : [])
@@ -850,7 +851,7 @@ const took = (dir: string) => {
 /** Sessions, cost, tokens and wall time summed over every attempt of an arm, with each attempt's own numbers. */
 export const readArmUsageOverAttempts = (at: string) => {
   const attempts = [...earlier(at), ...(existsSync(at) ? [at] : [])].map(dir => {
-    const { infra } = JSON.parse(read(join(dir, 'meta.json')) || '{}') as { infra?: string };
+    const { infra } = JSON.parse(readFileOrEmpty(join(dir, 'meta.json')) || '{}') as { infra?: string };
     return { dir: relative(dirname(at), dir), ms: took(dir), ...(infra && { infra }), ...effort(join(dir, 'data')) };
   });
   const tokens: ReturnType<typeof effort>['tokens'] = {};
@@ -875,7 +876,9 @@ export const readArmUsageOverAttempts = (at: string) => {
 const usage = (at: string): Partial<ReturnType<typeof readArmUsageOverAttempts>> =>
   existsSync(join(at, 'data')) || earlier(at).length
     ? readArmUsageOverAttempts(at)
-    : (JSON.parse(read(join(at, 'usage.json')) || '{}') as Partial<ReturnType<typeof readArmUsageOverAttempts>>);
+    : (JSON.parse(readFileOrEmpty(join(at, 'usage.json')) || '{}') as Partial<
+        ReturnType<typeof readArmUsageOverAttempts>
+      >);
 
 /** Writes an arm's usage beside it, then copies it to `kept` without its data, forge, hub or attic dirs. */
 export const keep = (at: string, kept: string | undefined) => {
@@ -885,10 +888,10 @@ export const keep = (at: string, kept: string | undefined) => {
 
 const scoreArms = async (c: Case & Commands, out: string, repo: string, which: string[]) => {
   const root = join(out, c.id);
-  const merged = read(join(c.dir, 'merged.diff'));
+  const merged = readFileOrEmpty(join(c.dir, 'merged.diff'));
   if (!existsSync(join(root, 'human/diff.patch'))) save(join(root, 'human/diff.patch'), merged);
   if (!existsSync(join(root, 'base/diff.patch'))) save(join(root, 'base/diff.patch'), '');
-  save(join(root, 'case.json'), read(join(c.dir, 'case.json')));
+  save(join(root, 'case.json'), readFileOrEmpty(join(c.dir, 'case.json')));
   const human = splitUnifiedDiffByFile(merged).map(f => f.path);
   const hidden = human.filter(p => testPath.test(p) && !noise.test(p));
   const tree = join(root, 'tree');
@@ -898,8 +901,8 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
     for (const arm of which) {
       const at = join(root, arm);
       if (!existsSync(join(at, 'diff.patch')) || existsSync(join(at, 'score.json'))) continue;
-      const diff = read(join(at, 'diff.patch'));
-      const meta = JSON.parse(read(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
+      const diff = readFileOrEmpty(join(at, 'diff.patch'));
+      const meta = JSON.parse(readFileOrEmpty(join(at, 'meta.json')) || '{}') as { answers?: number; ms?: number };
       const tests = await step(out, { step: 'score', case: c.id, arm }, () =>
         c.test || c.suite || c.typecheck ? check(c, tree, diff, c.hasTests === false ? [] : hidden, resolve(repo)) : {}
       );
@@ -1059,7 +1062,11 @@ const scorer = () =>
 const prepare = async (c: Case & Commands, out: string, repo: string) => {
   const file = join(out, c.id, 'valid.json');
   if (!existsSync(file) && !existsSync(join(c.dir, 'hidden.relaxed.diff'))) {
-    const coupled = couplings(read(join(c.dir, 'merged.diff')), `${c.title}\n${c.body}`, baseOf(repo, c.base));
+    const coupled = couplings(
+      readFileOrEmpty(join(c.dir, 'merged.diff')),
+      `${c.title}\n${c.body}`,
+      baseOf(repo, c.base)
+    );
     if (coupled.length) save(file, { invalid: 'coupled', coupled });
   }
   const kept = slot(
@@ -1071,18 +1078,18 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
     c.setup,
     c.test,
     ...(c.toolchain ? [c.toolchain] : []),
-    ...[read(join(c.dir, 'hidden.relaxed.diff'))].filter(Boolean),
+    ...[readFileOrEmpty(join(c.dir, 'hidden.relaxed.diff'))].filter(Boolean),
     ...(c.image ? [c.image] : []),
     ...(c.typecheck ? [c.typecheck] : []),
     scorer()
   );
   if (!existsSync(file) && reusable(kept)) {
     cpSync(kept!, join(out, c.id), { recursive: true, filter: p => !p.endsWith('/valid.json') });
-    save(file, read(join(kept!, 'valid.json')));
+    save(file, readFileOrEmpty(join(kept!, 'valid.json')));
   }
   if (!existsSync(file)) {
     await scoreArms(c, out, repo, ['base', 'human']);
-    const tests = (arm: string) => JSON.parse(read(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
+    const tests = (arm: string) => JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || '{}') as Tests;
     const why = invalid(tests('base'), tests('human'), c.bucket === 'tests' || Boolean(c.test));
     save(file, { invalid: why });
     if (kept && why !== 'setup fails')
@@ -1092,13 +1099,13 @@ const prepare = async (c: Case & Commands, out: string, repo: string) => {
         p => !/\/(tree|v2|floor|judge|\.attic)$/.test(p) && !p.endsWith('.lock')
       );
   }
-  return (JSON.parse(read(file)) as { invalid?: string }).invalid;
+  return (JSON.parse(readFileOrEmpty(file)) as { invalid?: string }).invalid;
 };
 
 /** Removes the sandbox setup images a case's scores ran in and their dependency volumes; docker keeps one a container still uses. */
 const dropEnvs = (root: string) => {
   const used = readdirSync(root).flatMap(arm => {
-    const env = (JSON.parse(read(join(root, arm, 'score.json')) || '{}') as { env?: string }).env;
+    const env = (JSON.parse(readFileOrEmpty(join(root, arm, 'score.json')) || '{}') as { env?: string }).env;
     return env ? [env] : [];
   });
   for (const image of new Set(used)) spawnSync('docker', ['rmi', image], { stdio: 'ignore' });
@@ -1239,17 +1246,17 @@ const judgeModels: Record<string, string> = {
   sol: 'smart',
   gemini: 'gemini',
 };
-const priceTable = JSON.parse(read(here('infra/local/prices.json')) || '{}') as Prices;
+const priceTable = JSON.parse(readFileOrEmpty(join(agentgraphDir, 'infra/local/prices.json')) || '{}') as Prices;
 const upstream = priceTable.aliases;
 
 /** The models an arm's agents run on, at `point` when given, that the engine's price table has no list price for. */
 export const unpriced = (arm: string, hub: string, point = options.point) => {
-  const dir = join(arm === 'floor' ? here('bench/floor') : hub, 'agents');
+  const dir = join(arm === 'floor' ? join(agentgraphDir, 'bench/floor') : hub, 'agents');
   const named = (existsSync(dir) ? readdirSync(dir) : [])
     .filter(n => n.endsWith('.md'))
-    .map(n => /^model: *(\S+)/m.exec(read(join(dir, n)))?.[1] ?? 'default');
+    .map(n => /^model: *(\S+)/m.exec(readFileOrEmpty(join(dir, n)))?.[1] ?? 'default');
   const prices = JSON.parse(
-    read(process.env.AGENTGRAPH_PRICES ?? join(engine, 'infra/local/prices.json')) || '{}'
+    readFileOrEmpty(process.env.AGENTGRAPH_PRICES ?? join(engine, 'infra/local/prices.json')) || '{}'
   ) as Prices;
   return [...new Set(point ? [point.split(':')[1]!] : named)].filter(m => !getModelPrice(prices, [m]));
 };
@@ -1324,9 +1331,9 @@ export const parsePanel = (spec: string) =>
 const judge = async (caseDir: string, out: string) => {
   const c = loadCase(caseDir);
   const root = join(out, c.id);
-  if ((JSON.parse(read(join(root, 'valid.json')) || '{}') as { invalid?: string }).invalid) return;
+  if ((JSON.parse(readFileOrEmpty(join(root, 'valid.json')) || '{}') as { invalid?: string }).invalid) return;
   const names = [c.author ?? '', c.repo.split('/')[0] ?? ''];
-  const human = read(join(root, 'human/diff.patch'));
+  const human = readFileOrEmpty(join(root, 'human/diff.patch'));
   if (c.control) {
     const changed = c.control === 'bug' ? plant(human) : pad(human);
     if (!changed) throw new Error(`${c.id}: no comparison to flip in the human diff`);
@@ -1334,9 +1341,9 @@ const judge = async (caseDir: string, out: string) => {
   }
   const have = c.control
     ? ['human', 'control']
-    : arms.filter(a => a !== 'control' && read(join(root, a, 'diff.patch')).trim());
+    : arms.filter(a => a !== 'control' && readFileOrEmpty(join(root, a, 'diff.patch')).trim());
   const block = (label: string, arm: string) =>
-    `## Candidate ${label}\n\n\`\`\`diff\n${scrub(read(join(root, arm, 'diff.patch')), names)}\n\`\`\``;
+    `## Candidate ${label}\n\n\`\`\`diff\n${scrub(readFileOrEmpty(join(root, arm, 'diff.patch')), names)}\n\`\`\``;
   const issue = scrub(`# ${c.title}\n\n${c.body}`, names);
   for (const [i, x] of have.entries())
     for (const y of have.slice(i + 1).filter(y => options.pairs === 'all' || x === 'human' || y === 'human'))
@@ -1346,7 +1353,7 @@ const judge = async (caseDir: string, out: string) => {
           [y, x],
         ] as const
       ).entries()) {
-        const prompt = `${read(here('bench/judge.md'))}\n## Issue\n\n${issue}\n\n${block('A', a)}\n\n${block('B', b)}\n`;
+        const prompt = `${readFileOrEmpty(join(agentgraphDir, 'bench/judge.md'))}\n## Issue\n\n${issue}\n\n${block('A', a)}\n\n${block('B', b)}\n`;
         const dir = join(root, 'judge', `${a}-${b}`);
         save(join(dir, 'prompt.md'), prompt);
         await Promise.all(
@@ -1360,7 +1367,7 @@ const judge = async (caseDir: string, out: string) => {
                 if (!hit) guard(out, getModelMakerFromUpstreamName(judgeModels[name]!) === 'anthropic');
                 const started = Date.now();
                 const got: Answer = hit
-                  ? { text: read(kept!) }
+                  ? { text: readFileOrEmpty(kept!) }
                   : await step(out, { step: 'judge', case: c.id, pair: `${a}-${b}`, judge: name }, () =>
                       ask(prompt, tmpdir())
                     ).catch(() => ({ text: '' }));
@@ -1424,14 +1431,14 @@ type Scored = {
 };
 
 const loadScored = (out: string, id: string): Scored => {
-  const c = JSON.parse(read(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
+  const c = JSON.parse(readFileOrEmpty(join(out, id, 'case.json')) || '{}') as Record<string, unknown>;
   const strata = Object.fromEntries(
     strataKeys.flatMap(k => (c[k] === undefined || typeof c[k] === 'object' ? [] : [[k, String(c[k])]]))
   );
   if (c.repo) strata.issue = Array.isArray(c.flags) && c.flags.includes('no-issue-pr-body') ? 'pr-body' : 'issue';
   const scores = Object.fromEntries(
     ['base', ...arms].flatMap(arm => {
-      const s = read(join(out, id, arm, 'score.json'));
+      const s = readFileOrEmpty(join(out, id, arm, 'score.json'));
       return s ? [[arm, JSON.parse(s) as Record<string, unknown>]] : [];
     })
   );
@@ -1457,10 +1464,10 @@ const loadScored = (out: string, id: string): Scored => {
     .flatMap(pair =>
       readdirSync(join(judged, pair))
         .filter(f => /^\w+\.json$/.test(f))
-        .map(f => JSON.parse(read(join(judged, pair, f))) as Judged)
+        .map(f => JSON.parse(readFileOrEmpty(join(judged, pair, f))) as Judged)
     )
     .filter(v => !v.order.some(arm => arm in skipped));
-  const { invalid } = JSON.parse(read(join(out, id, 'valid.json')) || '{}') as { invalid?: string };
+  const { invalid } = JSON.parse(readFileOrEmpty(join(out, id, 'valid.json')) || '{}') as { invalid?: string };
   return { id, ...(invalid && { invalid }), infra: skipped, strata, rows, failures, verdicts };
 };
 
@@ -1476,7 +1483,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
     set: basename(resolve(out)),
     repeat: 1,
     hubs: {} as Record<string, string>,
-    ...(JSON.parse(read(join(out, 'point.json')) || '{}') as object),
+    ...(JSON.parse(readFileOrEmpty(join(out, 'point.json')) || '{}') as object),
   };
   const ok = (v: unknown) => (v && typeof v === 'object' && 'ok' in v ? (+Boolean(v.ok) as 0 | 1) : undefined);
   return readdirSync(out)
@@ -1484,9 +1491,15 @@ export const readBenchRows = (out: string, repos?: string[]) => {
     .map(id => loadScored(out, id))
     .filter(c => !c.invalid && benched(c.strata.repo) && (!repos || repos.includes(c.strata.repo ?? '')))
     .flatMap(c => {
-      const base = JSON.parse(read(join(out, c.id, 'base', 'score.json')) || '{}') as Record<string, unknown>;
+      const base = JSON.parse(readFileOrEmpty(join(out, c.id, 'base', 'score.json')) || '{}') as Record<
+        string,
+        unknown
+      >;
       return ['human', ...bots].flatMap(arm => {
-        const s = JSON.parse(read(join(out, c.id, arm, 'score.json')) || 'null') as Record<string, unknown> | null;
+        const s = JSON.parse(readFileOrEmpty(join(out, c.id, arm, 'score.json')) || 'null') as Record<
+          string,
+          unknown
+        > | null;
         if (!s) return [];
         const seen = c.verdicts.filter(v => v.order.includes(arm));
         const byJudge: Record<string, number[]> = {};
@@ -1582,7 +1595,7 @@ const judging = (out: string, ids: string[]) => {
     return (existsSync(dir) ? readdirSync(dir) : []).flatMap(pair =>
       readdirSync(join(dir, pair))
         .filter(f => f.endsWith('.cost.json'))
-        .map(f => JSON.parse(read(join(dir, pair, f))) as { ms: number; usd: number })
+        .map(f => JSON.parse(readFileOrEmpty(join(dir, pair, f))) as { ms: number; usd: number })
     );
   });
   const sum = (k: 'ms' | 'usd') => calls.reduce((n, c) => n + (c[k] ?? 0), 0);
@@ -1622,7 +1635,7 @@ type Unit = { out: string; case: string; arm: string };
 
 /** Where a set of arm runs stands: each unit's state, environment retries, a current wait and the time left. */
 export const progress = (units: Unit[], parallel = 1) => {
-  const json = (path: string) => JSON.parse(read(path) || '{}') as Record<string, unknown>;
+  const json = (path: string) => JSON.parse(readFileOrEmpty(path) || '{}') as Record<string, unknown>;
   const state = (u: Unit) => {
     const at = join(u.out, u.case, u.arm);
     if (existsSync(join(at, 'diff.patch'))) return json(join(at, 'meta.json')).infra ? 'infra' : 'done';
@@ -1655,7 +1668,7 @@ export const progress = (units: Unit[], parallel = 1) => {
 
 /** The units of an out dir: from `units.json` when a driver wrote one, else every case and arm seen. */
 const unitsOf = (out: string) => {
-  const planned = JSON.parse(read(join(out, 'units.json')) || 'null') as {
+  const planned = JSON.parse(readFileOrEmpty(join(out, 'units.json')) || 'null') as {
     units: Omit<Unit, 'out'>[];
     parallel?: number;
   } | null;
@@ -1740,13 +1753,13 @@ if (import.meta.main) {
   Object.assign(options, { point, repeat: Number(values.repeat), pairs: values.pairs });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
   panel = parsePanel(values.judges);
-  loadKeys(env.keys ?? values.keys ?? here('infra/local/.keys.env'));
+  loadKeys(env.keys ?? values.keys ?? join(agentgraphDir, 'infra/local/.keys.env'));
   if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
   else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo, values['drop-env']);
   else if (command === 'judge' && a && b) await judge(a, resolve(b));
   else if (command === 'report' && a) {
     save(join(a, 'report.md'), report(a));
-    console.log(read(join(a, 'report.md')));
+    console.log(readFileOrEmpty(join(a, 'report.md')));
   } else if (command === 'status' && a) {
     const { units, parallel } = unitsOf(resolve(a));
     console.log(statusText(progress(units, parallel)));
