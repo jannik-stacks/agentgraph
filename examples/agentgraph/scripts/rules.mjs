@@ -1,6 +1,6 @@
 // The written rules as one table over the lines a change adds: timeless comments and docs prose, words instead of
-// symbols, headings that are names, no way around the hub's guards, nothing unfinished in shipped code and the current
-// names for hub concepts. With `--all` every tracked line counts.
+// symbols, headings that are names, ASCII diagram arrows, safe git ranges and refs, no way around the hub's guards,
+// nothing unfinished in shipped code, current names and no CLAUDE.md. With `--all` every tracked line counts.
 import { files, scan } from './line-rules.mjs';
 import { report } from './changes.mjs';
 import { retiredWords } from './retired-words.mjs';

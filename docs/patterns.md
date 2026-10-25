@@ -56,15 +56,11 @@ Names follow one small vocabulary so a reader can guess what a function does fro
 - `run` runs a process, step or loop to its end; `start` begins something that keeps going; `wait` blocks until a condition holds; `scan` is one pass over every open issue; `queue` puts work on a queue for a later loop; `propose` answers proposals; `commit` and `merge` are git's.
 - `use` names a React hook.
 
-Components and types are a qualifier plus a noun, spelled out: `RunLink`, `DiskCacheEntry`, `SandboxSetup`, never `Mark`, `Item` or `RepoSetup`. A type never reuses a name another export has, and never shadows Effect or the platform (`TokenScope`, not `Scope`). Type suffixes mean one thing each: `Spec` is an input describing what to make, `Result` is what one action hands back, `Entry` is one keyed record of a cache, store or log, `Settings` is configuration, `Point` is a position, and `Lookup` answers a value for a key; there is no `Index` or `Map` suffix. Layer constructors are `<how><Service>` with no verb (`fileForge`, `replaySession`), the one exception in [STYLE.md](../STYLE.md#exceptions). No name ends in `Of` or `For`; say what the function does instead.
-
-Core code in `src/` uses the short domain words from the [vocabulary](vocabulary.md). Edge code (bench, tune, studio pages, `bin/` helpers, hub scripts, test doubles) uses long names that explain themselves to someone who never opened the file: `readArmUsageOverAttempts`. The words users type in workflow and check files stay short (`back`, `until`, `tries`, `judge`); TypeScript types may qualify them (`CheckJudge`).
-
-`npm run lint` enforces the verb, `xOf` and one-name-per-export rules and warns on retired words, through the oxlint plugin in `bin/style.mjs`. Violations from before the rules sit in `bin/style-baseline.txt`; `node bin/style.mjs` fails when that file lists one that is fixed, and `node bin/style.mjs --write` rewrites it. <!-- code: bin/style.mjs#verbs -->
+The rules for type names, suffixes, core and edge words, and the lint that checks them are in [STYLE.md](../STYLE.md#naming); this list is the verb set they refer to. <!-- code: bin/style.mjs#verbs -->
 
 ## No code comments
 
-Docs pages say what code does and why; code says it with names and types. The one exception is something surprising the code cannot say, written `// UNEXPECTED: <what and why>`. TSDoc is a comment too. Lint directives (`oxlint-`, `@ts-`) and knip's `@internal` tag stay. `npm run lint` fails on any other comment beyond a file's count in the baseline.
+Docs pages say what code does and why; code says it with names and types. The rule and its one exception are [STYLE.md rule 18](../STYLE.md#comments-and-docs-links).
 
 ## Before you commit
 
