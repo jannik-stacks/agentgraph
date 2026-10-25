@@ -6,6 +6,7 @@
 // Usage: node bin/traces.mjs <data dir> [workflow=kind ...]
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readJsonl } from './resume.ts';
 
 const [data, ...rules] = process.argv.slice(2);
 if (!data) {
@@ -13,18 +14,6 @@ if (!data) {
   process.exit(2);
 }
 const required = Object.fromEntries(rules.map(rule => rule.split('=')).map(([w, kinds]) => [w, kinds.split('|')]));
-const denial = 'prevents you from using this specific tool call';
-
-const lines = file =>
-  readFileSync(file, 'utf8')
-    .split('\n')
-    .flatMap(line => {
-      try {
-        return [JSON.parse(line)];
-      } catch {
-        return [];
-      }
-    });
 
 const findings = [];
 const waits = [];
@@ -32,9 +21,9 @@ let sessions = 0;
 for (const id of readdirSync(data)) {
   const file = join(data, id, 'trace.jsonl');
   if (!existsSync(file)) continue;
-  const trace = lines(file);
+  const trace = readJsonl(file);
   for (const { step, session, event } of trace) {
-    if (event?.type === 'tool' && (event.denied || (!event.ok && event.output?.includes(denial))))
+    if (event?.type === 'tool' && event.denied)
       findings.push(`${id} ${step}: denied ${event.name} ${JSON.stringify(event.input)}`);
     if (typeof session !== 'object' || !session.id) continue;
     sessions++;

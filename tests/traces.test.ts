@@ -42,7 +42,6 @@ describe('traces', () => {
         JSON.stringify({ at: '2026-10-16T00:00:00.000Z', step: 'implement', saved: {} }),
         JSON.stringify({ at: '2026-10-16T00:04:00.000Z', step: 'implement', prompt: {} }),
         tool(false, { denied: true }),
-        tool(false, { output: 'The user has specified a rule which prevents you from using this specific tool call' }),
         tool(true, {}),
         applied('comment'),
       ].join('\n'),
@@ -54,9 +53,8 @@ describe('traces', () => {
     expect(stdout.trim().split('\n')).toEqual([
       'a: waited 4 min before its first session',
       'a implement: denied read {"p":1}',
-      'a implement: denied read {"p":1}',
       'a: done without pull_request or push',
-      '3 findings over 0 sessions',
+      '2 findings over 0 sessions',
     ]);
   });
 });
