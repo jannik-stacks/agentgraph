@@ -214,11 +214,6 @@ export const remoteSandbox = (o: {
             const network = c.network === 'proxy' ? box.network : c.network;
             const argv = [String(c.minutes), ...Object.entries(env).map(([k, v]) => `${k}=${v}`), c.cmd, ...c.args];
             const id = randomUUID();
-            const response = yield* call(`${box.url}/run?network=${network}&id=${id}`, {
-              method: 'POST',
-              body: JSON.stringify({ argv, secrets }),
-            });
-            if (response.headers.has(freshHeader)) return yield* infra('the box restarted before the command ran');
             let code: number | undefined;
             let pulled = false;
             yield* Effect.addFinalizer(() =>
@@ -235,6 +230,14 @@ export const remoteSandbox = (o: {
                     )
                   )
             );
+            const response = yield* call(`${box.url}/run?network=${network}&id=${id}`, {
+              method: 'POST',
+              body: JSON.stringify({ argv, secrets }),
+            });
+            if (response.headers.has(freshHeader)) {
+              pulled = true;
+              return yield* infra('the box restarted before the command ran');
+            }
             const ended = Effect.gen(function* () {
               yield* after(box, home);
               pulled = true;

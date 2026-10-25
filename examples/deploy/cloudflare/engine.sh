@@ -1,8 +1,8 @@
 set -eu
 ca=/etc/cloudflare/certs/cloudflare-containers-ca.crt
 if [ -f "$ca" ]; then
-  cat /etc/ssl/certs/ca-certificates.crt "$ca" > /tmp/ca.crt
-  export SSL_CERT_FILE=/tmp/ca.crt NODE_EXTRA_CA_CERTS=/tmp/ca.crt GIT_SSL_CAINFO=/tmp/ca.crt
+  cat "$ca" >> /etc/ssl/certs/ca-certificates.crt
+  export NODE_EXTRA_CA_CERTS=$ca
 fi
 mkdir -p /data /tmp/keys
 for name in AGENTGRAPH_APP_KEY AGENTGRAPH_PROXY_KEYS; do

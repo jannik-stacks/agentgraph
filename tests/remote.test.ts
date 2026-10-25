@@ -187,6 +187,17 @@ describe('remote sandbox', () => {
     expect(exit).toEqual(Exit.succeed({ code: 0, output: 'forced\n' }));
   });
 
+  it('brings back an ignored file that a command added by force', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        yield* s.exec(sh(work.dir, 'mkdir node_modules; echo y > node_modules/y; git add -f node_modules/y'));
+        return readFileSync(join(work.dir, 'node_modules', 'y'), 'utf8');
+      })
+    );
+    expect(exit).toEqual(Exit.succeed('y\n'));
+  });
+
   it('pulls work that did not come back before the next command', async () => {
     const exit = await use(layer(), s =>
       Effect.gen(function* () {

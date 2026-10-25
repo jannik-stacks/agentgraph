@@ -90,9 +90,10 @@ export class Box extends Container<Env> {
   interceptHttps = true;
   entrypoint = ['sh', '-c', boxScript, 'box', 'start'];
   running = new Map<Network, number>();
-  children = new Map<string, ExecProcess>();
+  children = new Map<string, Promise<ExecProcess>>();
   checkout = '';
   dirty = false;
+  requests = 0;
   static {
     this.outbound = async (request: Request, env: Env, ctx: OutboundHandlerContext) => {
       const host = new URL(request.url).hostname;
@@ -110,7 +111,9 @@ export class Box extends Container<Env> {
   override async onActivityExpired() {
     if ([...this.running.values()].some(count => count > 0)) return this.renewActivityTimeout();
     if (!this.ctx.container?.running) return;
+    const seen = this.requests;
     if (this.dirty && !(await this.keep().catch(() => false))) return this.renewActivityTimeout();
+    if (this.requests !== seen) return this.renewActivityTimeout();
     this.dirty = false;
     await this.destroy();
   }
@@ -130,6 +133,7 @@ export class Box extends Container<Env> {
   }
 
   override async fetch(request: Request) {
+    this.requests++;
     if (request.method === 'DELETE') {
       this.dirty = false;
       if (this.ctx.container?.running) await this.destroy();
@@ -150,7 +154,7 @@ export class Box extends Container<Env> {
       return this.run(url.searchParams.get('id') ?? '', network as Network, argv, secrets, headers);
     }
     if (op === 'stop') {
-      const child = this.children.get(url.searchParams.get('arg') ?? '');
+      const child = await this.children.get(url.searchParams.get('arg') ?? '')?.catch(() => undefined);
       if (child) await this.killGroup(child);
       return new Response(null, { status: 204, headers });
     }
@@ -183,7 +187,7 @@ export class Box extends Container<Env> {
       this.running.set(network, (this.running.get(network) ?? 1) - 1);
       this.children.delete(id);
     };
-    const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'run', ...argv], {
+    const started = this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'run', ...argv], {
       user: '1000:1000',
       env: secrets,
       stderr: 'combined',
@@ -191,7 +195,8 @@ export class Box extends Container<Env> {
       done();
       throw error;
     });
-    this.children.set(id, child);
+    this.children.set(id, started);
+    const child = await started;
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const pump = async () => {
       const writer = writable.getWriter();

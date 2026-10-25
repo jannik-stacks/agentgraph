@@ -43,6 +43,7 @@ push)
   ;;
 pull)
   sync "$1" "$2"
+  [ ! -f "$GIT_DIR/index" ] || GIT_INDEX_FILE="$GIT_DIR/index" git ls-files -z | git update-index --add --remove -z --stdin
   git add -A
   tree=$(git write-tree)
   echo "$tree"

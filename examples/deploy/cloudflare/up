@@ -1,20 +1,44 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")"
+answers=$(mktemp -d)
+trap 'rm -rf "$answers"' EXIT
+
+keep() {
+  eval "value=\${$1:-} file=\${$1_FILE:-}"
+  if [ -n "$value" ]; then
+    printf '%s' "$value" > "$answers/$1"
+  elif [ -n "$file" ]; then
+    case $file in
+    /dev/fd/3)
+      slug=$(basename "$(dirname "${AGENTGRAPH_APP_ENV:?names the App whose Keychain key fd 3 means}")")
+      security find-generic-password -s "agentgraph-app-$slug" -w | base64 -d > "$answers/$1"
+      ;;
+    *) cat "$file" > "$answers/$1" ;;
+    esac
+    [ -s "$answers/$1" ] || {
+      echo "$1_FILE $file is empty" >&2
+      exit 1
+    }
+  fi
+  unset "$1" "$1_FILE"
+}
+keep AGENTGRAPH_APP_KEY
+keep AGENTGRAPH_PROXY_KEYS
+keep GATEWAY_HEADERS
+
 [ -d node_modules ] || npm ci --no-fund --no-audit
-wrangler() { env -u AGENTGRAPH_APP_KEY -u AGENTGRAPH_PROXY_KEYS npx --no-install wrangler "$@"; }
+wrangler() { npx --no-install wrangler "$@"; }
 
 wrangler whoami --json > /dev/null 2>&1 || wrangler login
 wrangler r2 bucket info agentgraph-data > /dev/null 2>&1 || wrangler r2 bucket create agentgraph-data
 deployed=$(wrangler secret list --format json 2> /dev/null || echo '[]')
-answers=$(mktemp -d)
-trap 'rm -rf "$answers"' EXIT
 
 ask() {
   eval "value=\${$1:-}"
-  case $1 in AGENTGRAPH_APP_KEY | AGENTGRAPH_PROXY_KEYS) eval "value=\$value\${$1_FILE:-}" ;; esac
-  case $deployed in *"\"$1\""*) [ -n "$value" ] || return 0 ;; esac
   [ -z "$value" ] || return 0
+  [ ! -s "$answers/$1" ] || return 0
+  case $deployed in *"\"$1\""*) return 0 ;; esac
   while [ -z "$value" ]; do
     printf '%s (%s): ' "$1" "$2" >&2
     read -r value
@@ -22,16 +46,19 @@ ask() {
   printf '%s' "$value" > "$answers/$1"
 }
 
-case $deployed${AGENTGRAPH_APP_KEY:+key}${AGENTGRAPH_APP_KEY_FILE:+key} in
-*'"AGENTGRAPH_APP_KEY"'* | *key) ;;
+case $deployed in
+*'"AGENTGRAPH_APP_KEY"'*) ;;
 *)
-  if [ -z "${AGENTGRAPH_APP_ENV:-}" ]; then
-    printf 'AGENTGRAPH_APP_ENV (path to app.env, empty to create the App now): ' >&2
-    read -r AGENTGRAPH_APP_ENV
+  if [ ! -s "$answers/AGENTGRAPH_APP_KEY" ]; then
+    if [ -z "${AGENTGRAPH_APP_ENV:-}" ]; then
+      printf 'AGENTGRAPH_APP_ENV (path to app.env, empty to create the App now): ' >&2
+      read -r AGENTGRAPH_APP_ENV
+    fi
+    [ -n "$AGENTGRAPH_APP_ENV" ] || AGENTGRAPH_APP_ENV=$(node ../../../bin/setup-app.ts)
+    . "$AGENTGRAPH_APP_ENV"
+    export AGENTGRAPH_APP_ID
+    keep AGENTGRAPH_APP_KEY
   fi
-  [ -n "$AGENTGRAPH_APP_ENV" ] || AGENTGRAPH_APP_ENV=$(node ../../../bin/setup-app.ts)
-  . "$AGENTGRAPH_APP_ENV"
-  export AGENTGRAPH_APP_ID AGENTGRAPH_APP_KEY_FILE
   ;;
 esac
 ask AGENTGRAPH_APP_ID 'the GitHub App id'
@@ -40,16 +67,12 @@ ask GATEWAY_URL 'OpenAI-compatible model gateway, for example https://my-litellm
 ask AGENTGRAPH_PROXY_KEYS 'name=key pairs the gateway accepts, one per agent'
 
 node -e '
-  const { existsSync, readFileSync } = require("node:fs");
+  const { existsSync, readFileSync, writeFileSync } = require("node:fs");
   const [answers, ...names] = process.argv.slice(1);
-  const files = ["AGENTGRAPH_APP_KEY", "AGENTGRAPH_PROXY_KEYS"];
-  const read = file => readFileSync(file.replace(/^~(?=\/|$)/, require("node:os").homedir()), "utf8");
   const valueOf = name =>
-    process.env[name] ??
-    (files.includes(name) && process.env[`${name}_FILE`] ? read(process.env[`${name}_FILE`]) : undefined) ??
-    (existsSync(`${answers}/${name}`) ? read(`${answers}/${name}`) : undefined);
+    existsSync(`${answers}/${name}`) ? readFileSync(`${answers}/${name}`, "utf8") : process.env[name];
   const secrets = Object.fromEntries(names.flatMap(name => (valueOf(name) ? [[name, valueOf(name)]] : [])));
-  require("node:fs").writeFileSync(`${answers}/secrets.json`, JSON.stringify(secrets), { mode: 0o600 });
+  writeFileSync(`${answers}/secrets.json`, JSON.stringify(secrets), { mode: 0o600 });
 ' "$answers" AGENTGRAPH_REPO AGENTGRAPH_APP_ID AGENTGRAPH_APP_KEY AGENTGRAPH_PROXY_KEYS GATEWAY_URL GATEWAY_HEADERS
 wrangler deploy --secrets-file "$answers/secrets.json"
 echo 'Deployed. The engine starts within five minutes; follow it with: npx wrangler tail'
