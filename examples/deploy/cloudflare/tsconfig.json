@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["worker.ts", "gateway.ts", "text.d.ts"]
+  "include": ["worker.ts", "gateway.ts", "../gateway/forward.ts", "text.d.ts"]
 }

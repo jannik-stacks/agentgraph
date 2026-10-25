@@ -1,7 +1,8 @@
 import { Container, ContainerProxy, type OutboundHandlerContext } from '@cloudflare/containers';
 import allowlist from '../../../infra/local/egress/allowlist';
 import boxScript from './box.sh';
-import { forwardToGateway, type Network, networks, reachOf } from './gateway.ts';
+import { forwardToGateway } from '../gateway/forward.ts';
+import { type Network, networks, reachOf } from './gateway.ts';
 
 export { ContainerProxy };
 
@@ -14,7 +15,9 @@ type Env = {
   AGENTGRAPH_REPO: string;
   AGENTGRAPH_APP_ID: string;
   AGENTGRAPH_APP_KEY: string;
-  AGENTGRAPH_PROXY_KEYS: string;
+  AGENTGRAPH_PROXY_KEYS?: string;
+  AGENTGRAPH_SESSION_ENV?: string;
+  AGENTGRAPH_PROXY_URL?: string;
 };
 
 const egress = allowlist
@@ -48,12 +51,14 @@ const storeData = async (request: Request, env: Env) => {
 
 const readKey = (request: Request, env: Env) => {
   const name = new URL(request.url).pathname.slice(1);
-  if (name !== 'AGENTGRAPH_APP_KEY' && name !== 'AGENTGRAPH_PROXY_KEYS') return new Response(null, { status: 404 });
-  return env[name] ? new Response(env[name]) : new Response(null, { status: 404 });
+  const names = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS', ...(env.AGENTGRAPH_SESSION_ENV ?? '').split(/[\s,]+/)];
+  const value = names.includes(name) ? (env as unknown as Record<string, unknown>)[name] : undefined;
+  return typeof value === 'string' && value ? new Response(value) : new Response(null, { status: 404 });
 };
 
 export class Engine extends Container<Env> {
   sleepAfter = '10m';
+  entrypoint = ['sh', 'examples/deploy/cloudflare/engine.sh'];
   enableInternet = false;
   interceptHttps = true;
   allowedHosts = [
@@ -77,7 +82,12 @@ export class Engine extends Container<Env> {
   async wake() {
     if (this.ctx.container?.running) return;
     await this.start({
-      envVars: { AGENTGRAPH_REPO: this.env.AGENTGRAPH_REPO, AGENTGRAPH_APP_ID: this.env.AGENTGRAPH_APP_ID },
+      envVars: {
+        AGENTGRAPH_REPO: this.env.AGENTGRAPH_REPO,
+        AGENTGRAPH_APP_ID: this.env.AGENTGRAPH_APP_ID,
+        AGENTGRAPH_SESSION_ENV: this.env.AGENTGRAPH_SESSION_ENV ?? '',
+        ...(this.env.AGENTGRAPH_PROXY_URL && { AGENTGRAPH_PROXY_URL: this.env.AGENTGRAPH_PROXY_URL }),
+      },
     });
   }
 

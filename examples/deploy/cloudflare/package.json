@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit && wrangler deploy --dry-run --outdir dist"
+    "check": "tsc --noEmit && wrangler deploy --dry-run --containers-rollout none --outdir dist"
   },
   "dependencies": {
     "@cloudflare/containers": "0.3.7"
