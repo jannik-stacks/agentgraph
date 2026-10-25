@@ -585,13 +585,13 @@ describe('codex', () => {
     const bin = join(root, 'bin');
     mkdirSync(join(root, 'volume'), { recursive: true });
     mkdirSync(bin);
-    writeFileSync(join(root, 'volume', 'auth.json'), 'old');
+    writeFileSync(join(root, 'volume', 'auth.json'), '{"old":1}');
     const fake = (name: string, body: string) =>
       writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
     fake('flock', `[ -e /dev/fd/$1 ] && echo lock >> ${root}/log`);
     fake(
       'node',
-      `[ -e /dev/fd/9 ] && echo locked >> ${root}/log\necho session >> ${root}/log\necho new > ${root}/home/auth.json\nexit 3`
+      `[ "$3" = -- ] || exec ${process.execPath} "$@"\n[ -e /dev/fd/9 ] && echo locked >> ${root}/log\necho session >> ${root}/log\necho '{"new":1}' > ${root}/home/auth.json\nexit 3`
     );
     const script = harnessArgs(command)[1]!
       .replaceAll('/tmp/codex', join(root, 'home'))
@@ -602,7 +602,7 @@ describe('codex', () => {
     });
     expect(ran.status).toBe(3);
     expect(readFileSync(join(root, 'log'), 'utf8').split('\n')).toEqual(['lock', 'session', 'lock', '']);
-    expect(readFileSync(join(root, 'volume', 'auth.json'), 'utf8')).toBe('new\n');
+    expect(readFileSync(join(root, 'volume', 'auth.json'), 'utf8')).toBe('{"new":1}\n');
   });
 
   it('keeps a read-only agent in its read-only sandbox and starts a fork fresh', async () => {

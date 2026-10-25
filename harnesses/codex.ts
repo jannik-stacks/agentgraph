@@ -37,10 +37,18 @@ codex.on('close', code => process.exit(code ?? 1));
 const login = `mkdir -p /tmp/codex /codex/sessions && ln -s /codex/sessions /tmp/codex/sessions
 (flock 9 && cp /codex/auth.json /tmp/codex/auth.json) 9>/codex/.lock
 cp /tmp/codex/auth.json /tmp/codex/auth.start
+save() {
+  cp /tmp/codex/auth.json /tmp/codex/auth.copy
+  cmp -s /tmp/codex/auth.copy /tmp/codex/auth.start && return
+  node -e 'JSON.parse(require("fs").readFileSync("/tmp/codex/auth.copy", "utf8"))' 2>/dev/null || return
+  (flock 9 && cp /tmp/codex/auth.copy /codex/auth.next && mv /codex/auth.next /codex/auth.json) 9>/codex/.lock
+  mv /tmp/codex/auth.copy /tmp/codex/auth.start
+}
+(while sleep 5; do save; done) >/dev/null 2>&1 &
 node -e "$AGENTGRAPH_CODEX" -- "$@"
 code=$?
-cmp -s /tmp/codex/auth.json /tmp/codex/auth.start ||
-  (flock 9 && cp /tmp/codex/auth.json /codex/auth.next && mv /codex/auth.next /codex/auth.json) 9>/codex/.lock
+kill $!
+save
 exit $code`;
 
 const writing = ['edit', 'write', 'bash'];
