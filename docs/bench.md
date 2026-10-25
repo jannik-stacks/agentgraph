@@ -60,7 +60,7 @@ node bin/bench.ts report <out>
 - `judge` compares pairs blind, with names and issue numbers masked, using Opus and Sonnet through `claude -p` on the host (so it needs a logged-in Claude CLI) and sol through the `smart` alias. The default `--judges opus:1,sonnet:2` gives each judge one or both diff orders; add `sol:2`, or replace the panel with `--judges sol:1`. A judge from the contestant's maker is swapped for another maker. `bench/judge.md` puts correctness first, then scope, and does not reward size.
 - `report` writes valid, invalid and infra counts, hidden-test rates, win rates with bootstrap intervals, mean metrics, findings, judge agreement, strata and case tables. Cost is recorded, or estimated at list price, and each row says which.
 
-Scoring runs only in [Docker environments](sandbox.md#environments), offline except setup. Progress goes to `<out>/log.jsonl`. Model keys come from `--keys`, default `infra/local/.keys.env`. Paid steps stop past `--max-codex` weekly Codex points since the first reading (30) or `--max-claude-calls` judge calls (60).
+Scoring runs only in [Docker environments](sandbox.md#environments), offline except setup. Progress goes to `<out>/log.jsonl`. Model keys come from `--keys`, default `infra/local/.keys.env`, and stay out of `process.env` except for an engine pinned by `BENCH_ENGINE`, which reads them there. Paid steps stop past `--max-codex` weekly Codex points since the first reading (30) or `--max-claude-calls` judge calls (60).
 
 ## Cost against quality
 

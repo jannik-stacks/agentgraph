@@ -141,3 +141,35 @@ An agent's `model` names a proxy alias. Without one, opencode and pi ask for `de
 `AGENTGRAPH_PROXY_KEYS` holds `name=key` pairs, separated by commas or spaces; an agent without a key cannot start a session. Inside the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code; opencode also gets `AGENTGRAPH_LLM_BASE_URL`. Keys pass by environment name, never in arguments, and are masked in output. <!-- code: src/harnesses.ts#keysOf -->
 
 Usage the harness does not price, subscriptions included, is priced from `AGENTGRAPH_PRICES` (default `infra/local/prices.json`), with its source. A model missing from the table is marked `unpriced` in the trace, never $0. <!-- code: src/harnesses.ts#priced -->
+
+## Secrets on the host
+
+A session gets only its agent's model key. On the host, these keep long-lived keys out of what other processes inherit or can see:
+
+- Only `AGENTGRAPH_APP_KEY` and `AGENTGRAPH_PROXY_KEYS` may come from a file, named by `AGENTGRAPH_APP_KEY_FILE` or `AGENTGRAPH_PROXY_KEYS_FILE`. Each start reads that file once. An instance's `keys.env` and the bench keys file stay in the runner's memory and never reach `process.env`. <!-- code: src/main.ts#readEngineEnv bin/bench.ts#readBenchKeys -->
+- Host git, docker and environment builds get a short list of variables: `PATH`, `HOME`, `USER`, `TMPDIR`, the locale, `TZ` and the Docker settings. They never get the runner's whole environment. <!-- code: src/git.ts#makeHostEnv -->
+- `infra/local/keys.sh` keeps the LiteLLM master key and every name in `.env` unexported. curl reads the key from a header file and the request body from stdin, so neither shows in a process list.
+- npm runs no install scripts. The `.npmrc` in `agentgraph/` and in `studio/` sets `ignore-scripts=true`, and `min-release-age=7` skips versions published in the last week. The sandbox image installs with `--ignore-scripts` and runs one postinstall by hand, opencode's, which links its platform binary.
+- The studio dev server serves files only from `studio/`, `src/` and `node_modules/`, and refuses env, key, certificate and `.npmrc` files even there. Its fixture APIs still read the hub and data you point it at. <!-- code: studio/vite.config.ts#deny -->
+- On macOS, `bin/setup-app.ts` keeps the App key in the login Keychain, which asks before every read. [App setup](../infra/github/README.md#create-the-app) has the start command.
+
+### The leak probe
+
+`node bin/leak-probe.ts` looks where an npm worm looks: its own environment, the repo's ignored files with `~/.agentgraph` and `~/.config/agentgraph`, the process list, running containers' environments, and the studio's `/@fs` route. It prints where each hit is, never the value. It exits 1 on a hit, 3 when a probe could not run, and 0 otherwise.
+
+```sh
+node bin/leak-probe.ts
+node bin/leak-probe.ts env ps docker
+```
+
+`PROBE_PATHS` replaces the file roots, `PROBE_STUDIO` sets the studio address (`http://127.0.0.1:5182`), and `PROBE_CANARY` adds a value to look for. File hits list where keys rest, such as `infra/local/.env` and `.keys.env`, so check that each one is expected. The proxy container holds the master key and provider keys on purpose. Every other hit is a leak.
+
+### Not covered yet
+
+Code running as your user can still read the files, the Keychain after a prompt, and the runner's memory. These wait for a later design of auth and secrets:
+
+- a signer or broker that holds the App key, so the runner never sees it
+- a separate macOS user for the runner
+- per-run model keys that expire
+- egress limits at the model gateway
+- the tune proposer in the sandbox, the `models` network by default, and environment builds behind the proxy

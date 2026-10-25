@@ -38,8 +38,10 @@ node bin/setup-app.ts --org acme     # the App belongs to the organization
    page sends the manifest to GitHub.
 2. On GitHub, click **Create GitHub App**. For `--org`, you must be an owner of the organization or
    one of its GitHub App managers.
-3. GitHub sends you back; the command saves `~/.config/agentgraph/<slug>/key.pem` and `app.env`, both
-   readable only by you, and forwards you to the install page.
+3. GitHub sends you back and the command forwards you to the install page. It saves `app.env` in
+   `~/.config/agentgraph/<slug>/`, readable only by you. On macOS the private key goes into the login
+   Keychain, which asks before every read; elsewhere, or when the Keychain refuses, it goes into
+   `key.pem` beside `app.env`, also readable only by you.
 4. On the install page, pick **Only select repositories**, choose the one repository, click
    **Install**. agentgraph finds the installation from the repo, so `app.env` needs nothing more.
 
@@ -53,7 +55,19 @@ Who must approve the install:
 
 When the install was only requested, agentgraph works once an owner approves it.
 
-Then point `AGENTGRAPH_APP_ENV` at the `app.env` the command printed.
+Then point `AGENTGRAPH_APP_ENV` at the `app.env` the command printed. With the key in the Keychain,
+`app.env` names `/dev/fd/3`, so start agentgraph with the key on that descriptor:
+
+```sh
+npx agentgraph loop --instance ~/agentgraph/kit 3< <(security find-generic-password -s agentgraph-app-<slug> -w | base64 -d)
+```
+
+To move a key from an older setup's `key.pem` into the Keychain, then delete the file and set
+`AGENTGRAPH_APP_KEY_FILE=/dev/fd/3` in `app.env`:
+
+```sh
+printf 'add-generic-password -U -T "" -a agentgraph -s agentgraph-app-%s -w %s\n' <slug> "$(base64 -i key.pem)" | security -i
+```
 
 ## Mention autocomplete
 

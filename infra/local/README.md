@@ -86,7 +86,8 @@ and only these aliases fail.
 `npm run keys` creates one virtual key per bot (or updates limits on existing ones) and appends
 `AGENTGRAPH_LLM_API_KEY_<BOT>=...` to `.keys.env`. Subscription models report $0 spend, so their
 real limits are the per-key rpm/tpm and agentgraph's runs-per-day budget. `ROTATE=1 npm run keys`
-replaces every key.
+replaces every key. The script sends the master key as a header file and new keys on stdin, so neither
+shows in a process list.
 
 Fully offline: `LITELLM_CONFIG=litellm.offline.yaml` in `.env`, then `npm run up`.
 

@@ -54,17 +54,20 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 
 | Variable | Meaning and default |
 | --- | --- |
-| `AGENTGRAPH_APP_ENV` | Env file with `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE`, the path of the App's private key |
+| `AGENTGRAPH_APP_ENV` | Env file with `AGENTGRAPH_APP_ID` and `AGENTGRAPH_APP_KEY_FILE` |
 | `AGENTGRAPH_APP_ID`, `AGENTGRAPH_APP_KEY` | The App id and private key, when set directly instead |
+| `AGENTGRAPH_APP_KEY_FILE` | File holding the App's private key, read once per start; `/dev/fd/3` reads it from the [Keychain](../infra/github/README.md#create-the-app) |
 | `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
 | `AGENTGRAPH_PROXY_URL` | Model proxy, `http://litellm:4000/v1` |
-| `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models) |
+| `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models); `AGENTGRAPH_PROXY_KEYS_FILE` names a file holding them |
 | `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json` |
 | `AGENTGRAPH_CONFIG` | The [harness plugins](sandbox.md#harnesses) file, `agentgraph.config.ts` |
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, also set by `--logs`; see [Check logs](runs.md#check-logs) |
 | `AGENTGRAPH_CACHE_VOLUME` | [Toolchain cache](sandbox.md#toolchains) volume, `agentgraph-cache` |
 | `AGENTGRAPH_IMAGE` | Base image when the hub sets none, `agentgraph-sandbox:local` |
 | `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links) |
+
+A setting found in several places takes the last of: an instance's `keys.env`, the shell, the App env file. Only the two key settings accept a `_FILE` form, and each source resolves its own. [Secrets on the host](sandbox.md#secrets-on-the-host) covers what else keeps keys contained. <!-- code: src/main.ts#readEngineEnv -->
 
 Disk and cache limits are in [Environments](sandbox.md#environments).
 
