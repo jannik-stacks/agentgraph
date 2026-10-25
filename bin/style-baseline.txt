@@ -70,7 +70,7 @@ no-comment src/graph.ts 3
 no-comment src/harnesses.ts 7
 no-comment src/hub.ts 19
 no-comment src/instance.ts 2
-no-comment src/main.ts 4
+no-comment src/main.ts 3
 no-comment src/proposal.ts 3
 no-comment src/sandbox.ts 8
 no-comment src/services.ts 9

@@ -21,7 +21,7 @@ import {
 } from './env.ts';
 import { ensureFreeDisk } from './disk.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { gitIdentity, hostGit } from './git.ts';
+import { gitIdentity, hostGit, makeHostEnv } from './git.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -153,7 +153,7 @@ export const dockerArgs = (
 const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
   Effect.async<string, SandboxError>(done => {
     const options = {
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env },
+      env: makeHostEnv({ GIT_TERMINAL_PROMPT: '0', ...env }),
       timeout: 600_000,
       maxBuffer: 64 << 20,
     };
@@ -175,13 +175,9 @@ const auth = (token: string) => ({
 
 /** Starts `docker` with `args` in its own process group; `stop` kills it and removes the container. */
 const start = (args: string[], secrets: Command['secrets'], name: string, on: (chunk: string) => void) => {
-  const env = {
-    PATH: process.env.PATH ?? '/usr/bin:/bin',
-    ...(process.env.DOCKER_HOST && { DOCKER_HOST: process.env.DOCKER_HOST }),
-    ...(process.env.DOCKER_CONFIG && { DOCKER_CONFIG: process.env.DOCKER_CONFIG }),
-    HOME: process.env.HOME ?? '/tmp',
-    ...Object.fromEntries(Object.entries(secrets ?? {}).map(([key, value]) => [key, Redacted.value(value)])),
-  };
+  const env = makeHostEnv(
+    Object.fromEntries(Object.entries(secrets ?? {}).map(([key, value]) => [key, Redacted.value(value)]))
+  );
   const child = spawn('docker', args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   child.stdout.setEncoding('utf8').on('data', on);
   child.stderr.setEncoding('utf8').on('data', on);

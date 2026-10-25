@@ -14,6 +14,24 @@ const hardened = [
   'core.excludesFile=/dev/null',
 ];
 
+const passed = [
+  'PATH',
+  'HOME',
+  'USER',
+  'TMPDIR',
+  'LANG',
+  'LC_ALL',
+  'TZ',
+  'DOCKER_HOST',
+  'DOCKER_CONFIG',
+  'DOCKER_CONTEXT',
+];
+
+export const makeHostEnv = (env: Record<string, string> = {}): Record<string, string> => ({
+  ...Object.fromEntries(passed.flatMap(name => (process.env[name] === undefined ? [] : [[name, process.env[name]!]]))),
+  ...env,
+});
+
 /**
  * Host git for the repo `env` names, with no user config, hooks or inherited `GIT_*` variables. Without `GIT_DIR` it
  * runs in the temp dir, for a clone. `input` goes to its stdin; an exit code in `codes` also succeeds.
@@ -24,18 +42,16 @@ export const hostGit = (
   { input, codes = [] }: { input?: string; codes?: number[] } = {}
 ) =>
   Effect.async<Buffer, SandboxError>(resume => {
-    const inherited = Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'));
     const child = spawn('git', [...hardened, ...args], {
       cwd: env.GIT_WORK_TREE ?? env.GIT_DIR ?? tmpdir(),
       detached: true,
-      env: {
-        ...Object.fromEntries(inherited),
+      env: makeHostEnv({
         GIT_TERMINAL_PROMPT: '0',
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_ATTR_NOSYSTEM: '1',
         ...env,
-      },
+      }),
     });
     let closed = false;
     let problem: string | undefined;

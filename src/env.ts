@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { makeHostEnv } from './git.ts';
 import { isOwnerRunning, ownerId, readStateDir, startHeartbeat } from './owner.ts';
 
 /**
@@ -58,7 +59,9 @@ type Skeleton = { paths: string[]; stubs: string[]; digest: string };
 
 const git = (dir: string, ...args: string[]) =>
   new Promise<string>((done, fail) =>
-    execFile('git', ['--git-dir', dir, ...args], { maxBuffer: 256 << 20 }, (e, out) => (e ? fail(e) : done(out.trim())))
+    execFile('git', ['--git-dir', dir, ...args], { env: makeHostEnv(), maxBuffer: 256 << 20 }, (e, out) =>
+      e ? fail(e) : done(out.trim())
+    )
   );
 
 /**
@@ -112,7 +115,7 @@ export const unlogged = ['--log-driver', 'none'];
 
 export const runDockerCli = (args: string[], timeout = 600_000) =>
   new Promise<string>((done, fail) =>
-    execFile('docker', args, { timeout, maxBuffer: 256 << 20 }, (error, stdout, stderr) =>
+    execFile('docker', args, { env: makeHostEnv(), timeout, maxBuffer: 256 << 20 }, (error, stdout, stderr) =>
       error
         ? fail(
             Object.assign(
@@ -413,18 +416,23 @@ const deps = /(^|\/)(node_modules|target)$/;
  */
 export const dependencyDirs = (git: string, base: string, limit = 64) =>
   new Promise<string[]>((done, fail) =>
-    execFile('git', ['--git-dir', git, 'ls-tree', '-r', '--name-only', base], { maxBuffer: 256 << 20 }, (e, out) => {
-      if (e) return fail(e);
-      const files = out.split('\n').filter(p => p && !/(^|\/)node_modules\//.test(p));
-      const dirsOf = (name: string) =>
-        files.filter(p => p === name || p.endsWith(`/${name}`)).map(p => p.slice(0, -name.length));
-      const crates = dirsOf('Cargo.toml');
-      const found = [
-        ...dirsOf('package.json').map(d => `${d}node_modules`),
-        ...crates.filter(d => !crates.some(o => o !== d && d.startsWith(o))).map(d => `${d}target`),
-      ];
-      done(found.sort((a, b) => a.split('/').length - b.split('/').length).slice(0, limit));
-    })
+    execFile(
+      'git',
+      ['--git-dir', git, 'ls-tree', '-r', '--name-only', base],
+      { env: makeHostEnv(), maxBuffer: 256 << 20 },
+      (e, out) => {
+        if (e) return fail(e);
+        const files = out.split('\n').filter(p => p && !/(^|\/)node_modules\//.test(p));
+        const dirsOf = (name: string) =>
+          files.filter(p => p === name || p.endsWith(`/${name}`)).map(p => p.slice(0, -name.length));
+        const crates = dirsOf('Cargo.toml');
+        const found = [
+          ...dirsOf('package.json').map(d => `${d}node_modules`),
+          ...crates.filter(d => !crates.some(o => o !== d && d.startsWith(o))).map(d => `${d}target`),
+        ];
+        done(found.sort((a, b) => a.split('/').length - b.split('/').length).slice(0, limit));
+      }
+    )
   );
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
