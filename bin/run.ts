@@ -154,37 +154,35 @@ const findUnserved = (provider: Provider, hub: Hub) =>
       message: `${provider.name} does not serve ${a.harness}. It serves ${provider.harnesses.join(' and ')}.`,
     }));
 
-let connected: Promise<{ provider: Provider; model?: string }> | undefined;
-const connect = (i: Instance, hub: string, after: string) =>
-  (connected ??= (async () => {
-    if (!process.env.AGENTGRAPH_SANDBOX_URL) {
-      const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).catch((e: Error) =>
-        fail(`${e.message}\n${after}`, 1)
-      );
-      console.log(`sandbox  docker ${docker}`);
-    }
-    const provider = await pickProvider(i, after);
-    if (values.save && values.provider) writeInstanceProvider(i, provider.name);
-    const harness = values.harness ?? provider.harnesses[0]!;
-    if (!provider.harnesses.includes(harness))
-      fail(`${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.\n${after}`);
-    console.log(
-      `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
+const connect = async (i: Instance, hub: string, after: string) => {
+  if (!process.env.AGENTGRAPH_SANDBOX_URL) {
+    const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).catch((e: Error) =>
+      fail(`${e.message}\n${after}`, 1)
     );
-    console.log(`repo     ${i.repo}, base ${i.base}`);
-    if (!(await provider.ready()))
-      await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))().catch((e: Error) =>
-        fail(`${e.message}\n${after}`, 1)
-      );
-    Object.assign(process.env, provider.settings?.() ?? {}, {
-      AGENTGRAPH_PROVIDER: provider.name,
-      ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
-    });
-    const aliases = new Map(
-      splitNames(process.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
+    console.log(`sandbox  docker ${docker}`);
+  }
+  const provider = await pickProvider(i, after);
+  if (values.save && values.provider) writeInstanceProvider(i, provider.name);
+  const harness = values.harness ?? provider.harnesses[0]!;
+  if (!provider.harnesses.includes(harness))
+    fail(`${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.\n${after}`);
+  console.log(
+    `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
+  );
+  console.log(`repo     ${i.repo}, base ${i.base}`);
+  if (!(await provider.ready()))
+    await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))().catch((e: Error) =>
+      fail(`${e.message}\n${after}`, 1)
     );
-    return { provider, ...(values.model && { model: aliases.get(values.model) ?? values.model }) };
-  })());
+  Object.assign(process.env, provider.settings?.() ?? {}, {
+    AGENTGRAPH_PROVIDER: provider.name,
+    ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
+  });
+  const aliases = new Map(
+    splitNames(process.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
+  );
+  return { provider, ...(values.model && { model: aliases.get(values.model) ?? values.model }) };
+};
 
 const loadServedHub = async ({ provider, model }: Awaited<ReturnType<typeof connect>>, hub: string) => {
   const loaded = await Effect.runPromise(readConfiguredHub(hub));
@@ -375,7 +373,14 @@ async function runOnInstance() {
       return;
     }
     case 'show':
-      if (rest[0] === 'hub') return showHub(await synced());
+      if (rest[0] === 'hub') {
+        const hub = await synced();
+        console.log(
+          `hub ${hub}${hub === defaultHub ? ' (default; copy it to .agentgraph/ in your repo to change it)' : ''}`
+        );
+        for (const file of readdirSync(hub, { recursive: true, encoding: 'utf8' }).toSorted()) console.log(`  ${file}`);
+        return;
+      }
       return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
     case 'check':
     case 'dispatch': {
@@ -523,11 +528,6 @@ async function showAll(i: Instance, forge: Forge['Type']) {
   );
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
   console.log(formatIssueList(await Effect.runPromise(forge.issues())));
-}
-
-function showHub(hub: string) {
-  console.log(`hub ${hub}${hub === defaultHub ? ' (default; copy it to .agentgraph/ in your repo to change it)' : ''}`);
-  for (const file of readdirSync(hub, { recursive: true, encoding: 'utf8' }).toSorted()) console.log(`  ${file}`);
 }
 
 async function showIssue(forge: Forge['Type'], issue: number, i: Instance) {

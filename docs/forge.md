@@ -94,7 +94,7 @@ A data dir inside the repo is refused. A moved repo is a new instance; `show` ou
 
 A forge folder holds `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, a forge folder refuses a whole push that touches `.github/`, and a second `pull_request` for a branch leaves the open one as it is. <!-- code: src/forge.ts#fileForge -->
 
-`--forge <dir>` runs `loop`, `check`, `dispatch` and `prune-logs` on a bare forge folder instead of an instance, for tests and the bench; `--data` is then the runs folder itself.
+`--forge <dir>` runs the CLI [on a forge folder](local.md#on-a-forge) instead of an instance, for tests and the bench.
 
 ## Dropped issue files
 

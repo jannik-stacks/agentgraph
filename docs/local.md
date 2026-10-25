@@ -18,14 +18,6 @@ Runs need the stack up. `npm run down` stops it and keeps its volumes.
 
 `npx agentgraph <verb>` inside a git repo runs that repo on a [local forge](forge.md), with no setup and no GitHub. `start`, `say`, `review`, `merge`, `export`, `close`, `show` and `loop` are in [Verbs](forge.md#verbs).
 
-```sh
-npx agentgraph check                                  # the hub this repo uses
-npx agentgraph check --hub examples/sandbox           # any hub
-npx agentgraph check lines --runs [--issue 3]
-npx agentgraph dispatch 3 --workflow triage
-npx agentgraph prune-logs [--apply]
-```
-
 | Command | What it does |
 | --- | --- |
 | `check` | Validates a hub and prints each problem with its file, or `ok`. Needs no model or container. |

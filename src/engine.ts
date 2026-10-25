@@ -396,7 +396,7 @@ const recipient = (issue: number, by: string) =>
   Effect.flatMap(Store, s => Effect.map(s.list({ issue }), rs => rs.find(r => !isRunDone(r) && r.id !== by)));
 
 /** Passes trusted text to a live run, as a router proposal or CLI instruction. */
-const tell = (issue: number, text: string, by = 'cli') =>
+const tell = (issue: number, text: string, by: string) =>
   Effect.gen(function* () {
     const to = yield* recipient(issue, by);
     if (!to) return yield* new ForgeError({ message: `no live run on #${issue} to tell` });
