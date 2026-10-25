@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentgraph",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-01",
+  "rules": [{ "type": "Text", "globs": ["**/*.sh", "**/allowlist"], "fallthrough": true }],
+  "containers": [
+    {
+      "class_name": "Engine",
+      "image": "./engine.Dockerfile",
+      "image_build_context": "../../..",
+      "instance_type": "basic",
+      "max_instances": 1
+    },
+    {
+      "class_name": "Box",
+      "image": "../../../infra/local/sandbox/Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 10
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ENGINE", "class_name": "Engine" },
+      { "name": "BOX", "class_name": "Box" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Engine", "Box"] }],
+  "r2_buckets": [{ "binding": "DATA", "bucket_name": "agentgraph-data" }],
+  "triggers": { "crons": ["*/5 * * * *"] }
+}
