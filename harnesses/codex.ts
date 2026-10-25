@@ -41,8 +41,8 @@ save() {
   cp /tmp/codex/auth.json /tmp/codex/auth.copy
   cmp -s /tmp/codex/auth.copy /tmp/codex/auth.start && return
   node -e 'JSON.parse(require("fs").readFileSync("/tmp/codex/auth.copy", "utf8"))' 2>/dev/null || return
-  (flock 9 && cp /tmp/codex/auth.copy /codex/auth.next && mv /codex/auth.next /codex/auth.json) 9>/codex/.lock
-  mv /tmp/codex/auth.copy /tmp/codex/auth.start
+  (flock 9 && cp /tmp/codex/auth.copy /codex/auth.next && mv /codex/auth.next /codex/auth.json) 9>/codex/.lock &&
+    mv /tmp/codex/auth.copy /tmp/codex/auth.start
 }
 (while sleep 5; do save; done) >/dev/null 2>&1 &
 node -e "$AGENTGRAPH_CODEX" -- "$@"
