@@ -53,7 +53,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_PROVIDER` | A provider from the config; agents that name no harness get its first |
 | `AGENTGRAPH_MODELS` | `alias=model` pairs, `*` for agents without a `model`; see [Models](sandbox.md#models) |
 | `AGENTGRAPH_TRUST` | Comma-separated logins trusted instead of the hub's `trust` |
-| `AGENTGRAPH_PROXY_URL` | Model proxy, `http://litellm:4000/v1` |
+| `AGENTGRAPH_PROXY_URL` | Model gateway, `http://gateway:4000/v1`, the local LiteLLM's name on the sandbox networks; see [Models](sandbox.md#models) |
 | `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models); `AGENTGRAPH_PROXY_KEYS_FILE` names a file holding them |
 | `AGENTGRAPH_SESSION_ENV` | Engine variables every session gets, such as a harness login token; empty by default |
 | `AGENTGRAPH_PRICES` | List prices, `infra/local/prices.json` |
@@ -64,7 +64,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_SANDBOX_URL` | Box server that runs commands instead of docker, see [Hosting](hosting.md); empty for docker |
 | `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links) |
 
-A setting found in both the shell and the App env file takes the App env file's. Only the two key settings accept a `_FILE` form, and only the winning source's file is read. [Secrets on the host](sandbox.md#secrets-on-the-host) covers what else keeps keys contained. <!-- code: src/main.ts#readEngineEnv -->
+A setting found in both the shell and the App env file takes the App env file's. Only the two key settings and the names in `AGENTGRAPH_SESSION_ENV` accept a `_FILE` form, and only the winning source's file is read. [Secrets on the host](sandbox.md#secrets-on-the-host) covers what else keeps keys contained. <!-- code: src/main.ts#readEngineEnv -->
 
 Disk and cache limits are in [Environments](sandbox.md#environments).
 

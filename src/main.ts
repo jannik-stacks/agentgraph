@@ -12,7 +12,7 @@ import {
   type Services,
 } from './engine.ts';
 import { writeIssueFile } from './forge.ts';
-import { readConfiguredHub } from './harnesses.ts';
+import { splitNames, readConfiguredHub } from './harnesses.ts';
 import { readRealPath } from './instance.ts';
 import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';

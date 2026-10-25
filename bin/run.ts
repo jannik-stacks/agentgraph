@@ -122,8 +122,12 @@ const noModel = `No model to use. Any one of these works:
   export AGENTGRAPH_PROXY_KEYS=...                 your LiteLLM at AGENTGRAPH_PROXY_URL`;
 
 const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
-  const { providers = [] } = await Effect.runPromise(readHarnessSettings).catch((e: Error) => fail(e.message, 1));
   const named = values.provider ?? i.provider ?? process.env.AGENTGRAPH_PROVIDER;
+  Object.assign(process.env, {
+    ...(named && { AGENTGRAPH_PROVIDER: named }),
+    ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
+  });
+  const { providers = [] } = await Effect.runPromise(readHarnessSettings).catch((e: Error) => fail(e.message, 1));
   if (named)
     return (
       providers.find(p => p.name === named) ??

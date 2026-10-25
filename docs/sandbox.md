@@ -148,7 +148,7 @@ Usage the harness does not price, subscriptions included, is priced from `AGENTG
 
 A session gets only its agent's model key. On the host, these keep long-lived keys out of what other processes inherit or can see:
 
-- Only `AGENTGRAPH_APP_KEY` and `AGENTGRAPH_PROXY_KEYS` may come from a file, named by `AGENTGRAPH_APP_KEY_FILE` or `AGENTGRAPH_PROXY_KEYS_FILE`. Each start reads that file once. Keys from the bench keys file stay in the runner's memory and reach `process.env` only for a bench engine pinned by `BENCH_ENGINE`. <!-- code: src/main.ts#readEngineEnv bin/bench.ts#readBenchKeys -->
+- Only `AGENTGRAPH_APP_KEY`, `AGENTGRAPH_PROXY_KEYS` and the names in `AGENTGRAPH_SESSION_ENV` may come from a file, named by the setting plus `_FILE`. Each start reads that file once. Keys from the bench keys file stay in the runner's memory and reach `process.env` only for a bench engine pinned by `BENCH_ENGINE`. <!-- code: src/main.ts#readEngineEnv bin/bench.ts#readBenchKeys -->
 - Host git, docker and environment builds get a short list of variables: `PATH`, `HOME`, `USER`, `TMPDIR`, the locale, `TZ` and the Docker settings. They never get the runner's whole environment. <!-- code: src/git.ts#makeHostEnv -->
 - `infra/local/keys.sh` unexports every name in `.env` and every inherited name with a `KEY`, `KEYS`, `TOKEN`, `SECRET` or `PASSWORD` part. curl reads the key from a header file and the request body from stdin, so neither shows in a process list.
 - npm runs no install scripts. The `.npmrc` in `agentgraph/` and in `studio/` sets `ignore-scripts=true`, and `min-release-age=7` skips versions published in the last week. The sandbox image installs with `--ignore-scripts` and runs one postinstall by hand, opencode's, which links its platform binary.
