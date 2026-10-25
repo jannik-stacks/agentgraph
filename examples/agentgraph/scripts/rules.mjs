@@ -26,7 +26,6 @@ const named = path =>
 const inTests = path => testPath.test(path);
 const kept = path => !path.startsWith('research/');
 const diagram = (path, kind) => kept(path) && kind === 'fence' && /\.mdx?$/.test(path);
-const engine = (path, kind) => kind === 'code' && /^src\/.*\.ts$/.test(path);
 const launchers = new Set(['src/runner.ts', 'src/sim.ts']);
 
 /** A line that quotes the old name, or names the new one beside it, is a hint about the name. */
@@ -63,7 +62,12 @@ const rules = [
   [guarded, /--dangerously|dangerouslySkip|bypassPermissions|--yolo\b|--auto-approve/, 'a harness that approves its own tool calls', inTests],
   [guarded, /\bsandbox\s*[:=]\s*['"]?(none|off|false|disabled)\b/i, 'the sandbox switched off; it fails closed instead', inTests],
   [guarded, /\bunsandboxed\b/, 'the unsandboxed launcher outside the runner and the simulator', path => inTests(path) || launchers.has(path)],
-  [guarded, /push[^\n]*(--force\b|\s-f\b|--force-with-lease)/, 'a force push', inTests],
+  [
+    guarded,
+    /push[^\n]*(--force\b|\s-f\b|--force-with-lease)/,
+    'a force push',
+    (path, text) => inTests(path) || (path.startsWith('src/') && !/--force(?![-\w])|\s-f\b|--force-with-lease(?!=[^\s:]+:)/.test(text)),
+  ],
   [guarded, /@ts-(ignore|nocheck|expect-error)/, 'a silenced type error'],
   [guarded, /\bas any\b|:\s*any\b|<any[>,]|,\s*any>|=\s*any\s*;|ReturnType<typeof JSON\.parse>/, 'an `any` that hides a type', path => !/\.(ts|tsx|mts)$/.test(path)],
   [guarded, /\b(eslint|oxlint)-disable/, 'a silenced lint rule'],
@@ -73,8 +77,7 @@ const rules = [
   [shipped, /\b(fake[ds]?|stub(bed|s)?|mock(ed|s)?|dummy)\b/i, 'a fake in shipped code; build the real thing', (_, text) => /placeholder=/.test(text)],
 
   [diagram, /[►◄▲▼▶◀→←↑↓⟶⟵⇒⇐]/, 'a unicode arrow in a fenced block; diagram arrow heads are ASCII > < v ^'],
-  [path => kept(path) && !inTests(path), /\bgit diff\b[^\n]*[^.\s]\.\.(?!\.)[^./\s]/, 'a two-dot diff range; review a branch with base...HEAD, or diff a recorded sha'],
-  [engine, /'update-ref',\s*[^,\]]+,\s*[^,\]]+\]/, 'update-ref without the expected old sha; pass it so a concurrent move fails'],
+  [path => kept(path) && !inTests(path), /\bgit diff\b[^\n]*[^.\s]\.\.HEAD\b/, 'a two-dot range to HEAD; review a branch with base...HEAD'],
 
   ...retiredWords
     .filter(([, , pattern]) => pattern)
@@ -111,9 +114,47 @@ const uncalibrated = ({ path, text, lines }) => {
   return [`${path}:1: a new check in block or stop mode with no calibration; start it in warn mode, or say in its body which replay calibrated it`];
 };
 
+const readArrayItems = (text, from) => {
+  const items = [];
+  let depth = 0;
+  let item = '';
+  for (let i = from; i < text.length; i++) {
+    const c = text[i];
+    if (`'"\``.includes(c)) {
+      const end = text.indexOf(c, i + 1);
+      item += text.slice(i, end + 1);
+      i = end;
+    } else if ('([{'.includes(c)) {
+      depth++;
+      item += c;
+    } else if (depth === 0 && (c === ',' || c === ']')) {
+      items.push(item.trim());
+      item = '';
+      if (c === ']') return items.filter(Boolean);
+    } else {
+      if (')]}'.includes(c)) depth--;
+      item += c;
+    }
+  }
+};
+
+const unguardedRefUpdates = ({ path, text, lines }) => {
+  if (!/^src\/.*\.ts$/.test(path)) return [];
+  const added = new Set(lines.map(({ line }) => line));
+  return [...text.matchAll(/'update-ref'\s*,/g)].flatMap(match => {
+    const line = text.slice(0, match.index).split('\n').length;
+    const items = readArrayItems(text, match.index + match[0].length);
+    if (!added.has(line) || !items || items.some(item => item.startsWith('...'))) return [];
+    const operands = items.filter((item, i) => !item.startsWith("'-") && items[i - 1] !== "'-m'");
+    const needed = items.includes("'-d'") ? 2 : 3;
+    if (operands.length >= needed) return [];
+    return [`${path}:${line}: update-ref without the expected old sha; pass it so a concurrent move fails`];
+  });
+};
+
 const claudeFile = ({ path }) =>
   kept(path) && /(^|\/)CLAUDE\.md$/.test(path) ? [`${path}:1: a CLAUDE.md file; agent instructions live in AGENTS.md only`] : [];
 
 const scanned = files(path => codePath.test(path) || /\.(mdx?|ya?ml|sh)$/.test(path));
-const fileRules = [longBlocks, uncalibrated, claudeFile];
+const fileRules = [longBlocks, uncalibrated, unguardedRefUpdates, claudeFile];
 report('rules', [...scan(rules, scanned), ...fileRules.flatMap(rule => scanned.flatMap(rule))]);

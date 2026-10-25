@@ -57,7 +57,8 @@ at that level first.
 15. Edge types never take a core word: `TuneProposerResult`, not `Proposal`.
 16. One word per concept, one export per name. Retired words, each with what to say instead, are listed
     once in [retired-words.mjs](examples/agentgraph/scripts/retired-words.mjs); lint and the hub's checks
-    read that list.
+    read that list. A word without a line pattern is retired for names only, since text keeps other
+    meanings of it (git's `core.bare`, `stacks-core`, a `timestamp`).
 17. Don't overload taken words: session is a harness session, run is one workflow execution, no `core`,
     no export named like an Effect or platform type (`TokenScope`, not `Scope`).
 
@@ -120,8 +121,8 @@ at that level first.
     - `bin/style.mjs` (oxlint) fails `verb-first` (rule 7), `no-of-for` (9), `unique-export` (16),
       `retired-word` (16) and `no-comment` (18).
     - The hub's [rules check](examples/agentgraph/scripts/rules.mjs), over the lines a change adds, fails
-      the prose bans (55), unicode diagram arrows (55), retired hub terms (16), a two-dot review diff
-      and an `update-ref` without its old sha (59), and a `CLAUDE.md` (38).
+      the prose bans (55), unicode diagram arrows (55), retired hub terms (16), a two-dot range to
+      `HEAD`, a force push and an `update-ref` without its old sha (59), and a `CLAUDE.md` (38).
     - `test-guards` fails assertions in loops and branches (34); `bin/refs.mjs` fails dead docs links (20).
 47. Old violations sit in `bin/style-baseline.txt`; after a rename batch run `node bin/style.mjs --write`.
 48. A setting nothing reads can't exist: knip and static analysis run after every big change.
@@ -158,7 +159,8 @@ one without that check.
 57. One conventional-commit subject line; optional body of one to three lines on why only.
     `bin/commit-msg.mjs` checks it.
 58. Never commit secrets. Agents don't sign or push.
-59. A one-off review diffs the branch against its merge-base, `base...HEAD` with three dots. Anything
+59. A one-off review diffs the branch against its merge-base, `base...HEAD` with three dots; two dots
+    are fine between two recorded shas. Anything
     persisted or rerun (end checks, exports, baselines, patches) uses the sha recorded when the work
     settled, never a merge-base or tip recomputed against a live branch. A ref update names the old sha it
     expects: `update-ref <ref> <new> <old>`, `--force-with-lease=<ref>:<sha>`.

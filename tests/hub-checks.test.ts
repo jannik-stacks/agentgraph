@@ -125,15 +125,27 @@ describe('agentgraph hub checks', () => {
     expect(check(at('rules.mjs'), clean)).toEqual({ ok: true, out: 'rules: ok' });
   });
 
-  it('flags unicode diagram arrows, two-dot review diffs, update-ref without an old sha and a CLAUDE.md', () => {
+  it('flags unicode diagram arrows, two-dot review diffs, unguarded ref updates and a CLAUDE.md', () => {
     const repo = change(
       { 'src/a.ts': 'export const a = 1;\n', 'docs/a.md': '# A\n' },
       {
-        'src/a.ts':
-          "export const a = 1;\nawait inForge(i, ['update-ref', `refs/heads/${i.base}`, theirs]);\nawait inForge(i, ['update-ref', ref, head, current]);\n",
+        'src/a.ts': [
+          'export const a = 1;',
+          "await inForge(i, ['update-ref', `refs/heads/${i.base}`, theirs]);",
+          "await inRepo(i.repo, ['update-ref', ref, heads[0], current]);",
+          "await inRepo(i.repo, ['update-ref', '-d', ref, current]);",
+          'await inRepo(i.repo, [',
+          "  'update-ref',",
+          '  ref,',
+          '  head,',
+          ']);',
+          "await git(work, 'push', `--force-with-lease=refs/heads/${b}:${was}`, 'origin', b);",
+          "await git(work, 'push', '--force', 'origin', b);",
+          '',
+        ].join('\n'),
         'docs/a.md': '# A\n\n```\n      ▲\n      v\n```\n\nKeep `../x` and `a...b`.\n',
         'examples/agentgraph/skills/review.md':
-          'Review the whole branch: `git diff bothub-main..HEAD -- agentgraph`.\n',
+          'Review the whole branch: `git diff bothub-main..HEAD -- agentgraph`.\nDiff the recorded `git diff abc1234..def5678`.\n',
         'CLAUDE.md': '@AGENTS.md\n',
       }
     );
@@ -142,8 +154,10 @@ describe('agentgraph hub checks', () => {
     expect(out.split('\n').slice(0, -1).toSorted()).toEqual([
       'CLAUDE.md:1: a CLAUDE.md file; agent instructions live in AGENTS.md only',
       'docs/a.md:4: a unicode arrow in a fenced block; diagram arrow heads are ASCII > < v ^',
-      'examples/agentgraph/skills/review.md:1: a two-dot diff range; review a branch with base...HEAD, or diff a recorded sha',
+      'examples/agentgraph/skills/review.md:1: a two-dot range to HEAD; review a branch with base...HEAD',
+      'src/a.ts:11: a force push',
       'src/a.ts:2: update-ref without the expected old sha; pass it so a concurrent move fails',
+      'src/a.ts:6: update-ref without the expected old sha; pass it so a concurrent move fails',
     ]);
   });
 
