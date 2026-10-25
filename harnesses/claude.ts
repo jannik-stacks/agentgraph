@@ -44,10 +44,10 @@ const claudeNames: Record<string, string> = {
 };
 
 const claudeTools = (tools: string[]) =>
-  makePrefixedToolForms(tools).flatMap(tool => {
+  makePrefixedToolForms(tools).map(tool => {
     const [, name = tool, glob] = splitToolPattern(tool);
-    const mapped = claudeNames[name];
-    return mapped ? [glob === undefined ? mapped : `${mapped}(${glob})`] : [];
+    const mapped = claudeNames[name]!;
+    return glob === undefined ? mapped : `${mapped}(${glob})`;
   });
 
 export const claude = (): Harness => ({
@@ -56,7 +56,7 @@ export const claude = (): Harness => ({
   check: agent =>
     agent.tools.flatMap(tool => {
       const name = splitToolPattern(tool)[1] ?? tool;
-      return name in claudeNames ? [] : [`tools: claude has no ${name} tool`];
+      return Object.hasOwn(claudeNames, name) ? [] : [`has no ${name} tool`];
     }),
   command: (spec, route) => {
     const list = claudeTools(spec.tools);

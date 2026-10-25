@@ -104,13 +104,14 @@ describe('loadHub', () => {
     const found = await problems(
       hubDir({
         'agents/a.md': '---\nharness: codex\n---\n',
-        'agents/b.md': '---\nharness: claude\ntools: [read, lsp]\n---\n',
+        'agents/b.md': '---\nharness: claude\ntools: [read, lsp, constructor]\n---\n',
         'agents/c.md': "---\nharness: pi\ntools: [read, 'bash(git diff*)']\n---\n",
       })
     );
     expect(found).toContain('agents/a.md: harness: codex is not in the config, which has opencode, claude, pi');
-    expect(found).toContain('agents/b.md: tools: claude has no lsp tool');
-    expect(found).toContain('agents/c.md: tools: pi cannot limit a tool to a pattern such as bash(git diff*)');
+    expect(found).toContain('agents/b.md: harness: claude has no lsp tool');
+    expect(found).toContain('agents/b.md: harness: claude has no constructor tool');
+    expect(found).toContain('agents/c.md: harness: pi cannot limit a tool to a pattern such as bash(git diff*)');
   });
 
   it('fails on an agent that reads traces without the read tool', async () => {

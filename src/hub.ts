@@ -164,7 +164,7 @@ const nameOf = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.sli
 const compile = (
   hubText: string | undefined,
   groups: Record<'agents' | 'skills' | 'checks' | 'workflows', File[]>,
-  harnesses: Parameters<typeof loadHub>[1]
+  harnesses: readonly HarnessCheck[]
 ) => {
   const problems: Problem[] = [];
   const sayer = (path: string) => (message: string) => problems.push({ path, message });
@@ -203,7 +203,8 @@ const compile = (
     const harness = agent && harnesses.find(h => h.name === agent.harness);
     if (agent && !harness)
       say(`harness: ${agent.harness} is not in the config, which has ${harnesses.map(h => h.name).join(', ')}`);
-    for (const problem of (agent && harness?.check?.(agent)) ?? []) say(problem);
+    if (agent && harness)
+      for (const problem of harness.check?.(agent) ?? []) say(`harness: ${harness.name} ${problem}`);
     return agent;
   });
   const skills = docs(groups.skills, (data, say) => {
@@ -267,11 +268,10 @@ const compile = (
   return { hub, agents, skills, checks, workflows, problems };
 };
 
+export type HarnessCheck = { name: string; check?: (agent: Agent) => string[] };
+
 /** Reads a hub directory, validates every file and fails with all problems at once. */
-export const loadHub = (
-  dir: string,
-  harnesses: readonly { name: string; check?: (agent: Agent) => string[] }[]
-): Effect.Effect<Hub, HubError> =>
+export const loadHub = (dir: string, harnesses: readonly HarnessCheck[]): Effect.Effect<Hub, HubError> =>
   Effect.gen(function* () {
     const read = yield* Effect.tryPromise({
       try: async () => {

@@ -4,7 +4,7 @@ import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Config, Effect, Layer, Redacted, Stream } from 'effect';
-import { HubError, loadHub } from './hub.ts';
+import { type HarnessCheck, HubError, loadHub } from './hub.ts';
 import { type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { Session } from './session.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
@@ -16,7 +16,7 @@ export type Piece =
 
 type ModelRoute = { url: string; model: string };
 
-export type Harness = Parameters<typeof loadHub>[1][number] & {
+export type Harness = HarnessCheck & {
   key: string;
   home?: (spec: SessionSpec, route: ModelRoute) => { files?: Record<string, string>; links?: Record<string, string> };
   command: (spec: SessionSpec, route: ModelRoute) => { cmd: string; args: string[]; env?: Record<string, string> };

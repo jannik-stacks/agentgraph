@@ -32,7 +32,7 @@ export const pi = (): Harness => ({
   key: 'AGENTGRAPH_LLM_API_KEY',
   check: agent =>
     agent.tools.flatMap(tool =>
-      splitToolPattern(tool)[2] === undefined ? [] : [`tools: pi cannot limit a tool to a pattern such as ${tool}`]
+      splitToolPattern(tool)[2] === undefined ? [] : [`cannot limit a tool to a pattern such as ${tool}`]
     ),
   home: (_, route) => ({
     files: {
