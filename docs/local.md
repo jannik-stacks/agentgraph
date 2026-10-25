@@ -30,7 +30,7 @@ npx agentgraph prune-logs --data ~/agentgraph-data [--apply]
 | --- | --- |
 | `check` | Validates a hub and prints each problem with its file, or `ok`. Needs no model or container. |
 | `--issue <n>` | Starts or resumes one issue's run and drives it until it waits or ends. |
-| `start "<text>"` | Files the text as a new issue on the [forge folder](forge.md#dropped-issue-files), with the label of `--workflow` (or of the hub's only labelled workflow), and runs it like `--issue`. The first line is the title. <!-- code: src/main.ts#writeTriggeringIssue --> |
+| `start "<text>"` | Files the text as a new issue in the [forge folder](forge.md#dropped-issue-files) and runs it like `--issue`. The first line is the title, the rest the body. The issue gets the label of `--workflow`, which may be left out when only one workflow has a label. The author is the instance owner or `git config user.name` and must be trusted. <!-- code: src/main.ts#writeTriggeringIssue --> |
 | `--all` | One pass over open issues. Starts runs only on trusted commands or labels, up to `limits.parallel` at once. |
 | `loop` | A pass at startup, then every `AGENTGRAPH_EVERY` minutes. Without `--hub` it uses the repo's [own hub](loop.md#a-hub-in-the-repo) and `AGENTGRAPH_REPO`. |
 | `status` | Lists human waits and the commands to continue them. On GitHub it needs App credentials and warns when the App reaches other repos. |
@@ -87,4 +87,4 @@ npm install
 npm run dev -- --instance ~/agentgraph/kit
 ```
 
-It serves on port 5182, or `AGI_PORT`; give each instance its own port. Instead of `--instance`, `--hub <dir> --data <dir>` select the inputs, and `--forge <dir>` the forge folder the Inbox names in its commands. Without either it reads `examples/sandbox` and `AGENTGRAPH_DATA`, else `~/.agentgraph`. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the Compound tab. The studio only reads. Its Inbox lists the runs that wait on a person with the commands that continue each, the same ones `status` prints. Runs that wait on another run stay off it. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->
+It serves on port 5182, or `AGI_PORT`; give each instance its own port. Instead of `--instance`, `--hub <dir> --data <dir>` select the inputs; add `--forge <dir>` so the Inbox names forge commands. Without either it reads `examples/sandbox` and `AGENTGRAPH_DATA`, else `~/.agentgraph`. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the Compound tab. The studio only reads. Its Inbox lists the runs that wait for a person, with the same commands `status` prints. A run that waits on a run it started is left out. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage src/status.ts#findRunsWaitingOnPeople -->

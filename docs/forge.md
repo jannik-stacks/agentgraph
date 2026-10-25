@@ -27,7 +27,7 @@ Actions run as `--as <name>`, the instance owner or `git config user.name`, and 
 
 ## Dropped issue files
 
-Any `<n>.md` you write into the forge folder is an issue. Without frontmatter, the first line is the title and the rest is the body. With frontmatter, an `author` and `labels` make the labels count as that author adding them, so a label like `agent:ready` starts its workflow on the next pass:
+Any `<n>.md` you write into the forge folder, under an unused number, is an issue. The first line is the title and the rest is the body. To start a workflow, add frontmatter (YAML between `---` lines) with an `author` and the workflow's label. The next pass starts the run when the author is trusted:
 
 ```md
 ---
@@ -39,7 +39,7 @@ labels: [agent:ready]
 count(-1) should throw.
 ```
 
-The forge records those labels once, as the file's first events at its modification time, when it first reads the issue. A run started from them has an id made from that time, so a runner that stops between reading the file and saving the run starts the same run again, not a second one. A file by an author ending in `[bot]` or outside the hub's `trust` list starts nothing. `issue --label` and `npx agentgraph start` write such a file. <!-- code: src/forge.ts#fileForge src/forge.ts#writeIssueFile -->
+The first time the forge reads the issue, it records those labels as the author's, at the file's modification time. A run started from them takes its id from that time, so a runner that stops before saving the run starts the same run again, not a second one. Later label edits in the file record nothing; use `label <n> <name>`. An author ending in `[bot]` or outside the hub's `trust` list starts nothing. `issue --label` and `npx agentgraph start` write such a file. <!-- code: src/forge.ts#fileForge src/forge.ts#writeIssueFile -->
 
 ## Instances
 

@@ -42,7 +42,7 @@ Steps run in written order. Each is an `agent` step, a `run` step (a shell comma
 ## Starting a run
 
 - `issue_comment`: a trusted comment with `/agent` or `@agent` as a word, outside quotes and code blocks. The marker is cut before the agent reads the comment, and a bare marker works.
-- `issues` with a `label`: a trusted person adds that label to an open issue.
+- `issues` with a `label`: a trusted person adds that label to an open issue. In a forge folder, a [dropped issue file](forge.md#dropped-issue-files) with an author and labels counts too, and [`start`](local.md#the-cli) writes one and runs it at once.
 
 `pull_request` and `branches` are accepted but start nothing yet. Other runs start through [dispatch](#dispatch), and human feedback can start a [retro](compound.md#the-retro). <!-- code: src/forge.ts#called -->
 
