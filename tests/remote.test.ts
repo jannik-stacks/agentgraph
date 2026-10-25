@@ -130,6 +130,22 @@ describe('remote sandbox', () => {
     expect(server.runs.slice(before).map(run => run.network)).toEqual(['open', 'none']);
   });
 
+  it('runs the toolchain once for parallel commands after a restart', async () => {
+    let before = 0;
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { toolchain: 'sleep 0.2' });
+        rmSync(join(boxes, basename(work.dir)), { recursive: true });
+        before = server.runs.length;
+        return yield* Effect.all([s.exec(sh(work.dir, 'true')), s.exec(sh(work.dir, 'true'))], {
+          concurrency: 2,
+        });
+      })
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(server.runs.slice(before).filter(run => run.network === 'open')).toHaveLength(1);
+  });
+
   it('refuses a hub image and a dir it did not check out', async () => {
     const image = await use(layer(), s => s.checkout('main', undefined, undefined, { image: 'other' }));
     const stray = await use(layer(), s => s.exec(sh(tmp('stray'), 'true')));

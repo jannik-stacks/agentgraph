@@ -26,6 +26,7 @@ type BoxEntry = {
   network: NonNullable<Hub['network']>;
   trees: Map<string, string>;
   sync: Effect.Semaphore;
+  provisioning: Effect.Semaphore;
   hub?: string;
   toolchain?: Command;
   ready: boolean;
@@ -262,10 +263,11 @@ export const remoteSandbox = (o: {
                     )
                   )
             );
-            const response = yield* call(`${box.url}/run?network=${network}&id=${id}`, {
-              method: 'POST',
-              body: JSON.stringify({ argv, secrets }),
-            });
+            const response = yield* call(
+              `${box.url}/run?network=${network}&id=${id}`,
+              { method: 'POST', body: JSON.stringify({ argv, secrets }) },
+              () => (box.restarted = true)
+            );
             if (response.headers.has(freshHeader)) {
               pulled = true;
               return yield* infra('the box restarted before the command ran');
@@ -299,12 +301,14 @@ export const remoteSandbox = (o: {
         );
 
       const provision = (box: BoxEntry) =>
-        Effect.gen(function* () {
-          if (!box.toolchain) return;
-          const out = yield* exec(box.toolchain);
-          if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
-          box.ready = true;
-        });
+        box.provisioning.withPermits(1)(
+          Effect.gen(function* () {
+            if (box.ready || !box.toolchain) return;
+            const out = yield* exec(box.toolchain);
+            if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
+            box.ready = true;
+          })
+        );
 
       const exec = (c: Command) =>
         Stream.runFold(lines(c), { code: 0, output: '' }, (exit: Exit, piece) =>
@@ -328,6 +332,7 @@ export const remoteSandbox = (o: {
             network: hub?.network ?? 'egress',
             trees: new Map(),
             sync: yield* Effect.makeSemaphore(1),
+            provisioning: yield* Effect.makeSemaphore(1),
             ready: true,
             pending: new Map(),
             lost: new Set(),
