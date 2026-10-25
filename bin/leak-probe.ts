@@ -76,17 +76,18 @@ const readText = (file: string) => {
   }
 };
 
+let secretFiles: { file: string; count: number }[] | undefined;
 const findSecretFiles = () =>
-  findRoots().flatMap(root =>
+  (secretFiles ??= findRoots().flatMap(root =>
     findFiles(resolve(root)).flatMap(file => {
       const count = countSecrets(readText(file));
       return count ? [{ file, count }] : [];
     })
-  );
+  ));
 
 const isKeyAtRest = (file: string) =>
   [join(repo, 'infra/local/.env'), join(repo, 'infra/local/.keys.env')].includes(file) ||
-  (basename(file) === 'keys.env' && existsSync(join(dirname(file), 'hub'))) ||
+  (basename(file) === 'keys.env' && existsSync(join(dirname(file), 'instance.yaml'))) ||
   (file.startsWith(join(homedir(), '.config', 'agentgraph') + '/') && basename(file) === 'key.pem');
 
 const listProcesses = (args: string[]) =>
@@ -126,17 +127,20 @@ const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
     })),
   ps: () => {
     const argv = listProcesses(['axww', '-o', 'pid=,command=']);
+    const programs = listProcesses(['axww', '-o', 'pid=,comm=']);
     const found = [...listProcesses(['axeww', '-o', 'pid=,command='])].flatMap(([pid, all]) => {
       const args = argv.get(pid) ?? '';
       const env = all.startsWith(args) ? all.slice(args.length) : all;
       const names = [
         ...(countSecrets(args) ? ['argv'] : []),
-        ...[...env.matchAll(/(?:^|\s)([A-Za-z_]\w*)=(\S*)/g)].flatMap(([, name, value]) =>
+        ...[...env.matchAll(/(?:^|\s)([A-Za-z_]\w*)=(.*?)(?=\s[A-Za-z_]\w*=|$)/g)].flatMap(([, name, value]) =>
           isSecretVariable(name!, value!) ? [name!] : []
         ),
       ];
-      const [program = '', ...rest] = args.split(/\s+/);
-      const command = [program, rest.find(arg => /^[\w./-]+\.\w{1,4}$/.test(arg) && !countSecrets(arg)) ?? '']
+      const command = [
+        programs.get(pid) ?? '',
+        args.split(/\s+/).find(arg => /^[\w./-]+\.\w{1,4}$/.test(arg) && !countSecrets(arg)) ?? '',
+      ]
         .map(part => basename(part))
         .join(' ');
       return names.length ? [{ pid, what: `${command.trim()}  ${names.join(' ')}` }] : [];
@@ -166,7 +170,7 @@ const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
               {
                 place: 'docker',
                 detail: `${name}  ${names.join(' ')}`,
-                expected: /^\/\w+-(litellm|postgres)-\d+$/.test(name),
+                expected: /^\/\w+-(litellm|postgres)(-\d+)?$/.test(name),
               },
             ]
           : [];
@@ -176,7 +180,7 @@ const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
     const served = await Promise.all(
       findSecretFiles().map(async ({ file }) => {
         const res = await fetch(`${studio}/@fs${file}`, { signal: AbortSignal.timeout(3000) }).catch(() => {
-          throw new Error(`no answer from ${studio}`);
+          throw new Error('no answer from the studio');
         });
         return res.ok && countSecrets(await res.text()) ? [{ place: 'studio', detail: file }] : [];
       })
@@ -197,7 +201,7 @@ const hits = (
       try {
         return await probes[name]!();
       } catch (e) {
-        skips.push(`skip ${name}: ${(e as Error).message}`);
+        skips.push(`skip ${name}: ${(e as Error).message.replace(new RegExp(secret, 'g'), '[key]')}`);
         return [];
       }
     })

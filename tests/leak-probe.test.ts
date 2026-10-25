@@ -34,12 +34,12 @@ describe('leak-probe', () => {
       'home/target/debug/out': `${fake}\n`,
       'home/lib.rlib': `\0${fake}\n`,
       'home/inst/keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${fake}\n`,
-      'home/inst/hub/agents.yaml': '',
+      'home/inst/instance.yaml': '',
       'home/stray/keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${fake}\n`,
       'home/old/id_rsa': `-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00\n\n${'B'.repeat(64)}\n`,
       'home/.config/agentgraph/app/key.pem': `-----BEGIN RSA PRIVATE KEY-----\n${'A'.repeat(64)}\n`,
-      'bin/ps': `#!/bin/sh\ne=; [ "$1" = axeww ] && e=" LITELLM_MASTER_KEY=unprefixed-master-value"\necho "  4242 node --key ${canary}"\necho "  4343 node app"\necho "  4444 node app.js$e"\n`,
-      'bin/docker': `#!/bin/sh\n[ "$1" = ps ] && { echo abc; exit 0; }\nprintf '/agentgraph-litellm-1\\t["LITELLM_MASTER_KEY=${canary}","PATH=/bin"]\\n'\n`,
+      'bin/ps': `#!/bin/sh\ncase "$3" in *,comm=) printf '  4242 /usr/bin/node\\n  4343 /usr/bin/node\\n  4444 /usr/bin/node\\n'; exit 0;; esac\ne=; [ "$1" = axeww ] && e=" LITELLM_MASTER_KEY=unprefixed-master-value DB_PASSWORD=correct horse battery"\necho "  4242 ${canary} --key x"\necho "  4343 node app"\necho "  4444 node app.js$e"\n`,
+      'bin/docker': `#!/bin/sh\n[ "$1" = ps ] && { echo abc; exit 0; }\nprintf '/agentgraph-litellm\\t["LITELLM_MASTER_KEY=${canary}","PATH=/bin"]\\n'\n`,
     });
     for (const shim of ['ps', 'docker']) chmodSync(join(dir, 'bin', shim), 0o755);
     const server = createServer((req, res) => res.end(req.url?.endsWith('.keys.env') ? canary : 'clean'));
@@ -62,14 +62,14 @@ describe('leak-probe', () => {
           '  env AGENTGRAPH_APP_KEY',
           `  file ${join(home, '.keys.env')}  1 key(s)`,
           '  ps 4242 node  argv',
-          '  ps 4444 node app.js  LITELLM_MASTER_KEY',
+          '  ps 4444 node app.js  LITELLM_MASTER_KEY DB_PASSWORD',
           `  file ${join(home, 'stray/keys.env')}  1 key(s)`,
           `  file ${join(home, 'old/id_rsa')}  1 key(s)`,
           `  studio ${join(home, '.keys.env')}`,
           'expected',
           `  file ${join(home, 'inst/keys.env')}  1 key(s)`,
           `  file ${join(home, '.config/agentgraph/app/key.pem')}  1 key(s)`,
-          '  docker /agentgraph-litellm-1  LITELLM_MASTER_KEY',
+          '  docker /agentgraph-litellm  LITELLM_MASTER_KEY',
           'look at 7: 1 env, 3 file, 2 ps, 1 studio; expected 3: 2 file, 1 docker',
         ].sort()
       );
@@ -109,7 +109,7 @@ describe('leak-probe', () => {
     );
     expect([code, out.trim()]).toEqual([
       3,
-      'skip docker: docker ps failed: daemon down\nskip studio: no answer from http://127.0.0.1:9\nnothing to look at, but not every probe ran',
+      'skip docker: docker ps failed: daemon down\nskip studio: no answer from the studio\nnothing to look at, but not every probe ran',
     ]);
   });
 
