@@ -31,18 +31,20 @@ RUN arch=$(uname -m) \
 # edit-to-test cycle.
 RUN printf '#!/bin/sh\nexec "${CC:-cc}" -fuse-ld=mold "$@"\n' > /usr/local/bin/cc-mold && chmod 755 /usr/local/bin/cc-mold
 
-RUN npm install -g --no-fund --no-audit \
+# Install scripts never run; opencode's postinstall, which links its platform binary, is the one allowed.
+RUN npm install -g --no-fund --no-audit --ignore-scripts \
       opencode-ai@${OPENCODE_VERSION} \
       @earendil-works/pi-coding-agent@${PI_VERSION} \
       oxlint@${OXLINT_VERSION} \
       oxfmt@${OXFMT_VERSION} \
+ && (cd /usr/local/lib/node_modules/opencode-ai && node postinstall.mjs) \
  && npm cache clean --force
 
 # opencode installs @opencode-ai/plugin into its global config dir before loading agentgraph's plugins. Each run home
 # links that dir's node_modules and lockfile here, so opencode finds the install and skips it (about 10 seconds).
 RUN mkdir -p /opt/opencode \
  && cd /opt/opencode \
- && npm install --no-fund --no-audit --save-exact @opencode-ai/plugin@${OPENCODE_VERSION} \
+ && npm install --no-fund --no-audit --ignore-scripts --save-exact @opencode-ai/plugin@${OPENCODE_VERSION} \
  && npm cache clean --force
 
 ENV DO_NOT_TRACK=1 \
