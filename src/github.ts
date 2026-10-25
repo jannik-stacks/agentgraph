@@ -925,3 +925,28 @@ export const githubForge = (
 
     return { issues, issue, since, apply, findPost, slug: me, ...(studio && { studio }) };
   });
+
+export const readInstallationReach = (
+  app: { repo: string; id: string; key: Redacted.Redacted },
+  fetch: Fetch = globalThis.fetch
+) =>
+  Effect.gen(function* () {
+    const token = yield* appToken(app, fetch)('repos');
+    const res = yield* Effect.tryPromise(() =>
+      fetch('https://api.github.com/installation/repositories?per_page=100', {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'agentgraph',
+        },
+      }).then(r => (r.ok ? r.json() : Promise.reject(new Error(`GET /installation/repositories ${r.status}`))))
+    );
+    const repos = (res as { repositories: { full_name: string }[] }).repositories.map(r => r.full_name);
+    const lines: string[] = [];
+    const extra = repos.filter(r => r !== app.repo);
+    if (extra.length > 0) {
+      lines.push(`The installation reaches ${extra.length} repo(s) besides ${app.repo}: ${extra.join(', ')}`);
+      lines.push('  Narrow it at https://github.com/settings/installations');
+    }
+    return lines;
+  });

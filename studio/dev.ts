@@ -32,6 +32,7 @@ if (Either.isLeft(loaded))
 
 process.env.VITE_AGI_HUB = hubDir;
 process.env.VITE_AGI_DATA = dataDir;
+if (instance) process.env.VITE_AGI_INSTANCE = instance.dir;
 if (values.bench) process.env.VITE_AGI_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
 if (values.tune) process.env.VITE_AGI_TUNE = resolve(values.tune);
 const vite = await createServer({ root: import.meta.dirname });

@@ -4,7 +4,7 @@ A forge folder stands in for GitHub. An instance bundles one with a hub copy, da
 
 ## The forge folder
 
-A forge folder holds `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, a forge folder refuses a whole push that touches `.github/`, and a second `pull_request` for a branch leaves the open one as it is. <!-- code: src/forge.ts#fileForge src/status.ts#needsYou -->
+A forge folder holds `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, a forge folder refuses a whole push that touches `.github/`, and a second `pull_request` for a branch leaves the open one as it is. <!-- code: src/forge.ts#fileForge src/status.ts#formatNextSteps -->
 
 ```sh
 node bin/forge.ts ~/forge init ../path/to/repo

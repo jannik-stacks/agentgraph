@@ -27,8 +27,9 @@ import { tell, type Instruction } from '../src/engine.ts';
 import { readAppEnvWithKey, start, writeTriggeringIssue } from '../src/main.ts';
 import { readConfiguredHub } from '../src/harnesses.ts';
 import { instanceAt } from '../src/instance.ts';
-import { needsYou } from '../src/status.ts';
-import { fileStore, pruneLogs } from '../src/store.ts';
+import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
+import { readInstallationReach } from '../src/github.ts';
+import { fileStore, pruneLogs, Store } from '../src/store.ts';
 
 const { values, positionals } = parseArgs({
   options: {
@@ -154,17 +155,12 @@ if (positionals[0] === 'status') {
   const again = instance
     ? `--instance ${instance.dir}`
     : `--hub ${hub} --data ${data}${forge ? ` --forge ${forge}` : ''}`;
-  const lines = await Effect.runPromise(
-    readConfiguredHub(hub).pipe(
-      Effect.flatMap(h =>
-        needsYou(forge ? undefined : { repo: h.repo, id: id!, key: Redacted.make(key!) }, {
-          again,
-          ...(forge && { forge }),
-        })
-      ),
-      Effect.provide(fileStore(data))
-    )
-  );
+  const { repo } = await Effect.runPromise(readConfiguredHub(hub));
+  const runs = await Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
+  const lines = [
+    ...(forge ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
+    ...findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, { again, repo, ...(forge && { forge }) })),
+  ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}` : 'Nothing needs you');
   process.exit(0);
 }

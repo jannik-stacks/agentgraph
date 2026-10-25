@@ -75,7 +75,6 @@ no-comment src/proposal.ts 3
 no-comment src/sandbox.ts 8
 no-comment src/services.ts 9
 no-comment src/session.ts 1
-no-comment src/status.ts 2
 no-comment src/store.ts 9
 no-comment src/trace.ts 10
 no-comment src/workflow.ts 27
@@ -238,7 +237,6 @@ verb-first src/hub.ts retiredIn
 verb-first src/instance.ts instanceAt
 verb-first src/main.ts temporary
 verb-first src/services.ts hubAt
-verb-first src/status.ts needsYou
 verb-first src/store.ts locate
 verb-first src/store.ts pruneLogs
 verb-first src/workflow.ts begin

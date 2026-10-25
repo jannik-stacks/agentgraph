@@ -72,7 +72,7 @@ describe('studio navigation', () => {
       { ...base, id: 'triage-3', issue: 3, status: 'running', by: 'router-3' },
       { ...base, id: 'router-4', issue: 4, status: 'waiting', reason: 'Hello or hi?' },
     ]);
-    expect(html).toContain('Merge or approve the pull request');
+    expect(html).toContain('Review the PR linked from');
     expect(html).toContain('Hello or hi?');
     expect(html).toContain('/runs/issue-2');
     expect(html).not.toContain('/runs/router-3');
