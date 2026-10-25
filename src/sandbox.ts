@@ -11,6 +11,7 @@ export type Command = {
   home?: string;
   env: Record<string, string>;
   secrets?: Record<string, Redacted.Redacted>;
+  volumes?: Record<string, string>;
   /** `open` reaches any host. */
   network: 'none' | 'proxy' | 'open';
   minutes: number;

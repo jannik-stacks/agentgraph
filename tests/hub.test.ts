@@ -103,15 +103,26 @@ describe('loadHub', () => {
   it('checks each agent harness against the config and asks the harness about its tools', async () => {
     const found = await problems(
       hubDir({
-        'agents/a.md': '---\nharness: codex\n---\n',
+        'agents/a.md': '---\nharness: ghost\n---\n',
         'agents/b.md': '---\nharness: claude\ntools: [read, lsp, constructor]\n---\n',
         'agents/c.md': "---\nharness: pi\ntools: [read, 'bash(git diff*)']\n---\n",
       })
     );
-    expect(found).toContain('agents/a.md: harness: codex is not in the config, which has opencode, claude, pi');
+    expect(found).toContain('agents/a.md: harness: ghost is not in the config, which has opencode, claude, pi, codex');
     expect(found).toContain('agents/b.md: harness: claude has no lsp tool');
     expect(found).toContain('agents/b.md: harness: claude has no constructor tool');
     expect(found).toContain('agents/c.md: harness: pi cannot limit a tool to a pattern such as bash(git diff*)');
+  });
+
+  it('gives an agent without a harness the first harness of the config', async () => {
+    const dir = hubDir({
+      'agents/a.md': '---\nmodel: smart\n---\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a }\n---\n',
+    });
+    const first = await Effect.runPromise(loadHub(dir, harnesses));
+    expect(first.agents.a!.harness).toBe('opencode');
+    const second = await Effect.runPromise(loadHub(dir, harnesses.toReversed()));
+    expect(second.agents.a!.harness).toBe('codex');
   });
 
   it('fails on an agent that reads traces without the read tool', async () => {

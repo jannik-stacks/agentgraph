@@ -18,7 +18,7 @@ export type Settings = {
   hub: string;
   data: string;
   every: number;
-  proxy: { url: string; keys: Redacted.Redacted };
+  proxy: { url: string; keys: Redacted.Redacted; models: string };
   passed: Record<string, Redacted.Redacted>;
   prices: string;
   /** The docker volume toolchains and package caches live in; empty for none. */
@@ -51,6 +51,7 @@ export const settings = Config.all({
   proxy: Config.all({
     url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1')),
     keys: Config.redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
+    models: Config.string('AGENTGRAPH_MODELS').pipe(Config.withDefault('')),
   }),
   prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(prices)),
   cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),

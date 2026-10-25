@@ -52,7 +52,7 @@ const session = (
     fail?: SandboxError;
     prices?: string;
     harnesses?: Harness[];
-    proxy?: { url: string; keys: Redacted.Redacted };
+    proxy?: { url: string; keys: Redacted.Redacted; models?: string };
     passed?: Record<string, Redacted.Redacted>;
   } = {}
 ) => {
@@ -546,5 +546,70 @@ describe('pi', () => {
     const line = JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [], usage } });
     const { events: got } = await events(pi, [line]);
     expect(got[0]).toEqual({ type: 'usage', input: 350, output: 2, cacheRead: 300, cacheWrite: 40, unpriced: 'smart' });
+  });
+});
+
+describe('codex', () => {
+  const codex = { ...spec, harness: 'codex' as const };
+
+  it('runs on its own login in the shared volume, one session at a time, with the model the alias names', async () => {
+    const proxy = { url: 'codex=', keys: Redacted.make(''), models: '*=gpt-x,smart=gpt-y' };
+    const { exit, command } = await session(codex, [], { proxy });
+    expect(Exit.isSuccess(exit)).toBe(true);
+    const args = harnessArgs(command);
+    expect(args.slice(0, 2)).toEqual(['exec', '--json']);
+    expect(args[args.indexOf('--model') + 1]).toBe('gpt-y');
+    expect(args).not.toContain('-c');
+    expect(args.at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
+    expect(command.volumes).toEqual({ '/codex': 'agentgraph-codex' });
+    expect(command.env.CODEX_HOME).toBe('/codex');
+    expect(command.secrets).toEqual({});
+    const { model: _, ...bare } = codex;
+    const { command: unnamed } = await session({ ...bare, resume: { id: 't1', home: makeHome() } }, [], { proxy });
+    expect(harnessArgs(unnamed).slice(0, 3)).toEqual(['exec', 'resume', 't1']);
+    expect(harnessArgs(unnamed)[harnessArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
+  });
+
+  it('talks to a proxy through its own model provider with the agent key', async () => {
+    const { command } = await events(codex, []);
+    const args = harnessArgs(command);
+    expect(args).toContain('model_providers.agentgraph.base_url="http://litellm:4000/v1"');
+    expect(Object.keys(command.secrets ?? {})).toEqual(['AGENTGRAPH_LLM_API_KEY']);
+  });
+
+  it('reads a run', async () => {
+    const lines = [
+      { type: 'thread.started', thread_id: 't1' },
+      { type: 'item.completed', item: { id: 'r', type: 'reasoning', text: 'look first' } },
+      {
+        type: 'item.completed',
+        item: {
+          id: 'c',
+          type: 'command_execution',
+          command: 'ls',
+          aggregated_output: 'a.ts',
+          exit_code: 0,
+          status: 'completed',
+        },
+      },
+      { type: 'item.completed', item: { id: 'f', type: 'file_change', changes: [{ path: 'a.ts' }], status: 'failed' } },
+      { type: 'item.completed', item: { id: 'm', type: 'agent_message', text: 'done' } },
+      { type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 60, output_tokens: 5 } },
+    ].map(line => JSON.stringify(line));
+    const { events: got } = await events(codex, lines);
+    expect(got.map(e => e.type)).toEqual(['start', 'thinking', 'tool', 'tool', 'text', 'usage', 'end']);
+    expect(got[2]).toMatchObject({ name: 'bash', input: 'ls', ok: true, output: 'a.ts' });
+    expect(got[3]).toMatchObject({ name: 'edit', ok: false });
+    expect(got[5]).toMatchObject({ input: 100, output: 5, cacheRead: 60 });
+    expect(got.at(-1)).toEqual({ type: 'end', final: 'done', ended: 'stop', exit: 0 });
+  });
+
+  it("ends with the failed turn's error", async () => {
+    const lines = [
+      JSON.stringify({ type: 'error', message: 'stream lost' }),
+      JSON.stringify({ type: 'turn.failed', error: { message: 'usage limit reached' } }),
+    ];
+    const { events: got } = await events(codex, lines, 1);
+    expect(got.at(-1)).toEqual({ type: 'end', final: 'usage limit reached', ended: 'error', exit: 1 });
   });
 });

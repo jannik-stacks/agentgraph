@@ -127,6 +127,7 @@ export const dockerArgs = (
   ...mounts.flatMap(bind),
   ...(cache && !layers.some(l => l.dst === inside.cache) ? volume(cache, inside.cache, false, true) : []),
   ...layers.flatMap(l => volume(l.name, l.dst, true)),
+  ...Object.entries(c.volumes ?? {}).flatMap(([dst, name]) => volume(name, dst)),
   '--workdir',
   inside.work,
   ...Object.entries({

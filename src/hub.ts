@@ -8,7 +8,7 @@ import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type 
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
-  harness: Schema.String,
+  harness: Schema.optionalWith(Schema.String, { default: () => '' }),
   model: Schema.optionalWith(Schema.String, { exact: true }),
   tools: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { default: () => [] }),
   returns: Schema.optionalWith(Schema.mutable(Schema.Array(Kind)), { default: () => ['comment'] }),
@@ -199,7 +199,8 @@ const compile = (
   };
 
   const agents = docs(groups.agents, (data, say) => {
-    const agent = decode(Agent, data, say);
+    const decoded = decode(Agent, data, say);
+    const agent = decoded && { ...decoded, harness: decoded.harness || (harnesses[0]?.name ?? '') };
     if (agent?.reads && !agent.tools.includes('read')) say('reads: traces needs read in tools');
     const harness = agent && harnesses.find(h => h.name === agent.harness);
     if (agent && !harness)

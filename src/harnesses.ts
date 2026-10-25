@@ -18,6 +18,7 @@ type ModelRoute = { url: string; model: string };
 
 export type Harness = HarnessCheck & {
   key: string;
+  volumes?: Record<string, string>;
   home?: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
@@ -29,7 +30,15 @@ export type Harness = HarnessCheck & {
   parse: () => (line: unknown) => Piece[];
 };
 
-export type HarnessSettings = { harnesses: Harness[] };
+export type Provider = {
+  name: string;
+  harnesses: string[];
+  ready: () => boolean | Promise<boolean>;
+  settings?: () => Record<string, string>;
+  login?: () => Promise<void>;
+};
+
+export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[] };
 
 const builtIn = fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url));
 
@@ -42,7 +51,10 @@ export const readHarnessSettings = Effect.gen(function* () {
       const names = settings.harnesses.map(h => h.name);
       const twice = names.find((name, i) => names.indexOf(name) !== i);
       if (twice) throw new Error(`lists the harness ${twice} twice`);
-      return settings;
+      const first = process.env.AGENTGRAPH_HARNESS;
+      if (first && !names.includes(first)) throw new Error(`has no harness ${first}`);
+      const harnesses = settings.harnesses.toSorted((a, b) => Number(b.name === first) - Number(a.name === first));
+      return { ...settings, harnesses };
     },
     catch: e => new HubError({ problems: [{ path, message: (e as Error).message }] }),
   });
@@ -141,7 +153,7 @@ const stopOf = (e: SandboxError) =>
  */
 export const harnessSession = (s: {
   data: string;
-  proxy: { url: string; keys: Redacted.Redacted };
+  proxy: { url: string; keys: Redacted.Redacted; models?: string };
   passed?: Record<string, Redacted.Redacted>;
   prices?: string;
   harnesses: readonly Harness[];
@@ -152,6 +164,10 @@ export const harnessSession = (s: {
       const sandbox = yield* Sandbox;
       const keys = pairsOf(Redacted.value(s.proxy.keys));
       const urls = parseModelUrls(s.proxy.url);
+      const models = pairsOf(s.proxy.models ?? '');
+      const locks = new Map<string, Effect.Semaphore>();
+      const lock = (volume: string) =>
+        locks.get(volume) ?? locks.set(volume, Effect.unsafeMakeSemaphore(1)).get(volume)!;
       const prices: Prices = s.prices
         ? yield* Effect.tryPromise(() => readFile(s.prices!, 'utf8').then(JSON.parse)).pipe(Effect.orDie)
         : {};
@@ -162,7 +178,10 @@ export const harnessSession = (s: {
             const harness = s.harnesses.find(h => h.name === spec.harness);
             if (!harness)
               return yield* new SessionStop({ reason: 'sandbox', detail: `no harness ${spec.harness} in the config` });
-            const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: spec.model ?? 'default' };
+            for (const volume of Object.values(harness.volumes ?? {}))
+              yield* Effect.acquireRelease(lock(volume).take(1), () => lock(volume).release(1));
+            const named = (spec.model && models[spec.model]) ?? spec.model ?? models['*'] ?? 'default';
+            const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: named };
             const key = keys[spec.agent] ?? keys['*'] ?? (route.url && 'none');
             const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
             const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
@@ -232,6 +251,7 @@ export const harnessSession = (s: {
                 home,
                 env,
                 secrets,
+                ...(harness.volumes && { volumes: harness.volumes }),
                 network: 'proxy',
                 minutes: spec.minutes,
               })
