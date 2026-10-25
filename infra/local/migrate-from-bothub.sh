@@ -160,7 +160,7 @@ services=$(cat "$dir/services" 2>/dev/null || echo "${services:-}")
 
 psql_in() { docker exec "$1" psql -U "$pg_user" -d "$pg_db" -v ON_ERROR_STOP=1 -Atc "$2"; }
 counts_sql='select (select count(*) from "LiteLLM_VerificationToken"), (select count(*) from "LiteLLM_BudgetTable"), (select count(*) from "LiteLLM_SpendLogs")'
-raw_keys() { cat .keys.env "${KEYS_FILE:-/dev/null}" "$HOME/.agentgraph/keys-bothub.env" 2>/dev/null | sed -n 's/^[A-Z_]*=\(sk-[A-Za-z0-9_-]*\)$/\1/p' || true; }
+raw_keys() { cat .keys.env "${KEYS_FILE:-/dev/null}" 2>/dev/null | sed -n 's/^[A-Z_]*=\(sk-[A-Za-z0-9_-]*\)$/\1/p' || true; }
 
 if ! reached counted; then
   step "stop bothub except Postgres (graceful, up to 600s), then read its final key, budget and spend log counts"
