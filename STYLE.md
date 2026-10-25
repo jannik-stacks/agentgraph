@@ -136,8 +136,9 @@ one without that check.
   `fileStore`, `harnessSession`, `dockerSandbox`, `hostSandbox` and the test double `replaySession`.
   They read as values handed to `Effect.provide`. `bin/style.mjs` exempts exactly the ones it
   would flag.
-- **Harness plugins are named after their harness:** `opencode()`, `claude()` and `pi()`, the way
-  Vite's `vue()` is. `bin/style.mjs` exempts the three names.
+- **Harness plugins are named after their harness:** `opencode()`, `claude()` and `pi()` read in
+  `agentgraph.config.ts` the way Vite's `vue()` does, and that file's type is `Config`, as Vite's is.
+  `bin/style.mjs` exempts the three names.
 
 ## Commits
 

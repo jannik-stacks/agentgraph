@@ -1,12 +1,12 @@
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Config, Effect, Layer, type Redacted } from 'effect';
 import { fileForge } from './forge.ts';
 import { dockerSandbox } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
-import { claude, harnessSession, opencode, pi } from './harnesses.ts';
+import { type Config as PluginConfig, harnessSession } from './harnesses.ts';
 import { HubError, loadHub } from './hub.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
@@ -31,6 +31,10 @@ export type Settings = {
 };
 
 const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.url));
+
+export const readConfig = async (
+  path = process.env.AGENTGRAPH_CONFIG ?? fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url))
+): Promise<PluginConfig> => (await import(pathToFileURL(resolve(path)).href)).default;
 
 export const settings: Config.Config<Settings> = Config.all({
   repo: Config.string('AGENTGRAPH_REPO'),
@@ -83,7 +87,7 @@ export const hubAt = (path: string) =>
       );
 
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
-export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
+export const makeProductionLayers = (s: Settings, config: PluginConfig): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
   const sandbox = dockerSandbox({ data: s.data, cache: s.cache, image: s.image, ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
@@ -96,7 +100,7 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
       Layer.mergeAll(
         forge(trust),
         fileStore(s.data, s.checkLogs),
-        harnessSession({ ...s, harnesses: [opencode(), claude(), pi()] }).pipe(Layer.provideMerge(sandbox))
+        harnessSession({ ...s, ...config }).pipe(Layer.provideMerge(sandbox))
       )
     )
   );

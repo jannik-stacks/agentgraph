@@ -13,7 +13,8 @@ import {
   type Services,
 } from './engine.ts';
 import { loadHub, type Hub } from './hub.ts';
-import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
+import type { Config } from './harnesses.ts';
+import { hubAt, makeProductionLayers, readConfig, settings, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
 /** The variables of an env file, with the key file it names read in as `AGENTGRAPH_APP_KEY`. */
@@ -63,12 +64,13 @@ const configured = (extra: Record<string, string>) =>
  */
 export const start = (
   one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
-  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers
+  services: (s: Settings, config: Config) => Layer.Layer<Services> = makeProductionLayers
 ): Promise<Run[]> => {
-  const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
-    Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
+  const provided = <A, E>(effect: Effect.Effect<A, E, Services>, config: Config) =>
+    Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, s => services(s, config))));
   const program = one
     ? Effect.gen(function* () {
+        const config = yield* Effect.promise(() => readConfig());
         const hub = yield* loadHub(one.hub);
         const provider = yield* configured({
           AGENTGRAPH_REPO: hub.repo,
@@ -81,10 +83,12 @@ export const start = (
             ? instruct(hub, one.instruction)
             : one.issue === 'all'
               ? scanIssuesAndRunningRuns(hub)
-              : tick(hub, one.issue)
+              : tick(hub, one.issue),
+          config
         ).pipe(Effect.withConfigProvider(provider));
       })
     : Effect.gen(function* () {
+        const config = yield* Effect.promise(() => readConfig());
         const provider = yield* configured({});
         const loop = Effect.gen(function* () {
           const s = yield* settings;
@@ -103,7 +107,7 @@ export const start = (
             )
           );
         });
-        yield* provided(loop).pipe(Effect.withConfigProvider(provider));
+        yield* provided(loop, config).pipe(Effect.withConfigProvider(provider));
         return [];
       });
   return Effect.runPromise(program);
