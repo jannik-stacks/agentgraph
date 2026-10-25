@@ -260,8 +260,9 @@ const lines: {
     summary: (
       <>
         <Pill of="line" kind="check" /> {line.check.check} {flag(line.check.pass ? 'pass' : 'fail', !line.check.pass)}
+        {line.check.value !== undefined && ` ${line.check.value}`}
         {muted(
-          `${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
+          `${line.check.empty ? ', empty' : ''}${line.end ? ', at run end' : ''}${line.item ? ` on ${short(line.item, 60)}` : ''}, ${line.check.ms} ms${line.exit === undefined ? '' : `, exit ${line.exit}`}`
         )}
       </>
     ),

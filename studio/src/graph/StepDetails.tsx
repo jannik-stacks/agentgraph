@@ -170,6 +170,11 @@ export const WorkflowDetails = ({ workflow }: { workflow: Workflow }) => (
       <Field name={<Term tip="The steps, run in the order written.">steps</Term>}>
         {workflow.steps.map(s => s.name).join(', ')}
       </Field>
+      {workflow.checks.length > 0 && (
+        <Field name={<Term tip="Checks that run once when a run is done or stopped; they only warn.">checks</Term>}>
+          {workflow.checks.join(', ')}
+        </Field>
+      )}
       {workflow.branch && (
         <Field name={<Term tip="The branch a run works on; {issue} and {parent} are filled in.">branch</Term>}>
           {workflow.branch}
