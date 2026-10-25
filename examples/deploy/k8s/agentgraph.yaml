@@ -42,7 +42,7 @@ spec:
             - { name: app-key, mountPath: /run/secrets/agentgraph, readOnly: true }
         - name: docker
           image: docker:28.5.1-dind
-          args: ["--host=tcp://127.0.0.1:2375"]
+          args: ["dockerd", "--host=tcp://127.0.0.1:2375", "--tls=false"]
           env:
             - { name: DOCKER_TLS_CERTDIR, value: "" }
           securityContext:
