@@ -909,6 +909,13 @@ describe('readEngineEnv', () => {
     writer.kill();
   });
 
+  it('reads only the key file of the source that wins', async () => {
+    const env = await withShell({ AGENTGRAPH_APP_KEY: 'from-shell' }, () =>
+      readEngineEnv({ AGENTGRAPH_APP_KEY_FILE: '/nonexistent/key.pem' })
+    );
+    expect(env.AGENTGRAPH_APP_KEY).toBe('from-shell');
+  });
+
   it('finds the App env file an instance names', async () => {
     const { env } = file('AGENTGRAPH_APP_ID=42\n');
     expect(await withShell({}, () => readEngineEnv({ AGENTGRAPH_APP_ENV: env }))).toMatchObject({

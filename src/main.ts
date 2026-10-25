@@ -24,21 +24,14 @@ const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
   file ? (parseEnv(await readText(file)) as Record<string, string>) : {};
 
-const readSecretFiles = async (vars: Record<string, string | undefined>) => ({
-  ...vars,
-  ...Object.fromEntries(
-    await Promise.all(
-      secretSettings
-        .filter(name => vars[`${name}_FILE`])
-        .map(async name => [name, await readText(vars[`${name}_FILE`]!)])
-    )
-  ),
-});
-
 export const readEngineEnv = async (defaults: Record<string, string> = {}): Promise<Record<string, string>> => {
   const app = await readEnvFile(process.env.AGENTGRAPH_APP_ENV ?? defaults.AGENTGRAPH_APP_ENV);
-  const layers = [defaults, process.env, app];
-  const merged = Object.assign({}, ...(await Promise.all(layers.map(readSecretFiles))));
+  const layers: Record<string, string | undefined>[] = [defaults, process.env, app];
+  const merged = Object.assign({}, ...layers);
+  for (const name of secretSettings) {
+    const file = layers.findLast(vars => vars[name] ?? vars[`${name}_FILE`])?.[`${name}_FILE`];
+    if (file) merged[name] = await readText(file);
+  }
   return Object.fromEntries(Object.entries(merged).filter((e): e is [string, string] => e[1] !== undefined));
 };
 
