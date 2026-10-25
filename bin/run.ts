@@ -54,7 +54,9 @@ if (values.instance && !instance) {
   process.exit(2);
 }
 const keys = instance && existsSync(instance.keys) ? await readEnvFile(instance.keys) : {};
-const defaults = Object.fromEntries(Object.entries(keys).filter(([name]) => secretSettings.includes(name)));
+const defaults = Object.fromEntries(
+  Object.entries(keys).filter(([name]) => secretSettings.some(key => name === key || name === `${key}_FILE`))
+);
 for (const [name, value] of Object.entries(keys)) if (!(name in defaults)) process.env[name] ??= value;
 if (instance) {
   Object.assign(values, { hub: instance.hub, forge: instance.forge, data: instance.data });
