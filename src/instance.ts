@@ -21,6 +21,7 @@ export type Instance = {
   forge: string;
   data: string;
   exported: Record<string, string>;
+  provider?: string;
 };
 
 export const defaultHub = fileURLToPath(new URL('../hub', import.meta.url));
@@ -67,15 +68,26 @@ const readBranch = async (repo: string) => {
 const writeInstance = (i: Instance) =>
   writeFileAtomic(
     join(i.dir, 'instance.yaml'),
-    stringify({ repo: i.repo, base: i.base, owner: i.owner, exported: i.exported })
+    stringify({
+      repo: i.repo,
+      base: i.base,
+      owner: i.owner,
+      ...(i.provider && { provider: i.provider }),
+      exported: i.exported,
+    })
   );
 
 const readInstance = (dir: string): Instance | undefined => {
   const file = join(dir, 'instance.yaml');
   if (!existsSync(file)) return undefined;
   const own = parse(readFileSync(file, 'utf8')) as Pick<Instance, 'repo' | 'base' | 'owner'> &
-    Partial<Pick<Instance, 'exported'>>;
+    Partial<Pick<Instance, 'exported' | 'provider'>>;
   return { exported: {}, ...own, dir, forge: join(dir, 'forge'), data: join(dir, 'data') };
+};
+
+export const writeInstanceProvider = (i: Instance, provider: string) => {
+  i.provider = provider;
+  writeInstance({ ...(readInstance(i.dir) ?? i), provider });
 };
 
 export const findInstances = (root: string) =>

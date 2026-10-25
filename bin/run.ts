@@ -2,13 +2,15 @@
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { ensureDocker } from '../src/docker.ts';
 import type { Instruction } from '../src/engine.ts';
+import type { Hub } from '../src/hub.ts';
 import { fileForge, Forge } from '../src/forge.ts';
 import { readInstallationReach } from '../src/github.ts';
-import { readConfiguredHub } from '../src/harnesses.ts';
+import { readConfiguredHub, readHarnessSettings, type Provider } from '../src/harnesses.ts';
 import {
   defaultHub,
   ensureHub,
@@ -21,6 +23,7 @@ import {
   writeClosed,
   writeComment,
   writeReview,
+  writeInstanceProvider,
   type Instance,
 } from '../src/instance.ts';
 import { createLoopLock, isLoopHeld, readEngineEnv, start, writeTriggeringIssue } from '../src/main.ts';
@@ -40,7 +43,8 @@ const usage = `usage: npx agentgraph <verb> [flags]
   check [<check>... --runs [--issue <n>]]        validates the hub, or runs checks again on ended runs
   dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
   prune-logs [--apply]                            counts the check logs no trace names, or deletes them
-flags: --data <dir> --repo <dir> --base <branch> --hub <dir> --forge github|<dir> --logs all|failed|off`;
+flags: --data <dir> --repo <dir> --base <branch> --hub <dir> --forge github|<dir> --logs all|failed|off
+       --provider <name> --harness <name> --model <model>`;
 
 const { values, positionals } = parseArgs({
   options: {
@@ -59,6 +63,9 @@ const { values, positionals } = parseArgs({
     once: { type: 'boolean' },
     apply: { type: 'boolean' },
     runs: { type: 'boolean' },
+    harness: { type: 'string' },
+    provider: { type: 'string' },
+    model: { type: 'string' },
   },
   allowPositionals: true,
 });
@@ -90,14 +97,70 @@ const checkHub = async (hub: string) => {
   process.exit(problems.length ? 1 : 0);
 };
 
-let sandboxed: Promise<void> | undefined;
-const ensureSandbox = (after: string) =>
-  (sandboxed ??= process.env.AGENTGRAPH_SANDBOX_URL
-    ? Promise.resolve()
-    : Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).then(
-        version => console.log(`sandbox  docker ${version}`),
-        (e: Error) => fail(`${e.message}\n${after}`, 1)
-      ));
+const noModel = `No model to use. Any one of these works:
+  npx agentgraph start --provider claude "..."     Claude subscription, through claude setup-token
+  npx agentgraph start --provider chatgpt "..."    ChatGPT subscription, through a device login
+  export ANTHROPIC_API_KEY=...                     Anthropic API
+  export AGENTGRAPH_PROXY_KEYS=...                 your LiteLLM at AGENTGRAPH_PROXY_URL`;
+
+const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
+  const { providers = [] } = await Effect.runPromise(readHarnessSettings).catch((e: Error) => fail(e.message, 1));
+  const named = values.provider ?? i.provider;
+  if (named)
+    return (
+      providers.find(p => p.name === named) ??
+      fail(`no provider ${named}; the config has ${providers.map(p => p.name).join(', ')}`)
+    );
+  const ready: Provider[] = [];
+  for (const p of providers) if (await p.ready()) ready.push(p);
+  if (ready.length === 0) fail(`${noModel}\n${after}`, 1);
+  if (ready.length === 1) return ready[0]!;
+  const names = ready.map(p => p.name);
+  if (!process.stdin.isTTY) fail(`${names.join(' and ')} are ready; pass --provider ${names.join(' or --provider ')}`);
+  const lines = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await lines.question(`${names.join(' and ')} are ready. Use which? [${names.join('/')}] `)).trim();
+  lines.close();
+  const picked = ready.find(p => p.name === answer) ?? fail(`${answer || 'nothing'} is not one of ${names.join(', ')}`);
+  writeInstanceProvider(i, picked.name);
+  return picked;
+};
+
+let prepared: Promise<Hub> | undefined;
+const prepare = (i: Instance, hub: string, after: string) =>
+  (prepared ??= (async () => {
+    const provider = await pickProvider(i, after);
+    const harness = values.harness ?? provider.harnesses[0]!;
+    if (!provider.harnesses.includes(harness))
+      fail(`${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.\n${after}`);
+    Object.assign(process.env, provider.settings?.() ?? {}, { AGENTGRAPH_HARNESS: harness });
+    console.log(
+      `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
+    );
+    console.log(`repo     ${i.repo}, base ${i.base}`);
+    if (!process.env.AGENTGRAPH_SANDBOX_URL) {
+      const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).catch((e: Error) =>
+        fail(`${e.message}\n${after}`, 1)
+      );
+      console.log(`sandbox  docker ${docker}`);
+    }
+    if (!(await provider.ready()))
+      await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))().catch((e: Error) =>
+        fail(`${e.message}\n${after}`, 1)
+      );
+    const loaded = await Effect.runPromise(readConfiguredHub(hub)).catch((e: Error) => fail(e.message, 1));
+    const agents = Object.values(loaded.agents);
+    if (values.model)
+      process.env.AGENTGRAPH_MODELS = ['*', ...agents.flatMap(a => a.model ?? [])]
+        .map(alias => `${alias}=${values.model}`)
+        .join(',');
+    const unserved = agents.filter(a => !provider.harnesses.includes(a.harness));
+    if (unserved.length)
+      fail(
+        `${provider.name} does not serve ${unserved.map(a => `${a.harness} (${a.path})`).join(', ')}. It serves ${provider.harnesses.join(' and ')}.\n${after}`,
+        1
+      );
+    return loaded;
+  })());
 
 const stopping = new AbortController();
 const trapInterrupt = () =>
@@ -201,9 +264,7 @@ async function runOnInstance() {
       const text = rest.join(' ').trim();
       if (!text) fail(`start takes the issue text\n${usage}`);
       const hub = await synced();
-      const loaded = await Effect.runPromise(readConfiguredHub(hub)).catch((e: Error) => fail(e.message, 1));
-      header(i, hub);
-      await ensureSandbox('Nothing was filed.');
+      const loaded = await prepare(i, hub, 'Nothing was filed.');
       const issue = await writeTriggeringIssue(
         { ...loaded, trust: [i.owner] },
         i.forge,
@@ -269,11 +330,6 @@ async function runOnInstance() {
   }
 }
 
-function header(i: Instance, hub: string) {
-  console.log(`agentgraph ${version}: ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`);
-  console.log(`repo     ${i.repo}, base ${i.base}`);
-}
-
 const watchRuns = (i: Instance, issue: number) => {
   const shown = new Map<string, string>();
   const look = async () => {
@@ -291,7 +347,6 @@ const watchRuns = (i: Instance, issue: number) => {
 };
 
 async function drive(i: Instance, issue: number, hub: string) {
-  if (!sandboxed) header(i, hub);
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
     console.log(`a loop drives this repo; following #${issue}`);
@@ -305,7 +360,7 @@ async function drive(i: Instance, issue: number, hub: string) {
     await stop();
     return stopping.signal.aborted ? process.exit(130) : report(i, issue);
   }
-  await ensureSandbox(`#${issue} is posted; npx agentgraph loop --once drives it once docker runs.`);
+  await prepare(i, hub, `#${issue} is posted; npx agentgraph say ${issue} "go on" drives it.`);
   const stop = watchRuns(i, issue);
   const runs = await start(
     { hub, issue, data: i.data, marked: true, base: i.base },
@@ -342,7 +397,7 @@ async function report(i: Instance, issue: number, next?: string) {
 
 async function loop(i: Instance) {
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
-  await ensureSandbox('Nothing was driven.');
+  await prepare(i, await ensureHub(i, values.hub), 'Nothing was driven.');
   trapInterrupt();
   const every = Number(process.env.AGENTGRAPH_EVERY ?? 5);
   try {

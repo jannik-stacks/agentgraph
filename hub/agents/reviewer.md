@@ -1,5 +1,4 @@
 ---
-harness: opencode
 model: smart
 tools: [read, grep, glob, 'bash(git diff*)']
 returns: [comment, back]

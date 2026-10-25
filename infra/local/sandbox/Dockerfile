@@ -7,6 +7,8 @@ FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472
 
 ARG OPENCODE_VERSION=1.19.0
 ARG PI_VERSION=1.1.0
+ARG CLAUDE_CODE_VERSION=2.1.296
+ARG CODEX_VERSION=0.162.1
 ARG OXLINT_VERSION=1.87.0
 ARG OXFMT_VERSION=0.72.0
 ARG RUSTUP_VERSION=1.29.1
@@ -25,19 +27,23 @@ RUN arch=$(uname -m) \
       https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/$arch-unknown-linux-gnu/rustup-init \
  && echo "$sum  /usr/local/bin/rustup-init" | sha256sum -c - \
  && chmod 755 /usr/local/bin/rustup-init \
- && mkdir -m 1777 /cache
+ && mkdir -m 1777 /cache /codex
 
 # Rust: link with mold and keep only line tables in dev and test builds, since relinking test binaries is most of an
 # edit-to-test cycle.
 RUN printf '#!/bin/sh\nexec "${CC:-cc}" -fuse-ld=mold "$@"\n' > /usr/local/bin/cc-mold && chmod 755 /usr/local/bin/cc-mold
 
-# Install scripts never run; opencode's postinstall, which links its platform binary, is the one allowed.
+# Install scripts never run; opencode's and Claude Code's postinstalls, which link their platform binaries, are the
+# ones allowed.
 RUN npm install -g --no-fund --no-audit --ignore-scripts \
       opencode-ai@${OPENCODE_VERSION} \
       @earendil-works/pi-coding-agent@${PI_VERSION} \
+      @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+      @openai/codex@${CODEX_VERSION} \
       oxlint@${OXLINT_VERSION} \
       oxfmt@${OXFMT_VERSION} \
  && (cd /usr/local/lib/node_modules/opencode-ai && node postinstall.mjs) \
+ && (cd /usr/local/lib/node_modules/@anthropic-ai/claude-code && node install.cjs) \
  && npm cache clean --force
 
 # opencode installs @opencode-ai/plugin into its global config dir before loading agentgraph's plugins. Each run home
