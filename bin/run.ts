@@ -330,7 +330,7 @@ async function runOnInstance() {
   }
 }
 
-const watchRuns = (i: Instance, issue: number) => {
+function watchRuns(i: Instance, issue: number) {
   const shown = new Map<string, string>();
   const look = async () => {
     for (const run of await listRuns(i.data, { issue }).catch(() => [])) {
@@ -344,7 +344,7 @@ const watchRuns = (i: Instance, issue: number) => {
     clearInterval(timer);
     await look();
   };
-};
+}
 
 async function drive(i: Instance, issue: number, hub: string) {
   trapInterrupt();
