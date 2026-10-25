@@ -18,8 +18,14 @@ type ModelRoute = { url: string; model: string };
 
 export type Harness = HarnessCheck & {
   key: string;
-  home?: (spec: SessionSpec, route: ModelRoute) => { files?: Record<string, string>; links?: Record<string, string> };
-  command: (spec: SessionSpec, route: ModelRoute) => { cmd: string; args: string[]; env?: Record<string, string> };
+  home?: (
+    spec: Omit<SessionSpec, 'model'>,
+    route: ModelRoute
+  ) => { files?: Record<string, string>; links?: Record<string, string> };
+  command: (
+    spec: Omit<SessionSpec, 'model'>,
+    route: ModelRoute
+  ) => { cmd: string; args: string[]; env?: Record<string, string> };
   parse: () => (line: unknown) => Piece[];
 };
 
