@@ -25,6 +25,22 @@ npx agentgraph --forge ~/forge --hub examples/sandbox --all --data ~/agentgraph-
 
 Actions run as `--as <name>`, the instance owner or `git config user.name`, and count as a maintainer's.
 
+## Dropped issue files
+
+Any `<n>.md` you write into the forge folder is an issue. Without frontmatter, the first line is the title and the rest is the body. With frontmatter, an `author` and `labels` make the labels count as that author adding them, so a label like `agent:ready` starts its workflow on the next pass:
+
+```md
+---
+title: Reject a negative count
+author: morgan
+labels: [agent:ready]
+---
+
+count(-1) should throw.
+```
+
+The forge records those labels once, as the file's first events at its modification time, when it first reads the issue. A run started from them has an id made from that time, so a runner that stops between reading the file and saving the run starts the same run again, not a second one. A file by an author ending in `[bot]` or outside the hub's `trust` list starts nothing. `issue --label` and `npx agentgraph start` write such a file. <!-- code: src/forge.ts#fileForge src/forge.ts#writeIssueFile -->
+
 ## Instances
 
 Your repo stays untouched until you `export`. `bin/forge.ts` finds the instance at or above the folder it is given. `npx agentgraph` without a hub, forge or data flag uses the instance around the working directory. <!-- code: src/instance.ts#instanceAt -->
@@ -57,8 +73,7 @@ sed -n 's/^AGENTGRAPH_LLM_API_KEY_\([A-Z0-9_]*\)=\(.*\)$/\1=\2/p' infra/local/.k
 ## A loop by hand
 
 ```sh
-node bin/forge.ts ~/agentgraph/kit issue "Reject a negative count" --body issue.md --label agent:ready
-npx agentgraph --instance ~/agentgraph/kit --all
+npx agentgraph start --instance ~/agentgraph/kit --workflow issue "Reject a negative count"
 node bin/forge.ts ~/agentgraph/kit show 2
 node bin/forge.ts ~/agentgraph/kit review 2 changes "also cover zero"
 npx agentgraph --instance ~/agentgraph/kit --all

@@ -64,7 +64,7 @@ To try a repo without GitHub, create a local instance. It holds a copy of the hu
 
 ```sh
 node bin/forge.ts ~/agentgraph/demo init /path/to/your/repo --hub examples/sandbox
-node bin/forge.ts ~/agentgraph/demo issue "Add a greet function" --label agent:ready
+node bin/forge.ts ~/agentgraph/demo issue "Add a greet function" --label agent:ready   # or drop 1.md into demo/forge
 node bin/forge.ts ~/agentgraph/demo show
 npx agentgraph status --instance ~/agentgraph/demo
 ```
@@ -77,7 +77,7 @@ node bin/forge.ts ~/agentgraph/demo show 2
 cd studio && npm install && npm run dev -- --instance ~/agentgraph/demo
 ```
 
-The studio opens on port 5182 and shows the workflow graph and every run.
+`npx agentgraph start --instance ~/agentgraph/demo --workflow issue "Add a greet function"` files and runs an issue in one step. The studio opens on port 5182 and shows the workflow graph, every run, and in its Inbox the runs that wait on you.
 
 ## Docs
 

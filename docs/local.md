@@ -19,6 +19,7 @@ Runs need the stack up. `npm run down` stops it and keeps its volumes.
 ```sh
 npx agentgraph check --hub examples/sandbox
 npx agentgraph --hub examples/sandbox --issue 3 --data ~/agentgraph-data
+npx agentgraph start --instance ~/agentgraph/kit --workflow issue "Reject a negative count"
 npx agentgraph --hub examples/sandbox --all --data ~/agentgraph-data
 npx agentgraph loop --hub examples/sandbox --data ~/agentgraph-data
 npx agentgraph status --hub examples/sandbox --data ~/agentgraph-data
@@ -29,6 +30,7 @@ npx agentgraph prune-logs --data ~/agentgraph-data [--apply]
 | --- | --- |
 | `check` | Validates a hub and prints each problem with its file, or `ok`. Needs no model or container. |
 | `--issue <n>` | Starts or resumes one issue's run and drives it until it waits or ends. |
+| `start "<text>"` | Files the text as a new issue on the [forge folder](forge.md#dropped-issue-files), with the label of `--workflow` (or of the hub's only labelled workflow), and runs it like `--issue`. The first line is the title. <!-- code: src/main.ts#writeTriggeringIssue --> |
 | `--all` | One pass over open issues. Starts runs only on trusted commands or labels, up to `limits.parallel` at once. |
 | `loop` | A pass at startup, then every `AGENTGRAPH_EVERY` minutes. Without `--hub` it uses the repo's [own hub](loop.md#a-hub-in-the-repo) and `AGENTGRAPH_REPO`. |
 | `status` | Lists human waits and the commands to continue them. On GitHub it needs App credentials and warns when the App reaches other repos. |
@@ -85,4 +87,4 @@ npm install
 npm run dev -- --instance ~/agentgraph/kit
 ```
 
-It serves on port 5182, or `AGI_PORT`; give each instance its own port. Instead of `--instance`, `--hub <dir> --data <dir>` select the inputs. Without either it reads `examples/sandbox` and `AGENTGRAPH_DATA`, else `~/.agentgraph`. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the Compound tab. The studio only reads.
+It serves on port 5182, or `AGI_PORT`; give each instance its own port. Instead of `--instance`, `--hub <dir> --data <dir>` select the inputs. Without either it reads `examples/sandbox` and `AGENTGRAPH_DATA`, else `~/.agentgraph`. `npm run dev -- --bench <dirs>` fills the [Bench](bench.md#cost-against-quality) tab, and `npm run dev -- --tune <dir>` the Compound tab. The studio only reads. Its Inbox lists the runs that wait on a person, with what to do next; runs that wait on another run stay off it. <!-- code: studio/src/runs/InboxPage.tsx#InboxPage -->
