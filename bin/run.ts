@@ -35,6 +35,7 @@ import {
   formatIssueList,
   formatIssueTimeline,
   formatNextSteps,
+  formatShellWord,
 } from '../src/status.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
@@ -329,10 +330,9 @@ async function runOnInstance() {
       const issue = await findIssueOf(i, numbered());
       const hub = await synced();
       await prepare(i, hub, 'Nothing was posted.');
-      const since = new Date().toISOString();
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
       if (values.label) await writeLabels(i.forge, i.owner, n, values.label).catch((e: Error) => fail(e.message));
-      return drive(i, issue, hub, since);
+      return drive(i, issue, hub);
     }
     case 'review': {
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
@@ -343,9 +343,8 @@ async function runOnInstance() {
       const issue = await findIssueOf(i, numbered());
       const hub = await synced();
       if (verdict === 'changes_requested') await prepare(i, hub, 'Nothing was posted.');
-      const since = new Date().toISOString();
       await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
-      if (verdict === 'changes_requested') return drive(i, issue, hub, since);
+      if (verdict === 'changes_requested') return drive(i, issue, hub);
       console.log(`approved #${n}`);
       return;
     }
@@ -365,7 +364,7 @@ async function runOnInstance() {
       if ('why' in result)
         return fail(values.patch ? result.why : `${result.why}; try --as <branch> or --patch <file>`, 1);
       if (!values.patch) return report(i, n);
-      console.log(`${result.stat}\nPatch: ${result.ref}    git am ${result.ref}`);
+      console.log(`${result.stat}\nPatch: ${result.ref}    git am ${formatShellWord(result.ref)}`);
       return;
     }
     case 'close': {
@@ -416,22 +415,13 @@ async function findIssueOf(i: Instance, n: number) {
   return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
 
-async function drive(i: Instance, issue: number, hub: string, since = '') {
+async function drive(i: Instance, issue: number, hub: string) {
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
-    console.log(`a loop drives this repo; following #${issue}`);
-    const stop = watchRuns(i, issue);
-    let held = true;
-    for (;;) {
-      await new Promise(done => setTimeout(done, 2000));
-      const last = (await listRuns(i.data, { issue })).toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
-      held = await isLoopHeld(i.data);
-      if (stopping.signal.aborted || !held || (last && last.status !== 'running' && (last.seen ?? '') >= since)) break;
-    }
-    await stop();
-    if (stopping.signal.aborted) process.exit(130);
-    if (held) return report(i, issue);
-    console.log('the loop stopped; driving it here');
+    console.log(
+      `a loop drives this repo and takes #${issue} on its next pass; npx agentgraph show ${issue}${selected}`
+    );
+    return;
   }
   const stop = watchRuns(i, issue);
   const runs = await start(
@@ -461,13 +451,15 @@ async function report(i: Instance, issue: number, merged = false) {
   else if (result) {
     const { ref, base, stat } = result;
     if (stat) console.log(`\n${stat}`);
-    console.log(`In your repo: ${ref}    git diff ${base}...${ref}`);
-    console.log(`Worktree:     git worktree add ../${basename(i.repo)}-${issue} ${ref}`);
+    console.log(`In your repo: ${ref}    git diff ${formatShellWord(`${base}...${ref}`)}`);
+    console.log(
+      `Worktree:     git worktree add ${formatShellWord(`../${basename(i.repo)}-${issue}`)} ${formatShellWord(ref)}`
+    );
   }
   const waiting = findRunsWaitingOnPeople(await listRuns(i.data, { issue })).flatMap(run =>
     formatNextSteps(run, undefined, selected)
   );
-  const merge = result && !('why' in result) ? [`  git merge ${result.ref}`] : [];
+  const merge = result && !('why' in result) ? [`  git merge ${formatShellWord(result.ref)}`] : [];
   const steps = merged ? merge : waiting.filter(l => l.startsWith('  '));
   if (steps.length) console.log(`Next:\n${steps.join('\n')}`);
 }

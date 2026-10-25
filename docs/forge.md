@@ -51,7 +51,7 @@ A subscription logs in once per machine, the first time it is picked. `claude` r
 
 `start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends, printing each step. `merge`, `review approve`, `close` and `export` never drive.
 
-When a `loop` runs for the same repo, it holds the instance's loop lock and the verbs only post and then follow the run until it settles. Only one loop runs per instance. <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
+When a `loop` runs for the same repo, it holds the instance's loop lock and the verbs only post; the loop takes the issue on its next pass, and `show <n>` shows where it stands. Only one loop runs per instance. <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
 
 Ctrl-C stops a drive. The run keeps its last saved state and goes on from there on the next drive of that issue, for example `say <n> "go on"`. A second Ctrl-C quits at once. <!-- code: src/main.ts#start -->
 

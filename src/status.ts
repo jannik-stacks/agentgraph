@@ -6,10 +6,11 @@ export const findRunsWaitingOnPeople = (runs: Run[]) =>
     .filter(run => run.status === 'waiting' && !runs.some(c => c.by === run.id && run.reason === `waiting on ${c.id}`))
     .toSorted((a, b) => b.started.localeCompare(a.started));
 
-const quote = (path: string) => `'${path.replaceAll("'", `'\\''`)}'`;
+export const formatShellWord = (word: string) =>
+  /^[\w./@:+=-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 
 export const formatInstanceFlags = (repo?: string, data?: string) =>
-  `${repo ? ` --repo ${quote(repo)}` : ''}${data ? ` --data ${quote(data)}` : ''}`;
+  `${repo ? ` --repo ${formatShellWord(repo)}` : ''}${data ? ` --data ${formatShellWord(data)}` : ''}`;
 
 export const formatNextSteps = (run: Run, github?: string, flags = '') => {
   const issue = github && `https://github.com/${github}/issues/${run.issue}`;
