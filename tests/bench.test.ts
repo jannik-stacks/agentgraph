@@ -471,6 +471,20 @@ describe('points', () => {
     );
   });
 
+  it('keeps only the plain tools of an agent it points at pi, which takes no patterns', () => {
+    const hub = tmp('hub');
+    dirs.push(hub);
+    mkdirSync(join(hub, 'agents'));
+    const agent = "---\nharness: opencode\ntools:\n  [\n    read,\n    grep,\n    'bash(git diff*)',\n  ]\n---\n";
+    writeFileSync(join(hub, 'agents', 'reviewer.md'), agent);
+    repoint(hub, 'opencode:luna');
+    expect(readFileSync(join(hub, 'agents', 'reviewer.md'), 'utf8')).toContain("'bash(git diff*)'");
+    repoint(hub, 'pi:luna');
+    expect(readFileSync(join(hub, 'agents', 'reviewer.md'), 'utf8')).toBe(
+      '---\nharness: pi\ntools: [read, grep]\n---\n'
+    );
+  });
+
   it('gives an agent with no key of its own the implementor key', () => {
     const hub = tmp('hub');
     dirs.push(hub);

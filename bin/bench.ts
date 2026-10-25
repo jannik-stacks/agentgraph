@@ -392,7 +392,18 @@ export const repoint = (hub: string, point: string) => {
     writeFileAtomic(
       join(dir, name),
       readFileOrEmpty(join(dir, name)).replace(/^---\n[\s\S]*?\n---/, head =>
-        head.replace(/^harness: .*$/m, `harness: ${harness}`).replace(/^model: .*$/m, `model: ${model}`)
+        head
+          .replace(/^harness: .*$/m, `harness: ${harness}`)
+          .replace(/^model: .*$/m, `model: ${model}`)
+          .replace(/^tools:\s*\[([^\]]*)\]/m, (tools, list: string) =>
+            harness === 'pi'
+              ? `tools: [${list
+                  .split(',')
+                  .map(tool => tool.trim())
+                  .filter(tool => tool && !tool.includes('('))
+                  .join(', ')}]`
+              : tools
+          )
       )
     );
   const key = process.env[`AGENTGRAPH_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
