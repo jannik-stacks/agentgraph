@@ -47,8 +47,8 @@ const passed = Effect.flatMap(Config.string('AGENTGRAPH_SESSION_ENV').pipe(Confi
 const host = {
   data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
   every: Config.number('AGENTGRAPH_EVERY').pipe(
-    Config.withDefault(5),
-    Config.validate({ message: 'Expected minutes above 0', validation: n => n > 0 })
+    Config.validate({ message: 'Expected minutes above 0', validation: n => n > 0 }),
+    Config.withDefault(5)
   ),
   image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault('agentgraph-sandbox:local')),
 };

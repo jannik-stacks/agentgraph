@@ -27,7 +27,7 @@ import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
 import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
-import { git } from './kit.ts';
+import { git, tmp } from './kit.ts';
 
 const runTs = join(import.meta.dirname, '..', 'bin', 'run.ts');
 const sandboxHub = join(import.meta.dirname, '..', 'examples', 'sandbox');
@@ -703,5 +703,25 @@ describe('an instance', () => {
     await expect(createLoopLock(i.data)).rejects.toThrow();
     await release();
     expect(await isLoopHeld(i.data)).toBe(false);
+  });
+});
+
+const BAD_FLAGS = [
+  [{ AGENTGRAPH_EVERY: 'abc' }, ['show'], 'Invalid data at AGENTGRAPH_EVERY'],
+  [{ AGENTGRAPH_EVERY: '0' }, ['show'], 'Invalid data at AGENTGRAPH_EVERY'],
+  [{}, ['check', 'x', '--runs', '--issue', 'abc'], '--issue takes an issue number'],
+  [{}, ['check', 'x', '--runs', '--issue', '0'], '--issue takes an issue number'],
+] as const;
+
+describe('the CLI flags', () => {
+  it.each(BAD_FLAGS)('fails %o %o before it runs anything', (env, args, message) => {
+    const root = tmp('cli-flags');
+    dirs.push(root);
+    const ran = spawnSync(process.execPath, [runTs, ...args, '--data', root, '--forge', root, '--hub', sandboxHub], {
+      cwd: root,
+      env: { ...process.env, NODE_OPTIONS: '', ...env },
+      encoding: 'utf8',
+    });
+    expect([ran.status, ran.stderr]).toEqual([2, expect.stringContaining(message)]);
   });
 });

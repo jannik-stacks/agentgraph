@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync, realpathSync, watch } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { watch } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { ensureDocker } from '../src/docker.ts';
@@ -87,8 +89,9 @@ const fail = (message: string, code = 2): never => {
   process.exit(code);
 };
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
+const isIssueNumber = (k: number) => Number.isInteger(k) && k > 0;
 const n = Number(rest[0]);
-const numbered = () => (Number.isInteger(n) && n > 0 ? n : fail(`${verb} takes an issue number\n${usage}`));
+const numbered = () => (isIssueNumber(n) ? n : fail(`${verb} takes an issue number\n${usage}`));
 const said = () => rest.slice(1).join(' ').trim();
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
   .version;
@@ -97,11 +100,15 @@ const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {
 const printRuns = (runs: Run[]) => {
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
-const checkHub = async (hub: string, named: string | undefined) => {
+const useProvider = (named?: string) =>
   Object.assign(process.env, {
     ...(named && { AGENTGRAPH_PROVIDER: named }),
     ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
   });
+const formatUnserved = (provider: Provider, harness: string) =>
+  `${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.`;
+const checkHub = async (hub: string, named: string | undefined) => {
+  useProvider(named);
   const problems = await Effect.runPromise(
     Effect.zip(readHarnessSettings, readConfiguredHub(hub)).pipe(
       Effect.map(([{ providers = [] }, loaded]) => {
@@ -124,10 +131,7 @@ const noModel = `No model to use. Any one of these works:
 
 const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
   const named = findProvider(values.provider, i);
-  Object.assign(process.env, {
-    ...(named && { AGENTGRAPH_PROVIDER: named }),
-    ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
-  });
+  useProvider(named);
   const { providers = [] } = await Effect.runPromise(readHarnessSettings).catch((e: Error) => fail(e.message, 1));
   if (named)
     return (
@@ -156,7 +160,7 @@ const findUnserved = (provider: Provider, hub: Hub) =>
     .filter(a => !provider.harnesses.includes(a.harness))
     .map(a => ({
       path: a.path,
-      message: `${provider.name} does not serve ${a.harness}. It serves ${provider.harnesses.join(' and ')}.`,
+      message: formatUnserved(provider, a.harness),
     }));
 
 const connect = async (i: Instance, hub: string, after: string) => {
@@ -169,8 +173,7 @@ const connect = async (i: Instance, hub: string, after: string) => {
   const provider = await pickProvider(i, after);
   if (values.save && values.provider) writeInstanceProvider(i, provider.name);
   const harness = values.harness ?? provider.harnesses[0]!;
-  if (!provider.harnesses.includes(harness))
-    fail(`${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.\n${after}`);
+  if (!provider.harnesses.includes(harness)) fail(`${formatUnserved(provider, harness)}\n${after}`);
   console.log(
     `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
   );
@@ -179,10 +182,8 @@ const connect = async (i: Instance, hub: string, after: string) => {
     await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))(host).catch(
       (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
-  Object.assign(process.env, provider.settings?.() ?? {}, {
-    AGENTGRAPH_PROVIDER: provider.name,
-    ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
-  });
+  Object.assign(process.env, provider.settings?.() ?? {});
+  useProvider(provider.name);
   const aliases = new Map(
     splitNames(process.env.AGENTGRAPH_MODELS ?? '').map(pair => pair.split('=', 2) as [string, string])
   );
@@ -279,11 +280,13 @@ function instructed(): Instruction {
   }
   if (!values.runs || rest.length === 0)
     fail('usage: npx agentgraph check <check>... --runs [--workflow <name>] [--issue <n>]');
+  const issue = Number(values.issue);
+  if (values.issue !== undefined && !isIssueNumber(issue)) fail('--issue takes an issue number');
   return {
     kind: 'check',
     checks: rest,
     ...(values.workflow !== undefined && { workflow: values.workflow }),
-    ...(values.issue !== undefined && { issue: Number(values.issue) }),
+    ...(values.issue !== undefined && { issue }),
   };
 }
 
@@ -358,7 +361,7 @@ async function runOnInstance() {
       const result = await writePullToRepo(i, n, {
         ...(values.as && { as: values.as }),
         ...(values.patch && { patch: values.patch }),
-      });
+      }).catch((e: Error) => fail(e.message, 1));
       if (!result) return fail(`#${n} has no pull request`, 1);
       if ('why' in result)
         return fail(values.patch ? result.why : `${result.why}; try --as <branch> or --patch <file>`, 1);
@@ -508,17 +511,12 @@ async function loop(i: Instance) {
         }
       }
       if (values.once || stopping.signal.aborted) break;
-      await new Promise<void>(done => {
-        const quiet = setTimeout(finish, host.every * 60_000);
-        const watcher = watch(i.forge, finish);
-        stopping.signal.addEventListener('abort', finish);
-        function finish() {
-          clearTimeout(quiet);
-          watcher.close();
-          stopping.signal.removeEventListener('abort', finish);
-          done();
-        }
-      });
+      const woken = new AbortController();
+      const signal = AbortSignal.any([stopping.signal, woken.signal]);
+      await Promise.race([sleep(host.every * 60_000, undefined, { signal }), watch(i.forge, { signal }).next()]).catch(
+        () => {}
+      );
+      woken.abort();
     }
   } finally {
     await release();
