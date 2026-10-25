@@ -24,7 +24,6 @@ const part = (title: string, size: string) => ({
   title,
   body: 'b',
   size,
-  priority: 'low',
 });
 const label = (size: string): Proposal => ({ kind: 'label', add: [`size/${size}`] });
 

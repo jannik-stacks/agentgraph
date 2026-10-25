@@ -61,7 +61,7 @@ const shapes: Record<Said['kind'], string> = {
   pull_request: '{"kind":"pull_request","branch":"...","base":"...","title":"...","body":"..."}',
   merge: '{"kind":"merge","number":1,"head":"<sha>"}',
   issue: [
-    '{"kind":"issue","relation":"part","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","priority":"high|medium|low","stacks_on":1,"depends_on":[1]}',
+    '{"kind":"issue","relation":"part","title":"...","body":"...\\n\\n## Done when\\n...","size":"XS|S|M|L|XL","stacks_on":1,"depends_on":[1]}',
     '{"kind":"issue","relation":"follow-up","title":"...","body":"...\\n\\n## Done when\\n..."}',
     '{"kind":"issue","relation":"hub","title":"...","body":"<the class of miss and the check that would catch it>\\n\\n## Done when\\n..."}',
   ].join('\n'),
@@ -179,7 +179,7 @@ const depthOf = (n: number, above = 0): Effect.Effect<number, ForgeError, Forge>
   );
 
 /**
- * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size and priority labels and
+ * Files proposed issues in order. A part becomes a sub-issue of the run's issue with its size label and
  * its "Stacks on" and "Depends on" lines; the parts are listed on the issue and each XL part begins the workflow
  * again. A follow-up or a hub change becomes a plain issue labelled with its relation that names the run's issue and
  * starts nothing; one with the title of an open issue is added there as a comment. One refusal files none.
@@ -293,7 +293,7 @@ const file = (w: Workflow, run: Run, children: Child[]) =>
           ...(isPart(p)
             ? {
                 parent: run.issue,
-                labels: [`size/${p.size}`, `priority/${p.priority}`],
+                labels: [`size/${p.size}`],
               }
             : { labels: [p.relation] }),
         })
@@ -2292,14 +2292,10 @@ export const tick = (
         else if (caught) yield* store.put(caught.run);
       }).pipe(Effect.scoped);
 
-    const rank = (r: Run) => {
-      const labels = issues.find(t => t.number === r.issue)?.labels ?? [];
-      return labels.includes('priority/high') ? 0 : labels.includes('priority/low') ? 2 : 1;
-    };
     const running = (yield* store.list({ status: 'running' }))
       .filter(mine)
       .filter(r => hub.workflows[r.workflow] && pending(hub.workflows[r.workflow]!, r.issue, issues).length === 0)
-      .sort((a, b) => rank(a) - rank(b) || a.started.localeCompare(b.started));
+      .toSorted((a, b) => a.started.localeCompare(b.started));
     const driven = yield* Effect.forEach(
       running,
       r =>

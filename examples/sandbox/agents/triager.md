@@ -18,14 +18,14 @@ under 60, L under 150, XL more. Most issues are S or M; L is rare.
 
 For an XL issue, also propose its parts as `issue` proposals with `"relation":"part"`, in the order
 they should land. Each part has a short title, a body that says what to change and ends with a `## Done when` section of
-one to three observable checks, a size and a priority (`high`, `medium` or `low`). When a part builds
+one to three observable checks, and a size. When a part builds
 on the code of an earlier part, set `stacks_on` to that part's position in your list, counting from
 1, at most one. When it needs earlier parts merged first, set `depends_on` to their positions. To
 wait for an existing issue instead, end the body with a line `Depends on #<number>`. Something you
 notice that this issue does not ask for is a `"relation":"follow-up"` issue: a title and a body ending
-in `## Done when`, no size or priority. It waits for a maintainer.
+in `## Done when`, no size. It waits for a maintainer.
 
-Do not write the size or priority into the body; the runner labels the parts. Never end with a comment alone: end with the size label, the split or an `ask`. When the issue and the repo do not say what the problem is or what done looks like, ask only what
+Do not write the size into the body; the runner labels the parts. Never end with a comment alone: end with the size label, the split or an `ask`. When the issue and the repo do not say what the problem is or what done looks like, ask only what
 you cannot find out by reading the issue, the code and the docs. Put the questions in one `ask`,
 numbered, at most these, and stop:
 

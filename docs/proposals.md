@@ -20,7 +20,7 @@ A reply ends with a fenced `agentgraph` block. The engine reads the last one as 
 | `push` | `branch`, `message` | [Commit and push](#pushes) the checkout |
 | `pull_request` | `branch`, `base`, `title`, `body` | Open a pull request, or update the open one for that branch |
 | `merge` | `number`, `head` | Merge the run's pull request if its head still matches |
-| `issue` | `relation`, `title`, `body`; parts add `size`, `priority`, optional `stacks_on`, `depends_on` | File a [part, follow-up or hub change](stacks.md) |
+| `issue` | `relation`, `title`, `body`; parts add `size`, optional `stacks_on`, `depends_on` | File a [part, follow-up or hub change](stacks.md) |
 | `ask` | `question` | Post a question and wait |
 | `back` | `why` | [Return to an earlier step](loop.md#tries-and-going-back) |
 | `run` | `workflow`, `issue`, optional `step` | [Dispatch](loop.md#dispatch) a workflow and wait |

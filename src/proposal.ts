@@ -91,7 +91,6 @@ export const Said = Schema.Union(
     title,
     body,
     size: Schema.Literal('XS', 'S', 'M', 'L', 'XL'),
-    priority: Schema.Literal('high', 'medium', 'low'),
     stacks_on: Schema.optionalWith(Schema.Int, { exact: true }),
     depends_on: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.Int)), { exact: true }),
   }),

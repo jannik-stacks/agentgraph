@@ -4,7 +4,7 @@ An `issue` proposal's `relation` is `part`, `follow-up` or `hub`. Parts split th
 
 ## Filing sub-issues
 
-Propose parts in landing order. Each has a title, a body ending in `## Done when` (one to three observable checks), a `size` from `XS` to `XL` and a `priority` of `high`, `medium` or `low`. The engine files them as sub-issues labelled `size/<size>` and `priority/<priority>`. <!-- code: src/engine.ts#file -->
+Propose parts in landing order. Each has a title, a body ending in `## Done when` (one to three observable checks), and a `size` from `XS` to `XL`. The engine files them as sub-issues labelled `size/<size>`. <!-- code: src/engine.ts#file -->
 
 `stacks_on` names one earlier part by position, counting from 1, and `depends_on` lists earlier positions. The engine adds `Stacks on #n` and `Depends on #n` lines with the new issue numbers. For an issue that already exists, write the `Depends on #<number>` line in the body yourself.
 
@@ -12,7 +12,7 @@ The parent gets a `Split into:` comment with a task list, and its body stays as 
 
 ## Follow-ups
 
-`relation: follow-up` files work outside the current issue: a title and a body ending in `## Done when`, without size or priority.
+`relation: follow-up` files work outside the current issue: a title and a body ending in `## Done when`, without a size.
 
 ```json
 {"kind": "issue", "relation": "follow-up", "title": "Reject negative counts", "body": "...\n\n## Done when\n..."}

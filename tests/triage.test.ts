@@ -55,7 +55,6 @@ const part = (title: string, size: string, more: object = {}) => ({
   title,
   body: `Change ${title}.\n\n## Done when\n\n- the tests cover ${title}`,
   size,
-  priority: 'medium',
   ...more,
 });
 
@@ -140,7 +139,7 @@ describe('triage', () => {
     const turns = [
       turn(
         { kind: 'label', add: ['size/XL'] },
-        { ...part('the parser', 'M'), priority: 'high' },
+        part('the parser', 'M'),
         part('the printer', 'L', { stacks_on: 1 }),
         part('the docs', 'XL', { stacks_on: 2, depends_on: [1] })
       ),
@@ -149,9 +148,9 @@ describe('triage', () => {
     const all = await issues(where);
     const children = all.filter(t => t.parent === 1);
     expect(children.map(t => [t.number, t.title, t.labels])).toEqual([
-      [2, 'the parser', ['size/M', 'priority/high']],
-      [3, 'the printer', ['size/L', 'priority/medium']],
-      [4, 'the docs', ['size/XL', 'priority/medium']],
+      [2, 'the parser', ['size/M']],
+      [3, 'the printer', ['size/L']],
+      [4, 'the docs', ['size/XL']],
     ]);
     expect(children[0]!.body).not.toMatch(/stacks on|depends on/i);
     expect(children[1]!.body).toMatch(/\n\nStacks on #2$/);
@@ -245,7 +244,7 @@ describe('triage', () => {
     await run(where, [turn(part('a big part', 'XL'))], tick(unbounded, 3));
     expect((await issues(where)).filter(t => t.parent === 3).map(t => [t.number, t.labels])).toEqual([
       [4, ['agentgraph:waiting']],
-      [5, ['size/XL', 'priority/medium']],
+      [5, ['size/XL']],
     ]);
     expect((await runs(where)).some(r => r.issue === 5)).toBe(false);
   });

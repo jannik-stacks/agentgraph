@@ -420,7 +420,6 @@ describe('a run branch that moved', () => {
       body: '## Done when\nComplete',
       relation: 'part',
       size: 'S',
-      priority: 'medium',
     }));
     const end: SessionEvent = {
       type: 'end',
