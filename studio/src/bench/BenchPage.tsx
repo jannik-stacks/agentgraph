@@ -2,6 +2,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { DriveState } from '../../../bench/drive.ts';
 import type { readBenchRows } from '../../../bin/bench.ts';
+import { getMean } from '../../../src/stats.ts';
 import { makeLiveJsonAtom, queryParam } from '../state.ts';
 import { Button, cx, Disclosure, Field, Fields, Help, Link, Loading, Muted, Select, Tooltip } from '../ui.tsx';
 import { cost, defaultBenchScoreWeights, frontier, presets, type price, summarise } from './score.ts';
@@ -410,7 +411,7 @@ export const BenchPage = () => {
                   `quality ${fmt(p.y)} (${ci(p.yCi, v => fmt(v))})`,
                   `${fx(p.x)} per task (${ci(p.xCi, fx)})`,
                   `${p.n} cases, ${p.repeats} runs, ${fmt(p.completion * 100, 0)}% complete`,
-                  `${fmt(p.minutes, 1)} min, reported ${usd(mean(p.perCase.map(s => s.row.usd ?? 0)))} per run`,
+                  `${fmt(p.minutes, 1)} min, reported ${usd(getMean(p.perCase.map(s => s.row.usd ?? 0)))} per run`,
                   tokens(p.perCase.map(s => s.row)),
                   p.perCase.some(s => s.row.usdSource === 'list-price estimate')
                     ? 'paid by a subscription: the cost is a list-price estimate'
@@ -527,5 +528,3 @@ export const BenchPage = () => {
     </div>
   );
 };
-
-const mean = (xs: number[]) => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : 0);

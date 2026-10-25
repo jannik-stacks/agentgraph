@@ -1,4 +1,5 @@
 import type { readBenchRows } from '../../../bin/bench.ts';
+import { getMean } from '../../../src/stats.ts';
 
 type Row = ReturnType<typeof readBenchRows>[number];
 type Tokens = Row['tokens'][string];
@@ -32,15 +33,13 @@ export const price = (tokens: Record<string, Tokens>, prices: Prices, cacheOff =
 export const cost = (row: Row, prices: Prices, cacheOff = false) =>
   Object.keys(row.tokens).length ? price(row.tokens, prices, cacheOff) : (row.usd ?? 0);
 
-const mean = (xs: number[]) => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : 0);
-
 /** Quality on a fixed scale where 0 is nothing useful and 1 is the human; `human` is the human row of the same case. */
 export const quality = (row: Row, w: typeof defaultBenchScoreWeights, judges?: string[], human?: Row) => {
   if (row.outcome === 'no-change') return 0;
   const votes = Object.entries(row.vsHuman).flatMap(([j, v]) => (!judges || judges.includes(j) ? [v] : []));
   const parts: [number, number][] = [
     ...(row.hidden === undefined ? [] : [[w.test, row.hiddenShare ?? row.hidden] as [number, number]]),
-    ...(votes.length ? [[w.judge, Math.min(1, 2 * mean(votes))] as [number, number]] : []),
+    ...(votes.length ? [[w.judge, Math.min(1, 2 * getMean(votes))] as [number, number]] : []),
     ...(row.suite === undefined && row.typecheck === undefined
       ? []
       : [[w.suite, (row.suite ?? 1) * (row.typecheck ?? 1)] as [number, number]]),
@@ -72,8 +71,8 @@ const group = <T>(xs: T[], key: (x: T) => string) =>
  */
 export const bootstrap = (cases: { y: number; x: number }[][], draws = 1000, seed = 1) => {
   const stat = (cs: { y: number; x: number }[][]) => {
-    const per = cs.map(rs => [mean(rs.map(r => r.y)), mean(rs.map(r => r.x))] as const);
-    return [mean(per.map(p => p[0])), mean(per.map(p => p[1]))] as const;
+    const per = cs.map(rs => [getMean(rs.map(r => r.y)), getMean(rs.map(r => r.x))] as const);
+    return [getMean(per.map(p => p[0])), getMean(per.map(p => p[1]))] as const;
   };
   const next = random(seed);
   const pick = <T>(xs: T[]) => xs.map(() => xs[Math.floor(next() * xs.length)]!);
@@ -107,7 +106,7 @@ export const summarise = (
     const cases = [...group(scored, s => s.row.case).values()];
     const judged = kept.flatMap(r => {
       const votes = Object.entries(r.vsHuman).flatMap(([j, v]) => (!o.judges || o.judges.includes(j) ? [v] : []));
-      return votes.length ? [mean(votes)] : [];
+      return votes.length ? [getMean(votes)] : [];
     });
     const tested = kept.flatMap(r => (r.hidden === undefined ? [] : [r.hidden]));
     return {
@@ -116,9 +115,9 @@ export const summarise = (
       n: cases.length,
       repeats: kept.length,
       completion: all.filter(r => !r.infra).length / all.length,
-      hidden: tested.length ? mean(tested) : undefined,
-      vsHuman: judged.length ? mean(judged) : undefined,
-      minutes: mean(kept.map(r => r.minutes)),
+      hidden: tested.length ? getMean(tested) : undefined,
+      vsHuman: judged.length ? getMean(judged) : undefined,
+      minutes: getMean(kept.map(r => r.minutes)),
       ...bootstrap(cases),
       perCase: scored,
     };

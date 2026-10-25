@@ -1,11 +1,10 @@
 import type { Split, Step, tunesOf } from '../../../bin/tune.ts';
+import { getMean, sum } from '../../../src/stats.ts';
 
 export type { Split, Step };
 /** One tune as `/api/compound` answers it; `name` is its folder. */
 export type TuneRows = ReturnType<typeof tunesOf>[number];
 
-const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
-const mean = (xs: number[]) => (xs.length ? sum(xs) / xs.length : 0);
 
 /**
  * The case-weighted quality of a step's evals on `splits`; select (fit and validate) by default.
@@ -114,13 +113,13 @@ export const average = (series: Series[]) =>
         const kept = at.flatMap(a => a.kept ?? []);
         return {
           iteration: i,
-          ...(kept.length > 0 && { kept: mean(kept), lo: Math.min(...kept), hi: Math.max(...kept) }),
+          ...(kept.length > 0 && { kept: getMean(kept), lo: Math.min(...kept), hi: Math.max(...kept) }),
           per: at.map(a => ({ repo: a.repo, kept: a.kept })),
-          cum: mean(at.map(a => a.cum)),
-          usd: mean(ran.map(a => a.usd)),
-          minutes: mean(ran.map(a => a.minutes)),
-          codex: mean(ran.map(a => a.codex)),
-          claude: mean(ran.map(a => a.claude)),
+          cum: getMean(at.map(a => a.cum)),
+          usd: getMean(ran.map(a => a.usd)),
+          minutes: getMean(ran.map(a => a.minutes)),
+          codex: getMean(ran.map(a => a.codex)),
+          claude: getMean(ran.map(a => a.claude)),
         };
       }),
     };

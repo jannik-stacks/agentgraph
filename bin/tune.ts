@@ -16,6 +16,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { presets, quality, random } from '../studio/src/bench/score.ts';
+import { getMean, getRounded, sum } from '../src/stats.ts';
 import { propose as proposeWith } from '../tune/propose.ts';
 import { codexUsed, pickBenchTestCommands, progress, readBenchRows, statusText } from './bench.ts';
 import {
@@ -86,9 +87,6 @@ type Budget = { codex?: Reading; claude?: { fiveHour?: Reading; week?: Reading }
 const agentgraph = join(import.meta.dirname, '..');
 const tuneRoot = () => process.env.AGENTGRAPH_TUNE ?? join(homedir(), '.agentgraph/tune');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
-const round = (n: number) => Math.round(n * 1000) / 1000;
-const mean = (xs: number[]) => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : 0);
-const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
 const pad = (n: number) => String(n).padStart(3, '0');
 
 /** The tune's settings and its steps in order, as `iterations.jsonl` holds them. */
@@ -118,13 +116,13 @@ export const paired = (a: number[], b: number[], n = 2000) => {
   const d = b.map((x, i) => x - (a[i] ?? 0));
   if (!d.length) return { delta: 0, pUp: 0, ci: [0, 0] as [number, number] };
   const next = random(1);
-  const draws = Array.from({ length: n }, () => mean(d.map(() => d[Math.floor(next() * d.length)]!))).sort(
+  const draws = Array.from({ length: n }, () => getMean(d.map(() => d[Math.floor(next() * d.length)]!))).sort(
     (x, y) => x - y
   );
   return {
-    delta: round(mean(d)),
-    pUp: round(draws.filter(m => m > 0).length / n),
-    ci: [round(draws[Math.floor(n * 0.025)]!), round(draws[Math.floor(n * 0.975)]!)] as [number, number],
+    delta: getRounded(getMean(d)),
+    pUp: getRounded(draws.filter(m => m > 0).length / n),
+    ci: [getRounded(draws[Math.floor(n * 0.025)]!), getRounded(draws[Math.floor(n * 0.975)]!)] as [number, number],
   };
 };
 
@@ -139,7 +137,7 @@ export const flipsOf = (inc: Record<string, number[]>, cand: Record<string, numb
   for (const [c, x] of Object.entries(cand)) {
     const b = inc[c] ?? [];
     if (!b.length || !x.length || Math.max(...b) - Math.min(...b) >= 0.5) continue;
-    const d = mean(x) - mean(b);
+    const d = getMean(x) - getMean(b);
     if (Math.abs(d) < 0.5) continue;
     const apart = d > 0 ? Math.min(...x) - Math.max(...b) : Math.min(...b) - Math.max(...x);
     const held = b.length >= runs && x.length >= runs && apart >= 0.5;
@@ -204,11 +202,11 @@ const evalOf = (
   incumbent?: Scores,
   runs = 3
 ): Eval => {
-  const qs = cases.map(c => mean(mine.get(c)?.qs ?? []));
-  const per = (s: Scores, k: 'paid' | 'took') => cases.map(c => mean(s.get(c)?.[k] ?? []));
+  const qs = cases.map(c => getMean(mine.get(c)?.qs ?? []));
+  const per = (s: Scores, k: 'paid' | 'took') => cases.map(c => getMean(s.get(c)?.[k] ?? []));
   const both = cases.filter(c => mine.get(c)?.paid.length && incumbent?.get(c)?.paid.length);
   const saving = (k: 'paid' | 'took') => {
-    const s = both.map(c => round(1 - mean(mine.get(c)![k]) / Math.max(1e-9, mean(incumbent!.get(c)![k]))));
+    const s = both.map(c => getRounded(1 - getMean(mine.get(c)![k]) / Math.max(1e-9, getMean(incumbent!.get(c)![k]))));
     const p = paired(
       s.map(() => 0),
       s
@@ -217,7 +215,7 @@ const evalOf = (
   };
   const p = incumbent && {
     ...paired(
-      cases.map(c => mean(incumbent.get(c)?.qs ?? [])),
+      cases.map(c => getMean(incumbent.get(c)?.qs ?? [])),
       qs
     ),
     flips: flipsOf(qsOf(incumbent, cases), qsOf(mine, cases), runs),
@@ -226,17 +224,17 @@ const evalOf = (
     candidate,
     split,
     cases,
-    quality: round(mean(qs)),
+    quality: getRounded(getMean(qs)),
     ci: paired(
       qs.map(() => 0),
       qs
     ).ci,
     ...(p && { delta: p.delta, pUp: p.pUp, flips: p.flips }),
-    usd: round(sum(cases.map(c => mine.get(c)?.usd ?? 0))),
-    minutes: round(sum(cases.map(c => mine.get(c)?.min ?? 0))),
+    usd: getRounded(sum(cases.map(c => mine.get(c)?.usd ?? 0))),
+    minutes: getRounded(sum(cases.map(c => mine.get(c)?.min ?? 0))),
     perRun: {
-      usd: round(mean(per(mine, 'paid').filter(Boolean))),
-      minutes: round(mean(per(mine, 'took').filter(Boolean))),
+      usd: getRounded(getMean(per(mine, 'paid').filter(Boolean))),
+      minutes: getRounded(getMean(per(mine, 'took').filter(Boolean))),
     },
     ...(incumbent &&
       both.length && {
@@ -412,7 +410,7 @@ const pending = (dir: string, steps: Step[]) => {
 /** `r` after reading `now`: a drop means the window reset, so everything read since counts as used. */
 export const reading = (r: Reading | undefined, now: number): Reading => ({
   now,
-  used: round((r?.used ?? 0) + (!r ? 0 : now >= r.now ? now - r.now : now)),
+  used: getRounded((r?.used ?? 0) + (!r ? 0 : now >= r.now ? now - r.now : now)),
 });
 
 /** The first cap the budget is past, in words. */
@@ -449,7 +447,7 @@ const limitsDefault: Limits = { codex: 25, claude5h: 40, claudeWeek: 12 };
 
 const spent = (before: Budget, after: Budget, k: 'codex' | 'fiveHour') => {
   const of = (b: Budget) => (k === 'codex' ? b.codex : b.claude?.fiveHour)?.used ?? 0;
-  return round(of(after) - of(before));
+  return getRounded(of(after) - of(before));
 };
 
 const append = (dir: string, s: Step) => appendJsonl(join(dir, 'iterations.jsonl'), s);
@@ -630,7 +628,7 @@ export const step = async (
     if (!jobs.length) return 0;
     const before = guard(dir, io, limits);
     await io.run(dir, t, jobs, { parallel: o.parallel ?? 6, ...(o.keys && { keys: o.keys }) });
-    return round(spent(before, guard(dir, io, limits), 'codex') / Math.max(1, per));
+    return getRounded(spent(before, guard(dir, io, limits), 'codex') / Math.max(1, per));
   };
   const cross = (cands: Candidate[], cases: string[]) => cands.flatMap(c => cases.map(k => ({ id: c.id, case: k })));
   const usage = (c: Candidate, codex: number) => ({ codex, claude5h: claude[c.id] ?? 0 });
@@ -675,7 +673,7 @@ export const step = async (
       .map(s => [s, rest.filter(k => t.cases[k] === s)] as const)
       .filter(([, cases]) => cases.length);
     const splits = parts.map(([s, cases]) =>
-      evalOf(r.c.id, s, cases, mine, { codex: round(codex / parts.length), claude5h: 0 }, after, runs)
+      evalOf(r.c.id, s, cases, mine, { codex: getRounded(codex / parts.length), claude5h: 0 }, after, runs)
     );
     const all = evalOf(r.c.id, 'fit', select, mine, usage(r.c, 0), after, runs);
     const screen = evalOf(r.c.id, 'fit', screened, mine, usage(r.c, screenCodex), after, runs);
@@ -697,7 +695,7 @@ export const step = async (
         .join(', ') || 'none';
     const cost = ({ saved: s }: Eval) =>
       s
-        ? `, usd ${round(-s.usd.share)} and minutes ${round(-s.minutes.share)} per run (P ${s.usd.pDown}, ${s.minutes.pDown})`
+        ? `, usd ${getRounded(-s.usd.share)} and minutes ${getRounded(-s.minutes.share)} per run (P ${s.usd.pDown}, ${s.minutes.pDown})`
         : '';
     const on = (e: Eval) =>
       `won ${named(e, 'win')}, lost ${named(e, 'loss')}, delta ${e.delta} over ${e.cases.length} cases${cost(e)}`;
@@ -784,7 +782,7 @@ export const status = (dir: string, limits = limitsDefault) => {
   const inc = incumbentOf(steps);
   const q = (es: Eval[]) => {
     const n = sum(es.map(e => e.cases.length));
-    return n ? `${round(sum(es.map(e => e.quality * e.cases.length)) / n)} on ${n}` : '-';
+    return n ? `${getRounded(sum(es.map(e => e.quality * e.cases.length)) / n)} on ${n}` : '-';
   };
   const on = (...splits: Split[]) => q(inc?.evals.filter(e => splits.includes(e.split)) ?? []);
   const b = JSON.parse(read(join(dir, 'budget.json')) || '{}') as Budget;
@@ -815,7 +813,7 @@ export const status = (dir: string, limits = limitsDefault) => {
     `${t.repo} on ${t.point}: ${steps.length} steps over ${nextIteration(steps) - 1} iterations, incumbent ${inc?.id ?? 'none yet'}`,
     `  quality, human = 1: select ${on('fit', 'validate')}, validate ${on('validate')}, test ${on('test')}`,
     `  points used: ${used('Codex', b.codex, limits.codex)}, ${used('Claude 5h', b.claude?.fiveHour, limits.claude5h)}, ${used('Claude week', b.claude?.week, limits.claudeWeek)}`,
-    `  bench runs: $${round(sum(steps.flatMap(s => s.evals.map(e => e.usd))))}, ${Math.round(sum(steps.flatMap(s => s.evals.map(e => e.minutes))))} min`,
+    `  bench runs: $${getRounded(sum(steps.flatMap(s => s.evals.map(e => e.usd))))}, ${Math.round(sum(steps.flatMap(s => s.evals.map(e => e.minutes))))} min`,
     ...steps.slice(-5).map(s => `  ${s.id} ${s.verdict}: ${s.why}`),
     live ? `running as pid ${pid}` : 'no live lock',
     written ? `last log write ${Math.round((Date.now() - written) / 60_000)} min ago` : 'no log yet',

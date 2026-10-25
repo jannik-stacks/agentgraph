@@ -28,6 +28,7 @@ import {
   written,
 } from '../src/env.ts';
 import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
+import { getMean, getRounded } from '../src/stats.ts';
 import type * as MainModule from '../src/main.ts';
 import {
   appendJsonl,
@@ -110,8 +111,6 @@ const slot = (kind: string, ...key: unknown[]) =>
   process.env.BENCH_CACHE ? join(process.env.BENCH_CACHE, kind, hash(JSON.stringify(key))) : undefined;
 const reusable = (dir: string | undefined) => dir !== undefined && !process.env.BENCH_FRESH && existsSync(dir);
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
-const round = (n: number) => Math.round(n * 1000) / 1000;
-const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length;
 const sh = (cmd: string, args: string[], o: { cwd?: string; env?: Record<string, string> } = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...o, env: { ...process.env, ...o.env } });
 const save = writeFileAtomic;
@@ -655,7 +654,7 @@ export const stats = (diff: string, human: string[] = []) => {
   return {
     ...s,
     files: changed.length,
-    overlap: union.size ? round(mine.filter(p => human.includes(p)).length / union.size) : 1,
+    overlap: union.size ? getRounded(mine.filter(p => human.includes(p)).length / union.size) : 1,
   };
 };
 let image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
@@ -721,7 +720,7 @@ export const hiddenShare = (run?: Run, base?: Run) => {
   const [r, b] = [counts(run.tail), base && counts(base.tail)];
   if (run.ok || !r) return +run.ok;
   const fixed = b?.total === r.total ? b.passed : 0;
-  return r.total > fixed ? round(Math.max(0, r.passed - fixed) / (r.total - fixed)) : 0;
+  return r.total > fixed ? getRounded(Math.max(0, r.passed - fixed) / (r.total - fixed)) : 0;
 };
 
 /** Whether a failed hidden run broke on the human's names and signatures (coupled) or on a result (behaviour). */
@@ -824,7 +823,7 @@ const effort = (data: string) => {
     sum.cacheWrite += write;
     sum.output += e.output ?? 0;
   }
-  return { sessions: sessions.length, usd: round(sessions.reduce((a, s) => a + s.usd, 0)), tokens, split };
+  return { sessions: sessions.length, usd: getRounded(sessions.reduce((a, s) => a + s.usd, 0)), tokens, split };
 };
 
 /** The earlier attempts of the arm at `at`: older `<arm>.<ms>` dirs beside it and `.attic/<arm>-<time>` dirs. */
@@ -860,7 +859,7 @@ export const readArmUsageOverAttempts = (at: string) => {
       const sum = (tokens[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
       for (const k of ['input', 'cacheRead', 'cacheWrite', 'output'] as const) sum[k] += t[k];
     }
-  const total = (k: 'sessions' | 'usd' | 'ms') => round(attempts.reduce((n, a) => n + a[k], 0));
+  const total = (k: 'sessions' | 'usd' | 'ms') => getRounded(attempts.reduce((n, a) => n + a[k], 0));
   const part = (k: keyof ReturnType<typeof effort>['split']) => attempts.reduce((n, a) => n + a.split[k], 0);
   const split = {
     agent: part('agent'),
@@ -1281,7 +1280,7 @@ export const getBenchUsageCost = (
         1e6,
     0
   );
-  return { usd: round(usd), usdSource: estimate ? 'list-price estimate' : 'list price' } as const;
+  return { usd: getRounded(usd), usdSource: estimate ? 'list-price estimate' : 'list price' } as const;
 };
 
 /** The maker of a proxy alias or model, from its upstream name: openai, anthropic, google, z-ai, x-ai and so on. */
@@ -1389,15 +1388,15 @@ const judge = async (caseDir: string, out: string) => {
 
 /** The 95% interval of the mean of `xs` over resampled sets of the same size. */
 export const bootstrap = (xs: number[], n = 2000): [number, number] => {
-  const means = Array.from({ length: n }, () => mean(xs.map(() => xs[Math.floor(Math.random() * xs.length)]!)));
+  const means = Array.from({ length: n }, () => getMean(xs.map(() => xs[Math.floor(Math.random() * xs.length)]!)));
   means.sort((a, b) => a - b);
-  return [round(means[Math.floor(n * 0.025)]!), round(means[Math.floor(n * 0.975)]!)];
+  return [getRounded(means[Math.floor(n * 0.025)]!), getRounded(means[Math.floor(n * 0.975)]!)];
 };
 
 const metrics = (s: Record<string, unknown>): Record<string, number> =>
   Object.fromEntries(
     Object.entries(s).flatMap(([k, v]): [string, number][] => {
-      if (k === 'ms' && typeof v === 'number') return [['min', round(v / 60_000)]];
+      if (k === 'ms' && typeof v === 'number') return [['min', getRounded(v / 60_000)]];
       if (typeof v === 'number') return [[k, v]];
       if (typeof v === 'boolean') return [[k, +v]];
       return v && typeof v === 'object' && 'ok' in v ? [[k, +Boolean(v.ok)]] : [];
@@ -1495,7 +1494,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
           (byJudge[v.judge] ??= []).push(v.prefer === 'tie' ? 0.5 : +(v.order[+(v.prefer === 'B')] === arm));
         const found = (severity: string) =>
           seen.length
-            ? mean(
+            ? getMean(
                 seen.map(
                   v => (v[v.order[0] === arm ? 'A' : 'B']?.findings ?? []).filter(f => f.severity === severity).length
                 )
@@ -1517,7 +1516,7 @@ export const readBenchRows = (out: string, repos?: string[]) => {
             ...(share !== undefined && { hiddenShare: share }),
             ...(suite !== undefined && { suite }),
             ...(typecheck !== undefined && { typecheck }),
-            vsHuman: Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, mean(ps)])),
+            vsHuman: Object.fromEntries(Object.entries(byJudge).map(([j, ps]) => [j, getMean(ps)])),
             findings: { critical: found('critical'), high: found('high') },
             answers: Number(s.answers ?? 0),
             minutes: Number(spent.ms ?? 0) / 60_000,
@@ -1549,19 +1548,19 @@ const summary = (cases: Scored[]) => {
         }
     }
     for (const [pair, byJudge] of Object.entries(pairs)) {
-      (wins[pair] ??= []).push(mean(Object.values(byJudge).flat()));
+      (wins[pair] ??= []).push(getMean(Object.values(byJudge).flat()));
       const calls = Object.values(byJudge).map(ps => (ps.every(p => p === ps[0]) ? ps[0] : 0.5));
       agreed.push(calls.length > 1 && calls.every(p => p === calls[0]));
     }
   }
   const winRows: [string, Record<string, number | string>][] = Object.entries(wins).map(([pair, ws]) => [
     pair,
-    { cases: ws.length, 'first wins': round(mean(ws)), '95% CI': bootstrap(ws).join(' to ') },
+    { cases: ws.length, 'first wins': getRounded(getMean(ws)), '95% CI': bootstrap(ws).join(' to ') },
   ]);
   const means: [string, Record<string, number>][] = Object.entries(perArm).map(([arm, rs]) => [
     arm,
     Object.fromEntries(
-      [...new Set(rs.flatMap(Object.keys))].map(k => [k, round(mean(rs.flatMap(r => (k in r ? [r[k]!] : []))))])
+      [...new Set(rs.flatMap(Object.keys))].map(k => [k, getRounded(getMean(rs.flatMap(r => (k in r ? [r[k]!] : []))))])
     ),
   ]);
   return [
@@ -1588,7 +1587,7 @@ const judging = (out: string, ids: string[]) => {
   });
   const sum = (k: 'ms' | 'usd') => calls.reduce((n, c) => n + (c[k] ?? 0), 0);
   return calls.length
-    ? [`Judges: ${calls.length} calls, $${round(sum('usd'))}, ${Math.round(sum('ms') / 60_000)} min.`, '']
+    ? [`Judges: ${calls.length} calls, $${getRounded(sum('usd'))}, ${Math.round(sum('ms') / 60_000)} min.`, '']
     : [];
 };
 
@@ -1597,7 +1596,7 @@ const headline = (cases: Scored[], valid: Scored[]) => {
   const invalids = cases.flatMap(c => (c.invalid ? [`${c.id}: ${c.invalid}`] : []));
   const rate = ([arm, passes]: [string, number[]]): [string, Record<string, number>] => [
     arm,
-    { passed: passes.reduce((a, p) => a + p, 0), of: passes.length, rate: round(mean(passes)) },
+    { passed: passes.reduce((a, p) => a + p, 0), of: passes.length, rate: getRounded(getMean(passes)) },
   ];
   const hidden = ['base', ...arms].flatMap((arm): [string, number[]][] => {
     const passes = valid.flatMap(c => c.rows.flatMap(([a, r]) => (a === arm && 'hidden' in r ? [r.hidden!] : [])));
@@ -1638,7 +1637,7 @@ export const progress = (units: Unit[], parallel = 1) => {
   const ms = states.flatMap(u =>
     u.state === 'done' ? [Number(json(join(u.out, u.case, u.arm, 'meta.json')).ms) || []].flat() : []
   );
-  const minutes = ms.length ? mean(ms) / 60_000 : undefined;
+  const minutes = ms.length ? getMean(ms) / 60_000 : undefined;
   return {
     total: units.length,
     done: count('done'),

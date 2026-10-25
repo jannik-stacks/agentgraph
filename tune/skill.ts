@@ -25,6 +25,7 @@ import {
   tuneRows,
 } from '../bin/tune.ts';
 import { writeFileAtomic } from '../bin/resume.ts';
+import { getRounded } from '../src/stats.ts';
 import { claudeUsed, events, hubProblems, type Usage } from './propose.ts';
 
 type Io = Parameters<typeof step>[2];
@@ -58,7 +59,6 @@ const agentgraph = join(import.meta.dirname, '..');
 const skillDir = join(agentgraph, 'skills/tune-graph');
 const read = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const pad = (n: number) => String(n).padStart(3, '0');
-const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const fence = (text: string, lang = '') => `\`\`\`${lang}\n${text.replaceAll('```', "'''")}\n\`\`\``;
 const idsOf = (cases: Record<string, Split>, ...splits: Split[]) =>
   Object.keys(cases)
@@ -303,14 +303,14 @@ const ask = async (dir: string, iteration: number, o: Options, io?: Io): Promise
     const result = events(stream).findLast(e => e.type === 'result');
     const id = result?.session_id ?? events(stream).find(e => e.session_id)?.session_id;
     if (id) r.session = id;
-    r.usd = round3(r.usd + (result?.total_cost_usd ?? 0));
+    r.usd = getRounded(r.usd + (result?.total_cost_usd ?? 0));
     r.leaks.push(...leaksOf(stream, dir, w, hidden));
     slots = await slotsOf(w);
     const bad = slots.filter(s => !s.empty && s.problems.length);
     if (!bad.length || !r.session) break;
     prompt = `The harness found these problems; fix them in place:\n\n${bad.map(s => `- out/${s.slot}: ${s.problems.join('; ')}`).join('\n')}`;
   }
-  r.minutes = round3((Date.now() - began) / 60_000);
+  r.minutes = getRounded((Date.now() - began) / 60_000);
   const after = live.usage;
   const first = before ?? live.first;
   r.claude = { ...(first && { before: first }), ...(after && { after }) };
@@ -337,7 +337,7 @@ const claudeOf = (r: Round) => {
   const queued = r.slots.flatMap(s => (s.id ? [s.id] : []));
   const { before, after } = r.claude;
   const used = before && after ? reading({ now: before.fiveHour, used: 0 }, after.fiveHour).used : 0;
-  return Object.fromEntries(queued.map(id => [id, round3(used / queued.length)]));
+  return Object.fromEntries(queued.map(id => [id, getRounded(used / queued.length)]));
 };
 
 const rounds = (dir: string) =>
