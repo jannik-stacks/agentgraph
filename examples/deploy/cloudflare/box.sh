@@ -56,7 +56,7 @@ put)
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/agentgraph-put.XXXXXX")
   tar -x -f - -C "$tmp"
   mkdir -p "$dir"
-  for path in "$tmp"/* "$tmp"/.[!.]*; do
+  for path in "$tmp"/* "$tmp"/.[!.]* "$tmp"/..?*; do
     [ -e "$path" ] || [ -L "$path" ] || continue
     [ ! -d "$dir/${path##*/}" ] || rm -rf "${dir:?}/${path##*/}"
     mv -f "$path" "$dir/"
@@ -64,7 +64,7 @@ put)
   rm -rf "$tmp"
   ;;
 keep)
-  tar -czf /tmp/agentgraph-kept.tgz -C "$root/" --exclude=.cache work homes
+  tar -czf /tmp/agentgraph-kept.tgz -C "$root/" --exclude='homes/*/.cache' work homes
   wc -c < /tmp/agentgraph-kept.tgz
   ;;
 reap)

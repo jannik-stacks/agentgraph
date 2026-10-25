@@ -4,6 +4,9 @@ for name in AGENTGRAPH_APP_KEY AGENTGRAPH_PROXY_KEYS GATEWAY_HEADERS; do
   eval "held_$name=\${$name:-}"
   unset "$name"
 done
+caller=$PWD
+absolute() { case $1 in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$caller" "$1" ;; esac; }
+[ -z "${AGENTGRAPH_APP_ENV:-}" ] || AGENTGRAPH_APP_ENV=$(absolute "$AGENTGRAPH_APP_ENV")
 cd "$(dirname "$0")"
 answers=$(mktemp -d)
 trap 'rm -rf "$answers"' EXIT
@@ -18,7 +21,7 @@ keep() {
       slug=$(basename "$(dirname "${AGENTGRAPH_APP_ENV:?names the App whose Keychain key fd 3 means}")")
       security find-generic-password -s "agentgraph-app-$slug" -w | base64 -d > "$answers/$1"
       ;;
-    *) cat "$file" > "$answers/$1" ;;
+    *) cat "$(absolute "$file")" > "$answers/$1" ;;
     esac
     [ -s "$answers/$1" ] || {
       echo "$1_FILE $file is empty" >&2
@@ -59,6 +62,7 @@ case $deployed in
       read -r AGENTGRAPH_APP_ENV
     fi
     [ -n "$AGENTGRAPH_APP_ENV" ] || AGENTGRAPH_APP_ENV=$(node ../../../bin/setup-app.ts)
+    AGENTGRAPH_APP_ENV=$(absolute "$AGENTGRAPH_APP_ENV")
     . "$AGENTGRAPH_APP_ENV"
     export AGENTGRAPH_APP_ID
     keep AGENTGRAPH_APP_KEY

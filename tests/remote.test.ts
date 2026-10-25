@@ -92,6 +92,7 @@ describe('remote sandbox', () => {
   it('brings the session home, the hub and the news to the box, on the network of its hub', async () => {
     const hub = tmp('hub');
     writeFileSync(join(hub, 'rules.md'), 'rules\n');
+    writeFileSync(join(hub, '..odd'), 'odd\n');
     const home = join(tmp('homes'), 'session-1');
     mkdirSync(join(home, '.cache'), { recursive: true });
     writeFileSync(join(home, 'state'), 'one\n');
@@ -103,7 +104,7 @@ describe('remote sandbox', () => {
         return yield* s.exec(
           sh(
             work.dir,
-            'cat "$HOME/state" "$AGENTGRAPH_HUB/rules.md" "$NEWS"; ls -A "$HOME"; echo two > "$HOME/state"',
+            'cat "$HOME/state" "$AGENTGRAPH_HUB/rules.md" "$AGENTGRAPH_HUB/..odd" "$NEWS"; ls -A "$HOME"; echo two > "$HOME/state"',
             {
               home,
               hub,
@@ -114,7 +115,7 @@ describe('remote sandbox', () => {
         );
       })
     );
-    expect(exit).toEqual(Exit.succeed({ code: 0, output: 'one\nrules\nnews\nstate\n' }));
+    expect(exit).toEqual(Exit.succeed({ code: 0, output: 'one\nrules\nodd\nnews\nstate\n' }));
     expect(readFileSync(join(home, 'state'), 'utf8')).toBe('two\n');
     expect(server.runs.at(-1)?.network).toBe('models');
   });
