@@ -4,7 +4,11 @@ if [ -f "$ca" ]; then
   cat /etc/ssl/certs/ca-certificates.crt "$ca" > /tmp/ca.crt
   export SSL_CERT_FILE=/tmp/ca.crt NODE_EXTRA_CA_CERTS=/tmp/ca.crt GIT_SSL_CAINFO=/tmp/ca.crt
 fi
-mkdir -p /data
+mkdir -p /data /tmp/keys
+for name in AGENTGRAPH_APP_KEY AGENTGRAPH_PROXY_KEYS; do
+  (umask 077 && curl -sSf -o "/tmp/keys/$name" "http://keys.internal/$name")
+  export "${name}_FILE=/tmp/keys/$name"
+done
 code=$(curl -sS -o /tmp/data.tar.gz -w '%{http_code}' http://data.internal/data.tar.gz)
 case $code in
 200) tar -xzf /tmp/data.tar.gz -C /data ;;

@@ -44,25 +44,38 @@ const storeData = async (request: Request, env: Env) => {
   return object ? new Response(object.body) : new Response(null, { status: 404 });
 };
 
+const readKey = (request: Request, env: Env) => {
+  const name = new URL(request.url).pathname.slice(1);
+  if (name !== 'AGENTGRAPH_APP_KEY' && name !== 'AGENTGRAPH_PROXY_KEYS') return new Response(null, { status: 404 });
+  return env[name] ? new Response(env[name]) : new Response(null, { status: 404 });
+};
+
 export class Engine extends Container<Env> {
   sleepAfter = '10m';
   enableInternet = false;
   interceptHttps = true;
-  allowedHosts = ['github.com', 'api.github.com', 'codeload.github.com', 'box.internal', 'data.internal', 'gateway.internal'];
+  allowedHosts = [
+    'github.com',
+    'api.github.com',
+    'codeload.github.com',
+    'box.internal',
+    'data.internal',
+    'gateway.internal',
+    'keys.internal',
+  ];
   static {
-    this.outboundByHost = { 'box.internal': runBox, 'data.internal': storeData, 'gateway.internal': gateway };
+    this.outboundByHost = {
+      'box.internal': runBox,
+      'data.internal': storeData,
+      'gateway.internal': gateway,
+      'keys.internal': readKey,
+    };
   }
 
   async wake() {
     if (this.ctx.container?.running) return;
-    const env = this.env;
     await this.start({
-      envVars: {
-        AGENTGRAPH_REPO: env.AGENTGRAPH_REPO,
-        AGENTGRAPH_APP_ID: env.AGENTGRAPH_APP_ID,
-        AGENTGRAPH_APP_KEY: env.AGENTGRAPH_APP_KEY,
-        AGENTGRAPH_PROXY_KEYS: env.AGENTGRAPH_PROXY_KEYS,
-      },
+      envVars: { AGENTGRAPH_REPO: this.env.AGENTGRAPH_REPO, AGENTGRAPH_APP_ID: this.env.AGENTGRAPH_APP_ID },
     });
   }
 
@@ -78,6 +91,8 @@ export class Box extends Container<Env> {
   entrypoint = ['sh', '-c', boxScript, 'box', 'start'];
   running = new Map<Network, number>();
   children = new Map<string, ExecProcess>();
+  checkout = '';
+  dirty = false;
   static {
     this.outbound = async (request: Request, env: Env, ctx: OutboundHandlerContext) => {
       const host = new URL(request.url).hostname;
@@ -93,25 +108,46 @@ export class Box extends Container<Env> {
   }
 
   override async onActivityExpired() {
-    if ([...this.running.values()].some(count => count > 0)) this.renewActivityTimeout();
-    else if (this.ctx.container?.running) await this.destroy();
+    if ([...this.running.values()].some(count => count > 0)) return this.renewActivityTimeout();
+    if (!this.ctx.container?.running) return;
+    if (this.dirty && !(await this.keep().catch(() => false))) return this.renewActivityTimeout();
+    this.dirty = false;
+    await this.destroy();
+  }
+
+  async keep() {
+    const exec = (cmd: string[]) => this.ctx.container!.exec(cmd, { user: '0:0', stderr: 'ignore' });
+    const packed = await (await exec(['sh', '-c', boxScript, 'box', 'keep'])).output();
+    const size = Number(new TextDecoder().decode(packed.stdout));
+    if (packed.exitCode !== 0 || !size) return false;
+    const { readable, writable } = new FixedLengthStream(size);
+    const cat = await exec(['cat', '/tmp/agentgraph-kept.tgz']);
+    await Promise.all([
+      this.env.DATA.put(`kept/${this.checkout}.tgz`, readable),
+      (cat.stdout as ReadableStream<Uint8Array>).pipeTo(writable),
+    ]);
+    return true;
   }
 
   override async fetch(request: Request) {
     if (request.method === 'DELETE') {
+      this.dirty = false;
       if (this.ctx.container?.running) await this.destroy();
       return new Response(null, { status: 204 });
     }
     const url = new URL(request.url);
     const op = url.pathname.split('/')[2] ?? '';
+    this.checkout = url.pathname.split('/')[1] ?? '';
     const fresh = !this.ctx.container?.running;
+    if (fresh) this.dirty = false;
     await this.start();
     this.renewActivityTimeout();
     const headers: HeadersInit = fresh ? { 'agentgraph-box-fresh': '1' } : {};
     if (op === 'run') {
       const network = url.searchParams.get('network');
       if (!networks.includes(network as Network)) return new Response(`unknown network ${network}`, { status: 400 });
-      return this.run(url.searchParams.get('id') ?? '', network as Network, await request.json(), headers);
+      const { argv, secrets } = (await request.json()) as { argv: string[]; secrets: Record<string, string> };
+      return this.run(url.searchParams.get('id') ?? '', network as Network, argv, secrets, headers);
     }
     if (op === 'stop') {
       const child = this.children.get(url.searchParams.get('arg') ?? '');
@@ -140,7 +176,8 @@ export class Box extends Container<Env> {
     await child.exitCode.catch(() => undefined);
   }
 
-  async run(id: string, network: Network, argv: string[], headers: HeadersInit) {
+  async run(id: string, network: Network, argv: string[], secrets: Record<string, string>, headers: HeadersInit) {
+    this.dirty = true;
     this.running.set(network, (this.running.get(network) ?? 0) + 1);
     const done = () => {
       this.running.set(network, (this.running.get(network) ?? 1) - 1);
@@ -148,6 +185,7 @@ export class Box extends Container<Env> {
     };
     const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'run', ...argv], {
       user: '1000:1000',
+      env: secrets,
       stderr: 'combined',
     }).catch(error => {
       done();

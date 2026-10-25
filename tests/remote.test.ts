@@ -1,6 +1,7 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { Chunk, Effect, Exit, type Layer, type Scope, Stream } from 'effect';
+import { Chunk, Effect, Exit, type Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { remoteSandbox } from '../src/remote.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
@@ -160,6 +161,57 @@ describe('remote sandbox', () => {
       })
     );
     expect(exit).toEqual(Exit.succeed([true, true, 'a.txt\ne.txt\n']));
+  });
+
+  it('passes secrets by environment, never in arguments', async () => {
+    const exit = await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work =>
+        s.exec(sh(work.dir, 'echo "$TOKEN"', { secrets: { TOKEN: Redacted.make('s3cret') } }))
+      )
+    );
+    expect(exit).toEqual(Exit.succeed({ code: 0, output: 's3cret\n' }));
+    expect(JSON.stringify(server.runs.at(-1)?.argv)).not.toContain('s3cret');
+  });
+
+  it('brings an ignored file that the host added by force', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        yield* s.exec(sh(work.dir, 'true'));
+        mkdirSync(join(work.dir, 'node_modules'));
+        writeFileSync(join(work.dir, 'node_modules', 'forced'), 'forced\n');
+        execFileSync('git', ['add', '-f', 'node_modules/forced'], { env: { ...process.env, ...work.git } });
+        return yield* s.exec(sh(work.dir, 'cat node_modules/forced'));
+      })
+    );
+    expect(exit).toEqual(Exit.succeed({ code: 0, output: 'forced\n' }));
+  });
+
+  it('pulls work that did not come back before the next command', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        server.faults.pulls = 4;
+        const failed = yield* Effect.either(s.exec(sh(work.dir, 'echo box > b.txt')));
+        const missing = !existsSync(join(work.dir, 'b.txt'));
+        const next = yield* s.exec(sh(work.dir, 'cat b.txt'));
+        return [failed._tag, missing, next.output, readFileSync(join(work.dir, 'b.txt'), 'utf8')];
+      })
+    );
+    expect(exit).toEqual(Exit.succeed(['Left', true, 'box\n', 'box\n']));
+  });
+
+  it('keeps the box when its work never came back', async () => {
+    let id = '';
+    await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work => {
+        id = basename(work.dir);
+        server.faults.pulls = 100;
+        return Effect.either(s.exec(sh(work.dir, 'echo box > b.txt')));
+      })
+    );
+    server.faults.pulls = 0;
+    expect(readFileSync(join(boxes, id, 'work', 'b.txt'), 'utf8')).toBe('box\n');
   });
 
   it('fails when the stream ends without an exit code', async () => {

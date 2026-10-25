@@ -15,6 +15,7 @@ const read = async (request: IncomingMessage) => {
 
 export const startBoxServer = async (dir: string, { frame = true } = {}) => {
   const runs: { id: string; network: string; argv: string[] }[] = [];
+  const faults = { pulls: 0 };
   const children = new Map<string, ChildProcess>();
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://box');
@@ -38,13 +39,14 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       return response.end();
     }
     if (op === 'run') {
-      const [minutes = '1', ...argv] = JSON.parse(body.toString('utf8')) as string[];
+      const sent = JSON.parse(body.toString('utf8')) as { argv: string[]; secrets: Record<string, string> };
+      const [minutes = '1', ...argv] = sent.argv;
       runs.push({ id, network: url.searchParams.get('network') ?? '', argv });
       const child = spawn(
         'sh',
         [script, 'run', minutes, ...argv.map(arg => arg.replace(/^(\w+=)(\/(homes|hub)(\/.*)?)$/s, `$1${root}$2`))],
         {
-          env,
+          env: { ...env, ...sent.secrets },
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true,
         }
@@ -63,6 +65,11 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
       );
       return;
     }
+    if (op === 'pull' && faults.pulls > 0) {
+      faults.pulls--;
+      response.statusCode = 503;
+      return response.end('unreachable');
+    }
     const child = spawn('sh', [script, op, ...url.searchParams.getAll('arg')], { env });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
@@ -79,6 +86,7 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     runs,
+    faults,
     close: () => new Promise<void>(resolve => server.close(() => resolve())),
   };
 };

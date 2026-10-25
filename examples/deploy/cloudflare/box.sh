@@ -62,6 +62,10 @@ put)
   done
   rm -rf "$tmp"
   ;;
+keep)
+  tar -czf /tmp/agentgraph-kept.tgz -C "$root/" --exclude=.cache work homes
+  wc -c < /tmp/agentgraph-kept.tgz
+  ;;
 run)
   minutes=$1
   shift

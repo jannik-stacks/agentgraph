@@ -16,7 +16,7 @@ examples/deploy/cloudflare/up
 | `AGENTGRAPH_PROXY_KEYS` | One gateway key per agent, as in [Models](sandbox.md#models) |
 | `GATEWAY_HEADERS` | Optional, read from the environment only; see below |
 
-Values already in the environment are used without asking, so a second run of `up` only redeploys. The engine starts within five minutes, from a cron trigger. `npx wrangler tail` in the example folder follows it.
+Values already in the environment are used without asking, so a second run of `up` only redeploys. The two keys may also come from files named by `AGENTGRAPH_APP_KEY_FILE` and `AGENTGRAPH_PROXY_KEYS_FILE`, as on a host; wrangler never sees them in its environment. The engine starts within five minutes, from a cron trigger. `npx wrangler tail` in the example folder follows it.
 
 ## What runs where
 
@@ -24,18 +24,19 @@ Values already in the environment are used without asking, so a second run of `u
  Worker "agentgraph"
    cron, every 5 minutes --> Engine container, one instance
                                node bin/run.ts loop, data in /data
-                               reaches GitHub, and box.internal, data.internal, gateway.internal
+                               reaches GitHub, and box.internal, data.internal, gateway.internal, keys.internal
    box.internal/<id> ------> Box container, one per checkout, the sandbox image
                                reaches gateway.internal and the egress allowlist, per command
    data.internal ----------> R2 bucket agentgraph-data
    gateway.internal -------> GATEWAY_URL
+   keys.internal ----------> the App key and the agent keys, read once at start
 ```
 
 The engine is the same runner as on a host. `AGENTGRAPH_SANDBOX_URL` set to `http://box.internal` makes it run commands in boxes instead of docker. The checkout stays a git worktree on the engine's disk, and host git, merges and kept files work as there. <!-- code: src/remote.ts#remoteSandbox src/services.ts#makeProductionLayers -->
 
 ## Boxes
 
-Each checkout gets its own box, named after the checkout, and destroys it when the checkout closes. Before a command the work tree, the session home and the hub go to the box; after it, the work tree and the home come back. Both directions send only the git objects that changed, so ignored folders such as `node_modules` or `target` stay in the box, deletions travel, and a box cannot write through a link on the host. The news file is sent before the command and once a minute while it runs.
+Each checkout gets its own box, named after the checkout, and destroys it when the checkout closes. A box whose last work did not come back is kept instead: the next command in the checkout pulls that work first, and a box left idle for 30 minutes writes `/work` and `/homes` to `kept/<id>.tgz` in the bucket before it stops. Before a command the work tree, the session home and the hub go to the box; after it, the work tree and the home come back. Both directions send only the git objects that changed, so ignored folders such as `node_modules` or `target` stay in the box, deletions travel, and a box cannot write through a link on the host. The news file is sent before the command and once a minute while it runs.
 
 Commands in one checkout share the box, as they share the work tree under docker. A command that times out or is interrupted is killed with its children, and what it wrote comes back. A box that restarted gets the files and the toolchain again before the next command; the hub's `setup` is not run again. The toolchain step runs once per checkout in the box, with any host reachable. A hub `image` is refused: every box runs the sandbox image.
 
@@ -63,7 +64,7 @@ A header with an empty value is removed. ChatGPT subscription logins cannot run 
 
 ## Not yet
 
-- The App key is a Worker secret passed to the engine container; a signer that keeps it in the Worker comes later.
+- The App key is a Worker secret the engine reads from `keys.internal` into a file; a signer that keeps it in the Worker comes later.
 - Runs and traces are in the backup, not a database.
 - The studio does not run on Cloudflare.
 - Image builds and `wrangler dev` need Docker. Tests cover the box protocol and the gateway, not a deploy.
