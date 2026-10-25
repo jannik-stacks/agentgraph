@@ -8,9 +8,10 @@ home="${2:-$HOME/.config/agentgraph}/$slug"
 item="agentgraph-app-$slug"
 [[ -f "$home/key.pem" ]] || { echo "no key at $home/key.pem" >&2; exit 1; }
 
-printf 'add-generic-password -U -T "" -a agentgraph -s %s -w %s\n' "$item" "$(base64 <"$home/key.pem" | tr -d '\n')" |
-  security -i >/dev/null
-security find-generic-password -a agentgraph -s "$item" >/dev/null
+key=$(base64 <"$home/key.pem" | tr -d '\n')
+printf 'add-generic-password -U -T "" -a agentgraph -s %s -w %s\n' "$item" "$key" | security -i >/dev/null
+[[ "$(security find-generic-password -a agentgraph -s "$item" -w)" == "$key" ]] ||
+  { echo "the Keychain did not keep the key; $home/key.pem stays" >&2; exit 1; }
 sed -i.bak 's|^AGENTGRAPH_APP_KEY_FILE=.*|AGENTGRAPH_APP_KEY_FILE=/dev/fd/3|' "$home/app.env"
 rm -f "$home/app.env.bak" "$home/key.pem"
 chmod 600 "$home/app.env"

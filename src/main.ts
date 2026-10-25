@@ -87,7 +87,7 @@ const configured = (env: Record<string, string>, extra: Record<string, string> =
  * `'all'`, and resolves with the runs it touched. The only place that leaves Effect.
  */
 export const start = (
-  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
+  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction; marked?: true },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers,
   defaults: Record<string, string> = {}
 ): Promise<Run[]> => {

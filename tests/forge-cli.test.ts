@@ -71,7 +71,10 @@ const world = () => {
         replaySession(turns)
       );
     };
-    return main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, services);
+    return main(
+      { hub: sandboxHub, issue, data, ...(instruction && { instruction }), ...(marked && { marked }) },
+      services
+    );
   };
   return { root, seed, dir, origin: join(dir, 'origin.git'), forge, run, seen };
 };
@@ -569,7 +572,7 @@ describe('an instance', () => {
     const status = spawnSync(process.execPath, [join(cli, '..', 'run.ts'), 'status', '--instance', at], {
       encoding: 'utf8',
     });
-    expect(status.stdout).toContain(`node bin/run.ts --instance ${at} --issue 1`);
+    expect(status.stdout).toContain(`npx agentgraph --instance ${at} --issue 1`);
     writeFileSync(instance.keys, `AGENTGRAPH_CONFIG=${join(w.root, 'missing.config.ts')}\n`);
     const checked = spawnSync(process.execPath, [join(cli, '..', 'run.ts'), 'check', '--instance', at], {
       encoding: 'utf8',

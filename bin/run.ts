@@ -24,7 +24,8 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { tell, type Instruction } from '../src/engine.ts';
-import { readEngineEnv, readEnvFile, secretSettings, start } from '../src/main.ts';
+import { makeHostEnv } from '../src/git.ts';
+import { readEngineEnv, readEnvFile, secretSettings, start, writeTriggeringIssue } from '../src/main.ts';
 import { readConfiguredHub } from '../src/harnesses.ts';
 import { instanceAt } from '../src/instance.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
@@ -106,7 +107,8 @@ if (command === 'start') {
     process.exit(2);
   }
   const hub = await Effect.runPromise(readConfiguredHub(resolve(values.hub)));
-  const author = instance?.owner ?? execFileSync('git', ['config', 'user.name'], { encoding: 'utf8' }).trim();
+  const author =
+    instance?.owner ?? execFileSync('git', ['config', 'user.name'], { encoding: 'utf8', env: makeHostEnv() }).trim();
   issue = await writeTriggeringIssue(hub, resolve(values.forge), text, author, values.workflow).catch((e: Error) => {
     console.error(e.message);
     process.exit(2);
@@ -153,20 +155,14 @@ if (positionals[0] === 'status') {
     process.exit(2);
   }
   const forge = values.forge ? resolve(values.forge) : undefined;
-  const again = instance
-    ? `--instance ${instance.dir}`
-    : `--hub ${hub} --data ${data}${forge ? ` --forge ${forge}` : ''}`;
-  const lines = await Effect.runPromise(
-    readConfiguredHub(hub).pipe(
-      Effect.flatMap(h =>
-        needsYou(forge ? undefined : { repo: h.repo, id: id!, key: Redacted.make(key!) }, {
-          again,
-          ...(forge && { forge }),
-        })
-      ),
-      Effect.provide(fileStore(data))
-    )
-  );
+  const { repo } = await Effect.runPromise(readConfiguredHub(hub));
+  const runs = await Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
+  const lines = [
+    ...(forge ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
+    ...findRunsWaitingOnPeople(runs).flatMap(run =>
+      formatNextSteps(run, repo, instance ? { instance: instance.dir } : { hub, data, ...(forge && { forge }) })
+    ),
+  ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}` : 'Nothing needs you');
   process.exit(0);
 }
@@ -190,7 +186,13 @@ if (!values.hub || !values.data || (issue !== 'all' && (!Number.isInteger(issue)
 }
 
 const runs = await start(
-  { hub: resolve(values.hub), issue, data: resolve(values.data), ...(instruction && { instruction }) },
+  {
+    hub: resolve(values.hub),
+    issue,
+    data: resolve(values.data),
+    ...(instruction && { instruction }),
+    ...(command === 'start' && { marked: true as const }),
+  },
   undefined,
   defaults
 );

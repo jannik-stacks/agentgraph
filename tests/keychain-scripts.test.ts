@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -48,5 +48,22 @@ describe('keychain scripts', () => {
     const calls = readFileSync(join(dir, 'calls'), 'utf8');
     expect(calls).not.toContain('FAKE-canary');
     expect(calls).not.toContain(Buffer.from(pem).toString('base64').slice(0, 24));
+  });
+
+  it('keeps key.pem when the Keychain holds another value', () => {
+    const dir = tmp('keychain-refused');
+    write(dir, {
+      'config/acme/key.pem': pem,
+      'config/acme/app.env': 'AGENTGRAPH_APP_ID=7\n',
+      item: 'b2xk',
+      'bin/security': '#!/bin/sh\n[ "$1" = -i ] && exit 0\ncat "$KEYCHAIN/item"\n',
+    });
+    chmodSync(join(dir, 'bin', 'security'), 0o755);
+    const r = spawnSync('bash', [join(scripts, 'keychain-import.sh'), 'acme', join(dir, 'config')], {
+      encoding: 'utf8',
+      env: { PATH: `${join(dir, 'bin')}:${process.env.PATH}`, KEYCHAIN: dir },
+    });
+    expect(r.status).toBe(1);
+    expect(readFileSync(join(dir, 'config/acme/key.pem'), 'utf8')).toBe(pem);
   });
 });
