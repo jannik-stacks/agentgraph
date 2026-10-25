@@ -44,13 +44,9 @@ export const runLogged = (
     child.stderr?.pipe(stream, { end: false });
     child.on('error', e => {
       log(`spawn: ${e.message}`);
-      stream.end();
-      done(1);
+      stream.end(() => done(1));
     });
-    child.on('close', code => {
-      stream.end();
-      done(code ?? 1);
-    });
+    child.on('close', code => stream.end(() => done(code ?? 1)));
   });
 
 const json = <T>(path: string, fallback: T): T => {
