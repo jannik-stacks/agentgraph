@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { builtinModules } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { makeStudioDevApiPlugin } from './fixtures.ts';
 
@@ -20,11 +21,13 @@ const noNodeInBrowser = (): Plugin => ({
 });
 
 const server = { port: Number(process.env.AGI_PORT) || 5182, strictPort: true };
+const allow = ['./', '../src/', '../node_modules/'].map(dir => fileURLToPath(new URL(dir, import.meta.url)));
+const deny = ['.env', '.env.*', '*.env', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**'];
 
 export default defineConfig({
   appType: 'spa',
   plugins: [noNodeInBrowser(), makeStudioDevApiPlugin(), react(), tailwindcss()],
   resolve: { dedupe: ['yaml'] },
-  server: { ...server, fs: { allow: ['..'] }, warmup: { clientFiles: ['./src/main.tsx'] } },
+  server: { ...server, fs: { allow, deny }, warmup: { clientFiles: ['./src/main.tsx'] } },
   preview: server,
 });
