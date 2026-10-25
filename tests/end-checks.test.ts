@@ -3,13 +3,13 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Either } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { drive, instruct, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
+import { instruct, runStepChecks, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
 import type { Check, Hub } from '../src/hub.ts';
 import { Store } from '../src/store.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { transition, type Run } from '../src/workflow.ts';
-import { reply, start, wrote } from './fixtures.ts';
-import { fresh, hub, judged, pull, push, say, services, traceOf, w, world } from './world.ts';
+import { start } from './fixtures.ts';
+import { fresh, hub, pullRequest, say, services, traceOf, w, world } from './world.ts';
 
 const ending = (checks: Record<string, Partial<Check>>): Hub => ({
   ...hub,
@@ -43,18 +43,23 @@ const left = (where: ReturnType<typeof world>) => {
 };
 
 const git = (where: ReturnType<typeof world>, ...args: string[]) =>
-  execFileSync('git', ['--git-dir', where.origin, ...args])
+  execFileSync('git', ['--git-dir', where.origin, ...args], {
+    env: { ...process.env, GIT_INDEX_FILE: join(where.root, 'index') },
+  })
     .toString()
     .trim();
 
-const keep = (where: ReturnType<typeof world>) => {
+const keep = (where: ReturnType<typeof world>, branch?: string) => {
   const fork = git(where, 'rev-parse', 'main');
-  git(
-    where,
-    'update-ref',
-    'refs/agentgraph/runs/run-7',
-    git(where, 'commit-tree', 'main^{tree}', '-p', fork, '-m', 'kept')
-  );
+  git(where, 'read-tree', 'main');
+  if (branch) {
+    const blob = execFileSync('git', ['--git-dir', where.origin, 'hash-object', '-w', '--stdin'], { input: 'hello\n' });
+    git(where, 'update-index', '--add', '--cacheinfo', `100644,${blob.toString().trim()},hello.txt`);
+  }
+  const tree = git(where, 'write-tree');
+  const tip = branch ? git(where, 'commit-tree', tree, '-p', fork, '-m', 'Add hello') : fork;
+  if (branch) git(where, 'update-ref', `refs/heads/${branch}`, tip);
+  git(where, 'update-ref', 'refs/agentgraph/runs/run-7', git(where, 'commit-tree', tree, '-p', tip, '-m', 'kept'));
   return fork;
 };
 
@@ -150,14 +155,11 @@ describe('end checks', () => {
       lines: { returns: 'number', run: 'wc -l < hello.txt' },
       changed: { returns: 'number', each: 'files', run: 'test -s "$AGENTGRAPH_ITEM"' },
     });
-    const flow = h.workflows.issue!;
-    const first = services(where, [
-      [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
-      [start('i1'), wrote('hello.txt', 'hello\n'), reply(push, pull)],
-      judged,
-      [start('r1'), reply({ kind: 'comment', body: 'Looks right.' })],
-    ]);
-    expect(await first.run(drive(flow, fresh(), h))).toMatchObject({ step: 'merge', status: 'waiting' });
+    const fork = keep(where, 'agentgraph/7');
+    const kept = git(where, 'rev-parse', 'refs/agentgraph/runs/run-7');
+    pullRequest(where);
+    const { run } = services(where, []);
+    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), step: 'merge', status: 'waiting', fork })));
     const at = '2026-10-16T00:10:00.000Z';
     for (const n of [7, 8]) {
       const file = join(where.forge, `${n}.md`);
@@ -166,14 +168,14 @@ describe('end checks', () => {
     say(where, { issue: 7, kind: 'closed', actor: 'morgan', trusted: true, at });
     say(where, { issue: 8, kind: 'merged', actor: 'morgan', trusted: true, at });
     git(where, 'update-ref', 'refs/heads/main', 'refs/heads/agentgraph/7');
-    const second = services(where, []);
-    const swept = await second.run(scanIssuesAndRunningRuns(h));
+    const swept = await run(scanIssuesAndRunningRuns(h));
     expect(swept.map(r => [r.id, r.status, r.owed])).toEqual([['run-7', 'done', undefined]]);
     const ends = results(where.data).filter(r => r.end);
     expect(ends).toEqual([
       expect.objectContaining({ check: 'lines', pass: true, value: 1 }),
       expect.objectContaining({ check: 'changed', pass: true, value: 1 }),
     ]);
+    expect(git(where, 'rev-parse', 'refs/agentgraph/runs/run-7')).toBe(kept);
   });
 
   it('run only what a killed pass left owed, and nothing on the next look', async () => {

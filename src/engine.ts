@@ -415,16 +415,10 @@ export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[
       const { checks, kind: _kind, ...where } = instruction;
       const unknown = checks.filter(name => !(name in hub.checks));
       if (unknown.length) return yield* new ForgeError({ message: `the hub has no check ${unknown.join(', ')}` });
-      const store = yield* Store;
-      const ended = (yield* store.list(where)).filter(isRunDone);
-      yield* Effect.forEach(ended, r =>
-        Effect.gen(function* () {
-          yield* store.lock(r.id);
-          const run = yield* store.get(r.id);
-          if (run) yield* store.put({ ...run, owed: [...new Set([...(run.owed ?? []), ...checks])] });
-        }).pipe(Effect.scoped)
-      );
-      const runs = yield* Effect.forEach(ended, r => runEndChecks(hub, r.id), { concurrency: hub.limits.parallel });
+      const ended = (yield* Effect.flatMap(Store, s => s.list(where))).filter(isRunDone);
+      const runs = yield* Effect.forEach(ended, r => runEndChecks(hub, r.id, checks), {
+        concurrency: hub.limits.parallel,
+      });
       return runs.filter(r => r !== undefined);
     }
     if (instruction.kind === 'dispatch') {
@@ -1499,16 +1493,22 @@ const reopen = (hub: Hub, w: Workflow, run: Run) =>
     return { left, restore };
   });
 
-const runEndChecks = (hub: Hub, id: string): Effect.Effect<Run | undefined, StoreError, Services> =>
+const runEndChecks = (
+  hub: Hub,
+  id: string,
+  adding: string[] = []
+): Effect.Effect<Run | undefined, StoreError, Services> =>
   Effect.gen(function* () {
     const store = yield* Store;
     if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
-    const ended = yield* store.get(id);
-    if (!ended?.owed) return ended;
-    let run: Run = ended;
+    const stored = yield* store.get(id);
+    const owed = [...new Set([...(stored?.owed ?? []), ...adding])];
+    if (!stored || owed.length === 0) return stored;
+    const ended: Run = { ...stored, owed };
+    let run = ended;
     const w = hub.workflows[ended.workflow];
     const opened = w ? yield* caught(reopen(hub, w, ended)) : `the hub has no workflow ${ended.workflow}`;
-    for (const name of ended.owed) {
+    for (const name of owed) {
       const check = hub.checks[name];
       const got = !check
         ? `the hub has no check ${name}`
@@ -1524,8 +1524,8 @@ const runEndChecks = (hub: Hub, id: string): Effect.Effect<Run | undefined, Stor
           check: { check: name, pass: false, empty: true, findings: got, ms: 0 },
           end: true,
         });
-      const { owed = [], ...rest } = run;
-      const left = owed.filter(n => n !== name);
+      const { owed: before = [], ...rest } = run;
+      const left = before.filter(n => n !== name);
       run = { ...rest, usd: run.usd + (typeof got === 'string' ? 0 : got.usd), ...(left.length > 0 && { owed: left }) };
       yield* store.put(run);
     }
