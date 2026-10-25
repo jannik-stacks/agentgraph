@@ -152,14 +152,13 @@ if (positionals[0] === 'status') {
     process.exit(2);
   }
   const forge = values.forge ? resolve(values.forge) : undefined;
-  const again = instance
-    ? `--instance ${instance.dir}`
-    : `--hub ${hub} --data ${data}${forge ? ` --forge ${forge}` : ''}`;
   const { repo } = await Effect.runPromise(readConfiguredHub(hub));
   const runs = await Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
   const lines = [
     ...(forge ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
-    ...findRunsWaitingOnPeople(runs).flatMap(run => formatNextSteps(run, { again, repo, ...(forge && { forge }) })),
+    ...findRunsWaitingOnPeople(runs).flatMap(run =>
+      formatNextSteps(run, repo, instance ? { instance: instance.dir } : { hub, data, ...(forge && { forge }) })
+    ),
   ];
   console.log(lines.length ? `Needs you\n${lines.join('\n')}` : 'Nothing needs you');
   process.exit(0);

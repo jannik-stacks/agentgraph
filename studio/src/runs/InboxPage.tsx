@@ -4,14 +4,14 @@ import { runsAtom } from '../state.ts';
 import { Loading, Muted } from '../ui.tsx';
 import { Rows, runRow } from './rows.tsx';
 
-const {
-  VITE_AGI_INSTANCE: instance,
-  VITE_AGI_HUB: hub,
-  VITE_AGI_DATA: data,
-} = import.meta.env as Record<string, string | undefined>;
-const where = instance
-  ? { again: `--instance ${instance}`, forge: `${instance}/forge` }
-  : { again: `--hub ${hub ?? '<hub>'} --data ${data ?? '<data>'}` };
+const env = import.meta.env as Record<string, string | undefined>;
+const at = env.VITE_AGI_INSTANCE
+  ? { instance: env.VITE_AGI_INSTANCE }
+  : {
+      hub: env.VITE_AGI_HUB ?? '<hub>',
+      data: env.VITE_AGI_DATA ?? '<data>',
+      ...(env.VITE_AGI_FORGE && { forge: env.VITE_AGI_FORGE }),
+    };
 
 export const InboxPage = () => {
   const { value: runs, failure } = useAtomValue(runsAtom);
@@ -27,9 +27,7 @@ export const InboxPage = () => {
           children: [],
           body: (
             <pre className="py-1 whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">
-              {[r.run.reason, ...formatNextSteps(r.run, { ...where, repo: r.repo }).slice(1)]
-                .filter(Boolean)
-                .join('\n')}
+              {[r.run.reason, ...formatNextSteps(r.run, r.repo, at).slice(1)].filter(Boolean).join('\n')}
             </pre>
           ),
         }))}
