@@ -24,7 +24,10 @@ if (values.repo && !repo) {
   console.error(`${values.repo} is not in a git repo`);
   process.exit(2);
 }
+if (!process.env.AGENTGRAPH_CONFIG && existsSync(join(values.data ?? root, 'config.ts')))
+  process.env.AGENTGRAPH_CONFIG = join(values.data ?? root, 'config.ts');
 const instance = repo === undefined ? undefined : await ensureInstance(values.data ?? root, repo);
+if (instance?.provider) process.env.AGENTGRAPH_PROVIDER ??= instance.provider;
 const moved = instance && (await ensureBase(instance));
 if (moved) console.error(`${moved}\nThe studio shows the hub of agentgraph's base.`);
 const hubDir = resolve(

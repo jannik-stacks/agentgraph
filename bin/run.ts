@@ -45,7 +45,7 @@ const usage = `usage: npx agentgraph <verb> [flags]
   dispatch <n> --workflow <name> [--step <step>]  starts a workflow that takes dispatch on issue n
   prune-logs [--apply]                            counts the check logs no trace names, or deletes them
 flags: --data <dir> --repo <dir> --base <branch> --hub <dir> --forge github|<dir> --logs all|failed|off
-       --provider <name> --harness <name> --model <model>`;
+       --provider <name> [--save] --harness <name> --model <model>`;
 
 const { values, positionals } = parseArgs({
   options: {
@@ -67,6 +67,7 @@ const { values, positionals } = parseArgs({
     harness: { type: 'string' },
     provider: { type: 'string' },
     model: { type: 'string' },
+    save: { type: 'boolean' },
   },
   allowPositionals: true,
 });
@@ -148,6 +149,7 @@ let connected: Promise<{ provider: Provider; model?: string }> | undefined;
 const connect = (i: Instance, hub: string, after: string) =>
   (connected ??= (async () => {
     const provider = await pickProvider(i, after);
+    if (values.save && values.provider) writeInstanceProvider(i, provider.name);
     const harness = values.harness ?? provider.harnesses[0]!;
     if (!provider.harnesses.includes(harness))
       fail(`${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.\n${after}`);
@@ -308,9 +310,11 @@ async function runOnInstance() {
     case 'say': {
       if (!said()) fail(`say takes text\n${usage}`);
       const issue = await findIssueOf(i, numbered());
+      const hub = await synced();
+      await prepare(i, hub, 'Nothing was posted.');
       const { seen } = await readLastRun(i, issue);
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
-      return drive(i, issue, await synced(), seen);
+      return drive(i, issue, hub, seen);
     }
     case 'review': {
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
@@ -319,9 +323,11 @@ async function runOnInstance() {
       if (!verdict) fail('review takes approve or changes');
       const text = rest.slice(2).join(' ').trim();
       const issue = await findIssueOf(i, numbered());
+      const hub = await synced();
+      if (verdict === 'changes_requested') await prepare(i, hub, 'Nothing was posted.');
       const { seen } = await readLastRun(i, issue);
       await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
-      if (verdict === 'changes_requested') return drive(i, issue, await synced(), seen);
+      if (verdict === 'changes_requested') return drive(i, issue, hub, seen);
       console.log(`approved #${n}`);
       return;
     }
@@ -413,7 +419,6 @@ async function drive(i: Instance, issue: number, hub: string, before: string | u
     if (held) return report(i, issue);
     console.log('the loop stopped; driving it here');
   }
-  await prepare(i, hub, `#${issue} is posted; npx agentgraph say ${issue} "go on" drives it.`);
   const stop = watchRuns(i, issue);
   const runs = await start(
     { hub, issue, data: i.data, marked: true, base: i.base },
