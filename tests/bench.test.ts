@@ -18,6 +18,7 @@ import {
   pickBenchTestCommands,
   plant,
   keep,
+  readBenchKeys,
   repoint,
   reuse,
   readBenchRows,
@@ -490,13 +491,23 @@ describe('points', () => {
     dirs.push(hub);
     mkdirSync(join(hub, 'agents'));
     for (const name of ['implementor', 'scout']) writeFileSync(join(hub, 'agents', `${name}.md`), '---\n---\n');
-    const before = process.env.AGENTGRAPH_PROXY_KEYS;
-    process.env.AGENTGRAPH_PROXY_KEYS = 'implementor=ki,reviewer=kr';
+    writeFileSync(join(hub, 'keys.env'), 'AGENTGRAPH_PROXY_KEYS=implementor=ki,reviewer=kr\n');
+    const keys = readBenchKeys(join(hub, 'keys.env'));
     repoint(hub, 'opencode:none');
-    const keys = process.env.AGENTGRAPH_PROXY_KEYS;
-    if (before === undefined) delete process.env.AGENTGRAPH_PROXY_KEYS;
-    else process.env.AGENTGRAPH_PROXY_KEYS = before;
-    expect(keys).toBe('implementor=ki,reviewer=kr,scout=ki');
+    expect(keys.AGENTGRAPH_PROXY_KEYS).toBe('implementor=ki,reviewer=kr,scout=ki');
+  });
+
+  it('keeps model keys from the keys file and the shell out of process.env', () => {
+    const dir = tmp('keys');
+    dirs.push(dir);
+    writeFileSync(join(dir, 'keys.env'), 'AGENTGRAPH_LLM_API_KEY_SCOUT=FAKE-canary-scout\n');
+    process.env.AGENTGRAPH_LLM_API_KEY_REVIEWER = 'FAKE-canary-reviewer';
+    const keys = readBenchKeys(join(dir, 'keys.env'));
+    expect(keys).toMatchObject({
+      AGENTGRAPH_LLM_API_KEY_REVIEWER: 'FAKE-canary-reviewer',
+      AGENTGRAPH_PROXY_KEYS: 'reviewer=FAKE-canary-reviewer,scout=FAKE-canary-scout',
+    });
+    expect(JSON.stringify(process.env)).not.toContain('FAKE-canary');
   });
 
   it('keys an arm by point and repeat only when one is given', () => {

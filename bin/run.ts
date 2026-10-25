@@ -24,7 +24,7 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { tell, type Instruction } from '../src/engine.ts';
-import { readAppEnvWithKey, start, writeTriggeringIssue } from '../src/main.ts';
+import { readEngineEnv, readEnvFile, start } from '../src/main.ts';
 import { readConfiguredHub } from '../src/harnesses.ts';
 import { instanceAt } from '../src/instance.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
@@ -53,11 +53,10 @@ if (values.instance && !instance) {
   console.error(`no instance.yaml at or above ${values.instance}`);
   process.exit(2);
 }
+const defaults = instance && existsSync(instance.keys) ? await readEnvFile(instance.keys) : {};
 if (instance) {
   Object.assign(values, { hub: instance.hub, forge: instance.forge, data: instance.data });
   if (instance.logs) process.env.AGENTGRAPH_CHECK_LOGS ??= instance.logs;
-  if (existsSync(instance.keys))
-    for (const [k, v] of Object.entries(await readAppEnvWithKey(instance.keys))) process.env[k] ??= v;
 }
 if (values.forge) process.env.AGENTGRAPH_FORGE = resolve(values.forge);
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
@@ -144,9 +143,7 @@ if (positionals[0] === 'status') {
   }
   const hub = resolve(values.hub);
   const data = resolve(values.data);
-  const env = await readAppEnvWithKey(process.env.AGENTGRAPH_APP_ENV);
-  const id = env.AGENTGRAPH_APP_ID ?? process.env.AGENTGRAPH_APP_ID;
-  const key = env.AGENTGRAPH_APP_KEY ?? process.env.AGENTGRAPH_APP_KEY;
+  const { AGENTGRAPH_APP_ID: id, AGENTGRAPH_APP_KEY: key } = await readEngineEnv(defaults);
   if (!values.forge && (!id || !key)) {
     console.error('set AGENTGRAPH_APP_ENV to the App env file');
     process.exit(2);
@@ -174,7 +171,7 @@ if (positionals[0] === 'loop') {
     const hub = await Effect.runPromise(readConfiguredHub(resolve(values.hub)));
     Object.assign(process.env, { AGENTGRAPH_HUB: resolve(values.hub), AGENTGRAPH_REPO: hub.repo });
   }
-  await start();
+  await start(undefined, { defaults });
 }
 
 if (!values.hub || !values.data || (issue !== 'all' && (!Number.isInteger(issue) || issue < 1))) {
@@ -182,12 +179,9 @@ if (!values.hub || !values.data || (issue !== 'all' && (!Number.isInteger(issue)
   process.exit(2);
 }
 
-const runs = await start({
-  hub: resolve(values.hub),
-  issue,
-  data: resolve(values.data),
-  ...(instruction && { instruction }),
-  ...(command === 'start' && { marked: true as const }),
-});
+const runs = await start(
+  { hub: resolve(values.hub), issue, data: resolve(values.data), ...(instruction && { instruction }) },
+  { defaults }
+);
 for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 if (runs.length === 0) console.log(issue === 'all' ? 'nothing to do' : `nothing to do on #${issue}`);

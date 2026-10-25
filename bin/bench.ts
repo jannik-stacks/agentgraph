@@ -336,14 +336,20 @@ const loadCase = (dir: string): Case & Commands => {
   };
 };
 
-const loadKeys = (file: string) => {
-  const env = parseEnv(readFileOrEmpty(file)) as Record<string, string>;
-  Object.assign(process.env, env);
-  process.env.AGENTGRAPH_PROXY_KEYS ??= Object.entries(env)
+const keys: Record<string, string> = {};
+const agentKey = 'AGENTGRAPH_LLM_API_KEY_';
+const isKeyName = (name: string) => name === 'AGENTGRAPH_PROXY_KEYS' || name.startsWith(agentKey);
+
+export const readBenchKeys = (file: string) => {
+  const shell = Object.entries(process.env).filter(([name]) => isKeyName(name));
+  for (const [name] of shell) delete process.env[name];
+  const env = { ...Object.fromEntries(shell), ...(parseEnv(readFileOrEmpty(file)) as Record<string, string>) };
+  env.AGENTGRAPH_PROXY_KEYS ??= Object.entries(env)
     .flatMap(([k, v]) =>
-      k.startsWith('AGENTGRAPH_LLM_API_KEY_') ? [`${k.slice(19).toLowerCase().replaceAll('_', '-')}=${v}`] : []
+      k.startsWith(agentKey) ? [`${k.slice(agentKey.length).toLowerCase().replaceAll('_', '-')}=${v}`] : []
     )
     .join(',');
+  return Object.assign(keys, env);
 };
 
 export const codexUsed = () => {
@@ -406,16 +412,16 @@ export const repoint = (hub: string, point: string) => {
           )
       )
     );
-  const key = process.env[`AGENTGRAPH_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
+  const key = keys[`AGENTGRAPH_LLM_API_KEY_PT_${point.replace(/\W/g, '_').toUpperCase()}`];
   const own = new Map(
-    (process.env.AGENTGRAPH_PROXY_KEYS ?? '').split(',').flatMap(kv => {
+    (keys.AGENTGRAPH_PROXY_KEYS ?? '').split(',').flatMap(kv => {
       const at = kv.indexOf('=');
       return at > 0 ? [[kv.slice(0, at), kv.slice(at + 1)] as const] : [];
     })
   );
   const spare = key ?? own.get('implementor') ?? [...own.values()][0];
   for (const name of names.map(n => basename(n, '.md'))) if (spare && (key || !own.has(name))) own.set(name, spare);
-  if (own.size) process.env.AGENTGRAPH_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
+  if (own.size) keys.AGENTGRAPH_PROXY_KEYS = [...own].map(([k, v]) => `${k}=${v}`).join(',');
 };
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
@@ -474,7 +480,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   let status: string | undefined;
   let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
-    const [run] = await start({ hub, issue: 1, data: join(at, 'data') });
+    const [run] = await start({ hub, issue: 1, data: join(at, 'data') }, { defaults: keys });
     status = run?.status;
     reason = run?.reason;
     if (!run || run.status === 'done' || run.status === 'stopped') break;
@@ -572,7 +578,7 @@ const runArm = async (arm: string, caseDir: string, out: string, repo: string) =
   if (existsSync(join(at, 'diff.patch'))) return;
   const missing = unpriced(arm, hubOf(c));
   if (missing.length) throw new Error(`no list price for ${missing.join(', ')}: add it to prices.json with its source`);
-  if (!process.env.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
+  if (!keys.AGENTGRAPH_PROXY_KEYS) throw new Error('no model keys: pass --keys <env file>');
   const log = logger(out, { case: c.id, arm });
   if (!claim(at)) return log({ event: 'busy' });
   onStop(signal => {
@@ -1252,7 +1258,7 @@ const proxied = (model: string) => async (prompt: string) => {
   const r = await fetch('http://127.0.0.1:4000/v1/chat/completions', {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${process.env.AGENTGRAPH_LLM_API_KEY_REVIEWER}`,
+      authorization: `Bearer ${keys.AGENTGRAPH_LLM_API_KEY_REVIEWER}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
@@ -1778,7 +1784,7 @@ if (import.meta.main) {
   Object.assign(options, { point, repeat: Number(values.repeat), pairs: values.pairs });
   Object.assign(limits, { codex: Number(values['max-codex']), claude: Number(values['max-claude-calls']) });
   panel = parsePanel(values.judges);
-  loadKeys(env.keys ?? values.keys ?? join(agentgraphDir, 'infra/local/.keys.env'));
+  readBenchKeys(env.keys ?? values.keys ?? join(agentgraphDir, 'infra/local/.keys.env'));
   if (command === 'run' && a && bots.includes(a) && b && c && values.repo) await runArm(a, b, resolve(c), values.repo);
   else if (command === 'score' && a && b && values.repo) await score(a, resolve(b), values.repo, values['drop-env']);
   else if (command === 'judge' && a && b) await judge(a, resolve(b));

@@ -1,10 +1,11 @@
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigProvider, Effect, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { drive, instruct, issueDebounceMs, scanIssuesAndRunningRuns, tick } from '../src/engine.ts';
-import { readAppEnvWithKey, start as main, temporary } from '../src/main.ts';
+import { readEngineEnv, start as main, temporary } from '../src/main.ts';
 import { fileForge, Forge, ForgeError } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
@@ -814,7 +815,7 @@ describe('start with one issue', () => {
       at: new Date().toISOString(),
     });
     try {
-      const parked = await main(one, doubles);
+      const parked = await main(one, { services: doubles });
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
       expect(seen[0]).toMatchObject({
         repo: 'acme/sandbox',
@@ -827,7 +828,7 @@ describe('start with one issue', () => {
 
       const later = new Date(Date.now() + 1000).toISOString();
       say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
-      const done = await main(one, doubles);
+      const done = await main(one, { services: doubles });
       expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
     } finally {
       for (const name of Object.keys(env)) delete process.env[name];
@@ -847,28 +848,73 @@ describe('temporary', () => {
   });
 });
 
-describe('readAppEnvWithKey', () => {
+describe('readEngineEnv', () => {
   const file = (text: string) => {
     const dir = mkdtempSync(join(tmpdir(), 'agentgraph-env-'));
     removeAfter(dir);
     writeFileSync(join(dir, 'key.pem'), 'PEM');
+    writeFileSync(join(dir, 'keys'), 'implementor=k1');
     writeFileSync(join(dir, 'app.env'), text.replaceAll('$DIR', dir));
-    return join(dir, 'app.env');
+    return { dir, env: join(dir, 'app.env') };
+  };
+  const withShell = async <A>(vars: Record<string, string>, read: () => Promise<A>) => {
+    Object.assign(process.env, vars);
+    try {
+      return await read();
+    } finally {
+      for (const name of Object.keys(vars)) delete process.env[name];
+    }
   };
 
-  it('reads quotes, comments, export and the named key file', async () => {
-    const env = await readAppEnvWithKey(
-      file(
-        '# app\nexport AGENTGRAPH_APP_ID=42\nAGENTGRAPH_REPO="o/r" # inline\nAGENTGRAPH_APP_KEY_FILE=\'$DIR/key.pem\'\n'
-      )
+  it('reads quotes, comments, export and the key file the App env file names', async () => {
+    const { env } = file(
+      '# app\nexport AGENTGRAPH_APP_ID=42\nAGENTGRAPH_REPO="o/r" # inline\nAGENTGRAPH_APP_KEY_FILE=\'$DIR/key.pem\'\n'
     );
-    expect(env).toMatchObject({ AGENTGRAPH_APP_ID: '42', AGENTGRAPH_REPO: 'o/r', AGENTGRAPH_APP_KEY: 'PEM' });
-    expect(await readAppEnvWithKey(undefined)).toEqual({});
+    expect(await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv())).toMatchObject({
+      AGENTGRAPH_APP_ID: '42',
+      AGENTGRAPH_REPO: 'o/r',
+      AGENTGRAPH_APP_KEY: 'PEM',
+    });
+  });
+
+  it('reads a NAME_FILE the shell or the defaults set, and only for secret settings', async () => {
+    const { dir } = file('');
+    const shell = { AGENTGRAPH_APP_KEY_FILE: join(dir, 'key.pem'), AGENTGRAPH_REPO_FILE: join(dir, 'key.pem') };
+    const env = await withShell(shell, () => readEngineEnv({ AGENTGRAPH_PROXY_KEYS_FILE: join(dir, 'keys') }));
+    expect(env).toMatchObject({ AGENTGRAPH_APP_KEY: 'PEM', AGENTGRAPH_PROXY_KEYS: 'implementor=k1' });
+    expect(env.AGENTGRAPH_REPO).toBeUndefined();
+  });
+
+  it('lets the App env file beat the shell and the shell beat the defaults, each with its own NAME_FILE', async () => {
+    const { dir, env } = file('AGENTGRAPH_PROXY_URL=from-app\n');
+    const shell = { AGENTGRAPH_APP_ENV: env, AGENTGRAPH_PROXY_URL: 'from-shell', AGENTGRAPH_PROXY_KEYS: 'from-shell' };
+    const defaults = {
+      AGENTGRAPH_PROXY_URL: 'from-defaults',
+      AGENTGRAPH_PROXY_KEYS_FILE: join(dir, 'keys'),
+      AGENTGRAPH_EVERY: '9',
+    };
+    expect(await withShell(shell, () => readEngineEnv(defaults))).toMatchObject({
+      AGENTGRAPH_PROXY_URL: 'from-app',
+      AGENTGRAPH_PROXY_KEYS: 'from-shell',
+      AGENTGRAPH_EVERY: '9',
+    });
+  });
+
+  it('reads a one-shot pipe once, so a second start still sees the key', async () => {
+    const { dir } = file('');
+    const pipe = join(dir, 'pipe');
+    execFileSync('mkfifo', [pipe]);
+    const writer = spawn(process.execPath, ['-e', `require('fs').writeFileSync(${JSON.stringify(pipe)}, 'PEM')`]);
+    const read = () => withShell({ AGENTGRAPH_APP_KEY_FILE: pipe }, () => readEngineEnv());
+    expect((await read()).AGENTGRAPH_APP_KEY).toBe('PEM');
+    expect((await read()).AGENTGRAPH_APP_KEY).toBe('PEM');
+    writer.kill();
   });
 
   it('leaves a missing required setting to fail by name', async () => {
-    const env = await readAppEnvWithKey(file('AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY_FILE=$DIR/key.pem\n'));
-    const read = Effect.withConfigProvider(settings, ConfigProvider.fromMap(new Map(Object.entries(env))));
+    const { env } = file('AGENTGRAPH_APP_ID=42\nAGENTGRAPH_APP_KEY_FILE=$DIR/key.pem\n');
+    const { AGENTGRAPH_REPO: _, ...vars } = await withShell({ AGENTGRAPH_APP_ENV: env }, () => readEngineEnv());
+    const read = Effect.withConfigProvider(settings, ConfigProvider.fromMap(new Map(Object.entries(vars))));
     await expect(Effect.runPromise(read)).rejects.toThrow(/AGENTGRAPH_REPO/);
   });
 });

@@ -18,12 +18,30 @@ import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
-/** The variables of an env file, with the key file it names read in as `AGENTGRAPH_APP_KEY`. */
-export const readAppEnvWithKey = async (file: string | undefined): Promise<Record<string, string>> => {
-  if (!file) return {};
-  const vars = parseEnv(await readFile(file, 'utf8')) as Record<string, string>;
-  const keyFile = vars.AGENTGRAPH_APP_KEY_FILE?.replace(/^~(?=\/|$)/, homedir());
-  return { ...vars, ...(keyFile && { AGENTGRAPH_APP_KEY: await readFile(keyFile, 'utf8') }) };
+const secrets = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
+const reads = new Map<string, Promise<string>>();
+const readOnce = (file: string) => {
+  const path = file.replace(/^~(?=\/|$)/, homedir());
+  if (!reads.has(path)) reads.set(path, readFile(path, 'utf8'));
+  return reads.get(path)!;
+};
+
+export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
+  file ? (parseEnv(await readOnce(file)) as Record<string, string>) : {};
+
+const readSecretFiles = async (vars: Record<string, string | undefined>) => ({
+  ...vars,
+  ...Object.fromEntries(
+    await Promise.all(
+      secrets.filter(name => vars[`${name}_FILE`]).map(async name => [name, await readOnce(vars[`${name}_FILE`]!)])
+    )
+  ),
+});
+
+export const readEngineEnv = async (defaults: Record<string, string> = {}): Promise<Record<string, string>> => {
+  const layers = [defaults, process.env, await readEnvFile(process.env.AGENTGRAPH_APP_ENV)];
+  const merged = Object.assign({}, ...(await Promise.all(layers.map(readSecretFiles))));
+  return Object.fromEntries(Object.entries(merged).filter((e): e is [string, string] => e[1] !== undefined));
 };
 
 export const writeTriggeringIssue = async (
@@ -69,13 +87,10 @@ const warnTemporary = (data: string) =>
     Effect.logWarning(`${p} is under a temp dir, which the OS may empty (macOS deletes files untouched for 3 days)`)
   );
 
-const configured = (extra: Record<string, string>) =>
+const configured = (defaults: Record<string, string>, extra: Record<string, string> = {}) =>
   Effect.map(
-    Effect.promise(() => readAppEnvWithKey(process.env.AGENTGRAPH_APP_ENV)),
-    app =>
-      ConfigProvider.fromMap(new Map(Object.entries({ ...app, ...extra }))).pipe(
-        ConfigProvider.orElse(() => ConfigProvider.fromEnv())
-      )
+    Effect.promise(() => readEngineEnv(defaults)),
+    env => ConfigProvider.fromMap(new Map(Object.entries({ ...env, ...extra })))
   );
 
 /**
@@ -84,15 +99,18 @@ const configured = (extra: Record<string, string>) =>
  * `'all'`, and resolves with the runs it touched. The only place that leaves Effect.
  */
 export const start = (
-  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction; marked?: true },
-  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers
+  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
+  {
+    services = makeProductionLayers,
+    defaults = {},
+  }: { services?: (s: Settings) => Layer.Layer<Services>; defaults?: Record<string, string> } = {}
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
     Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
   const program = one
     ? Effect.gen(function* () {
-        const hub = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(yield* configured({})));
-        const provider = yield* configured({
+        const hub = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(yield* configured(defaults)));
+        const provider = yield* configured(defaults, {
           AGENTGRAPH_REPO: hub.repo,
           AGENTGRAPH_HUB: one.hub,
           AGENTGRAPH_DATA: one.data,
@@ -107,7 +125,7 @@ export const start = (
         ).pipe(Effect.withConfigProvider(provider));
       })
     : Effect.gen(function* () {
-        const provider = yield* configured({});
+        const provider = yield* configured(defaults);
         const loop = Effect.gen(function* () {
           const s = yield* settings;
           yield* warnTemporary(s.data);
