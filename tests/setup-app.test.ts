@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { setupApp } from '../bin/setup-app.ts';
@@ -57,5 +57,52 @@ describe('setupApp', () => {
     expect(statSync(home).mode & 0o777).toBe(0o700);
     expect(readFileSync(join(home, 'key.pem'), 'utf8')).toContain('secret');
     expect(logged.join('\n')).not.toContain('secret');
+  });
+
+  const createWithKeyStore = async (
+    saveKey: (slug: string, pem: string) => Promise<{ file: string; start: string }>
+  ) => {
+    const dir = tmp('config');
+    const pem = '-----BEGIN RSA PRIVATE KEY-----\nFAKE-canary\n-----END RSA PRIVATE KEY-----\n';
+    const fetch = (async () =>
+      Response.json({ id: 7, slug: 'acme', pem, html_url: 'https://github.com/apps/acme' })) as typeof globalThis.fetch;
+    const logged: string[] = [];
+    let base = '';
+    let ready = () => {};
+    const started = new Promise<void>(resolve => (ready = resolve));
+    const finished = setupApp({
+      dir,
+      port: 0,
+      fetch,
+      saveKey,
+      log: line => logged.push(line),
+      listening: url => ((base = url), ready()),
+    });
+    await started;
+    const state = /\?state=([\w-]+)/.exec(await (await globalThis.fetch(`${base}/`)).text())?.[1];
+    await globalThis.fetch(`${base}/created?code=c1&state=${state}`, { redirect: 'manual' });
+    const env = await finished;
+    return { home: join(dir, 'acme'), env: readFileSync(env, 'utf8'), logged: logged.join('\n'), pem };
+  };
+
+  it('keeps the key in the store it is given and writes no key file', async () => {
+    const kept: string[] = [];
+    const { home, env, logged, pem } = await createWithKeyStore(async (slug, pem) => {
+      kept.push(`${slug}:${pem}`);
+      return { file: '/dev/fd/3', start: '3< <(read-key)' };
+    });
+    expect(kept).toEqual([`acme:${pem}`]);
+    expect(env).toBe('AGENTGRAPH_APP_ID=7\nAGENTGRAPH_APP_KEY_FILE=/dev/fd/3\n');
+    expect(existsSync(join(home, 'key.pem'))).toBe(false);
+    expect(logged).toContain('3< <(read-key)');
+    expect(logged).not.toContain('FAKE-canary');
+  });
+
+  it('falls back to a 0600 file when the store refuses the key', async () => {
+    const { home, env } = await createWithKeyStore(async () => {
+      throw new Error('locked');
+    });
+    expect(env).toBe(`AGENTGRAPH_APP_ID=7\nAGENTGRAPH_APP_KEY_FILE=${join(home, 'key.pem')}\n`);
+    expect(statSync(join(home, 'key.pem')).mode & 0o777).toBe(0o600);
   });
 });

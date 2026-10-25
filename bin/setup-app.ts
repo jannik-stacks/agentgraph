@@ -1,8 +1,10 @@
 /**
- * Creates the agentgraph GitHub App through the manifest flow and saves its id and key, both 0600, under
- * `<dir>/<slug>/`. Point `AGENTGRAPH_APP_ENV` at the `app.env` it prints, then install the App on the repo.
+ * Creates the agentgraph GitHub App through the manifest flow and saves its id in `<dir>/<slug>/app.env`, 0600. On macOS
+ * the key goes into the login Keychain, which asks on every read; elsewhere, or when the Keychain refuses, into a 0600
+ * `key.pem` beside it. Point `AGENTGRAPH_APP_ENV` at the `app.env` it prints, then install the App on the repo.
  * Usage: node bin/setup-app.ts [--org <org>] [--name agentgraph] [--dir ~/.config/agentgraph] [--port 5189]
  */
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -28,6 +30,17 @@ const makeGithubAppSetupManifest = (name: string, base: string) => ({
   default_events: [],
 });
 
+const saveKeyInKeychain = async (slug: string, pem: string) => {
+  const item = `agentgraph-app-${slug}`;
+  const base64 = Buffer.from(pem).toString('base64');
+  execFileSync('security', ['-i'], {
+    input: `add-generic-password -U -T "" -a agentgraph -s ${item} -w ${base64}\n`,
+    stdio: ['pipe', 'ignore', 'inherit'],
+  });
+  execFileSync('security', ['find-generic-password', '-a', 'agentgraph', '-s', item], { stdio: 'ignore' });
+  return { file: '/dev/fd/3', start: `3< <(security find-generic-password -s ${item} -w | base64 -d)` };
+};
+
 const escape = (text: string) =>
   text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -40,7 +53,9 @@ export const setupApp = async ({
   fetch = globalThis.fetch,
   log = (line: string) => process.stderr.write(`${line}\n`),
   listening,
+  saveKey,
 }: {
+  saveKey?: (slug: string, pem: string) => Promise<{ file: string; start: string }>;
   dir?: string;
   name?: string;
   org?: string;
@@ -59,10 +74,12 @@ export const setupApp = async ({
     const home = join(dir, app.slug);
     await mkdir(home, { recursive: true, mode: 0o700 });
     await chmod(home, 0o700);
-    const key = join(home, 'key.pem');
     const env = join(home, 'app.env');
-    await writeFile(key, app.pem, { mode: 0o600 });
-    await writeFile(env, `AGENTGRAPH_APP_ID=${app.id}\nAGENTGRAPH_APP_KEY_FILE=${key}\n`, { mode: 0o600 });
+    const kept = await saveKey?.(app.slug, app.pem).catch((e: Error) => void log(`not in the Keychain: ${e.message}`));
+    const file = kept?.file ?? join(home, 'key.pem');
+    if (!kept) await writeFile(file, app.pem, { mode: 0o600 });
+    else log(`the key is in the Keychain; start agentgraph with ${kept.start}`);
+    await writeFile(env, `AGENTGRAPH_APP_ID=${app.id}\nAGENTGRAPH_APP_KEY_FILE=${file}\n`, { mode: 0o600 });
     return env;
   };
 
@@ -131,6 +148,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...(values.name && { name: values.name }),
     ...(values.dir && { dir: values.dir }),
     ...(values.port && { port: Number(values.port) }),
+    ...(process.platform === 'darwin' && { saveKey: saveKeyInKeychain }),
   });
   console.log(env);
 }
