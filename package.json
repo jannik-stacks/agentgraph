@@ -1,11 +1,21 @@
 {
   "name": "agentgraph",
   "version": "0.2.0",
-  "private": true,
   "license": "MIT",
   "bin": {
-    "agentgraph": "bin/run.ts"
+    "agentgraph": "bin/agentgraph.js"
   },
+  "files": [
+    "src",
+    "bin/agentgraph.js",
+    "bin/run.ts",
+    "hub",
+    "harnesses",
+    "agentgraph.config.ts",
+    "infra/local/sandbox",
+    "infra/local/egress",
+    "infra/local/prices.json"
+  ],
   "type": "module",
   "scripts": {
     "up": "docker build -q -t agentgraph-sandbox:local infra/local/sandbox && docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",

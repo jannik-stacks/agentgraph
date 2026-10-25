@@ -1,4 +1,5 @@
 no-comment bench/drive.ts 17
+no-comment bin/agentgraph.js 1
 no-comment bin/bench.ts 64
 no-comment bin/commands.mjs 5
 no-comment bin/commit-msg.mjs 1

@@ -18,6 +18,10 @@
 - `AGENTGRAPH_TRUST` replaces the hub's `trust`; the CLI sets it to the instance owner.
 - instance.yaml has `repo`, `base`, `owner` and `exported`; `logs` is gone, use `--logs`.
 - The studio takes `--repo` instead of `--instance`.
+- The CLI checks docker before it files or drives, and creates the sandbox networks, the egress proxy
+  and the sandbox image when missing. The package is publishable: `bin/agentgraph.js` runs the
+  TypeScript sources from `node_modules`, and `files` ships the engine, the default hub and the
+  image sources.
 
 - A check with `returns: number` traces a `value`: the share of items passed, or the number a script prints
   last. Without one it is `empty`, never 0.

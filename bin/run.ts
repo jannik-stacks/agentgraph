@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
+import { ensureDocker } from '../src/docker.ts';
 import type { Instruction } from '../src/engine.ts';
 import { fileForge, Forge } from '../src/forge.ts';
 import { readInstallationReach } from '../src/github.ts';
@@ -88,6 +89,15 @@ const checkHub = async (hub: string) => {
   console.log(problems.length ? `${problems.length} problem(s)` : 'ok');
   process.exit(problems.length ? 1 : 0);
 };
+
+let sandboxed: Promise<void> | undefined;
+const ensureSandbox = (after: string) =>
+  (sandboxed ??= process.env.AGENTGRAPH_SANDBOX_URL
+    ? Promise.resolve()
+    : Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).then(
+        version => console.log(`sandbox  docker ${version}`),
+        (e: Error) => fail(`${e.message}\n${after}`, 1)
+      ));
 
 const stopping = new AbortController();
 const trapInterrupt = () =>
@@ -192,6 +202,8 @@ async function runOnInstance() {
       if (!text) fail(`start takes the issue text\n${usage}`);
       const hub = await synced();
       const loaded = await Effect.runPromise(readConfiguredHub(hub)).catch((e: Error) => fail(e.message, 1));
+      header(i, hub);
+      await ensureSandbox('Nothing was filed.');
       const issue = await writeTriggeringIssue(
         { ...loaded, trust: [i.owner] },
         i.forge,
@@ -279,7 +291,7 @@ const watchRuns = (i: Instance, issue: number) => {
 };
 
 async function drive(i: Instance, issue: number, hub: string) {
-  header(i, hub);
+  if (!sandboxed) header(i, hub);
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
     console.log(`a loop drives this repo; following #${issue}`);
@@ -293,6 +305,7 @@ async function drive(i: Instance, issue: number, hub: string) {
     await stop();
     return stopping.signal.aborted ? process.exit(130) : report(i, issue);
   }
+  await ensureSandbox(`#${issue} is posted; npx agentgraph loop --once drives it once docker runs.`);
   const stop = watchRuns(i, issue);
   const runs = await start(
     { hub, issue, data: i.data, marked: true, base: i.base },
@@ -329,6 +342,7 @@ async function report(i: Instance, issue: number, next?: string) {
 
 async function loop(i: Instance) {
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
+  await ensureSandbox('Nothing was driven.');
   trapInterrupt();
   const every = Number(process.env.AGENTGRAPH_EVERY ?? 5);
   try {

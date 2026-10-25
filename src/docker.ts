@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { copyFile, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
 import type { ForgeError } from './forge.ts';
 import type { Hub } from './hub.ts';
@@ -167,6 +168,64 @@ const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
           : Effect.succeed(stdout.trim())
       )
     );
+  });
+
+export const ensureDocker = (say: (line: string) => void) =>
+  Effect.gen(function* () {
+    const version = yield* Effect.mapError(run('docker', ['version', '--format', '{{.Server.Version}}']), () =>
+      infra(
+        "agentgraph runs the repo's code only in a container, and docker is not running.\nStart Docker Desktop, colima or podman (DOCKER_HOST), or set AGENTGRAPH_SANDBOX_URL to a box server."
+      )
+    );
+    const has = (args: string[]) =>
+      run('docker', args).pipe(
+        Effect.as(true),
+        Effect.orElseSucceed(() => false)
+      );
+    const made = [
+      ['sandbox', networks.egress, true],
+      ['models', networks.models, true],
+      ['egress', 'agentgraph-egress', false],
+    ] as const;
+    for (const [key, name, internal] of made)
+      if (!(yield* has(['network', 'inspect', name])))
+        yield* run('docker', [
+          ...`network create --label com.docker.compose.project=agentgraph --label com.docker.compose.network=${key}`.split(
+            ' '
+          ),
+          ...(internal ? ['--internal'] : []),
+          name,
+        ]);
+    const build = (tag: string, dir: string) =>
+      Effect.gen(function* () {
+        if (yield* has(['image', 'inspect', tag])) return;
+        say(`building ${tag} (once)`);
+        yield* run('docker', [
+          'build',
+          '-q',
+          '-t',
+          tag,
+          fileURLToPath(new URL(`../infra/local/${dir}`, import.meta.url)),
+        ]);
+      });
+    const image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
+    if (image === 'agentgraph-sandbox:local') yield* build(image, 'sandbox');
+    const members = yield* run('docker', [
+      'network',
+      'inspect',
+      '--format',
+      '{{range .Containers}}{{.Name}} {{end}}',
+      networks.egress,
+    ]);
+    if (!members.includes('egress') && !(yield* has(['start', 'agentgraph-egress']))) {
+      yield* build('agentgraph-egress:local', 'egress');
+      const flags = `run -d --name agentgraph-egress --restart unless-stopped --read-only --cap-drop ALL
+        --security-opt no-new-privileges:true --memory 128m --pids-limit 512 --network ${networks.egress}
+        --network-alias egress agentgraph-egress:local`;
+      yield* run('docker', flags.split(/\s+/));
+      yield* run('docker', ['network', 'connect', 'agentgraph-egress', 'agentgraph-egress']);
+    }
+    return version;
   });
 
 /** Git config from the environment that sends `token` to github.com, so it stays out of argv and every config file. */

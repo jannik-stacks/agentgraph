@@ -1,6 +1,6 @@
 # Without GitHub
 
-Run `npx agentgraph` inside any git repo. The first command makes a local instance for that checkout: a forge folder that stands in for GitHub, and the runs. Your repo gets only `agentgraph/<n>` branches. No GitHub App is needed. Sessions still need Docker and [the model stack](local.md#the-model-stack).
+Run `npx agentgraph` inside any git repo. The first command makes a local instance for that checkout: a forge folder that stands in for GitHub, and the runs. Your repo gets only `agentgraph/<n>` branches. No GitHub App is needed. Sessions need Docker and a model gateway, such as [the model stack](local.md#the-model-stack).
 
 ```sh
 cd ~/code/left-pad
@@ -27,6 +27,10 @@ The issue number is the handle. Each issue has at most one open pull request, on
 | `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
 
 `check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--hub` and `--logs`. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
+
+## The sandbox
+
+Before it files or drives, the CLI checks that docker runs, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress` when missing, builds the sandbox and egress images from the package once, and starts an egress proxy when none is on the sandbox network. Without docker it stops before filing and says how to start it. `AGENTGRAPH_SANDBOX_URL` skips all of this. <!-- code: src/docker.ts#ensureDocker -->
 
 ## Who drives
 
