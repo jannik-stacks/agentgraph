@@ -129,7 +129,17 @@ const putDir = (box: BoxEntry, from: string, to: string) =>
     ),
     tar =>
       Effect.flatMap(
-        Effect.promise(() => buffer(tar.stdout)),
+        Effect.tryPromise({
+          try: () =>
+            Promise.all([
+              buffer(tar.stdout),
+              new Promise<number | null>((done, fail) => tar.once('error', fail).once('close', done)),
+            ]).then(([tarball, code]) => {
+              if (code !== 0) throw new Error(`exited ${code}`);
+              return tarball;
+            }),
+          catch: e => infra(`tar ${from}: ${(e as Error).message}`),
+        }),
         tarball => op(box, 'put', [to], tarball)
       ),
     tar => Effect.sync(() => tar.kill('SIGKILL'))
@@ -265,10 +275,13 @@ export const remoteSandbox = (o: {
                     )
                   )
             );
-            const response = yield* call(
-              `${box.url}/run?network=${network}&id=${id}`,
-              { method: 'POST', body: JSON.stringify({ argv, secrets }) },
-              () => (box.restarted = true)
+            const response = yield* Effect.timeoutFail(
+              call(
+                `${box.url}/run?network=${network}&id=${id}`,
+                { method: 'POST', body: JSON.stringify({ argv, secrets }) },
+                () => (box.restarted = true)
+              ),
+              bounded
             );
             if (response.headers.has(freshHeader)) {
               pulled = true;

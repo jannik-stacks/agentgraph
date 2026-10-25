@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Chunk, Effect, Exit, type Layer, Redacted, type Scope, Stream } from 'effect';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -155,6 +155,17 @@ describe('remote sandbox', () => {
       })
     );
     expect(exit).toEqual(Exit.succeed({ code: 0, output: 'quick\n' }));
+  });
+
+  it('fails rather than send a hub that tar could not read whole', async () => {
+    const hub = tmp('hub');
+    writeFileSync(join(hub, 'secret.md'), 'x\n');
+    chmodSync(join(hub, 'secret.md'), 0);
+    const exit = await use(layer(), s =>
+      Effect.flatMap(s.checkout('main'), work => s.exec(sh(work.dir, 'true', { hub })))
+    );
+    chmodSync(join(hub, 'secret.md'), 0o600);
+    expect(String(exit)).toContain('tar');
   });
 
   it('refuses a hub image and a dir it did not check out', async () => {

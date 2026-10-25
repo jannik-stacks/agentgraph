@@ -151,10 +151,16 @@ export class Box extends Container<Env> {
     const url = new URL(request.url);
     const op = url.pathname.split('/')[2] ?? '';
     const fresh = !this.ctx.container?.running;
+    const headers: HeadersInit = fresh ? { 'agentgraph-box-fresh': '1' } : {};
+    return this.answer(request, url, op, fresh, headers).catch(
+      (error: Error) => new Response(error.message, { status: 500, headers })
+    );
+  }
+
+  async answer(request: Request, url: URL, op: string, fresh: boolean, headers: HeadersInit) {
     if (fresh) await this.ctx.storage.delete('dirty');
     await this.start();
     this.renewActivityTimeout();
-    const headers: HeadersInit = fresh ? { 'agentgraph-box-fresh': '1' } : {};
     if (op === 'run') {
       if (fresh) return new Response(null, { headers });
       const network = url.searchParams.get('network');
