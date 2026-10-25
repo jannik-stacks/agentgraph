@@ -149,19 +149,15 @@ export const remoteSandbox = (o: {
       const pullBack = (box: BoxEntry, home?: SyncedDir) =>
         Effect.zipRight(pull(box, workDir(box)), home ? pull(box, home) : Effect.void);
 
-      const settle = (box: BoxEntry, id: string, home?: SyncedDir) =>
-        Effect.zipRight(op(box, 'stop', [id]), pullBack(box, home));
-
       const recover = (box: BoxEntry) =>
-        Effect.forEach(
-          [...box.unfinished],
-          ([id, home]) =>
-            Effect.zipRight(
-              settle(box, id, home),
-              Effect.sync(() => box.unfinished.delete(id))
-            ),
-          { discard: true }
-        );
+        Effect.gen(function* () {
+          const unfinished = [...box.unfinished];
+          yield* Effect.forEach(unfinished, ([id]) => op(box, 'stop', [id]), { discard: true });
+          for (const [id, home] of unfinished) {
+            yield* pullBack(box, home);
+            box.unfinished.delete(id);
+          }
+        });
 
       const before = (box: BoxEntry, c: Command, home?: SyncedDir) =>
         box.sync.withPermits(1)(
@@ -226,7 +222,12 @@ export const remoteSandbox = (o: {
               pulled
                 ? Effect.void
                 : Effect.timeout(
-                    Effect.interruptible(Effect.retry(box.sync.withPermits(1)(settle(box, id, home)), { times: 2 })),
+                    Effect.interruptible(
+                      Effect.retry(
+                        box.sync.withPermits(1)(Effect.zipRight(op(box, 'stop', [id]), pullBack(box, home))),
+                        { times: 2 }
+                      )
+                    ),
                     '5 minutes'
                   ).pipe(Effect.catchAllCause(() => Effect.sync(() => box.unfinished.set(id, home))))
             );
