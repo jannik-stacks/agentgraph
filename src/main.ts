@@ -35,20 +35,15 @@ export const writeTriggeringIssue = async (
 ): Promise<number> => {
   const labelled = Object.values(hub.workflows).flatMap(w => (w.on.issues?.label ? [[w.name, w.on.issues.label]] : []));
   const picked = labelled.filter(([name]) => (workflow ?? name) === name);
-  if (picked.length !== 1)
+  const label = picked.length === 1 ? picked[0]![1]! : undefined;
+  if (!label)
     throw new Error(`name one workflow with a label: --workflow ${picked.map(([name]) => name).join('|') || '<name>'}`);
-  const [, label] = picked[0]!;
   if (labelled.filter(([, l]) => l === label).length > 1) throw new Error(`${label} starts more than one workflow`);
   if (author.endsWith('[bot]') || (hub.trust && !hub.trust.includes(author)))
     throw new Error(`${author} may not start runs on this hub`);
   const [title = '', ...body] = text.split('\n');
-  const front = {
-    title,
-    author,
-    labels: [label!],
-    ...(hub.milestone && { milestone: hub.milestone }),
-  };
-  return writeIssueFile(forge, front, body.join('\n').trim());
+  const milestone = hub.milestone && { milestone: hub.milestone };
+  return writeIssueFile(forge, { title, author, labels: [label], ...milestone }, body.join('\n').trim());
 };
 
 /** The real path of `path`, through its nearest existing parent when it does not exist yet. */
