@@ -1,7 +1,14 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "import", "unicorn", "oxc"],
-  "jsPlugins": ["./bin/style.mjs"],
+  "plugins": [
+    "typescript",
+    "import",
+    "unicorn",
+    "oxc"
+  ],
+  "jsPlugins": [
+    "./bin/style.mjs"
+  ],
   "categories": {
     "correctness": "error"
   },
@@ -112,13 +119,17 @@
   },
   "overrides": [
     {
-      "files": ["src/**"],
+      "files": [
+        "src/**"
+      ],
       "rules": {
         "import/no-relative-parent-imports": "error",
         "no-console": [
           "error",
           {
-            "allow": ["error"]
+            "allow": [
+              "error"
+            ]
           }
         ],
         "no-restricted-imports": [
@@ -135,7 +146,13 @@
       }
     },
     {
-      "files": ["src/workflow.ts", "src/hub.ts", "src/context.ts", "src/graph.ts", "src/trace.ts"],
+      "files": [
+        "src/workflow.ts",
+        "src/hub.ts",
+        "src/context.ts",
+        "src/graph.ts",
+        "src/trace.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -151,7 +168,11 @@
       }
     },
     {
-      "files": ["src/env.ts", "src/disk.ts", "src/git.ts"],
+      "files": [
+        "src/env.ts",
+        "src/disk.ts",
+        "src/git.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -167,7 +188,12 @@
       }
     },
     {
-      "files": ["src/forge.ts", "src/store.ts", "src/session.ts", "src/sandbox.ts"],
+      "files": [
+        "src/forge.ts",
+        "src/store.ts",
+        "src/session.ts",
+        "src/sandbox.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -183,7 +209,11 @@
       }
     },
     {
-      "files": ["src/docker.ts", "src/github.ts", "src/harnesses.ts"],
+      "files": [
+        "src/docker.ts",
+        "src/github.ts",
+        "src/harnesses.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -199,7 +229,9 @@
       }
     },
     {
-      "files": ["src/engine.ts"],
+      "files": [
+        "src/engine.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -215,20 +247,31 @@
       }
     },
     {
-      "files": ["src/services.ts", "src/main.ts", "src/instance.ts", "src/status.ts"],
+      "files": [
+        "src/services.ts",
+        "src/main.ts",
+        "src/instance.ts",
+        "src/status.ts"
+      ],
       "rules": {
         "no-restricted-imports": "off"
       }
     },
     {
-      "files": ["bench/**", "tune/**"],
+      "files": [
+        "bench/**",
+        "tune/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": ["../bin/**", "../studio/**"],
+                "group": [
+                  "../bin/**",
+                  "../studio/**"
+                ],
                 "message": "bench and tune import src only"
               }
             ]
@@ -237,14 +280,20 @@
       }
     },
     {
-      "files": ["bench/drive.ts"],
+      "files": [
+        "bench/drive.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": ["../bin/**", "!../bin/resume.ts", "../studio/**"],
+                "group": [
+                  "../bin/**",
+                  "!../bin/resume.ts",
+                  "../studio/**"
+                ],
                 "message": "bench and tune import src only"
               }
             ]
@@ -253,14 +302,23 @@
       }
     },
     {
-      "files": ["tune/propose.ts", "tune/skill.ts"],
+      "files": [
+        "tune/propose.ts",
+        "tune/skill.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": ["../bin/**", "!../bin/bench.ts", "!../bin/resume.ts", "!../bin/tune.ts", "../studio/**"],
+                "group": [
+                  "../bin/**",
+                  "!../bin/bench.ts",
+                  "!../bin/resume.ts",
+                  "!../bin/tune.ts",
+                  "../studio/**"
+                ],
                 "message": "bench and tune import src only"
               }
             ]
@@ -269,7 +327,9 @@
       }
     },
     {
-      "files": ["src/trace.ts"],
+      "files": [
+        "src/trace.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -285,7 +345,9 @@
       }
     },
     {
-      "files": ["src/git.ts"],
+      "files": [
+        "src/git.ts"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -301,7 +363,14 @@
       }
     },
     {
-      "files": ["src/**", "harnesses/**", "bin/**", "bench/**", "tune/**", "studio/src/**"],
+      "files": [
+        "src/**",
+        "harnesses/**",
+        "bin/**",
+        "bench/**",
+        "tune/**",
+        "studio/src/**"
+      ],
       "rules": {
         "style/verb-first": "error",
         "style/no-of-for": "error",
@@ -310,5 +379,9 @@
       }
     }
   ],
-  "ignorePatterns": ["**/node_modules/**", "studio-lab/**", "research/**"]
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "studio-lab/**",
+    "research/**"
+  ]
 }
