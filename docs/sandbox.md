@@ -83,13 +83,48 @@ network: models
 
 ## Harnesses
 
-An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces, and an optional `check` that lists what it cannot do for an agent. The built-in three live in `harnesses/` and are written the way your own would be:
+An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces, and an optional `check` that lists what it cannot do for an agent. The built-in three live in `harnesses/` and are written the way your own would be. Say a harness prints one JSON object per line:
 
-```ts
-export default { harnesses: [opencode(), claude(), pi(), mine] } satisfies HarnessSettings;
+```jsonl
+{"kind":"start","id":"s1"}
+{"kind":"say","text":"Fixed the typo."}
+{"kind":"end","ok":true}
 ```
 
-A hub loads only when every agent names a harness in the config and that harness's `check` finds nothing. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->
+Its plugin, added to the list:
+
+```ts
+import type { Harness, HarnessSettings } from './src/harnesses.ts';
+
+const echo = (): Harness => ({
+  name: 'echo',
+  key: 'ECHO_API_KEY',
+  check: agent => (agent.tools.length ? ['takes no tools'] : []),
+  command: (spec, route) => ({
+    cmd: 'echo-agent',
+    args: ['--json', '--base-url', route.url, '--model', route.model, '--', spec.prompt],
+  }),
+  parse: () => line => {
+    const event = line as { kind?: string; id?: string; text?: string; ok?: boolean };
+    if (event.kind === 'start' && event.id) return [{ type: 'session', id: event.id }];
+    if (event.kind === 'say' && event.text) return [{ type: 'text', text: event.text }];
+    if (event.kind === 'end') return [{ type: 'done', ended: event.ok ? 'stop' : 'error' }];
+    return [];
+  },
+});
+
+export default { harnesses: [opencode(), claude(), pi(), echo()] } satisfies HarnessSettings;
+```
+
+The package has no entry point yet, so a plugin imports its types from `src/harnesses.ts`, and the schema and parsing helpers the built-in three share from `harnesses/helpers.ts`. What the session loop does around a plugin:
+
+- `parse` gets each line already parsed as JSON. A line that is not JSON is kept as the error tail, which becomes the final reply when the session fails with no reply and no error of its own.
+- The first `session` piece starts the session; later ones are ignored. A session that ends without a `done` piece ends in `error`.
+- `command` and `home` get the model from the route only. The route also holds the proxy URL, and the loop puts the agent's key in the `key` env var.
+- `home` paths are relative to the session home and cannot leave it.
+- `check` returns what the harness cannot do, phrased to follow its name, such as `takes no tools`. The hub reports it as `harness: echo takes no tools`.
+
+A hub loads only when every agent names a harness in the config and that harness's `check` finds nothing. A config that does not load fails every hub with its problem. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->
 
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
