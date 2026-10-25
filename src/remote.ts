@@ -99,7 +99,12 @@ const pull = (box: BoxEntry, dir: SyncedDir) =>
     const known = box.trees.get(dir.box);
     if (!known) return;
     const response = yield* op(box, 'pull', [dir.box, dir.boxGit, known]);
-    const body = Buffer.from(yield* Effect.promise(() => response.arrayBuffer()));
+    const body = Buffer.from(
+      yield* Effect.tryPromise({
+        try: () => response.arrayBuffer(),
+        catch: e => infra(`box pull ${dir.box}: ${(e as Error).message}`),
+      })
+    );
     const end = body.indexOf(10);
     const tree = body.subarray(0, end).toString('utf8');
     if (end < 0 || !/^[0-9a-f]{40,64}$/.test(tree)) return yield* infra(`box pull ${dir.box}: no tree`);
