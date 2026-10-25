@@ -77,6 +77,7 @@ export class Box extends Container<Env> {
   interceptHttps = true;
   entrypoint = ['sh', '-c', boxScript, 'box', 'start'];
   running = new Map<Network, number>();
+  children = new Map<string, ExecProcess>();
   static {
     this.outbound = async (request: Request, env: Env, ctx: OutboundHandlerContext) => {
       const host = new URL(request.url).hostname;
@@ -110,7 +111,18 @@ export class Box extends Container<Env> {
     if (op === 'run') {
       const network = url.searchParams.get('network');
       if (!networks.includes(network as Network)) return new Response(`unknown network ${network}`, { status: 400 });
-      return this.run(network as Network, await request.json(), headers);
+      return this.run(url.searchParams.get('id') ?? '', network as Network, await request.json(), headers);
+    }
+    if (op === 'stop') {
+      const child = this.children.get(url.searchParams.get('arg') ?? '');
+      if (child) {
+        const kill = await this.ctx.container!.exec(['sh', '-c', 'kill -KILL -"$1"', 'kill', String(child.pid)], {
+          user: '0:0',
+        });
+        await kill.exitCode;
+        await child.exitCode.catch(() => undefined);
+      }
+      return new Response(null, { status: 204, headers });
     }
     if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
     const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', op, ...url.searchParams.getAll('arg')], {
@@ -126,9 +138,12 @@ export class Box extends Container<Env> {
       : new Response(text.decode(stdout) + text.decode(stderr), { status: 500 });
   }
 
-  async run(network: Network, argv: string[], headers: HeadersInit) {
+  async run(id: string, network: Network, argv: string[], headers: HeadersInit) {
     this.running.set(network, (this.running.get(network) ?? 0) + 1);
-    const done = () => this.running.set(network, (this.running.get(network) ?? 1) - 1);
+    const done = () => {
+      this.running.set(network, (this.running.get(network) ?? 1) - 1);
+      this.children.delete(id);
+    };
     const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'run', ...argv], {
       user: '1000:1000',
       stderr: 'combined',
@@ -136,6 +151,7 @@ export class Box extends Container<Env> {
       done();
       throw error;
     });
+    this.children.set(id, child);
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const pump = async () => {
       const writer = writable.getWriter();

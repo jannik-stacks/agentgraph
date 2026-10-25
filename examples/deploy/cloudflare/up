@@ -18,8 +18,8 @@ ask() {
   export "$1=$value"
 }
 
-case $deployed in
-*'"AGENTGRAPH_APP_KEY"'*) ;;
+case $deployed${AGENTGRAPH_APP_KEY:+key} in
+*'"AGENTGRAPH_APP_KEY"'* | *key) ;;
 *)
   if [ -z "${AGENTGRAPH_APP_ENV:-}" ]; then
     printf 'AGENTGRAPH_APP_ENV (path to app.env, empty to create the App now): ' >&2
@@ -31,6 +31,7 @@ case $deployed in
   export AGENTGRAPH_APP_ID AGENTGRAPH_APP_KEY
   ;;
 esac
+ask AGENTGRAPH_APP_ID 'the GitHub App id'
 ask AGENTGRAPH_REPO 'owner/name of the repo to work on'
 ask GATEWAY_URL 'OpenAI-compatible model gateway, for example https://my-litellm.example.com'
 ask AGENTGRAPH_PROXY_KEYS 'name=key pairs the gateway accepts, one per agent'

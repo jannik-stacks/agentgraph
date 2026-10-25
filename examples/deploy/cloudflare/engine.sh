@@ -16,12 +16,13 @@ case $code in
 esac
 
 backup() {
-  tar -czf /tmp/backup.tar.gz -C /data --exclude=./work --exclude=./index --exclude=./news --exclude=./.locks . &&
-    curl -sSf -X PUT --data-binary @/tmp/backup.tar.gz http://data.internal/data.tar.gz
+  tar -czf "/tmp/$1.tar.gz" -C /data --exclude=./work --exclude=./index --exclude=./news --exclude=./.locks . &&
+    curl -sSf -X PUT --data-binary "@/tmp/$1.tar.gz" http://data.internal/data.tar.gz
 }
 
-(while sleep 300; do backup || echo "backing up /data failed" >&2; done) &
+(while sleep 300; do backup every || echo "backing up /data failed" >&2; done) &
+saver=$!
 node bin/run.ts loop --data /data &
 engine=$!
-trap 'kill $engine 2> /dev/null || :; wait $engine || :; backup || :; exit 0' TERM INT
+trap 'kill $saver $engine 2> /dev/null || :; wait $engine || :; backup last || :; exit 0' TERM INT
 wait $engine || exit $?
