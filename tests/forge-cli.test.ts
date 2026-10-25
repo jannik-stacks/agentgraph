@@ -569,7 +569,13 @@ describe('an instance', () => {
     const status = spawnSync(process.execPath, [join(cli, '..', 'run.ts'), 'status', '--instance', at], {
       encoding: 'utf8',
     });
-    expect(status.stdout).toContain(`npx agentgraph --instance ${at} --issue 1`);
+    expect(status.stdout).toContain(`node bin/run.ts --instance ${at} --issue 1`);
+    writeFileSync(instance.keys, `AGENTGRAPH_CONFIG=${join(w.root, 'missing.config.ts')}\n`);
+    const checked = spawnSync(process.execPath, [join(cli, '..', 'run.ts'), 'check', '--instance', at], {
+      encoding: 'utf8',
+    });
+    expect(checked.stdout + checked.stderr).toContain('missing.config.ts');
+    rmSync(instance.keys);
 
     bh(at, 'comment', '2', 'say world', '--line', 'hello.txt:1');
     bh(at, 'review', '2', 'changes', 'not quite');

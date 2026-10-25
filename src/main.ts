@@ -18,7 +18,7 @@ import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
-const secrets = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
+export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
 const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');
 
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
@@ -28,7 +28,9 @@ const readSecretFiles = async (vars: Record<string, string | undefined>) => ({
   ...vars,
   ...Object.fromEntries(
     await Promise.all(
-      secrets.filter(name => vars[`${name}_FILE`]).map(async name => [name, await readText(vars[`${name}_FILE`]!)])
+      secretSettings
+        .filter(name => vars[`${name}_FILE`])
+        .map(async name => [name, await readText(vars[`${name}_FILE`]!)])
     )
   ),
 });

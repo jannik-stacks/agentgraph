@@ -22,9 +22,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { ConfigProvider, Effect, Redacted } from 'effect';
+import { Effect, Redacted } from 'effect';
 import { tell, type Instruction } from '../src/engine.ts';
-import { readEngineEnv, readEnvFile, start } from '../src/main.ts';
+import { readEngineEnv, readEnvFile, secretSettings, start } from '../src/main.ts';
 import { readConfiguredHub } from '../src/harnesses.ts';
 import { instanceAt } from '../src/instance.ts';
 import { findRunsWaitingOnPeople, formatNextSteps } from '../src/status.ts';
@@ -53,15 +53,9 @@ if (values.instance && !instance) {
   console.error(`no instance.yaml at or above ${values.instance}`);
   process.exit(2);
 }
-const defaults = instance && existsSync(instance.keys) ? await readEnvFile(instance.keys) : {};
-const readHub = (dir: string) =>
-  readConfiguredHub(resolve(dir)).pipe(
-    Effect.withConfigProvider(
-      ConfigProvider.fromEnv().pipe(
-        ConfigProvider.orElse(() => ConfigProvider.fromMap(new Map(Object.entries(defaults))))
-      )
-    )
-  );
+const keys = instance && existsSync(instance.keys) ? await readEnvFile(instance.keys) : {};
+const defaults = Object.fromEntries(Object.entries(keys).filter(([name]) => secretSettings.includes(name)));
+for (const [name, value] of Object.entries(keys)) if (!(name in defaults)) process.env[name] ??= value;
 if (instance) {
   Object.assign(values, { hub: instance.hub, forge: instance.forge, data: instance.data });
   if (instance.logs) process.env.AGENTGRAPH_CHECK_LOGS ??= instance.logs;
@@ -124,7 +118,7 @@ if (positionals[0] === 'check') {
     process.exit(2);
   }
   const problems = await Effect.runPromise(
-    readHub(values.hub).pipe(
+    readConfiguredHub(resolve(values.hub)).pipe(
       Effect.map(() => []),
       Effect.catchTag('HubError', e => Effect.succeed(e.problems))
     )
@@ -161,7 +155,7 @@ if (positionals[0] === 'status') {
     ? `--instance ${instance.dir}`
     : `--hub ${hub} --data ${data}${forge ? ` --forge ${forge}` : ''}`;
   const lines = await Effect.runPromise(
-    readHub(hub).pipe(
+    readConfiguredHub(hub).pipe(
       Effect.flatMap(h =>
         needsYou(forge ? undefined : { repo: h.repo, id: id!, key: Redacted.make(key!) }, {
           again,
@@ -182,7 +176,7 @@ if (positionals[0] === 'loop') {
   }
   process.env.AGENTGRAPH_DATA = resolve(values.data);
   if (values.hub) {
-    const hub = await Effect.runPromise(readHub(values.hub));
+    const hub = await Effect.runPromise(readConfiguredHub(resolve(values.hub)));
     Object.assign(process.env, { AGENTGRAPH_HUB: resolve(values.hub), AGENTGRAPH_REPO: hub.repo });
   }
   await start(undefined, undefined, defaults);
