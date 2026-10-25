@@ -152,47 +152,44 @@ export class Box extends Container<Env> {
     const op = url.pathname.split('/')[2] ?? '';
     const fresh = !this.ctx.container?.running;
     const headers: HeadersInit = fresh ? { 'agentgraph-box-fresh': '1' } : {};
-    return this.answer(request, url, op, fresh, headers).catch(
-      (error: Error) => new Response(error.message, { status: 500, headers })
-    );
-  }
-
-  async answer(request: Request, url: URL, op: string, fresh: boolean, headers: HeadersInit) {
-    if (fresh) await this.ctx.storage.delete('dirty');
-    await this.start();
-    this.renewActivityTimeout();
-    if (op === 'run') {
-      if (fresh) return new Response(null, { headers });
-      const network = url.searchParams.get('network');
-      if (!networks.includes(network as Network)) return new Response(`unknown network ${network}`, { status: 400 });
-      const { argv, secrets } = (await request.json()) as { argv: string[]; secrets: Record<string, string> };
-      await this.ctx.storage.put('dirty', url.pathname.split('/')[1] ?? '');
-      return this.run(url.searchParams.get('id') ?? '', network as Network, argv, secrets, headers);
+    try {
+      if (fresh) await this.ctx.storage.delete('dirty');
+      await this.start();
+      this.renewActivityTimeout();
+      if (op === 'run') {
+        if (fresh) return new Response(null, { headers });
+        const network = url.searchParams.get('network');
+        if (!networks.includes(network as Network)) return new Response(`unknown network ${network}`, { status: 400 });
+        const { argv, secrets } = (await request.json()) as { argv: string[]; secrets: Record<string, string> };
+        await this.ctx.storage.put('dirty', url.pathname.split('/')[1] ?? '');
+        return await this.run(url.searchParams.get('id') ?? '', network as Network, argv, secrets, headers);
+      }
+      if (op === 'stop') {
+        const id = url.searchParams.get('arg') ?? '';
+        this.stopped.add(id);
+        await this.launches.get(id);
+        await this.reap(id);
+        return new Response(null, { status: 204, headers });
+      }
+      if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
+      const child = await this.box([op, ...url.searchParams.getAll('arg')], {
+        user: op === 'init' || op === 'put' ? '0:0' : '1000:1000',
+        ...(request.body && { stdin: request.body }),
+        stderr: op === 'pull' ? 'ignore' : 'pipe',
+      });
+      if (op === 'pull') return new Response(child.stdout, { headers });
+      const { exitCode, stdout, stderr } = await child.output();
+      const text = new TextDecoder();
+      return exitCode === 0
+        ? new Response(null, { status: 204, headers })
+        : new Response(text.decode(stdout) + text.decode(stderr), { status: 500, headers });
+    } catch (error) {
+      return new Response((error as Error).message, { status: 500, headers });
     }
-    if (op === 'stop') {
-      const id = url.searchParams.get('arg') ?? '';
-      this.stopped.add(id);
-      await this.launches.get(id);
-      await this.reap(id);
-      return new Response(null, { status: 204, headers });
-    }
-    if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
-    const child = await this.box([op, ...url.searchParams.getAll('arg')], {
-      user: op === 'init' || op === 'put' ? '0:0' : '1000:1000',
-      ...(request.body && { stdin: request.body }),
-      stderr: op === 'pull' ? 'ignore' : 'pipe',
-    });
-    if (op === 'pull') return new Response(child.stdout, { headers });
-    const { exitCode, stdout, stderr } = await child.output();
-    const text = new TextDecoder();
-    return exitCode === 0
-      ? new Response(null, { status: 204, headers })
-      : new Response(text.decode(stdout) + text.decode(stderr), { status: 500, headers });
   }
 
   async reap(id: string) {
-    const reaper = await this.box(['reap', id]);
-    await reaper.exitCode;
+    await (await this.box(['reap', id])).exitCode;
   }
 
   async run(id: string, network: Network, argv: string[], secrets: Record<string, string>, headers: HeadersInit) {
@@ -215,7 +212,6 @@ export class Box extends Container<Env> {
       started.catch(() => undefined)
     );
     const child = await started;
-    if (this.stopped.has(id)) await this.reap(id);
     void child.exitCode.then(() => this.reap(id)).catch(() => undefined);
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const pump = async () => {
