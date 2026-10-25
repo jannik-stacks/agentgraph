@@ -9,6 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -557,7 +558,7 @@ describe('codex', () => {
   const codex = { ...spec, harness: 'codex' as const };
   const proxy = { url: 'codex=', keys: Redacted.make(''), models: '*=gpt-x,smart=gpt-y' };
 
-  it('runs on its own login in the shared volume, one session at a time, with the model the alias names', async () => {
+  it('runs on a copy of its login in the shared volume, with the model the alias names', async () => {
     const { exit, command } = await session(codex, [], { proxy });
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(harnessArgs(command)[1]).toContain('flock 9');
@@ -567,13 +568,39 @@ describe('codex', () => {
     expect(args).not.toContain('-c');
     expect(args.at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
     expect(command.volumes).toEqual({ '/codex': 'agentgraph-codex' });
-    expect(command.env.CODEX_HOME).toBe('/codex');
-    expect(command.env.AGENTGRAPH_CODEX).toContain('/codex/auth.json');
+    expect(command.env.CODEX_HOME).toBe('/tmp/codex');
+    expect(command.env.AGENTGRAPH_CODEX).toContain('/tmp/codex/auth.json');
     expect(command.secrets).toEqual({});
     const { model: _, ...bare } = codex;
     const { command: unnamed } = await session({ ...bare, resume: resumable() }, [], { proxy });
     expect(codexArgs(unnamed).slice(0, 5)).toEqual(['exec', '--sandbox', 'read-only', 'resume', 't1']);
     expect(codexArgs(unnamed)[codexArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
+  });
+
+  it('holds the login lock only to copy the login in and a refreshed one back, not while codex runs', async () => {
+    const { command } = await session(codex, [], { proxy });
+    const root = mkdtempSync(join(tmpdir(), 'agentgraph-codex-'));
+    const bin = join(root, 'bin');
+    mkdirSync(join(root, 'volume'), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(join(root, 'volume', 'auth.json'), 'old');
+    const fake = (name: string, body: string) =>
+      writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    fake('flock', `[ -e /dev/fd/$1 ] && echo lock >> ${root}/log`);
+    fake(
+      'node',
+      `[ -e /dev/fd/9 ] && echo locked >> ${root}/log\necho session >> ${root}/log\necho new > ${root}/home/auth.json\nexit 3`
+    );
+    const script = harnessArgs(command)[1]!
+      .replaceAll('/tmp/codex', join(root, 'home'))
+      .replaceAll('/codex', join(root, 'volume'));
+    const ran = spawnSync('sh', ['-c', script, 'sh', 'exec'], {
+      env: { PATH: `${bin}:${process.env.PATH}` },
+      encoding: 'utf8',
+    });
+    expect(ran.status).toBe(3);
+    expect(readFileSync(join(root, 'log'), 'utf8').split('\n')).toEqual(['lock', 'session', 'lock', '']);
+    expect(readFileSync(join(root, 'volume', 'auth.json'), 'utf8')).toBe('new\n');
   });
 
   it('keeps a read-only agent in its read-only sandbox and starts a fork fresh', async () => {

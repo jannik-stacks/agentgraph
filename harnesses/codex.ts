@@ -23,7 +23,8 @@ const { readFileSync } = require('node:fs');
 const { createInterface } = require('node:readline');
 const seen = new Set();
 const secrets = () => {
-  try { JSON.parse(readFileSync('/codex/auth.json', 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && seen.add(v), v)); } catch {}
+  for (const file of ['/codex/auth.json', '/tmp/codex/auth.json'])
+    try { JSON.parse(readFileSync(file, 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && seen.add(v), v)); } catch {}
   return seen;
 };
 secrets();
@@ -32,6 +33,15 @@ for (const out of [codex.stdout, codex.stderr])
   createInterface({ input: out }).on('line', line => process.stdout.write([...secrets()].reduce((t, s) => t.replaceAll(s, '***'), line) + '\\n'));
 codex.on('close', code => process.exit(code ?? 1));
 `;
+
+const login = `mkdir -p /tmp/codex /codex/sessions && ln -s /codex/sessions /tmp/codex/sessions
+(flock 9 && cp /codex/auth.json /tmp/codex/auth.json) 9>/codex/.lock
+cp /tmp/codex/auth.json /tmp/codex/auth.start
+node -e "$AGENTGRAPH_CODEX" -- "$@"
+code=$?
+cmp -s /tmp/codex/auth.json /tmp/codex/auth.start ||
+  (flock 9 && cp /tmp/codex/auth.json /codex/auth.next && mv /codex/auth.next /codex/auth.json) 9>/codex/.lock
+exit $code`;
 
 const writing = ['edit', 'write', 'bash'];
 const writes = (tools: string[]) => tools.some(tool => writing.includes(tool));
@@ -53,7 +63,7 @@ export const makeCodexHarness = (): Harness => ({
       cmd: 'sh',
       args: [
         '-c',
-        `${route.url ? '' : 'exec 9>/codex/.lock && flock 9 && '}exec node -e "$AGENTGRAPH_CODEX" -- "$@"`,
+        route.url ? 'exec node -e "$AGENTGRAPH_CODEX" -- "$@"' : login,
         'sh',
         'exec',
         ...(writes(spec.tools) ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', 'read-only']),
@@ -73,7 +83,7 @@ export const makeCodexHarness = (): Harness => ({
         '--',
         resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
       ],
-      env: { ...(!route.url && { CODEX_HOME: '/codex' }), AGENTGRAPH_CODEX: masked },
+      env: { ...(!route.url && { CODEX_HOME: '/tmp/codex' }), AGENTGRAPH_CODEX: masked },
       ...(!route.url && { volumes: { '/codex': 'agentgraph-codex' } }),
     };
   },
