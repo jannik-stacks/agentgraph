@@ -10,6 +10,7 @@ export type SessionSpec = {
   system: string;
   prompt: string;
   dir: string;
+  base?: string;
   tools: string[];
   /** Directories outside `dir` the session may read. */
   read?: string[];

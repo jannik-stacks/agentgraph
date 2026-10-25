@@ -86,15 +86,15 @@ const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {
 const printRuns = (runs: Run[]) => {
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
-const checkHub = async (hub: string) => {
+const checkHub = async (hub: string, named = values.provider ?? process.env.AGENTGRAPH_PROVIDER) => {
   Object.assign(process.env, {
-    ...(values.provider && { AGENTGRAPH_PROVIDER: values.provider }),
+    ...(named && { AGENTGRAPH_PROVIDER: named }),
     ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
   });
   const problems = await Effect.runPromise(
     Effect.zip(readHarnessSettings, readConfiguredHub(hub)).pipe(
       Effect.map(([{ providers = [] }, loaded]) => {
-        const provider = providers.find(p => p.name === values.provider);
+        const provider = providers.find(p => p.name === named);
         return provider ? findUnserved(provider, loaded) : [];
       }),
       Effect.catchTag('HubError', e => Effect.succeed(e.problems))
@@ -197,10 +197,14 @@ const trapInterrupt = () =>
     stopping.abort();
   });
 
-if (verb === 'check' && values.hub && !values.runs) await checkHub(resolve(values.hub));
-
 const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
-if (values.forge !== undefined || app.some(name => process.env[name])) await runOnForge();
+const onForge = values.forge !== undefined || app.some(name => process.env[name]);
+const root = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
+if (!onForge && !process.env.AGENTGRAPH_CONFIG && existsSync(join(root, 'config.ts')))
+  process.env.AGENTGRAPH_CONFIG = join(root, 'config.ts');
+
+if (verb === 'check' && values.hub && !values.runs) await checkHub(resolve(values.hub));
+if (onForge) await runOnForge();
 else await runOnInstance();
 
 async function runOnForge() {
@@ -271,9 +275,6 @@ async function prune(data: string) {
 }
 
 async function runOnInstance() {
-  const root = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
-  if (!process.env.AGENTGRAPH_CONFIG && existsSync(join(root, 'config.ts')))
-    process.env.AGENTGRAPH_CONFIG = join(root, 'config.ts');
   const repo = await findRepo(resolve(values.repo ?? '.'));
   if (!repo) {
     if (verb !== 'show') fail(`${verb || 'agentgraph'} runs inside a git repo, or pass --repo <dir>\n${usage}`);
@@ -355,7 +356,7 @@ async function runOnInstance() {
       return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
     case 'check':
     case 'dispatch': {
-      if (verb === 'check' && !values.runs) return checkHub(await synced());
+      if (verb === 'check' && !values.runs) return checkHub(await synced(), values.provider ?? i.provider);
       const hub = await synced();
       await prepare(i, hub, 'Nothing was run.');
       return printRuns(await start({ hub, issue: 'all', data: i.data, base: i.base, instruction: instructed() }));
@@ -470,10 +471,12 @@ async function loop(i: Instance) {
         ).catch((e: unknown) => (stopping.signal.aborted ? [] : (console.error(e), [])));
         printRuns(runs);
         for (const issue of new Set(runs.map(r => r.issue))) {
-          const result = await writePullToRepo(i, issue);
+          const result = await writePullToRepo(i, issue).catch((e: Error) => ({ why: e.message }));
           if (result)
             console.log(
-              'why' in result ? `#${issue} not written: ${result.why}` : `#${issue} in your repo as ${result.ref}`
+              'why' in result
+                ? `#${issue} not written: ${result.why}; npx agentgraph export ${issue} --as <branch>`
+                : `#${issue} in your repo as ${result.ref}`
             );
         }
       }

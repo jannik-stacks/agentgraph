@@ -116,7 +116,7 @@ Scripts run in the checkout with these variables: <!-- code: src/engine.ts#resul
 
 | Variable | Contents | Given to |
 | --- | --- | --- |
-| `AGENTGRAPH_BASE` | The change's starting commit, or the branch fork point | Everything |
+| `AGENTGRAPH_BASE` | The change's starting commit, or the branch fork point | Everything, agent sessions too |
 | `AGENTGRAPH_HUB` | The hub folder, read only | Everything |
 | `AGENTGRAPH_ISSUE` | Issue number | Checks |
 | `AGENTGRAPH_PROPOSALS` | JSON file of pending proposals | Checks |

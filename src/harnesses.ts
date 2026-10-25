@@ -248,7 +248,7 @@ export const harnessSession = (s: {
                 ...wrapped(cmd, args),
                 dir: spec.dir,
                 home,
-                env,
+                env: { ...env, ...(spec.base && { AGENTGRAPH_BASE: spec.base }) },
                 secrets,
                 ...(harness.volumes && { volumes: harness.volumes }),
                 network: 'proxy',
