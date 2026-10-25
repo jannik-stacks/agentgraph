@@ -13,7 +13,7 @@ import type { SessionEvent } from '../src/trace.ts';
 import { begin, getEventOutcome, transition, type Run } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { hubOf, reply, start, wrote } from './fixtures.ts';
+import { harnesses, hubOf, reply, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 import { startTime } from './setup/global.ts';
 import {
@@ -591,7 +591,7 @@ describe('drive', () => {
         .map(agent => `${agent}=${key}`)
         .join(',')
     );
-    const session = harnessSession({ data: where.data, proxy: { url: 'http://proxy', keys } }).pipe(
+    const session = harnessSession({ data: where.data, proxy: { url: 'http://proxy', keys }, harnesses }).pipe(
       Layer.provide(sandbox)
     );
     const layer = Layer.mergeAll(fileForge(where.forge), fileStore(where.data), sandbox, session);

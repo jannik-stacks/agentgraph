@@ -6,7 +6,7 @@ import { fileForge } from './forge.ts';
 import { dockerSandbox } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
-import { harnessSession } from './harnesses.ts';
+import { claude, harnessSession, opencode, pi } from './harnesses.ts';
 import { HubError, loadHub } from './hub.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
@@ -93,7 +93,11 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   );
   return Layer.unwrapEffect(
     Effect.map(trust, trust =>
-      Layer.mergeAll(forge(trust), fileStore(s.data, s.checkLogs), harnessSession(s).pipe(Layer.provideMerge(sandbox)))
+      Layer.mergeAll(
+        forge(trust),
+        fileStore(s.data, s.checkLogs),
+        harnessSession({ ...s, harnesses: [opencode(), claude(), pi()] }).pipe(Layer.provideMerge(sandbox))
+      )
     )
   );
 };

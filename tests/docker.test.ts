@@ -19,7 +19,7 @@ import { isOwnerRunning, startHeartbeat } from '../src/owner.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
-import { faked, plant } from './fixtures.ts';
+import { faked, harnesses, plant } from './fixtures.ts';
 import { git, tmp, write } from './kit.ts';
 
 /** A repo with one commit on `main` and a `feature` branch one commit ahead. */
@@ -654,6 +654,7 @@ describe.runIf(process.env.AGENTGRAPH_LIVE === '1')('opencode for real', () => {
       data: tmp('data'),
       proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(process.env.AGENTGRAPH_PROXY_KEYS ?? '') },
       prices: join(import.meta.dirname, '../infra/local/prices.json'),
+      harnesses,
     }).pipe(Layer.provide(dockerSandbox({ data: tmp('data'), origin: '/nowhere' })));
     const open = (prompt: string, resume?: { id: string; home: string }) =>
       Effect.runPromise(

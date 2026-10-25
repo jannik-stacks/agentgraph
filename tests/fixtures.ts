@@ -1,10 +1,13 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
+import { claude, opencode, pi } from '../src/harnesses.ts';
 import type { Check, Hub } from '../src/hub.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { compileWorkflow, type Problem, type Workflow } from '../src/workflow.ts';
 import { git, tmp, write } from './kit.ts';
+
+export const harnesses = [opencode(), claude(), pi()];
 
 /**
  * What a session could leave in its worktree to steer host git: a `.git` pointing at its own repo whose config runs a

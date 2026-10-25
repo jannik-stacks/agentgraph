@@ -16,6 +16,7 @@ import { harnessSession, getModelPrice } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
+import { harnesses } from './fixtures.ts';
 
 const sample = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8').split('\n');
 
@@ -49,6 +50,7 @@ const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError,
     data,
     proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(`implementor=${key}, reviewer=sk-other`) },
     ...(prices && { prices }),
+    harnesses,
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),

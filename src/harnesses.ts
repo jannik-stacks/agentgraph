@@ -8,33 +8,50 @@ import { Sandbox, type SandboxError } from './sandbox.ts';
 import { Session } from './session.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
 
-type Ended = Extract<SessionEvent, { type: 'end' }>['ended'];
-type Tool = Extract<SessionEvent, { type: 'tool' }>;
-
-/** What one harness output line says, before the session loop adds the home, the reply and the exit code. */
 type Piece =
   | { type: 'session'; id: string; model?: string }
-  | Extract<SessionEvent, { type: 'text' | 'thinking' | 'tool' }>
-  | Extract<SessionEvent, { type: 'usage' }>
-  | { type: 'done'; ended: Ended; error?: string };
+  | Extract<SessionEvent, { type: 'text' | 'thinking' | 'tool' | 'usage' }>
+  | { type: 'done'; ended: Extract<SessionEvent, { type: 'end' }>['ended']; error?: string };
 
-type Adapter = {
-  command: (spec: SessionSpec, url: string) => { cmd: string; args: string[]; env: Record<string, string> };
+type ModelRoute = { url: string; model: string };
+
+type Harness = {
+  name: string;
   key: string;
-  files?: (spec: SessionSpec, url: string) => Record<string, string>;
-  links?: Record<string, string>;
-  parser: () => (line: unknown) => Piece[];
+  check?: (agent: Agent) => string[];
+  home?: (spec: SessionSpec, route: ModelRoute) => { files?: Record<string, string>; links?: Record<string, string> };
+  command: (spec: SessionSpec, route: ModelRoute) => { cmd: string; args: string[]; env?: Record<string, string> };
+  parse: () => (line: unknown) => Piece[];
 };
 
-/** Parses the JSON lines that decode as `schema`; any other line says nothing. */
-const decoding = <A, I>(schema: Schema.Schema<A, I>, parse: (line: A) => Piece[]) => {
+const makeLineParser = <A, I>(schema: Schema.Schema<A, I>, parse: (line: A) => Piece[]) => {
   const decode = Schema.decodeUnknownOption(schema);
   return (line: unknown) => Option.match(decode(line), { onNone: () => [], onSome: parse });
 };
 
-/** Optional fields of one schema, by name. */
 const some = <S extends Schema.Schema.Any, K extends string>(schema: S, ...keys: K[]) =>
   Object.fromEntries(keys.map(key => [key, Schema.optional(schema)])) as Record<K, Schema.optional<S>>;
+
+const makeCacheCounts = (read = 0, write = 0) => ({
+  ...(read > 0 && { cacheRead: read }),
+  ...(write > 0 && { cacheWrite: write }),
+});
+
+const modelTimeouts = { headersMs: 120_000, idleMs: 180_000 };
+
+const splitToolPattern = (tool: string) => /^([^(]+)\((.*)\)$/.exec(tool) ?? [tool, tool, undefined];
+
+const makePrefixedToolForms = (tools: string[]) =>
+  tools.flatMap(tool => (tool.startsWith('bash(') ? [tool, `bash(NODE_OPTIONS= command ${tool.slice(5)}`] : [tool]));
+
+const getBlockText = (content: unknown, type = 'text'): string =>
+  typeof content === 'string'
+    ? type === 'text'
+      ? content
+      : ''
+    : Array.isArray(content)
+      ? content.flatMap(b => (b?.type === type && typeof b[type] === 'string' ? [b[type]] : [])).join('')
+      : '';
 const { String: Str, Number: Num, Boolean: Bool, Unknown, Struct, optional: opt } = Schema;
 
 const OpencodeLine = Struct({
@@ -57,63 +74,12 @@ const OpencodeLine = Struct({
   ),
 });
 
-const ClaudeBlock = Struct({
-  ...some(Str, 'type', 'text', 'thinking', 'id', 'name', 'tool_use_id'),
-  ...some(Unknown, 'input', 'content'),
-  is_error: opt(Bool),
-});
-const ClaudeLine = Struct({
-  ...some(Str, 'type', 'subtype', 'session_id', 'model', 'result'),
-  is_error: opt(Bool),
-  message: opt(Struct({ content: opt(Schema.Union(Str, Schema.Array(ClaudeBlock))) })),
-  permission_denials: opt(
-    Schema.Array(Struct({ ...some(Str, 'tool_use_id', 'tool_name'), ...some(Unknown, 'tool_input') }))
-  ),
-  modelUsage: opt(
-    Schema.Record({
-      key: Str,
-      value: Struct(some(Num, 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens')),
-    })
-  ),
-});
-
-const PiMessage = Struct({
-  ...some(Str, 'role', 'stopReason', 'errorMessage'),
-  ...some(Unknown, 'content'),
-  usage: opt(
-    Struct({ ...some(Num, 'input', 'output', 'cacheRead', 'cacheWrite'), cost: opt(Struct(some(Num, 'total'))) })
-  ),
-});
-const PiLine = Struct({
-  ...some(Str, 'type', 'id', 'toolCallId', 'toolName'),
-  ...some(Bool, 'isError', 'willRetry'),
-  ...some(Unknown, 'args'),
-  result: opt(Struct(some(Unknown, 'content'))),
-  message: opt(PiMessage),
-  messages: opt(Schema.Array(PiMessage)),
-});
-
-/** Cache token counts, only where the harness reported some. */
-const cache = (read = 0, write = 0) => ({
-  ...(read > 0 && { cacheRead: read }),
-  ...(write > 0 && { cacheWrite: write }),
-});
-
-const modelTimeouts = { headersMs: 120_000, idleMs: 180_000 };
-const alias = (spec: SessionSpec) => spec.model ?? 'default';
-const pattern = (tool: string) => /^([^(]+)\((.*)\)$/.exec(tool) ?? [tool, tool, undefined];
-
-/** A bash pattern also allows its command behind an empty `NODE_OPTIONS= command ` prefix, which runs it unchanged. */
-const forms = (tools: string[]) =>
-  tools.flatMap(tool => (tool.startsWith('bash(') ? [tool, `bash(NODE_OPTIONS= command ${tool.slice(5)}`] : [tool]));
-
-/** A permission per tool entry: `read` allows the tool, `bash(git diff*)` allows one pattern. `read` dirs are reachable. */
 const permission = (tools: string[], read: string[] = []) => {
   const rules: Record<string, string | Record<string, string>> = { '*': 'deny' };
   if (read.length)
     rules.external_directory = Object.fromEntries([['*', 'deny'], ...read.map(d => [`${d}/*`, 'allow'])]);
-  for (const tool of forms(tools)) {
-    const [, name = tool, glob] = pattern(tool);
+  for (const tool of makePrefixedToolForms(tools)) {
+    const [, name = tool, glob] = splitToolPattern(tool);
     const current = rules[name];
     if (glob === undefined) rules[name] = 'allow';
     else if (current !== 'allow')
@@ -124,7 +90,6 @@ const permission = (tools: string[], read: string[] = []) => {
 
 const numeric = /^(?:-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+)$/i;
 
-/** Space-free words; a number is glued to the word before it with a tab, because the CLI would read it as a number. */
 const words = (prompt: string) => {
   const out: string[] = [];
   for (const word of prompt.split(' ')) {
@@ -140,17 +105,16 @@ const words = (prompt: string) => {
 
 const deniedByOpencode = 'prevents you from using this specific tool call';
 
-/**
- * opencode `run` against the model proxy's Responses API. Permissions deny everything outside the allowlist, project
- * config and harness memory are off, and sessions live in the run home.
- */
-const opencode: Adapter = {
+export const opencode = (): Harness => ({
+  name: 'opencode',
   key: 'AGENTGRAPH_LLM_API_KEY',
-  links: {
-    '.config/opencode/node_modules': '/opt/opencode/node_modules',
-    '.config/opencode/package-lock.json': '/opt/opencode/package-lock.json',
-  },
-  command: (spec, url) => ({
+  home: () => ({
+    links: {
+      '.config/opencode/node_modules': '/opt/opencode/node_modules',
+      '.config/opencode/package-lock.json': '/opt/opencode/package-lock.json',
+    },
+  }),
+  command: (spec, route) => ({
     cmd: 'opencode',
     args: [
       'run',
@@ -161,13 +125,13 @@ const opencode: Adapter = {
       '--agent',
       'agentgraph',
       '--model',
-      `agentgraph/${alias(spec)}`,
+      `agentgraph/${route.model}`,
       ...(spec.resume ? ['--session', spec.resume.id, ...(spec.fork ? ['--fork'] : [])] : []),
       '--',
       ...words(spec.prompt),
     ],
     env: {
-      AGENTGRAPH_LLM_BASE_URL: url,
+      AGENTGRAPH_LLM_BASE_URL: route.url,
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
         $schema: 'https://opencode.ai/config.json',
         autoupdate: false,
@@ -186,7 +150,7 @@ const opencode: Adapter = {
               headerTimeout: modelTimeouts.headersMs,
               chunkTimeout: modelTimeouts.idleMs,
             },
-            models: { [alias(spec)]: {} },
+            models: { [route.model]: {} },
           },
         },
         agent: { agentgraph: { mode: 'primary', prompt: spec.system } },
@@ -202,8 +166,8 @@ const opencode: Adapter = {
       OPENCODE_DISABLE_MODELS_FETCH: '1',
     },
   }),
-  parser: () =>
-    decoding(OpencodeLine, line => {
+  parse: () =>
+    makeLineParser(OpencodeLine, line => {
       const session: Piece[] = line.sessionID ? [{ type: 'session', id: line.sessionID }] : [];
       const part = line.part ?? {};
       if (line.type === 'error')
@@ -216,7 +180,7 @@ const opencode: Adapter = {
       if (part.type === 'tool' && (part.state?.status === 'completed' || part.state?.status === 'error')) {
         const { state } = part;
         const output = state.output ?? state.error;
-        const tool: Tool = {
+        const tool: Extract<SessionEvent, { type: 'tool' }> = {
           type: 'tool',
           id: part.callID ?? part.id ?? '',
           name: part.tool ?? '',
@@ -237,14 +201,14 @@ const opencode: Adapter = {
                 type: 'usage',
                 input: (t.input ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0),
                 output: t.output ?? 0,
-                ...cache(t.cache?.read, t.cache?.write),
+                ...makeCacheCounts(t.cache?.read, t.cache?.write),
                 ...(part.cost && { usd: part.cost }),
               },
             ]
           : [];
         const reason = part.reason;
         if (reason === 'tool-calls') return [...session, ...usage];
-        const ended: Ended = reason === 'stop' ? 'stop' : reason === 'length' ? 'cap' : 'error';
+        const ended = reason === 'stop' ? 'stop' : reason === 'length' ? 'cap' : 'error';
         return [
           ...session,
           ...usage,
@@ -253,7 +217,27 @@ const opencode: Adapter = {
       }
       return session;
     }),
-};
+});
+
+const ClaudeBlock = Struct({
+  ...some(Str, 'type', 'text', 'thinking', 'id', 'name', 'tool_use_id'),
+  ...some(Unknown, 'input', 'content'),
+  is_error: opt(Bool),
+});
+const ClaudeLine = Struct({
+  ...some(Str, 'type', 'subtype', 'session_id', 'model', 'result'),
+  is_error: opt(Bool),
+  message: opt(Struct({ content: opt(Schema.Union(Str, Schema.Array(ClaudeBlock))) })),
+  permission_denials: opt(
+    Schema.Array(Struct({ ...some(Str, 'tool_use_id', 'tool_name'), ...some(Unknown, 'tool_input') }))
+  ),
+  modelUsage: opt(
+    Schema.Record({
+      key: Str,
+      value: Struct(some(Num, 'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens')),
+    })
+  ),
+});
 
 const claudeNames: Record<string, string> = {
   read: 'Read',
@@ -267,28 +251,16 @@ const claudeNames: Record<string, string> = {
 };
 
 const claudeTools = (tools: string[]) =>
-  forms(tools).flatMap(tool => {
-    const [, name = tool, glob] = pattern(tool);
+  makePrefixedToolForms(tools).flatMap(tool => {
+    const [, name = tool, glob] = splitToolPattern(tool);
     const mapped = claudeNames[name];
     return mapped ? [glob === undefined ? mapped : `${mapped}(${glob})`] : [];
   });
 
-const blockText = (content: unknown, type = 'text'): string =>
-  typeof content === 'string'
-    ? type === 'text'
-      ? content
-      : ''
-    : Array.isArray(content)
-      ? content.flatMap(b => (b?.type === type && typeof b[type] === 'string' ? [b[type]] : [])).join('')
-      : '';
-
-/**
- * Claude Code in print mode against the model proxy's Anthropic endpoint. Its config and sessions live in the run
- * home; safe and restricted mode keep out project settings, hooks, plugins and MCP servers.
- */
-const claude: Adapter = {
+export const claude = (): Harness => ({
+  name: 'claude',
   key: 'ANTHROPIC_AUTH_TOKEN',
-  command: (spec, url) => {
+  command: (spec, route) => {
     const list = claudeTools(spec.tools);
     return {
       cmd: 'claude',
@@ -314,7 +286,7 @@ const claude: Adapter = {
         spec.prompt,
       ],
       env: {
-        ANTHROPIC_BASE_URL: url.replace(/\/v1\/?$/, ''),
+        ANTHROPIC_BASE_URL: route.url.replace(/\/v1\/?$/, ''),
         DISABLE_AUTOUPDATER: '1',
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         API_TIMEOUT_MS: String(modelTimeouts.headersMs),
@@ -322,9 +294,9 @@ const claude: Adapter = {
       },
     };
   },
-  parser: () => {
+  parse: () => {
     const calls = new Map<string, { name: string; input: unknown }>();
-    return decoding(ClaudeLine, line => {
+    return makeLineParser(ClaudeLine, line => {
       if (line.type === 'system' && line.subtype === 'init' && line.session_id)
         return [{ type: 'session', id: line.session_id, ...(line.model && { model: line.model }) }];
       const content = line.message?.content;
@@ -342,7 +314,7 @@ const claude: Adapter = {
               name: call?.name ?? '',
               input: call?.input,
               ok: !b.is_error,
-              output: blockText(b.content),
+              output: getBlockText(b.content),
             },
           ];
         });
@@ -360,10 +332,10 @@ const claude: Adapter = {
           type: 'usage',
           input: inputTokens + cacheReadInputTokens + cacheCreationInputTokens,
           output: outputTokens,
-          ...cache(cacheReadInputTokens, cacheCreationInputTokens),
+          ...makeCacheCounts(cacheReadInputTokens, cacheCreationInputTokens),
         })
       );
-      const ended: Ended =
+      const ended =
         line.subtype === 'success' && !line.is_error ? 'stop' : line.subtype === 'error_max_turns' ? 'cap' : 'error';
       return [
         ...denied,
@@ -372,13 +344,44 @@ const claude: Adapter = {
       ];
     });
   },
-};
+});
 
-/** pi in print mode with JSON events, its one provider the model proxy, set up in the run home's `models.json`. */
-const pi: Adapter = {
+const PiMessage = Struct({
+  ...some(Str, 'role', 'stopReason', 'errorMessage'),
+  ...some(Unknown, 'content'),
+  usage: opt(
+    Struct({ ...some(Num, 'input', 'output', 'cacheRead', 'cacheWrite'), cost: opt(Struct(some(Num, 'total'))) })
+  ),
+});
+const PiLine = Struct({
+  ...some(Str, 'type', 'id', 'toolCallId', 'toolName'),
+  ...some(Bool, 'isError', 'willRetry'),
+  ...some(Unknown, 'args'),
+  result: opt(Struct(some(Unknown, 'content'))),
+  message: opt(PiMessage),
+  messages: opt(Schema.Array(PiMessage)),
+});
+
+export const pi = (): Harness => ({
+  name: 'pi',
   key: 'AGENTGRAPH_LLM_API_KEY',
-  command: spec => {
-    const tools = spec.tools.filter(tool => pattern(tool)[2] === undefined);
+  home: (_, route) => ({
+    files: {
+      '.pi/agent/models.json': JSON.stringify({
+        providers: {
+          agentgraph: {
+            baseUrl: route.url,
+            api: 'openai-completions',
+            apiKey: '$AGENTGRAPH_LLM_API_KEY',
+            models: [{ id: route.model, contextWindow: 200_000, maxTokens: 32_000 }],
+          },
+        },
+      }),
+      '.pi/agent/settings.json': JSON.stringify({ httpIdleTimeoutMs: modelTimeouts.idleMs }),
+    },
+  }),
+  command: (spec, route) => {
+    const tools = spec.tools.filter(tool => splitToolPattern(tool)[2] === undefined);
     return {
       cmd: 'pi',
       args: [
@@ -394,7 +397,7 @@ const pi: Adapter = {
         '--no-themes',
         ...(tools.length ? ['--tools', tools.join(',')] : ['--no-tools']),
         '--model',
-        `agentgraph/${alias(spec)}`,
+        `agentgraph/${route.model}`,
         ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
         '--append-system-prompt',
         spec.system,
@@ -404,34 +407,21 @@ const pi: Adapter = {
       env: { PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' },
     };
   },
-  files: (spec, url) => ({
-    '.pi/agent/models.json': JSON.stringify({
-      providers: {
-        agentgraph: {
-          baseUrl: url,
-          api: 'openai-completions',
-          apiKey: '$AGENTGRAPH_LLM_API_KEY',
-          models: [{ id: alias(spec), contextWindow: 200_000, maxTokens: 32_000 }],
-        },
-      },
-    }),
-    '.pi/agent/settings.json': JSON.stringify({ httpIdleTimeoutMs: modelTimeouts.idleMs }),
-  }),
-  parser: () => {
+  parse: () => {
     const calls = new Map<string, { name: string; input: unknown }>();
-    return decoding(PiLine, line => {
+    return makeLineParser(PiLine, line => {
       if (line.type === 'session' && line.id) return [{ type: 'session', id: line.id }];
       const id = line.toolCallId ?? '';
       if (line.type === 'tool_execution_start') calls.set(id, { name: line.toolName ?? '', input: line.args });
       if (line.type === 'tool_execution_end') {
-        const output = blockText(line.result?.content);
+        const output = getBlockText(line.result?.content);
         const call = calls.get(id) ?? { name: '', input: undefined };
         return [{ type: 'tool', id, ...call, ok: !line.isError, output }];
       }
       const m = line.message;
       if (line.type === 'message_end' && m?.role === 'assistant') {
-        const text = blockText(m.content);
-        const thinking = blockText(m.content, 'thinking');
+        const text = getBlockText(m.content);
+        const thinking = getBlockText(m.content, 'thinking');
         const u = m.usage;
         return [
           ...(thinking ? [{ type: 'thinking' as const, text: thinking }] : []),
@@ -442,7 +432,7 @@ const pi: Adapter = {
                   type: 'usage' as const,
                   input: (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0),
                   output: u.output ?? 0,
-                  ...cache(u.cacheRead, u.cacheWrite),
+                  ...makeCacheCounts(u.cacheRead, u.cacheWrite),
                   ...(u.cost?.total && { usd: u.cost.total }),
                 },
               ]
@@ -452,7 +442,7 @@ const pi: Adapter = {
       if (line.type === 'agent_end' && !line.willRetry) {
         const last = (line.messages ?? []).filter(x => x.role === 'assistant').at(-1);
         const reason = last?.stopReason;
-        const ended: Ended =
+        const ended =
           !last || reason === 'error' || reason === 'aborted' ? 'error' : reason === 'length' ? 'cap' : 'stop';
         return [
           { type: 'done', ended, ...(ended === 'error' && { error: last?.errorMessage ?? 'pi produced no reply' }) },
@@ -461,9 +451,7 @@ const pi: Adapter = {
       return [];
     });
   },
-};
-
-const adapters: Record<Agent['harness'], Adapter> = { opencode, claude, pi };
+});
 
 const exitLine = /^agentgraph-exit (\d+)$/;
 
@@ -550,7 +538,7 @@ const stopOf = (e: SandboxError) =>
   new SessionStop({ reason: e.reason === 'infra' ? 'sandbox' : e.reason, detail: e.detail });
 
 /**
- * The claude, opencode and pi adapters, picked by `spec.harness`. Each session gets its own home under
+ * Runs the harness of `harnesses` that `spec.harness` names. Each session gets its own home under
  * `data/homes`, reused on resume, and only its agent's key from `proxy.keys`. Usage the harness does not price is
  * priced from the `prices` file.
  */
@@ -558,6 +546,7 @@ export const harnessSession = (s: {
   data: string;
   proxy: { url: string; keys: Redacted.Redacted };
   prices?: string;
+  harnesses: readonly Harness[];
 }): Layer.Layer<Session, never, Sandbox> =>
   Layer.effect(
     Session,
@@ -571,27 +560,30 @@ export const harnessSession = (s: {
       const open = (spec: SessionSpec) =>
         Stream.unwrapScoped(
           Effect.gen(function* () {
-            const adapter = adapters[spec.harness];
+            const harness = s.harnesses.find(h => h.name === spec.harness);
+            if (!harness)
+              return yield* new SessionStop({ reason: 'sandbox', detail: `no harness ${spec.harness} in the config` });
             const key = keys[spec.agent];
             if (!key)
               return yield* new SessionStop({ reason: 'provider', detail: `no proxy key for agent ${spec.agent}` });
+            const route = { url: s.proxy.url, model: spec.model ?? 'default' };
+            const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
             const home = (!spec.fork && spec.resume?.home) || join(s.data, 'homes', randomUUID());
             yield* Effect.tryPromise({
               try: async () => {
                 if (spec.fork && spec.resume)
                   await cp(spec.resume.home, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
-                for (const [path, text] of Object.entries(adapter.files?.(spec, s.proxy.url) ?? {}))
-                  await writeHome(home, path, text);
-                for (const [path, target] of Object.entries(adapter.links ?? {})) await linkHome(home, path, target);
+                for (const [path, text] of Object.entries(files)) await writeHome(home, path, text);
+                for (const [path, target] of Object.entries(links)) await linkHome(home, path, target);
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
-            const { cmd, args, env } = adapter.command(spec, s.proxy.url);
+            const { cmd, args, env = {} } = harness.command(spec, route);
             const secret = Redacted.value(key);
-            const parse = adapter.parser();
+            const parse = harness.parse();
             let session: string | undefined;
-            let model = alias(spec);
+            let model = route.model;
             let reply = '';
             let done: Extract<Piece, { type: 'done' }> | undefined;
             let tail = '';
@@ -624,7 +616,7 @@ export const harnessSession = (s: {
                 }
                 if (piece.type === 'text') reply += piece.text;
                 if (piece.type === 'tool') reply = '';
-                if (piece.type === 'usage') return [priced(prices, [model, alias(spec)], piece)];
+                if (piece.type === 'usage') return [priced(prices, [model, route.model], piece)];
                 return [piece];
               });
             };
@@ -635,7 +627,7 @@ export const harnessSession = (s: {
                 dir: spec.dir,
                 home,
                 env,
-                secrets: { [adapter.key]: key },
+                secrets: { [harness.key]: key },
                 network: 'proxy',
                 minutes: spec.minutes,
               })

@@ -67,7 +67,7 @@ no-comment src/forge.ts 18
 no-comment src/git.ts 3
 no-comment src/github.ts 20
 no-comment src/graph.ts 3
-no-comment src/harnesses.ts 19
+no-comment src/harnesses.ts 9
 no-comment src/hub.ts 19
 no-comment src/instance.ts 2
 no-comment src/main.ts 4

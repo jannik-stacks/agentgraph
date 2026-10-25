@@ -9,7 +9,16 @@ export const verbs = new Set(
     ['run', 'start', 'wait', 'scan', 'queue', 'propose', 'commit', 'merge', 'use'],
   ].flat()
 );
-const layerConstructors = new Set(['fileForge', 'githubForge', 'fileStore', 'harnessSession', 'dockerSandbox']);
+const exempt = new Set([
+  'fileForge',
+  'githubForge',
+  'fileStore',
+  'harnessSession',
+  'dockerSandbox',
+  'opencode',
+  'claude',
+  'pi',
+]);
 const retired = /compound|climb|stamp|provenance|bothub/i;
 const marked = /^\s*UNEXPECTED: /;
 const directive = /^\s*(oxlint-|eslint-|@ts-|\*?\s*@internal\s*$)/;
@@ -21,7 +30,7 @@ export const findNameProblems = name => {
   if (/^[A-Z]/.test(name)) return [];
   const problems = [];
   if (/[a-z\d](Of|For)$/.test(name)) problems.push('no-of-for');
-  if (!verbs.has(/^[a-z]+/.exec(name)?.[0]) && !layerConstructors.has(name)) problems.push('verb-first');
+  if (!verbs.has(/^[a-z]+/.exec(name)?.[0]) && !exempt.has(name)) problems.push('verb-first');
   return problems;
 };
 
