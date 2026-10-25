@@ -24,6 +24,8 @@ const passed = [
   'LANG',
   'LC_ALL',
   'TZ',
+  'SSL_CERT_FILE',
+  'GIT_SSL_CAINFO',
   'DOCKER_HOST',
   'DOCKER_CONFIG',
   'DOCKER_CONTEXT',

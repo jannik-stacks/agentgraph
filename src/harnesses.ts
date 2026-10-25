@@ -162,9 +162,9 @@ export const harnessSession = (s: {
             const harness = s.harnesses.find(h => h.name === spec.harness);
             if (!harness)
               return yield* new SessionStop({ reason: 'sandbox', detail: `no harness ${spec.harness} in the config` });
-            const key = keys[spec.agent] ?? keys['*'];
-            const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
             const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: spec.model ?? 'default' };
+            const key = keys[spec.agent] ?? keys['*'] ?? (route.url && 'none');
+            const secrets = { ...s.passed, ...(key && { [harness.key]: Redacted.make(key) }) };
             const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
             const homes = join(s.data, 'homes');
             const home = (!spec.fork && spec.resume?.home) || join(homes, randomUUID());

@@ -77,7 +77,7 @@ Sessions reach models through three settings, and no setting names a provider:
 | Setting | Meaning |
 | --- | --- |
 | `AGENTGRAPH_PROXY_URL` | The base URL each harness talks to: one URL, or `harness=url` pairs such as `opencode=http://gateway:4000/v1,claude=http://gateway:4000`. A harness with an empty URL uses its own endpoint. Default `http://gateway:4000/v1` |
-| `AGENTGRAPH_PROXY_KEYS` | `agent=key` pairs; `*` is the key of every agent without its own. An agent without a key gets none, for a harness with its own login or a gateway that adds the credential |
+| `AGENTGRAPH_PROXY_KEYS` | `agent=key` pairs; `*` is the key of every agent without its own. An agent without a key gets the placeholder `none` when its harness has a URL, for a gateway that adds the credential, and no key on its own login |
 | `AGENTGRAPH_SESSION_ENV` | Names of engine variables every session gets as secrets, such as `CLAUDE_CODE_OAUTH_TOKEN`; each may also come from a `<NAME>_FILE` file |
 
 Through the relay, `GATEWAY_URL` is the upstream and `GATEWAY_HEADERS` a JSON object of headers to set, or to remove when empty, so a provider key can stay with the relay and never enter a sandbox. The relay keeps the request path: opencode and pi call `<url>/chat/completions` or `<url>/responses`, Claude Code calls `<url without /v1>/v1/messages`. <!-- code: src/harnesses.ts#harnessSession examples/deploy/gateway/forward.ts#forwardToGateway -->

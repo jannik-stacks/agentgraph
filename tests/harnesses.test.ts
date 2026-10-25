@@ -170,6 +170,10 @@ describe('the session loop', () => {
     });
     expect(Object.keys(command.secrets ?? {})).toEqual(['CLAUDE_CODE_OAUTH_TOKEN']);
     expect(command.env).not.toHaveProperty('ANTHROPIC_BASE_URL');
+    const keyless = await session({ ...spec, agent: 'gardener' }, [], {
+      proxy: { url: 'http://gateway:4000/v1', keys: Redacted.make('') },
+    });
+    expect(Redacted.value(keyless.command.secrets!.AGENTGRAPH_LLM_API_KEY!)).toBe('none');
     const fallback = await session({ ...spec, agent: 'gardener' }, [`leaked ${token}`], {
       proxy: { url: 'http://gateway:4000/v1', keys: Redacted.make(`*=${key}`) },
       passed: { CLAUDE_CODE_OAUTH_TOKEN: Redacted.make(token) },
