@@ -30,7 +30,8 @@ A run id is the workflow name, the issue number and a timestamp.
 | `comment`, `said` | The status comment, and where people last spoke |
 | `base`, `onto` | The stacked parent's pull request, and the base a conflicted follow lands on |
 | `hub`, `by` | Hub version last checked, and the run that dispatched this one |
-| `started`, `ended`, `usd` | Times and session cost |
+| `started`, `ended`, `usd` | Times and session cost, judges of end checks included |
+| `owed` | [End checks](loop.md#at-run-end-and-later) the ended run has yet to run |
 
 <!-- code: src/workflow.ts#Run -->
 
@@ -43,7 +44,7 @@ Each `trace.jsonl` line has `at`, `step` and one kind: <!-- code: src/trace.ts#T
 | `prompt` | Harness, model, system prompt, prompt and tools |
 | `event` | Harness text, tool calls with `ms` where the harness reports it, usage and end |
 | `session` | End reason, whether it resumed, and cost |
-| `check` | Result and short findings, the fan-out item, and `log`, the hash and size of the full output |
+| `check` | Result and short findings, a number check's `value` or `empty`, the fan-out item, `end` for an end check, and `log`, the hash and size of the full output |
 | `setup` | `ms` and `exit` of the hub setup in a checkout |
 | `env`, `cache` | The [environment](sandbox.md#environments) a checkout started from, and how many files it wrote to the cache |
 | `applied` | A proposal with its URL or failure reason |

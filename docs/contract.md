@@ -16,7 +16,7 @@ Prompts, descriptions, scripts and extra folders are free to change. Scripts rea
 
 These are the entry points:
 
-- `npx agentgraph` with `check`, `start`, `--issue`, `--all`, `loop`, `status` and `prune-logs`, and the flags `--forge`, `--instance` and `--logs`; see [the CLI](local.md#the-cli).
+- `npx agentgraph` with `check` (and `check --runs`), `start`, `--issue`, `--all`, `loop`, `status` and `prune-logs`, and the flags `--forge`, `--instance` and `--logs`; see [the CLI](local.md#the-cli).
 - `node bin/forge.ts <dir> init <repo> --hub <hub>`; see [Instances](forge.md#instances).
 - `node bin/setup-app.ts`; see [App setup](../infra/github/README.md).
 

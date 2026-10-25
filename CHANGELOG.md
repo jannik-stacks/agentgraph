@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A check with `returns: number` traces a `value`: the share of items passed, or the number a script prints
+  last. Without one it is `empty`, never 0.
+- A workflow's `checks` run once when the run ends, as `warn`, and a killed runner runs the rest from the
+  run's `owed`. `check <name>... --runs` runs checks on runs that already ended.
 - A trusted comment speaks to the bot only when it says `/agent`, both to start a run and on the
   issue or pull request of a live run, review comments included. The `/agentgraph` command,
   `on.issue_comment.command` and plain replies are gone; write `issue_comment: {}`, and with several

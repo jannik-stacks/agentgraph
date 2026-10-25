@@ -9,7 +9,7 @@
 | **harness** | Session program: Claude Code, opencode or pi |
 | **workflow** | Ordered steps on an issue, started by an `on` trigger |
 | **step** | Agent with a skill, script, or human wait |
-| **check** | Script or judging agent that passes or fails a try |
+| **check** | Script or judging agent that passes or fails a try or an ended run, and may measure a number |
 | **try** | One step attempt; retries resume its session |
 | **back** | Return to an earlier step with feedback, at most `rounds` times |
 | **proposal** | Requested engine action; see [kinds](proposals.md#kinds) |

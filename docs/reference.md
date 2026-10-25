@@ -1,6 +1,6 @@
 # Hub files
 
-Every hub field with its type and default. `check` fails on an unknown key, a missing agent, check or skill, a duplicate name, an agent, check or skill nothing uses, an unknown proposal kind in a body, and retired words. Besides these files a hub may hold `scripts/` and `fixtures/`; other folders must be read through `$AGENTGRAPH_HUB`. <!-- code: src/hub.ts#loadHub -->
+Every hub field with its type and default. `check` fails on an unknown key, a missing agent, check or skill, a duplicate name, an agent, check or skill nothing uses, an end check that is not `warn`, an unknown proposal kind in a body, and retired words. Besides these files a hub may hold `scripts/` and `fixtures/`; other folders must be read through `$AGENTGRAPH_HUB`. <!-- code: src/hub.ts#loadHub -->
 
 ## hub.yaml
 
@@ -39,6 +39,7 @@ Every hub field with its type and default. `check` fails on an unknown key, a mi
 | `concurrency` | `steer`, `queue` or `cancel`   | `steer`                             | Comment handling while working                                                         |
 | `agent`       | agent name                     | the hub's only agent                | Agent without `steps`                                                                  |
 | `steps`       | map of step name to step       | one agent step named after the file | Steps in written order                                                                 |
+| `checks`      | list of check names            | none                                | `warn` checks run once when the run ends, see [The loop](loop.md#at-run-end-and-later) |
 
 See [Comments while it works](loop.md#comments-while-it-works) for concurrency, bursts and cancellation.
 
@@ -92,6 +93,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 | `agent` | agent name                    | none     | Judge replies `PASS` or `FAIL` first                |
 | `each`  | `files`, `hunks` or a command | none     | Judges each item on its own                         |
 | `max`   | positive integer              | 20       | Fan-out item cap; exceeding fails                   |
+| `returns` | `verdict` or `number`       | `verdict` | A number check also traces a value, see [Numbers](loop.md#numbers) |
 
 ## Skills
 

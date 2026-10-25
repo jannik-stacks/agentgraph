@@ -18,6 +18,7 @@ Runs need the stack up. `npm run down` stops it and keeps its volumes.
 
 ```sh
 npx agentgraph check --hub examples/sandbox
+npx agentgraph check lines --runs --hub examples/sandbox --data ~/agentgraph-data
 npx agentgraph --hub examples/sandbox --issue 3 --data ~/agentgraph-data
 npx agentgraph start --instance ~/agentgraph/kit --workflow issue "Reject a negative count"
 npx agentgraph --hub examples/sandbox --all --data ~/agentgraph-data
@@ -29,6 +30,7 @@ npx agentgraph prune-logs --data ~/agentgraph-data [--apply]
 | Command | What it does |
 | --- | --- |
 | `check` | Validates a hub and prints each problem with its file, or `ok`. Needs no model or container. |
+| `check <name>... --runs` | Runs the named checks on ended runs, narrowed by `--workflow` and `--issue`; see [At run end and later](loop.md#at-run-end-and-later). |
 | `--issue <n>` | Starts or resumes one issue's run and drives it until it waits or ends. |
 | `start "<text>"` | Files the text as a new issue in the [forge folder](forge.md#dropped-issue-files) and runs it like `--issue`. The first line is the title, the rest the body. The issue gets the label of `--workflow`, which may be left out when only one workflow has a label. The author is the instance owner or `git config user.name` and must be trusted. <!-- code: src/main.ts#writeTriggeringIssue --> |
 | `--all` | One pass over open issues. Starts runs only on trusted commands or labels, up to `limits.parallel` at once. |
