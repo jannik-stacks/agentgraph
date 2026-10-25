@@ -9,7 +9,7 @@ import { instanceAt } from '../src/instance.ts';
 import { scanIssuesAndRunningRuns, tick, type Instruction, type Services } from '../src/engine.ts';
 import { loadHub } from '../src/hub.ts';
 import { fileStore, Store } from '../src/store.ts';
-import { start as main } from '../src/main.ts';
+import { start as main, writeTriggeringIssue } from '../src/main.ts';
 import { Sandbox, SandboxError } from '../src/sandbox.ts';
 import type { Settings } from '../src/services.ts';
 import type { SessionEvent } from '../src/trace.ts';
@@ -148,6 +148,38 @@ describe('bin/forge.ts with run --forge', () => {
     expect(w.forge('show', '3')).toContain('+hello');
     expect(await w.run([])).toEqual([]);
     expect(readdirSync(join(w.root, 'data')).filter(d => d.startsWith('issue-'))).toHaveLength(1);
+  });
+
+  it('goes from text to a run to a diff with no GitHub', async () => {
+    const w = world();
+    w.forge('init', w.seed);
+    const hub = await Effect.runPromise(loadHub(sandboxHub, harnesses));
+    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'morgan', 'router')).rejects.toThrow(
+      'name one workflow with a label: --workflow <name>'
+    );
+    await expect(writeTriggeringIssue(hub, w.dir, 'Add a greeting', 'morgan')).rejects.toThrow('issue|triage');
+    expect(await writeTriggeringIssue(hub, w.dir, 'Add a greeting\n\nAdd hello.txt.', 'morgan', 'issue')).toBe(1);
+    expect(w.forge('show', '1')).toMatch(/^#1 open Add a greeting by morgan \[agent:ready\]\n\nAdd hello.txt.\n/);
+    const pull: Proposal = {
+      kind: 'pull_request',
+      branch: 'agentgraph/1',
+      base: 'main',
+      title: 'Add hello',
+      body: 'Adds it.',
+    };
+    const runs = await w.run(
+      [
+        [
+          start('i'),
+          wrote('hello.txt', 'hello\n'),
+          reply({ kind: 'push', branch: 'agentgraph/1', message: 'feat: add hello' }, pull),
+        ],
+        [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
+      ],
+      1
+    );
+    expect(runs.map(r => [r.workflow, r.step, r.status])).toEqual([['issue', 'merge', 'waiting']]);
+    expect(w.forge('show', '2')).toContain('+hello');
   });
 
   it('sends a pull request back with the line comments posted just before the review in its reason', async () => {

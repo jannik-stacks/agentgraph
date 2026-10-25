@@ -20,7 +20,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect } from 'effect';
 import { stringify } from 'yaml';
-import { fileForge, Forge } from '../src/forge.ts';
+import { fileForge, Forge, writeIssueFile } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { instanceAt } from '../src/instance.ts';
@@ -105,15 +105,8 @@ switch (command) {
     break;
   }
   case 'issue': {
-    const all = await forge(f => f.issues());
-    const k = Math.max(0, ...all.map(t => t.number)) + 1;
     const body = values.body ? readFileSync(values.body, 'utf8').trim() : '';
-    writeFileSync(
-      join(dir, `${k}.md`),
-      `---\n${stringify({ title: rest[0], state: 'open', author: as, labels: [] })}---\n\n${body}\n`
-    );
-    for (const label of values.label ?? []) await apply(k, { kind: 'label', add: [label] });
-    console.log(`#${k}`);
+    console.log(`#${await writeIssueFile(dir, { title: rest[0]!, author: as, labels: values.label ?? [] }, body)}`);
     break;
   }
   case 'comment': {

@@ -6,6 +6,8 @@
  *        node bin/run.ts say --hub <dir> --data <dir> --issue <n> [--comment <review comment id>] "<text>"
  *        node bin/run.ts tell --data <dir> --issue <n> "<text>"
  *        node bin/run.ts dispatch --hub <dir> --data <dir> --workflow <name> --issue <n> [--step <step>]
+ *        node bin/run.ts start --hub <dir> --data <dir> --forge <dir> [--workflow <name>] "<title>[\n<body>]"
+ *          (files an issue on the forge folder with the workflow's label and runs it)
  *        node bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
  *        node bin/run.ts status --hub <dir> --data <dir>   (needs AGENTGRAPH_APP_ENV, or --forge; read-only)
  *        node bin/run.ts loop --hub <dir> --data <dir>   (looks at every open issue each AGENTGRAPH_EVERY minutes)
@@ -16,12 +18,13 @@
  * or --data, the instance is the one around the working directory, if any.
  * --logs all|failed|off says which check output the data dir keeps, as AGENTGRAPH_CHECK_LOGS.
  */
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { tell, type Instruction } from '../src/engine.ts';
-import { readAppEnvWithKey, start } from '../src/main.ts';
+import { readAppEnvWithKey, start, writeTriggeringIssue } from '../src/main.ts';
 import { readConfiguredHub } from '../src/harnesses.ts';
 import { instanceAt } from '../src/instance.ts';
 import { needsYou } from '../src/status.ts';
@@ -57,7 +60,7 @@ if (instance) {
 }
 if (values.forge) process.env.AGENTGRAPH_FORGE = resolve(values.forge);
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
-const issue = values.all ? 'all' : Number(values.issue);
+let issue: number | 'all' = values.all ? 'all' : Number(values.issue);
 
 const command = positionals[0];
 let instruction: Instruction | undefined;
@@ -90,6 +93,21 @@ if (command === 'say' || command === 'tell' || command === 'dispatch') {
           workflow: values.workflow!,
           ...(values.step !== undefined && { step: values.step }),
         };
+}
+
+if (command === 'start') {
+  const text = positionals.slice(1).join(' ').trim();
+  if (!values.hub || !values.data || !values.forge || !text) {
+    console.error('usage: node bin/run.ts start --hub <dir> --data <dir> --forge <dir> [--workflow <name>] "<text>"');
+    process.exit(2);
+  }
+  const hub = await Effect.runPromise(readConfiguredHub(resolve(values.hub)));
+  const author = instance?.owner ?? execFileSync('git', ['config', 'user.name'], { encoding: 'utf8' }).trim();
+  issue = await writeTriggeringIssue(hub, resolve(values.forge), text, author, values.workflow).catch((e: Error) => {
+    console.error(e.message);
+    process.exit(2);
+  });
+  console.log(`#${issue}`);
 }
 
 if (positionals[0] === 'check') {

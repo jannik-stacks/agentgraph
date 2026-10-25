@@ -112,6 +112,21 @@ export const unpushable = (path: string, modes: string[]) =>
       ? `${path} is under .github/ or .git/`
       : undefined;
 
+export const writeIssueFile = async (
+  dir: string,
+  front: Pick<Issue, 'title' | 'author' | 'labels'> & Partial<Pick<Issue, 'milestone'>>,
+  body: string
+): Promise<number> => {
+  await mkdir(dir, { recursive: true });
+  const taken = (await readdir(dir)).flatMap(f => (/^\d+(?=\.md$)/.exec(f) ?? []).map(Number));
+  const number = Math.max(0, ...taken) + 1;
+  const text = `---\n${stringify({ ...front, state: 'open' })}---\n\n${body}\n`;
+  return writeFile(join(dir, `${number}.md`), text, { flag: 'wx' }).then(
+    () => number,
+    (e: NodeJS.ErrnoException) => (e.code === 'EEXIST' ? writeIssueFile(dir, front, body) : Promise.reject(e))
+  );
+};
+
 const me = 'agentgraph[bot]';
 
 /**

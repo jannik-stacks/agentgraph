@@ -12,6 +12,7 @@ import {
   type Instruction,
   type Services,
 } from './engine.ts';
+import { writeIssueFile } from './forge.ts';
 import { readConfiguredHub } from './harnesses.ts';
 import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
@@ -23,6 +24,27 @@ export const readAppEnvWithKey = async (file: string | undefined): Promise<Recor
   const vars = parseEnv(await readFile(file, 'utf8')) as Record<string, string>;
   const keyFile = vars.AGENTGRAPH_APP_KEY_FILE?.replace(/^~(?=\/|$)/, homedir());
   return { ...vars, ...(keyFile && { AGENTGRAPH_APP_KEY: await readFile(keyFile, 'utf8') }) };
+};
+
+export const writeTriggeringIssue = async (
+  hub: Hub,
+  forge: string,
+  text: string,
+  author: string,
+  workflow?: string
+): Promise<number> => {
+  const labelled = Object.values(hub.workflows).filter(w => w.on.issues?.label && (workflow ?? w.name) === w.name);
+  if (labelled.length !== 1)
+    throw new Error(`name one workflow with a label: --workflow ${labelled.map(w => w.name).join('|') || '<name>'}`);
+  if (hub.trust && !hub.trust.includes(author)) throw new Error(`${author} is not in the hub's trust list`);
+  const [title = '', ...body] = text.split('\n');
+  const front = {
+    title,
+    author,
+    labels: [labelled[0]!.on.issues!.label!],
+    ...(hub.milestone && { milestone: hub.milestone }),
+  };
+  return writeIssueFile(forge, front, body.join('\n').trim());
 };
 
 /** The real path of `path`, through its nearest existing parent when it does not exist yet. */
