@@ -101,15 +101,15 @@ const Bubble = ({ tip, className, children }: { tip: string; className: string; 
 
 const chipKinds: Record<ChipKind, { look: string; tip: string }> = {
   who: {
-    look: 'rounded-full bg-zinc-800 px-1.5 text-white dark:bg-zinc-200 dark:text-zinc-900',
+    look: 'rounded-sm border border-current/20 bg-current/10 px-1 font-medium text-zinc-700 dark:text-zinc-300',
     tip: 'Who runs the step: the model alias, or you.',
   },
   checks: {
-    look: 'rounded border border-zinc-300 px-1 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300',
+    look: 'rounded-sm border border-current/30 px-1 text-zinc-700 dark:text-zinc-300',
     tip: 'What gates the step: its checks, and how many an agent judges.',
   },
   writes: {
-    look: 'rounded bg-zinc-100 px-1 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+    look: 'rounded-sm bg-current/10 px-1 text-zinc-600 dark:text-zinc-400',
     tip: 'What its agent may write to GitHub.',
   },
   how: { look: 'text-zinc-500', tip: 'How it runs: once per item, reading traces, answering asides.' },
@@ -185,7 +185,11 @@ export const StepCard = ({ id, data: { node, overlay, live, hidden, selected } }
       <div className="flex min-w-0 items-center gap-1.5">
         <Glyph name={kind === 'human' ? 'person' : kind} className="size-3.5 text-zinc-500" />
         <span className="truncate text-[13px] font-semibold">{node.step}</span>
-        {title && <StepChip {...title} />}
+        {title && (
+          <span className="ml-auto">
+            <StepChip {...title} />
+          </span>
+        )}
       </div>
       {status ? (
         <Tooltip
