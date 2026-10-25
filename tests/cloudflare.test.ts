@@ -94,6 +94,17 @@ describe('gateway relay', () => {
       const missing = await fetch(`http://127.0.0.1:${(unset.address() as AddressInfo).port}/v1/models`);
       unset.close();
       expect(missing.status).toBe(502);
+      const broken = await forwardToGateway(
+        new Request('http://gateway/v1/models'),
+        'https://example.com',
+        JSON.stringify({ authorization: 'Bearer secret\nvalue' })
+      );
+      expect([broken.status, await broken.text()]).toEqual([502, 'gateway: request failed\n']);
+      const large = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: 'POST',
+        body: new Uint8Array(33 * 1024 * 1024),
+      });
+      expect(large.status).toBe(413);
     } finally {
       server.close();
     }

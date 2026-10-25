@@ -94,7 +94,9 @@ export const hubAt = (path: string) =>
       );
 
 const hostsOf = (url: string) =>
-  Object.values(parseModelUrls(url)).flatMap(at => (URL.canParse(at) ? [new URL(at).hostname] : []));
+  Object.values(parseModelUrls(url))
+    .flatMap(at => (URL.canParse(at) ? [new URL(at).hostname] : []))
+    .filter(host => !host.includes('.') || host.endsWith('.internal'));
 
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
 export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {

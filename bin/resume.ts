@@ -21,6 +21,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, ensureFreeDisk } from '../src/disk.ts';
+import { parseModelUrls } from '../src/harnesses.ts';
 import { isLockedByOtherProcess } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
 
@@ -129,10 +130,13 @@ export const removeSandboxContainersMountingDir = (dir: string) => {
 
 /** The host URL of the model proxy's liveness check, from `AGENTGRAPH_PROXY_URL`. */
 export const probeUrl = (proxy = process.env.AGENTGRAPH_PROXY_URL ?? 'http://gateway:4000/v1') => {
-  const url = new URL(proxy);
+  if (process.env.BENCH_PROXY_PROBE) return process.env.BENCH_PROXY_PROBE;
+  const first = Object.values(parseModelUrls(proxy)).find(at => URL.canParse(at));
+  if (!first) return undefined;
+  const url = new URL(first);
   if (url.hostname === 'gateway') url.hostname = '127.0.0.1';
   url.pathname = '/health/liveliness';
-  return process.env.BENCH_PROXY_PROBE ?? url.href;
+  return url.href;
 };
 
 /**
@@ -145,7 +149,8 @@ export const down = async (net = false, disk?: Disk): Promise<string | undefined
       r => r.status < 500,
       () => false
     );
-  if (!(await reach(probeUrl()))) return `model proxy unreachable at ${probeUrl()}`;
+  const probe = probeUrl();
+  if (probe && !(await reach(probe))) return `model proxy unreachable at ${probe}`;
   if (spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { timeout: 30_000 }).status !== 0)
     return 'docker unreachable';
   if (net && !(await reach('https://registry.npmjs.org/'))) return 'network unreachable';
