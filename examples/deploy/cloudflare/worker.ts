@@ -91,8 +91,6 @@ export class Box extends Container<Env> {
   entrypoint = ['sh', '-c', boxScript, 'box', 'start'];
   running = new Map<Network, number>();
   children = new Map<string, Promise<ExecProcess>>();
-  checkout = '';
-  dirty = false;
   requests = 0;
   stopped = new Set<string>();
   static {
@@ -113,13 +111,14 @@ export class Box extends Container<Env> {
     if ([...this.running.values()].some(count => count > 0)) return this.renewActivityTimeout();
     if (!this.ctx.container?.running) return;
     const seen = this.requests;
-    if (this.dirty && !(await this.keep().catch(() => false))) return this.renewActivityTimeout();
+    const dirty = await this.ctx.storage.get<string>('dirty');
+    if (dirty && !(await this.keep(dirty).catch(() => false))) return this.renewActivityTimeout();
     if (this.requests !== seen) return this.renewActivityTimeout();
-    this.dirty = false;
+    await this.ctx.storage.delete('dirty');
     await this.destroy();
   }
 
-  async keep() {
+  async keep(checkout: string) {
     const exec = (cmd: string[]) => this.ctx.container!.exec(cmd, { user: '0:0', stderr: 'ignore' });
     const packed = await (await exec(['sh', '-c', boxScript, 'box', 'keep'])).output();
     const size = Number(new TextDecoder().decode(packed.stdout));
@@ -127,7 +126,7 @@ export class Box extends Container<Env> {
     const { readable, writable } = new FixedLengthStream(size);
     const cat = await exec(['cat', '/tmp/agentgraph-kept.tgz']);
     await Promise.all([
-      this.env.DATA.put(`kept/${this.checkout}.tgz`, readable),
+      this.env.DATA.put(`kept/${checkout}.tgz`, readable),
       (cat.stdout as ReadableStream<Uint8Array>).pipeTo(writable),
     ]);
     return true;
@@ -136,15 +135,14 @@ export class Box extends Container<Env> {
   override async fetch(request: Request) {
     this.requests++;
     if (request.method === 'DELETE') {
-      this.dirty = false;
+      await this.ctx.storage.delete('dirty');
       if (this.ctx.container?.running) await this.destroy();
       return new Response(null, { status: 204 });
     }
     const url = new URL(request.url);
     const op = url.pathname.split('/')[2] ?? '';
-    this.checkout = url.pathname.split('/')[1] ?? '';
     const fresh = !this.ctx.container?.running;
-    if (fresh) this.dirty = false;
+    if (fresh) await this.ctx.storage.delete('dirty');
     await this.start();
     this.renewActivityTimeout();
     const headers: HeadersInit = fresh ? { 'agentgraph-box-fresh': '1' } : {};
@@ -153,6 +151,7 @@ export class Box extends Container<Env> {
       const network = url.searchParams.get('network');
       if (!networks.includes(network as Network)) return new Response(`unknown network ${network}`, { status: 400 });
       const { argv, secrets } = (await request.json()) as { argv: string[]; secrets: Record<string, string> };
+      await this.ctx.storage.put('dirty', url.pathname.split('/')[1] ?? '');
       return this.run(url.searchParams.get('id') ?? '', network as Network, argv, secrets, headers);
     }
     if (op === 'stop') {
@@ -186,7 +185,6 @@ export class Box extends Container<Env> {
 
   async run(id: string, network: Network, argv: string[], secrets: Record<string, string>, headers: HeadersInit) {
     if (this.stopped.delete(id)) return new Response(frame(137), { headers });
-    this.dirty = true;
     this.running.set(network, (this.running.get(network) ?? 0) + 1);
     const done = () => {
       this.running.set(network, (this.running.get(network) ?? 1) - 1);
@@ -214,6 +212,7 @@ export class Box extends Container<Env> {
           await writer.write(chunk);
         }
         const code = await child.exitCode;
+        await this.killGroup(child);
         await writer.write(new TextEncoder().encode((last === 10 ? '' : '\n') + frame(code)));
         await writer.close();
       } catch (error) {

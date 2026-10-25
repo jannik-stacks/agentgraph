@@ -8,7 +8,7 @@ import { Duration, Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import { dockerSandbox } from './docker.ts';
 import { makeToolchainSetupCommands } from './env.ts';
 import type { ForgeError } from './forge.ts';
-import { hostGit, makeHostEnv } from './git.ts';
+import { hostGit, indexLock, makeHostEnv } from './git.ts';
 import type { Hub } from './hub.ts';
 import { type Checkout, type Command, type Exit, Sandbox, SandboxError } from './sandbox.ts';
 
@@ -31,6 +31,7 @@ type BoxEntry = {
   ready: boolean;
   roots?: string;
   pending: Map<string, SyncedDir>;
+  running: Set<string>;
 };
 
 const call = (url: string, init: RequestInit & { signal?: AbortSignal }) =>
@@ -105,7 +106,10 @@ const pull = (box: BoxEntry, dir: SyncedDir) =>
     yield* hostGit(dir.git, ['read-tree', '-u', '--reset', tree]);
     if (dir.tracked) {
       const forced = yield* hostGit(dir.git, ['ls-files', '-z', '--cached', '--ignored', '--exclude-standard']);
-      if (forced.length > 0) yield* hostGit(dir.tracked, ['update-index', '--add', '-z', '--stdin'], { input: forced });
+      if (forced.length > 0)
+        yield* indexLock.withPermits(1)(
+          hostGit(dir.tracked, ['update-index', '--add', '-z', '--stdin'], { input: forced })
+        );
     }
     box.trees.set(dir.box, tree);
   });
@@ -151,14 +155,25 @@ export const remoteSandbox = (o: {
         });
 
       const recover = (box: BoxEntry) =>
-        Effect.forEach(
-          [...box.pending.values()],
-          dir =>
-            Effect.zipRight(
-              pull(box, dir),
-              Effect.sync(() => box.pending.delete(dir.box))
-            ),
-          { discard: true }
+        Effect.zipRight(
+          Effect.forEach(
+            [...box.running],
+            id =>
+              Effect.zipRight(
+                op(box, 'stop', [id]),
+                Effect.sync(() => box.running.delete(id))
+              ),
+            { discard: true }
+          ),
+          Effect.forEach(
+            [...box.pending.values()],
+            dir =>
+              Effect.zipRight(
+                pull(box, dir),
+                Effect.sync(() => box.pending.delete(dir.box))
+              ),
+            { discard: true }
+          )
         );
 
       const before = (box: BoxEntry, c: Command, home?: SyncedDir) =>
@@ -168,6 +183,7 @@ export const remoteSandbox = (o: {
             if (init.headers.has(freshHeader)) {
               const lost = box.pending.size > 0;
               box.pending.clear();
+              box.running.clear();
               box.trees.clear();
               delete box.hub;
               box.ready = false;
@@ -218,13 +234,19 @@ export const remoteSandbox = (o: {
             const network = c.network === 'proxy' ? box.network : c.network;
             const argv = [String(c.minutes), ...Object.entries(env).map(([k, v]) => `${k}=${v}`), c.cmd, ...c.args];
             const id = randomUUID();
+            box.running.add(id);
             let code: number | undefined;
             let pulled = false;
             yield* Effect.addFinalizer(() =>
               pulled
                 ? Effect.void
                 : Effect.timeout(
-                    Effect.zipRight(op(box, 'stop', [id]), Effect.retry(after(box, home), { times: 2 })),
+                    Effect.interruptible(
+                      Effect.zipRight(
+                        Effect.tap(op(box, 'stop', [id]), () => box.running.delete(id)),
+                        Effect.retry(after(box, home), { times: 2 })
+                      )
+                    ),
                     '5 minutes'
                   ).pipe(
                     Effect.catchAllCause(() =>
@@ -240,9 +262,11 @@ export const remoteSandbox = (o: {
             });
             if (response.headers.has(freshHeader)) {
               pulled = true;
+              box.running.delete(id);
               return yield* infra('the box restarted before the command ran');
             }
             const ended = Effect.gen(function* () {
+              box.running.delete(id);
               yield* after(box, home);
               pulled = true;
               if (code === undefined) return yield* infra('the box stream ended without an exit code');
@@ -302,6 +326,7 @@ export const remoteSandbox = (o: {
             sync: yield* Effect.makeSemaphore(1),
             ready: true,
             pending: new Map(),
+            running: new Set(),
           };
           if (work.git.GIT_INDEX_FILE && existsSync(work.git.GIT_INDEX_FILE))
             copyFileSync(work.git.GIT_INDEX_FILE, syncIndex(work));
@@ -310,9 +335,11 @@ export const remoteSandbox = (o: {
             () =>
               Effect.gen(function* () {
                 boxes.delete(work.dir);
-                yield* Effect.ignore(Effect.timeout(box.sync.withPermits(1)(recover(box)), '5 minutes'));
+                yield* Effect.ignore(
+                  Effect.timeout(Effect.interruptible(box.sync.withPermits(1)(recover(box))), '5 minutes')
+                );
                 rmSync(syncIndex(work), { force: true });
-                if (box.pending.size > 0)
+                if (box.pending.size + box.running.size > 0)
                   return yield* Effect.logWarning(`kept the box ${box.url}: its last work did not come back`);
                 yield* Effect.ignore(call(box.url, { method: 'DELETE' }));
               })

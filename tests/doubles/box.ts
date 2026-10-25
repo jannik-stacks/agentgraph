@@ -15,7 +15,7 @@ const read = async (request: IncomingMessage) => {
 
 export const startBoxServer = async (dir: string, { frame = true } = {}) => {
   const runs: { id: string; network: string; argv: string[] }[] = [];
-  const faults = { pulls: 0 };
+  const faults = { pulls: 0, stops: 0 };
   const children = new Map<string, ChildProcess>();
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://box');
@@ -30,6 +30,11 @@ export const startBoxServer = async (dir: string, { frame = true } = {}) => {
     mkdirSync(join(root, 'tmp'), { recursive: true });
     const body = await read(request);
     const env = { ...process.env, AGENTGRAPH_BOX_ROOT: root };
+    if (op === 'stop' && faults.stops > 0) {
+      faults.stops--;
+      response.statusCode = 503;
+      return response.end('unreachable');
+    }
     if (op === 'stop') {
       const child = children.get(url.searchParams.get('arg') ?? '');
       if (child?.exitCode === null) {

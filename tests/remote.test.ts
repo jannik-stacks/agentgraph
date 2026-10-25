@@ -213,6 +213,22 @@ describe('remote sandbox', () => {
     expect(exit).toEqual(Exit.succeed(['Left', true, 'box\n', 'box\n']));
   });
 
+  it('stops a command whose stop failed before pulling its work', async () => {
+    let id = '';
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        id = basename(work.dir);
+        server.faults.stops = 1;
+        yield* Effect.either(s.exec(sh(work.dir, 'echo early > e.txt; sleep 1; echo late > l.txt', { minutes: 0.01 })));
+        const next = yield* s.exec(sh(work.dir, 'ls'));
+        yield* Effect.sleep('1500 millis');
+        return [next.output.includes('l.txt'), existsSync(join(boxes, id, 'work', 'l.txt'))];
+      })
+    );
+    expect(exit).toEqual(Exit.succeed([false, false]));
+  });
+
   it('keeps the box when its work never came back', async () => {
     let id = '';
     await use(layer(), s =>

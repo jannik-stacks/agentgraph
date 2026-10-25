@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { Effect } from 'effect';
 import { SandboxError, type Checkout } from './sandbox.ts';
 
+export const indexLock = Effect.unsafeMakeSemaphore(1);
+
 const hardened = [
   '-c',
   'core.hooksPath=/dev/null',

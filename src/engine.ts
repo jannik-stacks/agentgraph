@@ -17,7 +17,7 @@ import type { Applied, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import type { Check, Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { gitIdentity, hostGit, mergeTreeOnto } from './git.ts';
+import { gitIdentity, hostGit, indexLock, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
 import { Store, type StoreError } from './store.ts';
 import { type Aside, type Trace, SessionStop, type SessionSpec } from './trace.ts';
@@ -595,14 +595,12 @@ const setUp = (hub: Hub, work: Checkout, run: Pick<Run, 'id' | 'step'>) =>
       return yield* new SandboxError({ reason: 'infra', detail: `setup exited ${out.code}: ${squeeze(out.output)}` });
   });
 
-const index = Effect.unsafeMakeSemaphore(1);
-
 const text = (work: Checkout, args: string[]) =>
   Effect.map(hostGit(work.git, args), out => out.toString('utf8').trim());
 
 /** The checkout's files as a tree id, written by host git from the same index a push commits. */
 const treeOf = (work: Checkout) =>
-  index.withPermits(1)(Effect.zipRight(text(work, ['add', '-A']), text(work, ['write-tree'])));
+  indexLock.withPermits(1)(Effect.zipRight(text(work, ['add', '-A']), text(work, ['write-tree'])));
 
 /** What the checkout changed since its base. */
 const changes = (work: Checkout, ...args: string[]) =>
