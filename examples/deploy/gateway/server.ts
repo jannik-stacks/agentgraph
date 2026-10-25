@@ -5,7 +5,7 @@ import { forwardToGateway } from './forward.ts';
 const decoded = new Set(['content-encoding', 'content-length', 'transfer-encoding', 'connection']);
 const maxBody = 32 * 1024 * 1024;
 
-const readRequest = async (message: IncomingMessage) => {
+const readRequest = async (message: IncomingMessage, signal: AbortSignal) => {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of message) {
@@ -18,13 +18,15 @@ const readRequest = async (message: IncomingMessage) => {
     value === undefined ? [] : [[name, String(value)]]
   );
   const body = ['GET', 'HEAD'].includes(method) ? null : Buffer.concat(chunks);
-  return new Request(`http://gateway${message.url ?? '/'}`, { method, headers, body });
+  return new Request(`http://gateway${message.url ?? '/'}`, { method, headers, body, signal });
 };
 
 export const startGateway = (env: Record<string, string | undefined>, port = 4000, send = fetch) =>
   createServer(async (message, response) => {
+    const gone = new AbortController();
+    response.on('close', () => gone.abort());
     try {
-      const request = await readRequest(message);
+      const request = await readRequest(message, gone.signal);
       if (!request) return void response.writeHead(413).end('gateway: request too large\n');
       const answer = await forwardToGateway(request, env.GATEWAY_URL, env.GATEWAY_HEADERS, send);
       const headers = [...answer.headers].filter(([name]) => !decoded.has(name));

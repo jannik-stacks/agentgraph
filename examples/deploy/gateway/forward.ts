@@ -14,6 +14,7 @@ const relay = async (request: Request, base: string, extra: string, send: typeof
     headers,
     body: ['GET', 'HEAD'].includes(request.method) ? null : await request.arrayBuffer(),
     redirect: 'manual',
+    signal: request.signal,
   });
 };
 
