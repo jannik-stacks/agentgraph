@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { buffer } from 'node:stream/consumers';
+import { promisify } from 'node:util';
 import { Duration, Effect, Layer, Redacted, Schedule, Stream } from 'effect';
 import { dockerSandbox } from './docker.ts';
 import { makeToolchainSetupCommands } from './env.ts';
@@ -105,29 +105,19 @@ const pull = (box: BoxEntry, dir: SyncedDir) =>
   });
 
 const putDir = (box: BoxEntry, from: string, to: string) =>
-  Effect.acquireUseRelease(
-    Effect.sync(() =>
-      spawn('tar', ['-c', '-f', '-', '-C', from, '.'], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-        env: makeHostEnv({ COPYFILE_DISABLE: '1' }),
-      })
-    ),
-    tar =>
-      Effect.flatMap(
-        Effect.tryPromise({
-          try: () =>
-            Promise.all([
-              buffer(tar.stdout),
-              new Promise<number | null>((done, fail) => tar.once('error', fail).once('close', done)),
-            ]).then(([tarball, code]) => {
-              if (code !== 0) throw new Error(`exited ${code}`);
-              return tarball;
-            }),
-          catch: e => infra(`tar ${from}: ${(e as Error).message}`),
+  Effect.flatMap(
+    Effect.tryPromise({
+      try: signal =>
+        promisify(execFile)('tar', ['-c', '-f', '-', '-C', from, '.'], {
+          encoding: 'buffer',
+          maxBuffer: Infinity,
+          signal,
+          killSignal: 'SIGKILL',
+          env: makeHostEnv({ COPYFILE_DISABLE: '1' }),
         }),
-        tarball => op(box, 'put', [to], tarball)
-      ),
-    tar => Effect.sync(() => tar.kill('SIGKILL'))
+      catch: e => infra(`tar ${from}: ${(e as Error).message}`),
+    }),
+    tar => op(box, 'put', [to], tar.stdout)
   );
 
 export const remoteSandbox = (o: {
