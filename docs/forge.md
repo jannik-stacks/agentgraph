@@ -1,33 +1,85 @@
 # Without GitHub
 
-A forge folder stands in for GitHub. An instance bundles one with a hub copy, data and optional keys for one repo. Neither needs a GitHub App. Sessions still need Docker and [the model stack](local.md#the-model-stack).
+Run `npx agentgraph` inside any git repo. The first command makes a local instance for that checkout: a forge folder that stands in for GitHub, and the runs. Your repo gets only `agentgraph/<n>` branches. No GitHub App is needed. Sessions still need Docker and [the model stack](local.md#the-model-stack).
+
+```sh
+cd ~/code/left-pad
+npx agentgraph start "padStart drops the last char when len is 0"
+npx agentgraph show
+npx agentgraph review 1 changes "also cover a negative len"
+npx agentgraph merge 1
+```
+
+## Verbs
+
+The issue number is the handle. Each issue has at most one open pull request, on `agentgraph/<n>`; every verb finds it by that branch, and a pull request's own number works too. <!-- code: src/instance.ts#findPull -->
+
+| Verb | What it does |
+| --- | --- |
+| `start "<text>"` | Files the text as an issue with the label of `--workflow` (left out when one workflow has a label) and drives it. The first line is the title, the rest the body. <!-- code: src/main.ts#writeTriggeringIssue --> |
+| `say <n> "<text>"` | An `/agent` comment on issue `n`, then drives it: an answer, feedback, `stop`, `cancel` or `restart`. `--line <path>:<line>` puts it on a line of the pull request. |
+| `review <n> approve` | Approves the pull request of issue `n`. |
+| `review <n> changes "<why>"` | Requests changes, with the line comments made before it, then drives the issue. |
+| `merge <n>` | Moves the forge's base to the pull request's head, retargets pull requests stacked on it, closes the issue and writes the branch into your repo. Fails if the base moved past it. <!-- code: src/instance.ts#mergePull --> |
+| `export <n>` | Writes the branch into your repo again; `--as <branch>` under another name, `--patch <file>` as a patch file instead. |
+| `close <n>` | Closes the issue; a live run stops on its next look. |
+| `show [n]` | What needs you and every issue, or one issue's timeline and diff. Outside a repo it lists every instance and what needs you there. |
+| `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
+
+`check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--hub` and `--logs`. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
+
+## Who drives
+
+`start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends, printing each step. `merge`, `review approve`, `close` and `export` never drive.
+
+When a `loop` runs for the same repo, it holds the instance's loop lock and the verbs only post and then follow the run until it settles. Only one loop runs per instance. <!-- code: src/main.ts#createLoopLock src/main.ts#isLoopHeld -->
+
+Ctrl-C stops a drive. The run keeps its last saved state and goes on from there on the next drive of that issue, for example `say <n> "go on"`. A second Ctrl-C quits at once. <!-- code: src/main.ts#start -->
+
+## Where the result lands
+
+When a drive ends, the issue's branch is fetched into your repo as `agentgraph/<n>`. Your checkout never moves. The CLI prints the diff stat, a `git diff` line, a `git worktree add` line and the next commands.
+
+A ref is written only when it is absent or still where agentgraph last left it, so a branch you moved or check out stays yours; the CLI then says why and how to export under another name. Git runs without your hooks, helpers or config. <!-- code: src/instance.ts#writePullToRepo src/git.ts#hostGit -->
+
+## The base
+
+The base is the branch checked out on first use, or `origin`'s default branch on a detached head, else `main`. `--base <branch>` changes it. Before each drive the forge's base fast-forwards to yours. When both moved, after a `merge` you did not take into your branch, the drive stops and prints both commits; merge agentgraph's base into yours and try again. <!-- code: src/instance.ts#ensureBase -->
+
+Workflows that name no `base` start from the instance's base. <!-- code: src/main.ts#start -->
+
+## The hub
+
+1. `--hub <dir>`. `--hub .agentgraph` uses your working tree, uncommitted edits included.
+2. Else `.agentgraph/` in your repo at the committed base, as the GitHub runner reads it. Each version is checked out once under the instance.
+3. Else the default hub in the package: implement, review, then a human merge, with a check that runs the repo's `test` script when there is one.
+
+<!-- code: src/instance.ts#ensureHub src/instance.ts#defaultHub -->
+
+To change the default hub, copy the package's `hub/` folder to `.agentgraph/` in your repo, edit it and commit it.
+
+## The data dir
+
+```
+~/.agentgraph/                      --data, else AGENTGRAPH_DATA, else ~/.agentgraph
+  left-pad-7c1e2a-local/            <repo folder>-<hash of its real path>-local
+    instance.yaml                   repo, base, owner, the refs written into the repo
+    forge/                          issues, timelines, origin.git
+    data/                           runs, traces, mirror
+    hubs/                           committed hub versions
+```
+
+A data dir inside the repo is refused. A moved repo is a new instance; `show` outside a repo marks instances whose repo is gone. See [instance.yaml](reference.md#instanceyaml). <!-- code: src/instance.ts#ensureInstance -->
 
 ## The forge folder
 
-A forge folder holds `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, a forge folder refuses a whole push that touches `.github/`, and a second `pull_request` for a branch leaves the open one as it is. <!-- code: src/forge.ts#fileForge src/status.ts#formatNextSteps -->
+A forge folder holds `<n>.md` issues, `<n>.jsonl` timelines, `<n>/pull.json` and `diff.patch` for pull requests, and a bare `origin.git`. Unlike GitHub, a forge folder refuses a whole push that touches `.github/`, and a second `pull_request` for a branch leaves the open one as it is. <!-- code: src/forge.ts#fileForge -->
 
-```sh
-node bin/forge.ts ~/forge init ../path/to/repo
-node bin/forge.ts ~/forge issue "Reject a negative count" --body issue.md
-node bin/forge.ts ~/forge comment 1 /agent
-npx agentgraph --forge ~/forge --hub examples/sandbox --all --data ~/agentgraph-data
-```
-
-| Forge command | Effect |
-| --- | --- |
-| `show [n]` | Every issue and pull request, or one timeline and diff |
-| `comment <n> <text> [--line <path>:<line>]` | Comment on an issue, a pull request or a line |
-| `issue ... --label <name>`, `label <n> <name>` | Add a label, which can start a workflow |
-| `review <n> changes <text>`, `review <n> approve [text]` | Request changes or approve; earlier line comments join the review |
-| `merge <n>` | Fast-forward the base, retarget stacked pull requests and close the issue the branch names; fails if the base moved |
-| `close <n>` | Close an issue |
-| `init <repo> --at <sha>` | Copy only that commit and its history as `main`, hiding later fixes |
-
-Actions run as `--as <name>`, the instance owner or `git config user.name`, and count as a maintainer's.
+`--forge <dir>` runs `loop`, `check`, `dispatch` and `prune-logs` on a bare forge folder instead of an instance, for tests and the bench; `--data` is then the runs folder itself.
 
 ## Dropped issue files
 
-Any `<n>.md` you write into the forge folder, under an unused number, is an issue. The first line is the title and the rest is the body. To start a workflow, add frontmatter (YAML between `---` lines) with an `author` and the workflow's label. The next pass starts the run when the author is trusted:
+Any `<n>.md` you write into the forge folder, under an unused number, is an issue. The first line is the title and the rest is the body. To start a workflow, add frontmatter (YAML between `---` lines) with an `author` and the workflow's label. The next look starts the run when the author is trusted:
 
 ```md
 ---
@@ -39,56 +91,4 @@ labels: [agent:ready]
 count(-1) should throw.
 ```
 
-The first time the forge reads the issue, it records those labels as the author's, at the file's modification time. A run started from them takes its id from that time, so a runner that stops before saving the run starts the same run again, not a second one. Later label edits in the file record nothing; use `label <n> <name>`. An author ending in `[bot]` or outside the hub's `trust` list starts nothing. `issue --label` and `npx agentgraph start` write such a file. <!-- code: src/forge.ts#fileForge src/forge.ts#writeIssueFile -->
-
-## Instances
-
-Your repo stays untouched until you `export`. `bin/forge.ts` finds the instance at or above the folder it is given. `npx agentgraph` without a hub, forge or data flag uses the instance around the working directory. <!-- code: src/instance.ts#instanceAt -->
-
-```
-~/agentgraph/kit/
-  instance.yaml   repo, base and owner, see Hub files
-  hub/            editable hub copy
-  forge/          issues, timelines, origin.git
-  data/           runs, traces, mirror
-  keys.env        optional KEY=value settings
-```
-
-## Set one up
-
-```sh
-node bin/forge.ts ~/agentgraph/kit init ~/code/acme-app --hub examples/sandbox --base main
-```
-
-`examples/sandbox` is written for its own small JavaScript package: its checks run `npm test` and its prompts name its files. For another repo, edit the hub copy in `hub/` first: `setup`, the checks and the skills. `check --hub ~/agentgraph/kit/hub` validates it.
-
-Then turn the proxy keys into `keys.env`. Its values apply only where the environment has none.
-
-```sh
-sed -n 's/^AGENTGRAPH_LLM_API_KEY_\([A-Z0-9_]*\)=\(.*\)$/\1=\2/p' infra/local/.keys.env |
-  awk '{ i = index($0, "="); n = tolower(substr($0, 1, i - 1)); gsub("_", "-", n); printf "%s%s=%s", sep, n, substr($0, i + 1); sep = "," }' |
-  sed 's/^/AGENTGRAPH_PROXY_KEYS=/' > ~/agentgraph/kit/keys.env
-```
-
-## A loop by hand
-
-```sh
-npx agentgraph start --instance ~/agentgraph/kit --workflow issue "Reject a negative count"
-node bin/forge.ts ~/agentgraph/kit show 2
-node bin/forge.ts ~/agentgraph/kit review 2 changes "also cover zero"
-npx agentgraph --instance ~/agentgraph/kit --all
-node bin/forge.ts ~/agentgraph/kit review 2 approve
-node bin/forge.ts ~/agentgraph/kit merge 2
-node bin/forge.ts ~/agentgraph/kit export 2
-```
-
-Answer questions with `/agent` comments, as [Waiting](loop.md#waiting) describes.
-
-`export <n>` fetches the branch into your repo without moving its checked-out branch or overwriting work. `export <n> --patch <file>` writes the missing commits as a patch instead. `sync` fast-forwards the instance base from your repo; if both moved, export and merge in your repo first.
-
-Several instances run side by side, each with its own mirror and data:
-
-```sh
-npx agentgraph loop --instance ~/agentgraph/kit &
-npx agentgraph loop --instance ~/agentgraph/clarinet &
-```
+The first time the forge reads the issue, it records those labels as the author's, at the file's modification time. A run started from them takes its id from that time, so a runner that stops before saving the run starts the same run again, not a second one. Later label edits in the file record nothing. An author ending in `[bot]` or outside the trusted logins starts nothing. `start` writes such a file. <!-- code: src/forge.ts#fileForge src/forge.ts#writeIssueFile -->

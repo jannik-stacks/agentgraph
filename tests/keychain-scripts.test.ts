@@ -39,11 +39,11 @@ describe('keychain scripts', () => {
     );
     expect(statSync(join(dir, 'config/acme/app.env')).mode & 0o777).toBe(0o600);
 
-    const ran = execFileSync('bash', [join(scripts, 'with-key.sh'), 'acme', 'loop', '--instance', 'kit'], {
+    const ran = execFileSync('bash', [join(scripts, 'with-key.sh'), 'acme', 'loop', '--data', 'runs'], {
       encoding: 'utf8',
       env,
     });
-    expect(ran).toMatch(/^args \S+\/bin\/run\.ts loop --instance kit\n/);
+    expect(ran).toMatch(/^args \S+\/bin\/run\.ts loop --data runs\n/);
     expect(ran).toContain(pem);
     const calls = readFileSync(join(dir, 'calls'), 'utf8');
     expect(calls).not.toContain('FAKE-canary');

@@ -31,7 +31,7 @@ const braced = (text, open) => {
   }
 };
 
-/** What a bin file takes: its parseArgs options or its quoted `'--flag'` literals, and its `case`, `[0] ===` or `command ===` words. */
+/** What a bin file takes: its parseArgs options or its quoted `'--flag'` literals, and its `case` or `verb ===` words. */
 const takes = file => {
   const code = read(`bin/${file}`)
     .split('\n')
@@ -41,7 +41,7 @@ const takes = file => {
   const flags = options
     ? [...options.matchAll(/(?:^|[\n,{])\s*(?:'([\w-]+)'|(\w+)):\s*\{\s*type/g)].map(m => m[1] ?? m[2])
     : [...code.matchAll(/'--([\w-]+)'/g)].map(m => m[1]);
-  const words = [...code.matchAll(/(?:case|(?:positionals\[0\]|command) ===) '([\w-]+)'/g)].map(m => m[1]);
+  const words = [...code.matchAll(/(?:case|verb ===) '([\w-]+)'/g)].map(m => m[1]);
   return { flags: new Set(flags), words: new Set(words) };
 };
 const known = Object.fromEntries(bins.map(f => [f, takes(f)]));
@@ -57,12 +57,7 @@ const check = (at, line, own) => {
     }
     for (const [, flag] of rest.matchAll(/(?:^|\s|\[)--([a-z][\w-]*)/g))
       if (!known[file].flags.has(flag)) bad.push(`${at}: bin/${file} has no --${flag} option`);
-    const word =
-      file === 'run.ts'
-        ? /^ ([a-z][\w-]*)/.exec(rest)?.[1]
-        : file === 'forge.ts'
-          ? /^ \S+ ([a-z][\w-]*)/.exec(rest)?.[1]
-          : undefined;
+    const word = file === 'run.ts' ? /^ ([a-z][\w-]*)/.exec(rest)?.[1] : undefined;
     if (word && !known[file].words.has(word)) bad.push(`${at}: bin/${file} has no ${word} command`);
   }
   if (own)

@@ -106,11 +106,11 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 ## instance.yaml
 
-Written by `node bin/forge.ts <dir> init <repo> --hub <hub>`; see [instance layout and setup](forge.md#instances). <!-- code: src/instance.ts#Instance -->
+Written by the first command in a repo; see [the data dir](forge.md#the-data-dir). <!-- code: src/instance.ts#Instance -->
 
-| Field   | Type                     | Default                | Meaning                                                           |
-| ------- | ------------------------ | ---------------------- | ----------------------------------------------------------------- |
-| `repo`  | path                     | none                   | Local source and export repo                                      |
-| `base`  | branch name              | `main`                 | The branch `sync` and `export --patch` read from the repo         |
-| `owner` | name                     | `git config user.name` | Default actor for `bin/forge.ts`                                  |
-| `logs`  | `all`, `failed` or `off` | `all`                  | Which check output the data dir keeps, as `AGENTGRAPH_CHECK_LOGS` |
+| Field      | Type                  | Default                       | Meaning                                                   |
+| ---------- | --------------------- | ----------------------------- | --------------------------------------------------------- |
+| `repo`     | path                  | the repo                      | The checkout the forge's base syncs from and branches go to |
+| `base`     | branch name           | the branch checked out first  | The branch the forge's base fast-forwards to              |
+| `owner`    | name                  | `git config user.name`        | The author of every local verb and the only trusted login |
+| `exported` | map of ref to commit  | none                          | Where agentgraph last wrote each ref into the repo        |

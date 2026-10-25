@@ -33,8 +33,6 @@ describe('leak-probe', () => {
       'home/apply.test.ts': `const key = '${fake}';\n`,
       'home/target/debug/out': `${fake}\n`,
       'home/lib.rlib': `\0${fake}\n`,
-      'home/inst/keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${fake}\n`,
-      'home/inst/instance.yaml': '',
       'home/stray/keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${fake}\n`,
       'home/old/id_rsa': `-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00\n\n${'B'.repeat(64)}\n`,
       'home/.config/agentgraph/app/key.pem': `-----BEGIN RSA PRIVATE KEY-----\n${'A'.repeat(64)}\n`,
@@ -67,10 +65,9 @@ describe('leak-probe', () => {
           `  file ${join(home, 'old/id_rsa')}  1 key(s)`,
           `  studio ${join(home, '.keys.env')}`,
           'expected',
-          `  file ${join(home, 'inst/keys.env')}  1 key(s)`,
           `  file ${join(home, '.config/agentgraph/app/key.pem')}  1 key(s)`,
           '  docker /agentgraph-litellm  LITELLM_MASTER_KEY',
-          'look at 7: 1 env, 3 file, 2 ps, 1 studio; expected 3: 2 file, 1 docker',
+          'look at 7: 1 env, 3 file, 2 ps, 1 studio; expected 2: 1 file, 1 docker',
         ].sort()
       );
       expect(out).not.toContain(canary);

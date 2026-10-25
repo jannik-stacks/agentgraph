@@ -29,6 +29,7 @@ export type Settings = {
   checkLogs: (typeof checkLogs)[number];
   /** The studio's URL that posted bodies link back to; empty for none. */
   studio: string;
+  trust: string[];
   /** A forge folder with its git remote in `origin.git`, or the GitHub App that acts on `repo`. */
   forge: string | { id: string; key: Redacted.Redacted };
 };
@@ -57,6 +58,7 @@ export const settings = Config.all({
   sandbox: Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
   checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),
+  trust: Config.array(Config.string(), 'AGENTGRAPH_TRUST').pipe(Config.withDefault<string[]>([])),
   forge: Config.string('AGENTGRAPH_FORGE').pipe(
     Config.orElse(() =>
       Config.all({ id: Config.string('AGENTGRAPH_APP_ID'), key: Config.redacted('AGENTGRAPH_APP_KEY') })
@@ -105,10 +107,12 @@ export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
     ? remoteSandbox({ url: s.sandbox, data: s.data, ...origin })
     : dockerSandbox({ data: s.data, cache: s.cache, image: s.image, direct: hostsOf(s.proxy.url), ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
-  const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
-    Effect.provide(sandbox),
-    Effect.catchAll(() => Effect.succeed<string[]>([]))
-  );
+  const trust = s.trust.length
+    ? Effect.succeed(s.trust)
+    : Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
+        Effect.provide(sandbox),
+        Effect.catchAll(() => Effect.succeed<string[]>([]))
+      );
   const harnesses = Effect.map(readHarnessSettings, settings => settings.harnesses).pipe(
     Effect.orElseSucceed(() => [])
   );

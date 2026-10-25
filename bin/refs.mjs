@@ -205,7 +205,7 @@ const userFacing = () => {
   add(
     'CLI command',
     'bin/run.ts',
-    [...cli.matchAll(/positionals\[0\] === '(\w+)'/g)].map(m => m[1])
+    [...cli.matchAll(/(?:case|verb ===) '([\w-]+)'/g)].map(m => m[1])
   );
   for (const file of [...readdirSync(join(root, 'src')).map(f => `src/${f}`), 'bin/run.ts'])
     add(

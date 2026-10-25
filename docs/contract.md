@@ -1,10 +1,10 @@
 # The hub contract
 
-Nothing here is stable yet: names and abstractions change whenever we find better ones, hub calls such as `say`, `tell` and `dispatch` included. Every rename or removal is listed in `CHANGELOG.md`, and `check` fails on a key the hub no longer has. <!-- code: src/hub.ts#loadHub -->
+Nothing here is stable yet: names and abstractions change whenever we find better ones, hub calls such as `say` and `dispatch` included. Every rename or removal is listed in `CHANGELOG.md`, and `check` fails on any key it does not know. <!-- code: src/hub.ts#loadHub -->
 
 ## Engine
 
-The engine is `src/`, `bin/run.ts`, `bin/forge.ts`, `bin/setup-app.ts` and the sandbox and proxy setup in `infra/`. Bench, tune and studio code read the engine and its data, and change on their own schedule.
+The engine is `src/`, `bin/run.ts`, `bin/setup-app.ts`, the default `hub/` and the sandbox and proxy setup in `infra/`. Bench, tune and studio code read the engine and its data, and change on their own schedule.
 
 ## Hub
 
@@ -16,8 +16,7 @@ Prompts, descriptions, scripts and extra folders are free to change. Scripts rea
 
 These are the entry points:
 
-- `npx agentgraph` with `check` (and `check --runs`), `start`, `--issue`, `--all`, `loop`, `status` and `prune-logs`, and the flags `--forge`, `--instance` and `--logs`; see [the CLI](local.md#the-cli).
-- `node bin/forge.ts <dir> init <repo> --hub <hub>`; see [Instances](forge.md#instances).
+- `npx agentgraph` with `start`, `say`, `review`, `merge`, `export`, `close`, `show`, `loop`, `check`, `dispatch` and `prune-logs`, and the flags `--data`, `--repo`, `--base`, `--hub`, `--forge` and `--logs`; see [Verbs](forge.md#verbs) and [the CLI](local.md#the-cli).
 - `node bin/setup-app.ts`; see [App setup](../infra/github/README.md).
 
 ## Tuning inside it

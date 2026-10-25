@@ -29,6 +29,8 @@ import {
 import { collect, ensureFreeDisk, findBuildDirs } from '../src/disk.ts';
 import { getMean, getRounded } from '../src/stats.ts';
 import type * as MainModule from '../src/main.ts';
+import { writeIssueFile } from '../src/forge.ts';
+import { writeComment } from '../src/instance.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import {
   agentgraphDir,
@@ -383,8 +385,6 @@ const guard = (out: string, claude: boolean) => {
   );
   if (claude && calls.length >= limits.claude) throw new Error(`${calls.length} claude judge calls, the limit`);
 };
-const forge = (dir: string, ...args: string[]) =>
-  sh(process.execPath, [join(agentgraphDir, 'bin/forge.ts'), dir, ...args, '--as', 'maintainer']);
 
 /**
  * Points every agent of a hub at `harness:model`, by the two lines of its front matter. Every agent gets the point's
@@ -472,10 +472,10 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   }
   if (options.point) repoint(hub, options.point);
   const dir = join(at, 'forge');
-  forge(dir, 'init', repo, '--at', c.base);
-  writeFileAtomic(join(at, 'issue.md'), c.body);
-  forge(dir, 'issue', c.title, '--body', join(at, 'issue.md'));
-  forge(dir, 'comment', '1', '/agent');
+  sh('git', ['init', '-q', '--bare', '-b', 'main', join(dir, 'origin.git')]);
+  sh('git', ['-C', repo, 'push', '-q', join(dir, 'origin.git'), `${c.base}:refs/heads/main`]);
+  await writeIssueFile(dir, { title: c.title, author: 'maintainer', labels: [] }, c.body.trim());
+  await writeComment(dir, 'maintainer', 1, '/agent');
   process.env.AGENTGRAPH_FORGE = dir;
   let answers = 0;
   let status: string | undefined;
@@ -487,7 +487,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
     if (!run || run.status === 'done' || run.status === 'stopped') break;
     if (run.status !== 'waiting') continue;
     if (!run.reason || answers) break;
-    forge(dir, 'comment', '1', answer);
+    await writeComment(dir, 'maintainer', 1, answer);
     answers++;
   }
   const origin = join(dir, 'origin.git');

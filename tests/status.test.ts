@@ -65,7 +65,7 @@ const check = async (repositories: string[]) => {
   const runs = await Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
   const lines = [
     ...(await Effect.runPromise(readInstallationReach(app, fetch))),
-    ...findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r, 'o/r', { hub: 'hub', data })),
+    ...findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r, 'o/r')),
   ];
   return { lines, calls, bodies };
 };
@@ -74,7 +74,7 @@ it('warns about extra repos and lists waiting runs', async () => {
   const { lines, calls, bodies } = await check(['o/r', 'o/other']);
   expect(bodies).toEqual([{ permissions: { metadata: 'read' } }]);
   expect(lines[0]).toContain('o/other');
-  expect(lines.filter(l => l.includes('--issue'))).toHaveLength(2);
+  expect(lines.filter(l => l.includes('is waiting'))).toHaveLength(2);
   expect(lines.join('\n')).toContain('Answer at https://github.com/o/r/issues/3');
   expect(lines.join('\n')).toContain('Review the PR linked from https://github.com/o/r/issues/4');
   expect(lines.join('\n')).not.toContain('#5');
@@ -86,7 +86,7 @@ it('stays quiet about a single repo', async () => {
   expect(lines.some(l => l.includes('besides'))).toBe(false);
 });
 
-it('says how to continue on a forge folder, and leaves out a run that waits on its child', () => {
+it('says how to continue on the local forge, and leaves out a run that waits on its child', () => {
   const base = { workflow: 'issue', step: 'merge', tries: 0, rounds: {}, usd: 0, started: 'x' } as const;
   const runs = [
     { ...base, id: 'a', issue: 3, status: 'waiting', reason: 'which one?' },
@@ -94,11 +94,9 @@ it('says how to continue on a forge folder, and leaves out a run that waits on i
     { ...base, id: 'p', issue: 5, status: 'waiting', reason: 'waiting on c' },
     { ...base, id: 'c', issue: 5, status: 'running', by: 'p' },
   ] as Run[];
-  const lines = findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r, 'o/r', { instance: '/tmp/my instance' }));
-  expect(lines.join('\n')).toContain(
-    `Answer with node bin/forge.ts '/tmp/my instance' comment 3 "/agent <answer>", then:`
-  );
-  expect(lines.join('\n')).toContain(`node bin/forge.ts '/tmp/my instance' merge <pr>`);
-  expect(lines.filter(l => l.includes(`npx agentgraph --instance '/tmp/my instance' --issue`))).toHaveLength(2);
+  const lines = findRunsWaitingOnPeople(runs).flatMap(r => formatNextSteps(r));
+  expect(lines.join('\n')).toContain(`npx agentgraph say 3 "<answer>"`);
+  expect(lines.join('\n')).toContain(`npx agentgraph merge 4`);
+  expect(lines.join('\n')).toContain(`npx agentgraph review 4 changes "<why>"`);
   expect(lines.join('\n')).not.toContain('#5');
 });

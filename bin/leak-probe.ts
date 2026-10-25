@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const canary = process.env.PROBE_CANARY;
@@ -87,7 +87,6 @@ const findSecretFiles = () =>
 
 const isKeyAtRest = (file: string) =>
   [join(repo, 'infra/local/.env'), join(repo, 'infra/local/.keys.env')].includes(file) ||
-  (basename(file) === 'keys.env' && existsSync(join(dirname(file), 'instance.yaml'))) ||
   (file.startsWith(join(homedir(), '.config', 'agentgraph') + '/') && basename(file) === 'key.pem');
 
 const listProcesses = (args: string[]) =>

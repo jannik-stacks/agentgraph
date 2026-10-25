@@ -1,3 +1,4 @@
+import type { Event, Issue } from './event.ts';
 import type { Run } from './workflow.ts';
 
 export const findRunsWaitingOnPeople = (runs: Run[]) =>
@@ -5,29 +6,34 @@ export const findRunsWaitingOnPeople = (runs: Run[]) =>
     .filter(run => run.status === 'waiting' && !runs.some(c => c.by === run.id && run.reason === `waiting on ${c.id}`))
     .toSorted((a, b) => b.started.localeCompare(a.started));
 
-const quote = (path: string) => (/^[\w./~:@+-]+$/.test(path) ? path : `'${path.replaceAll("'", `'\\''`)}'`);
-
-export const formatNextSteps = (
-  run: Run,
-  repo: string,
-  at: { instance: string } | { hub: string; data: string; forge?: string }
-) => {
-  const folder = 'instance' in at ? at.instance : at.forge;
-  const again =
-    'instance' in at
-      ? `--instance ${quote(at.instance)}`
-      : `--hub ${quote(at.hub)} --data ${quote(at.data)}${at.forge ? ` --forge ${quote(at.forge)}` : ''}`;
-  const forge = folder && `node bin/forge.ts ${quote(folder)}`;
-  const issue = `https://github.com/${repo}/issues/${run.issue}`;
+export const formatNextSteps = (run: Run, github?: string) => {
+  const issue = github && `https://github.com/${github}/issues/${run.issue}`;
+  const n = run.issue;
   return [
-    `${run.id} ${run.workflow} #${run.issue} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`,
-    run.reason
-      ? forge
-        ? `  Answer with ${forge} comment ${run.issue} "/agent <answer>", then:`
-        : `  Answer at ${issue}, then:`
-      : forge
-        ? `  Find the pull request <pr> with ${forge} show, then ${forge} merge <pr>, or review <pr> changes "<why>", then:`
-        : `  Review the PR linked from ${issue}, then:`,
-    `  npx agentgraph ${again} --issue ${run.issue}`,
+    `${run.id} ${run.workflow} #${n} is ${run.status}${run.reason ? `: ${run.reason}` : ''}`,
+    ...(issue
+      ? [run.reason ? `  Answer at ${issue}` : `  Review the PR linked from ${issue}`]
+      : run.reason
+        ? [`  npx agentgraph say ${n} "<answer>"`]
+        : [`  npx agentgraph merge ${n}`, `  npx agentgraph review ${n} changes "<why>"`]),
   ];
 };
+
+export const formatIssueList = (issues: Issue[]) =>
+  issues
+    .map(
+      t =>
+        `#${t.number} ${t.state} ${t.title}${t.labels.length ? ` [${t.labels.join(', ')}]` : ''}${t.pull ? ` (${t.pull.branch} into ${t.pull.base})` : ''}`
+    )
+    .join('\n');
+
+export const formatIssueTimeline = (t: Issue & { events: Event[] }, diff: string) =>
+  [
+    `#${t.number} ${t.state} ${t.title} by ${t.author}${t.labels.length ? ` [${t.labels.join(', ')}]` : ''}\n\n${t.body}\n`,
+    ...t.events.map(m => {
+      const on = m.comment?.path ? ` on ${m.comment.path}${m.comment.line ? `:${m.comment.line}` : ''}` : '';
+      const body = m.comment?.body ? `\n${m.comment.body}\n` : '';
+      return `${m.at} ${m.actor} ${m.kind}${m.label ? ` ${m.label}` : ''}${on}${body}`;
+    }),
+    ...(t.pull ? [`\n${t.pull.branch} into ${t.pull.base} at ${t.pull.head}\n\n${diff}`] : []),
+  ].join('\n');

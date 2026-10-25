@@ -1,9 +1,8 @@
-import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
-import { ConfigProvider, Effect, Layer } from 'effect';
+import { ConfigProvider, Effect, Exit, Layer, Scope } from 'effect';
 import {
   instruct,
   issueDebounceMs,
@@ -13,9 +12,11 @@ import {
   type Services,
 } from './engine.ts';
 import { writeIssueFile } from './forge.ts';
-import { splitNames, readConfiguredHub } from './harnesses.ts';
+import { readConfiguredHub } from './harnesses.ts';
+import { readRealPath } from './instance.ts';
 import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
+import { fileStore, Store } from './store.ts';
 import type { Run } from './workflow.ts';
 
 export const secretSettings = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
@@ -55,21 +56,11 @@ export const writeTriggeringIssue = async (
   return writeIssueFile(forge, { title, author, labels: [label], ...milestone }, body.join('\n').trim());
 };
 
-/** The real path of `path`, through its nearest existing parent when it does not exist yet. */
-const real = (path: string): string => {
-  try {
-    return realpathSync(path);
-  } catch {
-    const parent = dirname(resolve(path));
-    return parent === resolve(path) ? parent : join(real(parent), basename(path));
-  }
-};
-
 /** The data dir and its mirror, where they sit under a temp dir the OS may empty. */
 export const temporary = (data: string): string[] => {
-  const temps = [...new Set(['/tmp', tmpdir()].flatMap(d => [resolve(d), real(d)]))];
+  const temps = [...new Set(['/tmp', tmpdir()].flatMap(d => [resolve(d), readRealPath(d)]))];
   return [data, join(data, 'mirror.git')].filter(p =>
-    [resolve(p), real(p)].some(at => temps.some(t => at === t || at.startsWith(t + sep)))
+    [resolve(p), readRealPath(p)].some(at => temps.some(t => at === t || at.startsWith(t + sep)))
   );
 };
 
@@ -79,15 +70,34 @@ const warnTemporary = (data: string) =>
 const configured = (env: Record<string, string>, extra: Record<string, string> = {}) =>
   ConfigProvider.fromMap(new Map(Object.entries({ ...env, ...extra })));
 
+export const createLoopLock = async (data: string) => {
+  const scope = Effect.runSync(Scope.make());
+  await Effect.runPromise(
+    Effect.flatMap(Store, s => s.lock('loop')).pipe(Effect.provide(fileStore(data)), Scope.extend(scope))
+  ).catch(async (e: unknown) => {
+    await Effect.runPromise(Scope.close(scope, Exit.void));
+    throw e;
+  });
+  return () => Effect.runPromise(Scope.close(scope, Exit.void));
+};
+
+export const isLoopHeld = (data: string) =>
+  createLoopLock(data).then(
+    release => release().then(() => false),
+    () => true
+  );
+
 /**
  * Reads the settings, the App env file named by `AGENTGRAPH_APP_ENV` and the environment, builds the services, catches up
- * with one sweep and then ticks every `every` minutes. With `one`, it looks at that issue once, or at every open issue once when `issue` is
- * `'all'`, and resolves with the runs it touched. The only place that leaves Effect.
+ * with one sweep and then ticks every `every` minutes under the data dir's loop lock. With `one`, it looks at that issue
+ * once, or at every open issue once when `issue` is `'all'`, and resolves with the runs it touched; `base` is the branch
+ * workflows that name none start from. An abort of `signal` interrupts it, and a run it drove resumes on the next look.
  */
 export const start = (
-  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction; marked?: true },
+  one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction; marked?: true; base?: string },
   services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers,
-  defaults: Record<string, string> = {}
+  defaults: Record<string, string> = {},
+  signal?: AbortSignal
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
     Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
@@ -95,7 +105,16 @@ export const start = (
   const program = one
     ? Effect.gen(function* () {
         const env = yield* read;
-        const hub = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(configured(env)));
+        const loaded = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(configured(env)));
+        const base = one.base;
+        const hub = base
+          ? {
+              ...loaded,
+              workflows: Object.fromEntries(
+                Object.entries(loaded.workflows).map(([name, w]) => [name, { base, ...w }])
+              ),
+            }
+          : loaded;
         const provider = configured(env, {
           AGENTGRAPH_REPO: hub.repo,
           AGENTGRAPH_HUB: one.hub,
@@ -114,6 +133,7 @@ export const start = (
         const provider = configured(yield* read);
         const loop = Effect.gen(function* () {
           const s = yield* settings;
+          yield* Effect.flatMap(Store, store => store.lock('loop'));
           yield* warnTemporary(s.data);
           const look = (pass: (hub: Hub) => Effect.Effect<Run[], unknown, Services>) =>
             hubAt(s.hub).pipe(
@@ -129,8 +149,8 @@ export const start = (
             )
           );
         });
-        yield* provided(loop).pipe(Effect.withConfigProvider(provider));
+        yield* provided(Effect.scoped(loop)).pipe(Effect.withConfigProvider(provider));
         return [];
       });
-  return Effect.runPromise(program);
+  return Effect.runPromise(program, { signal });
 };

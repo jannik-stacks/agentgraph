@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `npx agentgraph <verb>` inside any repo needs no setup: the first command makes a local instance
+  under `--data`, `AGENTGRAPH_DATA` or `~/.agentgraph`. `start`, `say`, `review`, `merge`, `export`,
+  `close`, `show`, `loop`, `check`, `dispatch` and `prune-logs` take the issue number as the handle.
+  `bin/forge.ts`, `--instance`, `--issue <n>` as a run selector, `--all`, `status`, `tell` from the CLI
+  and an instance's `keys.env` are gone. `--forge` or App credentials run the CLI as a runner, where
+  `--data` stays the runs folder and `loop --once` replaces `--all`.
+- Without `.agentgraph/` in the repo the CLI uses the packaged default hub; with it, the hub at the
+  committed base.
+- A finished drive writes `agentgraph/<n>` into your repo only when that ref is absent or still where
+  agentgraph left it; `export --as` and `--patch` write elsewhere. The forge's base fast-forwards to
+  your branch before each drive.
+- `start`, `say` and `review changes` drive the issue in the foreground; while a `loop` holds the
+  instance's lock they follow it instead. Ctrl-C stops a drive, and the run resumes on the next.
+- `AGENTGRAPH_TRUST` replaces the hub's `trust`; the CLI sets it to the instance owner.
+- instance.yaml has `repo`, `base`, `owner` and `exported`; `logs` is gone, use `--logs`.
+- The studio takes `--repo` instead of `--instance`.
+
 - A check with `returns: number` traces a `value`: the share of items passed, or the number a script prints
   last. Without one it is `empty`, never 0.
 - A workflow's `checks` run once when the run ends, as `warn`, and a killed runner runs the rest from the

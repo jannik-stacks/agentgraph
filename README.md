@@ -42,7 +42,7 @@ hub/
 ```sh
 npm run up                   # model proxy and sandbox, see infra/local/README.md
 npm run keys                 # one proxy key per agent
-npx agentgraph <command>     # check, start, --issue, --all, loop, status, say, tell, dispatch, prune-logs
+npx agentgraph <verb>        # start, say, review, merge, export, close, show, loop, check, dispatch, prune-logs
 npm run check                # everything CI and the precommit hook run
 npm run down
 ```
@@ -51,33 +51,21 @@ Before the first `npm run up`, copy `infra/local/.env.example` to `infra/local/.
 
 ## Quickstart
 
-You need Node 22.18 or later. Running agents also needs Docker.
+You need Node 22.18 or later and Docker, and [the model stack](docs/local.md#the-model-stack) up. Inside any git repo:
 
 ```sh
-npm install
-npx agentgraph check --hub examples/sandbox
+npx agentgraph start "Add a greet function"
 ```
 
-`check` validates a hub. It needs no model and no container, and prints `ok` or the problems it found.
-
-To try a repo without GitHub, create a local instance. It holds a copy of the hub, a forge folder that stands in for GitHub, and a data directory. Your repo stays untouched until you export a branch.
+The first command makes a local instance for the repo under `~/.agentgraph`: a forge folder that stands in for GitHub, and the runs. It files the text as an issue and drives it in the foreground: implement, run the repo's tests, review, then wait for you. The branch lands in your repo as `agentgraph/1`; your checkout never moves.
 
 ```sh
-node bin/forge.ts ~/agentgraph/demo init /path/to/your/repo --hub examples/sandbox
-node bin/forge.ts ~/agentgraph/demo issue "Add a greet function" --label agent:ready   # or drop an issue file, see docs/forge.md
-node bin/forge.ts ~/agentgraph/demo show
-npx agentgraph status --instance ~/agentgraph/demo
+npx agentgraph show                                   # what needs you
+npx agentgraph review 1 changes "also greet by name"  # drives it again
+npx agentgraph merge 1                                # then git merge agentgraph/1
 ```
 
-To let agents work on that issue, run `npm run up` and `npm run keys`, copy the keys into the instance as [Set one up](docs/forge.md#set-one-up) shows, then run every open issue once and look at the result:
-
-```sh
-npx agentgraph --instance ~/agentgraph/demo --all
-node bin/forge.ts ~/agentgraph/demo show 2
-cd studio && npm install && npm run dev -- --instance ~/agentgraph/demo
-```
-
-`npx agentgraph start --instance ~/agentgraph/demo --workflow issue "Add a greet function"` files a new issue and runs it in one step. The studio opens on port 5182 and shows the workflow graph and every run. Its Inbox lists the runs that wait for you and the commands that continue them.
+Without `.agentgraph/` in the repo it uses the packaged default hub; see [Without GitHub](docs/forge.md). `npx agentgraph check --hub examples/sandbox` validates a hub without a model or container. The studio shows the workflow graph and every run: `cd studio && npm install && npm run dev -- --repo /path/to/your/repo`.
 
 ## Docs
 
@@ -86,7 +74,7 @@ cd studio && npm install && npm run dev -- --instance ~/agentgraph/demo
 - [The loop](docs/loop.md): workflows, checks, retries and waiting for people
 - [Proposals](docs/proposals.md): what agents may ask the engine to do
 - [Running locally](docs/local.md): the model stack, the CLI, the GitHub App and the studio
-- [Without GitHub](docs/forge.md): forge folders and instances
+- [Without GitHub](docs/forge.md): the local verbs, instances and forge folders
 - [Hub files](docs/reference.md): every field and default
 - [Architecture](docs/architecture.md)
 

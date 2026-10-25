@@ -60,7 +60,7 @@ Then point `AGENTGRAPH_APP_ENV` at the `app.env` the command printed. With the k
 the other arguments to `bin/run.ts`:
 
 ```sh
-npm run with-key -- <slug> loop --instance ~/agentgraph/kit
+npm run with-key -- <slug> loop --hub examples/sandbox --data ~/agentgraph-data
 ```
 
 An App set up before the Keychain has a `key.pem`. `keychain-import` moves it into the Keychain, points
