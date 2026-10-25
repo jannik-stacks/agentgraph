@@ -65,7 +65,7 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_CHECK_LOGS` | `all`, `failed` or `off`, also set by `--logs`; see [Check logs](runs.md#check-logs) |
 | `AGENTGRAPH_CACHE_VOLUME` | [Toolchain cache](sandbox.md#toolchains) volume, `agentgraph-cache` |
 | `AGENTGRAPH_IMAGE` | Base image when the hub sets none, `agentgraph-sandbox:local` |
-| `AGENTGRAPH_SANDBOX_URL` | Box server that runs commands instead of docker; empty for docker |
+| `AGENTGRAPH_SANDBOX_URL` | Box server that runs commands instead of docker, see [Cloudflare](cloudflare.md); empty for docker |
 | `AGENTGRAPH_STUDIO_URL` | Studio address for [run links](runs.md#run-links) |
 
 A setting found in several places takes the last of: an instance's `keys.env`, the shell, the App env file. Only the two key settings accept a `_FILE` form, and only the winning source's file is read. [Secrets on the host](sandbox.md#secrets-on-the-host) covers what else keeps keys contained. <!-- code: src/main.ts#readEngineEnv -->

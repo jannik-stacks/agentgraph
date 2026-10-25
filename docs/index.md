@@ -26,6 +26,7 @@ hub/
 3. [Proposals](proposals.md)
 4. [Running locally](local.md)
 5. [Without GitHub](forge.md)
+6. [On Cloudflare](cloudflare.md)
 
 ## Reference
 
