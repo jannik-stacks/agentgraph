@@ -79,6 +79,7 @@ const fail = (message: string, code = 2): never => {
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
 const n = Number(rest[0]);
 const numbered = () => (Number.isInteger(n) && n > 0 ? n : fail(`${verb} takes an issue number\n${usage}`));
+const quote = (path: string) => `'${path.replaceAll("'", `'\\''`)}'`;
 const said = () => rest.slice(1).join(' ').trim();
 const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string })
   .version;
@@ -212,7 +213,7 @@ else await runOnInstance();
 async function runOnForge() {
   if (values.provider || values.harness || values.model || values.save)
     fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the hub and its env');
-  const data = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
+  const data = root;
   const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
   if (folder) process.env.AGENTGRAPH_FORGE = folder;
   const hub = values.hub && resolve(values.hub);
@@ -526,7 +527,7 @@ async function showInstances(root: string) {
   const all = findInstances(root);
   if (all.length === 0) console.log(`no instances under ${root}`);
   for (const i of all) {
-    const target = ` --repo ${JSON.stringify(i.repo)} --data ${JSON.stringify(root)}`;
+    const target = ` --repo ${quote(i.repo)} --data ${quote(root)}`;
     const waiting = findRunsWaitingOnPeople(await listRuns(i.data))
       .flatMap(run => formatNextSteps(run))
       .map(line => (line.includes('npx agentgraph ') ? `${line}${target}` : line));
