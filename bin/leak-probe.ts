@@ -139,7 +139,7 @@ const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
       ];
       const command = [
         programs.get(pid) ?? '',
-        args.split(/\s+/).find(arg => /^[\w./-]+\.\w{1,4}$/.test(arg) && !countSecrets(arg)) ?? '',
+        args.split(/\s+/).find(arg => /^[\w./-]+\.([cm]?[jt]s|py|sh|rb)$/.test(arg)) ?? '',
       ]
         .map(part => basename(part))
         .join(' ');
