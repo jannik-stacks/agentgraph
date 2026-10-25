@@ -30,7 +30,7 @@ export default defineConfig({
     env: { AGENTGRAPH_CACHE_VOLUME: '', AGENTGRAPH_MIN_FREE_GB: '0' },
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.ts', 'harnesses/*.ts'],
       reporter: ['text', 'json-summary'],
       thresholds: { lines: 90 },
     },

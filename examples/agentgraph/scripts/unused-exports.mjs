@@ -14,7 +14,7 @@ const eventType = /\btype: '([\w-]+)';/;
 /** Lines that match `pattern` in the code and tests, as `{ file, line, text }`. */
 const hits = (pattern, ...flags) => {
   try {
-    return execFileSync('git', ['grep', '-n', '--untracked', ...flags, '-e', pattern, '--', 'src', 'studio', 'bin', 'tests'], {
+    return execFileSync('git', ['grep', '-n', '--untracked', ...flags, '-e', pattern, '--', 'src', 'harnesses', 'agentgraph.config.ts', 'studio', 'bin', 'tests'], {
       encoding: 'utf8',
     })
       .split('\n')
