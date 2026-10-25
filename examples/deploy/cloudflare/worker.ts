@@ -93,38 +93,40 @@ export class Box extends Container<Env> {
 
   override async onActivityExpired() {
     if ([...this.running.values()].some(count => count > 0)) this.renewActivityTimeout();
-    else await this.destroy();
+    else if (this.ctx.container?.running) await this.destroy();
   }
 
   override async fetch(request: Request) {
     if (request.method === 'DELETE') {
-      await this.destroy();
+      if (this.ctx.container?.running) await this.destroy();
       return new Response(null, { status: 204 });
     }
     const url = new URL(request.url);
     const op = url.pathname.split('/')[2] ?? '';
+    const fresh = !this.ctx.container?.running;
     await this.start();
     this.renewActivityTimeout();
+    const headers: HeadersInit = fresh ? { 'agentgraph-box-fresh': '1' } : {};
     if (op === 'run') {
       const network = url.searchParams.get('network');
       if (!networks.includes(network as Network)) return new Response(`unknown network ${network}`, { status: 400 });
-      return this.run(network as Network, await request.json());
+      return this.run(network as Network, await request.json(), headers);
     }
     if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
     const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', op, ...url.searchParams.getAll('arg')], {
-      user: op === 'init' || op === 'put' ? 'root' : '1000:1000',
+      user: op === 'init' || op === 'put' ? '0:0' : '1000:1000',
       ...(request.body && { stdin: request.body }),
       stderr: 'pipe',
     });
-    if (op === 'pull') return new Response(child.stdout);
+    if (op === 'pull') return new Response(child.stdout, { headers });
     const { exitCode, stdout, stderr } = await child.output();
     const text = new TextDecoder();
     return exitCode === 0
-      ? new Response(null, { status: 204 })
+      ? new Response(null, { status: 204, headers })
       : new Response(text.decode(stdout) + text.decode(stderr), { status: 500 });
   }
 
-  async run(network: Network, argv: string[]) {
+  async run(network: Network, argv: string[], headers: HeadersInit) {
     this.running.set(network, (this.running.get(network) ?? 0) + 1);
     const done = () => this.running.set(network, (this.running.get(network) ?? 1) - 1);
     const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'run', ...argv], {
@@ -137,6 +139,7 @@ export class Box extends Container<Env> {
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const pump = async () => {
       const writer = writable.getWriter();
+      writer.closed.catch(() => child.kill(15));
       let last = 10;
       try {
         for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
@@ -148,14 +151,15 @@ export class Box extends Container<Env> {
         await writer.write(new TextEncoder().encode((last === 10 ? '' : '\n') + frame(code)));
         await writer.close();
       } catch (error) {
-        child.kill(9);
-        await writer.abort(error);
+        child.kill(15);
+        await child.exitCode.catch(() => undefined);
+        await writer.abort(error).catch(() => undefined);
       } finally {
         done();
       }
     };
     this.ctx.waitUntil(pump());
-    return new Response(readable);
+    return new Response(readable, { headers });
   }
 }
 

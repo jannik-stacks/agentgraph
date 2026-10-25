@@ -23,5 +23,5 @@ backup() {
 (while sleep 300; do backup || echo "backing up /data failed" >&2; done) &
 node bin/run.ts loop --data /data &
 engine=$!
-trap 'kill $engine; wait $engine; backup; exit' TERM INT
-wait $engine
+trap 'kill $engine 2> /dev/null || :; wait $engine || :; backup || :; exit 0' TERM INT
+wait $engine || exit $?

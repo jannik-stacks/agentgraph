@@ -4,7 +4,7 @@ cd "$(dirname "$0")"
 [ -d node_modules ] || npm ci --no-fund --no-audit
 wrangler() { npx --no-install wrangler "$@"; }
 
-wrangler whoami > /dev/null 2>&1 || wrangler login
+wrangler whoami --json > /dev/null 2>&1 || wrangler login
 wrangler r2 bucket info agentgraph-data > /dev/null 2>&1 || wrangler r2 bucket create agentgraph-data
 deployed=$(wrangler secret list --format json 2> /dev/null || echo '[]')
 
