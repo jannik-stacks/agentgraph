@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+**/.wrangler
+.git
+studio
+bench
+tune
+tests

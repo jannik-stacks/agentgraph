@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")"
+[ -d node_modules ] || npm ci --no-fund --no-audit
+wrangler() { npx --no-install wrangler "$@"; }
+
+wrangler whoami > /dev/null 2>&1 || wrangler login
+wrangler r2 bucket info agentgraph-data > /dev/null 2>&1 || wrangler r2 bucket create agentgraph-data
+deployed=$(wrangler secret list --format json 2> /dev/null || echo '[]')
+
+ask() {
+  eval "value=\${$1:-}"
+  case $deployed in *"\"$1\""*) [ -n "$value" ] || return 0 ;; esac
+  while [ -z "$value" ]; do
+    printf '%s (%s): ' "$1" "$2" >&2
+    read -r value
+  done
+  export "$1=$value"
+}
+
+case $deployed in
+*'"AGENTGRAPH_APP_KEY"'*) ;;
+*)
+  if [ -z "${AGENTGRAPH_APP_ENV:-}" ]; then
+    printf 'AGENTGRAPH_APP_ENV (path to app.env, empty to create the App now): ' >&2
+    read -r AGENTGRAPH_APP_ENV
+  fi
+  [ -n "$AGENTGRAPH_APP_ENV" ] || AGENTGRAPH_APP_ENV=$(node ../../../bin/setup-app.ts)
+  . "$AGENTGRAPH_APP_ENV"
+  AGENTGRAPH_APP_KEY=$(cat "$AGENTGRAPH_APP_KEY_FILE")
+  export AGENTGRAPH_APP_ID AGENTGRAPH_APP_KEY
+  ;;
+esac
+ask AGENTGRAPH_REPO 'owner/name of the repo to work on'
+ask GATEWAY_URL 'OpenAI-compatible model gateway, for example https://my-litellm.example.com'
+ask AGENTGRAPH_PROXY_KEYS 'name=key pairs the gateway accepts, one per agent'
+
+secrets=$(mktemp)
+trap 'rm -f "$secrets"' EXIT
+node -e '
+  const names = process.argv.slice(1).filter(name => process.env[name]);
+  console.log(JSON.stringify(Object.fromEntries(names.map(name => [name, process.env[name]]))));
+' AGENTGRAPH_REPO AGENTGRAPH_APP_ID AGENTGRAPH_APP_KEY AGENTGRAPH_PROXY_KEYS GATEWAY_URL GATEWAY_HEADERS > "$secrets"
+wrangler deploy --secrets-file "$secrets"
+echo 'Deployed. The engine starts within five minutes; follow it with: npx wrangler tail'
