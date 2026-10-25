@@ -2,7 +2,8 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import { delimiter, join } from 'node:path';
 import { parse } from 'yaml';
 import { opencode } from '../harnesses/opencode.ts';
-import { claude, pi } from '../src/harnesses.ts';
+import { pi } from '../harnesses/pi.ts';
+import { claude } from '../src/harnesses.ts';
 import type { Check, Hub } from '../src/hub.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { compileWorkflow, type Problem, type Workflow } from '../src/workflow.ts';

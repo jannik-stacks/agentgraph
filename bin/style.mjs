@@ -22,7 +22,7 @@ const exempt = new Set([
 const retired = /compound|climb|stamp|provenance|bothub/i;
 const marked = /^\s*UNEXPECTED: /;
 const directive = /^\s*(oxlint-|eslint-|@ts-|\*?\s*@internal\s*$)/;
-const dirs = ['src', 'bin', 'bench', 'tune', 'studio/src'];
+const dirs = ['src', 'harnesses', 'bin', 'bench', 'tune', 'studio/src'];
 const root = process.cwd();
 const baselinePath = join(root, 'bin/style-baseline.txt');
 
