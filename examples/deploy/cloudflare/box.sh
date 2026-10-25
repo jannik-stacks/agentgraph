@@ -64,7 +64,7 @@ put)
   rm -rf "$tmp"
   ;;
 keep)
-  tar -czf /tmp/agentgraph-kept.tgz -C "$root/" --exclude='homes/*/.cache' work homes
+  tar -czf /tmp/agentgraph-kept.tgz -C "$root/" --anchored --no-wildcards-match-slash --exclude='homes/*/.cache' work homes
   wc -c < /tmp/agentgraph-kept.tgz
   ;;
 reap)
