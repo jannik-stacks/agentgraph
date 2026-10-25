@@ -21,14 +21,15 @@ const masked = `
 const { spawn } = require('node:child_process');
 const { readFileSync } = require('node:fs');
 const { createInterface } = require('node:readline');
+const seen = new Set();
 const secrets = () => {
-  const found = [];
-  try { JSON.parse(readFileSync('/codex/auth.json', 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && found.push(v), v)); } catch {}
-  return found;
+  try { JSON.parse(readFileSync('/codex/auth.json', 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && seen.add(v), v)); } catch {}
+  return seen;
 };
+secrets();
 const codex = spawn('codex', process.argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
 for (const out of [codex.stdout, codex.stderr])
-  createInterface({ input: out }).on('line', line => process.stdout.write(secrets().reduce((t, s) => t.replaceAll(s, '***'), line) + '\\n'));
+  createInterface({ input: out }).on('line', line => process.stdout.write([...secrets()].reduce((t, s) => t.replaceAll(s, '***'), line) + '\\n'));
 codex.on('close', code => process.exit(code ?? 1));
 `;
 
