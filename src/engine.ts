@@ -1475,32 +1475,22 @@ const explain = (e: SandboxError | SessionStop | ForgeError) =>
 const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeError | StoreError, R>) =>
   Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
 
-const reopen = (hub: Hub, w: Workflow, run: Run, reply: string) =>
+const reopen = (hub: Hub, w: Workflow, run: Run) =>
   Effect.gen(function* () {
     const t = yield* issuesOf(w, run);
     const work = yield* Effect.flatMap(Sandbox, s =>
-      s.checkout(
-        run.base?.branch ?? expand(w.base ?? 'main', t.issue),
-        w.branch && expand(w.branch, t.issue),
-        `refs/agentgraph/runs/${run.id}`,
-        hub
-      )
+      s.checkout(`refs/agentgraph/runs/${run.id}`, undefined, undefined, hub)
     );
-    yield* Effect.addFinalizer(() =>
-      Effect.ignore(
-        Effect.zipRight(
-          text(work, ['read-tree', '-u', '--reset', work.saved ?? work.head ?? work.base]),
-          text(work, ['clean', '-fdq'])
-        )
-      )
-    );
+    const onto = run.base?.branch ?? expand(w.base ?? 'main', t.issue);
+    const base = yield* text(work, ['merge-base', `${work.base}^`, onto]);
     yield* setUp(hub, work, run);
     const left: Left = {
       ...work,
+      base,
       run: run.id,
       issue: run.issue,
       context: context(t),
-      reply,
+      reply: '',
       proposals: [],
       ...(run.answers && { answers: run.answers }),
     };
@@ -1516,19 +1506,14 @@ const runEndChecks = (hub: Hub, id: string): Effect.Effect<Run | undefined, Stor
     if (!ended?.owed) return ended;
     let run: Run = ended;
     const w = hub.workflows[ended.workflow];
-    const reply =
-      Chunk.toArray(yield* Stream.runCollect(store.read(id)))
-        .flatMap(t => ('event' in t && t.event.type === 'end' ? [t.event.final] : []))
-        .at(-1) ?? '';
-    const opened = w ? yield* caught(reopen(hub, w, ended, reply)) : `the hub has no workflow ${ended.workflow}`;
+    const opened = w ? yield* caught(reopen(hub, w, ended)) : `the hub has no workflow ${ended.workflow}`;
     for (const name of ended.owed) {
       const check = hub.checks[name];
-      const got =
-        typeof opened === 'string'
+      const got = !check
+        ? `the hub has no check ${name}`
+        : typeof opened === 'string'
           ? opened
-          : check
-            ? yield* caught(resultOf(ended.step, { ...check, mode: 'warn' }, opened, hub, true))
-            : `the hub has no check ${name}`;
+          : yield* caught(resultOf(ended.step, { ...check, mode: 'warn' }, opened, hub, true));
       if (typeof got === 'string')
         yield* store.trace(id, {
           at: now(),

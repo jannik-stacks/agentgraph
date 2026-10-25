@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Effect, Either } from 'effect';
@@ -39,6 +40,14 @@ const left = (where: ReturnType<typeof world>) => {
     news: join(where.root, 'news', 'news.md'),
     proposals: [],
   };
+};
+
+const keep = (where: ReturnType<typeof world>) => {
+  const git = (...args: string[]) =>
+    execFileSync('git', ['--git-dir', where.origin, ...args])
+      .toString()
+      .trim();
+  git('update-ref', 'refs/agentgraph/runs/run-7', git('commit-tree', 'main^{tree}', '-p', 'main', '-m', 'kept'));
 };
 
 const results = (data: string, id = 'run-7') =>
@@ -129,7 +138,11 @@ describe('end checks', () => {
 
   it('run once a merge ends the run, on its kept files, and leave its status alone', async () => {
     const where = world();
-    const h = ending({ present: { run: 'test -e hello.txt' }, lines: { returns: 'number', run: 'wc -l < hello.txt' } });
+    const h = ending({
+      present: { run: 'test -e hello.txt' },
+      lines: { returns: 'number', run: 'wc -l < hello.txt' },
+      changed: { returns: 'number', each: 'files', run: 'test -s "$AGENTGRAPH_ITEM"' },
+    });
     const flow = h.workflows.issue!;
     const first = services(where, [
       [start('t1'), reply({ kind: 'comment', body: 'Brief' })],
@@ -152,6 +165,7 @@ describe('end checks', () => {
     expect(ends).toEqual([
       expect.objectContaining({ check: 'present', pass: true }),
       expect.objectContaining({ check: 'lines', pass: true, value: 1 }),
+      expect.objectContaining({ check: 'changed', pass: true, value: 1 }),
     ]);
   });
 
@@ -159,6 +173,7 @@ describe('end checks', () => {
     const where = world();
     const h = ending({ present: { run: 'echo present' }, lines: { returns: 'number', run: 'echo 3' } });
     const { commands, run } = services(where, []);
+    keep(where);
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge', owed: ['lines'] })));
     await run(tick(h, 7, true));
     await run(tick(h, 7, true));
@@ -169,11 +184,13 @@ describe('end checks', () => {
     expect(results(where.data)).toEqual([expect.objectContaining({ check: 'lines', value: 3, end: true })]);
   });
 
-  it('give a check gone from the hub an empty result naming it', async () => {
+  it('give a check gone from the hub, or a run without kept files, an empty result naming why', async () => {
     const where = world();
     const h = ending({ lines: { returns: 'number', run: 'echo 3' } });
     const { run } = services(where, []);
-    await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', step: 'merge', owed: ['gone'] })));
+    await run(
+      Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'stopped', step: 'merge', owed: ['gone', 'lines'] }))
+    );
     await run(tick(h, 7, true));
     expect(results(where.data)).toEqual([
       expect.objectContaining({
@@ -183,6 +200,11 @@ describe('end checks', () => {
         findings: 'the hub has no check gone',
         end: true,
       }),
+      expect.objectContaining({
+        check: 'lines',
+        empty: true,
+        findings: expect.stringContaining('refs/agentgraph/runs/run-7'),
+      }),
     ]);
   });
 
@@ -190,6 +212,7 @@ describe('end checks', () => {
     const where = world();
     const h = ending({ lines: { returns: 'number', run: 'echo 5' } });
     const { run } = services(where, []);
+    keep(where);
     await run(Effect.flatMap(Store, s => s.put({ ...fresh(), status: 'done', step: 'merge' })));
     const [after] = await run(instruct(h, { kind: 'check', checks: ['lines'], issue: 7 }));
     expect(after).toMatchObject({ status: 'done' });

@@ -131,11 +131,11 @@ Scripts run in the checkout with these variables: <!-- code: src/engine.ts#resul
 
 A check with `returns: number` measures instead of only passing. With a judge or `each`, its value is the share of items that passed. A script alone gives the number its output ends with, on its own line. `pass` keeps its meaning either way. <!-- code: src/engine.ts#lastNumber -->
 
-A number check without a value is `empty`, with the reason in its findings: no items, no number in the output, a judge without a verdict or a check that could not run. Readers skip an empty result; it never counts as 0.
+A number check without a value is `empty`, with the reason in its findings: no items, no number in the output, or a `warn` judge without a verdict on an item. Readers skip an empty result; it never counts as 0.
 
 ### At run end and later
 
-A workflow's `checks` run once when its run ends, done or stopped, on a checkout of the run's kept files. They must be `warn` and never change the run's status. The run keeps them in `owed` until each result is traced, so a runner killed partway runs only the rest on its next pass. A check that cannot run gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
+A workflow's `checks` run once when its run ends, done or stopped, on a throwaway checkout of the run's kept files, with the change measured from where the run's work left its base and an empty reply. They must be `warn` and never change the run's status. The run keeps them in `owed` until each result is traced, so a runner killed partway runs only the rest on its next pass. A check that cannot run there, missing kept files included, gives an empty result. <!-- code: src/workflow.ts#transition src/engine.ts#runEndChecks -->
 
 `npx agentgraph check <name>... --runs` runs checks the same way on runs that already ended, as `warn`. `--workflow` and `--issue` narrow the runs.
 

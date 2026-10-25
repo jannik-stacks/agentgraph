@@ -36,6 +36,7 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         const news = await mkdtemp(join(tmpdir(), 'agentgraph-news-'));
         const run = (...args: string[]) => git('git', args, { cwd: dir }).then(r => r.stdout.trim());
         await git('git', ['clone', '-q', repo, dir]);
+        if (ref.startsWith('refs/')) await run('fetch', '-q', 'origin', `+${ref}:${ref}`);
         const base = await run('rev-parse', '--verify', `origin/${ref}`).catch(() => run('rev-parse', '--verify', ref));
         const kept = keep
           ? await run('fetch', '-q', 'origin', `+${keep}:${keep}`).then(
