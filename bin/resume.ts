@@ -22,7 +22,7 @@ import { uptime } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, ensureFreeDisk } from '../src/disk.ts';
-import { isPidRunning } from '../src/env.ts';
+import { isPidRunning } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
 
 /** Appends one JSON line, first ending a line a crash left open. */

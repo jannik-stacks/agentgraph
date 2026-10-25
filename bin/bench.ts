@@ -23,7 +23,6 @@ import {
   readSandboxSetup,
   layer,
   manifest,
-  ownerId,
   removeOrphanedVolumes,
   written,
 } from '../src/env.ts';
@@ -768,7 +767,13 @@ const check = async (c: Case & Commands, tree: string, diff: string, hidden: str
       })
     : undefined;
   const layers = cache
-    ? await layer(env ?? { image: start, outputs: [] }, ownerId(), tree, await dependencyDirs(git, c.base), cache)
+    ? await layer(
+        env ?? { image: start, outputs: [] },
+        randomBytes(6).toString('hex'),
+        tree,
+        await dependencyDirs(git, c.base),
+        cache
+      )
     : [];
   const box = { mounts: [{ src: git, dst: git, readonly: true }], layers };
   const from = env?.image ?? start;

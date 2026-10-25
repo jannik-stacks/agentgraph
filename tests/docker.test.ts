@@ -5,9 +5,7 @@ import { Chunk, Effect, Exit, Layer, Redacted, type Scope, Stream } from 'effect
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dockerSandbox, dockerArgs } from '../src/docker.ts';
 import {
-  startHeartbeat,
   dependencyDirs,
-  isOwnerRunning,
   discard,
   layer,
   writeCheckoutOwner,
@@ -17,6 +15,7 @@ import {
   makeToolchainSetupCommands,
   written,
 } from '../src/env.ts';
+import { isOwnerRunning, startHeartbeat } from '../src/owner.ts';
 import { harnessSession } from '../src/harnesses.ts';
 import { type Command, Sandbox } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';

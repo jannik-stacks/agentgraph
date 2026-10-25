@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { isPidRunning } from '../src/env.ts';
+import { isPidRunning } from '../src/owner.ts';
 import { tmp } from './kit.ts';
 
 const script = resolve(import.meta.dirname, '../bin/overnight.sh');

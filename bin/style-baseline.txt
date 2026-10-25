@@ -61,7 +61,7 @@ no-comment src/context.ts 12
 no-comment src/disk.ts 14
 no-comment src/docker.ts 10
 no-comment src/engine.ts 70
-no-comment src/env.ts 28
+no-comment src/env.ts 24
 no-comment src/event.ts 7
 no-comment src/forge.ts 18
 no-comment src/git.ts 3
@@ -225,7 +225,6 @@ verb-first src/env.ts dependencyDirs
 verb-first src/env.ts discard
 verb-first src/env.ts held
 verb-first src/env.ts layer
-verb-first src/env.ts ownerId
 verb-first src/env.ts reap
 verb-first src/env.ts used
 verb-first src/env.ts written

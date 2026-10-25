@@ -11,18 +11,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
-import {
-  runDockerCli,
-  envVersion,
-  held,
-  isPidRunning,
-  isOwnerRunning,
-  makeSetupVolumeName,
-  readStateDir,
-  removeOrphanedVolumes,
-  unlogged,
-  used,
-} from './env.ts';
+import { runDockerCli, envVersion, held, makeSetupVolumeName, removeOrphanedVolumes, unlogged, used } from './env.ts';
+import { isLockedByOtherProcess, isOwnerRunning, readStateDir } from './owner.ts';
 
 /** What a cache item is: a sandbox setup image with its dependency volume, a dependency volume no image uses, or a host build dir. */
 type Kind = 'env' | 'lower' | 'tree';
@@ -111,11 +101,6 @@ export const findBuildDirs = (root: string, depth = 5): string[] => {
       if (e.name === 'target-shared') return existsSync(join(at, 'CACHEDIR.TAG')) ? [at] : [];
       return depth > 1 ? findBuildDirs(at, depth - 1) : [];
     });
-};
-
-const busy = (path: string) => {
-  const pid = Number((existsSync(`${path}.lock`) && readFileSync(`${path}.lock`, 'utf8')) || 0);
-  return pid > 0 && pid !== process.pid && isPidRunning(pid);
 };
 
 const du = (path: string) =>
@@ -249,7 +234,7 @@ export const inventory = async (o: { roots?: string[]; measure?: boolean } = {})
       bytes: await du(path),
       used: statSync(path).mtimeMs,
       ...(score && { always: true }),
-      ...(busy(path) && { held: 'busy' }),
+      ...(isLockedByOtherProcess(path) && { held: 'busy' }),
     });
   }
   const active = unexpired();
@@ -280,7 +265,8 @@ export const pickCacheRemovals = (items: DiskCacheEntry[], o: { limit: number; f
 };
 
 const remove = async (i: DiskCacheEntry) => {
-  if (i.kind === 'tree') return !busy(i.refs[0]!) && (rmSync(i.refs[0]!, { recursive: true, force: true }), true);
+  if (i.kind === 'tree')
+    return !isLockedByOtherProcess(i.refs[0]!) && (rmSync(i.refs[0]!, { recursive: true, force: true }), true);
   const ok = (args: string[]) =>
     runDockerCli(args).then(
       () => true,

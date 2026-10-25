@@ -31,7 +31,9 @@ The key covers the base image, the toolchain commands, `setup` and those files, 
 
 Each checkout mounts private overlays over the cached dependency folders, so its writes stay its own, and the overlays go when the checkout closes. Checkouts skip setup when the environment holds everything setup produced; resumed checkouts and incomplete environments run it again. <!-- code: src/env.ts#layer src/docker.ts#dockerSandbox src/env.ts#unlogged -->
 
-`AGENTGRAPH_STATE` (default `~/.cache/agentgraph`) holds runner heartbeats and image use times. Runners that share Docker must share it, and startup removes what dead runners left behind.
+`AGENTGRAPH_STATE` (default `~/.cache/agentgraph`) holds runner heartbeats and image use times. Runners that share Docker must share it, and startup removes what stopped runners left behind.
+
+One check decides whether the process that owns something still runs: run locks, checkouts, dependency volumes, held environments and the bench and tune locks all ask it. An owner is a pid, plus a random owner id when the process beats. It still runs while its heartbeat is under two minutes old, or while its pid runs and it wrote its claim after the machine last booted. <!-- code: src/owner.ts#isOwnerRunning src/owner.ts#isLockedByOtherProcess -->
 
 ### Disk
 

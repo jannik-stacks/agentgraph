@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { isOwnerRunning, ownerId, readStateDir, startHeartbeat } from './owner.ts';
 
 /**
  * A repo's environment: what the toolchain step and setup made of a base's files. `outputs` are the ignored directories
@@ -181,11 +181,8 @@ const build = [
 const section = (out: string, name: string) =>
   (out.split(`@@${name}\n`)[1] ?? '').split(/^@@/m)[0]!.split('\n').filter(Boolean);
 
-/** Where runners keep what must outlive them: sandbox setup last-use stamps, holds per runner and owner heartbeats. */
-export const readStateDir = () => process.env.AGENTGRAPH_STATE || join(homedir(), '.cache', 'agentgraph');
 export const used = () => join(readStateDir(), 'envs');
 const holds = () => join(readStateDir(), 'holds');
-const owners = () => join(readStateDir(), 'owners');
 const stamp = (file: string) => {
   try {
     mkdirSync(dirname(file), { recursive: true });
@@ -196,55 +193,20 @@ const stamp = (file: string) => {
 const touch = (key: string) => {
   stamp(join(used(), key));
   startHeartbeat();
-  stamp(join(holds(), key, self));
+  stamp(join(holds(), key, ownerId));
 };
 const holdHours = () => Number(process.env.AGENTGRAPH_ENV_HOLD_HOURS || 2);
 
-/** Whether another live runner used the sandbox setup `key` within the hold window; with `prune`, dead runners' holds are dropped. */
+/** Whether another running runner used the sandbox setup `key` within the hold window; with `prune`, stopped runners' holds are dropped. */
 export const held = (key: string, prune = true) => {
   const dir = join(holds(), key);
   let owners: string[] = [];
   try {
     owners = readdirSync(dir);
   } catch {}
-  const [alive, dead] = [owners.filter(o => isOwnerRunning(`0:${o}`)), owners.filter(o => !isOwnerRunning(`0:${o}`))];
-  if (prune) for (const owner of dead) rmSync(join(dir, owner), { force: true });
-  return alive.some(o => o !== self && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
-};
-
-export const ownerId = () => randomBytes(6).toString('hex');
-
-/** This process as an owner of volumes and checkouts; pids repeat across container restarts, so it is random. */
-const self = ownerId();
-let beating: NodeJS.Timeout | undefined;
-
-/** Marks this process alive for other runners' sweeps, every 30 s while it runs; answers its `pid:owner` label. */
-export const startHeartbeat = () => {
-  stamp(join(owners(), self));
-  if (!beating) (beating = setInterval(() => stamp(join(owners(), self)), 30_000)).unref();
-  return `${process.pid}:${self}`;
-};
-
-export const isPidRunning = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM';
-  }
-};
-
-/**
- * Whether the `pid:owner` label's process still runs: its heartbeat is under two minutes old, or its pid lives. A
- * process blocked in a long synchronous call cannot beat, so a stale heartbeat alone does not make it dead.
- */
-export const isOwnerRunning = (label: string) => {
-  const [pid, owner = ''] = label.split(':');
-  if (owner === self) return true;
-  try {
-    if (Date.now() - statSync(join(owners(), owner || '-')).mtimeMs < 120_000) return true;
-  } catch {}
-  return Boolean(Number(pid)) && isPidRunning(Number(pid));
+  const running = owners.filter(o => isOwnerRunning(`0:${o}`));
+  if (prune) for (const owner of owners.filter(o => !running.includes(o))) rmSync(join(dir, owner), { force: true });
+  return running.some(o => o !== ownerId && Date.now() - statSync(join(dir, o)).mtimeMs < holdHours() * 3_600_000);
 };
 
 const tagOf = (repo: string, key: string) =>
@@ -484,7 +446,11 @@ let overlay: Promise<boolean> | undefined;
 /** Whether this docker mounts an overlay volume, tried once with `image`. */
 const overlays = (image: string) =>
   (overlay ??= (async () => {
-    const [lower, upper, over] = ['l', 'u', 'o'].map(s => `agentgraph-probe-${self}-${s}`) as [string, string, string];
+    const [lower, upper, over] = ['l', 'u', 'o'].map(s => `agentgraph-probe-${ownerId}-${s}`) as [
+      string,
+      string,
+      string,
+    ];
     const run = (mount: string, ...cmd: string[]) =>
       runDockerCli([
         'run',
@@ -676,8 +642,9 @@ export const reap = (data: string) => {
   } catch {}
   const gone = ids.filter(id => {
     if (existsSync(join(work, `${id}.failed`))) return false;
+    const owner = join(work, `${id}.owner`);
     try {
-      return !isOwnerRunning(readFileSync(join(work, `${id}.owner`), 'utf8').trim());
+      return !isOwnerRunning(readFileSync(owner, 'utf8').trim(), statSync(owner).mtimeMs);
     } catch {
       return true;
     }

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
 import { Chunk, Context, Data, Effect, Layer, Schema, Stream, type Scope } from 'effect';
-import { startHeartbeat, isOwnerRunning } from './env.ts';
+import { startHeartbeat, isOwnerRunning } from './owner.ts';
 import type { Log, Trace } from './trace.ts';
 import type { Run } from './workflow.ts';
 
