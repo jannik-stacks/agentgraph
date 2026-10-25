@@ -242,7 +242,7 @@ describe('hubAt', () => {
     };
     const sha = () =>
       Effect.runPromise(
-        Effect.scoped(Effect.map(hubAt('.agentgraph', harnesses), h => h.sha)).pipe(
+        Effect.scoped(Effect.map(hubAt('.agentgraph'), h => h.sha)).pipe(
           Effect.provide(hostSandbox(join(root, 'origin.git')))
         )
       );

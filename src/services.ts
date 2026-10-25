@@ -6,8 +6,8 @@ import { fileForge } from './forge.ts';
 import { dockerSandbox } from './docker.ts';
 import { appToken, githubForge } from './github.ts';
 import type { Services } from './engine.ts';
-import { type Config as PluginConfig, harnessSession } from './harnesses.ts';
-import { HubError, loadHub } from './hub.ts';
+import { harnessSession, readConfiguredHub, readHarnessSettings } from './harnesses.ts';
+import { HubError } from './hub.ts';
 import { Sandbox } from './sandbox.ts';
 import { checkLogs, fileStore } from './store.ts';
 
@@ -74,29 +74,32 @@ const where = (s: Settings) => {
  * The hub at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
  * default branch, so only a merged pull request changes it.
  */
-export const hubAt = (path: string, harnesses: PluginConfig['harnesses']) =>
+export const hubAt = (path: string) =>
   isAbsolute(path)
-    ? loadHub(path, harnesses)
+    ? readConfiguredHub(path)
     : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
         Effect.mapError(e => new HubError({ problems: [{ path, message: e.detail }] })),
-        Effect.flatMap(work => loadHub(join(work.dir, path), harnesses))
+        Effect.flatMap(work => readConfiguredHub(join(work.dir, path)))
       );
 
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
-export const makeProductionLayers = (s: Settings, config: PluginConfig): Layer.Layer<Services> => {
+export const makeProductionLayers = (s: Settings): Layer.Layer<Services> => {
   const { forge, origin } = where(s);
   const sandbox = dockerSandbox({ data: s.data, cache: s.cache, image: s.image, ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
-  const trust = Effect.scoped(Effect.map(hubAt(s.hub, config.harnesses), hub => hub.trust)).pipe(
+  const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
     Effect.provide(sandbox),
     Effect.catchAll(() => Effect.succeed<string[]>([]))
   );
+  const harnesses = Effect.map(readHarnessSettings, settings => settings.harnesses).pipe(
+    Effect.orElseSucceed(() => [])
+  );
   return Layer.unwrapEffect(
-    Effect.map(trust, trust =>
+    Effect.map(Effect.all([trust, harnesses]), ([trust, harnesses]) =>
       Layer.mergeAll(
         forge(trust),
         fileStore(s.data, s.checkLogs),
-        harnessSession({ ...s, ...config }).pipe(Layer.provideMerge(sandbox))
+        harnessSession({ ...s, harnesses }).pipe(Layer.provideMerge(sandbox))
       )
     )
   );

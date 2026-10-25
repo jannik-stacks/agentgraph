@@ -10,9 +10,9 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
+import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { harnessSession, getModelPrice, readConfig } from '../src/harnesses.ts';
+import { harnessSession, getModelPrice, readHarnessSettings } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -66,6 +66,11 @@ const events = async (s: SessionSpec, lines: string[], exit = 0) => {
   if (!Exit.isSuccess(result)) throw new Error(String(result.cause));
   return { events: result.value, command, data };
 };
+
+const BAD_SETTINGS = [
+  ["export default { harnesses: [{ name: 'pi' }, { name: 'pi' }] };\n", 'lists the harness pi twice'],
+  ['export const harnesses = [];\n', 'has no default export with a harnesses list'],
+];
 
 const LEAKY_PATHS = ['../escape', '/escape', 'a/../../escape', 'a//b', './a'];
 
@@ -148,10 +153,12 @@ describe('the session loop', () => {
     expect(String(exit)).toContain('no harness goose in the config');
   });
 
-  it('refuses a config that lists one harness name twice', async () => {
+  it.each(BAD_SETTINGS)('refuses harness settings %s as a hub problem', async (text, message) => {
     const file = join(mkdtempSync(join(tmpdir(), 'agentgraph-config-')), 'config.mjs');
-    writeFileSync(file, "export default { harnesses: [{ name: 'pi' }, { name: 'pi' }] };\n");
-    await expect(readConfig(file)).rejects.toThrow('lists the harness pi twice');
+    writeFileSync(file, text);
+    const provider = ConfigProvider.fromMap(new Map([['AGENTGRAPH_CONFIG', file]]));
+    const error = await Effect.runPromise(Effect.flip(readHarnessSettings.pipe(Effect.withConfigProvider(provider))));
+    expect(error.problems).toEqual([{ path: file, message }]);
   });
 
   it('masks the key wherever the harness prints it', async () => {

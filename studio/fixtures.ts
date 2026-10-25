@@ -8,7 +8,6 @@ import type * as BenchModule from '../bin/bench.ts';
 import type * as TuneModule from '../bin/tune.ts';
 import type * as DriveModule from '../bench/drive.ts';
 import type * as HarnessesModule from '../src/harnesses.ts';
-import type * as HubModule from '../src/hub.ts';
 import type * as StoreModule from '../src/store.ts';
 import type * as WorkflowModule from '../src/workflow.ts';
 import type * as FixturesModule from '../tests/fixtures.ts';
@@ -22,9 +21,8 @@ const servedHub = async () => {
   const dir = process.env.VITE_AGI_HUB;
   if (!dir) return;
   const { Effect, Either } = await import('effect');
-  const { loadHub }: typeof HubModule = await from('src/hub.ts');
-  const { readConfig }: typeof HarnessesModule = await from('src/harnesses.ts');
-  const loaded = await Effect.runPromise(Effect.either(loadHub(dir, (await readConfig()).harnesses)));
+  const { readConfiguredHub }: typeof HarnessesModule = await from('src/harnesses.ts');
+  const loaded = await Effect.runPromise(Effect.either(readConfiguredHub(dir)));
   return Either.isRight(loaded)
     ? { name: basename(dir), hub: loaded.right, problems: [] }
     : { name: basename(dir), hub: undefined, problems: loaded.left.problems };

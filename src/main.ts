@@ -12,8 +12,8 @@ import {
   type Instruction,
   type Services,
 } from './engine.ts';
-import { loadHub, type Hub } from './hub.ts';
-import { type Config, readConfig } from './harnesses.ts';
+import { readConfiguredHub } from './harnesses.ts';
+import type { Hub } from './hub.ts';
 import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
@@ -64,14 +64,13 @@ const configured = (extra: Record<string, string>) =>
  */
 export const start = (
   one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
-  services: (s: Settings, config: Config) => Layer.Layer<Services> = makeProductionLayers
+  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers
 ): Promise<Run[]> => {
-  const provided = <A, E>(effect: Effect.Effect<A, E, Services>, config: Config) =>
-    Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, s => services(s, config))));
+  const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+    Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
   const program = one
     ? Effect.gen(function* () {
-        const config = yield* Effect.promise(() => readConfig());
-        const hub = yield* loadHub(one.hub, config.harnesses);
+        const hub = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(yield* configured({})));
         const provider = yield* configured({
           AGENTGRAPH_REPO: hub.repo,
           AGENTGRAPH_HUB: one.hub,
@@ -83,18 +82,16 @@ export const start = (
             ? instruct(hub, one.instruction)
             : one.issue === 'all'
               ? scanIssuesAndRunningRuns(hub)
-              : tick(hub, one.issue),
-          config
+              : tick(hub, one.issue)
         ).pipe(Effect.withConfigProvider(provider));
       })
     : Effect.gen(function* () {
-        const config = yield* Effect.promise(() => readConfig());
         const provider = yield* configured({});
         const loop = Effect.gen(function* () {
           const s = yield* settings;
           yield* warnTemporary(s.data);
           const look = (pass: (hub: Hub) => Effect.Effect<Run[], unknown, Services>) =>
-            hubAt(s.hub, config.harnesses).pipe(
+            hubAt(s.hub).pipe(
               Effect.flatMap(pass),
               Effect.scoped,
               Effect.catchAll(e => Effect.logError(e))
@@ -107,7 +104,7 @@ export const start = (
             )
           );
         });
-        yield* provided(loop, config).pipe(Effect.withConfigProvider(provider));
+        yield* provided(loop).pipe(Effect.withConfigProvider(provider));
         return [];
       });
   return Effect.runPromise(program);

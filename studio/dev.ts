@@ -4,8 +4,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Either } from 'effect';
 import { createServer } from 'vite';
-import { readConfig } from '../src/harnesses.ts';
-import { loadHub } from '../src/hub.ts';
+import { readConfiguredHub } from '../src/harnesses.ts';
 import { instanceAt } from '../src/instance.ts';
 
 const { values, positionals } = parseArgs({
@@ -27,7 +26,7 @@ const hubDir = resolve(values.hub ?? instance?.hub ?? join(import.meta.dirname, 
 const dataDir = resolve(values.data ?? instance?.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;
 console.log(`hub    ${hubDir}\ndata   ${dataDir}${real !== dataDir ? ` -> ${real}` : ''}`);
-const loaded = await Effect.runPromise(Effect.either(loadHub(hubDir, (await readConfig()).harnesses)));
+const loaded = await Effect.runPromise(Effect.either(readConfiguredHub(hubDir)));
 if (Either.isLeft(loaded))
   console.error(`the hub does not load, so the studio shows no workflow:\n${loaded.left.message}`);
 

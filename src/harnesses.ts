@@ -3,8 +3,8 @@ import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Effect, Layer, Redacted, Stream } from 'effect';
-import type { Agent } from './hub.ts';
+import { Config, Effect, Layer, Redacted, Stream } from 'effect';
+import { HubError, loadHub } from './hub.ts';
 import { type Exit, Sandbox, type SandboxError } from './sandbox.ts';
 import { Session } from './session.ts';
 import { type SessionEvent, type SessionSpec, SessionStop } from './trace.ts';
@@ -16,26 +16,34 @@ export type Piece =
 
 type ModelRoute = { url: string; model: string };
 
-export type Harness = {
-  name: string;
+export type Harness = Parameters<typeof loadHub>[1][number] & {
   key: string;
-  check?: (agent: Agent) => string[];
   home?: (spec: SessionSpec, route: ModelRoute) => { files?: Record<string, string>; links?: Record<string, string> };
   command: (spec: SessionSpec, route: ModelRoute) => { cmd: string; args: string[]; env?: Record<string, string> };
   parse: () => (line: unknown) => Piece[];
 };
 
-export type Config = { harnesses: Harness[] };
+export type HarnessSettings = { harnesses: Harness[] };
 
-export const readConfig = async (
-  path = process.env.AGENTGRAPH_CONFIG ?? fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url))
-): Promise<Config> => {
-  const config: Config = (await import(pathToFileURL(resolve(path)).href)).default;
-  const names = config.harnesses.map(h => h.name);
-  const twice = names.find((name, i) => names.indexOf(name) !== i);
-  if (twice) throw new Error(`${path} lists the harness ${twice} twice`);
-  return config;
-};
+const builtIn = fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url));
+
+export const readHarnessSettings = Effect.gen(function* () {
+  const path = resolve(yield* Effect.orDie(Config.string('AGENTGRAPH_CONFIG').pipe(Config.withDefault(builtIn))));
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const settings: HarnessSettings | undefined = (await import(pathToFileURL(path).href)).default;
+      if (!Array.isArray(settings?.harnesses)) throw new Error('has no default export with a harnesses list');
+      const names = settings.harnesses.map(h => h.name);
+      const twice = names.find((name, i) => names.indexOf(name) !== i);
+      if (twice) throw new Error(`lists the harness ${twice} twice`);
+      return settings;
+    },
+    catch: e => new HubError({ problems: [{ path, message: (e as Error).message }] }),
+  });
+});
+
+export const readConfiguredHub = (dir: string) =>
+  Effect.flatMap(readHarnessSettings, settings => loadHub(dir, settings.harnesses));
 
 /** Runs the harness with its errors on the one stream it prints to, so the lines keep their order. */
 const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
