@@ -190,7 +190,7 @@ const start = (args: string[], secrets: Command['secrets'], name: string, on: (c
       try {
         if (child.pid) process.kill(-child.pid, 'SIGKILL');
       } catch {}
-      await new Promise(done => execFile('docker', ['rm', '-f', name], () => done(undefined)));
+      await new Promise(done => execFile('docker', ['rm', '-f', name], { env: makeHostEnv() }, () => done(undefined)));
       return closed;
     });
   return { closed, stop };

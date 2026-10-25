@@ -14,7 +14,7 @@ const secret = new RegExp(
     ...(canary ? [canary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')] : []),
   ].join('|')
 );
-const named = /(^|_)(KEYS?|TOKEN|SECRET|PASSWORD|PEM)$/;
+const named = /(^|_)(KEYS?|TOKEN|SECRET|PASSWORD|PEM)(_|$)/;
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const skipped = new Set(['node_modules', '.git', 'dist', 'coverage', 'mirror.git', 'homes']);
 
@@ -29,7 +29,8 @@ const readOutput = (cmd: string, args: string[]) => {
 };
 
 const isSecretVariable = (name: string, value: string) =>
-  !name.startsWith('PROBE_') && (secret.test(value) || (named.test(name) && value.length >= 8));
+  !name.startsWith('PROBE_') &&
+  (secret.test(value) || (named.test(name) && value.length >= 8 && !/^[~/.]/.test(value)));
 
 const isSecretText = (text: string) =>
   secret.test(text) ||
@@ -103,8 +104,10 @@ const probes: Record<string, () => Promise<string[]> | string[]> = {
     const studio = process.env.PROBE_STUDIO ?? 'http://127.0.0.1:5182';
     const served = await Promise.all(
       findSecretFiles().map(async file => {
-        const res = await fetch(`${studio}/@fs${file}`, { signal: AbortSignal.timeout(3000) }).catch(() => undefined);
-        return res?.ok && isSecretText(await res.text()) ? [`studio ${file}`] : [];
+        const res = await fetch(`${studio}/@fs${file}`, { signal: AbortSignal.timeout(3000) }).catch(() => {
+          throw new Error(`no answer from ${studio}`);
+        });
+        return res.ok && isSecretText(await res.text()) ? [`studio ${file}`] : [];
       })
     );
     return served.flat();

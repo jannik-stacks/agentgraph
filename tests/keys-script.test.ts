@@ -27,17 +27,13 @@ ${logCall}
 const url = args.find(a => a.startsWith('http')) ?? '';
 console.log(url.includes('/key/list') ? '{"total_count":0}' : '{}');
 `,
-      'bin/dirname': `#!/usr/bin/env node
-${logCall}
-console.log(require('node:path').dirname(args[0]));
-`,
       'bin/jq': `#!/usr/bin/env node
 ${logCall}
 const r = require('node:child_process').spawnSync(${JSON.stringify(jq)}, args, { stdio: 'inherit' });
 process.exit(r.status ?? 1);
 `,
     });
-    for (const tool of ['curl', 'jq', 'dirname']) chmodSync(join(dir, 'bin', tool), 0o755);
+    for (const tool of ['curl', 'jq']) chmodSync(join(dir, 'bin', tool), 0o755);
     const calls = join(dir, 'calls.jsonl');
     const out = execFileSync('bash', [script], {
       encoding: 'utf8',
@@ -49,6 +45,8 @@ process.exit(r.status ?? 1);
         ENV_FILE: join(dir, 'litellm.env'),
         KEYS_FILE: join(dir, 'keys.env'),
         LITELLM_MASTER_KEY: master,
+        AGENTGRAPH_LLM_API_KEY_SCOUT: 'FAKE-canary-bot',
+        GH_TOKEN: 'FAKE-canary-gh',
       },
     });
     const logged = readFileSync(calls, 'utf8')
@@ -61,7 +59,6 @@ process.exit(r.status ?? 1);
     expect(out).toContain('created bh-implementor');
     expect(created.length).toBeGreaterThan(5);
     expect(sent).toEqual(created);
-    expect(logged.some(c => c.tool === 'dirname')).toBe(true);
     expect(
       logged
         .filter(c => c.tool === 'curl')

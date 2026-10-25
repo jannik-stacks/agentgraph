@@ -73,12 +73,23 @@ describe('leak-probe', () => {
 
   it('says so when a probe could not run', async () => {
     const dir = tmp('probe-skip');
-    write(dir, { 'bin/docker': '#!/bin/sh\necho "daemon down" >&2\nexit 1\n' });
+    write(dir, {
+      'bin/docker': '#!/bin/sh\necho "daemon down" >&2\nexit 1\n',
+      'home/.keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${canary}\n`,
+    });
     chmodSync(join(dir, 'bin', 'docker'), 0o755);
-    const { code, out } = await runProbe({ PATH: `${join(dir, 'bin')}:${process.env.PATH}` }, 'docker');
+    const { code, out } = await runProbe(
+      {
+        PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+        PROBE_PATHS: join(dir, 'home'),
+        PROBE_STUDIO: 'http://127.0.0.1:9',
+      },
+      'docker',
+      'studio'
+    );
     expect([code, out.trim()]).toEqual([
       3,
-      'skip docker: docker ps failed: daemon down\nno hits, but not every probe ran',
+      'skip docker: docker ps failed: daemon down\nskip studio: no answer from http://127.0.0.1:9\nno hits, but not every probe ran',
     ]);
   });
 

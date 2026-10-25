@@ -6,8 +6,7 @@
 #   ./keys.sh             create missing keys, converge budgets and limits on existing ones
 #   ROTATE=1 ./keys.sh    delete and recreate every key (old values stop working)
 set -euo pipefail
-export -n LITELLM_MASTER_KEY
-cd "$(dirname "$0")"
+[[ "$0" != */* ]] || cd "${0%/*}"
 
 ENV_FILE="${ENV_FILE:-.env}"
 names=""
@@ -17,6 +16,9 @@ if [[ -f "$ENV_FILE" ]]; then
   done <"$ENV_FILE"
   . "$ENV_FILE"
 fi
+for name in $(compgen -e); do
+  if [[ "$name" =~ (^|_)(KEYS?|TOKEN|SECRET|PASSWORD)(_|$) ]]; then names+=" $name"; fi
+done
 export -n LITELLM_MASTER_KEY $names
 : "${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in infra/local/.env}"
 BASE="${LITELLM_URL:-http://127.0.0.1:4000}"

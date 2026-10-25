@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { makeHostEnv } from './git.ts';
 import {
   type Dirent,
   existsSync,
@@ -105,7 +106,9 @@ export const findBuildDirs = (root: string, depth = 5): string[] => {
 
 const du = (path: string) =>
   new Promise<number>(done =>
-    execFile('du', ['-sk', path], { timeout: 600_000 }, (e, out) => done(e ? 0 : Number(out.split('\t')[0]) * 1024))
+    execFile('du', ['-sk', path], { env: makeHostEnv(), timeout: 600_000 }, (e, out) =>
+      done(e ? 0 : Number(out.split('\t')[0]) * 1024)
+    )
   );
 
 /** Unique bytes of each image by id and bytes of each volume by name, as `docker system df` counts them. */
