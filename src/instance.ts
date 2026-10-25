@@ -1,14 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { basename, dirname, join, relative, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Effect } from 'effect';
 import { parse, stringify } from 'yaml';
-import type { Event, Issue } from './event.ts';
-import { fileForge, Forge, formatIssueFile, parseIssueFile } from './forge.ts';
+import type { Issue } from './event.ts';
+import { fileForge, Forge, formatIssueFile, parseIssueFile, writeTimelineEvent } from './forge.ts';
 import { hostGit, makeHostEnv } from './git.ts';
 import type { Proposal } from './proposal.ts';
 import { writeFileAtomic } from './store.ts';
@@ -184,28 +184,19 @@ const apply = async (dir: string, as: string, n: number, p: Proposal) => {
   if (!applied.ok) throw new Error(applied.reason);
 };
 
-const record = (
-  dir: string,
-  as: string,
-  n: number,
-  kind: Event['kind'],
-  body?: string,
-  placed: { path?: string; line?: number } = {}
-) => {
-  const file = join(dir, `${n}.jsonl`);
-  const at = new Date().toISOString();
-  const count = (existsSync(file) ? readFileSync(file, 'utf8') : '').split('\n').filter(Boolean).length;
-  const comment = body === undefined ? {} : { comment: { id: `${n}-${count + 1}`, author: as, body, at, ...placed } };
-  appendFileSync(file, `${JSON.stringify({ issue: n, kind, actor: as, trusted: true, at, ...comment })}\n`);
-};
-
 export const writeComment = async (dir: string, as: string, n: number, body: string, line?: string) => {
   if (!line) return apply(dir, as, n, { kind: 'comment', body });
   const [, path, at] = /^(.+):(\d+)$/.exec(line) ?? [];
   if (!path) throw new Error('--line takes <path>:<line>');
   const pull = await findPull(dir, n);
   if (!pull) throw new Error(`#${n} has no pull request`);
-  record(dir, as, pull.number, 'comment', body, { path, line: Number(at) });
+  await writeTimelineEvent(dir, {
+    issue: pull.number,
+    kind: 'comment',
+    actor: as,
+    trusted: true,
+    comment: { body, path, line: Number(at) },
+  });
 };
 
 export const writeReview = async (
@@ -217,18 +208,24 @@ export const writeReview = async (
 ) => {
   const pull = await findPull(dir, n);
   if (!pull || pull.state !== 'open') throw new Error(`#${n} has no open pull request`);
-  record(dir, as, pull.number, verdict, text);
+  await writeTimelineEvent(dir, {
+    issue: pull.number,
+    kind: verdict,
+    actor: as,
+    trusted: true,
+    comment: { body: text },
+  });
 };
 
 export const writeLabels = (dir: string, as: string, n: number, add: string[]) =>
   apply(dir, as, n, { kind: 'label', add, remove: [] });
 
-export const writeClosed = (dir: string, as: string, n: number) => {
+export const writeClosed = async (dir: string, as: string, n: number) => {
   const md = join(dir, `${n}.md`);
   if (!existsSync(md)) throw new Error(`no issue #${n}`);
   const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
   writeFileAtomic(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
-  record(dir, as, n, 'closed');
+  await writeTimelineEvent(dir, { issue: n, kind: 'closed', actor: as, trusted: true });
 };
 
 export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number) => {
@@ -242,13 +239,10 @@ export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number)
   await apply(i.forge, i.owner, pr.number, { kind: 'merge', number: pr.number, head });
   for (const t of await readIssues(i.forge))
     if (t.state === 'open' && t.pull?.base === branch)
-      await writeFile(
-        join(i.forge, String(t.number), 'pull.json'),
-        `${JSON.stringify({ ...t.pull, base }, null, 2)}\n`
-      );
+      writeFileAtomic(join(i.forge, String(t.number), 'pull.json'), { ...t.pull, base });
   const issue = Number(/(\d+)$/.exec(branch)?.[1]);
   const named = (await readIssues(i.forge)).find(t => t.number === issue);
-  if (named?.state === 'open') writeClosed(i.forge, i.owner, issue);
+  if (named?.state === 'open') await writeClosed(i.forge, i.owner, issue);
   return pr.pull;
 };
 

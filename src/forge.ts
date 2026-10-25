@@ -147,6 +147,19 @@ export const writeIssueFile = async (
 
 const me = 'agentgraph[bot]';
 
+export const writeTimelineEvent = async (
+  dir: string,
+  m: Omit<Event, 'at' | 'comment'> & { comment?: Pick<Comment, 'body' | 'path' | 'line' | 'under'> }
+) => {
+  const file = join(dir, `${m.issue}.jsonl`);
+  const at = new Date().toISOString();
+  const lines = await readFile(file, 'utf8').catch(() => '');
+  const id = `${m.issue}-${lines.split('\n').filter(Boolean).length + 1}`;
+  const comment = m.comment && { comment: { id, author: m.actor, at, ...m.comment } };
+  await appendFile(file, `${JSON.stringify({ ...m, at, ...comment })}\n`);
+  return id;
+};
+
 /**
  * A forge in a folder, for tests and local runs. `<n>.md` is an issue (frontmatter title, state, author, labels,
  * parent; then the body), `<n>.jsonl` its timeline of events, `<n>.reactions` the 👀 given, and a folder `<n>/` makes
@@ -256,9 +269,8 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
             const { said: _said, ...comment } = m.comment;
             return { ...m, comment: { ...comment, body: withheld(m.actor) } };
           });
-      const now = () => new Date().toISOString();
-      const say = (m: Omit<Event, 'actor' | 'trusted' | 'at'>) =>
-        appendFile(timeline(m.issue), `${JSON.stringify({ ...m, actor: who, trusted: who !== me, at: now() })}\n`);
+      const say = (m: Omit<Parameters<typeof writeTimelineEvent>[1], 'actor' | 'trusted'>) =>
+        writeTimelineEvent(dir, { ...m, actor: who, trusted: who !== me });
       /** The tip of `branch` on the checkout's remote, fetched. */
       const tip = (work: Checkout, branch: string) =>
         git(work, 'fetch', '-q', 'origin', `refs/heads/${branch}`).then(() => git(work, 'rev-parse', 'FETCH_HEAD'));
@@ -306,12 +318,11 @@ export const fileForge = (dir: string, as?: string, trust?: readonly string[]): 
               await writeFile(timeline(n), all.map(m => `${JSON.stringify(m)}\n`).join(''));
               return { proposal: p, ok: true, id: p.edit, url: `${md(n)}#${p.edit}` };
             }
-            const id = `${n}-${all.length + 1}`;
             const parent = p.under === undefined ? undefined : all.find(m => m.comment?.id === p.under)?.comment;
             if (p.under !== undefined && !parent) return no(`no review comment ${p.under} on #${n}`);
             const { path, line } = parent ?? {};
             const placed = { ...(path && { path }), ...(line && { line }), ...(p.under && { under: p.under }) };
-            await say({ issue: n, kind: 'comment', comment: { id, author: who, body: p.body, at: now(), ...placed } });
+            const id = await say({ issue: n, kind: 'comment', comment: { body: p.body, ...placed } });
             return { proposal: p, ok: true, id, url: `${md(n)}#${id}` };
           }
           case 'label': {
