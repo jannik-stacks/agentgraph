@@ -1,0 +1,25 @@
+name: agentgraph
+
+include:
+  - ../engine/sidecars.yaml
+
+services:
+  engine:
+    build:
+      context: ../../..
+      dockerfile: examples/deploy/engine/Dockerfile
+    image: agentgraph-engine:local
+    env_file: [.env]
+    environment:
+      AGENTGRAPH_APP_KEY_FILE: /run/secrets/app_key
+    group_add: ["${DOCKER_GID:?set DOCKER_GID in .env to the group of /var/run/docker.sock}"]
+    secrets: [app_key]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/agentgraph:/var/lib/agentgraph
+    networks: [egress]
+    restart: unless-stopped
+
+secrets:
+  app_key:
+    file: ./app.pem

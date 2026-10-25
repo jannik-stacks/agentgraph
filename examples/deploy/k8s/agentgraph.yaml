@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agentgraph-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgraph
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: agentgraph }
+  template:
+    metadata:
+      labels: { app: agentgraph }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: engine
+          image: agentgraph-engine:local
+          envFrom:
+            - secretRef: { name: agentgraph-env }
+          env:
+            - { name: DOCKER_HOST, value: tcp://127.0.0.1:2375 }
+            - { name: AGENTGRAPH_APP_KEY_FILE, value: /run/secrets/agentgraph/app.pem }
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/agentgraph }
+            - { name: app-key, mountPath: /run/secrets/agentgraph, readOnly: true }
+        - name: docker
+          image: docker:28.5.1-dind
+          args: ["--host=tcp://127.0.0.1:2375"]
+          env:
+            - { name: DOCKER_TLS_CERTDIR, value: "" }
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/agentgraph }
+            - { name: docker, mountPath: /var/lib/docker }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: agentgraph-data }
+        - name: docker
+          emptyDir: {}
+        - name: app-key
+          secret:
+            secretName: agentgraph-app-key
+            defaultMode: 0440
