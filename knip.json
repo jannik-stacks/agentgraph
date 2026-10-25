@@ -23,7 +23,7 @@
     "examples/*/scripts/**"
   ],
   "vitest": false,
-  "ignoreBinaries": ["continue", "codex", "du"],
+  "ignoreBinaries": ["continue", "codex", "du", "mkfifo"],
   "ignoreDependencies": [
     "react",
     "react-dom",

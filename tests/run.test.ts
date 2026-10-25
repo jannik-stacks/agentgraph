@@ -143,21 +143,11 @@ describe('drive', () => {
     const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
     writeFileSync(
       join(bin, 'git'),
-      '#!/bin/sh\ncase " $* " in *" fetch "*)\n echo $$ > "$AGENTGRAPH_CANCEL_PID"\n sleep 30 &\n echo $! > "$AGENTGRAPH_CANCEL_CHILD"\n wait\n exit 0;;\nesac\nexec "$AGENTGRAPH_CANCEL_REAL_GIT" "$@"\n',
+      `#!/bin/sh\ncase " $* " in *" fetch "*)\n echo $$ > "${pidFile}"\n sleep 30 &\n echo $! > "${childFile}"\n wait\n exit 0;;\nesac\nexec "${realGit}" "$@"\n`,
       { mode: 0o755 }
     );
-    const previous = {
-      PATH: process.env.PATH,
-      AGENTGRAPH_CANCEL_PID: process.env.AGENTGRAPH_CANCEL_PID,
-      AGENTGRAPH_CANCEL_CHILD: process.env.AGENTGRAPH_CANCEL_CHILD,
-      AGENTGRAPH_CANCEL_REAL_GIT: process.env.AGENTGRAPH_CANCEL_REAL_GIT,
-    };
-    Object.assign(process.env, {
-      PATH: `${bin}${delimiter}${previous.PATH}`,
-      AGENTGRAPH_CANCEL_PID: pidFile,
-      AGENTGRAPH_CANCEL_CHILD: childFile,
-      AGENTGRAPH_CANCEL_REAL_GIT: realGit,
-    });
+    const previous = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${previous}`;
     const layer = Layer.mergeAll(
       fileForge(where.forge),
       fileStore(where.data),
@@ -189,10 +179,7 @@ describe('drive', () => {
           } catch {}
         }
       }
-      for (const [key, value] of Object.entries(previous)) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
+      process.env.PATH = previous;
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   });

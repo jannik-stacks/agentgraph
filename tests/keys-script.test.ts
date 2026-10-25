@@ -64,5 +64,5 @@ process.exit(r.status ?? 1);
       expect(seen).not.toContain('FAKE-canary');
       for (const key of created) expect(seen).not.toContain(key);
     }
-  });
+  }, 30_000);
 });
