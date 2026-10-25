@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { findRetiredWordInName } from '../examples/agentgraph/scripts/retired-words.mjs';
 
 export const verbs = new Set(
   [
@@ -21,7 +22,6 @@ const exempt = new Set([
   'pi',
   'some',
 ]);
-const retired = /compound|climb|stamp|provenance|bothub/i;
 const marked = /^\s*UNEXPECTED: /;
 const directive = /^\s*(oxlint-|eslint-|@ts-|\*?\s*@internal\s*$)/;
 const dirs = ['src', 'harnesses', 'bin', 'bench', 'tune', 'studio/src'];
@@ -123,8 +123,11 @@ export default {
     ),
     'retired-word': makeNameRule(
       'retired-word',
-      n => retired.test(n),
-      n => `${n}: uses a retired word, see docs/vocabulary.md`
+      n => findRetiredWordInName(n) !== undefined,
+      n => {
+        const [word, say] = findRetiredWordInName(n);
+        return `${n}: ${word} is retired, say ${say} (examples/agentgraph/scripts/retired-words.mjs)`;
+      }
     ),
     'no-comment': noComment,
   },
@@ -144,7 +147,7 @@ const readViolations = () => {
   const comments = new Map();
   const names = [];
   for (const d of JSON.parse(out).diagnostics) {
-    const rule = /^style\((verb-first|no-of-for|unique-export|no-comment)\)/.exec(d.code)?.[1];
+    const rule = /^style\((verb-first|no-of-for|unique-export|retired-word|no-comment)\)/.exec(d.code)?.[1];
     if (rule === 'no-comment') comments.set(d.filename, (comments.get(d.filename) ?? 0) + 1);
     else if (rule) names.push(`${rule} ${d.filename} ${d.message.split(':')[0]}`);
   }

@@ -306,7 +306,7 @@
         "style/verb-first": "error",
         "style/no-of-for": "error",
         "style/unique-export": "error",
-        "style/retired-word": "warn"
+        "style/retired-word": "error"
       }
     }
   ],

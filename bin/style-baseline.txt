@@ -154,6 +154,8 @@ no-of-for bin/tune.ts flipsOf
 no-of-for bin/tune.ts overOf
 no-of-for bin/tune.ts tunesOf
 no-of-for studio/src/compound/climb.ts seriesOf
+retired-word studio/src/compound/Climb.tsx Climb
+retired-word studio/src/compound/CompoundPage.tsx CompoundPage
 unique-export bin/bench.ts bootstrap
 unique-export bin/tune.ts Step
 unique-export bin/tune.ts propose

@@ -3,6 +3,7 @@
 // names for hub concepts. With `--all` every tracked line counts.
 import { files, scan } from './line-rules.mjs';
 import { report } from './changes.mjs';
+import { retiredWords } from './retired-words.mjs';
 
 const docsPath = /^docs\/.*\.mdx?$/;
 const codePath = /\.(ts|tsx|mts|cts|js|mjs)$/;
@@ -28,16 +29,6 @@ const launchers = new Set(['src/runner.ts', 'src/sim.ts']);
 /** A line that quotes the old name, or names the new one beside it, is a hint about the name. */
 const hint = (old, replacement) => (_, text) =>
   text.includes(replacement.replaceAll('`', '')) || new RegExp(`(===\\s*)?['"]${old}s?['"]`, 'i').test(text);
-const retired = [
-  [/\bexecutors?\b/i, 'executor', 'harness'],
-  [/\bsouls?\b/i, 'soul', 'agent'],
-  [/\bpersonas?\b/i, 'persona', 'agent'],
-  [/^\s*can:/, '`can:`', '`returns:`'],
-  [/\bopen-pr\b/, 'open-pr', 'pull_request'],
-  [/\bfor-each\b|\bforEach:/, 'for-each', '`each:`'],
-  [/\bextra[ -]prompt\b/i, 'extra prompt', 'prompt'],
-  [/\bnotes\/(convention|pattern)s?\b/, 'a convention or pattern note kind', 'notes/style'],
-];
 
 const rules = [
   [written, /\b20\d\d-\d\d-\d\d\b/, 'a date'],
@@ -78,7 +69,9 @@ const rules = [
   [shipped, /not (yet )?implemented|\bunimplemented\b/i, 'a path that is not implemented'],
   [shipped, /\b(fake[ds]?|stub(bed|s)?|mock(ed|s)?|dummy)\b/i, 'a fake in shipped code; build the real thing', (_, text) => /placeholder=/.test(text)],
 
-  ...retired.map(([pattern, old, replacement]) => [named, pattern, `${old}; say ${replacement}`, hint(old, replacement)]),
+  ...retiredWords
+    .filter(([, , pattern]) => pattern)
+    .map(([old, replacement, pattern]) => [named, pattern, `${old}; say ${replacement}`, hint(old, replacement)]),
 ];
 
 const longest = 30;

@@ -20,7 +20,7 @@ const config = JSON.stringify({
     'style/verb-first': 'error',
     'style/no-of-for': 'error',
     'style/unique-export': 'error',
-    'style/retired-word': 'warn',
+    'style/retired-word': 'error',
     'style/no-comment': 'error',
   },
 });
@@ -40,6 +40,9 @@ describe('style lint', () => {
         'export const limits = { files: 1 };',
         'export const plan = () => 1;',
         'export const makeClimb = () => 1;',
+        'export type CoreRun = { id: string };',
+        'export const isAlive = () => true;',
+        'export const makeTimestamp = () => 1;',
         'export type Hub = { dir: string };',
         'export const Hub = 1;',
       ].join('\n'),
@@ -48,12 +51,14 @@ describe('style lint', () => {
     });
     expect(lint(dir)).toEqual([
       'error style(no-of-for) graphOf',
+      'error style(retired-word) CoreRun',
+      'error style(retired-word) isAlive',
+      'error style(retired-word) makeClimb',
       'error style(unique-export) plan',
       'error style(unique-export) plan',
       'error style(verb-first) graphOf',
       'error style(verb-first) memoryStore',
       'error style(verb-first) trees',
-      'warning style(retired-word) makeClimb',
     ]);
   });
 
