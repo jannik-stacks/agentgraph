@@ -5,6 +5,7 @@ import { AgentgraphLogo } from './icons.tsx';
 import { cx, Link, Loading, Tooltip } from './ui.tsx';
 
 const pages = {
+  inbox: lazy(() => import('./runs/InboxPage.tsx').then(m => ({ default: m.InboxPage }))),
   graph: lazy(() => import('./graph/GraphPage.tsx').then(m => ({ default: m.GraphPage }))),
   runs: lazy(() => import('./runs/RunsPage.tsx').then(m => ({ default: m.RunsPage }))),
   docs: lazy(() => import('./docs/DocsPage.tsx').then(m => ({ default: m.DocsPage }))),
