@@ -71,7 +71,7 @@ const world = () => {
         replaySession(turns)
       );
     };
-    return main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, { services });
+    return main({ hub: sandboxHub, issue, data, ...(instruction && { instruction }) }, services);
   };
   return { root, seed, dir, origin: join(dir, 'origin.git'), forge, run, seen };
 };
@@ -551,17 +551,13 @@ describe('an instance', () => {
 
     process.env.AGENTGRAPH_FORGE = instance.forge;
     const run = (turns: SessionEvent[][]) =>
-      main(
-        { hub: instance.hub, issue: 'all', data: instance.data },
-        {
-          services: s =>
-            Layer.mergeAll(
-              fileForge(s.forge as string),
-              fileStore(s.data),
-              hostSandbox(join(s.forge as string, 'origin.git')),
-              replaySession(turns)
-            ),
-        }
+      main({ hub: instance.hub, issue: 'all', data: instance.data }, s =>
+        Layer.mergeAll(
+          fileForge(s.forge as string),
+          fileStore(s.data),
+          hostSandbox(join(s.forge as string, 'origin.git')),
+          replaySession(turns)
+        )
       );
     const push = (message: string): Proposal => ({ kind: 'push', branch: 'agentgraph/1', message });
     const pull: Proposal = { kind: 'pull_request', branch: 'agentgraph/1', base: 'main', title: 'Add hello', body: '' };

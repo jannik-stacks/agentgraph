@@ -19,27 +19,23 @@ import { hubAt, makeProductionLayers, settings, type Settings } from './services
 import type { Run } from './workflow.ts';
 
 const secrets = ['AGENTGRAPH_APP_KEY', 'AGENTGRAPH_PROXY_KEYS'];
-const reads = new Map<string, Promise<string>>();
-const readOnce = (file: string) => {
-  const path = file.replace(/^~(?=\/|$)/, homedir());
-  if (!reads.has(path)) reads.set(path, readFile(path, 'utf8'));
-  return reads.get(path)!;
-};
+const readText = (file: string) => readFile(file.replace(/^~(?=\/|$)/, homedir()), 'utf8');
 
 export const readEnvFile = async (file: string | undefined): Promise<Record<string, string>> =>
-  file ? (parseEnv(await readOnce(file)) as Record<string, string>) : {};
+  file ? (parseEnv(await readText(file)) as Record<string, string>) : {};
 
 const readSecretFiles = async (vars: Record<string, string | undefined>) => ({
   ...vars,
   ...Object.fromEntries(
     await Promise.all(
-      secrets.filter(name => vars[`${name}_FILE`]).map(async name => [name, await readOnce(vars[`${name}_FILE`]!)])
+      secrets.filter(name => vars[`${name}_FILE`]).map(async name => [name, await readText(vars[`${name}_FILE`]!)])
     )
   ),
 });
 
 export const readEngineEnv = async (defaults: Record<string, string> = {}): Promise<Record<string, string>> => {
-  const layers = [defaults, process.env, await readEnvFile(process.env.AGENTGRAPH_APP_ENV)];
+  const app = await readEnvFile(process.env.AGENTGRAPH_APP_ENV ?? defaults.AGENTGRAPH_APP_ENV);
+  const layers = [defaults, process.env, app];
   const merged = Object.assign({}, ...(await Promise.all(layers.map(readSecretFiles))));
   return Object.fromEntries(Object.entries(merged).filter((e): e is [string, string] => e[1] !== undefined));
 };
@@ -87,11 +83,8 @@ const warnTemporary = (data: string) =>
     Effect.logWarning(`${p} is under a temp dir, which the OS may empty (macOS deletes files untouched for 3 days)`)
   );
 
-const configured = (defaults: Record<string, string>, extra: Record<string, string> = {}) =>
-  Effect.map(
-    Effect.promise(() => readEngineEnv(defaults)),
-    env => ConfigProvider.fromMap(new Map(Object.entries({ ...env, ...extra })))
-  );
+const configured = (env: Record<string, string>, extra: Record<string, string> = {}) =>
+  ConfigProvider.fromMap(new Map(Object.entries({ ...env, ...extra })));
 
 /**
  * Reads the settings, the App env file named by `AGENTGRAPH_APP_ENV` and the environment, builds the services, catches up
@@ -100,17 +93,17 @@ const configured = (defaults: Record<string, string>, extra: Record<string, stri
  */
 export const start = (
   one?: { hub: string; issue: number | 'all'; data: string; instruction?: Instruction },
-  {
-    services = makeProductionLayers,
-    defaults = {},
-  }: { services?: (s: Settings) => Layer.Layer<Services>; defaults?: Record<string, string> } = {}
+  services: (s: Settings) => Layer.Layer<Services> = makeProductionLayers,
+  defaults: Record<string, string> = {}
 ): Promise<Run[]> => {
   const provided = <A, E>(effect: Effect.Effect<A, E, Services>) =>
     Effect.provide(effect, Layer.unwrapEffect(Effect.map(settings, services)));
+  const read = Effect.promise(() => readEngineEnv(defaults));
   const program = one
     ? Effect.gen(function* () {
-        const hub = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(yield* configured(defaults)));
-        const provider = yield* configured(defaults, {
+        const env = yield* read;
+        const hub = yield* readConfiguredHub(one.hub).pipe(Effect.withConfigProvider(configured(env)));
+        const provider = configured(env, {
           AGENTGRAPH_REPO: hub.repo,
           AGENTGRAPH_HUB: one.hub,
           AGENTGRAPH_DATA: one.data,
@@ -125,7 +118,7 @@ export const start = (
         ).pipe(Effect.withConfigProvider(provider));
       })
     : Effect.gen(function* () {
-        const provider = yield* configured(defaults);
+        const provider = configured(yield* read);
         const loop = Effect.gen(function* () {
           const s = yield* settings;
           yield* warnTemporary(s.data);

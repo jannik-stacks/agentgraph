@@ -815,7 +815,7 @@ describe('start with one issue', () => {
       at: new Date().toISOString(),
     });
     try {
-      const parked = await main(one, { services: doubles });
+      const parked = await main(one, doubles);
       expect(parked.map(r => [r.step, r.status, r.tries])).toEqual([['merge', 'waiting', 0]]);
       expect(seen[0]).toMatchObject({
         repo: 'acme/sandbox',
@@ -828,7 +828,7 @@ describe('start with one issue', () => {
 
       const later = new Date(Date.now() + 1000).toISOString();
       say(where, { issue: 7, kind: 'merged', actor: 'morgan', trusted: true, at: later });
-      const done = await main(one, { services: doubles });
+      const done = await main(one, doubles);
       expect(done.map(r => [r.id, r.status])).toEqual([[parked[0]!.id, 'done']]);
     } finally {
       for (const name of Object.keys(env)) delete process.env[name];
@@ -900,15 +900,20 @@ describe('readEngineEnv', () => {
     });
   });
 
-  it('reads a one-shot pipe once, so a second start still sees the key', async () => {
+  it('reads the key from a one-shot pipe', async () => {
     const { dir } = file('');
     const pipe = join(dir, 'pipe');
     execFileSync('mkfifo', [pipe]);
     const writer = spawn(process.execPath, ['-e', `require('fs').writeFileSync(${JSON.stringify(pipe)}, 'PEM')`]);
-    const read = () => withShell({ AGENTGRAPH_APP_KEY_FILE: pipe }, () => readEngineEnv());
-    expect((await read()).AGENTGRAPH_APP_KEY).toBe('PEM');
-    expect((await read()).AGENTGRAPH_APP_KEY).toBe('PEM');
+    expect((await withShell({ AGENTGRAPH_APP_KEY_FILE: pipe }, () => readEngineEnv())).AGENTGRAPH_APP_KEY).toBe('PEM');
     writer.kill();
+  });
+
+  it('finds the App env file an instance names', async () => {
+    const { env } = file('AGENTGRAPH_APP_ID=42\n');
+    expect(await withShell({}, () => readEngineEnv({ AGENTGRAPH_APP_ENV: env }))).toMatchObject({
+      AGENTGRAPH_APP_ID: '42',
+    });
   });
 
   it('leaves a missing required setting to fail by name', async () => {

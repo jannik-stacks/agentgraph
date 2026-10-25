@@ -23,11 +23,19 @@ const readOutput = (cmd: string, args: string[]) => {
     ['PATH', 'HOME', 'DOCKER_HOST', 'DOCKER_CONTEXT'].flatMap(k => (process.env[k] ? [[k, process.env[k]]] : []))
   );
   const r = spawnSync(cmd, args, { encoding: 'utf8', env, maxBuffer: 1 << 28, timeout: 30_000 });
-  return r.status === 0 ? r.stdout : '';
+  if (r.status !== 0)
+    throw new Error(`${cmd} ${args[0]} failed: ${r.error?.message ?? r.stderr.trim().split('\n')[0]}`);
+  return r.stdout;
 };
 
 const isSecretVariable = (name: string, value: string) =>
   !name.startsWith('PROBE_') && (secret.test(value) || (named.test(name) && value.length >= 8));
+
+const isSecretText = (text: string) =>
+  secret.test(text) ||
+  [...text.matchAll(/^(?:export )?([A-Za-z_]\w*)=["']?([^\s"'#]*)/gm)].some(([, name, value]) =>
+    isSecretVariable(name!, value!)
+  );
 
 const findFiles = (path: string, depth = 0): string[] => {
   const stat = statSync(path, { throwIfNoEntry: false });
@@ -39,22 +47,23 @@ const findFiles = (path: string, depth = 0): string[] => {
     .flatMap(name => findFiles(join(path, name), depth + 1));
 };
 
-const roots = process.env.PROBE_PATHS
-  ? process.env.PROBE_PATHS.split(':').filter(Boolean)
-  : [
-      ...readOutput('git', ['-C', repo, 'ls-files', '-z', '-o', '-i', '--exclude-standard', '--directory'])
-        .split('\0')
-        .filter(path => path && !path.split('/').some(part => skipped.has(part)))
-        .map(path => join(repo, path)),
-      join(homedir(), '.agentgraph'),
-      join(homedir(), '.config', 'agentgraph'),
-    ];
+const findRoots = () =>
+  process.env.PROBE_PATHS
+    ? process.env.PROBE_PATHS.split(':').filter(Boolean)
+    : [
+        ...readOutput('git', ['-C', repo, 'ls-files', '-z', '-o', '-i', '--exclude-standard', '--directory'])
+          .split('\0')
+          .filter(path => path && !path.split('/').some(part => skipped.has(part)))
+          .map(path => join(repo, path)),
+        join(homedir(), '.agentgraph'),
+        join(homedir(), '.config', 'agentgraph'),
+      ];
 
 const findSecretFiles = () =>
-  roots.flatMap(root =>
+  findRoots().flatMap(root =>
     findFiles(resolve(root)).filter(file => {
       try {
-        return secret.test(readFileSync(file, 'utf8'));
+        return isSecretText(readFileSync(file, 'utf8'));
       } catch {
         return false;
       }
@@ -95,7 +104,7 @@ const probes: Record<string, () => Promise<string[]> | string[]> = {
     const served = await Promise.all(
       findSecretFiles().map(async file => {
         const res = await fetch(`${studio}/@fs${file}`, { signal: AbortSignal.timeout(3000) }).catch(() => undefined);
-        return res?.ok && secret.test(await res.text()) ? [`studio ${file}`] : [];
+        return res?.ok && isSecretText(await res.text()) ? [`studio ${file}`] : [];
       })
     );
     return served.flat();
@@ -107,7 +116,17 @@ if (asked.some(name => !(name in probes))) {
   console.error(`usage: node bin/leak-probe.ts [${Object.keys(probes).join('] [')}]`);
   process.exit(2);
 }
-const hits = (await Promise.all((asked.length ? asked : Object.keys(probes)).map(name => probes[name]!()))).flat();
-for (const hit of hits) console.log(hit);
-console.log(hits.length ? `${hits.length} hit(s)` : 'no hits');
-process.exit(hits.length ? 1 : 0);
+const results = await Promise.all(
+  (asked.length ? asked : Object.keys(probes)).map(async name => {
+    try {
+      return await probes[name]!();
+    } catch (e) {
+      return [`skip ${name}: ${(e as Error).message}`];
+    }
+  })
+);
+const lines = results.flat();
+const hits = lines.filter(line => !line.startsWith('skip '));
+for (const line of lines) console.log(line);
+console.log(hits.length ? `${hits.length} hit(s)` : lines.length ? 'no hits, but not every probe ran' : 'no hits');
+process.exit(hits.length ? 1 : lines.length ? 3 : 0);

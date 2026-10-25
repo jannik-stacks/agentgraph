@@ -426,6 +426,7 @@ export const repoint = (hub: string, point: string) => {
 
 const engineArm = async (c: Case & Commands, arm: string, at: string, repo: string) => {
   const { start } = (await import(join(engine, 'src/main.ts'))) as typeof MainModule;
+  if (resolve(engine) !== resolve(agentgraphDir)) Object.assign(process.env, keys);
   const own = process.env.BENCH_HUB ?? `examples/${hubs[c.repo.split('/').pop() ?? ''] ?? 'bench'}`;
   const hub = join(at, 'hub');
   cpSync(resolve(engine, own), hub, { recursive: true });
@@ -480,7 +481,7 @@ const engineArm = async (c: Case & Commands, arm: string, at: string, repo: stri
   let status: string | undefined;
   let reason: string | undefined;
   for (let pass = 0; pass < 6; pass++) {
-    const [run] = await start({ hub, issue: 1, data: join(at, 'data') }, { defaults: keys });
+    const [run] = await start({ hub, issue: 1, data: join(at, 'data') }, undefined, keys);
     status = run?.status;
     reason = run?.reason;
     if (!run || run.status === 'done' || run.status === 'stopped') break;

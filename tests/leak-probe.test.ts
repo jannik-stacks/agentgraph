@@ -25,6 +25,7 @@ describe('leak-probe', () => {
     write(dir, {
       'home/.keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${canary}\n`,
       'home/clean.txt': 'nothing here\n',
+      'home/master.env': 'export LITELLM_MASTER_KEY="unprefixed-master-value"\n',
       'bin/ps': `#!/bin/sh\necho "  4242 node app --key ${canary}"\necho "  4343 node app"\n`,
       'bin/docker': `#!/bin/sh\n[ "$1" = ps ] && { echo abc; exit 0; }\nprintf '/agentgraph-litellm\\t["LITELLM_MASTER_KEY=${canary}","PATH=/bin"]\\n'\n`,
     });
@@ -46,10 +47,11 @@ describe('leak-probe', () => {
         [
           'env AGENTGRAPH_APP_KEY',
           `file ${join(dir, 'home/.keys.env')}`,
+          `file ${join(dir, 'home/master.env')}`,
           'ps 4242',
           'docker /agentgraph-litellm LITELLM_MASTER_KEY',
           `studio ${join(dir, 'home/.keys.env')}`,
-          '5 hit(s)',
+          '6 hit(s)',
         ].sort()
       );
       expect(out).not.toContain(canary);
@@ -67,6 +69,17 @@ describe('leak-probe', () => {
       'files'
     );
     expect([code, out.trim()]).toEqual([0, 'no hits']);
+  });
+
+  it('says so when a probe could not run', async () => {
+    const dir = tmp('probe-skip');
+    write(dir, { 'bin/docker': '#!/bin/sh\necho "daemon down" >&2\nexit 1\n' });
+    chmodSync(join(dir, 'bin', 'docker'), 0o755);
+    const { code, out } = await runProbe({ PATH: `${join(dir, 'bin')}:${process.env.PATH}` }, 'docker');
+    expect([code, out.trim()]).toEqual([
+      3,
+      'skip docker: docker ps failed: daemon down\nno hits, but not every probe ran',
+    ]);
   });
 
   it('refuses an unknown section', async () => {

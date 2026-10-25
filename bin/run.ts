@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { Effect, Redacted } from 'effect';
+import { ConfigProvider, Effect, Redacted } from 'effect';
 import { tell, type Instruction } from '../src/engine.ts';
 import { readEngineEnv, readEnvFile, start } from '../src/main.ts';
 import { readConfiguredHub } from '../src/harnesses.ts';
@@ -54,6 +54,14 @@ if (values.instance && !instance) {
   process.exit(2);
 }
 const defaults = instance && existsSync(instance.keys) ? await readEnvFile(instance.keys) : {};
+const readHub = (dir: string) =>
+  readConfiguredHub(resolve(dir)).pipe(
+    Effect.withConfigProvider(
+      ConfigProvider.fromEnv().pipe(
+        ConfigProvider.orElse(() => ConfigProvider.fromMap(new Map(Object.entries(defaults))))
+      )
+    )
+  );
 if (instance) {
   Object.assign(values, { hub: instance.hub, forge: instance.forge, data: instance.data });
   if (instance.logs) process.env.AGENTGRAPH_CHECK_LOGS ??= instance.logs;
@@ -116,7 +124,7 @@ if (positionals[0] === 'check') {
     process.exit(2);
   }
   const problems = await Effect.runPromise(
-    readConfiguredHub(resolve(values.hub)).pipe(
+    readHub(values.hub).pipe(
       Effect.map(() => []),
       Effect.catchTag('HubError', e => Effect.succeed(e.problems))
     )
@@ -149,14 +157,20 @@ if (positionals[0] === 'status') {
     process.exit(2);
   }
   const forge = values.forge ? resolve(values.forge) : undefined;
-  const { repo } = await Effect.runPromise(readConfiguredHub(hub));
-  const runs = await Effect.runPromise(Effect.flatMap(Store, s => s.list()).pipe(Effect.provide(fileStore(data))));
-  const lines = [
-    ...(forge ? [] : await Effect.runPromise(readInstallationReach({ repo, id: id!, key: Redacted.make(key!) }))),
-    ...findRunsWaitingOnPeople(runs).flatMap(run =>
-      formatNextSteps(run, repo, instance ? { instance: instance.dir } : { hub, data, ...(forge && { forge }) })
-    ),
-  ];
+  const again = instance
+    ? `--instance ${instance.dir}`
+    : `--hub ${hub} --data ${data}${forge ? ` --forge ${forge}` : ''}`;
+  const lines = await Effect.runPromise(
+    readHub(hub).pipe(
+      Effect.flatMap(h =>
+        needsYou(forge ? undefined : { repo: h.repo, id: id!, key: Redacted.make(key!) }, {
+          again,
+          ...(forge && { forge }),
+        })
+      ),
+      Effect.provide(fileStore(data))
+    )
+  );
   console.log(lines.length ? `Needs you\n${lines.join('\n')}` : 'Nothing needs you');
   process.exit(0);
 }
@@ -168,10 +182,10 @@ if (positionals[0] === 'loop') {
   }
   process.env.AGENTGRAPH_DATA = resolve(values.data);
   if (values.hub) {
-    const hub = await Effect.runPromise(readConfiguredHub(resolve(values.hub)));
+    const hub = await Effect.runPromise(readHub(values.hub));
     Object.assign(process.env, { AGENTGRAPH_HUB: resolve(values.hub), AGENTGRAPH_REPO: hub.repo });
   }
-  await start(undefined, { defaults });
+  await start(undefined, undefined, defaults);
 }
 
 if (!values.hub || !values.data || (issue !== 'all' && (!Number.isInteger(issue) || issue < 1))) {
@@ -181,7 +195,8 @@ if (!values.hub || !values.data || (issue !== 'all' && (!Number.isInteger(issue)
 
 const runs = await start(
   { hub: resolve(values.hub), issue, data: resolve(values.data), ...(instruction && { instruction }) },
-  { defaults }
+  undefined,
+  defaults
 );
 for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 if (runs.length === 0) console.log(issue === 'all' ? 'nothing to do' : `nothing to do on #${issue}`);

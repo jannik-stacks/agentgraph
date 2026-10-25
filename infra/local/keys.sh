@@ -6,12 +6,17 @@
 #   ./keys.sh             create missing keys, converge budgets and limits on existing ones
 #   ROTATE=1 ./keys.sh    delete and recreate every key (old values stop working)
 set -euo pipefail
+export -n LITELLM_MASTER_KEY
 cd "$(dirname "$0")"
 
-# Secrets stay unexported and out of argv: curl gets the key as a header file and the body on stdin.
 ENV_FILE="${ENV_FILE:-.env}"
-names=$([[ ! -f "$ENV_FILE" ]] || sed -nE 's/^(export )?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$ENV_FILE")
-[[ -f "$ENV_FILE" ]] && . "$ENV_FILE"
+names=""
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^(export\ )?([A-Za-z_][A-Za-z0-9_]*)= ]]; then names+=" ${BASH_REMATCH[2]}"; fi
+  done <"$ENV_FILE"
+  . "$ENV_FILE"
+fi
 export -n LITELLM_MASTER_KEY $names
 : "${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in infra/local/.env}"
 BASE="${LITELLM_URL:-http://127.0.0.1:4000}"

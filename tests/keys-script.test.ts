@@ -11,7 +11,9 @@ const logCall = `
 const { appendFileSync, readFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 const header = args.flatMap((a, i) => (args[i - 1] === '-H' && a.startsWith('@') ? [readFileSync(a.slice(1), 'utf8')] : []));
-appendFileSync(process.env.CALLS, JSON.stringify({ tool: require('node:path').basename(process.argv[1]), args, env: process.env, header }) + '\\n');
+const tool = require('node:path').basename(process.argv[1]);
+const body = tool === 'curl' && !args.includes('/dev/null') ? readFileSync(0, 'utf8') : '';
+appendFileSync(process.env.CALLS, JSON.stringify({ tool, args, env: process.env, header, body }) + '\\n');
 `;
 
 describe('keys.sh', () => {
@@ -23,8 +25,11 @@ describe('keys.sh', () => {
       'bin/curl': `#!/usr/bin/env node
 ${logCall}
 const url = args.find(a => a.startsWith('http')) ?? '';
-if (url.includes('/key/list')) console.log('{"total_count":0}');
-else if (!url.includes('/health')) console.log(readFileSync(0, 'utf8').includes('"key":"sk-bh-') ? '{}' : 'no key');
+console.log(url.includes('/key/list') ? '{"total_count":0}' : '{}');
+`,
+      'bin/dirname': `#!/usr/bin/env node
+${logCall}
+console.log(require('node:path').dirname(args[0]));
 `,
       'bin/jq': `#!/usr/bin/env node
 ${logCall}
@@ -32,7 +37,7 @@ const r = require('node:child_process').spawnSync(${JSON.stringify(jq)}, args, {
 process.exit(r.status ?? 1);
 `,
     });
-    for (const tool of ['curl', 'jq']) chmodSync(join(dir, 'bin', tool), 0o755);
+    for (const tool of ['curl', 'jq', 'dirname']) chmodSync(join(dir, 'bin', tool), 0o755);
     const calls = join(dir, 'calls.jsonl');
     const out = execFileSync('bash', [script], {
       encoding: 'utf8',
@@ -49,11 +54,14 @@ process.exit(r.status ?? 1);
     const logged = readFileSync(calls, 'utf8')
       .trim()
       .split('\n')
-      .map(line => JSON.parse(line) as { tool: string; args: string[]; env: object; header: string[] });
+      .map(line => JSON.parse(line) as { tool: string; args: string[]; env: object; header: string[]; body: string });
     const created = readFileSync(join(dir, 'keys.env'), 'utf8').match(/sk-bh-[\w-]+/g)!;
+    const sent = logged.flatMap(c => (c.args.some(a => a.endsWith('/key/generate')) ? [JSON.parse(c.body).key] : []));
 
     expect(out).toContain('created bh-implementor');
     expect(created.length).toBeGreaterThan(5);
+    expect(sent).toEqual(created);
+    expect(logged.some(c => c.tool === 'dirname')).toBe(true);
     expect(
       logged
         .filter(c => c.tool === 'curl')
