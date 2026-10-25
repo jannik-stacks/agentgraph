@@ -17,7 +17,7 @@
   agentgraph left it; `export --as` and `--patch` write elsewhere. The forge's base fast-forwards to
   your branch before each drive.
 - `start`, `say` and `review changes` drive the issue in the foreground; while a `loop` holds the
-  instance's lock they follow it instead. Ctrl-C stops a drive, and the run resumes on the next.
+  instance's lock they post and return with a `show` command. Ctrl-C stops a drive, and the run resumes on the next.
 - `AGENTGRAPH_TRUST` replaces the hub's `trust`; the CLI sets it to the instance owner.
 - instance.yaml has `repo`, `base`, `owner` and `exported`; `logs` is gone, use `--logs`.
 - The studio takes `--repo` instead of `--instance`.

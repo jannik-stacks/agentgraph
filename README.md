@@ -51,7 +51,7 @@ Before the first `npm run up`, copy `infra/local/.env.example` to `infra/local/.
 
 ## Quickstart
 
-You need Node 22.18 or later and Docker, and [the model stack](docs/local.md#the-model-stack) up. Inside any git repo:
+You need Node 22.18 or later and Docker, and a Claude or ChatGPT login, an Anthropic key, or [the model stack](docs/local.md#the-model-stack) for `--provider litellm`. Inside any git repo:
 
 ```sh
 npx agentgraph start "Add a greet function"
