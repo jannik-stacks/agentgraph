@@ -181,7 +181,7 @@ export class Box extends Container<Env> {
     const text = new TextDecoder();
     return exitCode === 0
       ? new Response(null, { status: 204, headers })
-      : new Response(text.decode(stdout) + text.decode(stderr), { status: 500 });
+      : new Response(text.decode(stdout) + text.decode(stderr), { status: 500, headers });
   }
 
   async reap(id: string) {

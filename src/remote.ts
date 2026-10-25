@@ -223,9 +223,11 @@ export const remoteSandbox = (o: {
             const box = boxes.get(c.dir);
             if (!box) return yield* infra(`${c.dir} is not a checkout of this sandbox`);
             const home = c.home ? yield* homeDir(c.home) : undefined;
-            yield* before(box, c, home);
+            const late = () => new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
+            const bounded = { duration: Duration.minutes(c.minutes), onTimeout: late };
+            yield* Effect.timeoutFail(before(box, c, home), bounded);
             if (!box.ready && c !== box.toolchain) yield* provision(box);
-            yield* news(box);
+            yield* Effect.timeoutFail(news(box), bounded);
             yield* Effect.forkScoped(Effect.repeat(Effect.ignore(news(box)), Schedule.spaced('1 minute')));
             const env: Record<string, string> = {
               TMPDIR: '/tmp',
@@ -273,9 +275,9 @@ export const remoteSandbox = (o: {
               return yield* infra('the box restarted before the command ran');
             }
             const ended = Effect.gen(function* () {
+              if (code === undefined) return yield* infra('the box stream ended without an exit code');
               yield* after(box, home);
               pulled = true;
-              if (code === undefined) return yield* infra('the box stream ended without an exit code');
               return { code };
             });
             return Stream.fromReadableStream(
@@ -288,16 +290,10 @@ export const remoteSandbox = (o: {
                 code = line.startsWith(exitFrame) ? Number(line.slice(exitFrame.length)) : undefined;
                 return code === undefined;
               }),
-              Stream.concat(Stream.fromEffect(ended))
+              Stream.concat(Stream.fromEffect(ended)),
+              Stream.interruptWhen(Effect.zipRight(Effect.sleep(Duration.minutes(c.minutes)), Effect.fail(late())))
             );
           })
-        ).pipe(
-          Stream.interruptWhen(
-            Effect.zipRight(
-              Effect.sleep(Duration.minutes(c.minutes)),
-              Effect.fail(new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` }))
-            )
-          )
         );
 
       const provision = (box: BoxEntry) =>

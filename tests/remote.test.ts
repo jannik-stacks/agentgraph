@@ -146,6 +146,17 @@ describe('remote sandbox', () => {
     expect(server.runs.slice(before).filter(run => run.network === 'open')).toHaveLength(1);
   });
 
+  it('gives the toolchain its own time, not the command minutes', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main', undefined, undefined, { toolchain: 'sleep 2.5' });
+        rmSync(join(boxes, basename(work.dir)), { recursive: true });
+        return yield* s.exec(sh(work.dir, 'echo quick', { minutes: 0.025 }));
+      })
+    );
+    expect(exit).toEqual(Exit.succeed({ code: 0, output: 'quick\n' }));
+  });
+
   it('refuses a hub image and a dir it did not check out', async () => {
     const image = await use(layer(), s => s.checkout('main', undefined, undefined, { image: 'other' }));
     const stray = await use(layer(), s => s.exec(sh(tmp('stray'), 'true')));
