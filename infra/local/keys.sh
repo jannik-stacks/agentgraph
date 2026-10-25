@@ -8,7 +8,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-[[ -f .env ]] && { set -a; . ./.env; set +a; }
+# Secrets stay unexported and out of argv: curl gets the key as a header file and the body on stdin.
+ENV_FILE="${ENV_FILE:-.env}"
+names=$([[ ! -f "$ENV_FILE" ]] || sed -nE 's/^(export )?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$ENV_FILE")
+[[ -f "$ENV_FILE" ]] && . "$ENV_FILE"
+export -n LITELLM_MASTER_KEY $names
 : "${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in infra/local/.env}"
 BASE="${LITELLM_URL:-http://127.0.0.1:4000}"
 KEYS_FILE="${KEYS_FILE:-.keys.env}"
@@ -39,9 +43,8 @@ for file in ../../examples/*/agents/*.md; do
 done
 
 api() { # method path [json]
-  curl -fsS -X "$1" "$BASE$2" \
-    -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H 'Content-Type: application/json' \
-    ${3:+--data "$3"}
+  curl -fsS -X "$1" "$BASE$2" -H @<(printf 'Authorization: Bearer %s\nContent-Type: application/json\n' "$LITELLM_MASTER_KEY") \
+    ${3:+--data-binary @-} <<<"${3:-}"
 }
 
 curl -fsS -o /dev/null "$BASE/health/liveliness" || { echo "LiteLLM is not up at $BASE" >&2; exit 1; }
@@ -71,7 +74,7 @@ for row in "${BOTS[@]}"; do
 
   # LiteLLM only accepts custom key values that start with sk-.
   value="sk-bh-$bot-$(openssl rand -hex 16)"
-  api POST /key/generate "$(jq -c --arg k "$value" '. + {key: $k}' <<<"$limits")" >/dev/null
+  api POST /key/generate "$(jq -Rc --argjson limits "$limits" '$limits + {key: .}' <<<"$value")" >/dev/null
   echo "$var=$value" >>"$KEYS_FILE"
   echo "created $alias ($models, \$$budget/day, $rpm rpm, $tpm tpm)"
 done
