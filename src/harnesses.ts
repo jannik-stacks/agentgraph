@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Effect, Layer, Redacted, Stream } from 'effect';
 import type { Agent } from './hub.ts';
 import { Sandbox, type SandboxError } from './sandbox.ts';
@@ -25,6 +26,16 @@ export type Harness = {
 };
 
 export type Config = { harnesses: Harness[] };
+
+export const readConfig = async (
+  path = process.env.AGENTGRAPH_CONFIG ?? fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url))
+): Promise<Config> => {
+  const config: Config = (await import(pathToFileURL(resolve(path)).href)).default;
+  const names = config.harnesses.map(h => h.name);
+  const twice = names.find((name, i) => names.indexOf(name) !== i);
+  if (twice) throw new Error(`${path} lists the harness ${twice} twice`);
+  return config;
+};
 
 const exitLine = /^agentgraph-exit (\d+)$/;
 

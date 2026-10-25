@@ -89,7 +89,7 @@ An agent's `harness` picks the session program by name. The runner's `agentgraph
 export default { harnesses: [opencode(), claude(), pi(), mine] } satisfies Config;
 ```
 
-<!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/services.ts#readConfig -->
+<!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readConfig -->
 
 
 | Harness | Tool permissions | Aside fork |

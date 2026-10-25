@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Chunk, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { harnessSession, getModelPrice } from '../src/harnesses.ts';
+import { harnessSession, getModelPrice, readConfig } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -138,6 +138,12 @@ describe('the session loop', () => {
     const { exit, command } = await session({ ...spec, agent: 'gardener' }, []);
     expect(command).toBeUndefined();
     expect(String(exit)).toContain('no proxy key for agent gardener');
+  });
+
+  it('refuses a config that lists one harness name twice', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'agentgraph-config-')), 'config.mjs');
+    writeFileSync(file, "export default { harnesses: [{ name: 'pi' }, { name: 'pi' }] };\n");
+    await expect(readConfig(file)).rejects.toThrow('lists the harness pi twice');
   });
 
   it('masks the key wherever the harness prints it', async () => {

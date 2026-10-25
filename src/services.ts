@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, type Redacted } from 'effect';
 import { fileForge } from './forge.ts';
 import { dockerSandbox } from './docker.ts';
@@ -31,10 +31,6 @@ export type Settings = {
 };
 
 const prices = fileURLToPath(new URL('../infra/local/prices.json', import.meta.url));
-
-export const readConfig = async (
-  path = process.env.AGENTGRAPH_CONFIG ?? fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url))
-): Promise<PluginConfig> => (await import(pathToFileURL(resolve(path)).href)).default;
 
 export const settings: Config.Config<Settings> = Config.all({
   repo: Config.string('AGENTGRAPH_REPO'),

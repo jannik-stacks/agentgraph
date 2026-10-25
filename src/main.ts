@@ -13,8 +13,8 @@ import {
   type Services,
 } from './engine.ts';
 import { loadHub, type Hub } from './hub.ts';
-import type { Config } from './harnesses.ts';
-import { hubAt, makeProductionLayers, readConfig, settings, type Settings } from './services.ts';
+import { type Config, readConfig } from './harnesses.ts';
+import { hubAt, makeProductionLayers, settings, type Settings } from './services.ts';
 import type { Run } from './workflow.ts';
 
 /** The variables of an env file, with the key file it names read in as `AGENTGRAPH_APP_KEY`. */
