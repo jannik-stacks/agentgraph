@@ -172,7 +172,7 @@ const run = (cmd: string, args: string[], env: Record<string, string> = {}) =>
     );
   });
 
-export const ensureDocker = (say: (line: string) => void) =>
+export const ensureDocker = (say: (line: string) => void, image: string) =>
   Effect.gen(function* () {
     const version = yield* Effect.mapError(run('docker', ['version', '--format', '{{.Server.Version}}']), () =>
       infra(
@@ -214,7 +214,6 @@ export const ensureDocker = (say: (line: string) => void) =>
         yield* run('docker', ['build', '-q', '--label', `agentgraph.source=${digest}`, '-t', tag, source]);
         return true;
       });
-    const image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
     if (image === 'agentgraph-sandbox:local') yield* build(image, 'sandbox');
     if (yield* build('agentgraph-egress:local', 'egress')) yield* has(['rm', '-f', 'agentgraph-egress']);
     const members = yield* run('docker', [

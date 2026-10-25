@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Config, Effect, Layer, Redacted } from 'effect';
 import { fileForge } from './forge.ts';
@@ -43,11 +44,30 @@ const passed = Effect.flatMap(Config.string('AGENTGRAPH_SESSION_ENV').pipe(Confi
   )
 );
 
+const host = {
+  data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
+  every: Config.number('AGENTGRAPH_EVERY').pipe(
+    Config.withDefault(5),
+    Config.validate({ message: 'Expected minutes above 0', validation: n => n > 0 })
+  ),
+  image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault('agentgraph-sandbox:local')),
+};
+
+const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
+
+export const readHostSettings = async (flags: Partial<Record<'data' | 'forge', string>>) => {
+  const s = await Effect.runPromise(Config.all(host));
+  const onForge = flags.forge !== undefined || app.some(name => process.env[name]);
+  const data = resolve(flags.data ?? s.data);
+  const config = join(data, 'config.ts');
+  if (!onForge && !process.env.AGENTGRAPH_CONFIG && existsSync(config)) process.env.AGENTGRAPH_CONFIG = config;
+  return { ...s, data, onForge };
+};
+
 export const settings = Config.all({
+  ...host,
   repo: Config.string('AGENTGRAPH_REPO'),
   hub: Config.string('AGENTGRAPH_HUB').pipe(Config.withDefault('.agentgraph')),
-  data: Config.string('AGENTGRAPH_DATA').pipe(Config.withDefault(join(homedir(), '.agentgraph'))),
-  every: Config.number('AGENTGRAPH_EVERY').pipe(Config.withDefault(5)),
   proxy: Config.all({
     url: Config.string('AGENTGRAPH_PROXY_URL').pipe(Config.withDefault('http://gateway:4000/v1')),
     keys: Config.redacted('AGENTGRAPH_PROXY_KEYS').pipe(Config.withDefault(Redacted.make(''))),
@@ -55,7 +75,6 @@ export const settings = Config.all({
   }),
   prices: Config.string('AGENTGRAPH_PRICES').pipe(Config.withDefault(prices)),
   cache: Config.string('AGENTGRAPH_CACHE_VOLUME').pipe(Config.withDefault('agentgraph-cache')),
-  image: Config.string('AGENTGRAPH_IMAGE').pipe(Config.withDefault('agentgraph-sandbox:local')),
   sandbox: Config.string('AGENTGRAPH_SANDBOX_URL').pipe(Config.withDefault('')),
   checkLogs: Config.literal(...checkLogs)('AGENTGRAPH_CHECK_LOGS').pipe(Config.withDefault('all' as const)),
   studio: Config.string('AGENTGRAPH_STUDIO_URL').pipe(Config.withDefault('')),

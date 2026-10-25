@@ -32,10 +32,10 @@ export type Harness = HarnessCheck & {
 export type Provider = {
   name: string;
   harnesses: string[];
-  ready: () => boolean | Promise<boolean>;
+  ready: (s: { image: string }) => boolean | Promise<boolean>;
   detect?: () => boolean;
   settings?: () => Record<string, string>;
-  login?: () => Promise<void>;
+  login?: (s: { image: string }) => Promise<void>;
 };
 
 export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[]; harness?: string };

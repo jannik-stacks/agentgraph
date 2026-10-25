@@ -87,6 +87,9 @@ const readInstance = (dir: string): Instance | undefined => {
   return { exported: {}, ...own, dir, forge: join(dir, 'forge'), data: join(dir, 'data') };
 };
 
+export const findProvider = (flag: string | undefined, i?: Pick<Instance, 'provider'>) =>
+  flag ?? i?.provider ?? process.env.AGENTGRAPH_PROVIDER;
+
 export const writeInstanceProvider = (i: Instance, provider: string) => {
   i.provider = provider;
   writeInstance({ ...(readInstance(i.dir) ?? i), provider });

@@ -1,11 +1,11 @@
 import { existsSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Effect, Either } from 'effect';
 import { createServer } from 'vite';
 import { readConfiguredHub } from '../src/harnesses.ts';
-import { ensureBase, ensureHub, ensureInstance, findRepo } from '../src/instance.ts';
+import { ensureBase, ensureHub, ensureInstance, findProvider, findRepo } from '../src/instance.ts';
+import { readHostSettings } from '../src/services.ts';
 import { formatInstanceFlags } from '../src/status.ts';
 
 const { values, positionals } = parseArgs({
@@ -19,22 +19,24 @@ const { values, positionals } = parseArgs({
     tune: { type: 'string' },
   },
 });
-const root = process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph');
+const { data: root } = await readHostSettings(values).catch((e: Error) => {
+  console.error(e.message);
+  return process.exit(2);
+});
 const repo = values.repo === undefined ? undefined : await findRepo(resolve(values.repo));
 if (values.repo && !repo) {
   console.error(`${values.repo} is not in a git repo`);
   process.exit(2);
 }
-if (!process.env.AGENTGRAPH_CONFIG && existsSync(join(values.data ?? root, 'config.ts')))
-  process.env.AGENTGRAPH_CONFIG = join(values.data ?? root, 'config.ts');
-const instance = repo === undefined ? undefined : await ensureInstance(values.data ?? root, repo);
-if (instance?.provider) process.env.AGENTGRAPH_PROVIDER ??= instance.provider;
+const instance = repo === undefined ? undefined : await ensureInstance(root, repo);
+const provider = findProvider(undefined, instance);
+if (provider) process.env.AGENTGRAPH_PROVIDER = provider;
 const moved = instance && (await ensureBase(instance));
 if (moved) console.error(`${moved}\nThe studio shows the hub of agentgraph's base.`);
 const hubDir = resolve(
   values.hub ?? (instance ? await ensureHub(instance) : join(import.meta.dirname, '..', 'examples', 'sandbox'))
 );
-const dataDir = resolve(instance?.data ?? values.data ?? root);
+const dataDir = resolve(instance?.data ?? root);
 const real = existsSync(dataDir) ? realpathSync(dataDir) : dataDir;
 console.log(`hub    ${hubDir}\ndata   ${dataDir}${real !== dataDir ? ` -> ${real}` : ''}`);
 const loaded = await Effect.runPromise(Effect.either(readConfiguredHub(hubDir)));
@@ -45,7 +47,7 @@ process.env.VITE_AGI_HUB = hubDir;
 process.env.VITE_AGI_DATA = dataDir;
 const forge = instance?.forge ?? values.forge;
 if (forge) process.env.VITE_AGI_FORGE = resolve(forge);
-if (instance) process.env.VITE_AGI_FLAGS = formatInstanceFlags(instance.repo, resolve(values.data ?? root));
+if (instance) process.env.VITE_AGI_FLAGS = formatInstanceFlags(instance.repo, root);
 if (values.bench) process.env.VITE_AGI_BENCH = [...values.bench, ...positionals].map(d => resolve(d)).join(':');
 if (values.tune) process.env.VITE_AGI_TUNE = resolve(values.tune);
 const vite = await createServer({ root: import.meta.dirname });

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { existsSync, readdirSync, readFileSync, realpathSync, watch } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
@@ -17,6 +16,7 @@ import {
   ensureInstance,
   writePullToRepo,
   findInstances,
+  findProvider,
   findPull,
   findRepo,
   mergePull,
@@ -37,6 +37,7 @@ import {
   formatNextSteps,
   formatShellWord,
 } from '../src/status.ts';
+import { readHostSettings } from '../src/services.ts';
 import { fileStore, pruneLogs, Store } from '../src/store.ts';
 import type { Run } from '../src/workflow.ts';
 
@@ -96,7 +97,7 @@ const listRuns = (data: string, filter: Parameters<Store['Type']['list']>[0] = {
 const printRuns = (runs: Run[]) => {
   for (const run of runs) console.log(`${run.id} ${run.step} ${run.status}${run.reason ? `: ${run.reason}` : ''}`);
 };
-const checkHub = async (hub: string, named = values.provider ?? process.env.AGENTGRAPH_PROVIDER) => {
+const checkHub = async (hub: string, named: string | undefined) => {
   Object.assign(process.env, {
     ...(named && { AGENTGRAPH_PROVIDER: named }),
     ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
@@ -122,7 +123,7 @@ const noModel = `No model to use. Any one of these works:
   export AGENTGRAPH_PROXY_KEYS=...                 your LiteLLM at AGENTGRAPH_PROXY_URL`;
 
 const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
-  const named = values.provider ?? i.provider ?? process.env.AGENTGRAPH_PROVIDER;
+  const named = findProvider(values.provider, i);
   Object.assign(process.env, {
     ...(named && { AGENTGRAPH_PROVIDER: named }),
     ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
@@ -134,7 +135,7 @@ const pickProvider = async (i: Instance, after: string): Promise<Provider> => {
       fail(`no provider ${named}; the config has ${providers.map(p => p.name).join(', ')}`)
     );
   const ready: Provider[] = [];
-  for (const p of providers) if ((await p.ready()) || p.detect?.()) ready.push(p);
+  for (const p of providers) if ((await p.ready(host)) || p.detect?.()) ready.push(p);
   if (ready.length === 0) fail(`${noModel}\n${after}`, 1);
   if (ready.length === 1) {
     writeInstanceProvider(i, ready[0]!.name);
@@ -160,8 +161,8 @@ const findUnserved = (provider: Provider, hub: Hub) =>
 
 const connect = async (i: Instance, hub: string, after: string) => {
   if (!process.env.AGENTGRAPH_SANDBOX_URL) {
-    const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`))).catch((e: Error) =>
-      fail(`${e.message}\n${after}`, 1)
+    const docker = await Effect.runPromise(ensureDocker(line => console.log(`sandbox  ${line}`), host.image)).catch(
+      (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
     console.log(`sandbox  docker ${docker}`);
   }
@@ -174,9 +175,9 @@ const connect = async (i: Instance, hub: string, after: string) => {
     `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
   );
   console.log(`repo     ${i.repo}, base ${i.base}`);
-  if (!(await provider.ready()))
-    await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))().catch((e: Error) =>
-      fail(`${e.message}\n${after}`, 1)
+  if (!(await provider.ready(host)))
+    await (provider.login ?? (() => Promise.reject(new Error(`${provider.name} is not ready`))))(host).catch(
+      (e: Error) => fail(`${e.message}\n${after}`, 1)
     );
   Object.assign(process.env, provider.settings?.() ?? {}, {
     AGENTGRAPH_PROVIDER: provider.name,
@@ -210,18 +211,15 @@ const trapInterrupt = () =>
     stopping.abort();
   });
 
-const app = ['AGENTGRAPH_APP_ENV', 'AGENTGRAPH_APP_ID', 'AGENTGRAPH_APP_KEY', 'AGENTGRAPH_APP_KEY_FILE'];
-const onForge = values.forge !== undefined || app.some(name => process.env[name]);
-const root = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
-if (!onForge && !process.env.AGENTGRAPH_CONFIG && existsSync(join(root, 'config.ts')))
-  process.env.AGENTGRAPH_CONFIG = join(root, 'config.ts');
+const host = await readHostSettings(values).catch((e: Error) => fail(e.message));
+const { onForge, data: root } = host;
 
 const selected = formatInstanceFlags(values.repo && resolve(values.repo), values.data && root);
 
 if (verb === 'check' && values.hub && !values.runs) {
   const repo = onForge ? undefined : await findRepo(resolve(values.repo ?? '.'));
-  const saved = repo && findInstances(root).find(i => i.repo === realpathSync(repo))?.provider;
-  await checkHub(resolve(values.hub), values.provider ?? saved ?? process.env.AGENTGRAPH_PROVIDER);
+  const saved = repo ? findInstances(root).find(i => i.repo === realpathSync(repo)) : undefined;
+  await checkHub(resolve(values.hub), findProvider(values.provider, saved));
 }
 if (onForge) await runOnForge();
 else await runOnInstance();
@@ -388,7 +386,7 @@ async function runOnInstance() {
       return rest[0] ? showIssue(await forgeOf(), numbered(), i) : showAll(i, await forgeOf());
     case 'check':
     case 'dispatch': {
-      if (verb === 'check' && !values.runs) return checkHub(await synced(), values.provider ?? i.provider);
+      if (verb === 'check' && !values.runs) return checkHub(await synced(), findProvider(values.provider, i));
       const hub = await synced();
       await prepare(i, hub, 'Nothing was run.');
       return printRuns(await start({ hub, issue: 'all', data: i.data, base: i.base, instruction: instructed() }));
@@ -479,7 +477,6 @@ async function loop(i: Instance) {
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
   trapInterrupt();
-  const every = Number(process.env.AGENTGRAPH_EVERY ?? 5);
   try {
     while (!stopping.signal.aborted) {
       let hub = '';
@@ -512,7 +509,7 @@ async function loop(i: Instance) {
       }
       if (values.once || stopping.signal.aborted) break;
       await new Promise<void>(done => {
-        const quiet = setTimeout(finish, every * 60_000);
+        const quiet = setTimeout(finish, host.every * 60_000);
         const watcher = watch(i.forge, finish);
         stopping.signal.addEventListener('abort', finish);
         function finish() {
