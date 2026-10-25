@@ -132,7 +132,7 @@ The package has no entry point yet, so a plugin imports its types from `src/harn
 | `opencode` | Allowlists with patterns, such as `bash(git diff*)` | `--session <id> --fork` |
 | `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the hub check, so best for read-only agents | `--fork <id>` |
 | `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work, a tool Claude Code lacks fails the hub check | `--resume <id> --fork-session` |
-| `codex` | An agent with `edit`, `write` or `bash` gets every tool Codex has; any other runs in Codex's read-only sandbox. Login and sessions live in the docker volume `agentgraph-codex`, one session at a time | none; an aside starts a fresh session |
+| `codex` | An agent with `edit`, `write` and `bash` gets every tool Codex has; any other runs in Codex's read-only sandbox, so `bash(git diff*)` means read-only shell. Granting only some of the three, or a pattern on any tool but `bash`, fails the hub check. Login and sessions live in the docker volume `agentgraph-codex`, one session at a time | none; an aside starts a fresh session |
 
 Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnessSession -->
 

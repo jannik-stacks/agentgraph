@@ -210,6 +210,8 @@ if (onForge) await runOnForge();
 else await runOnInstance();
 
 async function runOnForge() {
+  if (values.provider || values.harness || values.model || values.save)
+    fail('--provider, --harness, --model and --save work in a repo; a forge runner reads the hub and its env');
   const data = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(), '.agentgraph'));
   const folder = values.forge && values.forge !== 'github' ? resolve(values.forge) : undefined;
   if (folder) process.env.AGENTGRAPH_FORGE = folder;
@@ -439,7 +441,9 @@ async function drive(i: Instance, issue: number, hub: string, before: string | u
 }
 
 async function report(i: Instance, issue: number, next?: string) {
-  const result = await writePullToRepo(i, issue, values.as ? { as: values.as } : {});
+  const result = await writePullToRepo(i, issue, values.as ? { as: values.as } : {}).catch((e: Error) => ({
+    why: e.message,
+  }));
   if (result && 'why' in result)
     console.log(`not written to your repo: ${result.why}\n  npx agentgraph export ${issue} --as <branch>`);
   else if (result) {
@@ -522,7 +526,10 @@ async function showInstances(root: string) {
   const all = findInstances(root);
   if (all.length === 0) console.log(`no instances under ${root}`);
   for (const i of all) {
-    const waiting = findRunsWaitingOnPeople(await listRuns(i.data)).flatMap(run => formatNextSteps(run));
+    const target = ` --repo ${JSON.stringify(i.repo)} --data ${JSON.stringify(root)}`;
+    const waiting = findRunsWaitingOnPeople(await listRuns(i.data))
+      .flatMap(run => formatNextSteps(run))
+      .map(line => (line.includes('npx agentgraph ') ? `${line}${target}` : line));
     console.log(`${i.repo}${existsSync(i.repo) ? '' : ' (gone)'}  ${i.dir}`);
     for (const line of waiting) console.log(`  ${line}`);
   }

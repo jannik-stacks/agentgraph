@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
 import type { Harness, Piece } from '../src/harnesses.ts';
-import { makeCacheCounts, makeLineParser, some } from './helpers.ts';
+import { makeCacheCounts, makeLineParser, some, splitToolPattern } from './helpers.ts';
 
 const { String: Str, Number: Num, Unknown, Struct, optional: opt } = Schema;
 
@@ -32,12 +32,21 @@ for (const out of [codex.stdout, codex.stderr])
 codex.on('close', code => process.exit(code ?? 1));
 `;
 
-const writes = (tools: string[]) => tools.some(tool => ['edit', 'write', 'bash'].includes(tool));
+const writing = ['edit', 'write', 'bash'];
+const writes = (tools: string[]) => tools.some(tool => writing.includes(tool));
 
 export const makeCodexHarness = (): Harness => ({
   name: 'codex',
   key: 'AGENTGRAPH_LLM_API_KEY',
   volumes: { '/codex': 'agentgraph-codex' },
+  check: ({ tools }) => [
+    ...tools
+      .filter(tool => splitToolPattern(tool)[2] !== undefined && !tool.startsWith('bash('))
+      .map(tool => `cannot limit a tool to a pattern such as ${tool}`),
+    ...(writes(tools) && !writing.every(tool => tools.includes(tool))
+      ? ['can only grant edit, write and bash together']
+      : []),
+  ],
   command: (spec, route) => {
     const resume = !spec.fork && spec.resume;
     return {

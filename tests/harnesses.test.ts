@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
+import { makeCodexHarness } from '../harnesses/codex.ts';
 import { type Harness, harnessSession, getModelPrice, readHarnessSettings } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
@@ -578,11 +579,19 @@ describe('codex', () => {
   it('keeps a read-only agent in its read-only sandbox and starts a fork fresh', async () => {
     const { command: reader } = await session(codex, [], { proxy });
     expect(codexArgs(reader)).toContain('read-only');
-    const { command: writer } = await session({ ...codex, tools: ['read', 'edit', 'bash'] }, [], { proxy });
+    const { command: writer } = await session({ ...codex, tools: ['read', 'edit', 'write', 'bash'] }, [], { proxy });
     expect(codexArgs(writer)).toContain('--dangerously-bypass-approvals-and-sandbox');
     const { command: forked } = await session({ ...codex, resume: resumable(), fork: true }, [], { proxy });
     expect(codexArgs(forked)).not.toContain('resume');
     expect(codexArgs(forked).at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
+  });
+
+  it('rejects tool limits it cannot enforce', () => {
+    const check = (tools: string[]) => makeCodexHarness().check?.({ ...codex, tools } as never);
+    expect(check(['read', 'bash(git diff*)'])).toEqual([]);
+    expect(check(['read', 'edit', 'write', 'bash'])).toEqual([]);
+    expect(check(['edit'])).toEqual(['can only grant edit, write and bash together']);
+    expect(check(['edit(src/*)'])).toEqual(['cannot limit a tool to a pattern such as edit(src/*)']);
   });
 
   it('talks to a proxy through its own model provider with the agent key', async () => {

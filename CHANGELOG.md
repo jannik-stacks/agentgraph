@@ -24,6 +24,8 @@
   Claude token goes to the macOS Keychain.
 - The `codex` harness runs Codex with its login in the docker volume `agentgraph-codex`. The sandbox
   image installs Claude Code 2.1.296 and Codex 0.162.1, and the egress allowlist has their API hosts.
+  It grants all of `edit`, `write` and `bash` or runs read-only; the hub check rejects tool limits it
+  cannot keep.
 - An agent's `harness` is optional: the first of `AGENTGRAPH_PROVIDER`'s, else the config's first.
   `AGENTGRAPH_HARNESS` runs every agent on one harness. `AGENTGRAPH_MODELS`
   maps model aliases, `*` for agents without a `model`.
