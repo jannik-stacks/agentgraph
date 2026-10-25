@@ -56,18 +56,18 @@ Who must approve the install:
 When the install was only requested, agentgraph works once an owner approves it.
 
 Then point `AGENTGRAPH_APP_ENV` at the `app.env` the command printed. With the key in the Keychain,
-`app.env` names `/dev/fd/3`, so start agentgraph with the key on that descriptor. Run `node` directly,
-since `npx` and `npm run` pass on only the standard descriptors:
+`app.env` names `/dev/fd/3`. `with-key` reads the key from the Keychain onto that descriptor and passes
+the other arguments to `bin/run.ts`:
 
 ```sh
-node bin/run.ts loop --instance ~/agentgraph/kit 3< <(security find-generic-password -s agentgraph-app-<slug> -w | base64 -d)
+npm run with-key -- <slug> loop --instance ~/agentgraph/kit
 ```
 
-To move a key from an older setup's `key.pem` into the Keychain, then delete the file and set
-`AGENTGRAPH_APP_KEY_FILE=/dev/fd/3` in `app.env`:
+An App set up before the Keychain has a `key.pem`. `keychain-import` moves it into the Keychain, points
+`app.env` at `/dev/fd/3` and deletes the file:
 
 ```sh
-printf 'add-generic-password -U -T "" -a agentgraph -s agentgraph-app-%s -w %s\n' <slug> "$(base64 -i key.pem)" | security -i
+npm run keychain-import -- <slug>
 ```
 
 ## Mention autocomplete

@@ -11,6 +11,8 @@
     "up": "docker build -q -t agentgraph-sandbox:local infra/local/sandbox && docker compose -p agentgraph -f infra/local/docker-compose.yml --profile sandbox up -d --wait",
     "down": "docker compose -p agentgraph -f infra/local/docker-compose.yml --profile '*' down",
     "keys": "bash infra/local/keys.sh",
+    "keychain-import": "bash infra/github/keychain-import.sh",
+    "with-key": "bash infra/github/with-key.sh",
     "check": "oxfmt --check src harnesses agentgraph.config.ts tests bin bench studio tune && oxlint && npm run -s knip && npm run -s check:docs && npm run -s check:hubs && sh bin/precommit.sh && tsc --noEmit && tsc --noEmit -p studio && vitest run --coverage && npm --prefix studio run -s build",
     "check:docs": "node bin/refs.mjs >/dev/null && node bin/commands.mjs && node bin/fields.mjs && node bin/style.mjs",
     "check:hubs": "for hub in examples/*/; do [ -e \"${hub}hub.yaml\" ] || continue; node bin/run.ts check --hub \"$hub\" || exit 1; done",

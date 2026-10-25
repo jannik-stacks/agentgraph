@@ -38,7 +38,7 @@ const saveKeyInKeychain = async (slug: string, pem: string) => {
     stdio: ['pipe', 'ignore', 'inherit'],
   });
   execFileSync('security', ['find-generic-password', '-a', 'agentgraph', '-s', item], { stdio: 'ignore' });
-  return { file: '/dev/fd/3', start: `3< <(security find-generic-password -s ${item} -w | base64 -d)` };
+  return { file: '/dev/fd/3', start: `npm run with-key -- ${slug} <run.ts arguments>` };
 };
 
 const escape = (text: string) =>
