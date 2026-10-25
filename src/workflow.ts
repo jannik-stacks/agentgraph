@@ -381,10 +381,6 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   }
   if (run.status === 'waiting' && isHumanWaitStep(step)) {
     if (o.kind === 'pass') return forward();
-    if (o.kind === 'back' && run.reason !== undefined) {
-      const taken = run.rounds[step.name] ?? 0;
-      return transition(w, { ...fresh(run), rounds: { ...run.rounds, [step.name]: taken - 1 } }, o);
-    }
     if (o.kind === 'back') return back(o.why);
     if (o.kind === 'stop') return stop(o.why);
     return run;
@@ -401,6 +397,14 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
     return { ...fresh(run), status: entered(step), tries, rounds, feedback, answers };
   }
   return run;
+}
+
+export function makeRunWithFreshRound(w: Workflow, run: Run): Run {
+  const step = w.steps.find(s => s.name === run.step);
+  const cap = step?.back?.rounds;
+  const taken = run.rounds[run.step] ?? 0;
+  if (run.status !== 'waiting' || !step || !isHumanWaitStep(step) || cap === undefined || taken < cap) return run;
+  return { ...run, rounds: { ...run.rounds, [run.step]: taken - 1 } };
 }
 
 /** What a comment says to the bot, or undefined when it does not call it with `/agent`. */

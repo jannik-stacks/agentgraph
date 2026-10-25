@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { addressed } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
-import { begin, cancelled, fold, getEventOutcome, transition, type Outcome, type Run } from '../src/workflow.ts';
+import {
+  begin,
+  cancelled,
+  fold,
+  getEventOutcome,
+  makeRunWithFreshRound,
+  transition,
+  type Outcome,
+  type Run,
+} from '../src/workflow.ts';
 import { fixture } from './fixtures.ts';
 
 // kit issue: triage (1 try), implement (4 tries), review (back to implement, 2 rounds), merge (wait, back to implement)
@@ -156,21 +165,29 @@ describe('transition, waiting', () => {
     });
   });
 
-  it('back once the rounds are spent parks with the reason; a human back after that gets one more round', () => {
+  it('back with the rounds spent parks; what a human says next grants one more round', () => {
     const one = { ...w, steps: w.steps.map(s => (s.name === 'merge' ? { ...s, back: { ...s.back!, rounds: 1 } } : s)) };
     const parked = transition(one, { ...waiting, rounds: { merge: 1 } }, { kind: 'back', why: 'rename foo' });
     expect(parked).toMatchObject({ step: 'merge', status: 'waiting', reason: 'rename foo', rounds: { merge: 1 } });
-    expect(transition(one, parked, { kind: 'answer', text: 'go on' })).toBe(parked);
-    const next = transition(one, parked, { kind: 'back', why: 'rename bar' });
-    expect(next).toMatchObject({
+    expect(transition(one, parked, { kind: 'back', why: 'rename bar' })).toMatchObject({
+      step: 'merge',
+      status: 'waiting',
+    });
+    const granted = makeRunWithFreshRound(one, parked);
+    expect(makeRunWithFreshRound(one, granted)).toBe(granted);
+    expect(transition(one, granted, { kind: 'back', why: 'rename bar' })).toMatchObject({
       step: 'implement',
       status: 'running',
       rounds: { merge: 1 },
       feedback: 'the merge step sent this back: rename bar',
     });
-    expect(next.reason).toBeUndefined();
-    const again = transition(one, { ...next, step: 'merge', status: 'waiting' }, { kind: 'back', why: 'rename baz' });
-    expect(again).toMatchObject({ step: 'merge', status: 'waiting', reason: 'rename baz' });
+  });
+
+  it('a fresh round leaves a run with rounds left, or at a step without a cap, as it is', () => {
+    const one = { ...w, steps: w.steps.map(s => (s.name === 'merge' ? { ...s, back: { ...s.back!, rounds: 1 } } : s)) };
+    const asked = { ...waiting, reason: 'merge waits for a human' };
+    expect(makeRunWithFreshRound(one, asked)).toBe(asked);
+    expect(makeRunWithFreshRound(w, { ...asked, rounds: { merge: 9 } })).toEqual({ ...asked, rounds: { merge: 9 } });
   });
 
   it('stop (closed): stopped', () => {

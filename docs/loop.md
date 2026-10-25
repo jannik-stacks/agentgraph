@@ -151,7 +151,7 @@ Going forward starts a fresh session; going back resumes the earlier one. <!-- c
 
 ## Waiting
 
-A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The question is its own comment where the person last spoke. Answer with `/agent` to resume the same step. At a human wait step out of rounds, the next change request or aside that sends it back gets one more round. Answers stay paired with their questions and reach every later step and check, at the end of `AGENTGRAPH_CONTEXT` for scripts. Judges are told not to raise points an answer settled. <!-- code: src/engine.ts#heard -->
+A run waits at `wait: human`, on `ask`, or when tries or rounds run out. The question is its own comment where the person last spoke. Answer with `/agent` to resume the same step. At a human wait step out of rounds, the next thing a human says there, a review or an `/agent` comment, grants one more round. Answers stay paired with their questions and reach every later step and check, at the end of `AGENTGRAPH_CONTEXT` for scripts. Judges are told not to raise points an answer settled. <!-- code: src/engine.ts#heard -->
 
 The status comment shows how to answer, and [`status`](local.md#the-cli) lists the commands to continue. `/agent stop` or closing the issue ends the run. <!-- code: src/context.ts#answerWith src/workflow.ts#getEventOutcome -->
 

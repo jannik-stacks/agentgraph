@@ -26,6 +26,7 @@ import {
   formatFailedTryFeedback,
   fold,
   getEventOutcome,
+  makeRunWithFreshRound,
   transition,
   type CheckResult,
   type Doc,
@@ -2179,10 +2180,10 @@ export const tick = (
             l.trusted && l.issue === run.issue && l.kind === 'comment' && l.comment?.path && l.at > at && l.at <= m.at
         );
         const outcome = fold([m, ...took.filter(a => a !== m)].map(a => taken(a, a === m ? lined : [])!))!;
-        const seen = {
+        const seen = makeRunWithFreshRound(w, {
           ...(m.kind === 'comment' && (m.comment?.id || m.source === 'cli') ? yield* eyes(run, m) : run),
           said: heard([m, ...took.filter(a => a !== m)]),
-        };
+        });
         const step = w.steps.find(s => s.name === run.step);
         const pull = issues.find(t => t.number === pullOf(w, run.issue, issues))?.pull;
         const asked: { run: Run; outcome?: Outcome; again?: boolean } | undefined =

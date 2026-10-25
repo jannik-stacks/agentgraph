@@ -470,6 +470,43 @@ describe('tick', () => {
     expect(withheld.said).toBeUndefined();
   });
 
+  it('sends a run parked at merge with its rounds spent back on a new change request', async () => {
+    const where = world();
+    git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
+    const issue = merging.workflows.issue;
+    const capped = {
+      ...merging,
+      workflows: {
+        issue: {
+          ...issue,
+          steps: issue.steps.map(s => (s.name === 'merge' ? { ...s, back: { to: 'implement', rounds: 1 } } : s)),
+        },
+      },
+    };
+    say(where, {
+      issue: 8,
+      kind: 'changes_requested',
+      actor: 'morgan',
+      trusted: true,
+      at: '2026-10-16T00:00:05.000Z',
+      comment: { id: 'review', author: 'morgan', body: 'rename bar', at: '2026-10-16T00:00:05.000Z' },
+    });
+    const { specs, run } = services(where, [[start('a'), wrote('hello.txt', 'hello\n'), reply(push)]]);
+    await run(waiting(where));
+    await run(
+      Effect.flatMap(Store, s =>
+        Effect.flatMap(s.get('run-7'), r => s.put({ ...r!, rounds: { merge: 1 }, reason: 'rename foo' }))
+      )
+    );
+    await run(tick(capped, 7));
+    expect(specs[0]!.prompt).toContain('the merge step sent this back: rename bar');
+    expect(await run(Effect.flatMap(Store, s => s.get('run-7')))).toMatchObject({
+      step: 'merge',
+      status: 'waiting',
+      rounds: { merge: 1 },
+    });
+  });
+
   it('sends a run waiting at merge back when the aside a mention starts proposes back, resuming its fork', async () => {
     const where = world();
     git(join(where.root, 'seed'), 'push', '-q', where.origin, 'main:agentgraph/7');
