@@ -22,7 +22,7 @@
   settings for the harnesses they serve; `--provider`, `--harness` and `--model` pick, and an agent's
   harness the provider does not serve fails before filing. A subscription logs in on first use; the
   Claude token goes to the macOS Keychain.
-- The `codex` harness runs Codex with its login in the docker volume `agentgraph-codex`. The sandbox
+- The `codex` harness runs Codex with its ChatGPT login in the docker volume `agentgraph-codex`; proxy sessions do not mount it. The sandbox
   image installs Claude Code 2.1.296 and Codex 0.162.1, and the egress allowlist has their API hosts.
   It grants all of `edit`, `write` and `bash` or runs read-only; the hub check rejects tool limits it
   cannot keep.

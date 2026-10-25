@@ -26,7 +26,7 @@ The issue number is the handle. Each issue has at most one open pull request, on
 | `show [n]` | What needs you and every issue, or one issue's timeline and diff. Outside a repo it lists every instance and what needs you there. |
 | `loop` | Drives every open issue, then again when the forge changes or after `AGENTGRAPH_EVERY` minutes. `--once` makes one pass. |
 
-`check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--hub` and `--logs`. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
+`check`, `dispatch` and `prune-logs` are in [the CLI](local.md#the-cli). Every verb takes `--data`, `--repo`, `--base`, `--hub` and `--logs`, and the commands it prints carry the `--repo` and `--data` it was given. `check --hub` inside a repo checks against the instance's saved provider. Comments, reviews and issues are by the instance owner, `git config user.name`, the only login the instance trusts. <!-- code: src/services.ts#settings -->
 
 ## The sandbox
 

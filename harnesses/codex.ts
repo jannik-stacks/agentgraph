@@ -38,7 +38,6 @@ const writes = (tools: string[]) => tools.some(tool => writing.includes(tool));
 export const makeCodexHarness = (): Harness => ({
   name: 'codex',
   key: 'AGENTGRAPH_LLM_API_KEY',
-  volumes: { '/codex': 'agentgraph-codex' },
   check: ({ tools }) => [
     ...tools
       .filter(tool => splitToolPattern(tool)[2] !== undefined && !tool.startsWith('bash('))
@@ -53,7 +52,7 @@ export const makeCodexHarness = (): Harness => ({
       cmd: 'sh',
       args: [
         '-c',
-        'exec 9>/codex/.lock && flock 9 && exec node -e "$AGENTGRAPH_CODEX" -- "$@"',
+        `${route.url ? '' : 'exec 9>/codex/.lock && flock 9 && '}exec node -e "$AGENTGRAPH_CODEX" -- "$@"`,
         'sh',
         'exec',
         ...(writes(spec.tools) ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', 'read-only']),
@@ -72,7 +71,8 @@ export const makeCodexHarness = (): Harness => ({
         '--',
         resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
       ],
-      env: { CODEX_HOME: '/codex', AGENTGRAPH_CODEX: masked },
+      env: { ...(!route.url && { CODEX_HOME: '/codex' }), AGENTGRAPH_CODEX: masked },
+      ...(!route.url && { volumes: { '/codex': 'agentgraph-codex' } }),
     };
   },
   parse: () => {

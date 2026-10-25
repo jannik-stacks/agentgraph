@@ -594,10 +594,13 @@ describe('codex', () => {
     expect(check(['edit(src/*)'])).toEqual(['cannot limit a tool to a pattern such as edit(src/*)']);
   });
 
-  it('talks to a proxy through its own model provider with the agent key', async () => {
+  it('talks to a proxy through its own model provider with the agent key and without the login volume', async () => {
     const { command } = await events(codex, []);
     const args = codexArgs(command);
     expect(args).toContain('model_providers.agentgraph.base_url="http://litellm:4000/v1"');
+    expect(command.volumes).toBeUndefined();
+    expect(command.env.CODEX_HOME).toBeUndefined();
+    expect(harnessArgs(command)[1]).not.toContain('flock');
     expect(Object.keys(command.secrets ?? {})).toEqual(['AGENTGRAPH_LLM_API_KEY']);
   });
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, watch } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, watch } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -206,7 +206,14 @@ const root = resolve(values.data ?? process.env.AGENTGRAPH_DATA ?? join(homedir(
 if (!onForge && !process.env.AGENTGRAPH_CONFIG && existsSync(join(root, 'config.ts')))
   process.env.AGENTGRAPH_CONFIG = join(root, 'config.ts');
 
-if (verb === 'check' && values.hub && !values.runs) await checkHub(resolve(values.hub));
+const selected = `${values.repo ? ` --repo ${quote(resolve(values.repo))}` : ''}${values.data ? ` --data ${quote(root)}` : ''}`;
+const aim = (line: string, to = selected) => (line.includes('npx agentgraph ') ? `${line}${to}` : line);
+
+if (verb === 'check' && values.hub && !values.runs) {
+  const repo = onForge ? undefined : await findRepo(resolve(values.repo ?? '.'));
+  const saved = repo && findInstances(root).find(i => i.repo === realpathSync(repo))?.provider;
+  await checkHub(resolve(values.hub), values.provider ?? saved ?? process.env.AGENTGRAPH_PROVIDER);
+}
 if (onForge) await runOnForge();
 else await runOnInstance();
 
@@ -338,7 +345,7 @@ async function runOnInstance() {
       await synced();
       const pull = await mergePull(i, numbered()).catch((e: Error) => fail(e.message, 1));
       console.log(`${pull.base} at ${pull.head.slice(0, 7)} in agentgraph`);
-      return report(i, n, `git merge ${pull.branch}`);
+      return report(i, n, true);
     }
     case 'export': {
       numbered();
@@ -434,19 +441,19 @@ async function drive(i: Instance, issue: number, hub: string, before: string | u
   });
   await stop();
   if (!runs) {
-    console.log(`stopped; npx agentgraph say ${issue} "go on" resumes it`);
+    console.log(aim(`stopped; npx agentgraph say ${issue} "go on" resumes it`));
     process.exit(130);
   }
   if (runs.length === 0) console.log(`nothing to do on #${issue}`);
   return report(i, issue);
 }
 
-async function report(i: Instance, issue: number, next?: string) {
+async function report(i: Instance, issue: number, merged = false) {
   const result = await writePullToRepo(i, issue, values.as ? { as: values.as } : {}).catch((e: Error) => ({
     why: e.message,
   }));
   if (result && 'why' in result)
-    console.log(`not written to your repo: ${result.why}\n  npx agentgraph export ${issue} --as <branch>`);
+    console.log(aim(`not written to your repo: ${result.why}\n  npx agentgraph export ${issue} --as <branch>`));
   else if (result) {
     const { ref, base, stat } = result;
     if (stat) console.log(`\n${stat}`);
@@ -454,7 +461,8 @@ async function report(i: Instance, issue: number, next?: string) {
     console.log(`Worktree:     git worktree add ../${basename(i.repo)}-${issue} ${ref}`);
   }
   const waiting = findRunsWaitingOnPeople(await listRuns(i.data, { issue })).flatMap(run => formatNextSteps(run));
-  const steps = [...(next ? [`  ${next}`] : []), ...waiting.filter(l => l.startsWith('  '))];
+  const merge = result && !('why' in result) ? [`  git merge ${result.ref}`] : [];
+  const steps = merged ? merge : waiting.filter(l => l.startsWith('  ')).map(l => aim(l));
   if (steps.length) console.log(`Next:\n${steps.join('\n')}`);
 }
 
@@ -485,7 +493,7 @@ async function loop(i: Instance) {
           if (result)
             console.log(
               'why' in result
-                ? `#${issue} not written: ${result.why}; npx agentgraph export ${issue} --as <branch>`
+                ? aim(`#${issue} not written: ${result.why}; npx agentgraph export ${issue} --as <branch>`)
                 : `#${issue} in your repo as ${result.ref}`
             );
         }
@@ -509,7 +517,9 @@ async function loop(i: Instance) {
 }
 
 async function showAll(i: Instance, forge: Forge['Type']) {
-  const lines = findRunsWaitingOnPeople(await listRuns(i.data)).flatMap(run => formatNextSteps(run));
+  const lines = findRunsWaitingOnPeople(await listRuns(i.data))
+    .flatMap(run => formatNextSteps(run))
+    .map(line => aim(line));
   console.log(lines.length ? `Needs you\n${lines.join('\n')}\n` : 'Nothing needs you\n');
   console.log(formatIssueList(await Effect.runPromise(forge.issues())));
 }
@@ -527,10 +537,9 @@ async function showInstances(root: string) {
   const all = findInstances(root);
   if (all.length === 0) console.log(`no instances under ${root}`);
   for (const i of all) {
-    const target = ` --repo ${quote(i.repo)} --data ${quote(root)}`;
     const waiting = findRunsWaitingOnPeople(await listRuns(i.data))
       .flatMap(run => formatNextSteps(run))
-      .map(line => (line.includes('npx agentgraph ') ? `${line}${target}` : line));
+      .map(line => aim(line, ` --repo ${quote(i.repo)} --data ${quote(root)}`));
     console.log(`${i.repo}${existsSync(i.repo) ? '' : ' (gone)'}  ${i.dir}`);
     for (const line of waiting) console.log(`  ${line}`);
   }

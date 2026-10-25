@@ -658,7 +658,8 @@ describe('an instance', () => {
 
     const merged = cli('merge', '1');
     expect(merged.out).toMatch(/^main at [0-9a-f]{7} in agentgraph/);
-    expect(merged.out).toContain('git merge agentgraph/1');
+    expect(merged.out).toContain('not written to your repo: agentgraph/1 in your repo moved');
+    expect(merged.out).not.toContain('Next:');
     expect(git(join(i.forge, 'origin.git'), 'show', 'main:hello.txt')).toBe('hello world');
     expect(cli('show').out).toContain('#1 closed Add a greeting');
     expect(looks()).toBe(before);

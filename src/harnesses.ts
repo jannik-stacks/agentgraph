@@ -18,7 +18,6 @@ type ModelRoute = { url: string; model: string };
 
 export type Harness = HarnessCheck & {
   key: string;
-  volumes?: Record<string, string>;
   home?: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
@@ -26,7 +25,7 @@ export type Harness = HarnessCheck & {
   command: (
     spec: Omit<SessionSpec, 'model'>,
     route: ModelRoute
-  ) => { cmd: string; args: string[]; env?: Record<string, string> };
+  ) => { cmd: string; args: string[]; env?: Record<string, string>; volumes?: Record<string, string> };
   parse: () => (line: unknown) => Piece[];
 };
 
@@ -199,7 +198,7 @@ export const harnessSession = (s: {
               },
               catch: e => new SessionStop({ reason: 'sandbox', detail: `run home: ${(e as Error).message}` }),
             });
-            const { cmd, args, env = {} } = harness.command(spec, route);
+            const { cmd, args, env = {}, volumes } = harness.command(spec, route);
             const hidden = Object.values(secrets)
               .map(secret => Redacted.value(secret))
               .flatMap(secret => [secret, ...secret.split('\n')])
@@ -250,7 +249,7 @@ export const harnessSession = (s: {
                 home,
                 env: { ...env, ...(spec.base && { AGENTGRAPH_BASE: spec.base }) },
                 secrets,
-                ...(harness.volumes && { volumes: harness.volumes }),
+                ...(volumes && { volumes }),
                 network: 'proxy',
                 minutes: spec.minutes,
               })
