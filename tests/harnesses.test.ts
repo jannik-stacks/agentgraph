@@ -186,6 +186,11 @@ describe('the session loop', () => {
       passed: { CLAUDE_CODE_OAUTH_TOKEN: Redacted.make(quoted) },
     });
     expect(JSON.stringify(escaped.exit)).not.toContain('token');
+    const pem = 'BEGIN KEY BLOCK\nsecret-line-material\nEND KEY BLOCK';
+    const lines = await session({ ...spec, agent: 'gardener' }, ['oops secret-line-material'], {
+      passed: { APP_PEM: Redacted.make(pem) },
+    });
+    expect(JSON.stringify(lines.exit)).not.toContain('secret-line');
   });
 
   it('stops before the harness starts when the config has no harness by that name', async () => {
