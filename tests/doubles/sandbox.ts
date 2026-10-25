@@ -5,11 +5,10 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { Duration, Effect, Layer, Redacted, Stream } from 'effect';
+import { gitIdentity } from '../../src/git.ts';
 import { Sandbox, SandboxError, type Checkout, type Command, type Exit } from '../../src/sandbox.ts';
 
 const git = promisify(execFile);
-
-const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
 const spawned = (command: Command) =>
   spawn(command.cmd, command.args, {
@@ -67,7 +66,7 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
               ...(checked?.published ? ['-p', checked.published] : []),
             ];
             const commit = await run(
-              ...ident,
+              ...gitIdentity,
               'commit-tree',
               await run('write-tree'),
               ...parents,

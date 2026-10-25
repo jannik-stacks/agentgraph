@@ -17,7 +17,7 @@ import type { Applied, Event, Issue } from './event.ts';
 import { Said, type Proposal } from './proposal.ts';
 import type { Check, Hub } from './hub.ts';
 import { Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { hostGit, mergeTreeOnto } from './git.ts';
+import { gitIdentity, hostGit, mergeTreeOnto } from './git.ts';
 import { Session } from './session.ts';
 import { Store, type StoreError } from './store.ts';
 import { type Aside, type Trace, SessionStop, type SessionSpec } from './trace.ts';
@@ -1582,10 +1582,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
         const tree = yield* treeOf(made);
         if (from !== onto && tree !== (yield* text(made, ['rev-parse', `${onto}^{tree}`]))) {
           const head = yield* text(made, [
-            '-c',
-            'user.name=agentgraph',
-            '-c',
-            'user.email=agentgraph@localhost',
+            ...gitIdentity,
             'commit-tree',
             tree,
             '-p',
@@ -1668,10 +1665,7 @@ const following = (work: Checkout, onto: string, first: boolean) =>
   Effect.gen(function* () {
     if (first && work.head && (yield* text(work, ['merge-base', onto, work.head])) !== onto) {
       const head = yield* text(work, [
-        '-c',
-        'user.name=agentgraph',
-        '-c',
-        'user.email=agentgraph@localhost',
+        ...gitIdentity,
         'commit-tree',
         yield* treeOf(work),
         '-p',

@@ -94,11 +94,11 @@ export const hostGit = (
     })
   );
 
-const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
+export const gitIdentity = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
 /** Keeps the last published tree as a local commit for saved-work replay. */
 export const commitPublishedTree = (work: Checkout, tree: string) =>
-  Effect.map(hostGit(work.git, [...ident, 'commit-tree', tree, '-m', 'Published work']), out => {
+  Effect.map(hostGit(work.git, [...gitIdentity, 'commit-tree', tree, '-m', 'Published work']), out => {
     work.published = out.toString('utf8').trim();
   });
 

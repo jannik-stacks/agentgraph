@@ -21,7 +21,7 @@ import {
 } from './env.ts';
 import { ensureFreeDisk } from './disk.ts';
 import { type Command, type Exit, Sandbox, SandboxError, type Checkout } from './sandbox.ts';
-import { hostGit } from './git.ts';
+import { gitIdentity, hostGit } from './git.ts';
 
 /** The internal docker network for each hub `network`; only the egress one has the allowlist proxy on it. */
 const networks = { egress: 'agentgraph-sandbox', models: 'agentgraph-models' } as const;
@@ -32,7 +32,6 @@ const limits = { memory: '4g', cpus: '1.5', pids: '512' };
 const outputLimit = 64 << 10;
 /** The mirror takes branches and tags only, so fork code in `refs/pull/*` never reaches a session. */
 const fetched = ['+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*', '+HEAD:refs/remotes/origin/HEAD'];
-const ident = ['-c', 'user.name=agentgraph', '-c', 'user.email=agentgraph@localhost'];
 
 type Mount = { src: string; dst: string; readonly?: boolean };
 
@@ -386,7 +385,7 @@ export const dockerSandbox = (o: {
                 ...(work.published ? ['-p', work.published] : []),
               ];
               const commit = yield* inWork([
-                ...ident,
+                ...gitIdentity,
                 'commit-tree',
                 tree,
                 ...parents,
