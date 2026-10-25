@@ -328,7 +328,7 @@ async function runOnInstance() {
       const hub = await synced();
       await prepare(i, hub, 'Nothing was posted.');
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
-      if (values.label) await writeLabels(i.forge, i.owner, n, values.label).catch((e: Error) => fail(e.message));
+      if (values.label) await writeLabels(i.forge, i.owner, issue, values.label).catch((e: Error) => fail(e.message));
       return drive(i, issue, hub);
     }
     case 'review': {
