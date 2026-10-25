@@ -87,7 +87,7 @@ const world = () => {
         );
         return '';
       case 'close':
-        await writeClosed(dir, as, n);
+        writeClosed(dir, as, n);
         return '';
       case 'merge': {
         const pull = await mergePull({ forge: dir, owner: as }, n);

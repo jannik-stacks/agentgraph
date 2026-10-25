@@ -1,5 +1,6 @@
 import { appendFile, link, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Context, Data, Effect, FiberRef, Layer, Stream } from 'effect';
 import { parse, stringify } from 'yaml';
@@ -147,16 +148,16 @@ export const writeIssueFile = async (
 
 const me = 'agentgraph[bot]';
 
-export const writeTimelineEvent = async (
+export const writeTimelineEvent = (
   dir: string,
   m: Omit<Event, 'at' | 'comment'> & { comment?: Pick<Comment, 'body' | 'path' | 'line' | 'under'> }
 ) => {
   const file = join(dir, `${m.issue}.jsonl`);
   const at = new Date().toISOString();
-  const lines = await readFile(file, 'utf8').catch(() => '');
+  const lines = existsSync(file) ? readFileSync(file, 'utf8') : '';
   const id = `${m.issue}-${lines.split('\n').filter(Boolean).length + 1}`;
   const comment = m.comment && { comment: { id, author: m.actor, at, ...m.comment } };
-  await appendFile(file, `${JSON.stringify({ ...m, at, ...comment })}\n`);
+  appendFileSync(file, `${JSON.stringify({ ...m, at, ...comment })}\n`);
   return id;
 };
 

@@ -190,7 +190,7 @@ export const writeComment = async (dir: string, as: string, n: number, body: str
   if (!path) throw new Error('--line takes <path>:<line>');
   const pull = await findPull(dir, n);
   if (!pull) throw new Error(`#${n} has no pull request`);
-  await writeTimelineEvent(dir, {
+  writeTimelineEvent(dir, {
     issue: pull.number,
     kind: 'comment',
     actor: as,
@@ -208,7 +208,7 @@ export const writeReview = async (
 ) => {
   const pull = await findPull(dir, n);
   if (!pull || pull.state !== 'open') throw new Error(`#${n} has no open pull request`);
-  await writeTimelineEvent(dir, {
+  writeTimelineEvent(dir, {
     issue: pull.number,
     kind: verdict,
     actor: as,
@@ -220,12 +220,12 @@ export const writeReview = async (
 export const writeLabels = (dir: string, as: string, n: number, add: string[]) =>
   apply(dir, as, n, { kind: 'label', add, remove: [] });
 
-export const writeClosed = async (dir: string, as: string, n: number) => {
+export const writeClosed = (dir: string, as: string, n: number) => {
   const md = join(dir, `${n}.md`);
   if (!existsSync(md)) throw new Error(`no issue #${n}`);
   const { front, body } = parseIssueFile(readFileSync(md, 'utf8'));
   writeFileAtomic(md, formatIssueFile({ ...front, state: 'closed' }, body.trim()));
-  await writeTimelineEvent(dir, { issue: n, kind: 'closed', actor: as, trusted: true });
+  writeTimelineEvent(dir, { issue: n, kind: 'closed', actor: as, trusted: true });
 };
 
 export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number) => {
@@ -242,7 +242,7 @@ export const mergePull = async (i: Pick<Instance, 'forge' | 'owner'>, n: number)
       writeFileAtomic(join(i.forge, String(t.number), 'pull.json'), { ...t.pull, base });
   const issue = Number(/(\d+)$/.exec(branch)?.[1]);
   const named = (await readIssues(i.forge)).find(t => t.number === issue);
-  if (named?.state === 'open') await writeClosed(i.forge, i.owner, issue);
+  if (named?.state === 'open') writeClosed(i.forge, i.owner, issue);
   return pr.pull;
 };
 
