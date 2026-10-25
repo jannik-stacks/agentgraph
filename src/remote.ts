@@ -32,12 +32,14 @@ type BoxEntry = {
   roots?: string;
   pending: Map<string, SyncedDir>;
   lost: Set<string>;
+  restarted?: true;
 };
 
-const call = (url: string, init: RequestInit & { signal?: AbortSignal }) =>
+const call = (url: string, init: RequestInit & { signal?: AbortSignal }, onFresh = () => {}) =>
   Effect.tryPromise({
     try: async signal => {
       const response = await fetch(url, { signal, ...init });
+      if (response.headers.has(freshHeader)) onFresh();
       if (!response.ok) throw new Error(`${response.status} ${(await response.text()).trim().slice(-2000)}`);
       return response;
     },
@@ -46,10 +48,11 @@ const call = (url: string, init: RequestInit & { signal?: AbortSignal }) =>
 
 const op = (box: BoxEntry, name: string, args: string[], body?: Uint8Array) =>
   Effect.filterOrFail(
-    call(`${box.url}/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`, {
-      method: 'POST',
-      ...(body && { body: new Uint8Array(body) }),
-    }),
+    call(
+      `${box.url}/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`,
+      { method: 'POST', ...(body && { body: new Uint8Array(body) }) },
+      () => name === 'init' || (box.restarted = true)
+    ),
     response => name === 'init' || !response.headers.has(freshHeader),
     () => infra(`the box restarted during ${name}`)
   );
@@ -181,7 +184,8 @@ export const remoteSandbox = (o: {
         box.sync.withPermits(1)(
           Effect.gen(function* () {
             const init = yield* op(box, 'init', []);
-            if (init.headers.has(freshHeader)) {
+            if (init.headers.has(freshHeader) || box.restarted) {
+              delete box.restarted;
               const lost = box.pending.size > 0;
               box.pending.clear();
               box.lost.clear();
@@ -341,7 +345,9 @@ export const remoteSandbox = (o: {
                 rmSync(syncIndex(work), { force: true });
                 if (box.pending.size + box.lost.size > 0)
                   return yield* Effect.logWarning(`kept the box ${box.url}: its last work did not come back`);
-                yield* Effect.ignore(call(box.url, { method: 'DELETE' }));
+                yield* Effect.ignore(
+                  Effect.timeout(Effect.interruptible(call(box.url, { method: 'DELETE' })), '1 minute')
+                );
               })
           );
           if (!hub) return work;

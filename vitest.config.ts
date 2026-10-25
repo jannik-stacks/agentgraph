@@ -16,6 +16,7 @@ const toolTests = [
   'tests/hub-checks.test.ts',
   'tests/hub.test.ts',
   'tests/precommit.test.ts',
+  'tests/remote.test.ts',
   'tests/run.test.ts',
   'tests/skill.test.ts',
   'tests/tick.test.ts',

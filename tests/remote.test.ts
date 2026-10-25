@@ -153,7 +153,7 @@ describe('remote sandbox', () => {
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
         const ran = yield* Effect.either(
-          s.exec(sh(work.dir, 'echo early > e.txt; sleep 1.5; echo late > l.txt', { minutes: 0.015 }))
+          s.exec(sh(work.dir, 'echo early > e.txt; sleep 4; echo late > l.txt', { minutes: 0.05 }))
         );
         yield* Effect.sleep('1800 millis');
         const after = yield* s.exec(sh(work.dir, 'ls'));
@@ -240,6 +240,19 @@ describe('remote sandbox', () => {
       })
     );
     expect(exit).toEqual(Exit.succeed(Exit.succeed({ code: 0, output: 'slow\n' })));
+  });
+
+  it('seeds the box again after it restarted during a command', async () => {
+    const exit = await use(layer(), s =>
+      Effect.gen(function* () {
+        const work = yield* s.checkout('main');
+        const gone = yield* Effect.either(s.exec(sh(work.dir, 'rm -rf "$AGENTGRAPH_BOX_ROOT"')));
+        const told = yield* Effect.either(s.exec(sh(work.dir, 'true')));
+        const next = yield* s.exec(sh(work.dir, 'cat a.txt'));
+        return [gone._tag, String(told).includes('kept/'), next.output];
+      })
+    );
+    expect(exit).toEqual(Exit.succeed(['Left', true, 'main\n']));
   });
 
   it('keeps the box when its work never came back', async () => {

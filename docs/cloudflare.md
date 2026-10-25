@@ -66,5 +66,6 @@ A header with an empty value is removed. ChatGPT subscription logins cannot run 
 
 - The App key is a Worker secret the engine reads from `keys.internal` into a file; a signer that keeps it in the Worker comes later.
 - Runs and traces are in the backup, not a database.
+- The processes of a command are found by `AGENTGRAPH_RUN` in their environment, so one that drops it outlives its command.
 - The studio does not run on Cloudflare.
 - Image builds and `wrangler dev` need Docker. Tests cover the box protocol and the gateway, not a deploy.

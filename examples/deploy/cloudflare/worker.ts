@@ -22,6 +22,8 @@ const egress = allowlist
   .filter(Boolean)
   .map(line => new RegExp(line));
 
+const trusted = { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' };
+
 const frame = (code: number) => `\u0000agentgraph-exit ${code}\n`;
 
 const gateway = (request: Request, env: Env) => forwardToGateway(request, env.GATEWAY_URL, env.GATEWAY_HEADERS);
@@ -92,6 +94,7 @@ export class Box extends Container<Env> {
   running = new Map<Network, number>();
   requests = 0;
   stopped = new Set<string>();
+  launches = new Map<string, Promise<unknown>>();
   static {
     this.outbound = async (request: Request, env: Env, ctx: OutboundHandlerContext) => {
       const host = new URL(request.url).hostname;
@@ -117,13 +120,20 @@ export class Box extends Container<Env> {
     await this.destroy();
   }
 
+  box(args: string[], options: ContainerExecOptions = {}) {
+    return this.ctx.container!.exec(['/bin/sh', '-c', boxScript, 'box', ...args], {
+      user: '0:0',
+      ...options,
+      env: { ...trusted, ...options.env },
+    });
+  }
+
   async keep(checkout: string) {
-    const exec = (cmd: string[]) => this.ctx.container!.exec(cmd, { user: '0:0', stderr: 'ignore' });
-    const packed = await (await exec(['sh', '-c', boxScript, 'box', 'keep'])).output();
+    const packed = await (await this.box(['keep'], { stderr: 'ignore' })).output();
     const size = Number(new TextDecoder().decode(packed.stdout));
     if (packed.exitCode !== 0 || !size) return false;
     const { readable, writable } = new FixedLengthStream(size);
-    const cat = await exec(['cat', '/tmp/agentgraph-kept.tgz']);
+    const cat = await this.ctx.container!.exec(['/bin/cat', '/tmp/agentgraph-kept.tgz'], { user: '0:0', env: trusted });
     await Promise.all([
       this.env.DATA.put(`kept/${checkout}.tgz`, readable),
       (cat.stdout as ReadableStream<Uint8Array>).pipeTo(writable),
@@ -156,11 +166,12 @@ export class Box extends Container<Env> {
     if (op === 'stop') {
       const id = url.searchParams.get('arg') ?? '';
       this.stopped.add(id);
+      await this.launches.get(id);
       await this.reap(id);
       return new Response(null, { status: 204, headers });
     }
     if (!['init', 'push', 'pull', 'put'].includes(op)) return new Response(`unknown op ${op}`, { status: 404 });
-    const child = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', op, ...url.searchParams.getAll('arg')], {
+    const child = await this.box([op, ...url.searchParams.getAll('arg')], {
       user: op === 'init' || op === 'put' ? '0:0' : '1000:1000',
       ...(request.body && { stdin: request.body }),
       stderr: op === 'pull' ? 'ignore' : 'pipe',
@@ -174,7 +185,7 @@ export class Box extends Container<Env> {
   }
 
   async reap(id: string) {
-    const reaper = await this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'reap', id], { user: '0:0' });
+    const reaper = await this.box(['reap', id]);
     await reaper.exitCode;
   }
 
@@ -183,8 +194,9 @@ export class Box extends Container<Env> {
     this.running.set(network, (this.running.get(network) ?? 0) + 1);
     const done = () => {
       this.running.set(network, (this.running.get(network) ?? 1) - 1);
+      this.launches.delete(id);
     };
-    const started = this.ctx.container!.exec(['sh', '-c', boxScript, 'box', 'run', ...argv], {
+    const started = this.box(['run', ...argv], {
       user: '1000:1000',
       env: { ...secrets, AGENTGRAPH_RUN: id },
       stderr: 'combined',
@@ -192,6 +204,10 @@ export class Box extends Container<Env> {
       done();
       throw error;
     });
+    this.launches.set(
+      id,
+      started.catch(() => undefined)
+    );
     const child = await started;
     if (this.stopped.has(id)) await this.reap(id);
     void child.exitCode.then(() => this.reap(id)).catch(() => undefined);
