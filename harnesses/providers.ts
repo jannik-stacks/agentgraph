@@ -76,7 +76,7 @@ const inCodexVolume = (flags: string, script: string, stdio: 'ignore' | 'inherit
       ...`run --rm ${flags} --user ${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}
         --mount type=volume,src=agentgraph-codex,dst=/codex -e CODEX_HOME=/codex
         ${process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local'} sh -c`.split(/\s+/),
-      `exec 9>/codex/.lock && flock 9 && exec ${script}`,
+      script,
     ],
     { stdio }
   ).status === 0;
@@ -84,7 +84,7 @@ const inCodexVolume = (flags: string, script: string, stdio: 'ignore' | 'inherit
 const chatgpt: Provider = {
   name: 'chatgpt',
   harnesses: ['codex'],
-  ready: () => inCodexVolume('--network none', 'codex login status', 'ignore'),
+  ready: () => inCodexVolume('--network none', 'exec codex login status', 'ignore'),
   detect: () => loggedIn('codex', ['login', 'status']),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'codex=',
@@ -94,7 +94,13 @@ const chatgpt: Provider = {
   login: async () => {
     needTerminal('run npx agentgraph start --provider chatgpt from a terminal once');
     console.log('login    agentgraph needs its own ChatGPT login for the sandbox.');
-    if (!inCodexVolume('-it --network agentgraph-egress', 'codex login --device-auth', 'inherit'))
+    if (
+      !inCodexVolume(
+        '-it --network agentgraph-egress',
+        'exec 9>/codex/.lock && flock 9 && exec codex login --device-auth',
+        'inherit'
+      )
+    )
       throw new Error('codex login failed');
     console.log('         saved in docker volume agentgraph-codex');
   },

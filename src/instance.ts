@@ -52,7 +52,9 @@ export const findRepo = (from: string) =>
 
 const readOwner = (repo: string) => {
   try {
-    return execFileSync('git', ['-C', repo, 'config', 'user.name'], { encoding: 'utf8', env: makeHostEnv() }).trim();
+    return execFileSync('git', ['-C', repo, 'config', 'user.name'], { encoding: 'utf8', env: makeHostEnv() })
+      .trim()
+      .replaceAll(',', ' ');
   } catch {
     return userInfo().username;
   }

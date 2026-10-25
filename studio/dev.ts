@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { Effect, Either } from 'effect';
 import { createServer } from 'vite';
 import { readConfiguredHub } from '../src/harnesses.ts';
-import { ensureHub, ensureInstance, findRepo } from '../src/instance.ts';
+import { ensureBase, ensureHub, ensureInstance, findRepo } from '../src/instance.ts';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -25,6 +25,8 @@ if (values.repo && !repo) {
   process.exit(2);
 }
 const instance = repo === undefined ? undefined : await ensureInstance(values.data ?? root, repo);
+const moved = instance && (await ensureBase(instance));
+if (moved) console.error(`${moved}\nThe studio shows the hub of agentgraph's base.`);
 const hubDir = resolve(
   values.hub ?? (instance ? await ensureHub(instance) : join(import.meta.dirname, '..', 'examples', 'sandbox'))
 );
