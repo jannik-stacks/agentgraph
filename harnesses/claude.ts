@@ -53,6 +53,11 @@ const claudeTools = (tools: string[]) =>
 export const claude = (): Harness => ({
   name: 'claude',
   key: 'ANTHROPIC_AUTH_TOKEN',
+  check: agent =>
+    agent.tools.flatMap(tool => {
+      const name = splitToolPattern(tool)[1] ?? tool;
+      return name in claudeNames ? [] : [`tools: claude has no ${name} tool`];
+    }),
   command: (spec, route) => {
     const list = claudeTools(spec.tools);
     return {

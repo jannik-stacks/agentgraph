@@ -100,9 +100,17 @@ describe('loadHub', () => {
     expect(found).toContain('workflows/w.md: steps.x.checks: unknown check nope');
   });
 
-  it('checks each agent harness against the config', async () => {
-    const found = await problems(hubDir({ 'agents/a.md': '---\nharness: codex\n---\n' }));
+  it('checks each agent harness against the config and asks the harness about its tools', async () => {
+    const found = await problems(
+      hubDir({
+        'agents/a.md': '---\nharness: codex\n---\n',
+        'agents/b.md': '---\nharness: claude\ntools: [read, lsp]\n---\n',
+        'agents/c.md': "---\nharness: pi\ntools: [read, 'bash(git diff*)']\n---\n",
+      })
+    );
     expect(found).toContain('agents/a.md: harness: codex is not in the config, which has opencode, claude, pi');
+    expect(found).toContain('agents/b.md: tools: claude has no lsp tool');
+    expect(found).toContain('agents/c.md: tools: pi cannot limit a tool to a pattern such as bash(git diff*)');
   });
 
   it('fails on an agent that reads traces without the read tool', async () => {

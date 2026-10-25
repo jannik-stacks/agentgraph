@@ -30,6 +30,10 @@ const PiLine = Struct({
 export const pi = (): Harness => ({
   name: 'pi',
   key: 'AGENTGRAPH_LLM_API_KEY',
+  check: agent =>
+    agent.tools.flatMap(tool =>
+      splitToolPattern(tool)[2] === undefined ? [] : [`tools: pi cannot limit a tool to a pattern such as ${tool}`]
+    ),
   home: (_, route) => ({
     files: {
       '.pi/agent/models.json': JSON.stringify({
@@ -45,33 +49,30 @@ export const pi = (): Harness => ({
       '.pi/agent/settings.json': JSON.stringify({ httpIdleTimeoutMs: modelTimeouts.idleMs }),
     },
   }),
-  command: (spec, route) => {
-    const tools = spec.tools.filter(tool => splitToolPattern(tool)[2] === undefined);
-    return {
-      cmd: 'pi',
-      args: [
-        '--print',
-        '--mode',
-        'json',
-        '--offline',
-        '--no-approve',
-        '--no-context-files',
-        '--no-extensions',
-        '--no-skills',
-        '--no-prompt-templates',
-        '--no-themes',
-        ...(tools.length ? ['--tools', tools.join(',')] : ['--no-tools']),
-        '--model',
-        `agentgraph/${route.model}`,
-        ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
-        '--append-system-prompt',
-        spec.system,
-        '--',
-        spec.prompt,
-      ],
-      env: { PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' },
-    };
-  },
+  command: (spec, route) => ({
+    cmd: 'pi',
+    args: [
+      '--print',
+      '--mode',
+      'json',
+      '--offline',
+      '--no-approve',
+      '--no-context-files',
+      '--no-extensions',
+      '--no-skills',
+      '--no-prompt-templates',
+      '--no-themes',
+      ...(spec.tools.length ? ['--tools', spec.tools.join(',')] : ['--no-tools']),
+      '--model',
+      `agentgraph/${route.model}`,
+      ...(spec.resume ? [spec.fork ? '--fork' : '--session', spec.resume.id] : []),
+      '--append-system-prompt',
+      spec.system,
+      '--',
+      spec.prompt,
+    ],
+    env: { PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' },
+  }),
   parse: () => {
     const calls = new Map<string, { name: string; input: unknown }>();
     return makeLineParser(PiLine, line => {

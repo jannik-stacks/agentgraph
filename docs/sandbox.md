@@ -83,20 +83,19 @@ network: models
 
 ## Harnesses
 
-An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces. The built-in three live in `harnesses/` and are written the way your own would be:
+An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces, and an optional `check` that lists what it cannot do for an agent. The built-in three live in `harnesses/` and are written the way your own would be:
 
 ```ts
 export default { harnesses: [opencode(), claude(), pi(), mine] } satisfies Config;
 ```
 
-<!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readConfig -->
-
+A hub loads only when every agent names a harness in the config and that harness's `check` finds nothing. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readConfig src/hub.ts#loadHub -->
 
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
 | `opencode` | Allowlists with patterns, such as `bash(git diff*)` | `--session <id> --fork` |
-| `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` is dropped, so best for read-only agents | `--fork <id>` |
-| `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work | `--resume <id> --fork-session` |
+| `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the hub check, so best for read-only agents | `--fork <id>` |
+| `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work, a tool Claude Code lacks fails the hub check | `--resume <id> --fork-session` |
 
 Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnessSession -->
 

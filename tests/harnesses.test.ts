@@ -405,8 +405,8 @@ describe('claude', () => {
 describe('pi', () => {
   const pi = { ...spec, harness: 'pi' as const };
 
-  it('sets up the proxy in the run home and grants only tools without a pattern', async () => {
-    const { command } = await events(pi, []);
+  it('sets up the proxy in the run home and grants the plain tools', async () => {
+    const { command } = await events({ ...pi, tools: ['read'] }, []);
     const args = harnessArgs(command);
     expect(args).toEqual(
       expect.arrayContaining(['--tools', 'read', '--model', 'agentgraph/smart', '--no-context-files'])
