@@ -24,7 +24,6 @@ import {
   agentgraphDir,
   appendJsonl,
   readBenchResultEnv,
-  busy,
   claim,
   readJsonl,
   onStop,
@@ -34,6 +33,7 @@ import {
   startChildProcess,
   waitWhileServicesDown,
 } from './resume.ts';
+import { isLockedByOtherProcess } from '../src/owner.ts';
 
 export type Split = 'mine' | 'fit' | 'validate' | 'test';
 type Tune = {
@@ -304,7 +304,7 @@ const bench = {
       await Promise.all(Array.from({ length: o.parallel }, next));
       left = jobs.filter(j => !finished(dir, j));
       if (!left.length) return;
-      const held = left.some(j => busy(join(dir, 'runs', outOf(j), j.case, 'v2')));
+      const held = left.some(j => isLockedByOtherProcess(join(dir, 'runs', outOf(j), j.case, 'v2')));
       log({ event: 'unfinished', jobs: left.length, held, round });
       if (!held && ++round >= 3) throw new Error(`${left.length} runs unfinished after 3 rounds; rerun to resume`);
       await waitWhileServicesDown(log);
@@ -793,7 +793,7 @@ export const status = (dir: string, limits = limitsDefault) => {
   const on = (...splits: Split[]) => q(inc?.evals.filter(e => splits.includes(e.split)) ?? []);
   const b = JSON.parse(readFileOrEmpty(join(dir, 'budget.json')) || '{}') as Budget;
   const used = (name: string, r: Reading | undefined, max: number) => `${name} ${r?.used ?? '-'} of ${max}`;
-  const live = Boolean(readFileOrEmpty(join(dir, 'tune.lock'))) && busy(join(dir, 'tune'));
+  const live = Boolean(readFileOrEmpty(join(dir, 'tune.lock'))) && isLockedByOtherProcess(join(dir, 'tune'));
   const pid = Number(readFileOrEmpty(join(dir, 'tune.lock')) || 0);
   const phase = JSON.parse(readFileOrEmpty(join(dir, 'phase.json')) || 'null') as {
     at: string;

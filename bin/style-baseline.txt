@@ -9,7 +9,7 @@ no-comment bin/fields.mjs 2
 no-comment bin/forge.ts 2
 no-comment bin/lsp.ts 1
 no-comment bin/refs.mjs 18
-no-comment bin/resume.ts 16
+no-comment bin/resume.ts 14
 no-comment bin/run.ts 2
 no-comment bin/setup-app.ts 3
 no-comment bin/traces.mjs 6
@@ -187,7 +187,6 @@ verb-first bin/bench.ts scrub
 verb-first bin/bench.ts stats
 verb-first bin/bench.ts statusText
 verb-first bin/bench.ts unpriced
-verb-first bin/resume.ts busy
 verb-first bin/resume.ts claim
 verb-first bin/resume.ts clock
 verb-first bin/resume.ts down

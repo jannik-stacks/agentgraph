@@ -18,11 +18,10 @@ import {
   statSync,
   writeSync,
 } from 'node:fs';
-import { uptime } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type Disk, ensureFreeDisk } from '../src/disk.ts';
-import { isPidRunning } from '../src/owner.ts';
+import { isLockedByOtherProcess } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
 
 /** Appends one JSON line, first ending a line a crash left open. */
@@ -80,22 +79,6 @@ export const copyDirIfAbsentAtomic = (src: string, dst: string, filter?: (path: 
 
 const owner = (path: string) => Number(readFileOrEmpty(`${path}.lock`) || 0);
 
-/** Since when this machine runs, so a lock from before a reboot is stale even when its pid was reused. */
-const booted = () => Date.now() - uptime() * 1000;
-const mtime = (path: string) => {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return 0;
-  }
-};
-
-/** Whether a live process other than this one holds the unit at `path`. */
-export const busy = (path: string) => {
-  const pid = owner(path);
-  return pid > 0 && pid !== process.pid && isPidRunning(pid) && mtime(`${path}.lock`) > booted() - 60_000;
-};
-
 /** Takes the unit at `path` for this process, unless a live one holds it; a dead holder's lock is taken over. */
 export const claim = (path: string) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -106,7 +89,7 @@ export const claim = (path: string) => {
       closeSync(fd);
       return true;
     } catch {
-      if (busy(path)) return false;
+      if (isLockedByOtherProcess(path)) return false;
       rmSync(`${path}.lock`, { force: true });
     }
   }

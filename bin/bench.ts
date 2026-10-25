@@ -35,7 +35,6 @@ import {
   appendJsonl,
   moveDirToAttic,
   readBenchResultEnv,
-  busy,
   claim,
   clock,
   down,
@@ -48,6 +47,7 @@ import {
   readFileOrEmpty,
   removeSandboxContainersMountingDir,
 } from './resume.ts';
+import { isLockedByOtherProcess } from '../src/owner.ts';
 let engine = process.env.BENCH_ENGINE ?? agentgraphDir;
 
 type Case = {
@@ -933,7 +933,7 @@ const scoreArms = async (c: Case & Commands, out: string, repo: string, which: s
 /** Removes the scoring trees under `out`, nested runs included, that no live process holds. */
 const reapTrees = (out: string) => {
   for (const tree of findBuildDirs(out))
-    if (basename(tree) === 'tree' && !busy(tree)) rmSync(tree, { recursive: true, force: true });
+    if (basename(tree) === 'tree' && !isLockedByOtherProcess(tree)) rmSync(tree, { recursive: true, force: true });
 };
 
 type Tests = {
@@ -1654,7 +1654,7 @@ export const progress = (units: Unit[], parallel = 1) => {
     const at = join(u.out, u.case, u.arm);
     if (existsSync(join(at, 'diff.patch'))) return json(join(at, 'meta.json')).infra ? 'infra' : 'done';
     if (json(join(u.out, u.case, 'valid.json')).invalid) return 'invalid';
-    return busy(at) ? 'running' : 'left';
+    return isLockedByOtherProcess(at) ? 'running' : 'left';
   };
   const states = units.map(u => ({ ...u, state: state(u) }));
   const count = (k: string) => states.filter(u => u.state === k).length;

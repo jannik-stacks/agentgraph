@@ -10,7 +10,6 @@ import { basename, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   appendJsonl,
-  busy,
   claim,
   readJsonl,
   onStop,
@@ -19,6 +18,7 @@ import {
   release,
   startChildProcess,
 } from '../bin/resume.ts';
+import { isLockedByOtherProcess } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
 
 /** The node on PATH now, so a toolchain upgrade during a long bench does not break later spawns. */
@@ -174,7 +174,7 @@ export const stateOf = (dir: string): DriveState => {
     .filter(e => !String(e.event).startsWith('job') && e.event !== 'busy')
     .at(-1);
   const paused = existsSync(join(dir, 'PAUSE'));
-  if (busy(join(dir, 'drive')))
+  if (isLockedByOtherProcess(join(dir, 'drive')))
     return { ...base, status: paused ? 'paused' : 'running', ...(paused && { reason: 'PAUSE file' }), at: last?.at };
   if (jobs.length && done === jobs.length) return { ...base, status: 'finished', at: last?.at };
   if (paused) return { ...base, status: 'paused', reason: 'PAUSE file, driver not running', at: last?.at };
@@ -375,7 +375,7 @@ if (import.meta.main) {
     const runJob = async (j: Job): Promise<string | undefined> => {
       const at = runDir(dir, s, j);
       const id = j.c.id;
-      while (arms.some(a => busy(join(at, id, a)))) await sleep(tick);
+      while (arms.some(a => isLockedByOtherProcess(join(at, id, a)))) await sleep(tick);
       mkdirSync(join(dir, 'logs'), { recursive: true });
       const logFile = join(dir, 'logs', `${several ? `${j.point.split(':')[1]}-` : ''}r${j.k}-${id}.log`);
       const caseDir = join(dir, 'cases', id);

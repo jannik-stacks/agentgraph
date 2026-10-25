@@ -6,7 +6,6 @@ import { harnessError, progress, runnerError, statusText } from '../bin/bench.ts
 import {
   appendJsonl,
   moveDirToAttic,
-  busy,
   claim,
   readJsonl,
   ensureRunSettingsPinned,
@@ -15,6 +14,7 @@ import {
   release,
   waitWhileServicesDown,
 } from '../bin/resume.ts';
+import { isLockedByOtherProcess } from '../src/owner.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import { tuneRows } from '../bin/tune.ts';
 import { tmp } from './kit.ts';
@@ -96,13 +96,13 @@ describe('unit locks', () => {
     const unit = join(root(), 'case/v2');
     mkdirSync(join(unit, '..'));
     writeFileSync(`${unit}.lock`, String(process.ppid), { flag: 'w' });
-    expect(busy(unit)).toBe(true);
+    expect(isLockedByOtherProcess(unit)).toBe(true);
     expect(claim(unit)).toBe(false);
     writeFileSync(`${unit}.lock`, String(dead()));
-    expect(busy(unit)).toBe(false);
+    expect(isLockedByOtherProcess(unit)).toBe(false);
     expect(claim(unit)).toBe(true);
     expect(readFileSync(`${unit}.lock`, 'utf8')).toBe(String(process.pid));
-    expect(busy(unit)).toBe(false);
+    expect(isLockedByOtherProcess(unit)).toBe(false);
     release(unit);
     expect(existsSync(`${unit}.lock`)).toBe(false);
   });

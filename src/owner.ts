@@ -22,6 +22,7 @@ export const startHeartbeat = () => {
   return `${process.pid}:${ownerId}`;
 };
 
+/** @internal */
 export const isPidRunning = (pid: number) => {
   try {
     process.kill(pid, 0);
