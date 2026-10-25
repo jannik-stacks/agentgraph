@@ -17,6 +17,7 @@ import {
   ensureInstance,
   writePullToRepo,
   findInstances,
+  findPull,
   findRepo,
   mergePull,
   ensureBase,
@@ -132,7 +133,10 @@ const prepare = (i: Instance, hub: string, after: string) =>
     const harness = values.harness ?? provider.harnesses[0]!;
     if (!provider.harnesses.includes(harness))
       fail(`${provider.name} does not serve ${harness}. It serves ${provider.harnesses.join(' and ')}.\n${after}`);
-    Object.assign(process.env, provider.settings?.() ?? {}, { AGENTGRAPH_HARNESS: harness });
+    Object.assign(process.env, provider.settings?.() ?? {}, {
+      AGENTGRAPH_PROVIDER: provider.name,
+      ...(values.harness && { AGENTGRAPH_HARNESS: values.harness }),
+    });
     console.log(
       `agentgraph ${version}: ${harness} on ${provider.name}, ${hub === defaultHub ? 'default hub' : `hub ${hub}`}, local forge`
     );
@@ -273,14 +277,15 @@ async function runOnInstance() {
         values.workflow
       ).catch((e: Error) => fail(e.message));
       console.log(`#${issue} ${text.split('\n')[0]}`);
-      return drive(i, issue, hub);
+      return drive(i, issue, hub, undefined);
     }
     case 'say': {
       if (!said()) fail(`say takes text\n${usage}`);
+      const { seen } = await readLastRun(i, numbered());
       await writeComment(i.forge, i.owner, numbered(), `/agent ${said()}`, values.line).catch((e: Error) =>
         fail(e.message)
       );
-      return drive(i, n, await synced());
+      return drive(i, n, await synced(), seen);
     }
     case 'review': {
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
@@ -288,8 +293,9 @@ async function runOnInstance() {
       ];
       if (!verdict) fail('review takes approve or changes');
       const text = rest.slice(2).join(' ').trim();
+      const { seen } = await readLastRun(i, numbered());
       await writeReview(i.forge, i.owner, numbered(), verdict, text).catch((e: Error) => fail(e.message));
-      if (verdict === 'changes_requested') return drive(i, n, await synced());
+      if (verdict === 'changes_requested') return drive(i, n, await synced(), seen);
       console.log(`approved #${n}`);
       return;
     }
@@ -304,9 +310,11 @@ async function runOnInstance() {
         ...(values.as && { as: values.as }),
         ...(values.patch && { patch: values.patch }),
       });
-      if (!result) fail(`#${n} has no pull request`, 1);
-      if (result && 'why' in result) fail(`${result.why}; try --as <branch> or --patch <file>`, 1);
-      return report(i, n);
+      if (!result) return fail(`#${n} has no pull request`, 1);
+      if ('why' in result) return fail(`${result.why}; try --as <branch> or --patch <file>`, 1);
+      if (!values.patch) return report(i, n);
+      console.log(`${result.stat}\nPatch: ${result.ref}    git am ${result.ref}`);
+      return;
     }
     case 'close':
       writeClosed(i.forge, i.owner, numbered());
@@ -346,19 +354,27 @@ function watchRuns(i: Instance, issue: number) {
   };
 }
 
-async function drive(i: Instance, issue: number, hub: string) {
+async function readLastRun(i: Instance, issue: number) {
+  const last = (await listRuns(i.data, { issue })).toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
+  return { last, seen: JSON.stringify(last) };
+}
+
+async function drive(i: Instance, issue: number, hub: string, before: string | undefined) {
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
     console.log(`a loop drives this repo; following #${issue}`);
-    const before = JSON.stringify((await listRuns(i.data, { issue })).at(-1));
     const stop = watchRuns(i, issue);
+    let held = true;
     for (;;) {
       await new Promise(done => setTimeout(done, 2000));
-      const last = (await listRuns(i.data, { issue })).toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
-      if (stopping.signal.aborted || (last && last.status !== 'running' && JSON.stringify(last) !== before)) break;
+      const { last, seen } = await readLastRun(i, issue);
+      held = await isLoopHeld(i.data);
+      if (stopping.signal.aborted || !held || (last && last.status !== 'running' && seen !== before)) break;
     }
     await stop();
-    return stopping.signal.aborted ? process.exit(130) : report(i, issue);
+    if (stopping.signal.aborted) process.exit(130);
+    if (held) return report(i, issue);
+    console.log('the loop stopped; driving it here');
   }
   await prepare(i, hub, `#${issue} is posted; npx agentgraph say ${issue} "go on" drives it.`);
   const stop = watchRuns(i, issue);
@@ -445,9 +461,12 @@ async function showAll(i: Instance, forge: Forge['Type']) {
 }
 
 async function showIssue(forge: Forge['Type'], issue: number, i: Instance) {
-  const t = await Effect.runPromise(forge.issue(issue)).catch((e: Error) => fail(e.message, 1));
-  const diff = join(i.forge, String(issue), 'diff.patch');
-  console.log(formatIssueTimeline(t, existsSync(diff) ? readFileSync(diff, 'utf8') : ''));
+  const pull = await findPull(i.forge, issue);
+  for (const k of new Set([issue, pull?.number ?? issue])) {
+    const t = await Effect.runPromise(forge.issue(k)).catch((e: Error) => fail(e.message, 1));
+    const diff = join(i.forge, String(k), 'diff.patch');
+    console.log(formatIssueTimeline(t, existsSync(diff) ? readFileSync(diff, 'utf8') : ''));
+  }
 }
 
 async function showInstances(root: string) {

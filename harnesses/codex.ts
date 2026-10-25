@@ -17,32 +17,55 @@ const CodexLine = Struct({
   error: opt(Struct(some(Str, 'message'))),
 });
 
+const masked = `
+const { spawn } = require('node:child_process');
+const { readFileSync } = require('node:fs');
+const { createInterface } = require('node:readline');
+const secrets = () => {
+  const found = [];
+  try { JSON.parse(readFileSync('/codex/auth.json', 'utf8'), (k, v) => (typeof v === 'string' && v.length >= 16 && found.push(v), v)); } catch {}
+  return found;
+};
+const codex = spawn('codex', process.argv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
+for (const out of [codex.stdout, codex.stderr])
+  createInterface({ input: out }).on('line', line => process.stdout.write(secrets().reduce((t, s) => t.replaceAll(s, '***'), line) + '\\n'));
+codex.on('close', code => process.exit(code ?? 1));
+`;
+
+const writes = (tools: string[]) => tools.some(tool => ['edit', 'write', 'bash'].includes(tool));
+
 export const makeCodexHarness = (): Harness => ({
   name: 'codex',
   key: 'AGENTGRAPH_LLM_API_KEY',
   volumes: { '/codex': 'agentgraph-codex' },
-  command: (spec, route) => ({
-    cmd: 'codex',
-    args: [
-      'exec',
-      ...(spec.resume ? ['resume', spec.resume.id] : []),
-      '--json',
-      '--skip-git-repo-check',
-      '--dangerously-bypass-approvals-and-sandbox',
-      ...(route.url
-        ? [
-            'model_provider="agentgraph"',
-            `model_providers.agentgraph.base_url=${JSON.stringify(route.url)}`,
-            'model_providers.agentgraph.env_key="AGENTGRAPH_LLM_API_KEY"',
-            'model_providers.agentgraph.wire_api="responses"',
-          ].flatMap(setting => ['-c', setting])
-        : []),
-      ...(route.model === 'default' ? [] : ['--model', route.model]),
-      '--',
-      spec.resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
-    ],
-    env: { CODEX_HOME: '/codex' },
-  }),
+  command: (spec, route) => {
+    const resume = !spec.fork && spec.resume;
+    return {
+      cmd: 'sh',
+      args: [
+        '-c',
+        'exec 9>/codex/.lock && flock 9 && exec node -e "$AGENTGRAPH_CODEX" -- "$@"',
+        'sh',
+        'exec',
+        ...(resume ? ['resume', resume.id] : []),
+        '--json',
+        '--skip-git-repo-check',
+        ...(writes(spec.tools) ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--sandbox', 'read-only']),
+        ...(route.url
+          ? [
+              'model_provider="agentgraph"',
+              `model_providers.agentgraph.base_url=${JSON.stringify(route.url)}`,
+              'model_providers.agentgraph.env_key="AGENTGRAPH_LLM_API_KEY"',
+              'model_providers.agentgraph.wire_api="responses"',
+            ].flatMap(setting => ['-c', setting])
+          : []),
+        ...(route.model === 'default' ? [] : ['--model', route.model]),
+        '--',
+        resume ? spec.prompt : `${spec.system}\n\n${spec.prompt}`,
+      ],
+      env: { CODEX_HOME: '/codex', AGENTGRAPH_CODEX: masked },
+    };
+  },
   parse: () => {
     let failed: string | undefined;
     return makeLineParser(CodexLine, (line): Piece[] => {

@@ -161,7 +161,7 @@ export const ensureHub = async (i: Instance, flag?: string) => {
 const readIssues = (dir: string) =>
   Effect.runPromise(Effect.flatMap(Forge, f => f.issues()).pipe(Effect.provide(fileForge(dir))));
 
-const findPull = async (dir: string, n: number) => {
+export const findPull = async (dir: string, n: number) => {
   const pulls = (await readIssues(dir)).filter(
     (t): t is Issue & Required<Pick<Issue, 'pull'>> =>
       !!t.pull && (t.number === n || t.pull.branch === `agentgraph/${n}`)
@@ -262,14 +262,8 @@ export const writePullToRepo = async (
   if (current && current !== i.exported[ref]) return { why: `${name} in your repo moved since agentgraph wrote it` };
   const checkedOut = (await inRepo(i.repo, ['worktree', 'list', '--porcelain'])).split('\n');
   if (checkedOut.includes(`branch ${ref}`)) return { why: `${name} is checked out in your repo` };
-  await inRepo(i.repo, [
-    'fetch',
-    '-q',
-    '--no-tags',
-    '--no-write-fetch-head',
-    origin(i),
-    `+refs/heads/${branch}:${ref}`,
-  ]);
+  await inRepo(i.repo, ['fetch', '-q', '--no-tags', '--no-write-fetch-head', origin(i), `refs/heads/${branch}`]);
+  await inRepo(i.repo, ['update-ref', ref, head, current]);
   const saved = readInstance(i.dir) ?? i;
   i.exported = { ...saved.exported, [ref]: head };
   writeInstance({ ...saved, exported: i.exported });

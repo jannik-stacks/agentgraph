@@ -11,6 +11,12 @@ const config = join(homedir(), '.config', 'agentgraph');
 const claudeToken = join(config, 'claude-token');
 const codexLogin = join(config, 'codex-login');
 const claudeModels = '*=sonnet,smart=opus,fast=haiku';
+const keychain = process.platform === 'darwin';
+const security = (args: string[], input?: string) =>
+  spawnSync('security', [...args, ...(input ? [] : ['-s', 'agentgraph', '-a', 'claude'])], {
+    encoding: 'utf8',
+    ...(input && { input }),
+  });
 
 const readHidden = async (question: string) => {
   process.stdout.write(question);
@@ -29,21 +35,32 @@ const needTerminal = (how: string) => {
 const claude: Provider = {
   name: 'claude',
   harnesses: ['claude'],
-  ready: () => existsSync(claudeToken) || !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
+  ready: () =>
+    !!process.env.CLAUDE_CODE_OAUTH_TOKEN ||
+    (keychain ? security(['find-generic-password']).status === 0 : existsSync(claudeToken)),
   settings: () => ({
     AGENTGRAPH_PROXY_URL: 'claude=',
     AGENTGRAPH_PROXY_KEYS: '',
     AGENTGRAPH_SESSION_ENV: 'CLAUDE_CODE_OAUTH_TOKEN',
     AGENTGRAPH_MODELS: claudeModels,
-    ...(!process.env.CLAUDE_CODE_OAUTH_TOKEN && { CLAUDE_CODE_OAUTH_TOKEN_FILE: claudeToken }),
+    ...(!process.env.CLAUDE_CODE_OAUTH_TOKEN &&
+      (keychain
+        ? { CLAUDE_CODE_OAUTH_TOKEN: security(['find-generic-password', '-w']).stdout.trim() }
+        : { CLAUDE_CODE_OAUTH_TOKEN_FILE: claudeToken })),
   }),
   login: async () => {
-    needTerminal(`run claude setup-token and save the token in ${claudeToken} with mode 600`);
+    needTerminal('run claude setup-token and export CLAUDE_CODE_OAUTH_TOKEN');
     console.log('login    agentgraph needs its own Claude token for the sandbox. Running `claude setup-token`...');
     if (spawnSync('claude', ['setup-token'], { stdio: 'inherit' }).status !== 0)
       throw new Error('claude setup-token failed');
     const token = await readHidden('         paste the token it printed: ');
-    if (!token) throw new Error('no token given');
+    if (!/^[\w-]+$/.test(token)) throw new Error('that is not a token');
+    if (keychain) {
+      if (security(['-i'], `add-generic-password -U -s agentgraph -a claude -w "${token}"\n`).status !== 0)
+        throw new Error('could not save the token in the Keychain');
+      console.log('         saved in the macOS Keychain as agentgraph/claude');
+      return;
+    }
     await mkdir(config, { recursive: true, mode: 0o700 });
     await writeFile(claudeToken, token, { mode: 0o600 });
     console.log(`         saved in ${claudeToken}`);
@@ -64,12 +81,11 @@ const chatgpt: Provider = {
     console.log('login    agentgraph needs its own ChatGPT login for the sandbox.');
     const image = process.env.AGENTGRAPH_IMAGE || 'agentgraph-sandbox:local';
     const user = `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
-    const login = spawnSync(
-      'docker',
-      `run --rm -it --user ${user} --network agentgraph-egress --mount type=volume,src=agentgraph-codex,dst=/codex
-        -e CODEX_HOME=/codex ${image} codex login --device-auth`.split(/\s+/),
-      { stdio: 'inherit' }
-    );
+    const run = `run --rm -it --user ${user} --network agentgraph-egress
+      --mount type=volume,src=agentgraph-codex,dst=/codex -e CODEX_HOME=/codex ${image} sh -c`.split(/\s+/);
+    const login = spawnSync('docker', [...run, 'exec 9>/codex/.lock && flock 9 && exec codex login --device-auth'], {
+      stdio: 'inherit',
+    });
     if (login.status !== 0) throw new Error('codex login failed');
     await mkdir(config, { recursive: true, mode: 0o700 });
     await writeFile(codexLogin, `${new Date().toISOString()}\n`);

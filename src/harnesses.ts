@@ -38,7 +38,7 @@ export type Provider = {
   login?: () => Promise<void>;
 };
 
-export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[] };
+export type HarnessSettings = { harnesses: Harness[]; providers?: Provider[]; harness?: string };
 
 const builtIn = fileURLToPath(new URL('../agentgraph.config.ts', import.meta.url));
 
@@ -51,17 +51,20 @@ export const readHarnessSettings = Effect.gen(function* () {
       const names = settings.harnesses.map(h => h.name);
       const twice = names.find((name, i) => names.indexOf(name) !== i);
       if (twice) throw new Error(`lists the harness ${twice} twice`);
-      const first = process.env.AGENTGRAPH_HARNESS;
-      if (first && !names.includes(first)) throw new Error(`has no harness ${first}`);
-      const harnesses = settings.harnesses.toSorted((a, b) => Number(b.name === first) - Number(a.name === first));
-      return { ...settings, harnesses };
+      const { AGENTGRAPH_HARNESS: harness, AGENTGRAPH_PROVIDER: named } = process.env;
+      if (harness && !names.includes(harness)) throw new Error(`has no harness ${harness}`);
+      const provider = named ? settings.providers?.find(p => p.name === named) : undefined;
+      if (named && !provider) throw new Error(`has no provider ${named}`);
+      const rank = (name: string) => (provider?.harnesses.indexOf(name) ?? -1) >>> 0;
+      const harnesses = settings.harnesses.toSorted((a, b) => rank(a.name) - rank(b.name));
+      return { ...settings, harnesses, ...(harness && { harness }) };
     },
     catch: e => new HubError({ problems: [{ path, message: (e as Error).message }] }),
   });
 });
 
 export const readConfiguredHub = (dir: string) =>
-  Effect.flatMap(readHarnessSettings, settings => loadHub(dir, settings.harnesses));
+  Effect.flatMap(readHarnessSettings, settings => loadHub(dir, settings.harnesses, settings.harness));
 
 /** Runs the harness with its errors on the one stream it prints to, so the lines keep their order. */
 const wrapped = (cmd: string, args: string[]) => ({ cmd: 'sh', args: ['-c', 'exec "$@" 2>&1', 'sh', cmd, ...args] });
@@ -165,9 +168,6 @@ export const harnessSession = (s: {
       const keys = pairsOf(Redacted.value(s.proxy.keys));
       const urls = parseModelUrls(s.proxy.url);
       const models = pairsOf(s.proxy.models ?? '');
-      const locks = new Map<string, Effect.Semaphore>();
-      const lock = (volume: string) =>
-        locks.get(volume) ?? locks.set(volume, Effect.unsafeMakeSemaphore(1)).get(volume)!;
       const prices: Prices = s.prices
         ? yield* Effect.tryPromise(() => readFile(s.prices!, 'utf8').then(JSON.parse)).pipe(Effect.orDie)
         : {};
@@ -178,8 +178,6 @@ export const harnessSession = (s: {
             const harness = s.harnesses.find(h => h.name === spec.harness);
             if (!harness)
               return yield* new SessionStop({ reason: 'sandbox', detail: `no harness ${spec.harness} in the config` });
-            for (const volume of Object.values(harness.volumes ?? {}))
-              yield* Effect.acquireRelease(lock(volume).take(1), () => lock(volume).release(1));
             const named = (spec.model && models[spec.model]) ?? spec.model ?? models['*'] ?? 'default';
             const route = { url: urls[harness.name] ?? urls['*'] ?? '', model: named };
             const key = keys[spec.agent] ?? keys['*'] ?? (route.url && 'none');

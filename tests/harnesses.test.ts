@@ -549,30 +549,45 @@ describe('pi', () => {
   });
 });
 
+const codexArgs = (c: Command) => harnessArgs(c).slice(3);
+const resumable = () => ({ id: 't1', home: makeHome() });
+
 describe('codex', () => {
   const codex = { ...spec, harness: 'codex' as const };
+  const proxy = { url: 'codex=', keys: Redacted.make(''), models: '*=gpt-x,smart=gpt-y' };
 
   it('runs on its own login in the shared volume, one session at a time, with the model the alias names', async () => {
-    const proxy = { url: 'codex=', keys: Redacted.make(''), models: '*=gpt-x,smart=gpt-y' };
     const { exit, command } = await session(codex, [], { proxy });
     expect(Exit.isSuccess(exit)).toBe(true);
-    const args = harnessArgs(command);
+    expect(harnessArgs(command)[1]).toContain('flock 9');
+    const args = codexArgs(command);
     expect(args.slice(0, 2)).toEqual(['exec', '--json']);
     expect(args[args.indexOf('--model') + 1]).toBe('gpt-y');
     expect(args).not.toContain('-c');
     expect(args.at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
     expect(command.volumes).toEqual({ '/codex': 'agentgraph-codex' });
     expect(command.env.CODEX_HOME).toBe('/codex');
+    expect(command.env.AGENTGRAPH_CODEX).toContain('/codex/auth.json');
     expect(command.secrets).toEqual({});
     const { model: _, ...bare } = codex;
-    const { command: unnamed } = await session({ ...bare, resume: { id: 't1', home: makeHome() } }, [], { proxy });
-    expect(harnessArgs(unnamed).slice(0, 3)).toEqual(['exec', 'resume', 't1']);
-    expect(harnessArgs(unnamed)[harnessArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
+    const { command: unnamed } = await session({ ...bare, resume: resumable() }, [], { proxy });
+    expect(codexArgs(unnamed).slice(0, 3)).toEqual(['exec', 'resume', 't1']);
+    expect(codexArgs(unnamed)[codexArgs(unnamed).indexOf('--model') + 1]).toBe('gpt-x');
+  });
+
+  it('keeps a read-only agent in its read-only sandbox and starts a fork fresh', async () => {
+    const { command: reader } = await session(codex, [], { proxy });
+    expect(codexArgs(reader)).toContain('read-only');
+    const { command: writer } = await session({ ...codex, tools: ['read', 'edit', 'bash'] }, [], { proxy });
+    expect(codexArgs(writer)).toContain('--dangerously-bypass-approvals-and-sandbox');
+    const { command: forked } = await session({ ...codex, resume: resumable(), fork: true }, [], { proxy });
+    expect(codexArgs(forked)).not.toContain('resume');
+    expect(codexArgs(forked).at(-1)).toBe(`${spec.system}\n\n${spec.prompt}`);
   });
 
   it('talks to a proxy through its own model provider with the agent key', async () => {
     const { command } = await events(codex, []);
-    const args = harnessArgs(command);
+    const args = codexArgs(command);
     expect(args).toContain('model_providers.agentgraph.base_url="http://litellm:4000/v1"');
     expect(Object.keys(command.secrets ?? {})).toEqual(['AGENTGRAPH_LLM_API_KEY']);
   });

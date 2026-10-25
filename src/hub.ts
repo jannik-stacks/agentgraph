@@ -165,7 +165,8 @@ const nameOf = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.sli
 const compile = (
   hubText: string | undefined,
   groups: Record<'agents' | 'skills' | 'checks' | 'workflows', File[]>,
-  harnesses: readonly HarnessCheck[]
+  harnesses: readonly HarnessCheck[],
+  forced = ''
 ) => {
   const problems: Problem[] = [];
   const sayer = (path: string) => (message: string) => problems.push({ path, message });
@@ -200,7 +201,7 @@ const compile = (
 
   const agents = docs(groups.agents, (data, say) => {
     const decoded = decode(Agent, data, say);
-    const agent = decoded && { ...decoded, harness: decoded.harness || (harnesses[0]?.name ?? '') };
+    const agent = decoded && { ...decoded, harness: forced || decoded.harness || (harnesses[0]?.name ?? '') };
     if (agent?.reads && !agent.tools.includes('read')) say('reads: traces needs read in tools');
     const harness = agent && harnesses.find(h => h.name === agent.harness);
     if (agent && !harness)
@@ -274,7 +275,11 @@ const compile = (
 export type HarnessCheck = { name: string; check?: (agent: Agent) => string[] };
 
 /** Reads a hub directory, validates every file and fails with all problems at once. */
-export const loadHub = (dir: string, harnesses: readonly HarnessCheck[]): Effect.Effect<Hub, HubError> =>
+export const loadHub = (
+  dir: string,
+  harnesses: readonly HarnessCheck[],
+  harness?: string
+): Effect.Effect<Hub, HubError> =>
   Effect.gen(function* () {
     const read = yield* Effect.tryPromise({
       try: async () => {
@@ -300,7 +305,7 @@ export const loadHub = (dir: string, harnesses: readonly HarnessCheck[]): Effect
       },
       catch: e => new HubError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
     });
-    const { hub, problems, ...parts } = compile(read.hubText, read.groups, harnesses);
+    const { hub, problems, ...parts } = compile(read.hubText, read.groups, harnesses, harness);
     for (const name of read.unread)
       problems.push({
         path: name,
