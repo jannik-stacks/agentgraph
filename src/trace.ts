@@ -63,7 +63,7 @@ export type Aside = { issue?: number; comment?: string; review?: true };
 /**
  * One line of a run's trace. A `prompt` line holds everything a session is opened with and precedes its events. A
  * `saved` line holds the fields of `run.json` that a put changed, and `cleared` the ones it removed. A session's prompt,
- * event and session lines share its `key`, so sessions running at once stay apart.
+ * event and session lines share its `key`, so sessions running at once stay apart. A check line with `end` ran once the run ended.
  */
 export type Trace = { at: string; step: string } & (
   | { prompt: SessionSpec; key?: string; item?: string; aside?: Aside }
@@ -79,7 +79,7 @@ export type Trace = { at: string; step: string } & (
         usd: number;
       };
     }
-  | { check: CheckResult; item?: string; exit?: number; log?: Log }
+  | { check: CheckResult; item?: string; exit?: number; log?: Log; end?: true }
   | { setup: { ms: number; exit: number } }
   | { cache: { files: number } }
   | { env: NonNullable<Checkout['env']> }

@@ -69,9 +69,10 @@ const HubFile = Schema.Struct({
   limits: Schema.optionalWith(Limits, { default: () => Schema.decodeSync(Limits)({}) }),
 });
 
-/** A check is items, a command and an agent that judges. `stop` ends the run when it fails. */
+/** A check is items, a command and an agent that judges; it returns a verdict or a number. `stop` ends the run when it fails. */
 export const Check = Schema.Struct({
   mode: Schema.Literal('warn', 'block', 'stop'),
+  returns: exact(Schema.Literal('verdict', 'number')),
   each: exact(Schema.String),
   run: exact(Schema.String),
   agent: exact(Schema.String),
@@ -237,6 +238,7 @@ const compile = (
     skills: Object.keys(skills),
     checks: Object.keys(checks),
     judged: Object.values(checks).flatMap(c => (c.agent === undefined ? [] : [c.name])),
+    warned: Object.values(checks).flatMap(c => (c.mode === 'warn' ? [c.name] : [])),
   };
   const workflows: Record<string, Workflow> = {};
   for (const file of groups.workflows) {
@@ -248,7 +250,7 @@ const compile = (
     for (const step of w.steps) if ('agent' in step.does && step.does.skill) used.add(step.does.skill);
   if (Object.keys(workflows).length === groups.workflows.length) {
     const steps = Object.values(workflows).flatMap(w => w.steps);
-    const usedChecks = new Set(steps.flatMap(step => step.checks));
+    const usedChecks = new Set([...steps, ...Object.values(workflows)].flatMap(s => s.checks));
     const usedAgents = new Set([
       ...steps.flatMap(step => ('agent' in step.does ? [step.does.agent] : [])),
       ...Object.values(checks).flatMap(check => (check.agent === undefined ? [] : [check.agent])),
@@ -260,7 +262,7 @@ const compile = (
         );
     for (const check of Object.values(checks))
       if (!usedChecks.has(check.name))
-        sayer(check.path)(`no step names ${check.name} in its checks; name it in a step or remove it`);
+        sayer(check.path)(`no step or workflow names ${check.name} in its checks; name it in one or remove it`);
     for (const agent of Object.values(agents))
       if (!usedAgents.has(agent.name))
         sayer(agent.path)(`no step or check names ${agent.name} as its agent; name it in a step or remove it`);

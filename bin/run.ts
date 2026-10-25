@@ -9,6 +9,8 @@
  *        node bin/run.ts start --hub <dir> --data <dir> --forge <dir> [--workflow <name>] "<title>[\n<body>]"
  *          (files an issue on the forge folder with the workflow's label and runs it)
  *        node bin/run.ts check --hub <dir>   (loads the hub and prints every problem with its file)
+ *        node bin/run.ts check <check>... --runs --hub <dir> --data <dir> [--workflow <name>] [--issue <n>]
+ *          (runs the checks once more on every done or stopped run that matches, as at run end)
  *        node bin/run.ts status --hub <dir> --data <dir>   (needs AGENTGRAPH_APP_ENV, or --forge; read-only)
  *        node bin/run.ts loop --hub <dir> --data <dir>   (looks at every open issue each AGENTGRAPH_EVERY minutes)
  *        node bin/run.ts loop --data <dir>   (the same with the repo's own .agentgraph/; AGENTGRAPH_REPO names the repo)
@@ -45,6 +47,7 @@ const { values, positionals } = parseArgs({
     instance: { type: 'string' },
     logs: { type: 'string' },
     apply: { type: 'boolean' },
+    runs: { type: 'boolean' },
   },
   allowPositionals: true,
 });
@@ -116,7 +119,24 @@ if (command === 'start') {
   console.log(`#${issue}`);
 }
 
-if (positionals[0] === 'check') {
+if (command === 'check' && values.runs) {
+  const checks = positionals.slice(1);
+  if (!values.hub || !values.data || checks.length === 0 || (values.issue !== undefined && !(Number(issue) > 0))) {
+    console.error(
+      'usage: node bin/run.ts check <check>... --runs --hub <dir> --data <dir> [--workflow <name>] [--issue <n>]'
+    );
+    process.exit(2);
+  }
+  instruction = {
+    kind: 'check',
+    checks,
+    ...(values.workflow !== undefined && { workflow: values.workflow }),
+    ...(values.issue !== undefined && { issue: issue as number }),
+  };
+  issue = 'all';
+}
+
+if (command === 'check' && !values.runs) {
   if (!values.hub) {
     console.error('usage: node bin/run.ts check --hub <dir>');
     process.exit(2);

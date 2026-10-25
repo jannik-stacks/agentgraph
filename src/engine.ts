@@ -405,11 +405,28 @@ export const tell = (issue: number, text: string, by = 'cli') =>
 
 export type Instruction =
   | { kind: 'say'; issue: number; text: string; comment?: string }
-  | { kind: 'dispatch'; issue: number; workflow: string; step?: string };
+  | { kind: 'dispatch'; issue: number; workflow: string; step?: string }
+  | { kind: 'check'; checks: string[]; workflow?: string; issue?: number };
 
 /** CLI instructions use the event handling and dispatch checks of router proposals. */
 export const instruct = (hub: Hub, instruction: Instruction): Effect.Effect<Run[], ForgeError | StoreError, Services> =>
   Effect.gen(function* () {
+    if (instruction.kind === 'check') {
+      const { checks, kind: _kind, ...where } = instruction;
+      const unknown = checks.filter(name => !(name in hub.checks));
+      if (unknown.length) return yield* new ForgeError({ message: `the hub has no check ${unknown.join(', ')}` });
+      const store = yield* Store;
+      const ended = (yield* store.list(where)).filter(isRunDone);
+      yield* Effect.forEach(ended, r =>
+        Effect.gen(function* () {
+          yield* store.lock(r.id);
+          const run = yield* store.get(r.id);
+          if (run) yield* store.put({ ...run, owed: [...new Set([...(run.owed ?? []), ...checks])] });
+        }).pipe(Effect.scoped)
+      );
+      const runs = yield* Effect.forEach(ended, r => runEndChecks(hub, r.id), { concurrency: hub.limits.parallel });
+      return runs.filter(r => r !== undefined);
+    }
     if (instruction.kind === 'dispatch') {
       const p = { ...instruction, kind: 'run' as const };
       const refused = yield* undispatchable(hub, { id: 'cli' }, [p]);
@@ -831,13 +848,23 @@ type Item = {
   findings: string;
   exit?: number;
   output?: string;
+  unjudged?: true;
+};
+
+const lastNumber = (output = '') => {
+  const line = output.trim().split('\n').at(-1)?.trim() ?? '';
+  return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(line) && Number.isFinite(Number(line)) ? Number(line) : undefined;
 };
 
 /** The judge prompts that passed per data dir, run, check, judge and diff; the same judge, prompt and diff is not judged again. */
 const passes = new WeakMap<object, Set<string>>();
 
-/** One check over what a try left: its items, the command per item, then the agent that judges. Per-item results are traced; judging sessions' cost comes back as `usd`. */
-const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
+/**
+ * One check over what a try left: its items, the command per item, then the agent that judges. A number check gives
+ * the share of items that passed when it judges or has `each`, else the number its script prints last. Per-item
+ * results are traced, with `end` once the run ended; judging sessions' cost comes back as `usd`.
+ */
+const resultOf = (step: string, check: Doc<Check>, work: Left, hub: Hub, end?: true) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const passed = passes.get(store) ?? new Set<string>();
@@ -898,7 +925,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         const judged = yield* verdictOf(
           hub,
           run,
-          step.name,
+          step,
           {
             harness: agent.harness,
             agent: check.agent,
@@ -923,6 +950,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
             pass: false,
             findings: judged.detail ?? judged.reason,
             ...exit,
+            unjudged: true as const,
           };
         usd += judged.usd;
         const pass = /^\W*PASS\b/.test(judged.final);
@@ -951,10 +979,23 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           : yield* Effect.forEach(items, one, { concurrency: 'unbounded' });
     const failing = results.filter(r => !r.pass);
     const empty = check.each !== undefined && items.length === 0 && !(listed instanceof EachFailed);
+    const counted = !(listed instanceof EachFailed) && !over && items.length > 0 && !results.some(r => r.unjudged);
+    const value =
+      check.returns !== 'number'
+        ? undefined
+        : check.each !== undefined || check.agent !== undefined
+          ? counted
+            ? (results.length - failing.length) / results.length
+            : undefined
+          : lastNumber(results[0]?.output);
+    const unmeasured = check.returns === 'number' && value === undefined;
     const result: CheckResult = {
       check: check.name,
       pass: failing.length === 0,
-      ...(empty && { empty, findings: 'Judged nothing: each found no items.' }),
+      ...(value !== undefined && { value }),
+      ...((empty || unmeasured) && { empty: true as const }),
+      ...(empty && { findings: 'Judged nothing: each found no items.' }),
+      ...(unmeasured && !empty && failing.length === 0 && { findings: 'Its output ends in no number.' }),
       ...(failing.length > 0 && {
         findings: squeeze(
           failing.map(r => (r.item ? `${r.item.split('\n')[0]}\n${r.findings}` : r.findings)).join('\n')
@@ -972,7 +1013,7 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
         .flatMap((r, i) => (r.item === undefined ? [] : [{ ...r, log: logs[i] }]))
         .map(r => ({
           at,
-          step: step.name,
+          step,
           check: {
             check: check.name,
             pass: r.pass,
@@ -982,13 +1023,15 @@ const resultOf = (step: Step, check: Doc<Check>, work: Left, hub: Hub) =>
           item: r.item!,
           ...(r.exit !== undefined && { exit: r.exit }),
           ...(r.log && { log: r.log }),
+          ...(end && { end }),
         })),
       {
         at,
-        step: step.name,
+        step,
         check: result,
         ...(!check.each && results[0]?.exit !== undefined && { exit: results[0].exit }),
         ...(!check.each && logs[0] && { log: logs[0] }),
+        ...(end && { end }),
       }
     );
     return { result, usd };
@@ -1357,6 +1400,19 @@ const attempt = (
     );
   });
 
+const prepare = (hub: Hub, left: Left, traces: boolean) =>
+  Effect.gen(function* () {
+    const files = checkFiles(left);
+    yield* Effect.promise(() =>
+      Promise.all([
+        writeFile(files.AGENTGRAPH_PROPOSALS, JSON.stringify(left.proposals)),
+        writeFile(files.AGENTGRAPH_CONTEXT, [left.context, heard(left.answers)].filter(Boolean).join('\n\n')),
+        writeFile(files.AGENTGRAPH_REPLY, left.reply),
+      ])
+    );
+    if (traces) yield* traced(hub, left.issue, left);
+  });
+
 /**
  * The step's checks over what a try left behind, all at once, so every finding of a try comes back together. `usd` is what the agent checks cost.
  * @internal
@@ -1372,16 +1428,8 @@ export const runStepChecks = (
 > =>
   Effect.gen(function* () {
     const checks = step.checks.map(name => ({ ...hub.checks[name]!, name }));
-    const files = checkFiles(left);
-    yield* Effect.promise(() =>
-      Promise.all([
-        writeFile(files.AGENTGRAPH_PROPOSALS, JSON.stringify(left.proposals)),
-        writeFile(files.AGENTGRAPH_CONTEXT, [left.context, heard(left.answers)].filter(Boolean).join('\n\n')),
-        writeFile(files.AGENTGRAPH_REPLY, left.reply),
-      ])
-    );
-    if (checks.length > 0) yield* traced(hub, left.issue, left);
-    const settled = yield* Effect.forEach(checks, c => Effect.either(resultOf(step, c, left, hub)), {
+    yield* prepare(hub, left, checks.length > 0);
+    const settled = yield* Effect.forEach(checks, c => Effect.either(resultOf(step.name, c, left, hub)), {
       concurrency: 'unbounded',
     });
     const results = settled.flatMap(r => (Either.isRight(r) ? [r.right] : []));
@@ -1420,6 +1468,81 @@ export const runStepChecks = (
         : { kind: 'pass' };
     return { outcome, usd };
   });
+
+const explain = (e: SandboxError | SessionStop | ForgeError) =>
+  `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
+
+const caught = <A, R>(e: Effect.Effect<A, SandboxError | SessionStop | ForgeError | StoreError, R>) =>
+  Effect.catchAll(e, err => (err._tag === 'StoreError' ? Effect.fail(err) : Effect.succeed(explain(err))));
+
+const reopen = (hub: Hub, w: Workflow, run: Run, reply: string) =>
+  Effect.gen(function* () {
+    const t = yield* issuesOf(w, run);
+    const work = yield* Effect.flatMap(Sandbox, s =>
+      s.checkout(
+        run.base?.branch ?? expand(w.base ?? 'main', t.issue),
+        w.branch && expand(w.branch, t.issue),
+        `refs/agentgraph/runs/${run.id}`,
+        hub
+      )
+    );
+    yield* Effect.addFinalizer(() =>
+      Effect.ignore(
+        Effect.zipRight(
+          text(work, ['read-tree', '-u', '--reset', work.saved ?? work.head ?? work.base]),
+          text(work, ['clean', '-fdq'])
+        )
+      )
+    );
+    yield* setUp(hub, work, run);
+    const left: Left = {
+      ...work,
+      run: run.id,
+      issue: run.issue,
+      context: context(t),
+      reply,
+      proposals: [],
+      ...(run.answers && { answers: run.answers }),
+    };
+    yield* prepare(hub, left, true);
+    return left;
+  });
+
+const runEndChecks = (hub: Hub, id: string): Effect.Effect<Run | undefined, StoreError, Services> =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    if (Either.isLeft(yield* Effect.either(store.lock(id)))) return;
+    const ended = yield* store.get(id);
+    if (!ended?.owed) return ended;
+    let run: Run = ended;
+    const w = hub.workflows[ended.workflow];
+    const reply =
+      Chunk.toArray(yield* Stream.runCollect(store.read(id)))
+        .flatMap(t => ('event' in t && t.event.type === 'end' ? [t.event.final] : []))
+        .at(-1) ?? '';
+    const opened = w ? yield* caught(reopen(hub, w, ended, reply)) : `the hub has no workflow ${ended.workflow}`;
+    for (const name of ended.owed) {
+      const check = hub.checks[name];
+      const got =
+        typeof opened === 'string'
+          ? opened
+          : check
+            ? yield* caught(resultOf(ended.step, { ...check, mode: 'warn' }, opened, hub, true))
+            : `the hub has no check ${name}`;
+      if (typeof got === 'string')
+        yield* store.trace(id, {
+          at: now(),
+          step: ended.step,
+          check: { check: name, pass: false, empty: true, findings: got, ms: 0 },
+          end: true,
+        });
+      const { owed = [], ...rest } = run;
+      const left = owed.filter(n => n !== name);
+      run = { ...rest, usd: run.usd + (typeof got === 'string' ? 0 : got.usd), ...(left.length > 0 && { owed: left }) };
+      yield* store.put(run);
+    }
+    return run;
+  }).pipe(Effect.scoped);
 
 /**
  * Lands the run's status labels and status comment; the run comes back holding its status comment's id, and without
@@ -1625,7 +1748,7 @@ export const drive = (w: Workflow, run: Run, hub: Hub): Effect.Effect<Run, Store
       if (files !== undefined) yield* store.trace(run.id, { at: now(), step: current.step, cache: { files } });
     });
     const halt = (e: SandboxError | SessionStop | ForgeError) => {
-      const why = `${e._tag}: ${'detail' in e ? (e.detail ?? e.reason) : e.message}`;
+      const why = explain(e);
       const said = `Stopped by a runner error (${e._tag}). The details are in the trace of run ${current.id}.`;
       if (e._tag === 'SessionStop' && e.reason === 'human')
         return settle({ kind: 'stop', why }, transition(w, current, { kind: 'stop', why: said }));
@@ -2304,7 +2427,12 @@ export const tick = (
         ),
       { concurrency: hub.limits.parallel }
     );
-    return [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
+    const owing = (yield* store.list()).filter(r => r.owed && mine(r));
+    const ended = (yield* Effect.forEach(owing, r => runEndChecks(hub, r.id), {
+      concurrency: hub.limits.parallel,
+    })).filter(r => r !== undefined);
+    const moved = [...touched.filter(r => !driven.some(d => d.id === r.id)), ...driven];
+    return [...moved.filter(r => !ended.some(e => e.id === r.id)), ...ended];
   });
 
 /**
@@ -2320,7 +2448,7 @@ export const scanIssuesAndRunningRuns = (
     const open = (yield* Effect.flatMap(Forge, f => f.issues({ state: 'open' }))).filter(
       t => !t.pull && inScope(hub, t)
     );
-    const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(r => !isRunDone(r));
+    const runs = (yield* Effect.flatMap(Store, s => s.list())).filter(r => !isRunDone(r) || r.owed);
     const issues = [...new Set([...open.map(t => t.number), ...runs.map(r => r.issue)])];
     return (yield* Effect.forEach(issues, n => tick(hub, n, true, debounce), {
       concurrency: hub.limits.parallel,

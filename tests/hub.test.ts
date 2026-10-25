@@ -122,6 +122,26 @@ describe('loadHub', () => {
     expect(await problems(dir)).toEqual(['agents/a.md: reads: traces needs read in tools']);
   });
 
+  it('loads end checks that warn, and fails on one that blocks or that the hub lacks', async () => {
+    const files = {
+      'agents/a.md': '---\nharness: opencode\n---\n',
+      'checks/lines.md': '---\nmode: warn\nreturns: number\nrun: wc -l < a.txt\n---\n',
+      'checks/gate.md': '---\nmode: block\nrun: "true"\n---\n',
+      'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a, checks: [gate] }\nchecks: [lines]\n---\n',
+    };
+    const hub = await Effect.runPromise(loadHub(hubDir(files), harnesses));
+    expect(hub.workflows.w!.checks).toEqual(['lines']);
+    expect(hub.checks.lines!.returns).toBe('number');
+    const dir = hubDir({
+      ...files,
+      'workflows/w.md': files['workflows/w.md'].replace('[lines]', '[lines, gate, nope]'),
+    });
+    expect(await problems(dir)).toEqual([
+      'workflows/w.md: checks: gate runs at the end, so its mode is warn',
+      'workflows/w.md: checks: unknown check nope',
+    ]);
+  });
+
   it('fails on a skill that uses an unknown skill', async () => {
     const dir = hubDir({
       'agents/a.md': '---\nharness: opencode\n---\n',
@@ -163,7 +183,7 @@ describe('loadHub', () => {
     });
     expect(await problems(dir)).toEqual([
       'skills/s.md: names the proposal kind merge-request, which the engine does not have',
-      'checks/idle.md: no step names idle in its checks; name it in a step or remove it',
+      'checks/idle.md: no step or workflow names idle in its checks; name it in one or remove it',
       'agents/idle.md: no step or check names idle as its agent; name it in a step or remove it',
     ]);
   });

@@ -4,8 +4,11 @@ import { parse } from 'yaml';
 import type { Applied, Event } from './event.ts';
 import type { Proposal } from './proposal.ts';
 
-/** A check's verdict; `empty` when its `each` found nothing to judge. */
-export type CheckResult = { check: string; pass: boolean; empty?: true; findings?: string; ms: number };
+/**
+ * A check's result: its verdict, and the `value` a number check measured. `empty` means no evidence: `each` found
+ * nothing to judge, or a number check could not measure, with the reason in `findings`.
+ */
+export type CheckResult = { check: string; pass: boolean; value?: number; empty?: true; findings?: string; ms: number };
 
 /** A hub file after parsing: its name, where it lives and its markdown body. */
 export type Doc<T> = T & { name: string; path: string; body: string };
@@ -29,6 +32,7 @@ export type Workflow = Doc<{
   /** What a trusted comment does to a run that is working: reach its session, wait for the try to end, or cut the try short. */
   concurrency: 'steer' | 'queue' | 'cancel';
   steps: Step[];
+  checks: string[];
 }>;
 
 /**
@@ -94,6 +98,7 @@ export type Run = {
   hub?: string;
   /** The run whose `run` proposal started this one. */
   by?: string;
+  owed?: string[];
   started: string;
   ended?: string;
   usd: number;
@@ -137,6 +142,7 @@ const Front = Schema.Struct({
   concurrency: exact(Schema.Literal('steer', 'queue', 'cancel')),
   agent: exact(Schema.String),
   steps: exact(Schema.Record({ key: Schema.String, value: StepFile })),
+  checks: exact(Names),
 });
 
 const decode = Schema.decodeUnknownEither(Front, { onExcessProperty: 'error', errors: 'all' });
@@ -151,7 +157,7 @@ export const splitFrontmatter = (text: string): { data: unknown; body: string } 
 export function compileWorkflow(
   path: string,
   text: string,
-  names: Record<'agents' | 'skills' | 'checks', string[]> & { judged?: string[] }
+  names: Record<'agents' | 'skills' | 'checks', string[]> & { judged?: string[]; warned?: string[] }
 ): { workflow?: Workflow; problems: Problem[] } {
   const problems: Problem[] = [];
   const say = (key: string, message: string) => problems.push({ path, message: `${key}: ${message}` });
@@ -180,6 +186,11 @@ export function compileWorkflow(
   const files = front.steps ?? { [name]: { agent: front.agent ?? names.agents[0] ?? '' } };
   const order = Object.keys(files);
   if (order.length === 0) say('steps', 'name at least one step');
+  for (const check of front.checks ?? []) {
+    if (!names.checks.includes(check)) say('checks', `unknown check ${check}`);
+    else if (names.warned && !names.warned.includes(check))
+      say('checks', `${check} runs at the end, so its mode is warn`);
+  }
 
   const steps = order.map((stepName, i): Step => {
     const s = files[stepName]!;
@@ -241,6 +252,7 @@ export function compileWorkflow(
     ...(front.base !== undefined && { base: front.base }),
     concurrency: front.concurrency ?? 'steer',
     steps,
+    checks: front.checks ?? [],
   };
   return { workflow, problems };
 }
@@ -295,13 +307,14 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   const i = w.steps.findIndex(s => s.name === run.step);
   const step = w.steps[i];
   if (!step) return run;
-  const stop = (why: string): Run => ({ ...fresh(run), status: 'stopped', reason: why });
+  const owed = w.checks.length > 0 && { owed: w.checks };
+  const stop = (why: string): Run => ({ ...fresh(run), status: 'stopped', reason: why, ...owed });
   const ask = (question: string): Run =>
     w.on.feedback ? stop(question) : { ...fresh(run), status: 'waiting', reason: question };
 
   const forward = (): Run => {
     const next = w.steps[i + 1];
-    if (!next) return { ...fresh(run), status: 'done' };
+    if (!next) return { ...fresh(run), status: 'done', ...owed };
     const { [next.name]: _dropped, ...sessions } = run.sessions;
     return { ...fresh(run), step: next.name, status: entered(next), tries: 0, sessions };
   };
@@ -324,7 +337,7 @@ export function transition(w: Workflow, run: Run, o: Outcome): Run {
   if (run.status === 'running') {
     switch (o.kind) {
       case 'pass':
-        return o.answered ? { ...fresh(run), status: 'done' } : forward();
+        return o.answered ? { ...fresh(run), status: 'done', ...owed } : forward();
       case 'failed': {
         const tries = run.tries + 1;
         const text = formatFailedTryFeedback(o);
