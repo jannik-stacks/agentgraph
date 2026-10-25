@@ -1,15 +1,14 @@
 import { Schema } from 'effect';
+import type { Harness, Piece } from '../src/harnesses.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import {
-  type Harness,
   makeCacheCounts,
   makeLineParser,
   makeOptionalFields as some,
   makePrefixedToolForms,
   modelTimeouts,
-  type Piece,
   splitToolPattern,
-} from '../src/harnesses.ts';
+} from './helpers.ts';
 
 const { String: Str, Number: Num, Unknown, Struct, optional: opt } = Schema;
 

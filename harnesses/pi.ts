@@ -1,13 +1,13 @@
 import { Schema } from 'effect';
+import type { Harness } from '../src/harnesses.ts';
 import {
   getBlockText,
-  type Harness,
   makeCacheCounts,
   makeLineParser,
   makeOptionalFields as some,
   modelTimeouts,
   splitToolPattern,
-} from '../src/harnesses.ts';
+} from './helpers.ts';
 
 const { String: Str, Number: Num, Boolean: Bool, Unknown, Struct, optional: opt } = Schema;
 

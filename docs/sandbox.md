@@ -83,7 +83,14 @@ network: models
 
 ## Harnesses
 
-An agent's `harness` picks the session program:
+An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces. The built-in three live in `harnesses/` and are written the way your own would be:
+
+```ts
+export default { harnesses: [opencode(), claude(), pi(), mine] } satisfies Config;
+```
+
+<!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/services.ts#readConfig -->
+
 
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
