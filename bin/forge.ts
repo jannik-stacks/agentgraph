@@ -24,6 +24,7 @@ import { fileForge, Forge } from '../src/forge.ts';
 import type { Event } from '../src/event.ts';
 import type { Proposal } from '../src/proposal.ts';
 import { instanceAt } from '../src/instance.ts';
+import { readFileOrEmpty } from './resume.ts';
 
 const { values, positionals } = parseArgs({
   options: {
@@ -70,7 +71,7 @@ const apply = async (n: number, p: Proposal) => {
 const record = (n: number, kind: Event['kind'], body?: string, placed: { path?: string; line?: number } = {}) => {
   const file = join(dir, `${n}.jsonl`);
   const at = new Date().toISOString();
-  const count = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0;
+  const count = readFileOrEmpty(file).split('\n').filter(Boolean).length;
   const comment = body === undefined ? {} : { comment: { id: `${n}-${count + 1}`, author: as, body, at, ...placed } };
   appendFileSync(file, `${JSON.stringify({ issue: n, kind, actor: as, trusted: true, at, ...comment })}\n`);
 };
@@ -170,10 +171,7 @@ switch (command) {
       console.log(`${m.at} ${m.actor} ${m.kind}${m.label ? ` ${m.label}` : ''}${on}${said}`);
     }
     const diff = join(dir, String(n), 'diff.patch');
-    if (t.pull)
-      console.log(
-        `\n${t.pull.branch} into ${t.pull.base} at ${t.pull.head}\n\n${existsSync(diff) ? readFileSync(diff, 'utf8') : ''}`
-      );
+    if (t.pull) console.log(`\n${t.pull.branch} into ${t.pull.base} at ${t.pull.head}\n\n${readFileOrEmpty(diff)}`);
     break;
   }
   case 'sync': {
