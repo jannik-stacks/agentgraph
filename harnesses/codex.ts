@@ -44,10 +44,11 @@ save() {
   (flock 9 && cp /tmp/codex/auth.copy /codex/auth.next && mv /codex/auth.next /codex/auth.json) 9>/codex/.lock &&
     mv /tmp/codex/auth.copy /tmp/codex/auth.start
 }
-(while sleep 5; do save; done) >/dev/null 2>&1 &
+(until [ -e /tmp/codex/done ]; do sleep 1; save; done) >/dev/null 2>&1 &
 node -e "$AGENTGRAPH_CODEX" -- "$@"
 code=$?
-kill $!
+touch /tmp/codex/done
+wait $!
 save
 exit $code`;
 
