@@ -12,11 +12,12 @@ examples/deploy/cloudflare/up
 | --- | --- |
 | `AGENTGRAPH_APP_ENV` | Path to the App's `app.env`; empty creates the App with `node bin/setup-app.ts` |
 | `AGENTGRAPH_REPO` | `owner/name` of the repo the engine works on |
-| `GATEWAY_URL` | Your OpenAI-compatible model gateway, with its `/v1` |
-| `AGENTGRAPH_PROXY_KEYS` | One gateway key per agent, as in [Models](sandbox.md#models) |
+| `GATEWAY_URL` | Your model gateway's base; a request's path is appended as it is, `/v1` included |
+| `AGENTGRAPH_PROXY_KEYS` | Optional, read from the environment only: gateway keys per agent, as in [Models](sandbox.md#models) |
 | `GATEWAY_HEADERS` | Optional, read from the environment only; see below |
+| `AGENTGRAPH_PROXY_URL`, `AGENTGRAPH_SESSION_ENV` | Optional, read from the environment only; see [Hosting](hosting.md#models). Each name in `AGENTGRAPH_SESSION_ENV` is sent as a secret too |
 
-Values already in the environment are used without asking, so a second run of `up` only redeploys. The two keys may also come from files named by `AGENTGRAPH_APP_KEY_FILE` and `AGENTGRAPH_PROXY_KEYS_FILE`, as on a host; wrangler never sees them in its environment. The engine starts within five minutes, from a cron trigger. `npx wrangler tail` in the example folder follows it.
+Values already in the environment are used without asking, so a second run of `up` only redeploys. The keys may also come from files named by their `_FILE` settings, as on a host; wrangler never sees them in its environment. The engine starts within five minutes, from a cron trigger. `npx wrangler tail` in the example folder follows it.
 
 ## What runs where
 
@@ -29,10 +30,10 @@ Values already in the environment are used without asking, so a second run of `u
                                reaches gateway.internal and the egress allowlist, per command
    data.internal ----------> R2 bucket agentgraph-data
    gateway.internal -------> GATEWAY_URL
-   keys.internal ----------> the App key and the agent keys, read once at start
+   keys.internal ----------> the App key, the agent keys and the session variables, read once at start
 ```
 
-The engine is the same runner as on a host. `AGENTGRAPH_SANDBOX_URL` set to `http://box.internal` makes it run commands in boxes instead of docker. The checkout stays a git worktree on the engine's disk, and host git, merges and kept files work as there. <!-- code: src/remote.ts#remoteSandbox src/services.ts#makeProductionLayers -->
+The engine is the same runner and the same image as on a host, `examples/deploy/engine/Dockerfile`, started by `engine.sh` instead of `start.sh`. `AGENTGRAPH_SANDBOX_URL` set to `http://box.internal` makes it run commands in boxes instead of docker. The checkout stays a git worktree on the engine's disk, and host git, merges and kept files work as there. <!-- code: src/remote.ts#remoteSandbox src/services.ts#makeProductionLayers -->
 
 ## Boxes
 
@@ -44,19 +45,11 @@ The box answers a small HTTP protocol, so any server that runs `examples/deploy/
 
 ## Networks
 
-Egress is set per box, from the commands running in it. A box with only `none` commands running reaches nothing. During a session the box reaches `gateway.internal`, and with the hub's `network: egress` also the hosts in `infra/local/egress/allowlist`. The gateway forward keeps the path after `/v1`, never follows redirects, and applies `GATEWAY_HEADERS`. A check that runs next to a session in the same box shares the session's reach, unlike under docker, where each command has its own network.
+Egress is set per box, from the commands running in it. A box with only `none` commands running reaches nothing. During a session the box reaches `gateway.internal`, and with the hub's `network: egress` also the hosts in `infra/local/egress/allowlist`. The gateway forward keeps the request's path, never follows redirects, and applies `GATEWAY_HEADERS`, the same code as the relay on other hosts. A check that runs next to a session in the same box shares the session's reach, unlike under docker, where each command has its own network.
 
 ## Models
 
-The model gateway is yours. The Worker forwards every session request to `GATEWAY_URL`, so the key in the box is whatever the gateway accepts from it.
-
-| Gateway | `GATEWAY_URL` | `GATEWAY_HEADERS` |
-| --- | --- | --- |
-| LiteLLM on a host or behind a Tunnel | `https://litellm.example.com/v1` | none, agent keys are LiteLLM keys |
-| Cloudflare AI Gateway | `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/compat` | `{"cf-aig-authorization":"Bearer <token>","authorization":""}` with provider keys stored in the gateway |
-| OpenRouter or another provider | its OpenAI-compatible base | `{"authorization":"Bearer <key>"}`, so the box never holds the key |
-
-A header with an empty value is removed. ChatGPT subscription logins cannot run here; a LiteLLM that owns one runs elsewhere and is the gateway.
+The model gateway is yours. The Worker forwards every session request to `GATEWAY_URL`, so the key in the box is whatever the gateway accepts from it, or none when `GATEWAY_HEADERS` carries the credential. [Hosting](hosting.md#models) lists the settings for a provider key, LiteLLM, a subscription behind a proxy, a harness's own login, Vercel AI Gateway, OpenRouter, Cloudflare AI Gateway and any compatible URL; here `gateway.internal` stands for `gateway:4000`. A header with an empty value is removed. ChatGPT subscription logins cannot run here; a LiteLLM that owns one runs elsewhere and is the gateway.
 
 ## Data
 
@@ -68,4 +61,4 @@ A header with an empty value is removed. ChatGPT subscription logins cannot run 
 - Runs and traces are in the backup, not a database.
 - The processes of a command are found by `AGENTGRAPH_RUN` in their environment, so one that drops it outlives its command.
 - The studio does not run on Cloudflare.
-- Image builds and `wrangler dev` need Docker. Tests cover the box protocol and the gateway, not a deploy.
+- Image builds and `wrangler dev` need Docker. Tests cover the box protocol and the gateway, and `npm run check` in the example folder type-checks and bundles the Worker without building images; nothing covers a deploy.

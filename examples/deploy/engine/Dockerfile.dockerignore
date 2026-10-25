@@ -11,3 +11,5 @@ tests
 **/.env.*
 **/*.pem
 **/*.key
+**/.terraform
+**/*.tfstate*

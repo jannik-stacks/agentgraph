@@ -7,7 +7,7 @@
   "containers": [
     {
       "class_name": "Engine",
-      "image": "./engine.Dockerfile",
+      "image": "../engine/Dockerfile",
       "image_build_context": "../../..",
       "instance_type": "basic",
       "max_instances": 1

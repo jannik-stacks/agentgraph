@@ -1,0 +1,41 @@
+name: agentgraph
+
+services:
+  gateway:
+    build: ../gateway
+    image: agentgraph-gateway:local
+    environment:
+      GATEWAY_URL: ${GATEWAY_URL:-}
+      GATEWAY_HEADERS: ${GATEWAY_HEADERS:-}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(4000).on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    networks: [sandbox, models, egress]
+    restart: unless-stopped
+
+  egress:
+    build: ../../../infra/local/egress
+    image: agentgraph-egress:local
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 512
+    networks: [sandbox, egress]
+    restart: unless-stopped
+
+networks:
+  egress:
+    name: agentgraph-egress
+  sandbox:
+    name: agentgraph-sandbox
+    internal: true
+  models:
+    name: agentgraph-models
+    internal: true
