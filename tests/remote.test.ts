@@ -258,7 +258,7 @@ describe('remote sandbox', () => {
       Effect.gen(function* () {
         const work = yield* s.checkout('main');
         id = basename(work.dir);
-        server.faults.stops = 1;
+        server.faults.stops = 3;
         yield* Effect.either(s.exec(sh(work.dir, 'echo early > e.txt; sleep 1; echo late > l.txt', { minutes: 0.01 })));
         const next = yield* s.exec(sh(work.dir, 'ls'));
         yield* Effect.sleep('1500 millis');

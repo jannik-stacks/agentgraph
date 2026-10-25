@@ -18,7 +18,7 @@ const outputLimit = 64 << 10;
 
 const infra = (detail: string) => new SandboxError({ reason: 'infra', detail });
 
-type SyncedDir = { box: string; boxGit: string; git: Record<string, string>; tracked?: Record<string, string> };
+type SyncedDir = { box: string; git: Record<string, string>; tracked?: Record<string, string> };
 
 type BoxEntry = {
   url: string;
@@ -29,68 +29,48 @@ type BoxEntry = {
   provisioning: Effect.Semaphore;
   hub?: string;
   toolchain?: Command;
-  ready: boolean;
+  ready?: true;
   roots?: string;
-  pending: Map<string, SyncedDir>;
-  lost: Set<string>;
+  unfinished: Map<string, SyncedDir | undefined>;
   restarted?: true;
 };
 
-const call = (url: string, init: RequestInit & { signal?: AbortSignal }, onFresh = () => {}) =>
+const call = (box: BoxEntry, path: string, init: RequestInit & { signal?: AbortSignal }) =>
   Effect.tryPromise({
     try: async signal => {
-      const response = await fetch(url, { signal, ...init });
-      if (response.headers.has(freshHeader)) onFresh();
+      const response = await fetch(box.url + path, { signal, ...init });
+      if (response.headers.has(freshHeader)) box.restarted = true;
       if (!response.ok) throw new Error(`${response.status} ${(await response.text()).trim().slice(-2000)}`);
       return response;
     },
-    catch: e => infra(`box ${init.method ?? 'GET'} ${url}: ${(e as Error).message}`),
+    catch: e => infra(`box ${init.method ?? 'GET'} ${box.url}${path}: ${(e as Error).message}`),
   });
 
 const op = (box: BoxEntry, name: string, args: string[], body?: Uint8Array) =>
   Effect.filterOrFail(
-    call(
-      `${box.url}/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`,
-      { method: 'POST', ...(body && { body: new Uint8Array(body) }) },
-      () => (box.restarted = true)
-    ),
+    call(box, `/${name}?${new URLSearchParams(args.map(arg => ['arg', arg]))}`, {
+      method: 'POST',
+      ...(body && { body: new Uint8Array(body) }),
+    }),
     response => name === 'init' || !response.headers.has(freshHeader),
     () => infra(`the box restarted during ${name}`)
   );
 
-const treeOf = (dir: SyncedDir) =>
+const push = (box: BoxEntry, dir: SyncedDir, roots: string[] = []) =>
   Effect.gen(function* () {
     if (dir.tracked) {
       const paths = yield* hostGit(dir.tracked, ['ls-files', '-z']);
       yield* hostGit(dir.git, ['update-index', '--add', '--remove', '-z', '--stdin'], { input: paths });
     }
     yield* hostGit(dir.git, ['add', '-A']);
-    return (yield* hostGit(dir.git, ['write-tree'])).toString('utf8').trim();
-  });
-
-const packObjects = (git: Record<string, string>, objects: string[]) =>
-  Effect.flatMap(hostGit(git, ['rev-list', '--objects', '--no-walk', ...objects]), list =>
-    hostGit(git, ['pack-objects', '-q', '--stdout'], { input: list })
-  );
-
-const homeGit = (data: string, home: string) =>
-  Effect.gen(function* () {
-    const gitDir = join(data, 'sync', `${basename(home)}.git`);
-    const git = { GIT_DIR: gitDir, GIT_WORK_TREE: home };
-    yield* hostGit({}, ['init', '-q', '--bare', gitDir]);
-    yield* hostGit(git, ['config', 'core.bare', 'false']);
-    yield* Effect.promise(() => writeFile(join(gitDir, 'info', 'exclude'), '/.cache/\n'));
-    return git;
-  });
-
-const push = (box: BoxEntry, dir: SyncedDir, roots: string[] = []) =>
-  Effect.gen(function* () {
-    const tree = yield* treeOf(dir);
+    const tree = (yield* hostGit(dir.git, ['write-tree'])).toString('utf8').trim();
     const known = box.trees.get(dir.box);
     if (tree === known) return;
+    const git = { GIT_DIR: dir.git.GIT_DIR! };
     const objects = known ? [tree, '--not', known] : [...roots, tree];
-    const pack = yield* packObjects({ GIT_DIR: dir.git.GIT_DIR! }, objects);
-    yield* op(box, 'push', [dir.box, dir.boxGit, tree, ...(known ? [] : roots)], pack);
+    const list = yield* hostGit(git, ['rev-list', '--objects', '--no-walk', ...objects]);
+    const pack = yield* hostGit(git, ['pack-objects', '-q', '--stdout'], { input: list });
+    yield* op(box, 'push', [dir.box, tree, ...(known ? [] : roots)], pack);
     box.trees.set(dir.box, tree);
   });
 
@@ -98,7 +78,7 @@ const pull = (box: BoxEntry, dir: SyncedDir) =>
   Effect.gen(function* () {
     const known = box.trees.get(dir.box);
     if (!known) return;
-    const response = yield* op(box, 'pull', [dir.box, dir.boxGit, known]);
+    const response = yield* op(box, 'pull', [dir.box, known]);
     const body = Buffer.from(
       yield* Effect.tryPromise({
         try: () => response.arrayBuffer(),
@@ -164,36 +144,33 @@ export const remoteSandbox = (o: {
       const syncIndex = (work: Checkout) => join(o.data, 'sync', `${basename(work.dir)}.index`);
       const workDir = (box: BoxEntry): SyncedDir => ({
         box: '/work',
-        boxGit: '/work/.git',
         git: { ...box.work.git, GIT_INDEX_FILE: syncIndex(box.work) },
         tracked: box.work.git,
       });
       const homeDir = (home: string) =>
-        Effect.map(homeGit(o.data, home), (git): SyncedDir => {
-          const box = `/homes/${basename(home)}`;
-          return { box, boxGit: `${box}.git`, git };
+        Effect.gen(function* () {
+          const git = { GIT_DIR: join(o.data, 'sync', `${basename(home)}.git`), GIT_WORK_TREE: home };
+          yield* hostGit({}, ['init', '-q', '--bare', git.GIT_DIR]);
+          yield* hostGit(git, ['config', 'core.bare', 'false']);
+          yield* Effect.promise(() => writeFile(join(git.GIT_DIR, 'info', 'exclude'), '/.cache/\n'));
+          return { box: `/homes/${basename(home)}`, git };
         });
 
+      const pullBack = (box: BoxEntry, home?: SyncedDir) =>
+        Effect.zipRight(pull(box, workDir(box)), home ? pull(box, home) : Effect.void);
+
+      const settle = (box: BoxEntry, id: string, home?: SyncedDir) =>
+        Effect.zipRight(op(box, 'stop', [id]), pullBack(box, home));
+
       const recover = (box: BoxEntry) =>
-        Effect.zipRight(
-          Effect.forEach(
-            [...box.lost],
-            id =>
-              Effect.zipRight(
-                op(box, 'stop', [id]),
-                Effect.sync(() => box.lost.delete(id))
-              ),
-            { discard: true }
-          ),
-          Effect.forEach(
-            [...box.pending.values()],
-            dir =>
-              Effect.zipRight(
-                pull(box, dir),
-                Effect.sync(() => box.pending.delete(dir.box))
-              ),
-            { discard: true }
-          )
+        Effect.forEach(
+          [...box.unfinished],
+          ([id, home]) =>
+            Effect.zipRight(
+              settle(box, id, home),
+              Effect.sync(() => box.unfinished.delete(id))
+            ),
+          { discard: true }
         );
 
       const before = (box: BoxEntry, c: Command, home?: SyncedDir) =>
@@ -202,12 +179,11 @@ export const remoteSandbox = (o: {
             yield* op(box, 'init', []);
             if (box.restarted) {
               delete box.restarted;
-              const lost = box.pending.size > 0;
-              box.pending.clear();
-              box.lost.clear();
+              const lost = box.unfinished.size > 0;
+              box.unfinished.clear();
               box.trees.clear();
               delete box.hub;
-              box.ready = false;
+              delete box.ready;
               if (lost)
                 return yield* infra(
                   `the box restarted before its last work came back; look for kept/${basename(box.work.dir)}.tgz in the data bucket`
@@ -227,9 +203,6 @@ export const remoteSandbox = (o: {
           })
         );
 
-      const after = (box: BoxEntry, home?: SyncedDir) =>
-        box.sync.withPermits(1)(Effect.zipRight(pull(box, workDir(box)), home ? pull(box, home) : Effect.void));
-
       const news = (box: BoxEntry) => putDir(box, dirname(box.work.news), dirname(box.work.news));
 
       const lines = (c: Command): Stream.Stream<string | Pick<Exit, 'code'>, SandboxError> =>
@@ -241,7 +214,7 @@ export const remoteSandbox = (o: {
             const late = () => new SandboxError({ reason: 'timeout', detail: `no exit after ${c.minutes} minutes` });
             const bounded = { duration: Duration.minutes(c.minutes), onTimeout: late };
             yield* Effect.timeoutFail(before(box, c, home), bounded);
-            if (!box.ready && c !== box.toolchain) yield* provision(box);
+            if (c !== box.toolchain) yield* provision(box);
             yield* Effect.timeoutFail(news(box), bounded);
             yield* Effect.forkScoped(Effect.repeat(Effect.ignore(news(box)), Schedule.spaced('1 minute')));
             const env: Record<string, string> = {
@@ -257,35 +230,21 @@ export const remoteSandbox = (o: {
             const network = c.network === 'proxy' ? box.network : c.network;
             const argv = [String(c.minutes), ...Object.entries(env).map(([k, v]) => `${k}=${v}`), c.cmd, ...c.args];
             const id = randomUUID();
-            let stopped = false;
             let code: number | undefined;
             let pulled = false;
             yield* Effect.addFinalizer(() =>
               pulled
                 ? Effect.void
                 : Effect.timeout(
-                    Effect.interruptible(
-                      Effect.zipRight(
-                        Effect.tap(op(box, 'stop', [id]), () => (stopped = true)),
-                        Effect.retry(after(box, home), { times: 2 })
-                      )
-                    ),
+                    Effect.interruptible(Effect.retry(box.sync.withPermits(1)(settle(box, id, home)), { times: 2 })),
                     '5 minutes'
-                  ).pipe(
-                    Effect.catchAllCause(() =>
-                      Effect.sync(() => {
-                        if (!stopped) box.lost.add(id);
-                        for (const dir of [workDir(box), ...(home ? [home] : [])]) box.pending.set(dir.box, dir);
-                      })
-                    )
-                  )
+                  ).pipe(Effect.catchAllCause(() => Effect.sync(() => box.unfinished.set(id, home))))
             );
             const response = yield* Effect.timeoutFail(
-              call(
-                `${box.url}/run?network=${network}&id=${id}`,
-                { method: 'POST', body: JSON.stringify({ argv, secrets }) },
-                () => (box.restarted = true)
-              ),
+              call(box, `/run?network=${network}&id=${id}`, {
+                method: 'POST',
+                body: JSON.stringify({ argv, secrets }),
+              }),
               bounded
             );
             if (response.headers.has(freshHeader)) {
@@ -294,7 +253,7 @@ export const remoteSandbox = (o: {
             }
             const ended = Effect.gen(function* () {
               if (code === undefined) return yield* infra('the box stream ended without an exit code');
-              yield* after(box, home);
+              yield* box.sync.withPermits(1)(pullBack(box, home));
               pulled = true;
               return { code };
             });
@@ -317,8 +276,8 @@ export const remoteSandbox = (o: {
       const provision = (box: BoxEntry) =>
         box.provisioning.withPermits(1)(
           Effect.gen(function* () {
-            if (box.ready || !box.toolchain) return;
-            const out = yield* exec(box.toolchain);
+            if (box.ready) return;
+            const out = box.toolchain ? yield* exec(box.toolchain) : { code: 0, output: '' };
             if (out.code !== 0) return yield* infra(`toolchain exited ${out.code}: ${out.output.trim().slice(-2000)}`);
             box.ready = true;
           })
@@ -347,9 +306,7 @@ export const remoteSandbox = (o: {
             trees: new Map(),
             sync: yield* Effect.makeSemaphore(1),
             provisioning: yield* Effect.makeSemaphore(1),
-            ready: true,
-            pending: new Map(),
-            lost: new Set(),
+            unfinished: new Map(),
           };
           if (work.git.GIT_INDEX_FILE && existsSync(work.git.GIT_INDEX_FILE))
             copyFileSync(work.git.GIT_INDEX_FILE, syncIndex(work));
@@ -362,10 +319,10 @@ export const remoteSandbox = (o: {
                   Effect.timeout(Effect.interruptible(box.sync.withPermits(1)(recover(box))), '5 minutes')
                 );
                 rmSync(syncIndex(work), { force: true });
-                if (box.pending.size + box.lost.size > 0)
+                if (box.unfinished.size > 0)
                   return yield* Effect.logWarning(`kept the box ${box.url}: its last work did not come back`);
                 yield* Effect.ignore(
-                  Effect.timeout(Effect.interruptible(call(box.url, { method: 'DELETE' })), '1 minute')
+                  Effect.timeout(Effect.interruptible(call(box, '', { method: 'DELETE' })), '1 minute')
                 );
               })
           );
@@ -384,7 +341,6 @@ export const remoteSandbox = (o: {
             network: 'open',
             minutes: 30,
           };
-          box.ready = false;
           yield* provision(box);
           return work;
         });

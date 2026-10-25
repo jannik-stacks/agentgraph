@@ -6,12 +6,14 @@ env=$root/tmp/agentgraph-box.env
 
 sync() {
   dir=$root$1
-  if [ ! -d "$root$2" ]; then
-    git init -q --bare "$root$2"
-    git --git-dir="$root$2" config core.bare false
-    [ "$2" = "$1/.git" ] || printf '/.cache/\n' > "$root$2/info/exclude"
+  git=$dir.git
+  [ "$1" != /work ] || git=$dir/.git
+  if [ ! -d "$git" ]; then
+    git init -q --bare "$git"
+    git --git-dir="$git" config core.bare false
+    [ "$1" = /work ] || printf '/.cache/\n' > "$git/info/exclude"
   fi
-  export GIT_DIR="$root$2" GIT_WORK_TREE="$dir" GIT_INDEX_FILE="$root$2/agentgraph-index"
+  export GIT_DIR="$git" GIT_WORK_TREE="$dir" GIT_INDEX_FILE="$git/agentgraph-index"
   mkdir -p "$dir"
 }
 
@@ -30,9 +32,9 @@ init)
   [ "$(id -u)" != 0 ] || chown 1000:1000 "$root/work" "$root/homes"
   ;;
 push)
-  sync "$1" "$2"
-  tree=$3
-  shift 3
+  sync "$1"
+  tree=$2
+  shift 2
   [ $# -eq 0 ] || printf '%s\n' "$@" > "$GIT_DIR/shallow"
   git index-pack --stdin --strict > /dev/null
   if [ $# -gt 0 ]; then
@@ -42,13 +44,13 @@ push)
   git read-tree -u --reset "$tree"
   ;;
 pull)
-  sync "$1" "$2"
+  sync "$1"
   [ ! -f "$GIT_DIR/index" ] || GIT_INDEX_FILE="$GIT_DIR/index" git ls-files -z | git update-index --add --remove -z --stdin
   git add -A
   tree=$(git write-tree)
   echo "$tree"
-  [ "$tree" != "$3" ] || exit 0
-  git rev-list --objects "$tree" --not "$3" > "$GIT_DIR/agentgraph-objects"
+  [ "$tree" != "$2" ] || exit 0
+  git rev-list --objects "$tree" --not "$2" > "$GIT_DIR/agentgraph-objects"
   git pack-objects -q --stdout < "$GIT_DIR/agentgraph-objects"
   ;;
 put)
