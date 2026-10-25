@@ -469,6 +469,8 @@ async function report(i: Instance, issue: number, merged = false) {
 }
 
 async function loop(i: Instance) {
+  const moved = await ensureBase(i);
+  if (moved) fail(moved, 1);
   const first = await ensureHub(i, values.hub).catch((e: Error) => fail(e.message, 1));
   const connection = await connect(i, first, 'Nothing was driven.');
   const release = await createLoopLock(i.data).catch(() => fail(`another loop drives ${i.repo}`, 1));
