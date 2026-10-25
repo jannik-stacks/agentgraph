@@ -103,7 +103,7 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         child.stdout.on('data', collect);
         child.stderr.on('data', collect);
         child.on('error', e => resume(Effect.fail(new SandboxError({ reason: 'infra', detail: e.message }))));
-        child.on('close', code => resume(Effect.succeed({ code: code ?? 1, output })));
+        child.on('close', code => resume(Effect.succeed({ code: code ?? 137, output })));
         return Effect.sync(() => child.kill('SIGKILL'));
       }).pipe(Effect.timeoutFail({ duration: Duration.minutes(command.minutes), onTimeout: late(command) })),
     lines: command =>
@@ -111,7 +111,7 @@ export const hostSandbox = (repo: string): Layer.Layer<Sandbox> =>
         const child = spawned(command);
         createInterface({ input: child.stdout }).on('line', line => void emit.single(line));
         child.on('error', e => void emit.fail(new SandboxError({ reason: 'infra', detail: e.message })));
-        child.on('close', code => void emit.single({ code: code ?? 1 }).then(() => emit.end()));
+        child.on('close', code => void emit.single({ code: code ?? 137 }).then(() => emit.end()));
         return Effect.sync(() => child.kill('SIGKILL'));
       }).pipe(
         Stream.interruptWhen(

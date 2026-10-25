@@ -2,17 +2,19 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Chunk, ConfigProvider, Effect, Exit, Layer, Redacted, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { harnessSession, getModelPrice, readHarnessSettings } from '../src/harnesses.ts';
+import { type Harness, harnessSession, getModelPrice, readHarnessSettings } from '../src/harnesses.ts';
 import { type Command, Sandbox, SandboxError } from '../src/sandbox.ts';
 import { Session } from '../src/session.ts';
 import type { SessionEvent, SessionSpec } from '../src/trace.ts';
@@ -34,23 +36,34 @@ const spec: SessionSpec = {
 const key = ['sk-bh', 'implementor', '0123456789abcdef'].join('-');
 
 /** Runs one session over a sandbox that replays `lines` and then the exit code, recording the command it got. */
-const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError, prices?: string, list = harnesses) => {
-  const data = mkdtempSync(join(tmpdir(), 'agentgraph-harness-'));
+const data = mkdtempSync(join(tmpdir(), 'agentgraph-harness-'));
+
+const makeHome = () => {
+  const home = join(data, 'homes', randomUUID());
+  mkdirSync(home, { recursive: true });
+  return home;
+};
+
+const session = (
+  s: SessionSpec,
+  lines: string[],
+  o: { exit?: number; fail?: SandboxError; prices?: string; harnesses?: Harness[] } = {}
+) => {
   const commands: Command[] = [];
   const sandbox = Layer.succeed(Sandbox, {
     checkout: () => Effect.die('checkout'),
     exec: () => Effect.die('exec'),
     lines: command => {
       commands.push(command);
-      const out = Stream.fromIterable([...lines, { code: exit }]);
-      return fail ? Stream.concat(out.pipe(Stream.take(1)), Stream.fail(fail)) : out;
+      const out = Stream.fromIterable([...lines, { code: o.exit ?? 0 }]);
+      return o.fail ? Stream.concat(out.pipe(Stream.take(1)), Stream.fail(o.fail)) : out;
     },
   });
   const layer = harnessSession({
     data,
     proxy: { url: 'http://litellm:4000/v1', keys: Redacted.make(`implementor=${key}, reviewer=sk-other`) },
-    ...(prices && { prices }),
-    harnesses: list,
+    ...(o.prices && { prices: o.prices }),
+    harnesses: o.harnesses ?? harnesses,
   }).pipe(Layer.provide(sandbox));
   const run = Session.pipe(
     Effect.flatMap(({ open }) => Stream.runCollect(open(s))),
@@ -62,7 +75,7 @@ const session = (s: SessionSpec, lines: string[], exit = 0, fail?: SandboxError,
 };
 
 const events = async (s: SessionSpec, lines: string[], exit = 0) => {
-  const { exit: result, command, data } = await session(s, lines, exit);
+  const { exit: result, command, data } = await session(s, lines, { exit });
   if (!Exit.isSuccess(result)) throw new Error(String(result.cause));
   return { events: result.value, command, data };
 };
@@ -86,7 +99,7 @@ describe('the session loop', () => {
         models: { 'gpt-6.1-sol': { input: 1.25, cached: 0.125, output: 10 } },
       })
     );
-    const { exit } = await session(spec, sample('opencode-denied.jsonl'), 0, undefined, prices);
+    const { exit } = await session(spec, sample('opencode-denied.jsonl'), { prices });
     const usage = Exit.isSuccess(exit) ? exit.value.filter(e => e.type === 'usage') : [];
     expect(usage[0]).toEqual({ type: 'usage', input: 3201, output: 19, usd: (3201 * 1.25 + 19 * 10) / 1e6 });
     expect(usage[1]).toEqual({
@@ -174,12 +187,32 @@ describe('the session loop', () => {
 
   it('turns a sandbox timeout into a session stop', async () => {
     const fail = new SandboxError({ reason: 'timeout', detail: 'no exit after 5 minutes' });
-    const { exit } = await session(spec, sample('opencode-run.jsonl'), 0, fail);
+    const { exit } = await session(spec, sample('opencode-run.jsonl'), { fail });
     expect(Exit.isFailure(exit) && JSON.stringify(exit.cause)).toContain('"reason":"timeout"');
   });
 
+  it.each(LEAKY_PATHS)('refuses the home path %s, which leaves the run home', async path => {
+    const leaky = { ...harnesses[0]!, name: 'leaky', home: () => ({ files: { [path]: 'x' } }) };
+    const { exit, command } = await session({ ...spec, harness: 'leaky' }, [], { harnesses: [leaky] });
+    expect(command).toBeUndefined();
+    expect(JSON.stringify(exit)).toContain('is not a path inside the home');
+  });
+
+  it('resumes or forks only a session home of its own', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'agentgraph-outside-'));
+    const linked = join(dirname(makeHome()), 'linked');
+    symlinkSync(outside, linked);
+    const runs = await Promise.all([
+      session({ ...spec, resume: { id: 's', home: outside } }, []),
+      session({ ...spec, resume: { id: 's', home: linked } }, []),
+      session({ ...spec, resume: { id: 's', home: outside }, fork: true }, []),
+    ]);
+    expect(runs.every(r => !r.command && JSON.stringify(r.exit).includes('is not a session home'))).toBe(true);
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
   it('resumes in the session home it was given', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
+    const home = makeHome();
     const { command, events: got } = await events(
       { ...spec, resume: { id: 'ses_1', home } },
       sample('opencode-run.jsonl')
@@ -194,7 +227,7 @@ describe('the session loop', () => {
     ['claude', ['--resume', 'ses_1', '--fork-session']],
     ['pi', ['--fork', 'ses_1']],
   ] as const)('forks a %s session in a copy of its home', async (harness, flags) => {
-    const home = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
+    const home = makeHome();
     writeFileSync(join(home, 'history'), 'kept');
     const { command } = await events({ ...spec, harness, resume: { id: 'ses_1', home }, fork: true }, []);
     const args = harnessArgs(command);
@@ -347,10 +380,7 @@ describe('claude', () => {
   const claude = { ...spec, harness: 'claude' as const };
 
   it('talks to the proxy with the agent key and keeps its config in the run home', async () => {
-    const { command } = await events(
-      { ...claude, resume: { id: 'e477', home: mkdtempSync(join(tmpdir(), 'h-')) } },
-      []
-    );
+    const { command } = await events({ ...claude, resume: { id: 'e477', home: makeHome() } }, []);
     const args = harnessArgs(command);
     expect(args).toEqual(
       expect.arrayContaining(['--permission-mode', 'dontAsk', '--resume', 'e477', '--model', 'smart'])
@@ -442,20 +472,13 @@ describe('pi', () => {
     expect(readlinkSync(join(config, 'node_modules'))).toBe('/opt/opencode/node_modules');
   });
 
-  it.each(LEAKY_PATHS)('refuses the home path %s, which leaves the run home', async path => {
-    const leaky = { ...harnesses[0]!, name: 'leaky', home: () => ({ files: { [path]: 'x' } }) };
-    const { exit, command } = await session({ ...spec, harness: 'leaky' }, [], 0, undefined, undefined, [leaky]);
-    expect(command).toBeUndefined();
-    expect(JSON.stringify(exit)).toContain('is not a path inside the home');
-  });
-
   it('never writes through a link the agent left in a resumed home', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'agentgraph-outside-'));
     writeFileSync(join(outside, 'victim'), 'keep');
-    const linked = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
+    const linked = makeHome();
     mkdirSync(join(linked, '.pi', 'agent'), { recursive: true });
     symlinkSync(join(outside, 'victim'), join(linked, '.pi', 'agent', 'models.json'));
-    const dir = mkdtempSync(join(tmpdir(), 'agentgraph-home-'));
+    const dir = makeHome();
     symlinkSync(outside, join(dir, '.pi'));
     for (const home of [linked, dir]) {
       const { exit } = await session({ ...pi, resume: { id: 's', home } }, []);

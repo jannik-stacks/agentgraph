@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open as openFile, readFile, rm, symlink } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Config, Effect, Layer, Redacted, Stream } from 'effect';
 import { type HarnessCheck, HubError, loadHub } from './hub.ts';
@@ -163,9 +163,13 @@ export const harnessSession = (s: {
               return yield* new SessionStop({ reason: 'provider', detail: `no proxy key for agent ${spec.agent}` });
             const route = { url: s.proxy.url, model: spec.model ?? 'default' };
             const { files = {}, links = {} } = harness.home?.(spec, route) ?? {};
-            const home = (!spec.fork && spec.resume?.home) || join(s.data, 'homes', randomUUID());
+            const homes = join(s.data, 'homes');
+            const home = (!spec.fork && spec.resume?.home) || join(homes, randomUUID());
             yield* Effect.tryPromise({
               try: async () => {
+                const from = spec.resume?.home;
+                if (from && (dirname(resolve(from)) !== resolve(homes) || !(await lstat(from)).isDirectory()))
+                  throw new Error(`${from} is not a session home in ${homes}`);
                 if (spec.fork && spec.resume)
                   await cp(spec.resume.home, home, { recursive: true, verbatimSymlinks: true });
                 await mkdir(home, { recursive: true });
