@@ -322,17 +322,17 @@ async function runOnInstance() {
         values.label
       ).catch((e: Error) => fail(e.message));
       console.log(`#${issue} ${text.split('\n')[0]}`);
-      return drive(i, issue, hub, undefined);
+      return drive(i, issue, hub);
     }
     case 'say': {
       if (!said()) fail(`say takes text\n${usage}`);
       const issue = await findIssueOf(i, numbered());
       const hub = await synced();
       await prepare(i, hub, 'Nothing was posted.');
-      const { seen } = await readLastRun(i, issue);
+      const since = new Date().toISOString();
       await writeComment(i.forge, i.owner, n, `/agent ${said()}`, values.line).catch((e: Error) => fail(e.message));
       if (values.label) await writeLabels(i.forge, i.owner, n, values.label).catch((e: Error) => fail(e.message));
-      return drive(i, issue, hub, seen);
+      return drive(i, issue, hub, since);
     }
     case 'review': {
       const verdict = ({ approve: 'approved', changes: 'changes_requested' } as const)[
@@ -343,9 +343,9 @@ async function runOnInstance() {
       const issue = await findIssueOf(i, numbered());
       const hub = await synced();
       if (verdict === 'changes_requested') await prepare(i, hub, 'Nothing was posted.');
-      const { seen } = await readLastRun(i, issue);
+      const since = new Date().toISOString();
       await writeReview(i.forge, i.owner, n, verdict, text).catch((e: Error) => fail(e.message));
-      if (verdict === 'changes_requested') return drive(i, issue, hub, seen);
+      if (verdict === 'changes_requested') return drive(i, issue, hub, since);
       console.log(`approved #${n}`);
       return;
     }
@@ -370,10 +370,10 @@ async function runOnInstance() {
     }
     case 'close': {
       const pull = await findPull(i.forge, numbered());
-      const open = pull?.state === 'open' ? [pull.number] : [];
-      const closed = [...new Set([n, await findIssueOf(i, n), ...open])];
+      const open = new Set((await Effect.runPromise((await forgeOf()).issues({ state: 'open' }))).map(t => t.number));
+      const closed = [...new Set([n, await findIssueOf(i, n), pull?.number ?? n])].filter(k => open.has(k));
       for (const k of closed) writeClosed(i.forge, i.owner, k);
-      console.log(`closed #${closed.join(' and #')}`);
+      console.log(closed.length ? `closed #${closed.join(' and #')}` : `nothing open on #${n}`);
       return;
     }
     case 'show':
@@ -416,12 +416,7 @@ async function findIssueOf(i: Instance, n: number) {
   return Number(/^agentgraph\/(\d+)$/.exec(branch)?.[1] ?? n);
 }
 
-async function readLastRun(i: Instance, issue: number) {
-  const last = (await listRuns(i.data, { issue })).toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
-  return { last, seen: JSON.stringify(last) };
-}
-
-async function drive(i: Instance, issue: number, hub: string, before: string | undefined) {
+async function drive(i: Instance, issue: number, hub: string, since = '') {
   trapInterrupt();
   if (await isLoopHeld(i.data)) {
     console.log(`a loop drives this repo; following #${issue}`);
@@ -429,9 +424,9 @@ async function drive(i: Instance, issue: number, hub: string, before: string | u
     let held = true;
     for (;;) {
       await new Promise(done => setTimeout(done, 2000));
-      const { last, seen } = await readLastRun(i, issue);
+      const last = (await listRuns(i.data, { issue })).toSorted((a, b) => a.started.localeCompare(b.started)).at(-1);
       held = await isLoopHeld(i.data);
-      if (stopping.signal.aborted || !held || (last && last.status !== 'running' && seen !== before)) break;
+      if (stopping.signal.aborted || !held || (last && last.status !== 'running' && (last.seen ?? '') >= since)) break;
     }
     await stop();
     if (stopping.signal.aborted) process.exit(130);
