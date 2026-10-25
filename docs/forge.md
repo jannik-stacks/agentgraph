@@ -32,6 +32,21 @@ The issue number is the handle. Each issue has at most one open pull request, on
 
 Before it files or drives, the CLI checks that docker runs, creates the networks `agentgraph-sandbox`, `agentgraph-models` and `agentgraph-egress` when missing, builds the sandbox and egress images from the package once, and starts an egress proxy when none is on the sandbox network. Without docker it stops before filing and says how to start it. `AGENTGRAPH_SANDBOX_URL` skips all of this. <!-- code: src/docker.ts#ensureDocker -->
 
+## Models
+
+A provider is where model calls go and how they authenticate. `agentgraph.config.ts` lists them; each names the harnesses it serves and sets the [model settings](hosting.md#models) for them. <!-- code: harnesses/providers.ts#makeProviders -->
+
+| Provider | Harness | Ready when |
+| --- | --- | --- |
+| `claude` | `claude` | `~/.config/agentgraph/claude-token` exists or `CLAUDE_CODE_OAUTH_TOKEN` is set |
+| `chatgpt` | `codex` | the device login in the docker volume `agentgraph-codex` was made |
+| `anthropic` | `claude` | `ANTHROPIC_API_KEY` is set |
+| `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set, for `AGENTGRAPH_PROXY_URL` |
+
+`--provider` picks one, else `provider` in instance.yaml, else the only ready one. When several are ready the CLI asks in a terminal and saves the answer, and fails without one. When none is ready it lists how to get one, and files nothing. `--harness` picks among the provider's harnesses for agents that name none, and `--model` replaces every agent's model for that command. An agent whose harness the provider does not serve fails before anything is filed. <!-- code: bin/run.ts#pickProvider -->
+
+A subscription logs in once per machine, the first time it is picked. `claude` runs `claude setup-token` on the host and asks for the token it prints, then keeps it in a file only you can read; each Claude Code session gets it as `CLAUDE_CODE_OAUTH_TOKEN`. `chatgpt` runs `codex login --device-auth` in a sandbox container, so the login lives in the docker volume and never in your `~/.codex`. Either credential is inside the session's container while it runs.
+
 ## Who drives
 
 `start`, `say` and `review changes` post, then drive that issue in the foreground until it waits or ends, printing each step. `merge`, `review approve`, `close` and `export` never drive.

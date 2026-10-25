@@ -19,7 +19,7 @@ Sessions and checkout setup use the hub's `network`:
 | `egress` (default) | `agentgraph-sandbox` | Model proxy, the optional Ollama relay, an HTTPS allowlist |
 | `models` | `agentgraph-models` | Model proxy only |
 
-The local compose stack creates both internal networks. The allowlist in `infra/local/egress/allowlist` has `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org`: GitHub downloads and npm installs, but no PyPI, crates.io, Docker Hub, SSH or browsing. Scripts and checks get no network at all. Environment builds use Docker's default network.
+The local compose stack creates both internal networks. The allowlist in `infra/local/egress/allowlist` has `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `registry.npmjs.org` for GitHub downloads and npm installs, and `api.anthropic.com`, `chatgpt.com` and `auth.openai.com` for harnesses on their own login. No PyPI, crates.io, Docker Hub, SSH or browsing. Scripts and checks get no network at all. Environment builds use Docker's default network.
 
 Hub `setup` installs dependencies, for example `npm ci --prefix kit --no-audit --no-fund`. With `models`, they must already be in the image or the environment. A failed checkout setup retries, then parks the run; an answer retries setup and the step. <!-- code: src/engine.ts#setUp -->
 
@@ -83,7 +83,7 @@ network: models
 
 ## Harnesses
 
-An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces, and an optional `check` that lists what it cannot do for an agent. The built-in three live in `harnesses/` and are written the way your own would be. Say a harness prints one JSON object per line:
+An agent's `harness` picks the session program by name. The runner's `agentgraph.config.ts`, or the file `AGENTGRAPH_CONFIG` names, lists the harness plugins. The operator owns that file; a hub never loads code. A plugin is an object with a `name`, the env var its `key` goes in, an optional `home` of files and links, the `command` to run and a `parse` that turns each output line into pieces, and an optional `check` that lists what it cannot do for an agent. The built-in four live in `harnesses/` and are written the way your own would be. Say a harness prints one JSON object per line:
 
 ```jsonl
 {"kind":"start","id":"s1"}
@@ -113,30 +113,32 @@ const echo = (): Harness => ({
   },
 });
 
-export default { harnesses: [opencode(), claude(), pi(), echo()] } satisfies HarnessSettings;
+export default { harnesses: [opencode(), claude(), pi(), echo()], providers: makeProviders() } satisfies HarnessSettings;
 ```
 
-The package has no entry point yet, so a plugin imports its types from `src/harnesses.ts`, and the schema and parsing helpers the built-in three share from `harnesses/helpers.ts`. What the session loop does around a plugin:
+The package has no entry point yet, so a plugin imports its types from `src/harnesses.ts`, and the schema and parsing helpers the built-in four share from `harnesses/helpers.ts`. What the session loop does around a plugin:
 
 - `parse` gets each line already parsed as JSON. A line that is not JSON is kept as the error tail, which becomes the final reply when the session fails with no reply and no error of its own.
 - The first `session` piece starts the session; later ones are ignored. A session that ends without a `done` piece ends in `error`.
 - `command` and `home` get the model from the route only. The route also holds the proxy URL, and the loop puts the agent's key in the `key` env var.
 - `home` paths are relative to the session home and cannot leave it.
+- `volumes` maps container paths to docker volumes that outlive the session. Sessions of harnesses sharing a volume run one at a time.
 - `check` returns what the harness cannot do, phrased to follow its name, such as `takes no tools`. The hub reports it as `harness: echo takes no tools`.
 
-A hub loads only when every agent names a harness in the config and that harness's `check` finds nothing. A config that does not load fails every hub with its problem. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->
+An agent without a `harness` gets `AGENTGRAPH_HARNESS`, else the first harness in the config. A hub loads only when every agent's harness is in the config and its `check` finds nothing. A config that does not load fails every hub with its problem. A hub names a harness and never holds a key or a model address. <!-- code: src/harnesses.ts#Harness agentgraph.config.ts src/harnesses.ts#readHarnessSettings src/hub.ts#loadHub -->
 
 | Harness | Tool permissions | Aside fork |
 | --- | --- | --- |
 | `opencode` | Allowlists with patterns, such as `bash(git diff*)` | `--session <id> --fork` |
 | `pi` | Plain tool names only; a patterned tool such as `bash(npm test*)` fails the hub check, so best for read-only agents | `--fork <id>` |
 | `claude` | Claude Code through the proxy's Anthropic endpoint; patterns work, a tool Claude Code lacks fails the hub check | `--resume <id> --fork-session` |
+| `codex` | Codex runs every tool it has and ignores the agent's list; its login and sessions live in the docker volume `agentgraph-codex` | none |
 
 Agent `tools` defaults to none. Bash patterns also allow the `NODE_OPTIONS= command ` prefix. Session homes under `homes/` in the data directory persist across resumes, and [asides](loop.md#asides) copy them before forking. <!-- code: src/harnesses.ts#harnessSession -->
 
 ## Models
 
-An agent's `model` is the name its endpoint expects, such as a gateway alias. Without one, opencode and pi ask for `default`, so give those agents a `model`. Claude Code uses its own default. Locally, `infra/local/litellm.config.yaml` maps aliases to providers and logs spend per agent key, so moving an alias to another provider or subscription needs no agent edit.
+An agent's `model` is the name its endpoint expects, such as a gateway alias. `AGENTGRAPH_MODELS` maps aliases to other names as `alias=model` pairs, with `*` for agents without a `model`. Without one, opencode and pi ask for `default`, so give those agents a `model`. Claude Code uses its own default. Locally, `infra/local/litellm.config.yaml` maps aliases to providers and logs spend per agent key, so moving an alias to another provider or subscription needs no agent edit.
 
 `AGENTGRAPH_PROXY_URL` is the base URL, one for every harness or `harness=url` pairs, and `AGENTGRAPH_PROXY_KEYS` holds `agent=key` pairs, with `*` for any other agent; both are separated by commas or spaces. A harness without a URL uses its own endpoint, and an agent without a key runs on its harness's own login. Inside the container the key is `AGENTGRAPH_LLM_API_KEY` for opencode and pi and `ANTHROPIC_AUTH_TOKEN` for Claude Code; opencode also gets `AGENTGRAPH_LLM_BASE_URL`. `AGENTGRAPH_SESSION_ENV` names engine variables every session gets as well. Keys pass by environment name, never in arguments, and are masked in output. [Hosting](hosting.md#models) has the settings for each kind of gateway. <!-- code: src/harnesses.ts#harnessSession -->
 

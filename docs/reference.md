@@ -76,7 +76,7 @@ A step names exactly one of `agent`, `run` and `wait`. <!-- code: src/workflow.t
 
 | Field     | Type                         | Default                                 | Meaning                                                                                          |
 | --------- | ---------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `harness` | a harness name from the config | required                              | The program that runs the session; see [Harnesses](sandbox.md#harnesses)                       |
+| `harness` | a harness name from the config | `AGENTGRAPH_HARNESS`, else the config's first | The program that runs the session; see [Harnesses](sandbox.md#harnesses)                 |
 | `model`   | model alias                  | `default`, or Claude Code's own default | Proxy model alias                                                                                |
 | `tools`   | list of tool names           | none                                    | Allowed tools                                                                                    |
 | `returns` | list of proposal kinds       | `[comment]`                             | The kinds it may propose, see [Proposals](proposals.md)                                          |
@@ -113,4 +113,5 @@ Written by the first command in a repo; see [the data dir](forge.md#the-data-dir
 | `repo`     | path                  | the repo                      | The checkout the forge's base syncs from and branches go to |
 | `base`     | branch name           | the branch checked out first  | The branch the forge's base fast-forwards to              |
 | `owner`    | name                  | `git config user.name`        | The author of every local verb and the only trusted login |
+| `provider` | provider name         | none                          | The provider picked when several were ready               |
 | `exported` | map of ref to commit  | none                          | Where agentgraph last wrote each ref into the repo        |

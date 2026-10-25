@@ -57,6 +57,8 @@ The runner reads these from the environment. The CLI sets `AGENTGRAPH_HUB`, `AGE
 | `AGENTGRAPH_APP_KEY_FILE` | File holding the App's private key, read once per start; `/dev/fd/3` reads it from the [Keychain](../infra/github/README.md#create-the-app) |
 | `AGENTGRAPH_DATA` | The data root of instances, `~/.agentgraph`; `--data` wins |
 | `AGENTGRAPH_EVERY` | Poll interval in minutes, 5 |
+| `AGENTGRAPH_HARNESS` | The harness of agents that name none, else the config's first |
+| `AGENTGRAPH_MODELS` | `alias=model` pairs, `*` for agents without a `model`; see [Models](sandbox.md#models) |
 | `AGENTGRAPH_TRUST` | Comma-separated logins trusted instead of the hub's `trust` |
 | `AGENTGRAPH_PROXY_URL` | Model proxy, `http://litellm:4000/v1` |
 | `AGENTGRAPH_PROXY_KEYS` | Per-agent keys, see [Models](sandbox.md#models); `AGENTGRAPH_PROXY_KEYS_FILE` names a file holding them |

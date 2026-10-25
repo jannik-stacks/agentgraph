@@ -18,6 +18,13 @@
 - `AGENTGRAPH_TRUST` replaces the hub's `trust`; the CLI sets it to the instance owner.
 - instance.yaml has `repo`, `base`, `owner` and `exported`; `logs` is gone, use `--logs`.
 - The studio takes `--repo` instead of `--instance`.
+- Providers in `agentgraph.config.ts` (`claude`, `chatgpt`, `anthropic`, `litellm`) set the model
+  settings for the harnesses they serve; `--provider`, `--harness` and `--model` pick, and an agent's
+  harness the provider does not serve fails before filing. A subscription logs in on first use.
+- The `codex` harness runs Codex with its login in the docker volume `agentgraph-codex`. The sandbox
+  image installs Claude Code 2.1.296 and Codex 0.162.1, and the egress allowlist has their API hosts.
+- An agent's `harness` is optional: `AGENTGRAPH_HARNESS`, else the config's first. `AGENTGRAPH_MODELS`
+  maps model aliases, `*` for agents without a `model`.
 - The CLI checks docker before it files or drives, and creates the sandbox networks, the egress proxy
   and the sandbox image when missing. The package is publishable: `bin/agentgraph.js` runs the
   TypeScript sources from `node_modules`, and `files` ships the engine, the default hub and the
