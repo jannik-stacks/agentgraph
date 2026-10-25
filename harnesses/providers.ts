@@ -126,6 +126,7 @@ const litellm: Provider = {
   name: 'litellm',
   harnesses: ['opencode', 'pi', 'claude', 'codex'],
   ready: () => !!(process.env.AGENTGRAPH_PROXY_KEYS || process.env.AGENTGRAPH_PROXY_KEYS_FILE),
+  settings: () => ({ AGENTGRAPH_MODELS: process.env.AGENTGRAPH_MODELS ?? '*=smart' }),
 };
 
 export const makeProviders = (): Provider[] => [claude, chatgpt, anthropic, litellm];

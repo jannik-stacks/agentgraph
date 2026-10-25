@@ -41,7 +41,7 @@ A provider is where model calls go and how they authenticate. `agentgraph.config
 | `claude` | `claude` | its token is in the macOS Keychain or `~/.config/agentgraph/claude-token`, or `CLAUDE_CODE_OAUTH_TOKEN` is set |
 | `chatgpt` | `codex` | the device login in the docker volume `agentgraph-codex` was made |
 | `anthropic` | `claude` | `ANTHROPIC_API_KEY` is set |
-| `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set, for `AGENTGRAPH_PROXY_URL` |
+| `litellm` | any | `AGENTGRAPH_PROXY_KEYS` is set, for `AGENTGRAPH_PROXY_URL`; agents without a model get `smart` unless `AGENTGRAPH_MODELS` says otherwise |
 
 `--provider` picks one for that command, and with `--save` for later ones too; else `provider` in instance.yaml, else `AGENTGRAPH_PROVIDER`, else the only ready one, which is saved. A subscription counts as ready when the host is logged in to it (`claude auth status`, `codex login status`); only the status is read, and the sandbox gets its own login. The CLI sets up docker before it looks. `chatgpt` keeps its login in a local docker volume, so it is never ready with `AGENTGRAPH_SANDBOX_URL`. When several are ready the CLI asks in a terminal and saves the answer, and fails without one. When none is ready it lists how to get one, and files nothing. Agents that name no harness get the provider's first. `--harness` runs every agent on one of the provider's harnesses, and `--model` replaces every agent's model, for that command only. An agent whose harness the provider does not serve fails before anything is filed. <!-- code: bin/run.ts#pickProvider -->
 
