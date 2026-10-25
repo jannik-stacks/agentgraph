@@ -414,26 +414,19 @@ const deps = /(^|\/)(node_modules|target)$/;
  * Where setup may put dependencies at `base`: `node_modules` beside each `package.json` and `target` beside each
  * outermost `Cargo.toml`, the shallowest `limit` of them.
  */
-export const dependencyDirs = (git: string, base: string, limit = 64) =>
-  new Promise<string[]>((done, fail) =>
-    execFile(
-      'git',
-      ['--git-dir', git, 'ls-tree', '-r', '--name-only', base],
-      { env: makeHostEnv(), maxBuffer: 256 << 20 },
-      (e, out) => {
-        if (e) return fail(e);
-        const files = out.split('\n').filter(p => p && !/(^|\/)node_modules\//.test(p));
-        const dirsOf = (name: string) =>
-          files.filter(p => p === name || p.endsWith(`/${name}`)).map(p => p.slice(0, -name.length));
-        const crates = dirsOf('Cargo.toml');
-        const found = [
-          ...dirsOf('package.json').map(d => `${d}node_modules`),
-          ...crates.filter(d => !crates.some(o => o !== d && d.startsWith(o))).map(d => `${d}target`),
-        ];
-        done(found.sort((a, b) => a.split('/').length - b.split('/').length).slice(0, limit));
-      }
-    )
-  );
+export const dependencyDirs = async (gitDir: string, base: string, limit = 64) => {
+  const files = (await git(gitDir, 'ls-tree', '-r', '--name-only', base))
+    .split('\n')
+    .filter(p => p && !/(^|\/)node_modules\//.test(p));
+  const dirsOf = (name: string) =>
+    files.filter(p => p === name || p.endsWith(`/${name}`)).map(p => p.slice(0, -name.length));
+  const crates = dirsOf('Cargo.toml');
+  const found = [
+    ...dirsOf('package.json').map(d => `${d}node_modules`),
+    ...crates.filter(d => !crates.some(o => o !== d && d.startsWith(o))).map(d => `${d}target`),
+  ];
+  return found.sort((a, b) => a.split('/').length - b.split('/').length).slice(0, limit);
+};
 
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
