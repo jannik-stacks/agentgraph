@@ -6,7 +6,7 @@ export const makeLineParser = <A, I>(schema: Schema.Schema<A, I>, parse: (line: 
   return (line: unknown) => Option.match(decode(line), { onNone: () => [], onSome: parse });
 };
 
-export const makeOptionalFields = <S extends Schema.Schema.Any, K extends string>(schema: S, ...keys: K[]) =>
+export const some = <S extends Schema.Schema.Any, K extends string>(schema: S, ...keys: K[]) =>
   Object.fromEntries(keys.map(key => [key, Schema.optional(schema)])) as Record<K, Schema.optional<S>>;
 
 export const makeCacheCounts = (read = 0, write = 0) => ({

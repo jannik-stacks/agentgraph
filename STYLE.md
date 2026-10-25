@@ -137,8 +137,8 @@ one without that check.
   They read as values handed to `Effect.provide`. `bin/style.mjs` exempts exactly the ones it
   would flag.
 - **Harness plugins are named after their harness:** `opencode()`, `claude()` and `pi()` read in
-  `agentgraph.config.ts` the way Vite's `vue()` does, and that file's type is `Config`, as Vite's is.
-  `bin/style.mjs` exempts the three names.
+  `agentgraph.config.ts` the way Vite's `vue()` does. Their schema helper `some` reads as
+  `some(Str, 'type', 'id')`, a list of optional fields. `bin/style.mjs` exempts the four names.
 
 ## Commits
 

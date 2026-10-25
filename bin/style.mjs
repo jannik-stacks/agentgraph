@@ -18,6 +18,7 @@ const exempt = new Set([
   'opencode',
   'claude',
   'pi',
+  'some',
 ]);
 const retired = /compound|climb|stamp|provenance|bothub/i;
 const marked = /^\s*UNEXPECTED: /;

@@ -1,13 +1,6 @@
 import { Schema } from 'effect';
 import type { Harness } from '../src/harnesses.ts';
-import {
-  getBlockText,
-  makeCacheCounts,
-  makeLineParser,
-  makeOptionalFields as some,
-  modelTimeouts,
-  splitToolPattern,
-} from './helpers.ts';
+import { getBlockText, makeCacheCounts, makeLineParser, modelTimeouts, some, splitToolPattern } from './helpers.ts';
 
 const { String: Str, Number: Num, Boolean: Bool, Unknown, Struct, optional: opt } = Schema;
 

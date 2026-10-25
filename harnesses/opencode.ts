@@ -4,9 +4,9 @@ import type { SessionEvent } from '../src/trace.ts';
 import {
   makeCacheCounts,
   makeLineParser,
-  makeOptionalFields as some,
   makePrefixedToolForms,
   modelTimeouts,
+  some,
   splitToolPattern,
 } from './helpers.ts';
 
