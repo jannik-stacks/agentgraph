@@ -256,8 +256,7 @@ export const writePullToRepo = async (
 ): Promise<{ ref: string; base: string; stat: string } | { why: string } | undefined> => {
   const pr = await findPull(i.forge, n);
   if (!pr) return undefined;
-  const { branch, base } = pr.pull;
-  const head = await inForge(i, ['rev-parse', `refs/heads/${branch}`]);
+  const { branch, base, head } = pr.pull;
   const stat = await inForge(i, ['diff', '--stat', '--no-ext-diff', '--no-textconv', `refs/heads/${base}...${head}`]);
   if (to.patch && pr.state === 'merged') return { why: `#${pr.number} is merged into ${base}` };
   if (to.patch) {
@@ -273,6 +272,8 @@ export const writePullToRepo = async (
   const checkedOut = (await inRepo(i.repo, ['worktree', 'list', '--porcelain'])).split('\n');
   if (checkedOut.includes(`branch ${ref}`)) return { why: `${name} is checked out in your repo` };
   await inRepo(i.repo, ['fetch', '-q', '--no-tags', '--no-write-fetch-head', origin(i), `refs/heads/${branch}`]);
+  if (!(await inRepo(i.repo, ['rev-parse', '-q', '--verify', `${head}^{commit}`], [1])))
+    return { why: `${branch} no longer holds ${head.slice(0, 7)}` };
   await inRepo(i.repo, ['update-ref', ref, head, current]);
   const saved = readInstance(i.dir) ?? i;
   i.exported = { ...saved.exported, [ref]: head };

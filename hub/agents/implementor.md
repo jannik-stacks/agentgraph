@@ -1,5 +1,4 @@
 ---
-model: smart
 tools: [read, edit, write, bash, grep, glob]
 returns: [comment, push, pull_request, ask]
 ---

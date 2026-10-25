@@ -63,6 +63,7 @@ export const makeCodexHarness = (): Harness => ({
         ...(route.url
           ? [
               'model_provider="agentgraph"',
+              'model_providers.agentgraph.name="agentgraph"',
               `model_providers.agentgraph.base_url=${JSON.stringify(route.url)}`,
               'model_providers.agentgraph.env_key="AGENTGRAPH_LLM_API_KEY"',
               'model_providers.agentgraph.wire_api="responses"',
