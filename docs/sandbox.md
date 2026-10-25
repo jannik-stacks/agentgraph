@@ -155,14 +155,18 @@ A session gets only its agent's model key. On the host, these keep long-lived ke
 
 ### The leak probe
 
-`node bin/leak-probe.ts` looks where an npm worm looks: its own environment, the repo's ignored files with `~/.agentgraph` and `~/.config/agentgraph`, the process list, running containers' environments, and the studio's `/@fs` route. It prints where each hit is, never the value. It exits 1 on a hit, 3 when a probe could not run, and 0 otherwise.
+`node bin/leak-probe.ts` looks where an npm worm looks: its own environment, the repo's ignored files with `~/.agentgraph` and `~/.config/agentgraph`, the process list, running containers' environments, and the studio's `/@fs` route. It prints where each hit is, never the value.
 
 ```sh
 node bin/leak-probe.ts
 node bin/leak-probe.ts env ps docker
 ```
 
-`PROBE_PATHS` replaces the file roots, `PROBE_STUDIO` sets the studio address (`http://127.0.0.1:5182`), and `PROBE_CANARY` adds a value to look for. File hits list where keys rest, such as `infra/local/.env` and `.keys.env`, so check that each one is expected. The proxy container holds the master key and provider keys on purpose. Every other hit is a leak.
+Files count only when they hold a value shaped like a real key: `sk-` keys with a digit (LiteLLM, OpenRouter, Anthropic), GitHub `ghp_`, `ghs_` and `github_pat_` tokens, a private key block with a body, AWS access key ids and Slack tokens. Variable names alone never make a file hit. It skips `*.example`, test files, binaries and build output such as `node_modules`, `target`, `dist` and `build`. Environments, processes and containers count a value of that shape, or a variable named like a key (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`). Processes with the same command and names share a line. <!-- code: bin/leak-probe.ts#secret -->
+
+The output has two groups. **Expected** holds keys at rest: `infra/local/.env` and `.keys.env`, an instance's `keys.env`, the App's `key.pem` under `~/.config/agentgraph`, and the proxy and database containers. **Look at this** holds everything else, and each line there is a copy to remove or a process that inherited a key. The last line counts both groups by place. It exits 1 when something is under look at this, 3 when a probe could not run, and 0 otherwise.
+
+`PROBE_PATHS` replaces the file roots, `PROBE_STUDIO` sets the studio address (`http://127.0.0.1:5182`), and `PROBE_CANARY` adds a value to look for.
 
 ### Not covered yet
 

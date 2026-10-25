@@ -1,22 +1,33 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const canary = process.env.PROBE_CANARY;
-const secret = new RegExp(
-  [
-    'sk-[\\w-]{16,}',
-    '-----BEGIN [A-Z ]*PRIVATE KEY-----',
-    'gh[pousr]_\\w{30,}',
-    'github_pat_\\w{20,}',
-    ...(canary ? [canary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')] : []),
-  ].join('|')
-);
+const secret = [
+  '(?<![\\w-])sk-(?=[\\w-]*\\d)[\\w-]{20,}',
+  '\\bgh[pousr]_[A-Za-z0-9]{30,}',
+  '\\bgithub_pat_\\w{22,}',
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----(?:\\s|\\\\n)*[A-Za-z0-9+/]{40}',
+  '\\bAKIA[0-9A-Z]{16}\\b',
+  '\\bxox[abprs]-[A-Za-z0-9-]{10,}',
+  ...(canary ? [canary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')] : []),
+].join('|');
 const named = /(^|_)(KEYS?|TOKEN|SECRET|PASSWORD|PEM)(_|$)/;
 const repo = fileURLToPath(new URL('..', import.meta.url));
-const skipped = new Set(['node_modules', '.git', 'dist', 'coverage', 'mirror.git', 'homes']);
+const skipped = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  'target',
+  '.next',
+  'coverage',
+  'mirror.git',
+  'homes',
+]);
+const skippedFile = /\.example$|\.(test|spec)\.\w+$/;
 
 const readOutput = (cmd: string, args: string[]) => {
   const env = Object.fromEntries(
@@ -28,20 +39,16 @@ const readOutput = (cmd: string, args: string[]) => {
   return r.stdout;
 };
 
+const countSecrets = (text: string) => text.match(new RegExp(secret, 'g'))?.length ?? 0;
+
 const isSecretVariable = (name: string, value: string) =>
   !name.startsWith('PROBE_') &&
-  (secret.test(value) || (named.test(name) && value.length >= 8 && !/^[~/.]/.test(value)));
-
-const isSecretText = (text: string) =>
-  secret.test(text) ||
-  [...text.matchAll(/(?:^|\s)(?:export )?([A-Za-z_]\w*)=["']?([^\s"'#]*)/gm)].some(([, name, value]) =>
-    isSecretVariable(name!, value!)
-  );
+  (countSecrets(value) > 0 || (named.test(name) && value.length >= 8 && !/^[~/.]/.test(value)));
 
 const findFiles = (path: string, depth = 0): string[] => {
   const stat = statSync(path, { throwIfNoEntry: false });
   if (!stat) return [];
-  if (stat.isFile()) return stat.size < 1 << 20 ? [path] : [];
+  if (stat.isFile()) return stat.size < 8 << 20 && !skippedFile.test(path) ? [path] : [];
   if (!stat.isDirectory() || depth > 8) return [];
   return readdirSync(path)
     .filter(name => !skipped.has(name))
@@ -60,30 +67,77 @@ const findRoots = () =>
         join(homedir(), '.config', 'agentgraph'),
       ];
 
+const readText = (file: string) => {
+  try {
+    const bytes = readFileSync(file);
+    return bytes.includes(0) ? '' : bytes.toString('utf8');
+  } catch {
+    return '';
+  }
+};
+
 const findSecretFiles = () =>
   findRoots().flatMap(root =>
-    findFiles(resolve(root)).filter(file => {
-      try {
-        return isSecretText(readFileSync(file, 'utf8'));
-      } catch {
-        return false;
-      }
+    findFiles(resolve(root)).flatMap(file => {
+      const count = countSecrets(readText(file));
+      return count ? [{ file, count }] : [];
     })
   );
 
-const probes: Record<string, () => Promise<string[]> | string[]> = {
-  env: () =>
-    Object.entries(process.env).flatMap(([name, value]) =>
-      isSecretVariable(name, value ?? '') ? [`env ${name}`] : []
-    ),
-  files: () => findSecretFiles().map(file => `file ${file}`),
-  ps: () =>
-    readOutput('ps', ['axeww', '-o', 'pid=,command='])
+const isKeyAtRest = (file: string) =>
+  [join(repo, 'infra/local/.env'), join(repo, 'infra/local/.keys.env')].includes(file) ||
+  basename(file) === 'keys.env' ||
+  (file.startsWith(join(homedir(), '.config', 'agentgraph') + '/') && basename(file) === 'key.pem');
+
+const listProcesses = (args: string[]) =>
+  new Map(
+    readOutput('ps', args)
       .split('\n')
       .flatMap(line => {
         const [, pid, command] = /^\s*(\d+)\s+(.*)$/.exec(line) ?? [];
-        return pid && pid !== String(process.pid) && isSecretText(command!) ? [`ps ${pid}`] : [];
-      }),
+        return pid && pid !== String(process.pid) ? [[pid, command!] as const] : [];
+      })
+  );
+
+const groupBy = <T>(list: T[], keyOf: (item: T) => string) => {
+  const groups = new Map<string, T[]>();
+  for (const item of list) groups.set(keyOf(item), [...(groups.get(keyOf(item)) ?? []), item]);
+  return [...groups];
+};
+
+type Hit = { place: string; detail: string; expected?: boolean };
+
+const probes: Record<string, () => Promise<Hit[]> | Hit[]> = {
+  env: () =>
+    Object.entries(process.env).flatMap(([name, value]) =>
+      isSecretVariable(name, value ?? '') ? [{ place: 'env', detail: name }] : []
+    ),
+  files: () =>
+    findSecretFiles().map(({ file, count }) => ({
+      place: 'file',
+      detail: `${file}  ${count} key(s)`,
+      expected: isKeyAtRest(file),
+    })),
+  ps: () => {
+    const argv = listProcesses(['axww', '-o', 'pid=,command=']);
+    const found = [...listProcesses(['axeww', '-o', 'pid=,command='])].flatMap(([pid, all]) => {
+      const args = argv.get(pid) ?? '';
+      const env = all.startsWith(args) ? all.slice(args.length) : all;
+      const names = [
+        ...(countSecrets(args) ? ['argv'] : []),
+        ...[...env.matchAll(/(?:^|\s)([A-Za-z_]\w*)=(\S*)/g)].flatMap(([, name, value]) =>
+          isSecretVariable(name!, value!) ? [name!] : []
+        ),
+      ];
+      const [program = '', ...rest] = args.split(/\s+/);
+      const command = [program, rest.find(arg => !arg.startsWith('-')) ?? ''].map(part => basename(part)).join(' ');
+      return names.length ? [{ pid, what: `${command.trim()}  ${names.join(' ')}` }] : [];
+    });
+    return groupBy(found, hit => hit.what).map(([what, group]) => ({
+      place: 'ps',
+      detail: `${group.map(hit => hit.pid).join(',')} ${what}`,
+    }));
+  },
   docker: () =>
     readOutput('docker', ['ps', '-q'])
       .split('\n')
@@ -95,19 +149,22 @@ const probes: Record<string, () => Promise<string[]> | string[]> = {
           '{{.Name}}\t{{json .Config.Env}}',
           id,
         ]).split('\t');
-        return ((JSON.parse(env) as string[] | null) ?? []).flatMap(pair => {
+        const names = ((JSON.parse(env) as string[] | null) ?? []).flatMap(pair => {
           const at = pair.indexOf('=');
-          return isSecretVariable(pair.slice(0, at), pair.slice(at + 1)) ? [`docker ${name} ${pair.slice(0, at)}`] : [];
+          return isSecretVariable(pair.slice(0, at), pair.slice(at + 1)) ? [pair.slice(0, at)] : [];
         });
+        return names.length
+          ? [{ place: 'docker', detail: `${name}  ${names.join(' ')}`, expected: /litellm|postgres/.test(name) }]
+          : [];
       }),
   studio: async () => {
     const studio = process.env.PROBE_STUDIO ?? 'http://127.0.0.1:5182';
     const served = await Promise.all(
-      findSecretFiles().map(async file => {
+      findSecretFiles().map(async ({ file }) => {
         const res = await fetch(`${studio}/@fs${file}`, { signal: AbortSignal.timeout(3000) }).catch(() => {
           throw new Error(`no answer from ${studio}`);
         });
-        return res.ok && isSecretText(await res.text()) ? [`studio ${file}`] : [];
+        return res.ok && countSecrets(await res.text()) ? [{ place: 'studio', detail: file }] : [];
       })
     );
     return served.flat();
@@ -119,17 +176,40 @@ if (asked.some(name => !(name in probes))) {
   console.error(`usage: node bin/leak-probe.ts [${Object.keys(probes).join('] [')}]`);
   process.exit(2);
 }
-const results = await Promise.all(
-  (asked.length ? asked : Object.keys(probes)).map(async name => {
-    try {
-      return await probes[name]!();
-    } catch (e) {
-      return [`skip ${name}: ${(e as Error).message}`];
-    }
-  })
+const skips: string[] = [];
+const hits = (
+  await Promise.all(
+    (asked.length ? asked : Object.keys(probes)).map(async name => {
+      try {
+        return await probes[name]!();
+      } catch (e) {
+        skips.push(`skip ${name}: ${(e as Error).message}`);
+        return [];
+      }
+    })
+  )
+).flat();
+
+const tally = (list: Hit[]) =>
+  groupBy(list, hit => hit.place)
+    .map(([place, group]) => `${group.length} ${place}`)
+    .join(', ');
+const look = hits.filter(hit => !hit.expected);
+const expected = hits.filter(hit => hit.expected);
+for (const [title, list] of [
+  ['look at this', look],
+  ['expected', expected],
+] as const)
+  if (list.length) console.log([title, ...list.map(hit => `  ${hit.place} ${hit.detail}`)].join('\n'));
+for (const line of skips) console.log(line);
+console.log(
+  [
+    look.length
+      ? `look at ${look.length}: ${tally(look)}`
+      : skips.length
+        ? 'nothing to look at, but not every probe ran'
+        : 'nothing to look at',
+    ...(expected.length ? [`expected ${expected.length}: ${tally(expected)}`] : []),
+  ].join('; ')
 );
-const lines = results.flat();
-const hits = lines.filter(line => !line.startsWith('skip '));
-for (const line of lines) console.log(line);
-console.log(hits.length ? `${hits.length} hit(s)` : lines.length ? 'no hits, but not every probe ran' : 'no hits');
-process.exit(hits.length ? 1 : lines.length ? 3 : 0);
+process.exit(look.length ? 1 : skips.length ? 3 : 0);

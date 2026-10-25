@@ -20,13 +20,22 @@ const runProbe = async (env: Record<string, string>, ...sections: string[]) => {
 };
 
 describe('leak-probe', () => {
-  it('names every planted canary by where it sits and never prints its value', async () => {
+  it('names every planted key by where it sits, splits off keys at rest, and never prints a value', async () => {
     const dir = tmp('probe');
+    const home = join(dir, 'home');
+    const fake = 'sk-bh-scout-0123456789abcdef';
     write(dir, {
       'home/.keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${canary}\n`,
       'home/clean.txt': 'nothing here\n',
       'home/master.env': 'export LITELLM_MASTER_KEY="unprefixed-master-value"\n',
-      'bin/ps': `#!/bin/sh\necho "  4242 node app --key ${canary}"\necho "  4343 node app"\necho "  4444 node app LITELLM_MASTER_KEY=unprefixed-master-value"\n`,
+      'home/header.ts': 'const pem = "-----BEGIN PRIVATE KEY-----\\n";\n',
+      'home/.env.example': `KEY=${fake}\n`,
+      'home/apply.test.ts': `const key = '${fake}';\n`,
+      'home/target/debug/out': `${fake}\n`,
+      'home/lib.rlib': `\0${fake}\n`,
+      'home/inst/keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${fake}\n`,
+      'home/.config/agentgraph/app/key.pem': `-----BEGIN RSA PRIVATE KEY-----\n${'A'.repeat(64)}\n`,
+      'bin/ps': `#!/bin/sh\ne=; [ "$1" = axeww ] && e=" LITELLM_MASTER_KEY=unprefixed-master-value"\necho "  4242 node app --key ${canary}"\necho "  4343 node app"\necho "  4444 node app$e"\n`,
       'bin/docker': `#!/bin/sh\n[ "$1" = ps ] && { echo abc; exit 0; }\nprintf '/agentgraph-litellm\\t["LITELLM_MASTER_KEY=${canary}","PATH=/bin"]\\n'\n`,
     });
     for (const shim of ['ps', 'docker']) chmodSync(join(dir, 'bin', shim), 0o755);
@@ -36,8 +45,9 @@ describe('leak-probe', () => {
     try {
       const { code, out } = await runProbe({
         PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+        HOME: home,
         PROBE_CANARY: canary,
-        PROBE_PATHS: join(dir, 'home'),
+        PROBE_PATHS: home,
         PROBE_STUDIO: studio,
         AGENTGRAPH_APP_KEY: canary,
         AGENTGRAPH_HUB: '.agentgraph',
@@ -45,17 +55,21 @@ describe('leak-probe', () => {
       expect(code).toBe(1);
       expect(out.split('\n').filter(Boolean).sort()).toEqual(
         [
-          'env AGENTGRAPH_APP_KEY',
-          `file ${join(dir, 'home/.keys.env')}`,
-          `file ${join(dir, 'home/master.env')}`,
-          'ps 4242',
-          'ps 4444',
-          'docker /agentgraph-litellm LITELLM_MASTER_KEY',
-          `studio ${join(dir, 'home/.keys.env')}`,
-          '7 hit(s)',
+          'look at this',
+          '  env AGENTGRAPH_APP_KEY',
+          `  file ${join(home, '.keys.env')}  1 key(s)`,
+          '  ps 4242 node app  argv',
+          '  ps 4444 node app  LITELLM_MASTER_KEY',
+          `  studio ${join(home, '.keys.env')}`,
+          'expected',
+          `  file ${join(home, 'inst/keys.env')}  1 key(s)`,
+          `  file ${join(home, '.config/agentgraph/app/key.pem')}  1 key(s)`,
+          '  docker /agentgraph-litellm  LITELLM_MASTER_KEY',
+          'look at 5: 1 env, 1 file, 2 ps, 1 studio; expected 3: 2 file, 1 docker',
         ].sort()
       );
       expect(out).not.toContain(canary);
+      expect(out).not.toContain(fake);
     } finally {
       server.close();
     }
@@ -69,14 +83,14 @@ describe('leak-probe', () => {
       'env',
       'files'
     );
-    expect([code, out.trim()]).toEqual([0, 'no hits']);
+    expect([code, out.trim()]).toEqual([0, 'nothing to look at']);
   });
 
   it('says so when a probe could not run', async () => {
     const dir = tmp('probe-skip');
     write(dir, {
       'bin/docker': '#!/bin/sh\necho "daemon down" >&2\nexit 1\n',
-      'home/.keys.env': `AGENTGRAPH_LLM_API_KEY_SCOUT=${canary}\n`,
+      'home/.keys.env': 'AGENTGRAPH_LLM_API_KEY_SCOUT=sk-bh-scout-0123456789abcdef\n',
     });
     chmodSync(join(dir, 'bin', 'docker'), 0o755);
     const { code, out } = await runProbe(
@@ -90,7 +104,7 @@ describe('leak-probe', () => {
     );
     expect([code, out.trim()]).toEqual([
       3,
-      'skip docker: docker ps failed: daemon down\nskip studio: no answer from http://127.0.0.1:9\nno hits, but not every probe ran',
+      'skip docker: docker ps failed: daemon down\nskip studio: no answer from http://127.0.0.1:9\nnothing to look at, but not every probe ran',
     ]);
   });
 
