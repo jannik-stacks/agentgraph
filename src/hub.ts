@@ -8,7 +8,7 @@ import { exact, compileWorkflow, splitFrontmatter, type Doc, type Problem, type 
 
 /** An agent file's frontmatter. */
 export const Agent = Schema.Struct({
-  harness: Schema.Literal('claude', 'opencode', 'pi'),
+  harness: Schema.String,
   model: Schema.optionalWith(Schema.String, { exact: true }),
   tools: Schema.optionalWith(Schema.mutable(Schema.Array(Schema.String)), { default: () => [] }),
   returns: Schema.optionalWith(Schema.mutable(Schema.Array(Kind)), { default: () => ['comment'] }),
@@ -161,7 +161,11 @@ const markdown = async (dir: string, sub: string): Promise<File[]> => {
 const nameOf = (path: string) => (path.endsWith('/SKILL.md') ? basename(path.slice(0, -9)) : basename(path, '.md'));
 
 /** Validates the files of one hub and builds it; every problem is collected before anything fails. */
-const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills' | 'checks' | 'workflows', File[]>) => {
+const compile = (
+  hubText: string | undefined,
+  groups: Record<'agents' | 'skills' | 'checks' | 'workflows', File[]>,
+  harnesses: Parameters<typeof loadHub>[1]
+) => {
   const problems: Problem[] = [];
   const sayer = (path: string) => (message: string) => problems.push({ path, message });
   const front = (file: File) => {
@@ -196,6 +200,10 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
   const agents = docs(groups.agents, (data, say) => {
     const agent = decode(Agent, data, say);
     if (agent?.reads && !agent.tools.includes('read')) say('reads: traces needs read in tools');
+    const harness = agent && harnesses.find(h => h.name === agent.harness);
+    if (agent && !harness)
+      say(`harness: ${agent.harness} is not in the config, which has ${harnesses.map(h => h.name).join(', ')}`);
+    for (const problem of (agent && harness?.check?.(agent)) ?? []) say(problem);
     return agent;
   });
   const skills = docs(groups.skills, (data, say) => {
@@ -260,7 +268,10 @@ const compile = (hubText: string | undefined, groups: Record<'agents' | 'skills'
 };
 
 /** Reads a hub directory, validates every file and fails with all problems at once. */
-export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
+export const loadHub = (
+  dir: string,
+  harnesses: readonly { name: string; check?: (agent: Agent) => string[] }[]
+): Effect.Effect<Hub, HubError> =>
   Effect.gen(function* () {
     const read = yield* Effect.tryPromise({
       try: async () => {
@@ -286,7 +297,7 @@ export const loadHub = (dir: string): Effect.Effect<Hub, HubError> =>
       },
       catch: e => new HubError({ problems: [{ path: dir, message: `unreadable: ${String(e)}` }] }),
     });
-    const { hub, problems, ...parts } = compile(read.hubText, read.groups);
+    const { hub, problems, ...parts } = compile(read.hubText, read.groups, harnesses);
     for (const name of read.unread)
       problems.push({
         path: name,

@@ -71,7 +71,7 @@ export const start = (
   const program = one
     ? Effect.gen(function* () {
         const config = yield* Effect.promise(() => readConfig());
-        const hub = yield* loadHub(one.hub);
+        const hub = yield* loadHub(one.hub, config.harnesses);
         const provider = yield* configured({
           AGENTGRAPH_REPO: hub.repo,
           AGENTGRAPH_HUB: one.hub,
@@ -94,7 +94,7 @@ export const start = (
           const s = yield* settings;
           yield* warnTemporary(s.data);
           const look = (pass: (hub: Hub) => Effect.Effect<Run[], unknown, Services>) =>
-            hubAt(s.hub).pipe(
+            hubAt(s.hub, config.harnesses).pipe(
               Effect.flatMap(pass),
               Effect.scoped,
               Effect.catchAll(e => Effect.logError(e))

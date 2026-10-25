@@ -8,6 +8,7 @@ import { loadHub } from '../src/hub.ts';
 import { hubAt } from '../src/services.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { git } from './kit.ts';
+import { harnesses } from './fixtures.ts';
 
 /** A hub directory with `files` written into it. */
 const hubDir = (files: Record<string, string>) => {
@@ -48,7 +49,7 @@ const fromFixture = (name: string) => {
 };
 
 const problems = async (dir: string) => {
-  const result = await Effect.runPromise(Effect.either(loadHub(dir)));
+  const result = await Effect.runPromise(Effect.either(loadHub(dir, harnesses)));
   if (Either.isRight(result)) throw new Error('expected problems');
   return result.left.message.split('\n');
 };
@@ -56,7 +57,7 @@ const problems = async (dir: string) => {
 describe('loadHub', () => {
   it.each(['agentgraph', 'clarinet', 'kit', 'hub', 'loop'])('loads a hub around the %s fixture', async name => {
     const { dir, names } = fromFixture(name);
-    const hub = await Effect.runPromise(loadHub(dir));
+    const hub = await Effect.runPromise(loadHub(dir, harnesses));
     expect(Object.keys(hub.agents).sort()).toEqual([...names.agents].sort());
     expect(Object.keys(hub.skills).sort()).toEqual([...names.skills].sort());
     expect(Object.keys(hub.checks).sort()).toEqual(Object.keys(names.checks).sort());
@@ -65,7 +66,7 @@ describe('loadHub', () => {
 
   it('fills the defaults and keeps each file as a doc', async () => {
     const { dir } = fromFixture('kit');
-    const hub = await Effect.runPromise(loadHub(dir));
+    const hub = await Effect.runPromise(loadHub(dir, harnesses));
     expect(hub.repo).toBe('o/r');
     expect(hub.limits).toEqual({ minutes: 20, usdPerRun: 10, parallel: 2, sessions: 4 });
     expect(hub.agents.implementor).toEqual({
@@ -80,24 +81,28 @@ describe('loadHub', () => {
     expect(hub.checks.safety).toMatchObject({ mode: 'stop', run: 'make safety', body: '' });
     expect(hub.workflows.issue!.path).toBe('workflows/issue.md');
     expect(hub.sha).toMatch(/^[0-9a-f]{64}$/);
-    expect((await Effect.runPromise(loadHub(dir))).sha).toBe(hub.sha);
+    expect((await Effect.runPromise(loadHub(dir, harnesses))).sha).toBe(hub.sha);
   });
 
   it('reports wrong values, unknown keys, unknown agents and checks without a command or agent', async () => {
     const dir = hubDir({
       'hub.yaml': 'limits: { parallel: many }\n',
-      'agents/a.md': '---\nharness: codex\ncolor: red\n---\n',
+      'agents/a.md': '---\nharness: opencode\ncolor: red\n---\n',
       'checks/judged.md': '---\nmode: block\nagent: ghost\n---\n',
       'checks/empty.md': '---\nmode: warn\n---\n',
       'workflows/w.md': '---\non: issues\nsteps:\n  x: { agent: a, checks: [judged, nope] }\n---\n',
     });
     const found = await problems(dir);
     expect(found.some(p => p.startsWith('hub.yaml: limits.parallel: '))).toBe(true);
-    expect(found.some(p => p.startsWith('agents/a.md: harness: '))).toBe(true);
     expect(found.some(p => p.startsWith('agents/a.md: color: '))).toBe(true);
     expect(found).toContain('checks/judged.md: agent: unknown agent ghost');
     expect(found).toContain('checks/empty.md: name run, agent or both');
     expect(found).toContain('workflows/w.md: steps.x.checks: unknown check nope');
+  });
+
+  it('checks each agent harness against the config', async () => {
+    const found = await problems(hubDir({ 'agents/a.md': '---\nharness: codex\n---\n' }));
+    expect(found).toContain('agents/a.md: harness: codex is not in the config, which has opencode, claude, pi');
   });
 
   it('fails on an agent that reads traces without the read tool', async () => {
@@ -172,16 +177,21 @@ describe('loadHub', () => {
   });
 
   it('reads the milestone and the trust list, unset by default', async () => {
-    const set = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'milestone: v1\ntrust: [ana, bob]\n' })));
+    const set = await Effect.runPromise(
+      loadHub(hubDir({ 'hub.yaml': 'milestone: v1\ntrust: [ana, bob]\n' }), harnesses)
+    );
     expect(set.milestone).toBe('v1');
     expect(set.trust).toEqual(['ana', 'bob']);
-    const unset = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'repo: o/r\n' })));
+    const unset = await Effect.runPromise(loadHub(hubDir({ 'hub.yaml': 'repo: o/r\n' }), harnesses));
     expect([unset.milestone, unset.trust]).toEqual([undefined, undefined]);
   });
 
   it('reads the image and network every command of a run gets, and refuses an image that reads as a flag', async () => {
     const hub = await Effect.runPromise(
-      loadHub(hubDir({ 'hub.yaml': 'image: acme-rust:1\nnetwork: models\ntoolchain: cargo install cargo-nextest\n' }))
+      loadHub(
+        hubDir({ 'hub.yaml': 'image: acme-rust:1\nnetwork: models\ntoolchain: cargo install cargo-nextest\n' }),
+        harnesses
+      )
     );
     expect([hub.image, hub.network, hub.toolchain]).toEqual(['acme-rust:1', 'models', 'cargo install cargo-nextest']);
     const found = await problems(hubDir({ 'hub.yaml': 'image: --privileged\nnetwork: open\n' }));
@@ -224,11 +234,11 @@ describe('hubAt', () => {
     };
     const sha = () =>
       Effect.runPromise(
-        Effect.scoped(Effect.map(hubAt('.agentgraph'), h => h.sha)).pipe(
+        Effect.scoped(Effect.map(hubAt('.agentgraph', harnesses), h => h.sha)).pipe(
           Effect.provide(hostSandbox(join(root, 'origin.git')))
         )
       );
-    const local = (await Effect.runPromise(loadHub(example))).sha;
+    const local = (await Effect.runPromise(loadHub(example, harnesses))).sha;
     expect(await sha()).toBe(local);
     edit('agentgraph/1');
     expect(await sha()).toBe(local);

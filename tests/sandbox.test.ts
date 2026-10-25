@@ -3,10 +3,11 @@ import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { makeWorkflowGraph } from '../src/graph.ts';
 import { loadHub } from '../src/hub.ts';
+import { harnesses } from './fixtures.ts';
 
 describe('the sandbox example hub', () => {
   it('loads without problems and draws its issue workflow', async () => {
-    const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));
+    const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
     expect(hub.repo).toBe('acme/sandbox');
     expect(Object.keys(hub.agents).sort()).toEqual(['implementor', 'reviewer', 'router', 'scout', 'triager']);
     expect(makeWorkflowGraph(hub.workflows.router!, hub.checks, undefined, hub.agents).nodes[0]).toMatchObject({

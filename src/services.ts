@@ -74,12 +74,12 @@ const where = (s: Settings) => {
  * The hub at `path`: a folder on the host when the path is absolute, else that folder in the repo at the head of its
  * default branch, so only a merged pull request changes it.
  */
-export const hubAt = (path: string) =>
+export const hubAt = (path: string, harnesses: PluginConfig['harnesses']) =>
   isAbsolute(path)
-    ? loadHub(path)
+    ? loadHub(path, harnesses)
     : Effect.flatMap(Sandbox, s => s.checkout('origin/HEAD')).pipe(
         Effect.mapError(e => new HubError({ problems: [{ path, message: e.detail }] })),
-        Effect.flatMap(work => loadHub(join(work.dir, path)))
+        Effect.flatMap(work => loadHub(join(work.dir, path), harnesses))
       );
 
 /** The production services. The hub is read once for its trust list. Tests build their own from the file and host layers. */
@@ -87,7 +87,7 @@ export const makeProductionLayers = (s: Settings, config: PluginConfig): Layer.L
   const { forge, origin } = where(s);
   const sandbox = dockerSandbox({ data: s.data, cache: s.cache, image: s.image, ...origin });
   // a hub that does not load trusts no one; every tick reports why it does not load
-  const trust = Effect.scoped(Effect.map(hubAt(s.hub), hub => hub.trust)).pipe(
+  const trust = Effect.scoped(Effect.map(hubAt(s.hub, config.harnesses), hub => hub.trust)).pipe(
     Effect.provide(sandbox),
     Effect.catchAll(() => Effect.succeed<string[]>([]))
   );

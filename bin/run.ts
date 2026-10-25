@@ -22,6 +22,7 @@ import { parseArgs } from 'node:util';
 import { Effect, Redacted } from 'effect';
 import { tell, type Instruction } from '../src/engine.ts';
 import { readAppEnvWithKey, start } from '../src/main.ts';
+import { readConfig } from '../src/harnesses.ts';
 import { loadHub } from '../src/hub.ts';
 import { instanceAt } from '../src/instance.ts';
 import { needsYou } from '../src/status.ts';
@@ -59,6 +60,7 @@ if (values.forge) process.env.AGENTGRAPH_FORGE = resolve(values.forge);
 if (values.logs) process.env.AGENTGRAPH_CHECK_LOGS = values.logs;
 const issue = values.all ? 'all' : Number(values.issue);
 
+const { harnesses } = await readConfig();
 const command = positionals[0];
 let instruction: Instruction | undefined;
 if (command === 'say' || command === 'tell' || command === 'dispatch') {
@@ -98,7 +100,7 @@ if (positionals[0] === 'check') {
     process.exit(2);
   }
   const problems = await Effect.runPromise(
-    loadHub(resolve(values.hub)).pipe(
+    loadHub(resolve(values.hub), harnesses).pipe(
       Effect.map(() => []),
       Effect.catchTag('HubError', e => Effect.succeed(e.problems))
     )
@@ -137,7 +139,7 @@ if (positionals[0] === 'status') {
     ? `--instance ${instance.dir}`
     : `--hub ${hub} --data ${data}${forge ? ` --forge ${forge}` : ''}`;
   const lines = await Effect.runPromise(
-    loadHub(hub).pipe(
+    loadHub(hub, harnesses).pipe(
       Effect.flatMap(h =>
         needsYou(forge ? undefined : { repo: h.repo, id: id!, key: Redacted.make(key!) }, {
           again,
@@ -158,7 +160,7 @@ if (positionals[0] === 'loop') {
   }
   process.env.AGENTGRAPH_DATA = resolve(values.data);
   if (values.hub) {
-    const hub = await Effect.runPromise(loadHub(resolve(values.hub)));
+    const hub = await Effect.runPromise(loadHub(resolve(values.hub), harnesses));
     Object.assign(process.env, { AGENTGRAPH_HUB: resolve(values.hub), AGENTGRAPH_REPO: hub.repo });
   }
   await start();

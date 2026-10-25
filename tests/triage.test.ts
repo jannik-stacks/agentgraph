@@ -14,10 +14,10 @@ import { fileStore, Store } from '../src/store.ts';
 import { begin } from '../src/workflow.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { reply, seeded, start } from './fixtures.ts';
+import { harnesses, reply, seeded, start } from './fixtures.ts';
 import { git } from './kit.ts';
 
-const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox')));
+const hub = await Effect.runPromise(loadHub(join(import.meta.dirname, '..', 'examples', 'sandbox'), harnesses));
 
 const unbounded = { ...hub, checks: { ...hub.checks, sized: { ...hub.checks.sized!, run: 'true' } } };
 

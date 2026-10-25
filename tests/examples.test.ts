@@ -4,13 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { Effect } from 'effect';
 import { loadHub, retiredIn } from '../src/hub.ts';
+import { harnesses } from './fixtures.ts';
 
 const examples = join(import.meta.dirname, '..', 'examples');
 const infra = join(import.meta.dirname, '..', 'infra', 'local');
 const hubDirs = readdirSync(examples)
   .map(name => join(examples, name))
   .filter(dir => existsSync(join(dir, 'hub.yaml')));
-const agentsOf = async (dir: string) => Object.values((await Effect.runPromise(loadHub(dir))).agents);
+const agentsOf = async (dir: string) => Object.values((await Effect.runPromise(loadHub(dir, harnesses))).agents);
 
 describe('example hubs', () => {
   it('finds every example hub', () => {
@@ -20,7 +21,7 @@ describe('example hubs', () => {
   });
 
   it.each(hubDirs)('%s loads with no problems', async dir => {
-    await expect(Effect.runPromise(loadHub(dir))).resolves.toMatchObject({ workflows: expect.any(Object) });
+    await expect(Effect.runPromise(loadHub(dir, harnesses))).resolves.toMatchObject({ workflows: expect.any(Object) });
   });
 
   it.each(hubDirs)('%s notes use no retired words', dir => {

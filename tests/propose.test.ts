@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadHub } from '../src/hub.ts';
 import { claudeUsed, fitting, propose, type Proposer } from '../tune/propose.ts';
 import { tmp } from './kit.ts';
+import { harnesses } from './fixtures.ts';
 
 const root = join(import.meta.dirname, '..');
 const save = (path: string, text: string) => {
@@ -141,7 +142,7 @@ afterEach(() => {
 
 const run = (proposer: Proposer, id = `i1-${proposer}`) =>
   propose({ tune, id, proposer, from: join(dir, 'hub'), runs: join(tune, 'runs', 'inc'), iteration: 2 });
-const hubOk = (hub: string) => Effect.runPromise(Effect.either(loadHub(hub))).then(Either.isRight);
+const hubOk = (hub: string) => Effect.runPromise(Effect.either(loadHub(hub, harnesses))).then(Either.isRight);
 
 describe('propose', () => {
   it.each(['retro', 'history', 'structure'] as const)('%s writes a valid hub and a rationale', async proposer => {
@@ -222,7 +223,7 @@ describe('propose', () => {
   });
 
   it('offers only the structure edits that can change the hub', async () => {
-    const hub = await Effect.runPromise(loadHub(join(dir, 'hub')));
+    const hub = await Effect.runPromise(loadHub(join(dir, 'hub'), harnesses));
     expect(fitting(hub)).toEqual(['drop', 'tries', 'scout']);
   });
 

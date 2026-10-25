@@ -11,6 +11,7 @@ import { Effect } from 'effect';
 import { failureClass, infra } from '../bin/bench.ts';
 import { parseJsonl, readFileOrEmpty, readJsonl } from '../bin/resume.ts';
 import { transcript } from '../src/context.ts';
+import { readConfig } from '../src/harnesses.ts';
 import { type Hub, loadHub } from '../src/hub.ts';
 import { writeFileAtomic } from '../src/store.ts';
 import type { Trace } from '../src/trace.ts';
@@ -344,9 +345,9 @@ const apply = (hub: string, changes: Change[]) => {
 };
 
 /** The hub check's problems, empty when the hub loads. */
-export const hubProblems = (hub: string) =>
+export const hubProblems = async (hub: string) =>
   Effect.runPromise(
-    loadHub(hub).pipe(
+    loadHub(hub, (await readConfig()).harnesses).pipe(
       Effect.map(() => [] as string[]),
       Effect.catchTag('HubError', e => Effect.succeed(e.problems.map(p => `${p.path}: ${p.message}`)))
     )
@@ -382,7 +383,9 @@ export const propose = async (o: {
       ? history(cases, split('mine'), iteration)
       : failures(cases, o.runs!, split('fit'), o.proposer === 'structure');
   const ids = material.map(m => m.id);
-  const menu = await Effect.runPromise(loadHub(o.from).pipe(Effect.map(fitting))).catch(() => [...edits]);
+  const menu = await Effect.runPromise(loadHub(o.from, (await readConfig()).harnesses).pipe(Effect.map(fitting))).catch(
+    () => [...edits]
+  );
   const turn = iteration % edits.length;
   const edit = [...edits.slice(turn), ...edits.slice(0, turn)].find(e => menu.includes(e));
   const before = tried(o.tune);

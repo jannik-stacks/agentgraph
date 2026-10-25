@@ -140,6 +140,12 @@ describe('the session loop', () => {
     expect(String(exit)).toContain('no proxy key for agent gardener');
   });
 
+  it('stops before the harness starts when the config has no harness by that name', async () => {
+    const { exit, command } = await session({ ...spec, harness: 'goose' }, []);
+    expect(command).toBeUndefined();
+    expect(String(exit)).toContain('no harness goose in the config');
+  });
+
   it('refuses a config that lists one harness name twice', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'agentgraph-config-')), 'config.mjs');
     writeFileSync(file, "export default { harnesses: [{ name: 'pi' }, { name: 'pi' }] };\n");

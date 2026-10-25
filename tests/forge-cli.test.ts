@@ -15,7 +15,7 @@ import type { Settings } from '../src/services.ts';
 import type { SessionEvent } from '../src/trace.ts';
 import { hostSandbox } from './doubles/sandbox.ts';
 import { replaySession } from './doubles/session.ts';
-import { reply, seeded, start, wrote } from './fixtures.ts';
+import { harnesses, reply, seeded, start, wrote } from './fixtures.ts';
 import { git } from './kit.ts';
 
 const cli = join(import.meta.dirname, '..', 'bin', 'forge.ts');
@@ -398,7 +398,7 @@ describe('bin/forge.ts with run --forge', () => {
       [start('r'), reply({ kind: 'comment', body: 'Looks right.' })],
     ]);
     w.forge('comment', '2', '/agent explain this line', '--line', 'hello.txt:1');
-    const hub = await Effect.runPromise(loadHub(sandboxHub));
+    const hub = await Effect.runPromise(loadHub(sandboxHub, harnesses));
     const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
       Effect.runPromise(
         effect.pipe(
